@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoSlice</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Microsoft YaHei',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh}
+.container{max-width:960px;margin:0 auto;padding:20px}
+h1{text-align:center;margin:20px 0 5px;color:#e94560;font-size:1.8em}
+.sub{text-align:center;color:#888;margin-bottom:20px}
+.card{background:#16213e;border-radius:12px;padding:20px;margin-bottom:16px}
+.card h2{font-size:1em;margin-bottom:12px;color:#fff;display:inline-block;background:#e94560;padding:4px 12px;border-radius:6px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.row label{min-width:70px;font-weight:bold;color:#aaa;font-size:14px}
+input[type="text"],select{flex:1;min-width:180px;padding:8px;border:1px solid #333;border-radius:8px;background:#0f3460;color:#eee;font-size:14px}
+input:focus,select:focus{outline:none;border-color:#e94560}
+input[type="file"]{flex:1;min-width:180px;font-size:13px}
+.btn{padding:8px 20px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;transition:.2s}
+.btn-red{background:#e94560;color:#fff}.btn-red:hover{background:#c73652}
+.btn-dark{background:#0f3460;color:#eee}.btn-dark:hover{background:#1a4a80}
+.btn-sm{padding:5px 12px;font-size:12px}
+.vlist{max-height:300px;overflow-y:auto}
+.vitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #222;cursor:pointer}
+.vitem:hover{background:#1a3050}.vitem.sel{background:#0f3460;border-left:3px solid #e94560}
+.badge{font-size:10px;padding:2px 7px;border-radius:8px}.b-green{background:#1a4a40;color:#8f8}.b-blue{background:#0f3460;color:#8af}.b-gray{background:#333;color:#888}
+.task-box{max-height:350px;overflow-y:auto}
+.task-item{padding:8px 0;border-bottom:1px solid #1a1a2e}
+.task-name{font-size:13px;margin-bottom:4px}
+.task-bar{height:5px;background:#0f3460;border-radius:3px;margin:4px 0;overflow:hidden}
+.task-fill{height:100%;background:#e94560;transition:width .3s}
+.task-info{font-size:11px;color:#888}
+.done .task-fill{background:#2ecc71}.error .task-fill{background:#e74c3c}
+.done .task-name{color:#2ecc71}.error .task-name{color:#e74c3c}
+.flex-btns{display:flex;gap:10px;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>AutoSlice</h1>
+<p class="sub">泽音Melody 录播智能切片</p>
+
+<div class="card">
+<h2>配置</h2>
+<div class="row">
+<label>录播目录</label>
+<input type="text" id="videoDir" value="F:\录播上传\DanmakuRender-5\直播回放">
+<button class="btn btn-dark btn-sm" onclick="doScan()">扫描</button>
+</div>
+<div class="row">
+<label>输出目录</label>
+<input type="text" id="outputDir" value="F:\Videos\自动切片">
+</div>
+<div class="row">
+<label>模式</label>
+<select id="mode" onchange="toggleTL()">
+<option value="hybrid" selected>混合模式（推荐）</option>
+<option value="danmaku">弹幕密度自动切</option>
+<option value="timeline">纯时间轴切</option>
+</select>
+</div>
+<div class="row" id="tlRow" style="display:none">
+<label>时间轴</label>
+<select id="tlSelect" onchange="onTLSelect()" style="flex:1;min-width:180px"><option value="">-- 选择 --</option></select>
+<span style="color:#888">或</span>
+<input type="file" id="tlUpload" accept=".docx" onchange="onTLUpload()" style="flex:1;min-width:180px">
+<input type="hidden" id="tlPath">
+</div>
+</div>
+
+<div class="card">
+<h2>录播列表 <span id="vCount" style="color:#888;font-weight:normal"></span></h2>
+<div class="vlist" id="vlist"><p style="color:#666">点击扫描加载...</p></div>
+<div class="flex-btns">
+<button class="btn btn-red" onclick="sliceSel()">切片选中</button>
+<button class="btn btn-red" onclick="sliceAll()">全部切片</button>
+</div>
+</div>
+
+<div class="card">
+<h2>任务 <span id="tCount" style="color:#888;font-weight:normal"></span></h2>
+<div class="task-box" id="tasks"><p style="color:#666">暂无</p></div>
+</div>
+</div>
+
+<script>
+let selVideo = null;
+let tasks = {};
+let sse = null;
+
+// ========== SSE 实时连接 ==========
+function connectSSE() {
+    if (sse) sse.close();
+    sse = new EventSource('/api/events');
+
+    sse.addEventListener('init', e => {
+        tasks = JSON.parse(e.data);
+        renderTasks();
+    });
+
+    sse.addEventListener('task_update', e => {
+        const d = JSON.parse(e.data);
+        tasks[d.task_id] = d;
+        renderTasks();
+    });
+
+    sse.onerror = () => { setTimeout(connectSSE, 3000); };
+}
+
+function renderTasks() {
+    const ids = Object.keys(tasks);
+    const el = document.getElementById('tasks');
+    document.getElementById('tCount').textContent = ids.length ? `(${ids.length})` : '';
+
+    if (!ids.length) { el.innerHTML = '<p style="color:#666">暂无</p>'; return; }
+
+    // 排序：running > pending > done/error
+    const order = {running:0, pending:1, done:2, error:3};
+    ids.sort((a,b) => (order[tasks[a].status]||9) - (order[tasks[b].status]||9));
+
+    el.innerHTML = ids.map(id => {
+        const t = tasks[id];
+        const cls = t.status === 'done' ? 'done' : t.status === 'error' ? 'error' : '';
+        const pct = t.total > 0 ? Math.round(t.step / t.total * 100) : 0;
+        const statusLabel = t.status === 'running' ? '进行中' : t.status === 'done' ? '完成' : t.status === 'error' ? '失败' : '等待';
+        return `<div class="task-item ${cls}">
+            <div class="task-name"><strong>${id}</strong> <span style="color:#888">[${statusLabel}]</span></div>
+            ${t.status === 'running' ? `<div class="task-bar"><div class="task-fill" style="width:${pct}%"></div></div>` : ''}
+            <div class="task-info">${t.progress || ''} ${t.result || ''}</div>
+        </div>`;
+    }).join('');
+}
+
+// ========== 操作 ==========
+function toggleTL() {
+    const m = document.getElementById('mode').value;
+    document.getElementById('tlRow').style.display =
+        (m === 'timeline' || m === 'hybrid') ? 'flex' : 'none';
+    if (m === 'timeline' || m === 'hybrid') loadTL();
+}
+
+async function doScan() {
+    const r = await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({video_dir:document.getElementById('videoDir').value})});
+    const d = await r.json();
+    if(d.error){alert(d.error);return}
+    document.getElementById('vCount').textContent = `(${d.count})`;
+    document.getElementById('vlist').innerHTML = d.videos.map((v,i)=>`
+        <div class="vitem" onclick="pick(this,'${v.path.replace(/\\/g,'\\\\')}')">
+            <span>[${i}] ${v.name}</span>
+            <span class="badge ${v.has_ass?'b-blue':'b-gray'}">${v.has_ass?'ASS':'无弹幕'}</span>
+            <span class="badge ${v.has_srt?'b-green':'b-gray'}">${v.has_srt?'SRT':'无字幕'}</span>
+        </div>`).join('');
+}
+
+function pick(el, path) {
+    document.querySelectorAll('.vitem').forEach(e=>e.classList.remove('sel'));
+    el.classList.add('sel'); selVideo = path;
+}
+
+async function sliceSel() {
+    if(!selVideo){alert('请先选择一个视频');return}
+    await fetch('/api/slice',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({flv_path:selVideo, output_dir:document.getElementById('outputDir').value,
+            mode:document.getElementById('mode').value, timeline_path:document.getElementById('tlPath').value})});
+}
+
+async function sliceAll() {
+    await fetch('/api/slice-all',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({video_dir:document.getElementById('videoDir').value,
+            output_dir:document.getElementById('outputDir').value,
+            mode:document.getElementById('mode').value, timeline_path:document.getElementById('tlPath').value})});
+}
+
+async function loadTL() {
+    const r = await fetch('/api/timelines'); const d = await r.json();
+    document.getElementById('tlSelect').innerHTML = '<option value="">-- 选择 --</option>' +
+        d.files.map(f=>`<option value="${f.path}">${f.name}</option>`).join('');
+}
+function onTLSelect(){document.getElementById('tlPath').value=document.getElementById('tlSelect').value;document.getElementById('tlUpload').value=''}
+function onTLUpload(){
+    const f=document.getElementById('tlUpload').files[0];if(!f)return;
+    const fd=new FormData();fd.append('file',f);
+    fetch('/api/upload-timeline',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+        if(d.path){document.getElementById('tlPath').value=d.path;document.getElementById('tlSelect').value='';loadTL()}});
+}
+
+// ========== 启动 ==========
+connectSSE();
+toggleTL();  // 先显示时间轴行（默认混合模式需要）
+doScan();
+</script>
+</body>
+</html>
