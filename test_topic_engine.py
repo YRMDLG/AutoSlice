@@ -1,6 +1,6 @@
 ﻿import unittest
 
-from topic_engine import _build_timeline_report, _dedupe_clip_marks, _parse_llm_response
+from topic_engine import (_build_timeline_report, _dedupe_clip_marks, _expand_clip_marks_with_context, _parse_llm_response)
 
 
 class TopicEngineParseTests(unittest.TestCase):
@@ -56,6 +56,35 @@ class TopicEngineParseTests(unittest.TestCase):
 
 
 
+
+    def test_expand_clip_marks_keeps_video_time_basis_and_context(self):
+        marks = [{"start": 100, "end": 110, "title": "短高能话题"}]
+        srt_segments = [
+            (0, 35, "前情说明"),
+            (40, 60, "继续铺垫"),
+            (95, 111, "高能点"),
+            (200, 235, "后续反应"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=300)
+
+        self.assertEqual(len(expanded), 1)
+        self.assertEqual(expanded[0]["topic_start"], 100)
+        self.assertEqual(expanded[0]["topic_end"], 110)
+        self.assertEqual(expanded[0]["start"], 0)
+        self.assertEqual(expanded[0]["end"], 235)
+        self.assertEqual(expanded[0]["time_basis"], "video_elapsed_seconds")
+        self.assertTrue(expanded[0]["context_expanded"])
+
+    def test_dedupe_uses_topic_range_not_expanded_overlap(self):
+        marks = [
+            {"start": 0, "end": 240, "topic_start": 100, "topic_end": 110, "title": "话题A"},
+            {"start": 30, "end": 260, "topic_start": 200, "topic_end": 210, "title": "话题B"},
+        ]
+
+        deduped = _dedupe_clip_marks(marks)
+
+        self.assertEqual([m["title"] for m in deduped], ["话题A", "话题B"])
     def test_filter_reasoning_body_and_placeholder_topics(self):
         topics = []
         response = """
@@ -130,5 +159,6 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

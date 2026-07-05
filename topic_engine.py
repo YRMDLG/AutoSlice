@@ -22,6 +22,11 @@ LLM_MODEL = "deepseek-v4-flash"  # 用 Flash 省钱
 LLM_MAX_TOKENS = 1500
 DANMAKU_WINDOW = 60
 DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
+TOPIC_PRE_CONTEXT_SEC = 90      # 话题切片向前保留前因
+TOPIC_POST_CONTEXT_SEC = 120    # 话题切片向后保留后果/反应
+TOPIC_MIN_CLIP_SEC = 180        # 太短的高能点至少扩成 3 分钟上下文
+TOPIC_MAX_CLIP_SEC = 900        # 防止单个切片过长（原话题超过该值时不强行截断）
+TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
 
 
 def fmt_time(seconds):
@@ -275,6 +280,8 @@ SYSTEM_PROMPT = """你是直播内容分析+切片决策助手。你只能分析
 - 如果字幕内容平淡、只有游戏台词/沉默/机械复读，即使有短暂弹幕也谨慎不切
 
 ## 时间范围硬约束
+
+- 所有时间都是视频内时间/播放进度（从 0:00:00 开始），不是真实钟点时间
 
 - 输出的每个话题时间必须落在本次提示给出的“允许时间范围”内
 - 不允许输出历史分块、示例分块、其它视频片段的时间戳
@@ -558,21 +565,119 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
 def _dedupe_clip_marks(marks):
     """对 clip_marks 做最终去重，避免旧 JSON 或异常响应导致重复切片。"""
     deduped = []
-    for mark in sorted(marks, key=lambda m: (int(m.get("start", 0)), int(m.get("end", 0)), m.get("title", ""))):
+    seen_topics = []
+    for mark in sorted(marks, key=lambda m: (int(m.get("topic_start", m.get("start", 0))), int(m.get("topic_end", m.get("end", 0))), m.get("title", ""))):
         try:
-            topic = {
-                "start": int(mark["start"]),
-                "end": int(mark["end"]),
-                "title": str(mark.get("title", "未命名片段")).strip() or "未命名片段",
-            }
+            topic_start = int(float(mark.get("topic_start", mark["start"])))
+            topic_end = int(float(mark.get("topic_end", mark["end"])))
+            item = dict(mark)
+            item["start"] = int(float(mark["start"]))
+            item["end"] = int(float(mark["end"]))
+            item["title"] = str(mark.get("title", "未命名片段")).strip() or "未命名片段"
         except (KeyError, TypeError, ValueError):
             continue
-        if topic["end"] <= topic["start"]:
+        if item["end"] <= item["start"] or topic_end <= topic_start:
             continue
-        if _is_duplicate_topic(topic, deduped):
+        dedupe_topic = {"start": topic_start, "end": topic_end, "title": item["title"]}
+        if _is_duplicate_topic(dedupe_topic, seen_topics):
             continue
-        deduped.append(topic)
+        seen_topics.append(dedupe_topic)
+        deduped.append(item)
     return deduped
+
+
+# ============================================================
+# 话题切片上下文扩展
+# ============================================================
+
+def _parse_srt_timestamp(value):
+    """解析 SRT 时间戳，返回视频内秒数。"""
+    h, m, rest = value.strip().split(":")
+    s, ms = rest.replace(".", ",").split(",")
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
+
+
+def parse_srt_segments(srt_path):
+    """解析 SRT，返回 [(start_s, end_s, text), ...]。时间均为视频内时间。"""
+    if not srt_path or not os.path.exists(srt_path):
+        return []
+    with open(srt_path, encoding="utf-8") as f:
+        content = f.read()
+    pattern = r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)'
+    segments = []
+    for start_str, end_str, text in re.findall(pattern, content, re.DOTALL):
+        clean_text = text.strip().replace("\n", " ").strip()
+        if clean_text:
+            segments.append((_parse_srt_timestamp(start_str), _parse_srt_timestamp(end_str), clean_text))
+    return sorted(segments, key=lambda x: x[0])
+
+
+def _srt_video_duration(srt_segments):
+    """用最后一句字幕估算可用视频时长。"""
+    if not srt_segments:
+        return None
+    return max(seg_end for _, seg_end, _ in srt_segments)
+
+
+def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
+    """把切片边界吸附到完整字幕句，避免从半句话开始/结束。"""
+    if not srt_segments:
+        return start_s, end_s
+    related = [seg for seg in srt_segments if seg[1] >= start_s and seg[0] <= end_s]
+    if not related:
+        return start_s, end_s
+    return min(start_s, related[0][0]), max(end_s, related[-1][1])
+
+
+def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None):
+    """把 LLM 标记的话题范围扩展为真正用于 ffmpeg 的前后文切片范围。"""
+    topic_start = int(float(mark.get("topic_start", mark["start"])))
+    topic_end = int(float(mark.get("topic_end", mark["end"])))
+    if topic_end <= topic_start:
+        topic_end = topic_start + 1
+
+    raw_duration = topic_end - topic_start
+    start_s = max(0, topic_start - TOPIC_PRE_CONTEXT_SEC)
+    end_s = topic_end + TOPIC_POST_CONTEXT_SEC
+
+    if end_s - start_s < TOPIC_MIN_CLIP_SEC:
+        deficit = TOPIC_MIN_CLIP_SEC - (end_s - start_s)
+        left = int(deficit * 0.4)
+        right = deficit - left
+        start_s = max(0, start_s - left)
+        end_s += right
+
+    if raw_duration < TOPIC_MAX_CLIP_SEC and end_s - start_s > TOPIC_MAX_CLIP_SEC:
+        end_s = start_s + TOPIC_MAX_CLIP_SEC
+        if end_s < topic_end:
+            end_s = topic_end
+            start_s = max(0, end_s - TOPIC_MAX_CLIP_SEC)
+
+    start_s, end_s = _snap_clip_to_srt_segments(start_s, end_s, srt_segments or [])
+
+    if video_duration:
+        end_s = min(end_s, video_duration)
+        if end_s - start_s < TOPIC_MIN_CLIP_SEC and start_s > 0:
+            start_s = max(0, end_s - TOPIC_MIN_CLIP_SEC)
+
+    expanded = dict(mark)
+    expanded["topic_start"] = topic_start
+    expanded["topic_end"] = topic_end
+    expanded["start"] = int(max(0, start_s))
+    expanded["end"] = int(max(end_s, start_s + 1))
+    expanded["time_basis"] = "video_elapsed_seconds"
+    expanded["context_expanded"] = True
+    expanded["context_pre_sec"] = TOPIC_PRE_CONTEXT_SEC
+    expanded["context_post_sec"] = TOPIC_POST_CONTEXT_SEC
+    return expanded
+
+
+def _expand_clip_marks_with_context(marks, srt_segments=None, video_duration=None):
+    """批量扩展切片上下文；输入/输出时间均为视频内秒数。"""
+    return [
+        _expand_clip_mark_with_context(mark, srt_segments=srt_segments, video_duration=video_duration)
+        for mark in _dedupe_clip_marks(marks)
+    ]
 
 # ============================================================
 # 逐话题时间轴报告格式化
@@ -654,6 +759,7 @@ def _build_timeline_report(video_name, peak_info, topics):
     lines = [
         f"# {video_name} 话题分析报告",
         f"> 自动生成 | 模型: {LLM_MODEL} | {peak_info}",
+        "> 时间基准：视频内时间/播放进度（不是现实钟点）；实际切片会自动向前后扩展保留上下文",
         "---",
         "",
         "## 逐话题时间轴",
@@ -790,7 +896,13 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     if progress_callback:
         progress_callback("Step 5/5: 生成报告...", 97, 100)
 
-    clip_marks = _dedupe_clip_marks(clip_marks)
+    raw_clip_marks = _dedupe_clip_marks(clip_marks)
+    srt_segments_for_context = parse_srt_segments(srt_path)
+    clip_marks = _expand_clip_marks_with_context(
+        raw_clip_marks,
+        srt_segments=srt_segments_for_context,
+        video_duration=_srt_video_duration(srt_segments_for_context),
+    )
     report = _build_timeline_report(video_name, peak_info, accepted_topics)
 
     # 保存
@@ -801,8 +913,19 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         f.write(report)
 
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({"clip_marks": clip_marks, "video": video_name}, f,
-                  ensure_ascii=False, indent=2)
+        json.dump({
+            "video": video_name,
+            "time_basis": "video_elapsed_seconds",
+            "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
+            "expanded_with_context": True,
+            "context_policy": {
+                "pre_context_sec": TOPIC_PRE_CONTEXT_SEC,
+                "post_context_sec": TOPIC_POST_CONTEXT_SEC,
+                "min_clip_sec": TOPIC_MIN_CLIP_SEC,
+                "max_clip_sec": TOPIC_MAX_CLIP_SEC,
+            },
+            "clip_marks": clip_marks,
+        }, f, ensure_ascii=False, indent=2)
 
     if progress_callback:
         progress_callback(
@@ -833,6 +956,13 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
         data = json.load(f)
 
     marks = _dedupe_clip_marks(data.get("clip_marks", []))
+    if not data.get("expanded_with_context"):
+        srt_segments_for_context = parse_srt_segments(flv_path[:-4] + ".srt")
+        marks = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments_for_context,
+            video_duration=_srt_video_duration(srt_segments_for_context),
+        )
     if not marks:
         if progress_callback:
             progress_callback("无切片标记", 0, 1)

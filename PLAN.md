@@ -118,3 +118,19 @@
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.4: 修正话题切片时间基准和上下文 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.3 |
+| 描述 | 明确话题切片时间为视频内时间，并在写入 clip_marks 和实际切片前按 SRT 上下文扩展，避免只切弹幕爆点导致前因后果缺失。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过，短话题标记会扩展为包含前后文的切片区间，JSON 标明 video_elapsed_seconds 时间基准。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-06 05:44 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+
