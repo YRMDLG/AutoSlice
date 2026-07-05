@@ -102,3 +102,19 @@
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.3: 过滤模型思考内容和占位话题 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.2 |
+| 描述 | 收紧 LLM 响应解析，过滤“但注意/我们应该/输出格式”等模型思考说明、无明显话题和占位话题，避免污染最终话题时间轴。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过，报告正文不再包含模型自我说明、占位标题或无明显话题段。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-06 05:34 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+

@@ -55,6 +55,34 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(marks, [])
 
 
+
+    def test_filter_reasoning_body_and_placeholder_topics(self):
+        topics = []
+        response = """
+[1:10:20－1:10:21]回顾十年前留言视频
+·主播找到十年前手机里录给未来自己的视频
+·但时间范围只有1:10:20-1:10:21，可能太短
+·不要输出Markdown代码块
+[2:55:13－3:00:13]无明显话题
+[3:27:04－3:27:26]通过关卡六感谢开发团队
+·主播恭喜观众通过关卡六，感谢神秘节奏组织
+·等等。
+·所以输出如下：
+[4:03:01－4:08:01]话题标题
+·要点
+"""
+
+        blocks, marks = _parse_llm_response(response, 4200, 14900, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics)
+
+        self.assertEqual(marks, [])
+        self.assertIn("回顾十年前留言视频", report)
+        self.assertIn("通过关卡六感谢开发团队", report)
+        self.assertIn("·主播找到十年前手机里录给未来自己的视频", report)
+        self.assertIn("·主播恭喜观众通过关卡六", report)
+        for dirty in ("但时间范围", "不要输出", "无明显话题", "话题标题", "·要点", "等等", "所以输出"):
+            self.assertNotIn(dirty, report)
+        self.assertEqual(len(blocks), 2)
     def test_timeline_report_uses_part_groups_and_body_lines(self):
         topics = []
         response = """
@@ -102,4 +130,5 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
 if __name__ == "__main__":
     unittest.main()
+
 

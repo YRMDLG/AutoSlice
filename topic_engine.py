@@ -370,6 +370,14 @@ _HEADING_RE = re.compile(
     r'(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.+?)\s*$'
 )
 _NO_SLICE_HINTS = ("不切", "不加标记", "不建议切", "不要切", "不适合切")
+_PLACEHOLDER_TITLES = ("无明显话题", "话题标题", "下一个话题", "未命名片段")
+_META_BODY_KEYWORDS = (
+    "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
+    "输出格式", "输出如下", "不要输出", "程序会自动", "允许时间范围", "当前分块",
+    "时间范围", "时间戳必须", "格式：", "格式`", "根据原则", "指令说", "题目说", "不能假设",
+    "只需输出", "只需要输出", "最后，检查", "Markdown代码块", "Markdown 代码块",
+    "这里有一段字幕", "后面没有字幕", "所以我们", "因此，输出", "考虑一下",
+)
 
 
 def _strip_code_fence(response):
@@ -424,10 +432,45 @@ def _is_duplicate_topic(topic, existing_topics):
     return False
 
 
+def _strip_body_prefix(line):
+    """去掉正文要点符号，便于判断是否是模型自我说明。"""
+    stripped = line.strip()
+    while stripped.startswith(("·", "●", "-", "*", "•")):
+        stripped = stripped[1:].strip()
+    return stripped
+
+
+def _is_placeholder_title(title):
+    """过滤模型占位标题和“无明显话题”。"""
+    clean = _strip_body_prefix(title)
+    if not clean:
+        return True
+    if any(placeholder in clean for placeholder in _PLACEHOLDER_TITLES):
+        return True
+    return clean in ("标题", "（标题）", "(标题)")
+
+
+def _is_meta_body_line(line):
+    """过滤模型思考过程、规则复述和占位要点。"""
+    clean = _strip_body_prefix(line)
+    if not clean:
+        return True
+    if clean in ("要点", "补充细节", "具体要点", "另一个事件", "等等。", "等等"):
+        return True
+    if any(keyword in clean for keyword in _META_BODY_KEYWORDS):
+        return True
+    if re.search(r'(应该|不应该|可以只输出|是否|格式|指令|原则|分块|代码块)', clean) and (
+        clean.startswith(("但", "另外", "所以", "因此", "这里", "如果", "最后", "检查", "考虑"))
+        or "我们" in clean
+    ):
+        return True
+    return False
+
+
 def _normalise_body_line(line):
     """规范正文要点前缀，让报告接近人工时间轴。"""
     line = line.strip()
-    if not line:
+    if not line or _is_meta_body_line(line):
         return ""
     if line.startswith(("·", "●")):
         return line
@@ -460,8 +503,12 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
         if not _is_topic_in_chunk(start_s, end_s, chunk_start, chunk_end):
             return
 
+        if _is_placeholder_title(current["title"]):
+            return
         body_lines = [_normalise_body_line(line) for line in current["body"]]
         body_lines = [line for line in body_lines if line]
+        if not body_lines:
+            return
         topic = {
             "start": start_s,
             "end": end_s,
