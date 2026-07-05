@@ -150,3 +150,19 @@
 | 备注 | 参考 video-topic-analyzer 的分块与后处理思路；验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.6: 增强 LLM API 500 重试与降级 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.5 |
+| 描述 | 参考 video-topic-analyzer 的稳定分块思路，增强 LLM 分块调用的 500/429/超时重试、指数退避、紧凑 prompt 降级，并记录失败块。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；临时 500 会自动重试，连续失败会记录 failed_chunks 而不是静默丢失。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-06 06:36 |
+| 备注 | 参考 video-topic-analyzer 的稳定分块思路；验证通过：python -B -m unittest test_topic_engine.py -v |
+
+

@@ -1,6 +1,15 @@
-﻿import unittest
+import unittest
+from unittest.mock import patch
 
-from topic_engine import (_build_timeline_report, _dedupe_clip_marks, _expand_clip_marks_with_context, _parse_llm_response)
+import requests
+
+from topic_engine import (_build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _is_retryable_llm_error, _parse_llm_response)
+
+def make_http_error(status):
+    response = requests.Response()
+    response.status_code = status
+    response._content = b"server busy"
+    return requests.HTTPError(response=response)
 
 
 class TopicEngineParseTests(unittest.TestCase):
@@ -113,6 +122,52 @@ class TopicEngineParseTests(unittest.TestCase):
             self.assertNotIn(dirty, report)
         self.assertEqual(len(blocks), 2)
 
+
+    def test_call_llm_with_retry_retries_500_and_uses_compact_prompt(self):
+        calls = []
+        sleeps = []
+
+        def fake_call(prompt, max_tokens):
+            calls.append((prompt, max_tokens))
+            if len(calls) < 3:
+                raise make_http_error(500)
+            return "OK"
+
+        with patch("topic_engine.call_llm", side_effect=fake_call):
+            result = _call_llm_with_retry(
+                "完整提示",
+                compact_prompt="紧凑提示",
+                max_tokens=1500,
+                compact_max_tokens=900,
+                attempts=4,
+                sleep_func=sleeps.append,
+            )
+
+        self.assertEqual(result, "OK")
+        self.assertEqual(calls, [("完整提示", 1500), ("完整提示", 1500), ("紧凑提示", 900)])
+        self.assertEqual(sleeps, [3, 8])
+
+    def test_call_llm_with_retry_does_not_retry_400(self):
+        calls = []
+        sleeps = []
+
+        def fake_call(prompt, max_tokens):
+            calls.append((prompt, max_tokens))
+            raise make_http_error(400)
+
+        with patch("topic_engine.call_llm", side_effect=fake_call):
+            with self.assertRaises(requests.HTTPError):
+                _call_llm_with_retry(
+                    "完整提示",
+                    compact_prompt="紧凑提示",
+                    attempts=4,
+                    sleep_func=sleeps.append,
+                )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(sleeps, [])
+        self.assertFalse(_is_retryable_llm_error(make_http_error(400)))
+        self.assertTrue(_is_retryable_llm_error(make_http_error(500)))
     def test_clean_title_and_body_residual_model_notes(self):
         topics = []
         response = """
@@ -187,6 +242,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

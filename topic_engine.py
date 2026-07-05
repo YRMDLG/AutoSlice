@@ -20,6 +20,9 @@ from datetime import timedelta
 CHUNK_SEC = 300          # 每块 5 分钟
 LLM_MODEL = "deepseek-v4-flash"  # 用 Flash 省钱
 LLM_MAX_TOKENS = 1500
+LLM_COMPACT_MAX_TOKENS = 900
+LLM_COMPACT_TEXT_CHARS = 2200
+LLM_RETRY_DELAYS = (3, 8, 20, 45)
 DANMAKU_WINDOW = 60
 DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
 TOPIC_PRE_CONTEXT_SEC = 90      # 话题切片向前保留前因
@@ -367,6 +370,77 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
             if block["type"] == "text":
                 return block["text"]
         return ""
+
+
+def _short_llm_error(error):
+    """把 LLM/API 异常压缩成适合进度显示的一行。"""
+    if isinstance(error, requests.HTTPError) and error.response is not None:
+        text = (error.response.text or "").replace("\n", " ").strip()
+        return f"HTTP {error.response.status_code}: {text[:160]}"
+    return str(error)[:200]
+
+
+def _is_retryable_llm_error(error):
+    """判断是否适合重试：服务端 5xx、限流 429、连接/超时。"""
+    if isinstance(error, (requests.Timeout, requests.ConnectionError)):
+        return True
+    if isinstance(error, requests.HTTPError) and error.response is not None:
+        status = error.response.status_code
+        return status == 429 or 500 <= status < 600
+    return False
+
+
+def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
+                         compact_max_tokens=LLM_COMPACT_MAX_TOKENS, attempts=None,
+                         sleep_func=time.sleep, progress_callback=None,
+                         progress_label="API", progress_step=0):
+    """对临时性 LLM/API 错误做退避重试；连续失败后再抛出。"""
+    total_attempts = attempts or (len(LLM_RETRY_DELAYS) + 1)
+    last_error = None
+    for attempt in range(total_attempts):
+        use_compact = compact_prompt is not None and attempt >= 2
+        active_prompt = compact_prompt if use_compact else prompt
+        active_tokens = compact_max_tokens if use_compact else max_tokens
+        try:
+            return call_llm(active_prompt, max_tokens=active_tokens)
+        except Exception as e:
+            last_error = e
+            if not _is_retryable_llm_error(e) or attempt >= total_attempts - 1:
+                raise
+            delay = LLM_RETRY_DELAYS[min(attempt, len(LLM_RETRY_DELAYS) - 1)]
+            compact_note = "，改用紧凑提示" if use_compact else ""
+            if progress_callback:
+                progress_callback(
+                    f"{progress_label} 失败{compact_note}，{delay}s 后重试 "
+                    f"({attempt + 1}/{total_attempts}): {_short_llm_error(e)}",
+                    progress_step, 100,
+                )
+            sleep_func(delay)
+    raise last_error
+
+
+def _build_chunk_prompt(ch, index, total, compact=False):
+    """构造分块 prompt；compact=True 用于 API 5xx 后降级。"""
+    chunk_start = ch["start"]
+    chunk_end = ch.get("end", ch["start"] + CHUNK_SEC)
+    text_limit = LLM_COMPACT_TEXT_CHARS if compact else 4000
+    if compact:
+        prompt_head = (
+            "你是直播话题整理助手。只分析当前分块，只输出最终话题条目；"
+            "不要解释规则、不要写弹幕密度判断、不要写推理过程。\n\n"
+            "格式：\n[开始－结束]话题标题 ✂️\n·具体要点\n·补充细节\n"
+        )
+    else:
+        prompt_head = SYSTEM_PROMPT
+    prompt = (
+        f"{prompt_head}\n\n"
+        f"## 当前分块\n"
+        f"- 分块编号: 第{index + 1}/{total}块\n"
+        f"- 允许时间范围: {fmt_time(chunk_start)} - {fmt_time(chunk_end)}\n"
+        f"- 弹幕信息: {ch['danmaku_info']}\n\n"
+        f"## 字幕:\n{ch['text'][:text_limit]}"
+    )
+    return prompt, chunk_start, chunk_end
 
 # ============================================================
 # LLM 响应解析与去重
@@ -772,7 +846,7 @@ def _group_topics_for_parts(topics, part_seconds=900):
     return groups
 
 
-def _build_timeline_report(video_name, peak_info, topics):
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     lines = [
         f"# {video_name} 话题分析报告",
@@ -801,6 +875,16 @@ def _build_timeline_report(video_name, peak_info, topics):
         for topic in group:
             lines.append(_format_topic_block(topic, topic_index))
             topic_index += 1
+        lines.append("")
+
+    if failed_chunks:
+        lines.append("## LLM 分块失败记录")
+        lines.append("")
+        for item in failed_chunks:
+            lines.append(
+                f"- 块 {item.get('index')} [{item.get('time')}] "
+                f"连续失败，已跳过：{item.get('error')}"
+            )
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -849,7 +933,14 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     if progress_callback:
         progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
     try:
-        test_resp = call_llm("回复OK即可", max_tokens=100)
+        test_resp = _call_llm_with_retry(
+            "回复OK即可",
+            max_tokens=100,
+            attempts=3,
+            progress_callback=progress_callback,
+            progress_label="API预检",
+            progress_step=22,
+        )
         if not test_resp or len(test_resp.strip()) < 1:
             raise RuntimeError(f"API 返回空内容")
     except requests.HTTPError as e:
@@ -872,6 +963,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
 
     clip_marks = []
     accepted_topics = []
+    failed_chunks = []
 
     for i, ch in enumerate(chunks):
         pct = 25 + int((i / total) * 70)
@@ -879,30 +971,29 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         if progress_callback:
             progress_callback(f"Step 4/5: LLM分析 ({i+1}/{total}, {t})...", pct, 100)
 
-        # 构造 prompt：明确当前块允许输出的时间范围，避免模型复读历史示例
-        chunk_start = ch["start"]
-        chunk_end = ch.get("end", ch["start"] + CHUNK_SEC)
-        prompt = (
-            f"{SYSTEM_PROMPT}\n\n"
-            f"## 当前分块\n"
-            f"- 分块编号: 第{i+1}/{total}块\n"
-            f"- 允许时间范围: {fmt_time(chunk_start)} - {fmt_time(chunk_end)}\n"
-            f"- 弹幕信息: {ch['danmaku_info']}\n\n"
-            f"## 字幕:\n{ch['text'][:4000]}"
-        )
+        # 构造 prompt：失败重试时会自动降级为紧凑提示，降低 5xx 概率
+        prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False)
+        compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True)
 
-        # 重试
-        response = None
-        for retry in range(3):
-            try:
-                response = call_llm(prompt)
-                break
-            except Exception as e:
-                if retry == 2 and progress_callback:
-                    progress_callback(f"块 {i+1} API 失败: {e}", pct, 100)
-                time.sleep(1.5)
-
-        if not response:
+        try:
+            response = _call_llm_with_retry(
+                prompt,
+                compact_prompt=compact_prompt,
+                progress_callback=progress_callback,
+                progress_label=f"块 {i+1} API",
+                progress_step=pct,
+            )
+        except Exception as e:
+            err = _short_llm_error(e)
+            failed_chunks.append({
+                "index": i + 1,
+                "start": int(chunk_start),
+                "end": int(chunk_end),
+                "time": fmt_time(chunk_start),
+                "error": err,
+            })
+            if progress_callback:
+                progress_callback(f"块 {i+1} API 连续失败，已跳过: {err}", pct, 100)
             continue
 
         # 解析话题和切片标记：按当前块时间范围过滤，正文进入最终时间轴报告
@@ -921,7 +1012,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         srt_segments=srt_segments_for_context,
         video_duration=_srt_video_duration(srt_segments_for_context),
     )
-    report = _build_timeline_report(video_name, peak_info, accepted_topics)
+    report = _build_timeline_report(video_name, peak_info, accepted_topics, failed_chunks=failed_chunks)
 
     # 保存
     md_path = base + "_话题分析.md"
@@ -942,6 +1033,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
                 "min_clip_sec": TOPIC_MIN_CLIP_SEC,
                 "max_clip_sec": TOPIC_MAX_CLIP_SEC,
             },
+            "failed_chunks": failed_chunks,
             "clip_marks": clip_marks,
         }, f, ensure_ascii=False, indent=2)
 
@@ -957,6 +1049,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         "json_path": json_path,
         "md_path": md_path,
         "srt_path": srt_path,
+        "failed_chunks": failed_chunks,
     }
 
 
