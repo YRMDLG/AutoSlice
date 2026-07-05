@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from unittest.mock import patch
 
 import requests
@@ -147,6 +147,21 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(calls, [("完整提示", 1500), ("完整提示", 1500), ("紧凑提示", 900)])
         self.assertEqual(sleeps, [3, 8])
 
+
+    def test_report_includes_api_warning_and_failed_chunks_without_topics(self):
+        report = _build_timeline_report(
+            "测试.flv",
+            "弹幕峰值 0 个窗口",
+            [],
+            failed_chunks=[{"index": 1, "time": "0:00:48", "error": "HTTP 500"}],
+            api_warning="HTTP 500",
+        )
+
+        self.assertIn("本次没有解析到有效话题。", report)
+        self.assertIn("## API 预检警告", report)
+        self.assertIn("HTTP 500", report)
+        self.assertIn("## LLM 分块失败记录", report)
+        self.assertIn("块 1 [0:00:48]", report)
     def test_call_llm_with_retry_does_not_retry_400(self):
         calls = []
         sleeps = []
@@ -242,6 +257,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

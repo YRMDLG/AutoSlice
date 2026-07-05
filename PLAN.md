@@ -166,3 +166,19 @@
 | 备注 | 参考 video-topic-analyzer 的稳定分块思路；验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.7: 修正 API 预检 500 的任务状态 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.6 |
+| 描述 | API 预检遇到 5xx/429/超时时不再误报“完成 0 个”，而是继续尝试正式分块；若正式分块连续失败则抛出错误，让 Web 显示失败状态。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；预检临时失败会写入报告/API 警告，连续分块失败会中止而不是静默完成。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-06 06:50 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+

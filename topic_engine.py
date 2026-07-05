@@ -23,6 +23,7 @@ LLM_MAX_TOKENS = 1500
 LLM_COMPACT_MAX_TOKENS = 900
 LLM_COMPACT_TEXT_CHARS = 2200
 LLM_RETRY_DELAYS = (3, 8, 20, 45)
+MAX_INITIAL_FAILED_CHUNKS = 3
 DANMAKU_WINDOW = 60
 DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
 TOPIC_PRE_CONTEXT_SEC = 90      # 话题切片向前保留前因
@@ -846,7 +847,7 @@ def _group_topics_for_parts(topics, part_seconds=900):
     return groups
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None):
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     lines = [
         f"# {video_name} 话题分析报告",
@@ -861,20 +862,26 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None):
     groups = _group_topics_for_parts(topics)
     if not groups:
         lines.append("本次没有解析到有效话题。")
-        return "\n".join(lines) + "\n"
+        lines.append("")
+    else:
+        topic_index = 1
+        for part_index, group in enumerate(groups, 1):
+            part_start = min(t["start"] for t in group)
+            part_end = max(t["end"] for t in group)
+            part_title = _make_part_title(group)
+            lines.append(
+                f"Part {part_index}: {part_title} "
+                f"({_format_report_time(part_start)}－{_format_report_time(part_end)})"
+            )
+            for topic in group:
+                lines.append(_format_topic_block(topic, topic_index))
+                topic_index += 1
+            lines.append("")
 
-    topic_index = 1
-    for part_index, group in enumerate(groups, 1):
-        part_start = min(t["start"] for t in group)
-        part_end = max(t["end"] for t in group)
-        part_title = _make_part_title(group)
-        lines.append(
-            f"Part {part_index}: {part_title} "
-            f"({_format_report_time(part_start)}－{_format_report_time(part_end)})"
-        )
-        for topic in group:
-            lines.append(_format_topic_block(topic, topic_index))
-            topic_index += 1
+    if api_warning:
+        lines.append("## API 预检警告")
+        lines.append("")
+        lines.append(f"- 预检遇到临时错误，已继续尝试正式分块：{api_warning}")
         lines.append("")
 
     if failed_chunks:
@@ -889,9 +896,6 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None):
 
     return "\n".join(lines).rstrip() + "\n"
 
-# ============================================================
-# 主流程
-# ============================================================
 
 def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     """
@@ -928,8 +932,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     chunks = chunk_srt(segs, peaks)
     total = len(chunks)
 
-    # Step 4: 逐块 LLM 分析
     # Step 4: 逐块 LLM 分析（先预检 API）
+    api_precheck_warning = None
     if progress_callback:
         progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
     try:
@@ -942,28 +946,26 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             progress_step=22,
         )
         if not test_resp or len(test_resp.strip()) < 1:
-            raise RuntimeError(f"API 返回空内容")
-    except requests.HTTPError as e:
-        msg = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
-        if progress_callback:
-            progress_callback(f"API 预检失败: {msg}", 0, 100)
-        return {
-            "report": f"# API 连接失败\n\n{msg}\n\n请检查 api_config.json。",
-            "clip_marks": [], "json_path": base + "_clip_marks.json",
-            "md_path": base + "_话题分析.md", "srt_path": srt_path,
-        }
+            raise RuntimeError("API 返回空内容")
     except Exception as e:
-        if progress_callback:
-            progress_callback(f"API 预检失败: {e}", 0, 100)
-        return {
-            "report": f"# API 连接失败\n\n错误: {e}\n\n请检查 api_config.json。",
-            "clip_marks": [], "json_path": base + "_clip_marks.json",
-            "md_path": base + "_话题分析.md", "srt_path": srt_path,
-        }
+        msg = _short_llm_error(e)
+        if _is_retryable_llm_error(e):
+            api_precheck_warning = msg
+            if progress_callback:
+                progress_callback(
+                    f"API 预检遇到上游临时错误，将继续尝试正式分块: {msg}",
+                    22, 100,
+                )
+        else:
+            if progress_callback:
+                progress_callback(f"API 预检失败: {msg}", 0, 100)
+            raise RuntimeError(f"API 预检失败: {msg}") from e
 
     clip_marks = []
     accepted_topics = []
     failed_chunks = []
+    consecutive_failed_chunks = 0
+
 
     for i, ch in enumerate(chunks):
         pct = 25 + int((i / total) * 70)
@@ -994,8 +996,18 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             })
             if progress_callback:
                 progress_callback(f"块 {i+1} API 连续失败，已跳过: {err}", pct, 100)
+            if _is_retryable_llm_error(e):
+                consecutive_failed_chunks += 1
+            else:
+                consecutive_failed_chunks = MAX_INITIAL_FAILED_CHUNKS
+            if consecutive_failed_chunks >= MAX_INITIAL_FAILED_CHUNKS and not accepted_topics and not clip_marks:
+                raise RuntimeError(
+                    f"LLM API 连续 {consecutive_failed_chunks} 个分块失败，疑似上游服务不可用。"
+                    f"最后错误: {err}"
+                ) from e
             continue
 
+        consecutive_failed_chunks = 0
         # 解析话题和切片标记：按当前块时间范围过滤，正文进入最终时间轴报告
         _, marks = _parse_llm_response(response, chunk_start, chunk_end, accepted_topics)
         clip_marks.extend(marks)
@@ -1012,7 +1024,10 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         srt_segments=srt_segments_for_context,
         video_duration=_srt_video_duration(srt_segments_for_context),
     )
-    report = _build_timeline_report(video_name, peak_info, accepted_topics, failed_chunks=failed_chunks)
+    report = _build_timeline_report(
+        video_name, peak_info, accepted_topics,
+        failed_chunks=failed_chunks, api_warning=api_precheck_warning,
+    )
 
     # 保存
     md_path = base + "_话题分析.md"
@@ -1033,6 +1048,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
                 "min_clip_sec": TOPIC_MIN_CLIP_SEC,
                 "max_clip_sec": TOPIC_MAX_CLIP_SEC,
             },
+            "api_precheck_warning": api_precheck_warning,
             "failed_chunks": failed_chunks,
             "clip_marks": clip_marks,
         }, f, ensure_ascii=False, indent=2)
@@ -1050,6 +1066,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         "md_path": md_path,
         "srt_path": srt_path,
         "failed_chunks": failed_chunks,
+        "api_precheck_warning": api_precheck_warning,
     }
 
 
