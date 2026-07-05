@@ -305,7 +305,8 @@ SYSTEM_PROMPT = """你是直播内容分析+切片决策助手。你只能分析
 - 每个话题 2-6 条要点，优先使用 `·`，礼物/弹幕/高能反应用 `●`
 - 不要输出 Markdown 代码块
 - 不要编造字幕里没有的信息
-- 不要输出任何示例内容"""
+- 不要输出任何示例内容
+- 不要解释为什么切或不切，不要在正文里写弹幕密度判断、格式说明、推理过程；切片只用标题后的 ✂️ 表示"""
 
 
 def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
@@ -384,6 +385,10 @@ _META_BODY_KEYWORDS = (
     "时间范围", "时间戳必须", "格式：", "格式`", "根据原则", "指令说", "题目说", "不能假设",
     "只需输出", "只需要输出", "最后，检查", "Markdown代码块", "Markdown 代码块",
     "这里有一段字幕", "后面没有字幕", "所以我们", "因此，输出", "考虑一下",
+    "例如：", "例如:", "由于弹幕密度", "因为弹幕密度", "弹幕密度", "全场平均", "本段无峰值",
+    "所以输出", "现在写输出", "要点要写", "所以整理信息", "所以话题标题", "目标风格",
+    "但具体", "具体有哪些点", "从字幕中提取", "再看弹幕信息", "弹幕反应？", "没有具体弹幕内容",
+    "不加✂️", "加✂️", "可能是", "似乎", "或许", "我们可以", "最好合并", "时间太短",
 )
 
 
@@ -397,12 +402,21 @@ def _strip_code_fence(response):
 
 
 def _clean_topic_title(raw_title):
-    """清理标题里的切片标记和原因说明，保留可读标题。"""
+    """清理标题里的切片标记和模型推理说明，保留可读标题。"""
     title = raw_title.replace("✂️", "").replace("✂", "")
-    title = re.sub(r'[（(]\s*(?:因为|不切|不加标记|不建议切|不要切|弹幕).*?[）)]', '', title)
+    title = _strip_title_meta(title)
     title = re.sub(r'\s+', ' ', title)
-    return title.strip(' -—：:') or "未命名片段"
+    return title.strip(' -—：:？?。；;，,') or "未命名片段"
 
+def _strip_title_meta(title):
+    """去掉模型写进标题里的自我判断尾巴，避免污染报告和文件名。"""
+    title = re.sub(r'\s+', ' ', title).strip()
+    # 常见污染："标题 ？但时间太短。最好合并。"、"标题，但..."、"标题。例如..."
+    title = re.split(r'\s*[？?。；;，,]\s*(?:但|不过|最好|可能|例如|所以|因为|由于|是否|应该|可以)', title, maxsplit=1)[0]
+    title = re.split(r'\s+(?:但|不过|最好|可能|例如|所以|因为|由于|是否|应该|可以)', title, maxsplit=1)[0]
+    title = re.sub(r'[（(]\s*(?:但|因为|由于|弹幕|时间|不切|不加标记|不建议切|不要切).*?[）)]', '', title)
+    title = re.sub(r'[？?。；;，,：:]+$', '', title)
+    return title.strip(' -—：:？?。；;，,')
 
 def _is_slice_marked(raw_title):
     """判断标题是否显式标记为可切。"""
@@ -462,14 +476,18 @@ def _is_meta_body_line(line):
     clean = _strip_body_prefix(line)
     if not clean:
         return True
-    if clean in ("要点", "补充细节", "具体要点", "另一个事件", "等等。", "等等"):
+    if clean in ("要点", "补充细节", "具体要点", "另一个事件", "例如", "例如：", "例如:", "等等。", "等等"):
         return True
     if any(keyword in clean for keyword in _META_BODY_KEYWORDS):
         return True
-    if re.search(r'(应该|不应该|可以只输出|是否|格式|指令|原则|分块|代码块)', clean) and (
+    if re.search(r'(应该|不应该|可以只输出|是否|格式|指令|原则|分块|代码块|我们可以|所以输出|要点要写|具体有哪些点)', clean) and (
         clean.startswith(("但", "另外", "所以", "因此", "这里", "如果", "最后", "检查", "考虑"))
         or "我们" in clean
     ):
+        return True
+    if clean.startswith(("所以", "另外", "因此", "现在", "再看")) and re.search(r'(输出|整理|标题|弹幕|要点|具体|密度)', clean):
+        return True
+    if re.match(r'^(弹幕|密度|由于弹幕|因为弹幕)[:：]', clean):
         return True
     return False
 

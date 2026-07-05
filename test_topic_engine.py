@@ -112,6 +112,34 @@ class TopicEngineParseTests(unittest.TestCase):
         for dirty in ("但时间范围", "不要输出", "无明显话题", "话题标题", "·要点", "等等", "所以输出"):
             self.assertNotIn(dirty, report)
         self.assertEqual(len(blocks), 2)
+
+    def test_clean_title_and_body_residual_model_notes(self):
+        topics = []
+        response = """
+[0:49:52－0:49:59]宣布痔疮家族传统 ？但时间太短。最好合并。 ✂️
+·例如：
+·主播（或游戏）提到“志士一族”通过痔疮品质决定家族地位。
+·由于弹幕密度远低于平均，不加✂️。
+·所以输出话题。
+·要点要写具体。
+·再看弹幕信息：峰值132条/分钟。
+[3:42:53－3:43:07]主播抱怨游戏重复关卡
+·主播反复说不想玩了，因为游戏一直重复，手按痛了。
+·由于弹幕密度远低于平均，不加✂️。
+·所以整理信息：
+·主播先提到觉得猫更可爱，然后说游戏重复、按手痛、不想玩。
+"""
+
+        blocks, marks = _parse_llm_response(response, 2900, 13600, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics)
+
+        self.assertEqual(marks[0]["title"], "宣布痔疮家族传统")
+        self.assertIn("①[49:52－49:59]宣布痔疮家族传统 ✂️", report)
+        self.assertIn("主播反复说不想玩了", report)
+        self.assertIn("主播先提到觉得猫更可爱", report)
+        for dirty in ("但时间太短", "最好合并", "例如", "由于弹幕密度", "所以输出", "要点要写", "再看弹幕信息", "所以整理信息"):
+            self.assertNotIn(dirty, report)
+        self.assertEqual(len(blocks), 2)
     def test_timeline_report_uses_part_groups_and_body_lines(self):
         topics = []
         response = """
@@ -159,6 +187,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

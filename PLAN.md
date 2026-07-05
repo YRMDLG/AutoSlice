@@ -134,3 +134,19 @@
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.5: 清理标题和正文残留推理说明 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.4 |
+| 描述 | 强化话题标题与正文过滤，移除“但时间太短/例如/由于弹幕密度/所以输出”等模型判断过程，避免污染报告和切片文件名。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过，标题和正文不再包含模型自我推理、弹幕密度判定说明或占位内容。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-06 06:22 |
+| 备注 | 参考 video-topic-analyzer 的分块与后处理思路；验证通过：python -B -m unittest test_topic_engine.py -v |
+
+
