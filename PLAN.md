@@ -198,3 +198,18 @@
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.9: 报告主播名替换与 SC 前文包含 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.8 |
+| 描述 | 从录播路径推断主播名，最终话题报告中将“主播”替换为具体名字；切片上下文扩展时识别 SC/礼物/付费留言等触发语句，把可切话题前面的观众 SC 或礼物文本一起纳入切片。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；报告可按指定主播名替换“主播”，短话题扩展会回溯包含 SC/礼物触发字幕。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-07 05:01 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+

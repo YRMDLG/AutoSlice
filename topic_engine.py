@@ -31,10 +31,31 @@ TOPIC_POST_CONTEXT_SEC = 120    # 话题切片向后保留后果/反应
 TOPIC_MIN_CLIP_SEC = 180        # 太短的高能点至少扩成 3 分钟上下文
 TOPIC_MAX_CLIP_SEC = 900        # 防止单个切片过长（原话题超过该值时不强行截断）
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
+SC_CONTEXT_LOOKBACK_SEC = 240   # 话题前 4 分钟内的 SC/礼物触发点会纳入切片
+
+SC_TRIGGER_KEYWORDS = (
+    "sc", "s c", "super chat", "superchat", "醒目留言", "醒目", "付费留言",
+    "舰长", "上舰", "总督", "提督", "舰团", "礼物", "打赏", "投喂",
+    "爱心抱枕", "告白花束", "棉花糖", "牛哇牛哇", "充电",
+)
+
+THANKS_TRIGGER_RE = re.compile(r'(谢谢|感谢|谢[谢了]?|多谢).{0,24}(送|的|老板|老公|礼物|留言|支持)')
 
 
 def fmt_time(seconds):
     return str(timedelta(seconds=int(seconds)))
+
+
+def _infer_streamer_name(video_path):
+    """从录播路径推断主播名；例如 1947277414-泽音Melody -> 泽音Melody。"""
+    parts = re.split(r'[\\/]+', video_path or "")
+    for part in parts:
+        match = re.match(r'^\d{4,}-(.+)$', part)
+        if match:
+            name = match.group(1).strip()
+            if name:
+                return name
+    return "主播"
 
 
 def load_api_config():
@@ -420,7 +441,7 @@ def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
     raise last_error
 
 
-def _build_chunk_prompt(ch, index, total, compact=False):
+def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播"):
     """构造分块 prompt；compact=True 用于 API 5xx 后降级。"""
     chunk_start = ch["start"]
     chunk_end = ch.get("end", ch["start"] + CHUNK_SEC)
@@ -438,6 +459,7 @@ def _build_chunk_prompt(ch, index, total, compact=False):
         f"## 当前分块\n"
         f"- 分块编号: 第{index + 1}/{total}块\n"
         f"- 允许时间范围: {fmt_time(chunk_start)} - {fmt_time(chunk_end)}\n"
+        f"- 主播姓名: {streamer_name or '主播'}（报告里不要写泛称“主播”，用这个名字代替）\n"
         f"- 弹幕信息: {ch['danmaku_info']}\n\n"
         f"## 字幕:\n{ch['text'][:text_limit]}"
     )
@@ -746,6 +768,43 @@ def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
     return min(start_s, related[0][0]), max(end_s, related[-1][1])
 
 
+def _looks_like_sc_or_gift_trigger(text):
+    """判断字幕文本是否像 SC/礼物/付费留言触发点；兼容 ASR 把 SC 漏识别的情况。"""
+    compact = re.sub(r'\s+', ' ', (text or "")).strip()
+    if not compact:
+        return False
+    lower = compact.lower()
+    if any(keyword in lower for keyword in SC_TRIGGER_KEYWORDS):
+        return True
+    return bool(THANKS_TRIGGER_RE.search(compact))
+
+
+def _find_sc_context_start(topic_start, srt_segments, lookback_sec=SC_CONTEXT_LOOKBACK_SEC):
+    """在话题前回溯 SC/礼物触发字幕，返回应纳入切片的更早起点。"""
+    if not srt_segments:
+        return None
+    window_start = max(0, topic_start - lookback_sec)
+    candidates = [
+        (idx, seg)
+        for idx, seg in enumerate(srt_segments)
+        if window_start <= seg[0] <= topic_start and _looks_like_sc_or_gift_trigger(seg[2])
+    ]
+    if not candidates:
+        return None
+
+    idx, seg = candidates[-1]  # 用离话题最近的触发点，避免把更早无关礼物也切进来。
+    start_s = seg[0]
+    # SC 文本可能被 ASR 切成几句，向前吸附很近的连续字幕，保留完整提问/感谢。
+    cursor = idx - 1
+    while cursor >= 0:
+        prev_start, prev_end, _ = srt_segments[cursor]
+        if start_s - prev_end > TOPIC_CONTEXT_GAP or topic_start - prev_start > lookback_sec:
+            break
+        start_s = prev_start
+        cursor -= 1
+    return start_s
+
+
 def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None):
     """把 LLM 标记的话题范围扩展为真正用于 ffmpeg 的前后文切片范围。"""
     topic_start = int(float(mark.get("topic_start", mark["start"])))
@@ -756,6 +815,9 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     raw_duration = topic_end - topic_start
     start_s = max(0, topic_start - TOPIC_PRE_CONTEXT_SEC)
     end_s = topic_end + TOPIC_POST_CONTEXT_SEC
+    sc_context_start = _find_sc_context_start(topic_start, srt_segments or [])
+    if sc_context_start is not None:
+        start_s = min(start_s, sc_context_start)
 
     if end_s - start_s < TOPIC_MIN_CLIP_SEC:
         deficit = TOPIC_MIN_CLIP_SEC - (end_s - start_s)
@@ -819,14 +881,21 @@ def _topic_index_label(index):
     return f"{index}."
 
 
+def _replace_streamer_role(text, streamer_name):
+    """报告展示时把“主播”替换为具体名字。"""
+    if not streamer_name or streamer_name == "主播":
+        return text
+    return (text or "").replace("主播", streamer_name)
+
+
 def _strip_emoji_for_title(title):
     """给 Part 标题做轻量清理，避免标题太花。"""
     return re.sub(r'^[^\w\u4e00-\u9fff]+', '', title).strip() or title
 
 
-def _make_part_title(topics):
+def _make_part_title(topics, streamer_name="主播"):
     """根据 Part 内话题生成阶段标题。"""
-    titles = [_strip_emoji_for_title(t["title"]) for t in topics if t.get("title")]
+    titles = [_strip_emoji_for_title(_replace_streamer_role(t["title"], streamer_name)) for t in topics if t.get("title")]
     if not titles:
         return "阶段话题整理"
     if len(titles) == 1:
@@ -837,15 +906,16 @@ def _make_part_title(topics):
     return f"{first}等话题"
 
 
-def _format_topic_block(topic, index):
+def _format_topic_block(topic, index, streamer_name="主播"):
     """格式化单个话题块，贴近用户给出的逐话题时间轴样式。"""
     label = _topic_index_label(index) if index else ""
     start = _format_report_time(topic["start"])
     end = _format_report_time(topic["end"])
     marker = " ✂️" if topic.get("can_slice") else ""
-    lines = [f"{label}[{start}－{end}]{topic['title']}{marker}"]
+    title = _replace_streamer_role(topic["title"], streamer_name)
+    lines = [f"{label}[{start}－{end}]{title}{marker}"]
     body = topic.get("body") or []
-    lines.extend(body)
+    lines.extend(_replace_streamer_role(line, streamer_name) for line in body)
     return "\n".join(lines)
 
 
@@ -871,7 +941,7 @@ def _group_topics_for_parts(topics, part_seconds=900):
     return groups
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None):
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播"):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     lines = [
         f"# {video_name} 话题分析报告",
@@ -892,13 +962,13 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
         for part_index, group in enumerate(groups, 1):
             part_start = min(t["start"] for t in group)
             part_end = max(t["end"] for t in group)
-            part_title = _make_part_title(group)
+            part_title = _make_part_title(group, streamer_name=streamer_name)
             lines.append(
                 f"Part {part_index}: {part_title} "
                 f"({_format_report_time(part_start)}－{_format_report_time(part_end)})"
             )
             for topic in group:
-                lines.append(_format_topic_block(topic, topic_index))
+                lines.append(_format_topic_block(topic, topic_index, streamer_name=streamer_name))
                 topic_index += 1
             lines.append("")
 
@@ -934,6 +1004,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     """
     video_name = os.path.basename(flv_path)
     base = flv_path[:-4]
+    streamer_name = _infer_streamer_name(flv_path)
 
     # Step 1: 确保 SRT 存在
     if progress_callback:
@@ -998,8 +1069,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             progress_callback(f"Step 4/5: LLM分析 ({i+1}/{total}, {t})...", pct, 100)
 
         # 构造 prompt：失败重试时会自动降级为紧凑提示，降低 5xx 概率
-        prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False)
-        compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True)
+        prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False, streamer_name=streamer_name)
+        compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True, streamer_name=streamer_name)
 
         try:
             response = _call_llm_with_retry(
@@ -1051,6 +1122,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     report = _build_timeline_report(
         video_name, peak_info, accepted_topics,
         failed_chunks=failed_chunks, api_warning=api_precheck_warning,
+        streamer_name=streamer_name,
     )
 
     # 保存
@@ -1063,6 +1135,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({
             "video": video_name,
+            "streamer_name": streamer_name,
             "time_basis": "video_elapsed_seconds",
             "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
             "expanded_with_context": True,

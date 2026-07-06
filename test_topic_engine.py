@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import requests
 
-from topic_engine import (_build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _is_retryable_llm_error, _parse_llm_response)
+from topic_engine import (_build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response)
 
 def make_http_error(status):
     response = requests.Response()
@@ -309,6 +309,61 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("●收到独角兽文班样购买的出道礼物", report)
         self.assertIn("●弹幕要求直播读文", report)
         self.assertNotIn("密度达119", report)
+
+    def test_report_replaces_generic_streamer_role_with_name(self):
+        topics = []
+        response = """
+[0:10:00－0:11:00]主播聊出差
+·主播提到从上海回来后作息变正常
+·观众问主播明天是否直播
+"""
+        _parse_llm_response(response, 590, 700, topics)
+        report = _build_timeline_report(
+            "测试.flv",
+            "无弹幕数据",
+            topics,
+            streamer_name="泽音Melody",
+        )
+
+        self.assertIn("泽音Melody聊出差", report)
+        self.assertIn("·泽音Melody提到从上海回来后作息变正常", report)
+        self.assertIn("观众问泽音Melody明天是否直播", report)
+        self.assertNotIn("主播", report)
+
+    def test_infer_streamer_name_from_recording_path(self):
+        path = r"F:\001\1947277414-泽音Melody\2026年\07月\05号\测试.flv"
+
+        self.assertEqual(_infer_streamer_name(path), "泽音Melody")
+        self.assertEqual(_infer_streamer_name(r"F:\Videos\测试.flv"), "主播")
+
+    def test_expand_context_includes_sc_or_gift_trigger_before_topic(self):
+        marks = [{"start": 200, "end": 220, "title": "回答观众提问"}]
+        srt_segments = [
+            (20, 30, "普通铺垫闲聊"),
+            (65, 72, "谢谢小明的醒目留言"),
+            (73, 84, "他说最近工作压力很大怎么办"),
+            (190, 225, "针对这个问题展开认真讨论"),
+            (300, 320, "后续总结"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=400)
+
+        self.assertEqual(expanded[0]["topic_start"], 200)
+        self.assertEqual(expanded[0]["topic_end"], 220)
+        self.assertEqual(expanded[0]["start"], 65)
+        self.assertGreaterEqual(expanded[0]["end"], 320)
+
+    def test_expand_context_handles_sc_word_misrecognized_as_thanks_gift(self):
+        marks = [{"start": 260, "end": 280, "title": "讨论观众问题"}]
+        srt_segments = [
+            (100, 110, "感谢阿月老板送的礼物"),
+            (111, 124, "他问如果毕业后很迷茫该怎么办"),
+            (250, 285, "泽音开始回答这个问题"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=360)
+
+        self.assertEqual(expanded[0]["start"], 100)
 
 
 if __name__ == "__main__":
