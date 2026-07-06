@@ -464,6 +464,21 @@ _META_BODY_KEYWORDS = (
     "所以输出", "现在写输出", "要点要写", "所以整理信息", "所以话题标题", "目标风格",
     "但具体", "具体有哪些点", "从字幕中提取", "再看弹幕信息", "弹幕反应？", "没有具体弹幕内容",
     "不加✂️", "加✂️", "可能是", "似乎", "或许", "我们可以", "最好合并", "时间太短",
+    "内容要点", "我们还需要考虑", "其他可能性", "可以提一句", "由于字幕", "所以只有一个话题",
+    "根据格式", "如果有礼物", "才用●", "不用写", "如果无明显话题", "没有弹幕爆点",
+    "弹幕爆点信息", "无爆点", "弹幕高能", "密度达", "峰值", "弹幕信息", "低于平均",
+    "高于平均", "不活跃", "这里有明显话题", "最后，如果", "尽量简洁",
+)
+
+_FRAGMENT_BODY_LINES = {
+    "要点", "补充细节", "具体要点", "另一个事件", "例如", "例如：", "例如:", "等等。", "等等",
+    "内容要点", "内容要点：", "内容要点:", "输出", "主播", "加盟商", "店主", "连麦者",
+    "但", "然后", "因为", "所以", "因此", "不过", "最后", "另外", "同时", "继续",
+}
+
+_DANMAKU_META_KEYWORDS = (
+    "弹幕反应平静", "无爆点", "弹幕高能", "密度达", "峰值", "全场平均", "低于平均", "高于平均",
+    "弹幕倍数", "弹幕信息", "弹幕爆点信息", "没有弹幕爆点", "不活跃", "反应不活跃",
 )
 
 
@@ -547,11 +562,20 @@ def _is_placeholder_title(title):
 
 
 def _is_meta_body_line(line):
-    """过滤模型思考过程、规则复述和占位要点。"""
+    """过滤模型思考过程、规则复述、弹幕密度解释和占位半句。"""
+    raw = line.strip()
     clean = _strip_body_prefix(line)
     if not clean:
         return True
-    if clean in ("要点", "补充细节", "具体要点", "另一个事件", "例如", "例如：", "例如:", "等等。", "等等"):
+
+    normalized = clean.strip(' （）()[]【】「」『』：:。；;，,、.!！?？')
+    if clean in _FRAGMENT_BODY_LINES or normalized in _FRAGMENT_BODY_LINES:
+        return True
+    # 被 max_tokens 截断时常出现“·主播”“·加盟商”“·但”这类无法独立理解的半句。
+    if len(normalized) <= 3 and normalized in {"主播", "观众", "弹幕", "店主", "对方", "加盟商", "但", "输出"}:
+        return True
+    # ● 只保留礼物、观众金句等具体事件；泛泛的弹幕强弱/密度判断不进报告。
+    if raw.startswith("●") and any(keyword in clean for keyword in _DANMAKU_META_KEYWORDS):
         return True
     if any(keyword in clean for keyword in _META_BODY_KEYWORDS):
         return True

@@ -254,6 +254,62 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             ],
         )
 
+    def test_filter_latest_report_residual_notes_and_fragments(self):
+        topics = []
+        response = """
+[0:54:56－0:55:11]吐槽USB接口比喻 ✂️
+·主播评论一个视频广告，吐槽其作者精神状态
+·我们还需要考虑其他可能性：也许从0:55:11到0:59:56
+·但弹幕信息给了峰值59条/分钟，低于平均，可以提一句弹幕反应不活跃。
+·由于字幕重复且卡顿，可能这是一个主播在模仿什么或口误。
+·我们尽量简洁。
+·所以只有一个话题。
+[1:38:02－1:43:02]强调翡翠需要故事包装
+·主播认为到了这个阶段必须开始讲故事、包装，不能太直白
+·输出
+[3:53:01－3:58:01]讨论咖啡加盟被割韭菜
+·主播与连麦者对话，提到加盟咖啡品牌，投资八十多万
+·（没有弹幕爆点信息）
+·最后，如果无明显话题，输出“无明显话题”。但这里有明显话题。
+[4:08:01－4:13:01]批评代理选择不当
+·主播指责对方没有拿到区县代理，仅获得市级代理
+●弹幕反应平静，无爆点
+·根据格式，如果有礼物、弹幕爆点、观众金句才用●，如果没有就不写。
+·所以不用写●。
+·但
+"""
+        blocks, marks = _parse_llm_response(response, 3200, 15200, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics)
+
+        self.assertEqual(marks, [{"start": 3296, "end": 3311, "title": "吐槽USB接口比喻"}])
+        self.assertEqual(len(blocks), 4)
+        self.assertIn("·主播评论一个视频广告，吐槽其作者精神状态", report)
+        self.assertIn("·主播认为到了这个阶段必须开始讲故事、包装，不能太直白", report)
+        self.assertIn("·主播与连麦者对话，提到加盟咖啡品牌，投资八十多万", report)
+        self.assertIn("·主播指责对方没有拿到区县代理，仅获得市级代理", report)
+        for dirty in (
+            "内容要点", "我们还需要考虑", "其他可能性", "弹幕信息", "峰值59", "可以提一句",
+            "由于字幕", "我们尽量简洁", "所以只有一个话题", "·输出", "没有弹幕爆点",
+            "如果无明显话题", "根据格式", "如果有礼物", "才用●", "不用写", "无爆点", "·但",
+        ):
+            self.assertNotIn(dirty, report)
+
+    def test_keep_concrete_danmaku_and_gift_lines(self):
+        topics = []
+        response = """
+[0:31:19－0:31:33]分享分类TXT与弹幕互动 ✂️
+·主播收到分类好的TXT文件，称赞对方贴心且不用网盘
+●收到独角兽文班样购买的出道礼物
+●弹幕要求直播读文
+●弹幕高能，密度达119条/分钟，观众积极互动
+"""
+        _parse_llm_response(response, 1800, 2000, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics)
+
+        self.assertIn("●收到独角兽文班样购买的出道礼物", report)
+        self.assertIn("●弹幕要求直播读文", report)
+        self.assertNotIn("密度达119", report)
+
 
 if __name__ == "__main__":
     unittest.main()

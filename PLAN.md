@@ -182,3 +182,19 @@
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.8: 清理新报告残留说明和半句 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.7 |
+| 描述 | 继续强化话题报告后处理，过滤“内容要点/我们还需要考虑/根据格式/如果有礼物”等说明、弹幕密度解释和被截断的半句。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；新报告样例中的残留说明、密度解释和半句不会进入最终报告。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-07 04:49 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+
