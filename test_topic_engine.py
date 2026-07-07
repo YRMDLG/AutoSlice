@@ -1,9 +1,11 @@
 ﻿import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import requests
 
-from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response, _streamer_report_name, chunk_srt)
+from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response, _streamer_report_name, chunk_srt, parse_srt_text)
 
 def make_http_error(status):
     response = requests.Response()
@@ -310,6 +312,60 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             "弹幕高密度", "反应活跃",
         ):
             self.assertNotIn(dirty, report)
+
+    def test_filter_current_report_meta_noise_and_repair_short_topic_time(self):
+        topics = []
+        response = """
+[0:31:06－0:31:30]收到TXT小说与感谢礼物，讨论直播尺度 ✂️
+·音音提到朋友分类发送TXT小说，省去下载网盘时间
+·要点用·，如果没有特别弹幕爆点，可以不用●。这里没有明显的观众留言内容在字幕中。
+·但是
+[3:55:25－3:55:27]连麦分析店铺经营问题 ✂️
+·音音与连麦者沟通，了解到店铺在陕西榆林市区，97平米，年租金9万，三个员工各三千六。
+·音音指出二人合伙人未给自己发工资，只发员工，店铺每月亏损约1.8万。
+·不过，注意原字幕没有说完，但只到“那”，已经完整一个问题。
+·但也许有更聪明的做法：因为字幕从3:55:25开始连续多条，可能每条对应真实时间？但都是同样的内容。
+·但这样只有2秒，显然不符合常识。但忠实于数据。
+"""
+        blocks, marks = _parse_llm_response(response, 1800, 14400, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics)
+
+        self.assertEqual(len(blocks), 2)
+        self.assertIn("[3:55:25－3:56:", report)
+        self.assertIn("·音音与连麦者沟通", report)
+        self.assertIn("·音音指出二人合伙人未给自己发工资", report)
+        self.assertEqual(marks[1]["end"], topics[1]["end"])
+        for dirty in (
+            "要点用", "没有特别弹幕爆点", "这里没有明显", "·但是", "注意原字幕",
+            "更聪明的做法", "每条对应真实时间", "不符合常识", "忠实于数据",
+        ):
+            self.assertNotIn(dirty, report)
+
+    def test_parse_srt_text_dedupes_repeated_long_segments_and_repairs_time(self):
+        long_text = "这是一段异常长的字幕" * 30
+        content = f"""1
+03:55:00,000 --> 03:55:00,200
+{long_text}
+
+2
+03:55:00,200 --> 03:55:00,400
+{long_text}
+
+3
+03:56:00,000 --> 03:56:03,000
+正常字幕
+"""
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bad.srt"
+            path.write_text(content, encoding="utf-8")
+
+            segs = parse_srt_text(str(path))
+            chunks = chunk_srt(segs, peaks=[])
+
+        self.assertEqual(len(segs), 2)
+        self.assertEqual(segs[0][0], 14100)
+        self.assertGreater(segs[0][1] - segs[0][0], 20)
+        self.assertIn("3:55:00－3:55:", chunks[0]["text"])
 
     def test_keep_concrete_danmaku_and_gift_lines(self):
         topics = []

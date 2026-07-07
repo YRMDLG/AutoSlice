@@ -33,6 +33,11 @@ TOPIC_MIN_CLIP_SEC = 180        # 太短的高能点至少扩成 3 分钟上下�
 TOPIC_MAX_CLIP_SEC = 900        # 防止单个切片过长（原话题超过该值时不强行截断）
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
 SC_CONTEXT_LOOKBACK_SEC = 240   # 话题前 4 分钟内的 SC/礼物触发点会纳入切片
+SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
+SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
+SRT_MAX_ESTIMATED_SEG_SEC = 300 # 单条异常字幕最多估算 5 分钟
+TOPIC_MIN_REPORT_SEC = 60       # 正文较多但模型给出几秒时，报告至少扩到 1 分钟
+TOPIC_MAX_REPAIRED_REPORT_SEC = 180
 
 SC_TRIGGER_KEYWORDS = (
     "sc", "s c", "super chat", "superchat", "醒目留言", "醒目", "付费留言",
@@ -69,6 +74,33 @@ def _infer_streamer_name(video_path):
 def _streamer_report_name(streamer_name):
     """报告展示用粉丝称呼，避免正式名太生硬。"""
     return STREAMER_NICKNAME_MAP.get(streamer_name, streamer_name or "主播")
+
+
+def _text_len_for_timing(text):
+    """估算语速用长度：去掉空白，保留中文/数字/字母。"""
+    return len(re.sub(r'\s+', '', text or ""))
+
+
+def _repair_srt_end_time(start_s, end_s, text):
+    """修复 FunASR 偶发的“几百字压到零点几秒”时间戳。"""
+    duration = max(0.001, end_s - start_s)
+    text_len = _text_len_for_timing(text)
+    if text_len < 80:
+        return end_s
+    if text_len / duration <= SRT_ABNORMAL_CHARS_PER_SEC:
+        return end_s
+    estimated = min(SRT_MAX_ESTIMATED_SEG_SEC, max(duration, text_len / SRT_ESTIMATED_CHARS_PER_SEC))
+    return start_s + estimated
+
+
+def _repair_short_topic_end(start_s, end_s, body_lines, chunk_end):
+    """模型给出极短时间但正文很多时，修正报告话题结束时间。"""
+    duration = end_s - start_s
+    body_len = sum(_text_len_for_timing(line) for line in body_lines)
+    if duration >= 10 or body_len < 40:
+        return end_s
+    estimated = min(TOPIC_MAX_REPAIRED_REPORT_SEC, max(TOPIC_MIN_REPORT_SEC, body_len / SRT_ESTIMATED_CHARS_PER_SEC))
+    return int(min(chunk_end, start_s + estimated))
 
 
 def load_api_config():
@@ -238,7 +270,7 @@ def analyze_danmaku(ass_path):
 # ============================================================
 
 def parse_srt_text(srt_path):
-    """解析 SRT，去空格，返回 [(start_s, text), ...]"""
+    """解析 SRT，去空格，返回 [(start_s, end_s, text), ...]，并修复明显异常时间戳。"""
     if not os.path.exists(srt_path):
         return []
     with open(srt_path, encoding="utf-8") as f:
@@ -247,12 +279,16 @@ def parse_srt_text(srt_path):
     matches = re.findall(pattern, content, re.DOTALL)
     segs = []
     for start_str, end_str, text in matches:
-        h, m, rest = start_str.split(":")
-        s, ms = rest.split(",")
-        start_s = int(h)*3600 + int(m)*60 + int(s) + int(ms)/1000
+        start_s = _parse_srt_timestamp(start_str)
+        end_s = _parse_srt_timestamp(end_str)
         text = text.strip().replace("\n", " ").replace(" ", "")
-        if len(text) >= 2:
-            segs.append((start_s, text))
+        if len(text) < 2:
+            continue
+        if segs and text == segs[-1][2]:
+            # FunASR 偶发把同一大段按 0.x 秒重复刷几十次，保留一条即可。
+            segs[-1] = (segs[-1][0], max(segs[-1][1], _repair_srt_end_time(start_s, end_s, text)), text)
+            continue
+        segs.append((start_s, _repair_srt_end_time(start_s, end_s, text), text))
     return sorted(segs, key=lambda x: x[0])
 
 
@@ -268,13 +304,19 @@ def chunk_srt(segs, peaks, chunk_sec=CHUNK_SEC):
     chunk_start = segs[0][0]
     current_texts = []
 
-    for start_s, text in segs:
+    for item in segs:
+        if len(item) == 3:
+            start_s, end_s, text = item
+        else:
+            start_s, text = item
+            end_s = start_s
         if start_s - chunk_start > chunk_sec:
             if current_texts:
                 chunks.append(_make_chunk(chunk_start, current_texts, peaks, avg_density))
             chunk_start = start_s
             current_texts = []
-        current_texts.append(f"[{fmt_time(start_s)}] {text}")
+        time_label = fmt_time(start_s) if end_s <= start_s + 1 else f"{fmt_time(start_s)}－{fmt_time(end_s)}"
+        current_texts.append(f"[{time_label}] {text}")
 
     if current_texts:
         chunks.append(_make_chunk(chunk_start, current_texts, peaks, avg_density))
@@ -519,18 +561,25 @@ _META_BODY_KEYWORDS = (
     "高于平均", "不活跃", "这里有明显话题", "最后，如果", "尽量简洁",
     "只能写基于字幕", "基于字幕", "标题可以", "标题更简洁", "优先简洁",
     "现在写", "我决定", "决定输出", "注意起始时间", "弹幕高密度",
+    "要点用", "没有特别弹幕爆点", "这里没有明显", "需要确保", "有依据",
+    "很好地覆盖", "再检查", "写要点", "最终答案", "规则要求", "按照示例",
+    "很难分开", "检查要求", "要点2", "可以考虑更具体", "也可以分", "也许可以写",
+    "更符合实际", "原字幕没有说完", "忠实于数据", "不符合常识", "每条对应真实时间",
+    "字幕未显示", "我们谨慎", "我们写", "可以不用●",
 )
 
 _FRAGMENT_BODY_LINES = {
     "要点", "补充细节", "具体要点", "另一个事件", "例如", "例如：", "例如:", "等等。", "等等",
     "内容要点", "内容要点：", "内容要点:", "输出", "主播", "加盟商", "店主", "连麦者",
-    "但", "然后", "因为", "所以", "因此", "不过", "最后", "另外", "同时", "继续",
+    "但", "但是", "然后", "因为", "所以", "因此", "不过", "最后", "另外", "同时", "继续",
+    "…", "...", "……",
 }
 
 _DANMAKU_META_KEYWORDS = (
     "弹幕反应平静", "无爆点", "弹幕高能", "密度达", "峰值", "全场平均", "低于平均", "高于平均",
     "弹幕倍数", "弹幕信息", "弹幕爆点信息", "没有弹幕爆点", "不活跃", "反应不活跃",
-    "弹幕高密度", "反应活跃",
+    "弹幕高密度", "反应活跃", "可能弹幕", "字幕未显示", "我们谨慎",
+    "弹幕互动平淡", "观众反应较少", "弹幕较少", "观众活跃度不高",
 )
 
 
@@ -636,6 +685,11 @@ def _is_meta_body_line(line):
         or "我们" in clean
     ):
         return True
+    if clean.startswith(("但", "但是", "不过", "所以", "因此", "此外", "按照", "检查", "现在", "这里", "因为", "另外", "也许", "也可以", "为了")) and re.search(
+        r'(规则|要求|字幕|依据|输出|话题|标题|要点|检查|示例|时间|数据|写|分成|可以|覆盖|常识)',
+        clean,
+    ):
+        return True
     if clean.startswith(("所以", "另外", "因此", "现在", "再看")) and re.search(r'(输出|整理|标题|弹幕|要点|具体|密度)', clean):
         return True
     if re.match(r'^(弹幕|密度|由于弹幕|因为弹幕)[:：]', clean):
@@ -685,11 +739,12 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
         body_lines = [line for line in body_lines if line]
         if not body_lines:
             return
+        end_s = _repair_short_topic_end(start_s, end_s, body_lines, chunk_end)
         topic = {
             "start": start_s,
             "end": end_s,
             "start_str": current["start_str"],
-            "end_str": current["end_str"],
+            "end_str": fmt_time(end_s),
             "title": current["title"],
             "can_slice": current["can_slice"],
             "body": body_lines,
@@ -767,7 +822,7 @@ def _parse_srt_timestamp(value):
 
 
 def parse_srt_segments(srt_path):
-    """解析 SRT，返回 [(start_s, end_s, text), ...]。时间均为视频内时间。"""
+    """解析 SRT，返回 [(start_s, end_s, text), ...]。时间均为视频内时间，并修复明显异常时间戳。"""
     if not srt_path or not os.path.exists(srt_path):
         return []
     with open(srt_path, encoding="utf-8") as f:
@@ -776,8 +831,14 @@ def parse_srt_segments(srt_path):
     segments = []
     for start_str, end_str, text in re.findall(pattern, content, re.DOTALL):
         clean_text = text.strip().replace("\n", " ").strip()
-        if clean_text:
-            segments.append((_parse_srt_timestamp(start_str), _parse_srt_timestamp(end_str), clean_text))
+        if not clean_text:
+            continue
+        start_s = _parse_srt_timestamp(start_str)
+        end_s = _repair_srt_end_time(start_s, _parse_srt_timestamp(end_str), clean_text)
+        if segments and clean_text == segments[-1][2]:
+            segments[-1] = (segments[-1][0], max(segments[-1][1], end_s), clean_text)
+            continue
+        segments.append((start_s, end_s, clean_text))
     return sorted(segments, key=lambda x: x[0])
 
 
