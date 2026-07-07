@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import requests
 
-from topic_engine import (_build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response)
+from topic_engine import (_build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response, _streamer_report_name)
 
 def make_http_error(status):
     response = requests.Response()
@@ -277,20 +277,37 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 ·根据格式，如果有礼物、弹幕爆点、观众金句才用●，如果没有就不写。
 ·所以不用写●。
 ·但
+[3:05:17－3:10:17]游戏过关武士变身
+·泽音Melody表示关卡终于过关，庆幸及时关闭否则会被折磨
+·而且我们只能写基于字幕的，不要编造。
+·但标题可以更简洁。
+[3:10:18－3:11:16]泽音Melody大笑复读“没喊出来”
+·泽音Melody持续大笑，反复说“没喊出来”
+·但优先简洁。
+·现在写。
+·我决定输出一个话题。
+[3:16:01－3:16:55]游戏角色武士闯关失败
+·吐槽“没点刀法法基本功”
+·另外，注意起始时间
+●弹幕高密度，观众对泽音Melody遭遇反应活跃
 """
         blocks, marks = _parse_llm_response(response, 3200, 15200, topics)
         report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics)
 
         self.assertEqual(marks, [{"start": 3296, "end": 3311, "title": "吐槽USB接口比喻"}])
-        self.assertEqual(len(blocks), 4)
+        self.assertEqual(len(blocks), 7)
         self.assertIn("·主播评论一个视频广告，吐槽其作者精神状态", report)
         self.assertIn("·主播认为到了这个阶段必须开始讲故事、包装，不能太直白", report)
         self.assertIn("·主播与连麦者对话，提到加盟咖啡品牌，投资八十多万", report)
         self.assertIn("·主播指责对方没有拿到区县代理，仅获得市级代理", report)
+        self.assertIn("·泽音Melody表示关卡终于过关", report)
+        self.assertIn("·泽音Melody持续大笑", report)
         for dirty in (
             "内容要点", "我们还需要考虑", "其他可能性", "弹幕信息", "峰值59", "可以提一句",
             "由于字幕", "我们尽量简洁", "所以只有一个话题", "·输出", "没有弹幕爆点",
             "如果无明显话题", "根据格式", "如果有礼物", "才用●", "不用写", "无爆点", "·但",
+            "只能写基于字幕", "标题可以", "优先简洁", "现在写", "我决定", "注意起始时间",
+            "弹幕高密度", "反应活跃",
         ):
             self.assertNotIn(dirty, report)
 
@@ -310,7 +327,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("●弹幕要求直播读文", report)
         self.assertNotIn("密度达119", report)
 
-    def test_report_replaces_generic_streamer_role_with_name(self):
+    def test_report_replaces_generic_streamer_role_with_fan_nickname(self):
         topics = []
         response = """
 [0:10:00－0:11:00]主播聊出差
@@ -325,16 +342,31 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             streamer_name="泽音Melody",
         )
 
-        self.assertIn("泽音Melody聊出差", report)
-        self.assertIn("·泽音Melody提到从上海回来后作息变正常", report)
-        self.assertIn("观众问泽音Melody明天是否直播", report)
+        self.assertIn("音音聊出差", report)
+        self.assertIn("·音音提到从上海回来后作息变正常", report)
+        self.assertIn("观众问音音明天是否直播", report)
+        self.assertNotIn("泽音Melody", report)
         self.assertNotIn("主播", report)
 
     def test_infer_streamer_name_from_recording_path(self):
         path = r"F:\001\1947277414-泽音Melody\2026年\07月\05号\测试.flv"
 
         self.assertEqual(_infer_streamer_name(path), "泽音Melody")
+        self.assertEqual(_streamer_report_name("泽音Melody"), "音音")
         self.assertEqual(_infer_streamer_name(r"F:\Videos\测试.flv"), "主播")
+
+    def test_chunk_prompt_requests_full_timeline_and_fan_aliases(self):
+        prompt, _, _ = _build_chunk_prompt(
+            {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
+            0,
+            1,
+            streamer_name="音音",
+        )
+
+        self.assertIn("全程时间轴，不是只挑爆点", prompt)
+        self.assertIn("普通聊天、过渡、游戏过程、读弹幕、感谢礼物也要写进时间轴", prompt)
+        self.assertIn("主播展示称呼: 音音", prompt)
+        self.assertIn("音姐、麻麻、音音", prompt)
 
     def test_expand_context_includes_sc_or_gift_trigger_before_topic(self):
         marks = [{"start": 200, "end": 220, "title": "回答观众提问"}]

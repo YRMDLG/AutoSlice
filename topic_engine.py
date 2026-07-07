@@ -41,6 +41,13 @@ SC_TRIGGER_KEYWORDS = (
 
 THANKS_TRIGGER_RE = re.compile(r'(谢谢|感谢|谢[谢了]?|多谢).{0,24}(送|的|老板|老公|礼物|留言|支持)')
 
+STREAMER_NICKNAME_MAP = {
+    "泽音Melody": "音音",
+    "泽音": "音音",
+}
+
+STREAMER_FAN_ALIASES = ("音姐", "麻麻", "音音")
+
 
 def fmt_time(seconds):
     return str(timedelta(seconds=int(seconds)))
@@ -56,6 +63,11 @@ def _infer_streamer_name(video_path):
             if name:
                 return name
     return "主播"
+
+
+def _streamer_report_name(streamer_name):
+    """报告展示用粉丝称呼，避免正式名太生硬。"""
+    return STREAMER_NICKNAME_MAP.get(streamer_name, streamer_name or "主播")
 
 
 def load_api_config():
@@ -292,11 +304,19 @@ def _make_chunk(chunk_start, texts, peaks, avg_density=0):
 # Step 4: LLM 分析
 # ============================================================
 
-SYSTEM_PROMPT = """你是直播内容分析+切片决策助手。你只能分析【当前分块】里给出的字幕和弹幕密度，不要引用、复述或补写当前分块之外的内容。
+SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只能分析【当前分块】里给出的字幕和弹幕密度，不要引用、复述或补写当前分块之外的内容。
 
 ## 目标风格
 
 输出要像人工整理的“逐话题时间轴”：每个话题有时间范围，下面用 ·/● 写详细要点。不要写空洞总结，要写出具体发生了什么、主播怎么说、观众/弹幕有什么反应。
+
+## 覆盖范围：全程时间轴，不是只挑爆点
+
+- 当前分块里只要有连续讲话，就必须整理成 1-3 个时间轴话题
+- 普通聊天、过渡、游戏过程、读弹幕、感谢礼物也要写进时间轴
+- 不要因为“弹幕不高/不适合切”就输出“无明显话题”
+- 只有当前分块几乎没有有效讲话、全是沉默/音乐/无法理解的碎词时，才允许输出“无明显话题”
+- ✂️ 只表示“值得自动切片”，不是“是否写进报告”；不值得切也必须写进报告
 
 ## 核心原则：相对密度判断
 
@@ -311,7 +331,7 @@ SYSTEM_PROMPT = """你是直播内容分析+切片决策助手。你只能分析
 - 输出的每个话题时间必须落在本次提示给出的“允许时间范围”内
 - 不允许输出历史分块、示例分块、其它视频片段的时间戳
 - 如果事件跨越分块，只写当前分块内能确认的部分
-- 如果当前分块没有明显话题，输出“无明显话题”即可
+- 不要漏掉当前分块的主要讲话内容；能归纳就归纳成“日常闲聊/游戏过程/读弹幕互动”等普通话题
 
 ## 输出格式（严格按此结构，不要输出 Part 行，程序会自动分组）
 
@@ -328,10 +348,12 @@ SYSTEM_PROMPT = """你是直播内容分析+切片决策助手。你只能分析
 - 时间戳精确到秒，格式 `H:MM:SS`，例如 `0:04:00`
 - 标题 5-15 字，概括核心内容，可加合适 emoji
 - 每个话题 2-6 条要点，优先使用 `·`，礼物/弹幕/高能反应用 `●`
+- 遇到 SC/醒目留言/观众长留言时，尽量保留观众开头对主播的称呼，例如“音姐……”“音音……”“麻麻……”
 - 不要输出 Markdown 代码块
 - 不要编造字幕里没有的信息
 - 不要输出任何示例内容
-- 不要解释为什么切或不切，不要在正文里写弹幕密度判断、格式说明、推理过程；切片只用标题后的 ✂️ 表示"""
+- 不要解释为什么切或不切，不要在正文里写弹幕密度判断、格式说明、推理过程；切片只用标题后的 ✂️ 表示
+- 不要写“我决定/现在写/标题可以/只能基于字幕/注意起始时间”等模型思考过程"""
 
 
 def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
@@ -448,7 +470,10 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
     text_limit = LLM_COMPACT_TEXT_CHARS if compact else 4000
     if compact:
         prompt_head = (
-            "你是直播话题整理助手。只分析当前分块，只输出最终话题条目；"
+            "你是直播逐话题时间轴整理助手。只分析当前分块，只输出最终话题条目；"
+            "当前分块有连续讲话时必须整理成1-3个话题，普通闲聊/游戏过程也要写；"
+            "只有几乎无有效讲话才输出“无明显话题”。"
+            "✂️只给值得自动切片的段，不值得切也要写进报告。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程。\n\n"
             "格式：\n[开始－结束]话题标题 ✂️\n·具体要点\n·补充细节\n"
         )
@@ -459,7 +484,8 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
         f"## 当前分块\n"
         f"- 分块编号: 第{index + 1}/{total}块\n"
         f"- 允许时间范围: {fmt_time(chunk_start)} - {fmt_time(chunk_end)}\n"
-        f"- 主播姓名: {streamer_name or '主播'}（报告里不要写泛称“主播”，用这个名字代替）\n"
+        f"- 主播展示称呼: {streamer_name or '主播'}（报告里不要写泛称“主播”，用这个称呼代替）\n"
+        f"- 粉丝常用称呼: {'、'.join(STREAMER_FAN_ALIASES)}；如果观众留言/SC 原句以这些称呼开头，要保留原话称呼\n"
         f"- 弹幕信息: {ch['danmaku_info']}\n\n"
         f"## 字幕:\n{ch['text'][:text_limit]}"
     )
@@ -490,6 +516,8 @@ _META_BODY_KEYWORDS = (
     "根据格式", "如果有礼物", "才用●", "不用写", "如果无明显话题", "没有弹幕爆点",
     "弹幕爆点信息", "无爆点", "弹幕高能", "密度达", "峰值", "弹幕信息", "低于平均",
     "高于平均", "不活跃", "这里有明显话题", "最后，如果", "尽量简洁",
+    "只能写基于字幕", "基于字幕", "标题可以", "标题更简洁", "优先简洁",
+    "现在写", "我决定", "决定输出", "注意起始时间", "弹幕高密度",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -501,6 +529,7 @@ _FRAGMENT_BODY_LINES = {
 _DANMAKU_META_KEYWORDS = (
     "弹幕反应平静", "无爆点", "弹幕高能", "密度达", "峰值", "全场平均", "低于平均", "高于平均",
     "弹幕倍数", "弹幕信息", "弹幕爆点信息", "没有弹幕爆点", "不活跃", "反应不活跃",
+    "弹幕高密度", "反应活跃",
 )
 
 
@@ -882,10 +911,14 @@ def _topic_index_label(index):
 
 
 def _replace_streamer_role(text, streamer_name):
-    """报告展示时把“主播”替换为具体名字。"""
-    if not streamer_name or streamer_name == "主播":
+    """报告展示时把“主播/正式名”替换为更自然的粉丝称呼。"""
+    display_name = _streamer_report_name(streamer_name)
+    if not display_name or display_name == "主播":
         return text
-    return (text or "").replace("主播", streamer_name)
+    result = text or ""
+    for formal_name in STREAMER_NICKNAME_MAP:
+        result = result.replace(formal_name, display_name)
+    return result.replace("主播", display_name)
 
 
 def _strip_emoji_for_title(title):
@@ -1005,6 +1038,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     video_name = os.path.basename(flv_path)
     base = flv_path[:-4]
     streamer_name = _infer_streamer_name(flv_path)
+    streamer_display_name = _streamer_report_name(streamer_name)
 
     # Step 1: 确保 SRT 存在
     if progress_callback:
@@ -1069,8 +1103,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             progress_callback(f"Step 4/5: LLM分析 ({i+1}/{total}, {t})...", pct, 100)
 
         # 构造 prompt：失败重试时会自动降级为紧凑提示，降低 5xx 概率
-        prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False, streamer_name=streamer_name)
-        compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True, streamer_name=streamer_name)
+        prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False, streamer_name=streamer_display_name)
+        compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True, streamer_name=streamer_display_name)
 
         try:
             response = _call_llm_with_retry(
@@ -1122,7 +1156,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     report = _build_timeline_report(
         video_name, peak_info, accepted_topics,
         failed_chunks=failed_chunks, api_warning=api_precheck_warning,
-        streamer_name=streamer_name,
+        streamer_name=streamer_display_name,
     )
 
     # 保存
@@ -1136,6 +1170,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         json.dump({
             "video": video_name,
             "streamer_name": streamer_name,
+            "streamer_display_name": streamer_display_name,
             "time_basis": "video_elapsed_seconds",
             "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
             "expanded_with_context": True,
