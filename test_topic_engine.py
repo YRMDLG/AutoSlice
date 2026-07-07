@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import requests
 
-from topic_engine import (_build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response, _streamer_report_name)
+from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response, _streamer_report_name, chunk_srt)
 
 def make_http_error(status):
     response = requests.Response()
@@ -367,6 +367,31 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("普通聊天、过渡、游戏过程、读弹幕、感谢礼物也要写进时间轴", prompt)
         self.assertIn("主播展示称呼: 音音", prompt)
         self.assertIn("音姐、麻麻、音音", prompt)
+
+    def test_default_chunking_uses_ten_minutes_and_natural_topics(self):
+        segs = [
+            (0, "开场闲聊"),
+            (300, "继续聊天"),
+            (599, "第十分钟内内容"),
+            (601, "进入下一个处理块"),
+        ]
+
+        chunks = chunk_srt(segs, peaks=[])
+        prompt, _, _ = _build_chunk_prompt(
+            {"start": 0, "end": CHUNK_SEC, "text": "x" * (LLM_FULL_TEXT_CHARS + 100), "danmaku_info": "无弹幕"},
+            0,
+            1,
+            streamer_name="音音",
+        )
+
+        self.assertEqual(CHUNK_SEC, 600)
+        self.assertEqual(LLM_MAX_TOKENS, 2200)
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(chunks[0]["start"], 0)
+        self.assertEqual(chunks[0]["end"], 600)
+        self.assertEqual(chunks[1]["start"], 601)
+        self.assertIn("2-5 个自然话题", prompt)
+        self.assertEqual(len(prompt.split("## 字幕:\n", 1)[1]), LLM_FULL_TEXT_CHARS)
 
     def test_expand_context_includes_sc_or_gift_trigger_before_topic(self):
         marks = [{"start": 200, "end": 220, "title": "回答观众提问"}]

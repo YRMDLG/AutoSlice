@@ -229,3 +229,18 @@
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
 
+
+### Action 5.11: 改为 10 分钟处理块和自然话题拆分 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.10 |
+| 描述 | 将 LLM 处理块从 5 分钟调整为 10 分钟，减少调用次数和话题割裂；提高非紧凑 prompt 的字幕输入上限与输出 token，并要求每块输出 2-5 个自然话题（内容少可 1 个），最终报告继续按 Part 聚合。 |
+| 涉及文件 | 	opic_engine.py 	est_topic_engine.py |
+| 验证命令 | python -B -m unittest test_topic_engine.py -v |
+| 验证预期 | 所有测试通过；chunk_srt 默认按 10 分钟分块，prompt 明确 2-5 个自然话题且保留完整时间轴。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-08 01:26 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+

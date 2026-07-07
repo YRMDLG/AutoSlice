@@ -17,10 +17,11 @@ from datetime import timedelta
 # ============================================================
 # 配置
 # ============================================================
-CHUNK_SEC = 300          # 每块 5 分钟
+CHUNK_SEC = 600          # 每块 10 分钟：减少 API 调用，降低话题被硬切碎的概率
 LLM_MODEL = "deepseek-v4-flash"  # 用 Flash 省钱
-LLM_MAX_TOKENS = 1500
-LLM_COMPACT_MAX_TOKENS = 900
+LLM_MAX_TOKENS = 2200
+LLM_COMPACT_MAX_TOKENS = 1200
+LLM_FULL_TEXT_CHARS = 8000
 LLM_COMPACT_TEXT_CHARS = 2200
 LLM_RETRY_DELAYS = (3, 8, 20, 45)
 MAX_INITIAL_FAILED_CHUNKS = 3
@@ -312,7 +313,7 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 
 ## 覆盖范围：全程时间轴，不是只挑爆点
 
-- 当前分块里只要有连续讲话，就必须整理成 1-3 个时间轴话题
+- 当前分块里只要有连续讲话，就必须整理成 2-5 个自然话题；内容很少时可只写 1 个
 - 普通聊天、过渡、游戏过程、读弹幕、感谢礼物也要写进时间轴
 - 不要因为“弹幕不高/不适合切”就输出“无明显话题”
 - 只有当前分块几乎没有有效讲话、全是沉默/音乐/无法理解的碎词时，才允许输出“无明显话题”
@@ -467,11 +468,11 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
     """构造分块 prompt；compact=True 用于 API 5xx 后降级。"""
     chunk_start = ch["start"]
     chunk_end = ch.get("end", ch["start"] + CHUNK_SEC)
-    text_limit = LLM_COMPACT_TEXT_CHARS if compact else 4000
+    text_limit = LLM_COMPACT_TEXT_CHARS if compact else LLM_FULL_TEXT_CHARS
     if compact:
         prompt_head = (
             "你是直播逐话题时间轴整理助手。只分析当前分块，只输出最终话题条目；"
-            "当前分块有连续讲话时必须整理成1-3个话题，普通闲聊/游戏过程也要写；"
+            "当前分块有连续讲话时必须整理成2-5个自然话题，内容很少可1个；普通闲聊/游戏过程也要写；"
             "只有几乎无有效讲话才输出“无明显话题”。"
             "✂️只给值得自动切片的段，不值得切也要写进报告。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程。\n\n"
