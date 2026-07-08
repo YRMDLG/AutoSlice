@@ -274,3 +274,18 @@
 | 完成时间 | 2026-07-08 14:47 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
+
+### Action 5.14: 清理兜底输出和推理残留 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.13 |
+| 描述 | 兜底时间轴不再使用 ASR 原文生成标题和正文预览，避免 imistion/痔疮等垃圾标题；进一步过滤“根据字幕/话题1/可能的划分/通常做法/我们尽量”等模型推理残留，禁止代码块和编号提纲进入报告。 |
+| 涉及文件 | 	opic_engine.py 	est_topic_engine.py |
+| 验证命令 | python -B -m unittest test_topic_engine.py -v |
+| 验证预期 | 所有测试通过；当前报告样例中的兜底垃圾标题、ASR 原文预览和推理提纲不会进入最终报告。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-08 17:47 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+

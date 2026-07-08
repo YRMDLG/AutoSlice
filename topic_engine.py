@@ -544,7 +544,7 @@ _HEADING_RE = re.compile(
     r'(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.+?)\s*$'
 )
 _NO_SLICE_HINTS = ("不切", "不加标记", "不建议切", "不要切", "不适合切")
-_PLACEHOLDER_TITLES = ("无明显话题", "话题标题", "下一个话题", "未命名片段")
+_PLACEHOLDER_TITLES = ("无明显话题", "话题标题", "下一个话题", "未命名片段", "从字幕看")
 MAX_TOPIC_TITLE_CHARS = 24
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -570,6 +570,10 @@ _META_BODY_KEYWORDS = (
     "看第二段", "第一段", "第二段", "第三段", "第四段", "同样，", "同样，1:",
     "我们说", "这显然", "时间重叠", "重新组织", "按时间顺序梳理", "接着在",
     "从“", "开始到", "我们取到", "最好重新", "约4:", "约3:", "约2:", "约1:",
+    "根据字幕", "话题可以", "话题划分", "可能的划分", "通常做法", "首先，决定",
+    "分析字幕内容", "从内容看", "关键词", "不能输出", "建议3个话题", "建议3个",
+    "考虑时间顺序", "考虑实际讲话内容", "第五段", "时间轴整合", "自然分段",
+    "注意1:", "允许时间", "超出范围", "我们尽量", "有很多讲话",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -611,7 +615,9 @@ def _is_bad_topic_title(title):
         return True
     if len(clean) > MAX_TOPIC_TITLE_CHARS:
         return True
-    if any(keyword in clean for keyword in ("感谢我有十八岁的音乐", "感个CH的声音好", "但是下一次我不确定")):
+    if any(keyword in clean for keyword in ("感谢我有十八岁的音乐", "感个CH的声音好", "但是下一次我不确定", "从字幕看", "然后从3")):
+        return True
+    if re.fullmatch(r'[A-Za-z]{12,}', clean):
         return True
     return False
 
@@ -726,6 +732,12 @@ def _is_meta_body_line(line):
 
     normalized = clean.strip(' （）()[]【】「」『』：:。；;，,、.!！?？')
     if clean in _FRAGMENT_BODY_LINES or normalized in _FRAGMENT_BODY_LINES:
+        return True
+    if re.match(r'^\d+[.、]\s*', clean) and re.search(r'(话题|关于|讨论|音音|主播|弹幕|感谢|游戏|时间|内容)', clean):
+        return True
+    if re.match(r'^(话题|第[一二三四五六七八九十]+段|第\d+段)\s*\d*[:：]', clean):
+        return True
+    if re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean) and re.search(r'(话题|时间|开始|结束|取到|部分|阶段)', clean):
         return True
     # 被 max_tokens 截断时常出现“·主播”“·加盟商”“·但”这类无法独立理解的半句。
     if len(normalized) <= 3 and normalized in {"主播", "观众", "弹幕", "店主", "对方", "加盟商", "但", "输出"}:
@@ -859,6 +871,14 @@ def _fallback_title_from_text(text):
     if not text:
         return "日常聊天互动"
     rules = (
+        (("人体比例",), "人体比例讨论"),
+        (("痔疮",), "奇怪广告吐槽"),
+        (("猫咪",), "猫咪内容互动"),
+        (("像素风",), "像素风古早感"),
+        (("节奏", "天国"), "节奏天国游戏"),
+        (("手感", "火热"), "节奏天国游戏"),
+        (("武士",), "武士关卡游戏"),
+        (("关卡",), "游戏关卡挑战"),
         (("游戏", "关卡"), "游戏过程互动"),
         (("咖啡", "店"), "咖啡店经营讨论"),
         (("加盟",), "加盟经营讨论"),
@@ -872,8 +892,7 @@ def _fallback_title_from_text(text):
     for keywords, title in rules:
         if all(keyword in text for keyword in keywords):
             return title
-    phrase = _compact_topic_phrase(text)
-    return phrase if phrase and len(phrase) >= 4 else "日常聊天互动"
+    return "日常聊天互动"
 
 
 def _make_fallback_topic_from_chunk(ch, streamer_name="音音"):
@@ -883,7 +902,6 @@ def _make_fallback_topic_from_chunk(ch, streamer_name="音音"):
     if len(text) < 20:
         return None
     title = _fallback_title_from_text(text)
-    preview = text[:90]
     topic = {
         "start": int(ch["start"]),
         "end": int(ch.get("end", ch["start"] + CHUNK_SEC)),
@@ -892,8 +910,8 @@ def _make_fallback_topic_from_chunk(ch, streamer_name="音音"):
         "title": title,
         "can_slice": False,
         "body": [
-            f"·本段主要是{streamer_name}围绕“{preview}”展开的连续聊天/互动",
-            "·内容较碎，以连续聊天和即时互动为主，未单独标记为切片",
+            f"·本段为{streamer_name}的连续聊天/互动，字幕识别较碎，已保留在时间轴中",
+            "·该段未形成稳定可切片主题，暂不标记为自动切片",
         ],
         "fallback": True,
     }

@@ -381,7 +381,44 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(topic["end"], 1200)
         self.assertFalse(topic["can_slice"])
         self.assertIn(topic["title"], {"感谢礼物互动", "生日相关聊天", "读弹幕互动"})
-        self.assertIn("连续聊天/互动", "\n".join(topic["body"]))
+        body = "\n".join(topic["body"])
+        self.assertIn("连续聊天/互动", body)
+        self.assertNotIn("音音继续和观众聊天", body)
+
+    def test_fallback_title_avoids_raw_asr_garbage(self):
+        cases = [
+            ("imistionhowloneonetothefirstsideofwhaever", "日常聊天互动"),
+            ("你动心身感人体比例身体人体比例以前都是这样的人体比例动感特别大", "人体比例讨论"),
+            ("我志士一族痔疮的品质决定家族地位今日抽到传说级至疮者", "奇怪广告吐槽"),
+            ("赢了啊我这就让你赢了啊这个人都是你找的我这就让你赢了啊", "日常聊天互动"),
+        ]
+        for text, expected_title in cases:
+            topic = _make_fallback_topic_from_chunk(
+                {"start": 0, "end": 600, "text": f"[0:00:00] {text}", "danmaku_info": "无弹幕"},
+                streamer_name="音音",
+            )
+            self.assertEqual(topic["title"], expected_title)
+            self.assertNotIn(text[:20], "\n".join(topic["body"]))
+
+    def test_filter_outline_reasoning_from_current_report(self):
+        topics = []
+        response = """
+[2:46:04－2:47:56]"感觉今天的手感火热有没有"
+·1. 关于舒适区、吃、照镜子的讨论，还有妈妈角色（严厉vs包容）的讨论。
+·我们不能输出“无明显话题”，因为有很多讲话。
+·话题1: 讨论舒适区与照镜子，妈妈角色争议（2:38:00-2:40:33）
+·可能的划分：第一段是聊天，第二段是游戏。
+·通常做法是：将字幕时间段按顺序整理为连续的话题。
+·考虑时间顺序：
+·时间轴整合：
+·音音说感觉今天手感很好，准备继续挑战节奏天国。
+"""
+        _parse_llm_response(response, 9900, 11000, topics)
+        report = _build_timeline_report("测试.flv", "无弹幕数据", topics, streamer_name="音音")
+
+        self.assertIn("音音说感觉今天手感很好", report)
+        for dirty in ("1. 关于", "我们不能输出", "话题1", "可能的划分", "通常做法", "考虑时间顺序", "时间轴整合"):
+            self.assertNotIn(dirty, report)
 
     def test_parse_srt_text_dedupes_repeated_long_segments_and_repairs_time(self):
         long_text = "这是一段异常长的字幕" * 30
