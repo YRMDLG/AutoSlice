@@ -548,6 +548,11 @@ _HEADING_RE = re.compile(
 _NO_SLICE_HINTS = ("不切", "不加标记", "不建议切", "不要切", "不适合切")
 _PLACEHOLDER_TITLES = ("无明显话题", "话题标题", "下一个话题", "未命名片段", "从字幕看")
 MAX_TOPIC_TITLE_CHARS = 24
+_META_TITLE_KEYWORDS = (
+    "考虑分成", "考虑输出", "更好的方式", "更合理", "我们仔细", "仔细分析",
+    "每个时间段", "提取可理解", "然后紧接着", "第二个话题", "第一个话题",
+    "可能的划分", "话题划分", "标题：", "标题:",
+)
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
     "输出格式", "输出如下", "不要输出", "程序会自动", "允许时间范围", "当前分块",
@@ -576,6 +581,10 @@ _META_BODY_KEYWORDS = (
     "分析字幕内容", "从内容看", "关键词", "不能输出", "建议3个话题", "建议3个",
     "考虑时间顺序", "考虑实际讲话内容", "第五段", "时间轴整合", "自然分段",
     "注意1:", "允许时间", "超出范围", "我们尽量", "有很多讲话",
+    "考虑分成", "考虑输出", "输出两个话题", "更好的方式", "更合理", "更合理的是", "更合理地", "然后紧接着",
+    "我们仔细分析", "仔细分析每个时间段", "提取可理解", "这里明显", "我可以这样",
+    "可以这样", "整体上，这是", "第二个话题", "第一个话题", "标题：", "标题:",
+    "整个分块", "前部分", "我们只能", "不能用", "超过", "最后一段开始",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -590,6 +599,12 @@ _DANMAKU_META_KEYWORDS = (
     "弹幕倍数", "弹幕信息", "弹幕爆点信息", "没有弹幕爆点", "不活跃", "反应不活跃",
     "弹幕高密度", "反应活跃", "可能弹幕", "字幕未显示", "我们谨慎",
     "弹幕互动平淡", "观众反应较少", "弹幕较少", "观众活跃度不高",
+)
+
+_UNCUTTABLE_CONTENT_KEYWORDS = (
+    "未发言", "仅播放", "只是播放", "游戏角色对话语音", "背景语音", "游戏画面/语音",
+    "具体内容不清晰", "字幕识别较碎", "未形成稳定可切片主题", "暂不标记为自动切片",
+    "无有效讲话", "全是沉默", "全是音乐", "机械复读", "游戏开头动画",
 )
 
 
@@ -614,6 +629,8 @@ def _is_bad_topic_title(title):
     """识别模型把整段字幕当标题的情况。"""
     clean = re.sub(r'\s+', '', title or "")
     if not clean:
+        return True
+    if any(keyword in title for keyword in _META_TITLE_KEYWORDS):
         return True
     if len(clean) > MAX_TOPIC_TITLE_CHARS:
         return True
@@ -733,13 +750,23 @@ def _is_meta_body_line(line):
         return True
 
     normalized = clean.strip(' （）()[]【】「」『』：:。；;，,、.!！?？')
+    if re.fullmatch(r'\[?\d{1,2}:\d{2}(?::\d{2})?\s*', clean):
+        return True
     if clean in _FRAGMENT_BODY_LINES or normalized in _FRAGMENT_BODY_LINES:
+        return True
+    if clean.startswith(("标题：", "标题:", "第一个话题", "第二个话题", "第三个话题")):
+        return True
+    if clean.startswith(("然后从", "另外，前部分", "整个分块", "注意最后一段", "更好的方式", "更合理")):
+        return True
+    if re.match(r'^\d+[.、]\s*', clean) and re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean):
         return True
     if re.match(r'^\d+[.、]\s*', clean) and re.search(r'(话题|关于|讨论|音音|主播|弹幕|感谢|游戏|时间|内容)', clean):
         return True
     if re.match(r'^(话题|第[一二三四五六七八九十]+段|第\d+段)\s*\d*[:：]', clean):
         return True
     if re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean) and re.search(r'(话题|时间|开始|结束|取到|部分|阶段)', clean):
+        return True
+    if re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean) and re.search(r'(注意|但是|但|我们|考虑|更好|更合理|然后|这里|标题|划分|输出|合并)', clean):
         return True
     # 被 max_tokens 截断时常出现“·主播”“·加盟商”“·但”这类无法独立理解的半句。
     if len(normalized) <= 3 and normalized in {"主播", "观众", "弹幕", "店主", "对方", "加盟商", "但", "输出"}:
@@ -1206,6 +1233,19 @@ def _topic_peak_density(topic, peaks, window_sec=DANMAKU_WINDOW):
     return max(densities) if densities else 0
 
 
+def _is_content_cuttable_topic(topic):
+    """判断话题内容本身是否适合切片，避免只有背景语音/兜底说明被高弹幕误切。"""
+    if topic.get("fallback"):
+        return False
+    text = " ".join([topic.get("title", "")] + list(topic.get("body") or []))
+    compact = re.sub(r'\s+', '', text)
+    if not compact:
+        return False
+    if any(keyword in compact for keyword in _UNCUTTABLE_CONTENT_KEYWORDS):
+        return False
+    return True
+
+
 def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
     """从每小时重点中按弹幕密度筛选可切片段。"""
     if not topics:
@@ -1216,7 +1256,7 @@ def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
         topic["peak_density"] = peak_density
         topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
         topic["can_slice"] = bool(
-            not topic.get("fallback")
+            _is_content_cuttable_topic(topic)
             and peak_density >= threshold
             and topic["end"] > topic["start"]
         )

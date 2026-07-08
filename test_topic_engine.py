@@ -263,8 +263,9 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             {"start": 100, "end": 220, "title": "低密度聊天", "can_slice": True, "body": ["·普通聊天"]},
             {"start": 1000, "end": 1120, "title": "高密度生日企划", "can_slice": False, "body": ["·生日企划"]},
             {"start": 2000, "end": 2120, "title": "兜底高密度", "can_slice": False, "fallback": True, "body": ["·兜底"]},
+            {"start": 3000, "end": 3120, "title": "游戏开头动画/背景语音", "can_slice": False, "body": ["·音音未发言，仅播放游戏画面/语音"]},
         ]
-        peaks = [(120, 60), (1020, 130), (2020, 150)]
+        peaks = [(120, 60), (1020, 130), (2020, 150), (3020, 180)]
 
         _apply_danmaku_slice_decisions(topics, peaks, avg_density=80)
         marks = _clip_marks_from_topics(topics)
@@ -272,7 +273,36 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertFalse(topics[0]["can_slice"])
         self.assertTrue(topics[1]["can_slice"])
         self.assertFalse(topics[2]["can_slice"])
+        self.assertFalse(topics[3]["can_slice"])
         self.assertEqual(marks, [{"start": 1000, "end": 1120, "title": "高密度生日企划"}])
+
+    def test_filter_current_report_draft_noise(self):
+        topics = []
+        response = """
+[1:08:00－1:10:20]考虑分成以下话题
+·考虑分成以下话题：
+·3. 高中时期经历与抄袭争议（1:04:00-1:06:44）
+·更好的方式：按时间顺序整理出核心话题。
+[3:21:18－3:22:19]我们仔细分析每个时间段的字幕内容
+·我们仔细分析每个时间段的字幕内容，提取可理解的讲话。
+·3:14:01-3:16:08：“可以唱哈哈哈哈”这里明显：音音说“可以唱”“练习哼”。
+·考虑输出两个话题：
+·标题：游戏加油节奏 gogo
+[3:46:00－3:51:53]飞机台风提醒
+·音音解释猴子钟表模拟器有延迟，主机版也有点延迟但好点。
+·念出观众留言：生日会那晚在飞机上，希望下飞机时还没结束。
+·音音提到BW期间有超强台风影响江浙沪，担心飞机延误，提醒大家带伞注意安全。
+·第二个话题：
+"""
+
+        _parse_llm_response(response, 4000, 14200, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics, streamer_name="音音")
+
+        self.assertIn("飞机台风提醒", report)
+        self.assertIn("音音解释猴子钟表模拟器有延迟", report)
+        self.assertIn("提醒大家带伞注意安全", report)
+        for dirty in ("考虑分成以下话题", "更好的方式", "我们仔细分析", "这里明显", "考虑输出", "标题：", "第二个话题"):
+            self.assertNotIn(dirty, report)
 
     def test_dedupe_clip_marks_for_existing_json(self):
         marks = [
