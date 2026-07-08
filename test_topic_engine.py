@@ -360,6 +360,40 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         for dirty in ("先理解字幕", "基于此", "话题一", "所以整体", "从字幕看", "可能的话题", "评论文本A"):
             self.assertNotIn(dirty, report)
 
+    def test_drop_current_report_meta_titles_from_report_and_clips(self):
+        topics = []
+        response = """
+[0:52:00－0:53:54]我们仔细看时间线变化 ✂️
+·然后0:58:00后继续：“我想怎么出去我已经出来了不要白费力气了这个房间马上就会变为真空空间”
+·我们仔细看时间线变化：
+·0:58:00-0:59:52（及以后）：继续角色对话，真空空间、皮卡丘、直播等。
+[1:30:00－1:32:42]我们分析有哪些连续讲话 ✂️
+·我们分析有哪些连续讲话，整理成几个话题。
+·## 规划话题结构：
+[3:21:18－3:22:19]观察事件
+·3:14:01-3:16:08：哼唱练习，再战，讨论拍子不好找。
+·3:21:18-3:22:01：落后于上一把，不喊没战斗力，音乐不好，混合关，建议看示范或直接下个游戏。
+[3:44:04－3:46:32]输出时不要写Part行
+·输出时不要写Part行。
+·现在我们来组织。
+·字幕内容:
+[4:16:00－4:18:00]一个合理的方法 ✂️
+·一个合理的方法：以明显的主题变化为界。
+·实际上，看字幕文本：
+"""
+
+        _, marks = _parse_llm_response(response, 3000, 15500, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics, streamer_name="音音")
+
+        self.assertEqual(marks, [])
+        self.assertIn("唱歌练习找拍子", report)
+        self.assertIn("哼唱练习", report)
+        for dirty in (
+            "我们仔细看时间线变化", "我们分析有哪些连续讲话", "规划话题结构",
+            "观察事件", "输出时不要写Part行", "一个合理的方法", "实际上，看字幕文本",
+        ):
+            self.assertNotIn(dirty, report)
+
     def test_dedupe_clip_marks_for_existing_json(self):
         marks = [
             {"start": 1, "end": 617, "title": "奈雪漏奶茶&抽卡沉船"},

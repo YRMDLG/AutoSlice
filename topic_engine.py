@@ -556,6 +556,9 @@ _META_TITLE_KEYWORDS = (
     "建议这样", "字幕原文", "让我们详细解析", "我们还需要", "先理解字幕",
     "所以整体", "大致内容", "可能的整理", "从字幕看", "主要内容",
     "第一part", "第二part", "第三个短", "话题一", "话题二",
+    "最佳方式", "我们仔细看", "时间线变化", "我们分析", "连续讲话",
+    "规划话题结构", "输出时不要写Part", "一个合理的方法", "合理的方法",
+    "观察事件",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -600,6 +603,10 @@ _META_BODY_KEYWORDS = (
     "大致内容", "评论文本", "原文：", "原文:", "整体来看", "注意时间戳",
     "可能的整理", "不合要求", "第三个短", "主要内容:", "主要内容：",
     "第一part", "第二part", "部分:", "部分：",
+    "最佳方式", "我们仔细看", "时间线变化", "我们分析", "有哪些连续讲话",
+    "规划话题结构", "输出时不要写Part", "现在我们来组织", "字幕内容:",
+    "字幕内容：", "一个合理的方法", "合理的方法", "实际上，看字幕文本",
+    "观察事件",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -689,6 +696,8 @@ def _derive_topic_title(title, body_lines):
         (("朱鹮", "新闻"), "读新闻吐槽朱鹮"),
         (("妈妈", "奶茶"), "奶茶晚安互动"),
         (("晚安", "音乐生"), "晚安收尾互动"),
+        (("哼唱练习", "拍子"), "唱歌练习找拍子"),
+        (("武士", "关卡"), "武士关卡挑战"),
         (("店铺", "亏损"), "连麦分析店铺亏损"),
         (("咖啡", "加盟"), "咖啡加盟经营分析"),
         (("礼物",), "感谢礼物互动"),
@@ -704,6 +713,8 @@ def _derive_topic_title(title, body_lines):
         phrase = _compact_topic_phrase(line)
         if phrase and len(phrase) >= 4:
             return phrase
+    if _is_bad_topic_title(title):
+        return ""
     return "日常聊天互动"
 
 def _strip_title_meta(title):
@@ -798,8 +809,14 @@ def _is_meta_body_line(line):
         "让我们详细解析", "先理解字幕", "基于此", "要点要具体", "要点内容",
         "思考如何写", "输出中不要", "更精确", "我们可用", "可能的话题",
         "大致内容", "从字幕看", "整体来看", "注意时间戳", "可能的整理",
-        "主要内容", "部分:",
+        "主要内容", "部分:", "最佳方式", "我们仔细看", "我们分析", "输出时不要写Part",
+        "现在我们来组织", "字幕内容", "一个合理的方法", "实际上，看字幕文本",
+        "观察事件",
     )):
+        return True
+    if clean.startswith(("然后", "从")) and re.search(r'\d{1,2}:\d{2}(?::\d{2})?', clean):
+        return True
+    if "##" in clean or "规划话题结构" in clean:
         return True
     if clean.startswith("[开始") or clean.startswith("开始－结束") or clean.startswith("开始-结束"):
         return True
@@ -891,6 +908,8 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
             return
         end_s = _repair_short_topic_end(start_s, end_s, body_lines, chunk_end)
         title = _derive_topic_title(current["title"], body_lines)
+        if not title:
+            return
         topic = {
             "start": start_s,
             "end": end_s,
@@ -1296,6 +1315,8 @@ def _topic_peak_density(topic, peaks, window_sec=DANMAKU_WINDOW):
 def _is_content_cuttable_topic(topic):
     """判断话题内容本身是否适合切片，避免只有背景语音/兜底说明被高弹幕误切。"""
     if topic.get("fallback"):
+        return False
+    if _is_bad_topic_title(topic.get("title", "")):
         return False
     text = " ".join([topic.get("title", "")] + list(topic.get("body") or []))
     compact = re.sub(r'\s+', '', text)

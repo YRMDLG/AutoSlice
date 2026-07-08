@@ -349,3 +349,18 @@
 | 完成时间 | 2026-07-09 01:13 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
+
+### Action 5.19: 强过滤分析过程标题和错误切片 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.18 |
+| 描述 | 针对最新实跑报告中的“最佳方式/我们仔细看时间线变化/我们分析有哪些连续讲话/输出时不要写Part行/一个合理的方法”等分析过程标题做强过滤；分析过程标题不得进入报告和 clip_marks，无法从正文推导出真实内容标题时整条丢弃。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；最新 JSON 中这三类分析过程标题不会再生成切片，报告中不再出现这些草稿话题。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 02:33 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
