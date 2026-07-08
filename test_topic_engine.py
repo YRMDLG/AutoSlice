@@ -386,11 +386,50 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics, streamer_name="音音")
 
         self.assertEqual(marks, [])
-        self.assertIn("唱歌练习找拍子", report)
-        self.assertIn("哼唱练习", report)
+        self.assertIn("本次没有解析到有效话题。", report)
         for dirty in (
             "我们仔细看时间线变化", "我们分析有哪些连续讲话", "规划话题结构",
             "观察事件", "输出时不要写Part行", "一个合理的方法", "实际上，看字幕文本",
+        ):
+            self.assertNotIn(dirty, report)
+
+    def test_filter_planning_outline_residue_from_latest_report(self):
+        topics = []
+        response = """
+[0:08:49－0:10:15]中文（问候等），包括感谢礼物 ✂️
+·现在规划：
+[0:20:00－0:22:24]可能的最佳划分
+·可能的最佳划分：
+·2. 0:14
+[0:32:03－0:34:02]讨论防窥膜和飞机上看小说体验。日常生活话题
+·0:24:02-0:26:18 (情感)
+·0:26:18-0:28:20：感谢礼物与生日应援企划
+·这样就三个话题。
+[2:24:18－2:26:03]梳理字幕的连续意思
+·这里提到积分、感谢等。
+·梳理字幕的连续意思：
+[2:55:13－3:00:05]输出最终条目
+·输出最终条目，不要草稿。
+·让我们仔细整理。
+·读懂字幕串：
+[4:20:02－4:22:38]奶茶晚安互动
+·具体要点：写清楚事情经过。
+·比如：
+·音音提到期末成绩出来，看到分数很慌但排名还好，因为考试很难。
+·音乐生稳定发挥很厉害。
+·感谢莫比五十h等礼物，提醒清洗守夜。
+"""
+
+        _, marks = _parse_llm_response(response, 0, 16000, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics, streamer_name="音音")
+
+        self.assertEqual(marks, [])
+        self.assertIn("奶茶晚安互动", report)
+        self.assertIn("音音提到期末成绩出来", report)
+        for dirty in (
+            "中文（问候等）", "现在规划", "可能的最佳划分", "这样就三个话题",
+            "梳理字幕的连续意思", "输出最终条目", "让我们仔细整理", "读懂字幕串",
+            "具体要点", "比如：", "0:24:02-0:26:18",
         ):
             self.assertNotIn(dirty, report)
 

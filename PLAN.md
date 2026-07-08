@@ -364,3 +364,18 @@
 | 完成时间 | 2026-07-09 02:33 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
+
+### Action 5.20: 过滤规划划分类残留并阻止误切 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.19 |
+| 描述 | 针对最新实跑报告中的“现在规划/可能的最佳划分/具体分段/梳理字幕的连续意思/输出最终条目/具体要点/比如”等规划划分类残留继续结构化过滤；正文过滤后为空的话题直接丢弃，避免“中文（问候等）”等非内容标题进入 clip_marks。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；最新报告中的规划划分类残留不再进入报告和切片 JSON。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 02:54 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
