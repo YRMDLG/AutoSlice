@@ -27,6 +27,7 @@ LLM_RETRY_DELAYS = (3, 8, 20, 45)
 MAX_INITIAL_FAILED_CHUNKS = 3
 DANMAKU_WINDOW = 60
 DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
+CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
 TOPIC_PRE_CONTEXT_SEC = 90      # 话题切片向前保留前因
 TOPIC_POST_CONTEXT_SEC = 120    # 话题切片向后保留后果/反应
 TOPIC_MIN_CLIP_SEC = 180        # 太短的高能点至少扩成 3 分钟上下文
@@ -355,11 +356,12 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 
 ## 覆盖范围：全程时间轴，不是只挑爆点
 
-- 当前分块里只要有连续讲话，就必须整理成 2-5 个自然话题；内容很少时可只写 1 个
+- 当前分块里只要有连续讲话，就整理成 1-2 个核心话题；内容特别密集时最多 3 个
 - 普通聊天、过渡、游戏过程、读弹幕、感谢礼物也要写进时间轴
 - 不要因为“弹幕不高/不适合切”就输出“无明显话题”
 - 只有当前分块几乎没有有效讲话、全是沉默/音乐/无法理解的碎词时，才允许输出“无明显话题”
 - ✂️ 只表示“值得自动切片”，不是“是否写进报告”；不值得切也必须写进报告
+- 禁止输出草稿、分析过程、候选列表、话题划分说明；只输出最终条目
 
 ## 核心原则：相对密度判断
 
@@ -514,10 +516,10 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
     if compact:
         prompt_head = (
             "你是直播逐话题时间轴整理助手。只分析当前分块，只输出最终话题条目；"
-            "当前分块有连续讲话时必须整理成2-5个自然话题，内容很少可1个；普通闲聊/游戏过程也要写；"
+            "当前分块有连续讲话时只整理成1-2个核心话题，内容特别密集最多3个；普通闲聊/游戏过程也要写；"
             "只有几乎无有效讲话才输出“无明显话题”。"
             "✂️只给值得自动切片的段，不值得切也要写进报告。"
-            "不要解释规则、不要写弹幕密度判断、不要写推理过程。\n\n"
+            "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。\n\n"
             "格式：\n[开始－结束]话题标题 ✂️\n·具体要点\n·补充细节\n"
         )
     else:
@@ -1168,7 +1170,69 @@ def _group_topics_for_parts(topics, part_seconds=900):
     return groups
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播"):
+def _group_topics_by_hour(topics):
+    """按视频内自然小时聚合话题，生成“每小时重点”。"""
+    sorted_topics = sorted(topics, key=lambda t: (t["start"], t["end"]))
+    buckets = []
+    current_hour = None
+    current = []
+    for topic in sorted_topics:
+        hour = int(topic["start"] // 3600)
+        if current_hour is None:
+            current_hour = hour
+            current = [topic]
+            continue
+        if hour != current_hour:
+            buckets.append((current_hour, current))
+            current_hour = hour
+            current = [topic]
+        else:
+            current.append(topic)
+    if current:
+        buckets.append((current_hour, current))
+    return buckets
+
+
+def _topic_peak_density(topic, peaks, window_sec=DANMAKU_WINDOW):
+    """计算话题时间范围内/附近最高弹幕密度。"""
+    if not peaks:
+        return 0
+    start = int(topic["start"])
+    end = int(topic["end"])
+    densities = [
+        density for peak_start, density in peaks
+        if peak_start + window_sec >= start and peak_start <= end
+    ]
+    return max(densities) if densities else 0
+
+
+def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
+    """从每小时重点中按弹幕密度筛选可切片段。"""
+    if not topics:
+        return []
+    threshold = max(avg_density * CLIP_DENSITY_RATIO, avg_density + 10, 20)
+    for topic in topics:
+        peak_density = _topic_peak_density(topic, peaks)
+        topic["peak_density"] = peak_density
+        topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
+        topic["can_slice"] = bool(
+            not topic.get("fallback")
+            and peak_density >= threshold
+            and topic["end"] > topic["start"]
+        )
+    return topics
+
+
+def _clip_marks_from_topics(topics):
+    """根据已筛选的重点话题生成 clip_marks。"""
+    return _dedupe_clip_marks([
+        {"start": topic["start"], "end": topic["end"], "title": topic["title"]}
+        for topic in topics
+        if topic.get("can_slice")
+    ])
+
+
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     lines = [
         f"# {video_name} 话题分析报告",
@@ -1186,12 +1250,19 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
         lines.append("")
     else:
         topic_index = 1
-        for part_index, group in enumerate(groups, 1):
+        if group_by_hour:
+            iterable = _group_topics_by_hour(topics)
+        else:
+            iterable = [(idx - 1, group) for idx, group in enumerate(_group_topics_for_parts(topics), 1)]
+        for part_index, group in iterable:
             part_start = min(t["start"] for t in group)
             part_end = max(t["end"] for t in group)
-            part_title = _make_part_title(group, streamer_name=streamer_name)
+            if group_by_hour:
+                part_title = f"第{part_index + 1}小时重点"
+            else:
+                part_title = _make_part_title(group, streamer_name=streamer_name)
             lines.append(
-                f"Part {part_index}: {part_title} "
+                f"Part {part_index + 1 if group_by_hour else part_index + 1}: {part_title} "
                 f"({_format_report_time(part_start)}－{_format_report_time(part_end)})"
             )
             for topic in group:
@@ -1345,7 +1416,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     if progress_callback:
         progress_callback("Step 5/5: 生成报告...", 97, 100)
 
-    raw_clip_marks = _dedupe_clip_marks(clip_marks)
+    _apply_danmaku_slice_decisions(accepted_topics, peaks, avg_den)
+    raw_clip_marks = _clip_marks_from_topics(accepted_topics)
     srt_segments_for_context = parse_srt_segments(srt_path)
     clip_marks = _expand_clip_marks_with_context(
         raw_clip_marks,
@@ -1356,6 +1428,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         video_name, peak_info, accepted_topics,
         failed_chunks=failed_chunks, api_warning=api_precheck_warning,
         streamer_name=streamer_display_name,
+        group_by_hour=True,
     )
 
     # 保存

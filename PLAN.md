@@ -289,3 +289,18 @@
 | 完成时间 | 2026-07-08 17:47 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
+
+### Action 5.15: 改成每小时重点与弹幕密度切片筛选 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.14 |
+| 描述 | 参考 video-topic-analyzer 成熟流程：每个处理块只提 1-2 个核心话题，最终报告按小时聚合为“每小时重点”；切片标记不再只依赖 LLM 的 ✂️，而是对重点话题结合弹幕峰值/平均密度进行筛选，只有弹幕密度高且非兜底的话题才进入 clip_marks。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；报告支持按小时分组，话题可切标记由弹幕密度决定，高密度重点会生成 clip_marks，低密度或兜底话题不切。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-08 21:41 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+

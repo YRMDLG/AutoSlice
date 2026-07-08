@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import requests
 
-from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _make_fallback_topic_from_chunk, _parse_llm_response, _streamer_report_name, chunk_srt, parse_srt_text)
+from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _apply_danmaku_slice_decisions, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _make_fallback_topic_from_chunk, _parse_llm_response, _streamer_report_name, chunk_srt, parse_srt_text)
 
 def make_http_error(status):
     response = requests.Response()
@@ -238,6 +238,42 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("Part 2: 毕业季话题", report)
         self.assertEqual(marks1, [{"start": 0, "end": 240, "title": "开场问候与天气闲聊"}])
         self.assertEqual(marks2, [])
+
+    def test_hourly_report_groups_key_points_by_video_hour(self):
+        topics = [
+            {"start": 120, "end": 300, "title": "开场聊天", "can_slice": False, "body": ["·音音开场聊天"]},
+            {"start": 1800, "end": 2100, "title": "生日企划", "can_slice": True, "body": ["·展示生日企划"]},
+            {"start": 3900, "end": 4200, "title": "视频评论", "can_slice": False, "body": ["·看视频评论"]},
+        ]
+
+        report = _build_timeline_report(
+            "测试.flv",
+            "弹幕峰值 2 个窗口",
+            topics,
+            streamer_name="音音",
+            group_by_hour=True,
+        )
+
+        self.assertIn("Part 1: 第1小时重点", report)
+        self.assertIn("Part 2: 第2小时重点", report)
+        self.assertIn("②[30:00－35:00]生日企划 ✂️", report)
+
+    def test_danmaku_density_selects_cuttable_key_points(self):
+        topics = [
+            {"start": 100, "end": 220, "title": "低密度聊天", "can_slice": True, "body": ["·普通聊天"]},
+            {"start": 1000, "end": 1120, "title": "高密度生日企划", "can_slice": False, "body": ["·生日企划"]},
+            {"start": 2000, "end": 2120, "title": "兜底高密度", "can_slice": False, "fallback": True, "body": ["·兜底"]},
+        ]
+        peaks = [(120, 60), (1020, 130), (2020, 150)]
+
+        _apply_danmaku_slice_decisions(topics, peaks, avg_density=80)
+        marks = _clip_marks_from_topics(topics)
+
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertTrue(topics[1]["can_slice"])
+        self.assertFalse(topics[2]["can_slice"])
+        self.assertEqual(marks, [{"start": 1000, "end": 1120, "title": "高密度生日企划"}])
+
     def test_dedupe_clip_marks_for_existing_json(self):
         marks = [
             {"start": 1, "end": 617, "title": "奈雪漏奶茶&抽卡沉船"},
@@ -525,7 +561,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(chunks[0]["start"], 0)
         self.assertEqual(chunks[0]["end"], 600)
         self.assertEqual(chunks[1]["start"], 601)
-        self.assertIn("2-5 个自然话题", prompt)
+        self.assertIn("1-2 个核心话题", prompt)
         self.assertEqual(len(prompt.split("## 字幕:\n", 1)[1]), LLM_FULL_TEXT_CHARS)
 
     def test_expand_context_includes_sc_or_gift_trigger_before_topic(self):
@@ -560,9 +596,5 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
 
 
