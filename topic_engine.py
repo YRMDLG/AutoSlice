@@ -562,6 +562,11 @@ _META_TITLE_KEYWORDS = (
     "中文（问候等）", "现在规划", "可能的最佳划分", "最佳划分",
     "具体分段", "梳理字幕", "连续意思", "输出最终条目", "读懂字幕",
     "具体要点", "比如",
+    "这部分明显", "继续讨论这个视频", "继续这段剧情", "總結話題",
+    "总结话题", "根據字幕", "可以劃分", "劃分為", "输出内容",
+    "严格按照格式", "标题加emoji", "最终输出", "感谢一个礼物",
+    "礼物、弹幕爆点", "确保时间戳", "让我们仔细构建", "最终输出示例",
+    "注意称呼",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -614,6 +619,11 @@ _META_BODY_KEYWORDS = (
     "梳理字幕", "连续意思", "输出最终条目", "让我们仔细整理", "读懂字幕",
     "具体要点", "比如：", "比如:", "我认为合理的划分", "我们可能还需要涵盖",
     "然后要点", "话题A", "话题B",
+    "这部分明显", "继续讨论这个视频", "继续这段剧情", "總結話題",
+    "总结话题", "根據字幕", "根据字幕", "我認為", "我认为", "可以劃分",
+    "可以划分", "劃分為", "划分为", "输出内容要严格按照格式", "严格按照格式",
+    "标题加emoji", "最终输出", "礼物、弹幕爆点", "确保时间戳",
+    "让我们仔细构建", "最终输出示例", "注意称呼", "如果有）",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -662,7 +672,7 @@ def _is_bad_topic_title(title):
         return True
     if any(keyword in title for keyword in _META_TITLE_KEYWORDS):
         return True
-    if re.match(r'^(所以|其实|可能|先|大致|关于).*?(整体|字幕|话题|整理|内容|弹幕|留言)', title):
+    if re.match(r'^(所以|其实|可能|先|大致|关于|这部分|继续).*?(整体|字幕|话题|整理|内容|弹幕|留言|剧情|礼物)', title):
         return True
     if len(clean) > MAX_TOPIC_TITLE_CHARS:
         return True
@@ -802,11 +812,14 @@ def _is_meta_body_line(line):
         return True
     if clean.startswith(("“", "\"")) and ("– 说" in clean or "- 说" in clean or len(clean) > 120):
         return True
+    if "->" in clean:
+        return True
     if clean in _FRAGMENT_BODY_LINES or normalized in _FRAGMENT_BODY_LINES:
         return True
     if clean.startswith((
         "标题：", "标题:", "第一个话题", "第二个话题", "第三个话题", "字幕原文",
-        "话题一", "话题二", "话题三", "第一part", "第二part", "第三个短",
+        "话题一", "话题二", "话题三", "話題1", "話題2", "話題3",
+        "第一part", "第二part", "第三个短",
     )):
         return True
     if clean.startswith((
@@ -822,6 +835,10 @@ def _is_meta_body_line(line):
         "观察事件", "现在规划", "可能的最佳划分", "具体分段", "梳理字幕",
         "输出最终条目", "让我们仔细整理", "读懂字幕", "具体要点", "比如",
         "我认为合理的划分", "我们可能还需要涵盖", "然后要点",
+        "这部分明显", "继续讨论这个视频", "继续这段剧情", "總結話題",
+        "根據字幕", "根据字幕", "输出内容要严格按照格式", "标题加emoji",
+        "最终输出", "礼物、弹幕爆点", "确保时间戳", "让我们仔细构建",
+        "最终输出示例", "注意称呼", "由于是音音自言自语",
     )):
         return True
     if re.match(r'^\d+\.\s*\d{1,2}:\d{2}', clean):
@@ -832,7 +849,7 @@ def _is_meta_body_line(line):
         return True
     if re.match(r'^\d{1,2}:\d{2}(?::\d{2})?\s*[：:]', clean):
         return True
-    if re.match(r'^\d+[.)、]\s*', clean) and re.search(r'(表演|评论|讨论|话题|游戏|感谢|朗读|观看|吐槽|礼物)', clean):
+    if re.match(r'^\d+[.)、]\s*', clean) and re.search(r'(表演|评论|讨论|话题|話題|游戏|感谢|朗读|观看|吐槽|礼物)', clean):
         return True
     if clean.startswith(("然后", "从")) and re.search(r'\d{1,2}:\d{2}(?::\d{2})?', clean):
         return True
@@ -842,9 +859,9 @@ def _is_meta_body_line(line):
         return True
     if re.match(r'^\d+[.、]\s*', clean) and re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean):
         return True
-    if re.match(r'^\d+[.、]\s*', clean) and re.search(r'(话题|关于|讨论|音音|主播|弹幕|感谢|游戏|时间|内容)', clean):
+    if re.match(r'^\d+[.、]\s*', clean) and re.search(r'(话题|話題|关于|讨论|音音|主播|弹幕|感谢|游戏|时间|内容)', clean):
         return True
-    if re.match(r'^(话题|第[一二三四五六七八九十]+段|第\d+段)\s*\d*[:：]', clean):
+    if re.match(r'^(话题|話題|第[一二三四五六七八九十]+段|第\d+段)\s*\d*[:：]', clean):
         return True
     if re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean) and re.search(r'(话题|时间|开始|结束|取到|部分|阶段)', clean):
         return True

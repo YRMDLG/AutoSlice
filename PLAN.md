@@ -393,3 +393,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 03:01 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v；api_config.json 已本地切换为 deepseek-v4-pro，未提交 token 文件。 |
+
+### Action 5.22: 过滤 Pro 输出的总结和格式说明残留 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.21 |
+| 描述 | 针对 DeepSeek V4 Pro 最新报告中的“这部分明显/继续这段剧情/總結話題/输出内容要严格按照格式/标题加emoji/感谢一个礼物”等总结和格式说明残留继续过滤；泛标题无法推导真实内容时丢弃，避免进入 clip_marks。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；最新 Pro 报告中的总结/格式说明残留不进入报告和切片 JSON。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 03:24 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
