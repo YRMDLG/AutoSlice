@@ -551,7 +551,8 @@ MAX_TOPIC_TITLE_CHARS = 24
 _META_TITLE_KEYWORDS = (
     "考虑分成", "考虑输出", "更好的方式", "更合理", "我们仔细", "仔细分析",
     "每个时间段", "提取可理解", "然后紧接着", "第二个话题", "第一个话题",
-    "可能的划分", "话题划分", "标题：", "标题:",
+    "可能的划分", "话题划分", "标题：", "标题:", "基于时间顺序",
+    "建议这样", "字幕原文", "让我们详细解析", "我们还需要",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -585,13 +586,19 @@ _META_BODY_KEYWORDS = (
     "我们仔细分析", "仔细分析每个时间段", "提取可理解", "这里明显", "我可以这样",
     "可以这样", "整体上，这是", "第二个话题", "第一个话题", "标题：", "标题:",
     "整个分块", "前部分", "我们只能", "不能用", "超过", "最后一段开始",
+    "首先，覆盖", "覆盖从", "要注意", "直接输出最终条目", "最好基于时间顺序",
+    "基于时间顺序整理", "建议这样划分", "子部分：", "子部分:", "字幕原文",
+    "但内容不确定", "写具体", "从语义看", "可以作为一个整体话题", "为了简洁",
+    "注意，我们", "分话题", "建议分成以下", "字幕分析", "总体来说",
+    "比较好的做法", "我建议", "我考虑", "我们也可以", "但中间有间隔",
+    "我们还需要写出具体要点", "让我们详细解析", "提取关键点", "可能游戏相关",
 )
 
 _FRAGMENT_BODY_LINES = {
     "要点", "补充细节", "具体要点", "另一个事件", "例如", "例如：", "例如:", "等等。", "等等",
     "内容要点", "内容要点：", "内容要点:", "输出", "主播", "加盟商", "店主", "连麦者",
     "但", "但是", "然后", "因为", "所以", "因此", "不过", "最后", "另外", "同时", "继续",
-    "…", "...", "……",
+    "弹幕/礼物高光", "弹幕礼物高光", "…", "...", "……",
 }
 
 _DANMAKU_META_KEYWORDS = (
@@ -754,9 +761,17 @@ def _is_meta_body_line(line):
         return True
     if clean in _FRAGMENT_BODY_LINES or normalized in _FRAGMENT_BODY_LINES:
         return True
-    if clean.startswith(("标题：", "标题:", "第一个话题", "第二个话题", "第三个话题")):
+    if clean.startswith(("标题：", "标题:", "第一个话题", "第二个话题", "第三个话题", "字幕原文")):
         return True
-    if clean.startswith(("然后从", "另外，前部分", "整个分块", "注意最后一段", "更好的方式", "更合理")):
+    if clean.startswith((
+        "首先，覆盖", "覆盖从", "要注意", "注意字幕", "然后从", "另外，前部分", "整个分块",
+        "注意最后一段", "更好的方式", "更合理", "其实我们最好", "建议这样",
+        "子部分", "从语义看", "为了简洁", "注意，我们", "字幕分析", "总体来说",
+        "比较好的做法", "我建议", "我考虑", "我们也可以", "但中间有间隔",
+        "让我们详细解析",
+    )):
+        return True
+    if clean.startswith("[开始") or clean.startswith("开始－结束") or clean.startswith("开始-结束"):
         return True
     if re.match(r'^\d+[.、]\s*', clean) and re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean):
         return True
@@ -965,6 +980,12 @@ def _dedupe_clip_marks(marks):
             continue
         dedupe_topic = {"start": topic_start, "end": topic_end, "title": item["title"]}
         if _is_duplicate_topic(dedupe_topic, seen_topics):
+            continue
+        if any(
+            old.get("title") == item["title"]
+            and _overlap_ratio(item["start"], item["end"], old["start"], old["end"]) >= 0.5
+            for old in deduped
+        ):
             continue
         seen_topics.append(dedupe_topic)
         deduped.append(item)

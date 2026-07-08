@@ -293,16 +293,39 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 ·念出观众留言：生日会那晚在飞机上，希望下飞机时还没结束。
 ·音音提到BW期间有超强台风影响江浙沪，担心飞机延误，提醒大家带伞注意安全。
 ·第二个话题：
+[4:22:00－4:24:18]奶茶晚安互动 ✂️
+·这里继续讲妈妈打麻将赢钱想到请你喝奶茶，然后晚安，点名音乐生，希望大家早点休息。
+[4:24:05－4:25:31]奶茶晚安互动 ✂️
+·[开始－结束]话题标题 ✂️
+●弹幕/礼物高光
+·让我们详细解析字幕，提取关键点。
+·注意字幕最后“妈妈今天我妈打麻将赢钱了你喝杯那了”，然后进入下一个时间段。
 """
 
         _parse_llm_response(response, 4000, 14200, topics)
+        _parse_llm_response(response, 15700, 16000, topics)
         report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics, streamer_name="音音")
 
         self.assertIn("飞机台风提醒", report)
         self.assertIn("音音解释猴子钟表模拟器有延迟", report)
         self.assertIn("提醒大家带伞注意安全", report)
+        self.assertIn("奶茶晚安互动", report)
+        self.assertIn("妈妈打麻将赢钱想到请你喝奶茶", report)
         for dirty in ("考虑分成以下话题", "更好的方式", "我们仔细分析", "这里明显", "考虑输出", "标题：", "第二个话题"):
             self.assertNotIn(dirty, report)
+        for dirty in ("让我们详细解析", "提取关键点", "注意字幕最后", "[开始－结束]话题标题"):
+            self.assertNotIn(dirty, report)
+
+    def test_dedupe_same_title_overlapping_expanded_clip_marks(self):
+        marks = [
+            {"start": 15480, "end": 15858, "topic_start": 15720, "topic_end": 15858, "title": "奶茶晚安互动"},
+            {"start": 15602, "end": 15858, "topic_start": 15845, "topic_end": 15931, "title": "奶茶晚安互动"},
+            {"start": 30, "end": 260, "topic_start": 200, "topic_end": 210, "title": "话题B"},
+        ]
+
+        deduped = _dedupe_clip_marks(marks)
+
+        self.assertEqual([m["title"] for m in deduped], ["话题B", "奶茶晚安互动"])
 
     def test_dedupe_clip_marks_for_existing_json(self):
         marks = [
