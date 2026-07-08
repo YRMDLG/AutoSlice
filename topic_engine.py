@@ -547,12 +547,15 @@ _HEADING_RE = re.compile(
 )
 _NO_SLICE_HINTS = ("不切", "不加标记", "不建议切", "不要切", "不适合切")
 _PLACEHOLDER_TITLES = ("无明显话题", "话题标题", "下一个话题", "未命名片段", "从字幕看")
+_GENERIC_TOPIC_TITLES = ("日常聊天互动", "感谢礼物互动", "视频评论讨论", "游戏关卡挑战")
 MAX_TOPIC_TITLE_CHARS = 24
 _META_TITLE_KEYWORDS = (
     "考虑分成", "考虑输出", "更好的方式", "更合理", "我们仔细", "仔细分析",
     "每个时间段", "提取可理解", "然后紧接着", "第二个话题", "第一个话题",
     "可能的划分", "话题划分", "标题：", "标题:", "基于时间顺序",
-    "建议这样", "字幕原文", "让我们详细解析", "我们还需要",
+    "建议这样", "字幕原文", "让我们详细解析", "我们还需要", "先理解字幕",
+    "所以整体", "大致内容", "可能的整理", "从字幕看", "主要内容",
+    "第一part", "第二part", "第三个短", "话题一", "话题二",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -592,6 +595,11 @@ _META_BODY_KEYWORDS = (
     "注意，我们", "分话题", "建议分成以下", "字幕分析", "总体来说",
     "比较好的做法", "我建议", "我考虑", "我们也可以", "但中间有间隔",
     "我们还需要写出具体要点", "让我们详细解析", "提取关键点", "可能游戏相关",
+    "先理解字幕", "基于此", "要点要具体", "要点内容要具体", "思考如何写",
+    "输出中不要", "更精确", "我们可用", "话题一", "话题二", "可能的话题",
+    "大致内容", "评论文本", "原文：", "原文:", "整体来看", "注意时间戳",
+    "可能的整理", "不合要求", "第三个短", "主要内容:", "主要内容：",
+    "第一part", "第二part", "部分:", "部分：",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -639,9 +647,11 @@ def _is_bad_topic_title(title):
         return True
     if any(keyword in title for keyword in _META_TITLE_KEYWORDS):
         return True
+    if re.match(r'^(所以|其实|可能|先|大致|关于).*?(整体|字幕|话题|整理|内容|弹幕|留言)', title):
+        return True
     if len(clean) > MAX_TOPIC_TITLE_CHARS:
         return True
-    if any(keyword in clean for keyword in ("感谢我有十八岁的音乐", "感个CH的声音好", "但是下一次我不确定", "从字幕看", "然后从3")):
+    if any(keyword in clean for keyword in ("感谢我有十八岁的音乐", "感个CH的声音好", "但是下一次我不确定", "从字幕看", "然后从3", "嗯好了会了会了")):
         return True
     if re.fullmatch(r'[A-Za-z]{12,}', clean):
         return True
@@ -660,10 +670,19 @@ def _compact_topic_phrase(text, max_chars=MAX_TOPIC_TITLE_CHARS):
 
 def _derive_topic_title(title, body_lines):
     """长标题兜底：优先从正文关键词/第一条要点生成短标题。"""
-    if not _is_bad_topic_title(title):
-        return title
     body_text = " ".join(_strip_body_prefix(line) for line in body_lines)
     keyword_titles = (
+        (("300万", "石头"), "翡翠切石与包装"),
+        (("柳师傅", "包装"), "翡翠切石与包装"),
+        (("石头", "包装"), "翡翠切石与包装"),
+        (("眼睛", "鲁鲁修"), "角色画风与番剧回忆"),
+        (("英兰", "男公关"), "樱兰高校番剧回忆"),
+        (("字母A",), "字母A关卡挑战"),
+        (("a特别难",), "字母A关卡挑战"),
+        (("闭着眼", "这一关"), "闭眼关卡挑战"),
+        (("前女友", "回礼"), "前女友回礼吐槽"),
+        (("出轨",), "出轨玩笑互动"),
+        (("期末", "晚安"), "期末成绩与晚安互动"),
         (("十年前", "手机"), "十年前视频感慨"),
         (("千万", "播放"), "千万播放视频评论"),
         (("像素风",), "像素风古早感"),
@@ -677,7 +696,10 @@ def _derive_topic_title(title, body_lines):
     )
     for keywords, fallback_title in keyword_titles:
         if all(keyword in body_text for keyword in keywords):
-            return fallback_title
+            if _is_bad_topic_title(title) or title in _GENERIC_TOPIC_TITLES:
+                return fallback_title
+    if not _is_bad_topic_title(title):
+        return title
     for line in body_lines:
         phrase = _compact_topic_phrase(line)
         if phrase and len(phrase) >= 4:
@@ -759,16 +781,24 @@ def _is_meta_body_line(line):
     normalized = clean.strip(' （）()[]【】「」『』：:。；;，,、.!！?？')
     if re.fullmatch(r'\[?\d{1,2}:\d{2}(?::\d{2})?\s*', clean):
         return True
+    if clean.startswith(("“", "\"")) and ("– 说" in clean or "- 说" in clean or len(clean) > 120):
+        return True
     if clean in _FRAGMENT_BODY_LINES or normalized in _FRAGMENT_BODY_LINES:
         return True
-    if clean.startswith(("标题：", "标题:", "第一个话题", "第二个话题", "第三个话题", "字幕原文")):
+    if clean.startswith((
+        "标题：", "标题:", "第一个话题", "第二个话题", "第三个话题", "字幕原文",
+        "话题一", "话题二", "话题三", "第一part", "第二part", "第三个短",
+    )):
         return True
     if clean.startswith((
         "首先，覆盖", "覆盖从", "要注意", "注意字幕", "然后从", "另外，前部分", "整个分块",
         "注意最后一段", "更好的方式", "更合理", "其实我们最好", "建议这样",
         "子部分", "从语义看", "为了简洁", "注意，我们", "字幕分析", "总体来说",
         "比较好的做法", "我建议", "我考虑", "我们也可以", "但中间有间隔",
-        "让我们详细解析",
+        "让我们详细解析", "先理解字幕", "基于此", "要点要具体", "要点内容",
+        "思考如何写", "输出中不要", "更精确", "我们可用", "可能的话题",
+        "大致内容", "从字幕看", "整体来看", "注意时间戳", "可能的整理",
+        "主要内容", "部分:",
     )):
         return True
     if clean.startswith("[开始") or clean.startswith("开始－结束") or clean.startswith("开始-结束"):
@@ -782,6 +812,8 @@ def _is_meta_body_line(line):
     if re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean) and re.search(r'(话题|时间|开始|结束|取到|部分|阶段)', clean):
         return True
     if re.search(r'\d{1,2}:\d{2}(?::\d{2})?\s*[-－]\s*\d{1,2}:\d{2}', clean) and re.search(r'(注意|但是|但|我们|考虑|更好|更合理|然后|这里|标题|划分|输出|合并)', clean):
+        return True
+    if re.match(r'^\d{1,2}:\d{2}(?::\d{2})?\s*(?:开始|继续)', clean) and re.search(r'(评论文本|讨论|抱怨|感谢|开始)', clean):
         return True
     # 被 max_tokens 截断时常出现“·主播”“·加盟商”“·但”这类无法独立理解的半句。
     if len(normalized) <= 3 and normalized in {"主播", "观众", "弹幕", "店主", "对方", "加盟商", "但", "输出"}:
@@ -808,15 +840,22 @@ def _is_meta_body_line(line):
     return False
 
 
+def _clean_body_content(line):
+    """保留有效信息，同时去掉模型常见的总结式开头。"""
+    clean = _strip_body_prefix(line)
+    clean = re.sub(r'^(?:所以整体是|大致内容[:：]?|主要内容[:：]?|首先[，,]\s*)', '', clean).strip()
+    clean = clean.replace("音音音音", "音音")
+    return clean
+
+
 def _normalise_body_line(line):
     """规范正文要点前缀，让报告接近人工时间轴。"""
-    line = line.strip()
+    raw = line.strip()
+    line = _clean_body_content(raw)
     if not line or _is_meta_body_line(line):
         return ""
-    if line.startswith(("·", "●")):
-        return line
-    if line.startswith(("- ", "* ", "• ")):
-        return "·" + line[2:].strip()
+    if raw.startswith("●"):
+        return "●" + line
     return "·" + line
 
 

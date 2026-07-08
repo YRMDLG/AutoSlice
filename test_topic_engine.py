@@ -327,6 +327,39 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
         self.assertEqual([m["title"] for m in deduped], ["话题B", "奶茶晚安互动"])
 
+    def test_clean_current_report_structural_draft_and_clip_title(self):
+        topics = []
+        response = """
+[0:40:10－0:41:56]先理解字幕
+·先理解字幕：
+·“是不是特别修长现在才现最近几年才眼睛没那么大以前眼睛特别大” – 说眼睛修长。
+·基于此，我们整理话题：
+·音音提到以前人体比例动感大，现在眼睛修长，以前眼睛太大显得不精致。
+·话题一：
+[1:32:00－1:34:20]所以整体是主播在讲他之前看上一块300万的石头 ✂️
+·所以整体是音音在讲他之前看上一块300万的石头，预估价格但没买，然后自己买了五万和二十六万两个小石头。
+·柳师傅分解出好的部分做成小件，音音反思通过设计包装，感觉又好了。
+[2:58:00－3:00:13]感谢礼物互动
+·从字幕看，有多个片段：
+·可能的话题：
+·2:55:13开始评论文本A。
+·音音感叹太难，决定要闭着眼玩这一关。
+·感谢“小h六六四幺”的沙画。
+"""
+
+        _, marks1 = _parse_llm_response(response, 2400, 2550, topics)
+        _, marks2 = _parse_llm_response(response, 5520, 5660, topics)
+        _parse_llm_response(response, 17880 - 7200, 18020 - 7200, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics, streamer_name="音音")
+
+        self.assertIn("翡翠切石与包装", report)
+        self.assertIn("柳师傅分解出好的部分做成小件", report)
+        self.assertIn("闭眼关卡挑战", report)
+        self.assertEqual(marks1, [])
+        self.assertEqual(marks2, [{"start": 5520, "end": 5660, "title": "翡翠切石与包装"}])
+        for dirty in ("先理解字幕", "基于此", "话题一", "所以整体", "从字幕看", "可能的话题", "评论文本A"):
+            self.assertNotIn(dirty, report)
+
     def test_dedupe_clip_marks_for_existing_json(self):
         marks = [
             {"start": 1, "end": 617, "title": "奈雪漏奶茶&抽卡沉船"},
