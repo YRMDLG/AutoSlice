@@ -1,11 +1,11 @@
-﻿import unittest
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import mock_open, patch
 
 import requests
 
-from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _apply_danmaku_slice_decisions, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _make_fallback_topic_from_chunk, _parse_llm_response, _streamer_report_name, chunk_srt, parse_srt_text)
+from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL, _apply_danmaku_slice_decisions, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _make_fallback_topic_from_chunk, _parse_llm_response, _streamer_report_name, chunk_srt, load_api_config, parse_srt_text)
 
 def make_http_error(status):
     response = requests.Response()
@@ -16,6 +16,23 @@ def make_http_error(status):
 
 class TopicEngineParseTests(unittest.TestCase):
     """话题分析解析与去重的快速回归测试。"""
+
+    def test_default_llm_model_uses_deepseek_v4_pro(self):
+        self.assertEqual(LLM_MODEL, "deepseek-v4-pro")
+
+        with (
+            patch("topic_engine.os.path.exists", return_value=True),
+            patch("builtins.open", mock_open(read_data="{}")),
+            patch("topic_engine.json.load", return_value={"base_url": "https://example.test", "token": "token"}),
+        ):
+            self.assertEqual(load_api_config()[2], "deepseek-v4-pro")
+
+        with (
+            patch("topic_engine.os.path.exists", return_value=False),
+            patch("builtins.open", mock_open(read_data="{}")),
+            patch("topic_engine.json.load", return_value={"env": {"ANTHROPIC_BASE_URL": "https://example.test", "ANTHROPIC_AUTH_TOKEN": "token"}}),
+        ):
+            self.assertEqual(load_api_config()[2], "deepseek-v4-pro")
 
     def test_filter_prompt_example_outside_current_chunk_and_keep_body(self):
         response = """

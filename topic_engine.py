@@ -1,7 +1,7 @@
 """
 话题分析 + 智能切片引擎
 
-流水线: FunASR转录 → 弹幕密度分析 → SRT分块 → DeepSeek Flash分析 → 报告 + 切片标记
+流水线: FunASR转录 → 弹幕密度分析 → SRT分块 → DeepSeek Pro分析 → 报告 + 切片标记
 
 用法:
   from topic_engine import run_pipeline
@@ -18,7 +18,7 @@ from datetime import timedelta
 # 配置
 # ============================================================
 CHUNK_SEC = 600          # 每块 10 分钟：减少 API 调用，降低话题被硬切碎的概率
-LLM_MODEL = "deepseek-v4-flash"  # 用 Flash 省钱
+LLM_MODEL = "deepseek-v4-pro"
 LLM_MAX_TOKENS = 2200
 LLM_COMPACT_MAX_TOKENS = 1200
 LLM_FULL_TEXT_CHARS = 8000
@@ -111,13 +111,13 @@ def load_api_config():
     if os.path.exists(auto_cfg):
         with open(auto_cfg) as f:
             cfg = json.load(f)
-        return cfg["base_url"], cfg["token"], cfg.get("model", "deepseek-v4-flash")
+        return cfg["base_url"], cfg["token"], cfg.get("model", LLM_MODEL)
 
     # 2. 回退到 Claude 配置
     cfg_path = os.path.expanduser(r"~\.claude\settings.json")
     with open(cfg_path) as f:
         cfg = json.load(f)
-    return cfg["env"]["ANTHROPIC_BASE_URL"], cfg["env"]["ANTHROPIC_AUTH_TOKEN"], "deepseek-v4-flash"
+    return cfg["env"]["ANTHROPIC_BASE_URL"], cfg["env"]["ANTHROPIC_AUTH_TOKEN"], LLM_MODEL
 
 
 # ============================================================

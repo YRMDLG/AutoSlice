@@ -10,7 +10,7 @@
 2. 无 SRT 时自动用 FunASR 生成，有 SRT 直接读
 3. 独立新功能，不修改现有的弹幕切片 / docx 时间轴切片
 4. 弹幕密度 + LLM 话题分析结合，AI 标记哪些段该切，自动切片按报告执行
-5. LLM 用 DeepSeek v4 Flash（不用 Pro）
+5. LLM 用 DeepSeek V4 Pro
 
 ## 架构
 
@@ -44,7 +44,7 @@
 - [ ] 弹幕密度峰值提取（复用 core.py find_dense_periods）
 - [ ] SRT 分块（移植 skill 的 5 分钟分块策略）
 - [ ] LLM prompt（结合弹幕密度数据，标记可切片段）
-- [ ] DeepSeek v4 Flash API 调用
+- [ ] DeepSeek V4 Pro API 调用
 - [ ] 输出：话题报告.md + clip_marks.json
 
 ### Phase 2: Web 集成
@@ -379,3 +379,17 @@
 | 完成时间 | 2026-07-09 02:54 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
 
+
+### Action 5.21: 切换话题分析模型为 DeepSeek V4 Pro [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.20 |
+| 描述 | 将话题分析默认 LLM 从 deepseek-v4-flash 切换为 deepseek-v4-pro，并同步本地 api_config.json 的 model 字段；报告展示和配置兜底均使用 Pro。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` `api_config.json(本地不提交)` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；默认 LLM_MODEL 和 load_api_config 兜底模型均为 deepseek-v4-pro，本地 api_config.json 的 model 字段已切换。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 03:01 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v；api_config.json 已本地切换为 deepseek-v4-pro，未提交 token 文件。 |
