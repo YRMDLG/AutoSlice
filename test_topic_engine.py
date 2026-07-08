@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import requests
 
-from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _parse_llm_response, _streamer_report_name, chunk_srt, parse_srt_text)
+from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _make_fallback_topic_from_chunk, _parse_llm_response, _streamer_report_name, chunk_srt, parse_srt_text)
 
 def make_http_error(status):
     response = requests.Response()
@@ -340,6 +340,48 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             "更聪明的做法", "每条对应真实时间", "不符合常识", "忠实于数据",
         ):
             self.assertNotIn(dirty, report)
+
+    def test_long_raw_titles_are_shortened_and_more_meta_noise_filtered(self):
+        topics = []
+        response = """
+[1:10:20－1:12:46]感个CH的声音好可以可以能听到哎但说实话稍微有点嘈杂了但没有办法因为那时候条件就是没有那么好太听的话那我就把这个效果关掉好了我真的没有病哦这应该是觉得开场没开好才不能开场那我当时时么了十年了二十年后的我啊你好啊 ✂️
+·这段音音在说找到十年前的手机，看到自己曾经给十年后的自己留的视频，感慨UP主努力。
+[1:30:00－1:32:42]但是下一次我不确定下一是什么时候看下次可能没有时间啊等一下看一下下天半它都看了
+·```我们说先看到这里来看到八点十分了后面你就不看了后面的视了```
+·看第二段: 1:27:53-1:27:59 音音说喜欢像素风古早感，第三段: 1:28:00-1:30:14 音音在读祝福请求并回应
+·同样，1:28:00-1:30:14的话题，我们取到1:30:14
+[4:24:05－4:25:17]感谢我有十八岁的音乐
+·第二段：[4:22:00－4:24:18] “想爱你啊音乐生宝宝好可爱妈妈打麻将要赢钱了想到的是请一喝奶茶”
+·这显然是连麦或互动，提到妈妈打麻将赢钱请喝奶茶，然后说晚安，感谢观众，收尾。
+·我们按时间顺序梳理：
+"""
+        _parse_llm_response(response, 4200, 16000, topics)
+        report = _build_timeline_report("测试.flv", "无弹幕数据", topics, streamer_name="音音")
+
+        self.assertIn("十年前视频感慨", report)
+        self.assertNotIn("感个CH的声音好", report)
+        self.assertNotIn("```", report)
+        self.assertNotIn("看第二段", report)
+        self.assertNotIn("同样", report)
+        self.assertNotIn("第二段：", report)
+        self.assertNotIn("我们按时间顺序梳理", report)
+        self.assertTrue(all(len(topic["title"]) <= 24 for topic in topics))
+
+    def test_make_fallback_topic_from_empty_llm_chunk(self):
+        chunk = {
+            "start": 600,
+            "end": 1200,
+            "text": "[0:10:00] 音音继续和观众聊天，读弹幕，感谢礼物，聊生日安排",
+            "danmaku_info": "无弹幕",
+        }
+
+        topic = _make_fallback_topic_from_chunk(chunk, streamer_name="音音")
+
+        self.assertEqual(topic["start"], 600)
+        self.assertEqual(topic["end"], 1200)
+        self.assertFalse(topic["can_slice"])
+        self.assertIn(topic["title"], {"感谢礼物互动", "生日相关聊天", "读弹幕互动"})
+        self.assertIn("连续聊天/互动", "\n".join(topic["body"]))
 
     def test_parse_srt_text_dedupes_repeated_long_segments_and_repairs_time(self):
         long_text = "这是一段异常长的字幕" * 30

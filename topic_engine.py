@@ -545,6 +545,7 @@ _HEADING_RE = re.compile(
 )
 _NO_SLICE_HINTS = ("不切", "不加标记", "不建议切", "不要切", "不适合切")
 _PLACEHOLDER_TITLES = ("无明显话题", "话题标题", "下一个话题", "未命名片段")
+MAX_TOPIC_TITLE_CHARS = 24
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
     "输出格式", "输出如下", "不要输出", "程序会自动", "允许时间范围", "当前分块",
@@ -566,6 +567,9 @@ _META_BODY_KEYWORDS = (
     "很难分开", "检查要求", "要点2", "可以考虑更具体", "也可以分", "也许可以写",
     "更符合实际", "原字幕没有说完", "忠实于数据", "不符合常识", "每条对应真实时间",
     "字幕未显示", "我们谨慎", "我们写", "可以不用●",
+    "看第二段", "第一段", "第二段", "第三段", "第四段", "同样，", "同样，1:",
+    "我们说", "这显然", "时间重叠", "重新组织", "按时间顺序梳理", "接着在",
+    "从“", "开始到", "我们取到", "最好重新", "约4:", "约3:", "约2:", "约1:",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -598,6 +602,55 @@ def _clean_topic_title(raw_title):
     title = _strip_title_meta(title)
     title = re.sub(r'\s+', ' ', title)
     return title.strip(' -—：:？?。；;，,') or "未命名片段"
+
+
+def _is_bad_topic_title(title):
+    """识别模型把整段字幕当标题的情况。"""
+    clean = re.sub(r'\s+', '', title or "")
+    if not clean:
+        return True
+    if len(clean) > MAX_TOPIC_TITLE_CHARS:
+        return True
+    if any(keyword in clean for keyword in ("感谢我有十八岁的音乐", "感个CH的声音好", "但是下一次我不确定")):
+        return True
+    return False
+
+
+def _compact_topic_phrase(text, max_chars=MAX_TOPIC_TITLE_CHARS):
+    """从正文提取一个短标题片段。"""
+    clean = _strip_body_prefix(text)
+    clean = re.sub(r'^(这段|这里|音音|主播|她|他|继续)?(在)?(说|提到|聊到|表示|分析|吐槽|感谢|读弹幕|回应)', '', clean)
+    clean = re.sub(r'[“”"`]', '', clean)
+    clean = re.split(r'[，。；;：:、（）()\s]', clean, maxsplit=1)[0]
+    clean = clean.strip(' -—：:？?。；;，,、')
+    return clean[:max_chars] if clean else ""
+
+
+def _derive_topic_title(title, body_lines):
+    """长标题兜底：优先从正文关键词/第一条要点生成短标题。"""
+    if not _is_bad_topic_title(title):
+        return title
+    body_text = " ".join(_strip_body_prefix(line) for line in body_lines)
+    keyword_titles = (
+        (("十年前", "手机"), "十年前视频感慨"),
+        (("千万", "播放"), "千万播放视频评论"),
+        (("像素风",), "像素风古早感"),
+        (("朱鹮", "新闻"), "读新闻吐槽朱鹮"),
+        (("妈妈", "奶茶"), "奶茶晚安互动"),
+        (("晚安", "音乐生"), "晚安收尾互动"),
+        (("店铺", "亏损"), "连麦分析店铺亏损"),
+        (("咖啡", "加盟"), "咖啡加盟经营分析"),
+        (("礼物",), "感谢礼物互动"),
+        (("评论",), "读评论与感想"),
+    )
+    for keywords, fallback_title in keyword_titles:
+        if all(keyword in body_text for keyword in keywords):
+            return fallback_title
+    for line in body_lines:
+        phrase = _compact_topic_phrase(line)
+        if phrase and len(phrase) >= 4:
+            return phrase
+    return "日常聊天互动"
 
 def _strip_title_meta(title):
     """去掉模型写进标题里的自我判断尾巴，避免污染报告和文件名。"""
@@ -667,6 +720,8 @@ def _is_meta_body_line(line):
     raw = line.strip()
     clean = _strip_body_prefix(line)
     if not clean:
+        return True
+    if "```" in clean:
         return True
 
     normalized = clean.strip(' （）()[]【】「」『』：:。；;，,、.!！?？')
@@ -740,12 +795,13 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
         if not body_lines:
             return
         end_s = _repair_short_topic_end(start_s, end_s, body_lines, chunk_end)
+        title = _derive_topic_title(current["title"], body_lines)
         topic = {
             "start": start_s,
             "end": end_s,
             "start_str": current["start_str"],
             "end_str": fmt_time(end_s),
-            "title": current["title"],
+            "title": title,
             "can_slice": current["can_slice"],
             "body": body_lines,
         }
@@ -786,6 +842,64 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
         if topic["can_slice"]
     ]
     return report_blocks, clip_marks
+
+
+def _strip_prompt_time_labels(text):
+    """去掉分块字幕里的 [time] 标签，生成兜底摘要时使用。"""
+    lines = []
+    for raw in (text or "").splitlines():
+        line = re.sub(r'^\[[^\]]+\]\s*', '', raw).strip()
+        if line:
+            lines.append(line)
+    return " ".join(lines)
+
+
+def _fallback_title_from_text(text):
+    """LLM 漏分块时，根据字幕关键词生成保底话题标题。"""
+    if not text:
+        return "日常聊天互动"
+    rules = (
+        (("游戏", "关卡"), "游戏过程互动"),
+        (("咖啡", "店"), "咖啡店经营讨论"),
+        (("加盟",), "加盟经营讨论"),
+        (("礼物",), "感谢礼物互动"),
+        (("生日",), "生日相关聊天"),
+        (("晚安",), "晚安收尾互动"),
+        (("弹幕",), "读弹幕互动"),
+        (("视频", "评论"), "视频评论讨论"),
+        (("新闻",), "新闻内容吐槽"),
+    )
+    for keywords, title in rules:
+        if all(keyword in text for keyword in keywords):
+            return title
+    phrase = _compact_topic_phrase(text)
+    return phrase if phrase and len(phrase) >= 4 else "日常聊天互动"
+
+
+def _make_fallback_topic_from_chunk(ch, streamer_name="音音"):
+    """当 LLM 对分块没有有效输出时，生成非切片兜底时间轴，避免整场直播空白。"""
+    text = _strip_prompt_time_labels(ch.get("text", ""))
+    text = re.sub(r'\s+', '', text)
+    if len(text) < 20:
+        return None
+    title = _fallback_title_from_text(text)
+    preview = text[:90]
+    topic = {
+        "start": int(ch["start"]),
+        "end": int(ch.get("end", ch["start"] + CHUNK_SEC)),
+        "start_str": fmt_time(ch["start"]),
+        "end_str": fmt_time(ch.get("end", ch["start"] + CHUNK_SEC)),
+        "title": title,
+        "can_slice": False,
+        "body": [
+            f"·本段主要是{streamer_name}围绕“{preview}”展开的连续聊天/互动",
+            "·内容较碎，以连续聊天和即时互动为主，未单独标记为切片",
+        ],
+        "fallback": True,
+    }
+    return topic
+
+
 def _dedupe_clip_marks(marks):
     """对 clip_marks 做最终去重，避免旧 JSON 或异常响应导致重复切片。"""
     deduped = []
@@ -1200,8 +1314,13 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
 
         consecutive_failed_chunks = 0
         # 解析话题和切片标记：按当前块时间范围过滤，正文进入最终时间轴报告
+        before_topic_count = len(accepted_topics)
         _, marks = _parse_llm_response(response, chunk_start, chunk_end, accepted_topics)
         clip_marks.extend(marks)
+        if len(accepted_topics) == before_topic_count:
+            fallback_topic = _make_fallback_topic_from_chunk(ch, streamer_name=streamer_display_name)
+            if fallback_topic and not _is_duplicate_topic(fallback_topic, accepted_topics):
+                accepted_topics.append(fallback_topic)
         time.sleep(0.3)  # 避免限流
 
     # Step 5: 生成文件
