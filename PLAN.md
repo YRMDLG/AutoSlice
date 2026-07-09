@@ -519,3 +519,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 16:10 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.31: 人工时间轴快路径避免 Pro 全量超时 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.30 |
+| 描述 | 当录播日期存在 `F:\切片时间轴` docx 时，优先使用人工时间轴聚合生成干净话题并结合弹幕筛切片，跳过 39 个 LLM 分块，避免 DeepSeek Pro 全量推理超时；无人工时间轴时仍走 LLM。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；人工时间轴可聚合为干净话题，真实分析不会因 Pro 全量分块超时。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 16:35 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

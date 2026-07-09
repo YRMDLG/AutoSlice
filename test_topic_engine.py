@@ -14,7 +14,8 @@ from topic_engine import (
     _extract_video_start_datetime, _infer_streamer_name, _is_retryable_llm_error,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _manual_timeline_info_for_chunk, _parse_llm_response,
-    _parse_manual_timeline_lines, _streamer_report_name, chunk_srt,
+    _parse_manual_timeline_lines, _streamer_report_name,
+    _topics_from_manual_timeline, chunk_srt,
     load_api_config, parse_srt_text,
 )
 
@@ -406,6 +407,23 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(len(topics), 1)
         self.assertIn("太黄暴", "\n".join(topics[0]["body"]))
         self.assertEqual(topics[0]["manual_stars"], 1)
+
+    def test_topics_from_manual_timeline_groups_clean_entries(self):
+        entries = _parse_manual_timeline_lines(
+            [
+                "20:31:56 最喜欢在上帝视角看你们猜了“这个剪影迷惑性还挺强的” ⭐",
+                "20:34:51 “尾巴？音悦生整肛塞吧”",
+                "20:35:30 “只是吃瓜”“太黄暴了，不能跟你们说” ⭐",
+            ],
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+
+        topics = _topics_from_manual_timeline(entries)
+
+        self.assertEqual(len(topics), 1)
+        self.assertIn("剪影", topics[0]["title"])
+        self.assertEqual(topics[0]["manual_stars"], 1)
+        self.assertIn("●人工时间轴⭐", "\n".join(topics[0]["body"]))
 
     def test_manual_star_is_not_swallowed_by_fallback_topic(self):
         entries = _parse_manual_timeline_lines(

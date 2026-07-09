@@ -377,6 +377,51 @@ def _merge_manual_timeline_topics(topics, entries):
     return topics
 
 
+def _topics_from_manual_timeline(entries, max_gap_sec=240):
+    """人工时间轴快路径：按时间相近记录聚合成干净话题。"""
+    sorted_entries = sorted(entries or [], key=lambda item: item["start"])
+    groups = []
+    current = []
+    for entry in sorted_entries:
+        if not current:
+            current = [entry]
+            continue
+        same_hour = int(entry["start"] // 3600) == int(current[-1]["start"] // 3600)
+        if same_hour and entry["start"] - current[-1]["start"] <= max_gap_sec:
+            current.append(entry)
+        else:
+            groups.append(current)
+            current = [entry]
+    if current:
+        groups.append(current)
+
+    topics = []
+    for group in groups:
+        title_entry = next((item for item in group if item.get("stars", 0) > 0), group[0])
+        body = []
+        for item in group:
+            time_label = fmt_time(item["start"])
+            if item.get("stars", 0) > 0:
+                stars = "⭐" * min(item.get("stars", 0), 5)
+                body.append(f"●人工时间轴{stars}：{time_label} {item['text']}")
+            else:
+                body.append(f"·{time_label} {item['text']}")
+        topic = {
+            "start": max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0)),
+            "end": int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120),
+            "start_str": fmt_time(max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0))),
+            "end_str": fmt_time(int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120)),
+            "title": _manual_title_from_text(title_entry["text"]),
+            "can_slice": False,
+            "body": body,
+            "manual_stars": max(item.get("stars", 0) for item in group),
+            "manual_timeline": group,
+            "source": "manual_timeline",
+        }
+        topics.append(topic)
+    return topics
+
+
 def load_api_config():
     """读取 API 配置，优先用 AutoSlice 自己的，否则用 Claude 的"""
     # 1. 先试 AutoSlice 独立配置
@@ -2025,97 +2070,106 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             )
     total = len(chunks)
 
-    # Step 4: 逐块 LLM 分析（先预检 API）
+    # Step 4: 有人工时间轴时走快路径，避免 Pro 推理过慢；无人工时间轴再调用 LLM。
     api_precheck_warning = None
-    if progress_callback:
-        progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
-    try:
-        test_resp = _call_llm_with_retry(
-            "只输出 OK 两个字母，不要解释，不要推理。",
-            max_tokens=1000,
-            attempts=3,
-            progress_callback=progress_callback,
-            progress_label="API预检",
-            progress_step=22,
-        )
-        if not test_resp or len(test_resp.strip()) < 1:
-            raise RuntimeError("API 返回空内容")
-    except Exception as e:
-        msg = _short_llm_error(e)
-        if _is_retryable_llm_error(e):
-            api_precheck_warning = msg
-            if progress_callback:
-                progress_callback(
-                    f"API 预检遇到上游临时错误，将继续尝试正式分块: {msg}",
-                    22, 100,
-                )
-        else:
-            if progress_callback:
-                progress_callback(f"API 预检失败: {msg}", 0, 100)
-            raise RuntimeError(f"API 预检失败: {msg}") from e
-
     clip_marks = []
     accepted_topics = []
     failed_chunks = []
     consecutive_failed_chunks = 0
 
-
-    for i, ch in enumerate(chunks):
-        pct = 25 + int((i / total) * 70)
-        t = fmt_time(ch["start"])
+    if manual_entries:
+        accepted_topics = _topics_from_manual_timeline(manual_entries)
         if progress_callback:
-            progress_callback(f"Step 4/5: LLM分析 ({i+1}/{total}, {t})...", pct, 100)
-
-        # 构造 prompt：失败重试时会自动降级为紧凑提示，降低 5xx 概率
-        prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False, streamer_name=streamer_display_name)
-        compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True, streamer_name=streamer_display_name)
-
-        try:
-            response = _call_llm_with_retry(
-                prompt,
-                compact_prompt=compact_prompt,
-                progress_callback=progress_callback,
-                progress_label=f"块 {i+1} API",
-                progress_step=pct,
+            progress_callback(
+                f"Step 4/5: 使用人工时间轴快路径 ({len(accepted_topics)} 个话题)，跳过 LLM 分块...",
+                93, 100,
             )
+    else:
+        if progress_callback:
+            progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
+        try:
+            test_resp = _call_llm_with_retry(
+                "只输出 OK 两个字母，不要解释，不要推理。",
+                max_tokens=1000,
+                attempts=3,
+                progress_callback=progress_callback,
+                progress_label="API预检",
+                progress_step=22,
+            )
+            if not test_resp or len(test_resp.strip()) < 1:
+                raise RuntimeError("API 返回空内容")
         except Exception as e:
-            err = _short_llm_error(e)
-            failed_chunks.append({
-                "index": i + 1,
-                "start": int(chunk_start),
-                "end": int(chunk_end),
-                "time": fmt_time(chunk_start),
-                "error": err,
-            })
-            if progress_callback:
-                progress_callback(f"块 {i+1} API 连续失败，已跳过: {err}", pct, 100)
+            msg = _short_llm_error(e)
             if _is_retryable_llm_error(e):
-                consecutive_failed_chunks += 1
+                api_precheck_warning = msg
+                if progress_callback:
+                    progress_callback(
+                        f"API 预检遇到上游临时错误，将继续尝试正式分块: {msg}",
+                        22, 100,
+                    )
             else:
-                consecutive_failed_chunks = MAX_INITIAL_FAILED_CHUNKS
-            if consecutive_failed_chunks >= MAX_INITIAL_FAILED_CHUNKS and not accepted_topics and not clip_marks:
-                raise RuntimeError(
-                    f"LLM API 连续 {consecutive_failed_chunks} 个分块失败，疑似上游服务不可用。"
-                    f"最后错误: {err}"
-                ) from e
-            continue
+                if progress_callback:
+                    progress_callback(f"API 预检失败: {msg}", 0, 100)
+                raise RuntimeError(f"API 预检失败: {msg}") from e
 
-        consecutive_failed_chunks = 0
-        # 解析话题和切片标记：按当前块时间范围过滤，正文进入最终时间轴报告
-        before_topic_count = len(accepted_topics)
-        _, marks = _parse_llm_response(
-            response,
-            chunk_start,
-            chunk_end,
-            accepted_topics,
-            allow_markdown_fallback=False,
-        )
-        clip_marks.extend(marks)
-        if len(accepted_topics) == before_topic_count:
-            fallback_topic = _make_fallback_topic_from_chunk(ch, streamer_name=streamer_display_name)
-            if fallback_topic and not _is_duplicate_topic(fallback_topic, accepted_topics):
-                accepted_topics.append(fallback_topic)
-        time.sleep(0.3)  # 避免限流
+
+
+        for i, ch in enumerate(chunks):
+            pct = 25 + int((i / total) * 70)
+            t = fmt_time(ch["start"])
+            if progress_callback:
+                progress_callback(f"Step 4/5: LLM分析 ({i+1}/{total}, {t})...", pct, 100)
+
+            # 构造 prompt：失败重试时会自动降级为紧凑提示，降低 5xx 概率
+            prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False, streamer_name=streamer_display_name)
+            compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True, streamer_name=streamer_display_name)
+
+            try:
+                response = _call_llm_with_retry(
+                    prompt,
+                    compact_prompt=compact_prompt,
+                    progress_callback=progress_callback,
+                    progress_label=f"块 {i+1} API",
+                    progress_step=pct,
+                )
+            except Exception as e:
+                err = _short_llm_error(e)
+                failed_chunks.append({
+                    "index": i + 1,
+                    "start": int(chunk_start),
+                    "end": int(chunk_end),
+                    "time": fmt_time(chunk_start),
+                    "error": err,
+                })
+                if progress_callback:
+                    progress_callback(f"块 {i+1} API 连续失败，已跳过: {err}", pct, 100)
+                if _is_retryable_llm_error(e):
+                    consecutive_failed_chunks += 1
+                else:
+                    consecutive_failed_chunks = MAX_INITIAL_FAILED_CHUNKS
+                if consecutive_failed_chunks >= MAX_INITIAL_FAILED_CHUNKS and not accepted_topics and not clip_marks:
+                    raise RuntimeError(
+                        f"LLM API 连续 {consecutive_failed_chunks} 个分块失败，疑似上游服务不可用。"
+                        f"最后错误: {err}"
+                    ) from e
+                continue
+
+            consecutive_failed_chunks = 0
+            # 解析话题和切片标记：按当前块时间范围过滤，正文进入最终时间轴报告
+            before_topic_count = len(accepted_topics)
+            _, marks = _parse_llm_response(
+                response,
+                chunk_start,
+                chunk_end,
+                accepted_topics,
+                allow_markdown_fallback=False,
+            )
+            clip_marks.extend(marks)
+            if len(accepted_topics) == before_topic_count:
+                fallback_topic = _make_fallback_topic_from_chunk(ch, streamer_name=streamer_display_name)
+                if fallback_topic and not _is_duplicate_topic(fallback_topic, accepted_topics):
+                    accepted_topics.append(fallback_topic)
+            time.sleep(0.3)  # 避免限流
 
     # Step 5: 生成文件
     if progress_callback:
