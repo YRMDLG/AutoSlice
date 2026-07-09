@@ -1643,6 +1643,61 @@ def _dedupe_clip_marks(marks):
     return deduped
 
 
+def _merge_expanded_clip_marks(marks):
+    """合并上下文扩展后实际时间重叠的切片，避免导出大量重复视频。"""
+    def titles_of(mark):
+        titles = mark.get("merged_titles") or [mark.get("title", "")]
+        result = []
+        for title in titles:
+            title = str(title).strip()
+            if title and title not in result:
+                result.append(title)
+        return result
+
+    merged = []
+    for mark in sorted(_dedupe_clip_marks(marks), key=lambda m: (m["start"], m["end"])):
+        item = dict(mark)
+        if not merged:
+            merged.append(item)
+            continue
+        prev = merged[-1]
+        if item["start"] > prev["end"]:
+            merged.append(item)
+            continue
+
+        merged_duration = max(prev["end"], item["end"]) - min(prev["start"], item["start"])
+        prev_topic_end = prev.get("topic_end", prev["end"])
+        item_topic_start = item.get("topic_start", item["start"])
+        item_topic_end = item.get("topic_end", item["end"])
+        if merged_duration > TOPIC_MAX_CLIP_SEC:
+            if item_topic_start - prev_topic_end > 60:
+                if prev["end"] > item["start"] and item["start"] > prev_topic_end:
+                    prev["end"] = item["start"]
+                merged.append(item)
+                continue
+            capped_end = min(
+                max(prev["end"], item["end"]),
+                max(prev_topic_end, item_topic_end) + TOPIC_POST_CONTEXT_SEC,
+                prev["start"] + TOPIC_MAX_CLIP_SEC,
+            )
+        else:
+            capped_end = max(prev["end"], item["end"])
+
+        prev["end"] = max(prev["start"] + 1, capped_end)
+        prev["topic_start"] = min(prev.get("topic_start", prev["start"]), item.get("topic_start", item["start"]))
+        prev["topic_end"] = max(prev.get("topic_end", prev["end"]), item.get("topic_end", item["end"]))
+        prev["context_expanded"] = bool(prev.get("context_expanded") or item.get("context_expanded"))
+        prev["merged_context"] = True
+        titles = titles_of(prev)
+        for title in titles_of(item):
+            if title not in titles:
+                titles.append(title)
+        if titles:
+            prev["title"] = " / ".join(titles)[:60]
+            prev["merged_titles"] = titles
+    return merged
+
+
 # ============================================================
 # 话题切片上下文扩展
 # ============================================================
@@ -1689,7 +1744,9 @@ def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
     related = [seg for seg in srt_segments if seg[1] >= start_s and seg[0] <= end_s]
     if not related:
         return start_s, end_s
-    return min(start_s, related[0][0]), max(end_s, related[-1][1])
+    snapped_start = related[0][0] if start_s - related[0][0] <= 30 else start_s
+    snapped_end = related[-1][1] if related[-1][1] - end_s <= 90 else end_s
+    return min(start_s, snapped_start), max(end_s, snapped_end)
 
 
 def _looks_like_sc_or_gift_trigger(text):
@@ -1777,16 +1834,17 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
 
 def _expand_clip_marks_with_context(marks, srt_segments=None, video_duration=None):
     """批量扩展切片上下文；输入/输出时间均为视频内秒数。"""
-    return [
+    expanded = [
         _expand_clip_mark_with_context(mark, srt_segments=srt_segments, video_duration=video_duration)
         for mark in _dedupe_clip_marks(marks)
     ]
+    return _merge_expanded_clip_marks(expanded)
 
 # ============================================================
 # 逐话题时间轴报告格式化
 # ============================================================
 
-_CIRCLED_NUMBERS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+_CIRCLED_NUMBERS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
 
 
 def _format_report_time(seconds):

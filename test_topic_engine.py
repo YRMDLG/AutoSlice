@@ -166,6 +166,59 @@ class TopicEngineParseTests(unittest.TestCase):
         deduped = _dedupe_clip_marks(marks)
 
         self.assertEqual([m["title"] for m in deduped], ["话题A", "话题B"])
+
+    def test_expand_clip_marks_merges_overlapping_context_ranges(self):
+        marks = [
+            {"start": 100, "end": 160, "title": "前一个高能点"},
+            {"start": 220, "end": 280, "title": "后一个高能点"},
+        ]
+        srt_segments = [
+            (0, 20, "前情"),
+            (95, 165, "第一个话题"),
+            (215, 285, "第二个话题"),
+            (330, 360, "后续反应"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=400)
+
+        self.assertEqual(len(expanded), 1)
+        self.assertEqual(expanded[0]["topic_start"], 100)
+        self.assertEqual(expanded[0]["topic_end"], 280)
+        self.assertTrue(expanded[0]["merged_context"])
+        self.assertEqual(expanded[0]["merged_titles"], ["前一个高能点", "后一个高能点"])
+
+    def test_expand_clip_marks_does_not_chain_merge_into_too_long_clip(self):
+        marks = [
+            {"start": 3523, "end": 3643, "title": "裤装话题"},
+            {"start": 3653, "end": 3862, "title": "钥匙话题"},
+            {"start": 4122, "end": 4663, "title": "小星星话题"},
+        ]
+        srt_segments = [
+            (3316, 3825, "第一段上下文"),
+            (3372, 4106, "第二段上下文"),
+            (3960, 4813, "第三段上下文"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=5000)
+
+        self.assertEqual(len(expanded), 2)
+        self.assertEqual(expanded[0]["merged_titles"], ["裤装话题", "钥匙话题"])
+        self.assertEqual(expanded[0]["start"], 3433)
+        self.assertEqual(expanded[0]["end"], 3982)
+        self.assertEqual(expanded[1]["title"], "小星星话题")
+        self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
+        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], 900)
+
+    def test_topic_index_label_uses_circled_number_after_twenty(self):
+        topics = [
+            {"start": i * 10, "end": i * 10 + 5, "title": f"话题{i}", "body": ["·要点"], "can_slice": False}
+            for i in range(22)
+        ]
+
+        report = _build_timeline_report("测试.flv", "无弹幕数据", topics, group_by_hour=True)
+
+        self.assertIn("㉑[03:20", report)
+        self.assertNotIn("21.[03:20", report)
     def test_filter_reasoning_body_and_placeholder_topics(self):
         topics = []
         response = """
