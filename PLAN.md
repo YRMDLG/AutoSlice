@@ -477,3 +477,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 14:05 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.28: 最终报告前二次清洗坏标题和坏切片 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.27 |
+| 描述 | 在生成报告和 clip_marks 前追加最终清洗：坏标题/提示语标题不得进入报告和切片，带人工 ⭐ 的坏标题优先改用人工时间轴标题；继续过滤 `其他话题`、`这些人工时间轴可帮助...`、`与上一段有重叠`、`下一段`、`可能的切分` 等真实报告残留。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；最新真实报告中的坏标题不会进入报告或 clip_marks。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 14:50 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

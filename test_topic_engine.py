@@ -10,7 +10,7 @@ from topic_engine import (
     CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry,
-    _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
+    _clean_topics_for_report, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _infer_streamer_name, _is_retryable_llm_error,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _manual_timeline_info_for_chunk, _parse_llm_response,
@@ -485,6 +485,55 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             "人工时间轴参考", "[2:35:50 / 2026-07-08", "我们来看内容",
             "我们看内容", "对于话题",
         ):
+            self.assertNotIn(dirty, report)
+
+    def test_final_cleanup_repairs_bad_manual_titles_and_drops_prompt_noise(self):
+        topics = [
+            {
+                "start": 14400,
+                "end": 14559,
+                "title": "这些人工时间轴可帮助我们确定话题边界",
+                "can_slice": True,
+                "body": [
+                    "·这些人工时间轴可帮助我们确定话题边界。",
+                    "●人工时间轴⭐：4:00:46 “生肖？（沉默....)属老鼠啊，怎么会有人生肖都不记得，生肖又不重要”",
+                ],
+                "manual_stars": 1,
+            },
+            {
+                "start": 14767,
+                "end": 14899,
+                "title": "与上一段有重叠？字幕是连续的",
+                "can_slice": True,
+                "body": ["·一个合理的划分："],
+            },
+            {
+                "start": 21480,
+                "end": 21626,
+                "title": "下一段",
+                "can_slice": True,
+                "body": [
+                    "·或者：",
+                    "·输出JSON模板：",
+                    "●人工时间轴⭐：5:59:07 茶一下音悦生“我觉得你们会觉得烦诶，今天又播这个~好烦内”",
+                ],
+                "manual_stars": 1,
+            },
+        ]
+
+        cleaned = _clean_topics_for_report(topics)
+        report = _build_timeline_report("测试.flv", "无弹幕数据", cleaned, streamer_name="音音")
+        marks = _clip_marks_from_topics(cleaned)
+
+        self.assertEqual([topic["title"] for topic in cleaned], [
+            "生肖？沉默....属老鼠啊",
+            "茶一下音悦生我觉得你们会觉得烦诶",
+        ])
+        self.assertEqual([mark["title"] for mark in marks], [
+            "生肖？沉默....属老鼠啊",
+            "茶一下音悦生我觉得你们会觉得烦诶",
+        ])
+        for dirty in ("这些人工时间轴", "与上一段有重叠", "下一段", "一个合理的划分", "输出JSON模板"):
             self.assertNotIn(dirty, report)
 
     def test_filter_current_report_draft_noise(self):

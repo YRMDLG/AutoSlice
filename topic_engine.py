@@ -321,6 +321,8 @@ def _is_manual_merge_target(topic):
         return False
     if topic.get("source") == "manual_timeline":
         return True
+    if _is_bad_topic_title(topic.get("title", "")):
+        return False
     if topic.get("title") in _GENERIC_TOPIC_TITLES:
         return False
     text = " ".join([topic.get("title", "")] + list(topic.get("body") or []))
@@ -818,7 +820,10 @@ _HEADING_RE = re.compile(
     r'(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.+?)\s*$'
 )
 _NO_SLICE_HINTS = ("不切", "不加标记", "不建议切", "不要切", "不适合切")
-_PLACEHOLDER_TITLES = ("无明显话题", "话题标题", "下一个话题", "未命名片段", "从字幕看")
+_PLACEHOLDER_TITLES = (
+    "无明显话题", "话题标题", "下一个话题", "未命名片段", "从字幕看",
+    "其他话题", "下一段", "可能的切分", "根据要求",
+)
 _GENERIC_TOPIC_TITLES = ("日常聊天互动", "感谢礼物互动", "视频评论讨论", "游戏关卡挑战")
 MAX_TOPIC_TITLE_CHARS = 24
 _META_TITLE_KEYWORDS = (
@@ -850,6 +855,9 @@ _META_TITLE_KEYWORDS = (
     "我们尝试解读字幕",
     "人工时间轴参考", "观察时间戳", "需要写点", "我们看内容",
     "我们来看内容", "根据内容推断边界",
+    "其他话题", "这些人工时间轴", "与上一段有重叠", "下一段",
+    "可能的切分", "我们来确定话题", "根据要求", "可能音音",
+    "观众可能", "一个合理的划分",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -919,6 +927,12 @@ _META_BODY_KEYWORDS = (
     "can_slice", "points", "\"topics\"", "\"start\"", "\"end\"", "\"title\"",
     "人工时间轴参考", "观察时间戳", "需要写点", "我们看内容",
     "我们来看内容", "对于话题", "根据内容推断边界", "我们看字幕的时间戳",
+    "这些人工时间轴", "与上一段有重叠", "其他话题", "另一个思路",
+    "我计划", "虽然弹幕低", "必须整理", "考虑话题", "提示说",
+    "不需要特别重视", "可以作为参考", "所以生成JSON", "我们整理一下",
+    "根据要求", "我们考虑", "先仔细解析字幕", "一个合理的划分",
+    "我们来做分析", "我们来确定话题", "从人工时间轴和字幕",
+    "输出JSON模板", "可能的切分", "或者：",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -936,6 +950,13 @@ _FRAGMENT_BODY_LINES = {
     "人工时间轴参考", "人工时间轴参考：", "观察时间戳", "观察时间戳：",
     "需要写点", "需要写点：", "我们看内容", "我们看内容：",
     "我们来看内容", "我们来看内容：", "我们看字幕的时间戳", "我们看字幕的时间戳：",
+    "其他话题", "其他话题：", "另一个思路", "另一个思路：",
+    "我计划", "我计划：", "所以生成JSON", "所以生成JSON：",
+    "根据要求", "根据要求，", "我们考虑", "我们考虑：",
+    "先仔细解析字幕", "先仔细解析字幕：", "一个合理的划分", "一个合理的划分：",
+    "我们来做分析", "我们来做分析：", "我们来确定话题", "我们来确定话题。",
+    "输出JSON模板", "输出JSON模板：", "可能的切分", "可能的切分：",
+    "或者", "或者：",
     "弹幕/礼物高光", "弹幕礼物高光", "…", "...", "……",
 }
 
@@ -975,7 +996,11 @@ def _is_bad_topic_title(title):
     clean = re.sub(r'\s+', '', title or "")
     if not clean:
         return True
-    if clean in {"内容", "等", "根据人工时间轴", "划分建议", "先考虑can", "我们规划话题", "人工时间轴参考", "观察时间戳"}:
+    if clean in {
+        "内容", "等", "根据人工时间轴", "划分建议", "先考虑can", "我们规划话题",
+        "人工时间轴参考", "观察时间戳", "其他话题", "下一段", "可能的切分",
+        "根据要求",
+    }:
         return True
     if any(keyword in title for keyword in _META_TITLE_KEYWORDS):
         return True
@@ -1003,6 +1028,12 @@ def _compact_topic_phrase(text, max_chars=MAX_TOPIC_TITLE_CHARS):
 def _derive_topic_title(title, body_lines):
     """长标题兜底：优先从正文关键词/第一条要点生成短标题。"""
     body_text = " ".join(_strip_body_prefix(line) for line in body_lines)
+    if _is_bad_topic_title(title):
+        manual_match = re.search(r'人工时间轴[⭐★]*[:：]\s*(?:\d{1,2}:\d{2}(?::\d{2})?\s*)?(.+?)(?:\s+人工时间轴|$)', body_text)
+        if manual_match:
+            manual_title = _manual_title_from_text(manual_match.group(1))
+            if manual_title and not _is_bad_topic_title(manual_title):
+                return manual_title
     keyword_titles = (
         (("300万", "石头"), "翡翠切石与包装"),
         (("柳师傅", "包装"), "翡翠切石与包装"),
@@ -1162,6 +1193,12 @@ def _is_meta_body_line(line):
         "我们尝试解读字幕",
         "人工时间轴参考", "观察时间戳", "需要写点", "我们看内容",
         "我们来看内容", "对于话题", "根据内容推断边界", "我们看字幕的时间戳",
+        "这些人工时间轴", "与上一段有重叠", "其他话题", "另一个思路",
+        "我计划", "虽然弹幕低", "必须整理", "考虑话题", "提示说",
+        "不需要特别重视", "可以作为参考", "所以生成JSON", "我们整理一下",
+        "根据要求", "我们考虑", "先仔细解析字幕", "一个合理的划分",
+        "我们来做分析", "我们来确定话题", "从人工时间轴和字幕",
+        "输出JSON模板", "可能的切分", "或者",
     )):
         return True
     if re.match(r'^topic\d+\s*[:：]', clean, re.IGNORECASE):
@@ -1819,6 +1856,29 @@ def _is_content_cuttable_topic(topic):
     return True
 
 
+def _clean_topics_for_report(topics):
+    """生成报告/切片前做最后一道清洗，防止坏标题或提示残留漏网。"""
+    cleaned = []
+    for topic in sorted(topics or [], key=lambda item: (item.get("start", 0), item.get("end", 0))):
+        if topic.get("fallback"):
+            cleaned.append(topic)
+            continue
+        body_lines = [_normalise_body_line(line) for line in topic.get("body") or []]
+        body_lines = [line for line in body_lines if line]
+        if not body_lines:
+            continue
+        title = _derive_topic_title(topic.get("title", ""), body_lines)
+        if not title:
+            continue
+        fixed = dict(topic)
+        fixed["title"] = title
+        fixed["body"] = body_lines
+        if _is_duplicate_topic(fixed, cleaned):
+            continue
+        cleaned.append(fixed)
+    return cleaned
+
+
 def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
     """从每小时重点中按弹幕密度筛选可切片段。"""
     if not topics:
@@ -2053,6 +2113,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         progress_callback("Step 5/5: 生成报告...", 97, 100)
 
     _merge_manual_timeline_topics(accepted_topics, manual_entries)
+    accepted_topics = _clean_topics_for_report(accepted_topics)
     _apply_danmaku_slice_decisions(accepted_topics, peaks, avg_den)
     raw_clip_marks = _clip_marks_from_topics(accepted_topics)
     srt_segments_for_context = parse_srt_segments(srt_path)
