@@ -491,3 +491,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 14:50 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.29: 真实流水线禁用 Markdown 兜底解析 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.28 |
+| 描述 | 真实 `run_pipeline` 只接受结构化 JSON 话题输出；LLM 未返回可解析 JSON 时不再走 Markdown 兜底，直接使用兜底时间轴/人工时间轴，避免模型草稿进入报告和 clip_marks；OpenAI 兼容响应不再读取 `reasoning_content`。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；严格 JSON 模式会忽略 Markdown 草稿，真实报告不再出现模型推理过程。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 15:35 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

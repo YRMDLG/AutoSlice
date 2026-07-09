@@ -697,11 +697,6 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
         data = resp.json()
         # 兼容不同 OpenAI 响应格式
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        # 某些模型(如 deepseek)用 reasoning_content 代替 content
-        if not content:
-            rc = data.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")
-            if rc:
-                content = rc
         if not content:
             content = data["choices"][0].get("text", "")
         if not content:
@@ -1401,7 +1396,7 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
     return report_blocks, _dedupe_clip_marks(clip_marks)
 
 
-def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
+def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None, allow_markdown_fallback=True):
     """
     解析单个分块的 LLM 输出。
 
@@ -1413,6 +1408,8 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
     json_result = _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topics)
     if json_result is not None:
         return json_result
+    if not allow_markdown_fallback:
+        return [], []
 
     response = _strip_code_fence(response)
     if not response or response.strip() == "无明显话题":
@@ -2100,7 +2097,13 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         consecutive_failed_chunks = 0
         # 解析话题和切片标记：按当前块时间范围过滤，正文进入最终时间轴报告
         before_topic_count = len(accepted_topics)
-        _, marks = _parse_llm_response(response, chunk_start, chunk_end, accepted_topics)
+        _, marks = _parse_llm_response(
+            response,
+            chunk_start,
+            chunk_end,
+            accepted_topics,
+            allow_markdown_fallback=False,
+        )
         clip_marks.extend(marks)
         if len(accepted_topics) == before_topic_count:
             fallback_topic = _make_fallback_topic_from_chunk(ch, streamer_name=streamer_display_name)

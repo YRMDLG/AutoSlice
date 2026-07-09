@@ -86,6 +86,26 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertNotIn("输出内容要严格按照格式", report)
         self.assertEqual(marks, [{"start": 6530, "end": 6723, "title": "疑惑汽车广告奇怪产品"}])
 
+    def test_strict_json_mode_ignores_markdown_reasoning(self):
+        topics = []
+        response = """
+[4:00:00－4:02:39]这些人工时间轴可帮助我们确定话题边界 ✂️
+·这些人工时间轴可帮助我们确定话题边界。
+·输出JSON模板：
+"""
+
+        blocks, marks = _parse_llm_response(
+            response,
+            14400,
+            14600,
+            topics,
+            allow_markdown_fallback=False,
+        )
+
+        self.assertEqual(blocks, [])
+        self.assertEqual(marks, [])
+        self.assertEqual(topics, [])
+
     def test_dedupe_same_range_even_when_title_changes(self):
         response = """
 [2:24:30-2:25:05] 感谢英姐礼物&积分吐槽 ✂️ (因为1.1倍>平均)
