@@ -311,7 +311,7 @@ def _manual_title_from_text(text):
     return (clean[:MAX_TOPIC_TITLE_CHARS] or "人工时间轴重点").strip()
 
 
-def _manual_entry_matches_topic(entry, topic, margin=120):
+def _manual_entry_matches_topic(entry, topic, margin=0):
     return int(topic["start"]) - margin <= int(entry["start"]) <= int(topic["end"]) + margin
 
 
@@ -848,6 +848,8 @@ _META_TITLE_KEYWORDS = (
     "我们规划话题", "先考虑can", "建议分成两个话题",
     "先整理出具体的时间段", "根据人工时间轴", "最终JSON", "最终 JSON",
     "我们尝试解读字幕",
+    "人工时间轴参考", "观察时间戳", "需要写点", "我们看内容",
+    "我们来看内容", "根据内容推断边界",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -915,6 +917,8 @@ _META_BODY_KEYWORDS = (
     "最终JSON", "最终 JSON", "先整理出具体的时间段", "查看字幕时间戳",
     "注意时间有重叠", "根据人工时间轴", "再分析字幕", "我们尝试解读字幕",
     "can_slice", "points", "\"topics\"", "\"start\"", "\"end\"", "\"title\"",
+    "人工时间轴参考", "观察时间戳", "需要写点", "我们看内容",
+    "我们来看内容", "对于话题", "根据内容推断边界", "我们看字幕的时间戳",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -929,6 +933,9 @@ _FRAGMENT_BODY_LINES = {
     "我们规划话题", "我们规划话题：", "仔细看字幕", "仔细看字幕：",
     "先考虑can", "先考虑can：", "最终JSON", "最终 JSON", "最终 JSON：",
     "根据人工时间轴", "根据人工时间轴：", "再分析字幕详细内容", "再分析字幕详细内容：",
+    "人工时间轴参考", "人工时间轴参考：", "观察时间戳", "观察时间戳：",
+    "需要写点", "需要写点：", "我们看内容", "我们看内容：",
+    "我们来看内容", "我们来看内容：", "我们看字幕的时间戳", "我们看字幕的时间戳：",
     "弹幕/礼物高光", "弹幕礼物高光", "…", "...", "……",
 }
 
@@ -968,7 +975,7 @@ def _is_bad_topic_title(title):
     clean = re.sub(r'\s+', '', title or "")
     if not clean:
         return True
-    if clean in {"内容", "等", "根据人工时间轴", "划分建议", "先考虑can", "我们规划话题"}:
+    if clean in {"内容", "等", "根据人工时间轴", "划分建议", "先考虑can", "我们规划话题", "人工时间轴参考", "观察时间戳"}:
         return True
     if any(keyword in title for keyword in _META_TITLE_KEYWORDS):
         return True
@@ -1153,6 +1160,8 @@ def _is_meta_body_line(line):
         "或者可以合并", "最终 JSON", "最终JSON", "先整理出具体的时间段",
         "查看字幕时间戳", "注意时间有重叠", "根据人工时间轴", "再分析字幕",
         "我们尝试解读字幕",
+        "人工时间轴参考", "观察时间戳", "需要写点", "我们看内容",
+        "我们来看内容", "对于话题", "根据内容推断边界", "我们看字幕的时间戳",
     )):
         return True
     if re.match(r'^topic\d+\s*[:：]', clean, re.IGNORECASE):
@@ -1162,6 +1171,8 @@ def _is_meta_body_line(line):
     if re.match(r'^["“”]?(start|end|title|can_slice|points|topics)["“”]?\s*[:：]', clean, re.IGNORECASE):
         return True
     if clean in {"{", "}", "[", "]", "},", "],", "{"}:
+        return True
+    if re.match(r'^\[\d{1,2}:\d{2}(?::\d{2})?\s*/\s*\d{4}-\d{2}-\d{2}', clean):
         return True
     if re.match(r'^\d+[.)、]\s*(聊|讨论|观看|感谢|游戏|生日)', clean):
         return True
@@ -1222,6 +1233,7 @@ def _clean_body_content(line):
     """保留有效信息，同时去掉模型常见的总结式开头。"""
     clean = _strip_body_prefix(line)
     clean = re.sub(r'^(?:所以整体是|大致内容[:：]?|主要内容[:：]?|首先[，,]\s*)', '', clean).strip()
+    clean = re.sub(r'^[\"“”](.*?)[\"”]?\s*,?$', r'\1', clean).strip()
     clean = re.sub(r'^内容有些混乱[，,。；;：:但是\s]*', '', clean).strip()
     clean = re.sub(r'^但是可以归纳出话题[:：]?', '', clean).strip()
     clean = re.sub(r'^可以归纳出话题[:：]?', '', clean).strip()

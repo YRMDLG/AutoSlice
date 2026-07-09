@@ -410,6 +410,25 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertTrue(topics[1]["can_slice"])
         self.assertIn("摇摇尾巴", marks[0]["title"])
 
+    def test_manual_star_does_not_merge_to_adjacent_topic(self):
+        entries = _parse_manual_timeline_lines(
+            ["20:31:56 最喜欢在上帝视角看你们猜了“这个剪影迷惑性还挺强的” ⭐"],
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+        topics = [{
+            "start": 1080,
+            "end": 1237,
+            "title": "驼背与运动内衣吐槽",
+            "can_slice": False,
+            "body": ["·音音聊妈妈提醒驼背和运动内衣很难穿"],
+        }]
+
+        _merge_manual_timeline_topics(topics, entries)
+
+        self.assertEqual(len(topics), 2)
+        self.assertEqual(topics[0]["title"], "驼背与运动内衣吐槽")
+        self.assertIn("剪影", topics[1]["title"])
+
     def test_filter_latest_real_report_reasoning_residue(self):
         topics = []
         response = """
@@ -431,6 +450,16 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 [3:28:03－3:30:11]读评论与感想
 ·我们尝试解读字幕：
 ·音音在玩躲猫猫游戏，正在寻找隐藏的玩家。
+[2:46:07－2:47:31]人工时间轴参考
+·人工时间轴参考：
+·[2:35:50 / 2026-07-08 22:46:43] 新bug 25个人也能开
+·我们来看内容：
+·"音音聊到鬼其实不可怕，因为鬼会被吓跑，而人比鬼更可怕。",
+[2:56:23－2:58:11]感谢礼物互动
+·我们看内容：
+·音音在游戏中寻找藏起来的玩家，发现一个很黑的地方。
+·对于话题2：
+·音音拿快递回来，感谢观众的礼物。
 [4:00:00－4:02:39]先整理出具体的时间段
 ·先整理出具体的时间段。
 ·查看字幕时间戳：
@@ -446,11 +475,15 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
         self.assertIn("读评论与感想", report)
         self.assertIn("音音在玩躲猫猫游戏", report)
+        self.assertIn("音音聊到鬼其实不可怕", report)
+        self.assertIn("音音在游戏中寻找藏起来的玩家", report)
         for dirty in (
             "我们规划话题", "仔细看字幕", "先考虑can", "建议分成两个话题",
             "最终 JSON", '"topics"', '"start"', '"title"', '"points"',
             "先整理出具体的时间段", "查看字幕时间戳", "can_slice",
             "根据人工时间轴", "再分析字幕详细内容", "[7:06:45]",
+            "人工时间轴参考", "[2:35:50 / 2026-07-08", "我们来看内容",
+            "我们看内容", "对于话题",
         ):
             self.assertNotIn(dirty, report)
 
