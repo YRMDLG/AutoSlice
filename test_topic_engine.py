@@ -387,6 +387,73 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("太黄暴", "\n".join(topics[0]["body"]))
         self.assertEqual(topics[0]["manual_stars"], 1)
 
+    def test_manual_star_is_not_swallowed_by_fallback_topic(self):
+        entries = _parse_manual_timeline_lines(
+            ["21:34:48 “来音悦生，摇摇尾巴”（抽打 ⭐⭐⭐⭐"],
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+        topics = [{
+            "start": 4800,
+            "end": 5400,
+            "title": "生日相关聊天",
+            "can_slice": False,
+            "fallback": True,
+            "body": ["·本段为音音的连续聊天/互动，字幕识别较碎，已保留在时间轴中"],
+        }]
+
+        _merge_manual_timeline_topics(topics, entries)
+        _apply_danmaku_slice_decisions(topics, peaks=[], avg_density=101)
+        marks = _clip_marks_from_topics(topics)
+
+        self.assertEqual(len(topics), 2)
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertTrue(topics[1]["can_slice"])
+        self.assertIn("摇摇尾巴", marks[0]["title"])
+
+    def test_filter_latest_real_report_reasoning_residue(self):
+        topics = []
+        response = """
+[2:24:07－2:26:12]我们规划话题
+·（明显在聊见面会的事情，对应人工时间轴。）
+·我们规划话题：
+·仔细看字幕：
+[2:34:08－2:36:20]先考虑can
+·[2:24:57] 想办见面会怕没人
+·先考虑can
+[3:18:00－3:20:10]建议分成两个话题
+·建议分成两个话题：
+·最终 JSON：
+·{
+·"topics": [
+·"start": "3:08:43",
+·"title": "检查更新与紧张搜寻",
+·"points": [
+[3:28:03－3:30:11]读评论与感想
+·我们尝试解读字幕：
+·音音在玩躲猫猫游戏，正在寻找隐藏的玩家。
+[4:00:00－4:02:39]先整理出具体的时间段
+·先整理出具体的时间段。
+·查看字幕时间戳：
+·can_slice: true (因为⭐标记)
+[7:04:02－7:06:15]根据人工时间轴
+·[7:06:45] 谁先走谁是流浪狗
+·根据人工时间轴：
+·再分析字幕详细内容：
+"""
+
+        _parse_llm_response(response, 8000, 26000, topics)
+        report = _build_timeline_report("测试.flv", "无弹幕数据", topics, streamer_name="音音")
+
+        self.assertIn("读评论与感想", report)
+        self.assertIn("音音在玩躲猫猫游戏", report)
+        for dirty in (
+            "我们规划话题", "仔细看字幕", "先考虑can", "建议分成两个话题",
+            "最终 JSON", '"topics"', '"start"', '"title"', '"points"',
+            "先整理出具体的时间段", "查看字幕时间戳", "can_slice",
+            "根据人工时间轴", "再分析字幕详细内容", "[7:06:45]",
+        ):
+            self.assertNotIn(dirty, report)
+
     def test_filter_current_report_draft_noise(self):
         topics = []
         response = """

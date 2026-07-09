@@ -449,3 +449,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 12:45 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.26: 修复人工重点被兜底话题吞掉和新草稿残留 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.25 |
+| 描述 | 人工 ⭐ 片段不再被“日常聊天/字幕识别较碎”兜底话题吞掉，而是补成独立人工重点话题并可参与切片；继续过滤 `我们规划话题`、`先考虑can`、`建议分成两个话题`、`最终 JSON`、`根据人工时间轴` 等真实报告残留。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；人工 ⭐ 重点可生成独立话题并进入 clip_marks，最新报告草稿残留被过滤。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 13:25 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

@@ -302,7 +302,10 @@ def _manual_title_from_text(text):
     """从人工时间轴一句话生成短标题。"""
     clean = re.sub(r'[“”"（）()\[\]【】]', '', text or "")
     clean = re.sub(r'《(.+?)》', r'\1', clean)
-    clean = re.split(r'[，。；;：:、]', clean, maxsplit=1)[0].strip()
+    parts = [part.strip() for part in re.split(r'[，。；;：:、]', clean) if part.strip()]
+    clean = parts[0] if parts else clean.strip()
+    if len(clean) < 5 and len(parts) > 1:
+        clean = f"{parts[0]}{parts[1]}"
     if len(clean) < 4:
         clean = re.sub(r'\s+', '', text or "")[:MAX_TOPIC_TITLE_CHARS]
     return (clean[:MAX_TOPIC_TITLE_CHARS] or "人工时间轴重点").strip()
@@ -312,11 +315,28 @@ def _manual_entry_matches_topic(entry, topic, margin=120):
     return int(topic["start"]) - margin <= int(entry["start"]) <= int(topic["end"]) + margin
 
 
+def _is_manual_merge_target(topic):
+    """人工重点只合并到真实话题；兜底/泛话题会吞掉重点，必须单独补话题。"""
+    if topic.get("fallback"):
+        return False
+    if topic.get("source") == "manual_timeline":
+        return True
+    if topic.get("title") in _GENERIC_TOPIC_TITLES:
+        return False
+    text = " ".join([topic.get("title", "")] + list(topic.get("body") or []))
+    compact = re.sub(r'\s+', '', text)
+    if any(keyword in compact for keyword in _UNCUTTABLE_CONTENT_KEYWORDS):
+        return False
+    return True
+
+
 def _merge_manual_timeline_topics(topics, entries):
     """把 ⭐ 人工重点附加到话题；LLM 漏掉时补一个人工重点话题。"""
     if not entries:
         return topics
     for topic in topics:
+        if not _is_manual_merge_target(topic):
+            continue
         matched = [entry for entry in entries if _manual_entry_matches_topic(entry, topic)]
         if not matched:
             continue
@@ -335,7 +355,7 @@ def _merge_manual_timeline_topics(topics, entries):
     for entry in entries:
         if entry.get("stars", 0) <= 0:
             continue
-        if any(_manual_entry_matches_topic(entry, topic) for topic in topics):
+        if any(_is_manual_merge_target(topic) and _manual_entry_matches_topic(entry, topic) for topic in topics):
             continue
         topic = {
             "start": max(0, int(entry["start"]) - MANUAL_TIMELINE_TOPIC_PRE_SEC),
@@ -349,7 +369,7 @@ def _merge_manual_timeline_topics(topics, entries):
             "manual_timeline": [entry],
             "source": "manual_timeline",
         }
-        if not _is_duplicate_topic(topic, topics):
+        if not _is_duplicate_topic(topic, [old for old in topics if _is_manual_merge_target(old)]):
             topics.append(topic)
     topics.sort(key=lambda item: (item["start"], item["end"]))
     return topics
@@ -825,6 +845,9 @@ _META_TITLE_KEYWORDS = (
     "这段讨论", "这段继续", "内容有些混乱",
     "约2分", "划分建议", "先构思", "topic1", "topic2",
     "观察内容", "更仔细看",
+    "我们规划话题", "先考虑can", "建议分成两个话题",
+    "先整理出具体的时间段", "根据人工时间轴", "最终JSON", "最终 JSON",
+    "我们尝试解读字幕",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -888,6 +911,10 @@ _META_BODY_KEYWORDS = (
     "我们仔细阅读字幕", "整体看", "我们试着划分", "可能乱码",
     "后面还有", "这些时间段有重叠", "观察内容", "更仔细看",
     "划分建议", "我们还须注意", "先构思", "topic1", "topic2",
+    "我们规划话题", "仔细看字幕", "先考虑can", "建议分成两个话题",
+    "最终JSON", "最终 JSON", "先整理出具体的时间段", "查看字幕时间戳",
+    "注意时间有重叠", "根据人工时间轴", "再分析字幕", "我们尝试解读字幕",
+    "can_slice", "points", "\"topics\"", "\"start\"", "\"end\"", "\"title\"",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -899,6 +926,9 @@ _FRAGMENT_BODY_LINES = {
     "更好的划分", "更好的划分：", "那么我们定义", "那么我们定义：", "整体时间段", "整体时间段：",
     "观察内容", "观察内容：", "更仔细看", "更仔细看：", "划分建议", "划分建议：",
     "整体看", "整体看，内容涉及：", "我们试着划分", "我们试着划分：",
+    "我们规划话题", "我们规划话题：", "仔细看字幕", "仔细看字幕：",
+    "先考虑can", "先考虑can：", "最终JSON", "最终 JSON", "最终 JSON：",
+    "根据人工时间轴", "根据人工时间轴：", "再分析字幕详细内容", "再分析字幕详细内容：",
     "弹幕/礼物高光", "弹幕礼物高光", "…", "...", "……",
 }
 
@@ -937,6 +967,8 @@ def _is_bad_topic_title(title):
     """识别模型把整段字幕当标题的情况。"""
     clean = re.sub(r'\s+', '', title or "")
     if not clean:
+        return True
+    if clean in {"内容", "等", "根据人工时间轴", "划分建议", "先考虑can", "我们规划话题"}:
         return True
     if any(keyword in title for keyword in _META_TITLE_KEYWORDS):
         return True
@@ -1090,7 +1122,8 @@ def _is_meta_body_line(line):
     if clean.startswith((
         "标题：", "标题:", "第一个话题", "第二个话题", "第三个话题", "字幕原文",
         "话题一", "话题二", "话题三", "話題1", "話題2", "話題3",
-        "第一part", "第二part", "第三个短",
+        "第一part", "第二part", "第三个短", "{", "}", '"topics"',
+        '"start"', '"end"', '"title"', '"can_slice"', '"points"',
     )):
         return True
     if re.match(r'^(points|title)\s*[:：]', clean, re.IGNORECASE):
@@ -1116,9 +1149,19 @@ def _is_meta_body_line(line):
         "整体时间段", "让我们尝试提取话题", "我们确保每个话题",
         "我们仔细阅读字幕", "整体看", "我们试着划分", "这些时间段有重叠",
         "观察内容", "更仔细看", "划分建议", "我们还须注意", "先构思",
+        "我们规划话题", "仔细看字幕", "先考虑can", "建议分成两个话题",
+        "或者可以合并", "最终 JSON", "最终JSON", "先整理出具体的时间段",
+        "查看字幕时间戳", "注意时间有重叠", "根据人工时间轴", "再分析字幕",
+        "我们尝试解读字幕",
     )):
         return True
     if re.match(r'^topic\d+\s*[:：]', clean, re.IGNORECASE):
+        return True
+    if re.match(r'^\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*["“”]', clean):
+        return True
+    if re.match(r'^["“”]?(start|end|title|can_slice|points|topics)["“”]?\s*[:：]', clean, re.IGNORECASE):
+        return True
+    if clean in {"{", "}", "[", "]", "},", "],", "{"}:
         return True
     if re.match(r'^\d+[.)、]\s*(聊|讨论|观看|感谢|游戏|生日)', clean):
         return True
@@ -1775,7 +1818,12 @@ def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
         topic["peak_density"] = peak_density
         topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
         normal_cut = peak_density >= threshold
-        manual_cut = topic.get("manual_stars", 0) > 0 and (not peaks or peak_density >= manual_threshold)
+        manual_stars = topic.get("manual_stars", 0)
+        manual_cut = manual_stars > 0 and (
+            manual_stars >= 2
+            or not peaks
+            or peak_density >= manual_threshold
+        )
         topic["can_slice"] = bool(
             _is_content_cuttable_topic(topic)
             and (normal_cut or manual_cut)
