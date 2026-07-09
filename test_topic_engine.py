@@ -327,6 +327,24 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("Part 2: 第2小时重点", report)
         self.assertIn("②[30:00－35:00]生日企划 ✂️", report)
 
+    def test_hourly_report_part_numbers_are_sequential_when_hours_skip(self):
+        topics = [
+            {"start": 120, "end": 300, "title": "开场聊天", "can_slice": False, "body": ["·音音开场聊天"]},
+            {"start": 14400, "end": 14500, "title": "生日生肖", "can_slice": True, "body": ["·聊生肖"]},
+        ]
+
+        report = _build_timeline_report(
+            "测试.flv",
+            "无弹幕数据",
+            topics,
+            streamer_name="音音",
+            group_by_hour=True,
+        )
+
+        self.assertIn("Part 1: 第1小时重点", report)
+        self.assertIn("Part 2: 第5小时重点", report)
+        self.assertNotIn("Part 5:", report)
+
     def test_danmaku_density_selects_cuttable_key_points(self):
         topics = [
             {"start": 100, "end": 220, "title": "低密度聊天", "can_slice": True, "body": ["·普通聊天"]},
@@ -423,7 +441,9 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(len(topics), 1)
         self.assertIn("剪影", topics[0]["title"])
         self.assertEqual(topics[0]["manual_stars"], 1)
-        self.assertIn("●人工时间轴⭐", "\n".join(topics[0]["body"]))
+        body = "\n".join(topics[0]["body"])
+        self.assertIn("●人工时间轴⭐", body)
+        self.assertIn("·时间轴：", body)
 
     def test_manual_star_is_not_swallowed_by_fallback_topic(self):
         entries = _parse_manual_timeline_lines(

@@ -533,3 +533,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 16:35 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.32: 修正人工快路径报告编号和普通时间轴保留 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.31 |
+| 描述 | 修正按小时分组报告的 Part 编号跳号问题；人工时间轴快路径中普通记录改为 `·时间轴：...`，避免被时间戳过滤规则删除，从而保留切片前后上下文。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；真实报告 Part 顺序连续，人工时间轴普通行保留在报告正文中。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 16:50 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

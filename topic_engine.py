@@ -405,7 +405,7 @@ def _topics_from_manual_timeline(entries, max_gap_sec=240):
                 stars = "⭐" * min(item.get("stars", 0), 5)
                 body.append(f"●人工时间轴{stars}：{time_label} {item['text']}")
             else:
-                body.append(f"·{time_label} {item['text']}")
+                body.append(f"·时间轴：{time_label} {item['text']}")
         topic = {
             "start": max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0)),
             "end": int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120),
@@ -1988,7 +1988,7 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
             iterable = _group_topics_by_hour(topics)
         else:
             iterable = [(idx - 1, group) for idx, group in enumerate(_group_topics_for_parts(topics), 1)]
-        for part_index, group in iterable:
+        for display_part_index, (part_index, group) in enumerate(iterable, 1):
             part_start = min(t["start"] for t in group)
             part_end = max(t["end"] for t in group)
             if group_by_hour:
@@ -1996,7 +1996,7 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
             else:
                 part_title = _make_part_title(group, streamer_name=streamer_name)
             lines.append(
-                f"Part {part_index + 1 if group_by_hour else part_index + 1}: {part_title} "
+                f"Part {display_part_index}: {part_title} "
                 f"({_format_report_time(part_start)}－{_format_report_time(part_end)})"
             )
             for topic in group:
