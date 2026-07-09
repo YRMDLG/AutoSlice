@@ -421,3 +421,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 10:14 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.24: 过滤 JSON 字段残片和兜底解析残留 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.23 |
+| 描述 | 针对最新实跑报告中的 `points:`、`title:`、`要点：`、`重新考虑分块内容`、`我们先把内容分几个话题`、`那么我们定义`、`整体时间段` 等 JSON 字段残片和 Markdown 兜底解析残留继续过滤；过滤后无有效正文的话题直接丢弃，避免进入报告和 clip_marks。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；最新报告样例中的 JSON 字段残片和兜底解析残留不再进入报告或切片 JSON。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 11:35 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
