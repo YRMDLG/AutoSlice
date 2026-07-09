@@ -378,26 +378,19 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 如果事件跨越分块，只写当前分块内能确认的部分
 - 不要漏掉当前分块的主要讲话内容；能归纳就归纳成“日常闲聊/游戏过程/读弹幕互动”等普通话题
 
-## 输出格式（严格按此结构，不要输出 Part 行，程序会自动分组）
-
-[开始－结束]话题标题 ✂️
-·具体要点，写清楚事情经过
-·主播观点/吐槽/补充细节
-●礼物、弹幕爆点、观众金句或高能反应（如有）
-
-[开始－结束]下一个话题标题
-·具体要点
-·补充细节
+## 输出格式：只输出 JSON，不要输出 Markdown
 
 **关键要求：**
+- 只输出一个 JSON 对象，不要输出解释、草稿、分析过程、代码块或 Markdown
+- JSON 格式严格如下：
+{"topics":[{"start":"0:04:00","end":"0:08:00","title":"话题标题","can_slice":false,"points":["具体要点，写清楚事情经过","补充细节"]}]}
 - 时间戳精确到秒，格式 `H:MM:SS`，例如 `0:04:00`
 - 标题 5-15 字，概括核心内容，可加合适 emoji
-- 每个话题 2-6 条要点，优先使用 `·`，礼物/弹幕/高能反应用 `●`
+- 每个话题 2-6 条 points；礼物、弹幕爆点、观众金句可直接写进 points
 - 遇到 SC/醒目留言/观众长留言时，尽量保留观众开头对主播的称呼，例如“音姐……”“音音……”“麻麻……”
-- 不要输出 Markdown 代码块
 - 不要编造字幕里没有的信息
 - 不要输出任何示例内容
-- 不要解释为什么切或不切，不要在正文里写弹幕密度判断、格式说明、推理过程；切片只用标题后的 ✂️ 表示
+- 不要解释为什么切或不切，不要在 points 里写弹幕密度判断、格式说明、推理过程；切片只用 can_slice 表示
 - 不要写“我决定/现在写/标题可以/只能基于字幕/注意起始时间”等模型思考过程"""
 
 
@@ -518,9 +511,9 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
             "你是直播逐话题时间轴整理助手。只分析当前分块，只输出最终话题条目；"
             "当前分块有连续讲话时只整理成1-2个核心话题，内容特别密集最多3个；普通闲聊/游戏过程也要写；"
             "只有几乎无有效讲话才输出“无明显话题”。"
-            "✂️只给值得自动切片的段，不值得切也要写进报告。"
-            "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。\n\n"
-            "格式：\n[开始－结束]话题标题 ✂️\n·具体要点\n·补充细节\n"
+            "can_slice只给值得自动切片的段，不值得切也要写进报告。"
+            "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。"
+            "只输出JSON对象：{\"topics\":[{\"start\":\"0:00:00\",\"end\":\"0:05:00\",\"title\":\"话题标题\",\"can_slice\":false,\"points\":[\"具体要点\"]}]}。\n\n"
         )
     else:
         prompt_head = SYSTEM_PROMPT
@@ -913,6 +906,116 @@ def _normalise_body_line(line):
     return "·" + line
 
 
+def _extract_json_payload(response):
+    """从 LLM 响应中提取 JSON 对象/数组；提取失败返回 None。"""
+    text = _strip_code_fence(response)
+    if not text:
+        return None
+    candidates = []
+    if "{" in text and "}" in text:
+        candidates.append(text[text.find("{"):text.rfind("}") + 1])
+    if "[" in text and "]" in text:
+        candidates.append(text[text.find("["):text.rfind("]") + 1])
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except Exception:
+            continue
+    return None
+
+
+def _json_points_to_body(points):
+    """把 JSON points/body 字段转换成报告正文要点。"""
+    if points is None:
+        return []
+    if isinstance(points, str):
+        raw_items = [line for line in re.split(r'[\r\n]+', points) if line.strip()]
+    elif isinstance(points, (list, tuple)):
+        raw_items = []
+        for item in points:
+            if isinstance(item, (list, tuple)):
+                raw_items.extend(str(sub) for sub in item)
+            else:
+                raw_items.append(str(item))
+    else:
+        raw_items = [str(points)]
+    body_lines = [_normalise_body_line(item) for item in raw_items]
+    return [line for line in body_lines if line]
+
+
+def _json_can_slice(value, raw_title):
+    """解析 JSON 里的 can_slice 字段；兼容字符串布尔值。"""
+    if any(hint in str(raw_title) for hint in _NO_SLICE_HINTS):
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "y", "1", "可切", "切", "是"}
+    return "✂" in str(raw_title)
+
+
+def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topics):
+    """优先解析结构化 JSON 响应；不是 JSON 时返回 None，由旧 Markdown 解析兜底。"""
+    payload = _extract_json_payload(response)
+    if payload is None:
+        return None
+    if isinstance(payload, dict):
+        raw_topics = payload.get("topics", [])
+    elif isinstance(payload, list):
+        raw_topics = payload
+    else:
+        return [], []
+    if not isinstance(raw_topics, list):
+        return [], []
+
+    parsed_topics = []
+    clip_marks = []
+    for item in raw_topics:
+        if not isinstance(item, dict):
+            continue
+        try:
+            start_str = str(item.get("start", "")).strip()
+            end_str = str(item.get("end", "")).strip()
+            start_s = _parse_hms(start_str)
+            end_s = _parse_hms(end_str)
+        except Exception:
+            continue
+        if not _is_topic_in_chunk(start_s, end_s, chunk_start, chunk_end):
+            continue
+        raw_title = str(item.get("title", "")).strip()
+        if _is_placeholder_title(raw_title):
+            continue
+        body_lines = _json_points_to_body(
+            item.get("points", item.get("body", item.get("summary", item.get("details"))))
+        )
+        if not body_lines:
+            continue
+        end_s = _repair_short_topic_end(start_s, end_s, body_lines, chunk_end)
+        title = _derive_topic_title(_clean_topic_title(raw_title), body_lines)
+        if not title:
+            continue
+        topic = {
+            "start": start_s,
+            "end": end_s,
+            "start_str": start_str,
+            "end_str": fmt_time(end_s),
+            "title": title,
+            "can_slice": _json_can_slice(item.get("can_slice", False), raw_title),
+            "body": body_lines,
+        }
+        if _is_duplicate_topic(topic, accepted_topics):
+            continue
+        accepted_topics.append(topic)
+        parsed_topics.append(topic)
+        if topic["can_slice"]:
+            clip_marks.append({"start": topic["start"], "end": topic["end"], "title": topic["title"]})
+
+    report_blocks = [_format_topic_block(topic, idx + 1) for idx, topic in enumerate(parsed_topics)]
+    return report_blocks, _dedupe_clip_marks(clip_marks)
+
+
 def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
     """
     解析单个分块的 LLM 输出。
@@ -922,6 +1025,10 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None):
     - clip_marks: 去重后的可切片段列表
     """
     accepted_topics = accepted_topics if accepted_topics is not None else []
+    json_result = _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topics)
+    if json_result is not None:
+        return json_result
+
     response = _strip_code_fence(response)
     if not response or response.strip() == "无明显话题":
         return [], []

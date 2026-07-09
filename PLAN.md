@@ -407,3 +407,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 03:24 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.23: 改用结构化 JSON 输出降低报告污染 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.22 |
+| 描述 | 将 LLM 分块提示从自由 Markdown 条目改为严格 JSON 输出，新增 JSON topics 解析器并保留旧 Markdown 解析兜底；程序只接收 start/end/title/can_slice/points 字段，降低“总结/规划/格式说明”混入报告和 clip_marks 的概率。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；JSON 输出可解析为时间轴话题和切片标记，prompt 明确只输出 JSON。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 10:14 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

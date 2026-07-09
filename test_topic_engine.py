@@ -55,6 +55,26 @@ class TopicEngineParseTests(unittest.TestCase):
             [{"start": 6530, "end": 6723, "title": "疑惑汽车广告奇怪产品"}],
         )
 
+    def test_parse_json_topics_response_and_ignore_extra_text(self):
+        topics = []
+        response = """
+下面是最终结果：
+{"topics":[
+  {"start":"1:48:50","end":"1:52:03","title":"疑惑汽车广告奇怪产品","can_slice":true,
+   "points":["音音看到奇怪汽车广告，反复吐槽产品定位","弹幕跟着刷问号，当前块内确实有内容"]},
+  {"start":"1:52:10","end":"1:53:00","title":"输出内容要严格按照格式","can_slice":true,
+   "points":["最终输出："]}
+]}
+"""
+
+        blocks, marks = _parse_llm_response(response, 6530, 6830, topics)
+        report = _build_timeline_report("测试.flv", "弹幕峰值 2 个窗口", topics, streamer_name="音音")
+
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("疑惑汽车广告奇怪产品", report)
+        self.assertNotIn("输出内容要严格按照格式", report)
+        self.assertEqual(marks, [{"start": 6530, "end": 6723, "title": "疑惑汽车广告奇怪产品"}])
+
     def test_dedupe_same_range_even_when_title_changes(self):
         response = """
 [2:24:30-2:25:05] 感谢英姐礼物&积分吐槽 ✂️ (因为1.1倍>平均)
@@ -752,6 +772,8 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("普通聊天、过渡、游戏过程、读弹幕、感谢礼物也要写进时间轴", prompt)
         self.assertIn("主播展示称呼: 音音", prompt)
         self.assertIn("音姐、麻麻、音音", prompt)
+        self.assertIn("只输出一个 JSON 对象", prompt)
+        self.assertIn('"topics"', prompt)
 
     def test_default_chunking_uses_ten_minutes_and_natural_topics(self):
         segs = [
