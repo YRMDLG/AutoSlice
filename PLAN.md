@@ -577,3 +577,32 @@
 | 完成时间 | 2026-07-10 02:05 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v；真实 20260709 快路径通过，7 个切片，无相邻重叠，无模型草稿污染。 |
 
+
+### Action 5.35: 缩短实际切片并分离报告话题范围 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.34 |
+| 描述 | 将报告中的完整话题范围与实际用于 ffmpeg 的切片核心范围分离：长话题按弹幕峰值优先截取短核心，人工 ⭐/SC 只做辅助兜底，再自动补少量前后文；降低默认前后文和最大切片长度；相邻切片重叠时合并或截断，避免重复导出十几分钟长片段。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；长话题生成的 clip_marks 使用短核心范围，扩展后不超过配置上限且相邻不重叠。 |
+| 重试次数 | 1/3 |
+| 完成时间 | 2026-07-10 02:45 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v；真实 20260709 与 20260708 均通过，无超 420 秒切片、无相邻重叠，报告含字幕核查和弹幕依据。 |
+
+### Action 5.36: 话题分析前端支持选择辅助时间轴文件 [待办]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 待办 |
+| 依赖 | Action 5.35 |
+| 描述 | 在 `/topic-v2` 页面增加辅助时间轴选择：自动匹配、不使用、手动选择 docx/填写路径；后端 `/api/start-pipeline` 接收该路径并传给 `run_pipeline()`，避免自动选错 `F:\切片时间轴` 下的文件。 |
+| 涉及文件 | `app.py` `templates/topic_v2.html` `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；`run_pipeline()` 可自动匹配、禁用人工时间轴、指定人工时间轴路径。 |
+| 重试次数 | 0/3 |
+| 完成时间 | - |
+| 备注 | - |
+

@@ -29,12 +29,15 @@ MAX_INITIAL_FAILED_CHUNKS = 3
 DANMAKU_WINDOW = 60
 DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
 CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
-TOPIC_PRE_CONTEXT_SEC = 90      # 话题切片向前保留前因
-TOPIC_POST_CONTEXT_SEC = 120    # 话题切片向后保留后果/反应
-TOPIC_MIN_CLIP_SEC = 180        # 太短的高能点至少扩成 3 分钟上下文
-TOPIC_MAX_CLIP_SEC = 900        # 防止单个切片过长（原话题超过该值时不强行截断）
+TOPIC_PRE_CONTEXT_SEC = 60      # 话题切片向前保留峰值前因，控制二剪素材长度
+TOPIC_POST_CONTEXT_SEC = 90     # 话题切片向后保留峰值后续反应，避免拖得过长
+TOPIC_MIN_CLIP_SEC = 90         # 太短的高能点至少扩成 1.5 分钟上下文
+TOPIC_MAX_CLIP_SEC = 420        # 单个实际切片最长 7 分钟，合并峰值时优先保证峰值完整
+TOPIC_DIRECT_SLICE_MAX_SEC = 240  # 4 分钟内话题直接切；更长话题只截弹幕峰值核心段
+TOPIC_FOCUS_PRE_SEC = 0         # 长话题核心从弹幕峰值窗口开始，前因由 TOPIC_PRE_CONTEXT_SEC 补
+TOPIC_FOCUS_POST_SEC = DANMAKU_WINDOW  # 长话题核心覆盖完整弹幕峰值窗口
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
-SC_CONTEXT_LOOKBACK_SEC = 240   # 话题前 4 分钟内的 SC/礼物触发点会纳入切片
+SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会纳入切片
 SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
 SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
 SRT_MAX_ESTIMATED_SEG_SEC = 300 # 单条异常字幕最多估算 5 分钟
@@ -393,8 +396,52 @@ def _merge_manual_timeline_topics(topics, entries):
     return topics
 
 
-def _topics_from_manual_timeline(entries, max_gap_sec=240):
-    """人工时间轴快路径：按时间相近记录聚合成干净话题。"""
+def _topic_srt_summary_lines(start, end, srt_segments, limit=3):
+    """提取话题范围附近的字幕证据，避免报告只复述人工时间轴。"""
+    if not srt_segments:
+        return []
+    related = [
+        (seg_start, seg_end, text)
+        for seg_start, seg_end, text in srt_segments
+        if seg_end >= start - 30 and seg_start <= end + 30
+    ]
+    if not related:
+        return []
+    if len(related) <= limit:
+        selected = related
+    else:
+        step = max(1, (len(related) - 1) // max(1, limit - 1))
+        selected = [related[min(i * step, len(related) - 1)] for i in range(limit)]
+    lines = []
+    seen = set()
+    for seg_start, _, text in selected:
+        compact = re.sub(r'\s+', '', text or '')
+        if not compact or compact in seen:
+            continue
+        seen.add(compact)
+        if len(compact) > 70:
+            compact = compact[:70] + "…"
+        lines.append(f"·字幕核查：{fmt_time(seg_start)} {compact}")
+    return lines
+
+
+def _topic_danmaku_reference_line(start, end, peaks):
+    """生成话题附近弹幕峰值依据。"""
+    if not peaks:
+        return None
+    candidates = [
+        (peak_start, density)
+        for peak_start, density in peaks
+        if peak_start + DANMAKU_WINDOW >= start and peak_start <= end
+    ]
+    if not candidates:
+        return None
+    peak_start, density = max(candidates, key=lambda item: item[1])
+    return f"·弹幕依据：{fmt_time(peak_start)} 附近峰值约 {int(density)} 条/分钟"
+
+
+def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap_sec=240):
+    """基于字幕/弹幕生成话题，人工时间轴只作为辅助参考和校准。"""
     sorted_entries = sorted(entries or [], key=lambda item: item["start"])
     groups = []
     current = []
@@ -414,7 +461,13 @@ def _topics_from_manual_timeline(entries, max_gap_sec=240):
     topics = []
     for group in groups:
         title_entry = next((item for item in group if item.get("stars", 0) > 0), group[0])
+        start = max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0))
+        end = int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120)
         body = []
+        peak_line = _topic_danmaku_reference_line(start, end, peaks or [])
+        if peak_line:
+            body.append(peak_line)
+        body.extend(_topic_srt_summary_lines(start, end, srt_segments or []))
         for item in group:
             time_label = fmt_time(item["start"])
             if item.get("stars", 0) > 0:
@@ -423,16 +476,16 @@ def _topics_from_manual_timeline(entries, max_gap_sec=240):
             else:
                 body.append(f"·时间轴：{time_label} {item['text']}")
         topic = {
-            "start": max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0)),
-            "end": int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120),
-            "start_str": fmt_time(max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0))),
-            "end_str": fmt_time(int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120)),
+            "start": start,
+            "end": end,
+            "start_str": fmt_time(start),
+            "end_str": fmt_time(end),
             "title": _manual_title_from_text(title_entry["text"]),
             "can_slice": False,
             "body": body,
             "manual_stars": max(item.get("stars", 0) for item in group),
             "manual_timeline": group,
-            "source": "manual_timeline",
+            "source": "subtitle_danmaku_with_manual_reference",
         }
         topics.append(topic)
     return topics
@@ -1213,6 +1266,8 @@ def _is_meta_body_line(line):
     normalized = clean.strip(' （）()[]【】「」『』：:。；;，,、.!！?？')
     if re.fullmatch(r'\[?\d{1,2}:\d{2}(?::\d{2})?\s*', clean):
         return True
+    if clean.startswith(("字幕核查：", "字幕核查:", "弹幕依据：", "弹幕依据:", "切片核心：", "切片核心:")):
+        return False
     if clean.startswith(("“", "”", "\"", "‘", "'")) and ("– 说" in clean or "- 说" in clean or len(clean) > 80):
         return True
     if "->" in clean:
@@ -1963,6 +2018,118 @@ def _topic_peak_density(topic, peaks, window_sec=DANMAKU_WINDOW):
     return max(densities) if densities else 0
 
 
+def _topic_peak_anchor(topic, peaks, window_sec=DANMAKU_WINDOW):
+    """返回话题内最高弹幕峰值中心点；没有峰值则返回 None。"""
+    if not peaks:
+        return None
+    start = int(topic["start"])
+    end = int(topic["end"])
+    candidates = [
+        (peak_start, density)
+        for peak_start, density in peaks
+        if peak_start + window_sec >= start and peak_start <= end
+    ]
+    if not candidates:
+        return None
+    peak_start, _ = max(candidates, key=lambda item: item[1])
+    return int(peak_start + window_sec / 2)
+
+
+def _topic_peak_focus_window(topic, peaks, window_sec=DANMAKU_WINDOW):
+    """返回话题内最高弹幕峰值窗口；实际切片优先围绕该窗口扩前后文。"""
+    if not peaks:
+        return None
+    start = int(topic["start"])
+    end = int(topic["end"])
+    candidates = [
+        (peak_start, density)
+        for peak_start, density in peaks
+        if peak_start + window_sec >= start and peak_start <= end
+    ]
+    if not candidates:
+        return None
+    peak_start, density = max(candidates, key=lambda item: item[1])
+    focus_start = max(start, int(peak_start) - TOPIC_FOCUS_PRE_SEC)
+    focus_end = min(end, int(peak_start) + TOPIC_FOCUS_POST_SEC)
+    if focus_end <= focus_start:
+        focus_end = min(end, focus_start + window_sec)
+    return {
+        "start": int(focus_start),
+        "end": int(max(focus_end, focus_start + 1)),
+        "anchor": int(peak_start + window_sec / 2),
+        "density": density,
+    }
+
+
+def _topic_manual_star_anchor(topic):
+    """返回话题内人工 ⭐ 的核心时间点；人工时间轴只作为参考，不直接决定完整切片长度。"""
+    entries = topic.get("manual_timeline") or []
+    starred = [
+        item for item in entries
+        if item.get("stars", 0) > 0 and topic["start"] <= item.get("start", -1) <= topic["end"]
+    ]
+    if not starred:
+        return None
+    best = max(starred, key=lambda item: (item.get("stars", 0), -abs(item["start"] - topic["start"])))
+    return int(best["start"])
+
+
+def _assign_topic_slice_window(topic, peaks):
+    """为话题分配较短的实际切片核心范围；报告范围仍保留完整话题。"""
+    topic_start = int(topic["start"])
+    topic_end = int(topic["end"])
+    if topic_end <= topic_start:
+        return topic
+
+    duration = topic_end - topic_start
+    fixed = topic
+    if duration <= TOPIC_DIRECT_SLICE_MAX_SEC:
+        fixed["slice_start"] = topic_start
+        fixed["slice_end"] = topic_end
+        return fixed
+
+    peak_focus = _topic_peak_focus_window(topic, peaks)
+    if peak_focus:
+        fixed["slice_start"] = peak_focus["start"]
+        fixed["slice_end"] = peak_focus["end"]
+        fixed["slice_anchor"] = peak_focus["anchor"]
+        fixed["slice_anchor_source"] = "弹幕峰值"
+        body = list(fixed.get("body") or [])
+        note = (
+            f"·切片核心：完整话题较长，实际切片围绕弹幕峰值"
+            f"{fmt_time(peak_focus['anchor'])}截取，保留峰值前后完整反应"
+        )
+        if note not in body:
+            body.append(note)
+        fixed["body"] = body
+        return fixed
+
+    anchor = _topic_manual_star_anchor(topic)
+    anchor_source = "人工⭐"
+    if anchor is None:
+        anchor = int((topic_start + topic_end) / 2)
+        anchor_source = "话题中点"
+
+    slice_start = max(topic_start, anchor - TOPIC_FOCUS_PRE_SEC)
+    slice_end = min(topic_end, anchor + TOPIC_FOCUS_POST_SEC)
+    if slice_end <= slice_start:
+        slice_end = min(topic_end, slice_start + TOPIC_FOCUS_PRE_SEC + TOPIC_FOCUS_POST_SEC)
+    fixed["slice_start"] = int(slice_start)
+    fixed["slice_end"] = int(max(slice_end, slice_start + 1))
+    fixed["slice_anchor"] = int(anchor)
+    fixed["slice_anchor_source"] = anchor_source
+
+    body = list(fixed.get("body") or [])
+    note = (
+        f"·切片核心：完整话题较长，实际切片围绕{anchor_source}"
+        f"{fmt_time(anchor)}截取，报告仍保留完整上下文"
+    )
+    if note not in body:
+        body.append(note)
+    fixed["body"] = body
+    return fixed
+
+
 def _is_content_cuttable_topic(topic):
     """判断话题内容本身是否适合切片，避免只有背景语音/兜底说明被高弹幕误切。"""
     if topic.get("fallback"):
@@ -2023,13 +2190,23 @@ def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
             and (normal_cut or manual_cut)
             and topic["end"] > topic["start"]
         )
+        if topic["can_slice"]:
+            _assign_topic_slice_window(topic, peaks)
     return topics
 
 
 def _clip_marks_from_topics(topics):
     """根据已筛选的重点话题生成 clip_marks。"""
     return _dedupe_clip_marks([
-        {"start": topic["start"], "end": topic["end"], "title": topic["title"]}
+        {
+            "start": topic.get("slice_start", topic["start"]),
+            "end": topic.get("slice_end", topic["end"]),
+            "title": topic["title"],
+            "report_start": topic["start"],
+            "report_end": topic["end"],
+            "slice_anchor": topic.get("slice_anchor"),
+            "slice_anchor_source": topic.get("slice_anchor_source"),
+        }
         for topic in topics
         if topic.get("can_slice")
     ])
@@ -2144,7 +2321,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             )
     total = len(chunks)
 
-    # Step 4: 有人工时间轴时走快路径，避免 Pro 推理过慢；无人工时间轴再调用 LLM。
+    # Step 4: 有人工时间轴时只作为辅助参考，仍以字幕/弹幕为主生成话题；无人工时间轴再调用 LLM。
     api_precheck_warning = None
     clip_marks = []
     accepted_topics = []
@@ -2152,10 +2329,10 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     consecutive_failed_chunks = 0
 
     if manual_entries:
-        accepted_topics = _topics_from_manual_timeline(manual_entries)
+        accepted_topics = _topics_from_manual_timeline(manual_entries, srt_segments=segs, peaks=peaks)
         if progress_callback:
             progress_callback(
-                f"Step 4/5: 使用人工时间轴快路径 ({len(accepted_topics)} 个话题)，跳过 LLM 分块...",
+                f"Step 4/5: 基于字幕/弹幕生成话题，人工时间轴辅助 ({len(accepted_topics)} 个话题)...",
                 93, 100,
             )
     else:

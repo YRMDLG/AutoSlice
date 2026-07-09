@@ -152,7 +152,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(len(expanded), 1)
         self.assertEqual(expanded[0]["topic_start"], 100)
         self.assertEqual(expanded[0]["topic_end"], 110)
-        self.assertEqual(expanded[0]["start"], 0)
+        self.assertEqual(expanded[0]["start"], 40)
         self.assertEqual(expanded[0]["end"], 235)
         self.assertEqual(expanded[0]["time_basis"], "video_elapsed_seconds")
         self.assertTrue(expanded[0]["context_expanded"])
@@ -203,8 +203,8 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual(len(expanded), 2)
         self.assertEqual(expanded[0]["merged_titles"], ["裤装话题", "钥匙话题"])
-        self.assertEqual(expanded[0]["start"], 3433)
-        self.assertEqual(expanded[0]["end"], 3982)
+        self.assertEqual(expanded[0]["start"], 3463)
+        self.assertEqual(expanded[0]["end"], 3883)
         self.assertEqual(expanded[1]["title"], "小星星话题")
         self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
         self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], 900)
@@ -415,7 +415,32 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertTrue(topics[1]["can_slice"])
         self.assertFalse(topics[2]["can_slice"])
         self.assertFalse(topics[3]["can_slice"])
-        self.assertEqual(marks, [{"start": 1000, "end": 1120, "title": "高密度生日企划"}])
+        self.assertEqual(marks[0]["start"], 1000)
+        self.assertEqual(marks[0]["end"], 1120)
+        self.assertEqual(marks[0]["title"], "高密度生日企划")
+
+    def test_long_topic_slice_window_prefers_danmaku_peak_over_manual_star(self):
+        topics = [{
+            "start": 1000,
+            "end": 1900,
+            "title": "生日长话题",
+            "can_slice": False,
+            "body": ["·完整话题较长，人工时间轴只作为参考"],
+            "manual_stars": 3,
+            "manual_timeline": [{"start": 1050, "stars": 3, "text": "人工标记"}],
+        }]
+        peaks = [(1100, 90), (1500, 200)]
+
+        _apply_danmaku_slice_decisions(topics, peaks, avg_density=100)
+        marks = _clip_marks_from_topics(topics)
+        expanded = _expand_clip_marks_with_context(marks, srt_segments=[], video_duration=2000)
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["slice_anchor_source"], "弹幕峰值")
+        self.assertEqual(marks[0]["start"], 1500)
+        self.assertEqual(marks[0]["end"], 1560)
+        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], 420)
+        self.assertLess(topics[0]["slice_start"], topics[0]["end"])
 
     def test_manual_timeline_lines_convert_wall_clock_to_video_time(self):
         video_start = datetime(2026, 7, 8, 20, 10, 53)
@@ -513,6 +538,31 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(topics[0]["manual_stars"], 1)
         body = "\n".join(topics[0]["body"])
         self.assertIn("●人工时间轴⭐", body)
+        self.assertIn("·时间轴：", body)
+
+    def test_manual_timeline_topics_include_subtitle_and_danmaku_evidence(self):
+        entries = _parse_manual_timeline_lines(
+            [
+                "20:31:56 最喜欢在上帝视角看你们猜了“这个剪影迷惑性还挺强的” ⭐",
+                "20:34:51 “尾巴？音悦生整肛塞吧”",
+            ],
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+
+        topics = _topics_from_manual_timeline(
+            entries,
+            srt_segments=[
+                (1240, 1260, "音音在讲剪影猜测的前情"),
+                (1380, 1420, "弹幕开始集中猜尾巴和新衣细节"),
+                (1450, 1470, "音音继续接着吐槽"),
+            ],
+            peaks=[(1386, 160)],
+        )
+        body = "\n".join(topics[0]["body"])
+
+        self.assertEqual(topics[0]["source"], "subtitle_danmaku_with_manual_reference")
+        self.assertIn("·字幕核查：", body)
+        self.assertIn("·弹幕依据：", body)
         self.assertIn("·时间轴：", body)
 
     def test_manual_star_is_not_swallowed_by_fallback_topic(self):
