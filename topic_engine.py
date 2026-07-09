@@ -267,6 +267,22 @@ def load_manual_timeline(video_path, timeline_dir=MANUAL_TIMELINE_DIR):
     return {"path": doc_path, "entries": entries, "video_start": video_start}
 
 
+def _manual_timeline_summary(manual_timeline):
+    """返回可 JSON 序列化的人工时间轴摘要，避免 Web SSE 返回 datetime。"""
+    manual_timeline = manual_timeline or {}
+    entries = manual_timeline.get("entries") or []
+    video_start = manual_timeline.get("video_start")
+    if isinstance(video_start, datetime):
+        video_start = video_start.strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "path": manual_timeline.get("path"),
+        "entry_count": len(entries),
+        "star_count": sum(1 for item in entries if item.get("stars", 0) > 0),
+        "video_start": video_start,
+        "time_basis": "wall_clock_converted_to_video_elapsed_seconds" if entries else None,
+    }
+
+
 def _format_manual_entry_for_prompt(entry):
     stars = "⭐" * min(int(entry.get("stars", 0)), 5)
     prefix = f"{stars} " if stars else ""
@@ -2216,12 +2232,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             },
             "api_precheck_warning": api_precheck_warning,
             "failed_chunks": failed_chunks,
-            "manual_timeline": {
-                "path": manual_timeline.get("path"),
-                "entry_count": len(manual_entries),
-                "star_count": sum(1 for item in manual_entries if item.get("stars", 0) > 0),
-                "time_basis": "wall_clock_converted_to_video_elapsed_seconds" if manual_entries else None,
-            },
+            "manual_timeline": _manual_timeline_summary(manual_timeline),
             "clip_marks": clip_marks,
         }, f, ensure_ascii=False, indent=2)
 
@@ -2239,7 +2250,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         "srt_path": srt_path,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
-        "manual_timeline": manual_timeline,
+        "manual_timeline": _manual_timeline_summary(manual_timeline),
     }
 
 

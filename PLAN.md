@@ -547,3 +547,18 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 16:50 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.33: 修复 Web 返回结果 datetime 序列化失败 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.32 |
+| 描述 | 修复 `run_pipeline()` 返回值中 `manual_timeline.video_start` 为 datetime 导致 Flask SSE `json.dumps(result)` 失败的问题，确保分析和切片完成后 Web 端能正常返回 done。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；run_pipeline 返回值可被 json.dumps 序列化。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-10 00:40 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+

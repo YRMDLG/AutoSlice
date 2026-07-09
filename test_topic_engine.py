@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,7 @@ from topic_engine import (
     _clean_topics_for_report, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _infer_streamer_name, _is_retryable_llm_error,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
-    _manual_timeline_info_for_chunk, _parse_llm_response,
+    _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_manual_timeline_lines, _streamer_report_name,
     _topics_from_manual_timeline, chunk_srt,
     load_api_config, parse_srt_text,
@@ -377,6 +378,22 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(entries[0]["stars"], 1)
         self.assertEqual(entries[1]["start"], 24621)
         self.assertIn("脸圆成什么样了", entries[1]["text"])
+
+    def test_manual_timeline_summary_is_json_serializable(self):
+        summary = _manual_timeline_summary({
+            "path": r"F:\切片时间轴\20260709.docx",
+            "video_start": datetime(2026, 7, 9, 20, 0, 47),
+            "entries": [
+                {"start": 60, "stars": 0, "text": "普通记录"},
+                {"start": 120, "stars": 2, "text": "重点记录"},
+            ],
+        })
+
+        encoded = json.dumps(summary, ensure_ascii=False)
+
+        self.assertIn("2026-07-09 20:00:47", encoded)
+        self.assertEqual(summary["entry_count"], 2)
+        self.assertEqual(summary["star_count"], 1)
 
     def test_manual_timeline_is_added_to_prompt_report_and_slice_decision(self):
         entries = _parse_manual_timeline_lines(
