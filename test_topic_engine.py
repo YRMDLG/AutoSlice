@@ -17,7 +17,7 @@ from topic_engine import (
     _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_manual_timeline_lines, _streamer_report_name,
     _topics_from_manual_timeline, chunk_srt,
-    load_api_config, parse_srt_text,
+    load_api_config, load_manual_timeline, parse_srt_text,
 )
 
 def make_http_error(status):
@@ -456,6 +456,24 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(entries[0]["stars"], 1)
         self.assertEqual(entries[1]["start"], 24621)
         self.assertIn("脸圆成什么样了", entries[1]["text"])
+
+    def test_load_manual_timeline_can_be_disabled_or_specified(self):
+        video_path = r"F:\001\1947277414-泽音Melody\2026年\07月\08号\2026年07月08号-20点09分46秒开播\变色龙躲猫猫-2026年07月08号-20点10分53秒-001.flv"
+        disabled = load_manual_timeline(video_path, manual_timeline_path="__none__")
+
+        self.assertEqual(disabled["entries"], [])
+        self.assertEqual(disabled["mode"], "disabled")
+
+        with TemporaryDirectory() as tmp:
+            doc_path = Path(tmp) / "指定时间轴.docx"
+            doc_path.write_bytes(b"fake docx body")
+            with patch("topic_engine._read_docx_lines", return_value=["20:31:56 指定时间轴重点 ⭐"]):
+                loaded = load_manual_timeline(video_path, manual_timeline_path=str(doc_path))
+
+        self.assertEqual(loaded["path"], str(doc_path))
+        self.assertEqual(loaded["mode"], "manual")
+        self.assertEqual(len(loaded["entries"]), 1)
+        self.assertIn("指定时间轴重点", loaded["entries"][0]["text"])
 
     def test_manual_timeline_summary_is_json_serializable(self):
         summary = _manual_timeline_summary({

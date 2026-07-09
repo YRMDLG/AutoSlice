@@ -54,9 +54,8 @@ def update_task(task_id, **kwargs):
     broadcast("task_update", {"task_id": task_id, **kwargs})
 
 
-def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path):
+def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path, timeline_json=None):
     """后台切片任务"""
-    # 时间轴自动复制到项目文件夹
     if timeline_path and os.path.isfile(timeline_path):
         import shutil
         dest = os.path.join(PROJECT_TL_DIR, os.path.basename(timeline_path))
@@ -75,7 +74,7 @@ def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path)
     try:
         count, out_dir = process_video(
             flv_path, ass_path, output_dir,
-            mode=mode, timeline_path=timeline_path,
+            mode=mode, timeline_path=timeline_path, timeline_json=timeline_json,
             progress_callback=callback
         )
         update_task(task_id, status="done",
@@ -167,9 +166,13 @@ def slice_start():
             shutil.copy2(timeline_path, dest)
         timeline_path = dest
 
+    timeline_json = data.get("timeline_json", "")
+    if mode == "timeline-json":
+        mode = "timeline"
+        timeline_path = ""
     task_id = os.path.basename(flv_path).replace(".flv", "")[:50]
     threading.Thread(target=run_slice_task,
-                     args=(task_id, flv_path, ass_path, output_dir, mode, timeline_path),
+                     args=(task_id, flv_path, ass_path, output_dir, mode, timeline_path, timeline_json),
                      daemon=True).start()
     return jsonify({"task_id": task_id})
 
@@ -181,6 +184,10 @@ def slice_all():
     output_dir = data.get("output_dir", r"F:\Videos\自动切片")
     mode = data.get("mode", "danmaku")
     timeline_path = data.get("timeline_path", "")
+    timeline_json = data.get("timeline_json", "")
+    if mode == "timeline-json":
+        mode = "timeline"
+        timeline_path = ""
 
     if not os.path.isdir(video_dir):
         return jsonify({"error": "目录不存在"})
@@ -195,7 +202,7 @@ def slice_all():
             continue
         task_id = name.replace(".flv", "")[:50]
         threading.Thread(target=run_slice_task,
-                         args=(task_id, f, ass_path, output_dir, mode, timeline_path),
+                         args=(task_id, f, ass_path, output_dir, mode, timeline_path, timeline_json),
                          daemon=True).start()
         task_ids.append(task_id)
 
@@ -206,6 +213,35 @@ def slice_all():
 def list_tasks():
     with task_lock:
         return jsonify(dict(tasks))
+
+
+@app.route("/api/list-json-timelines", methods=["GET"])
+def list_json_timelines():
+    """列出可用的 JSON 时间轴文件"""
+    search_dirs = [r"F:\录播上传\DanmakuRender-5\直播回放", r"F:\Videos\自动切片"]
+    files = []
+    for d in search_dirs:
+        if os.path.isdir(d):
+            for root, _, fs in os.walk(d):
+                for f in fs:
+                    if f.endswith("_clip_marks.json") or f.endswith("_topics.json"):
+                        files.append({"name": f, "path": os.path.join(root, f)})
+    return jsonify({"files": sorted(files, key=lambda x: x["name"], reverse=True)})
+
+
+@app.route("/api/upload-json-timeline", methods=["POST"])
+def upload_json_timeline():
+    """上传 JSON 时间轴文件"""
+    if "file" not in request.files:
+        return jsonify({"error": "无文件"})
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "文件名为空"})
+    upload_dir = r"F:\Videos\自动切片"
+    os.makedirs(upload_dir, exist_ok=True)
+    save_path = os.path.join(upload_dir, file.filename)
+    file.save(save_path)
+    return jsonify({"path": save_path, "name": file.filename})
 
 
 @app.route("/api/timelines", methods=["GET"])
@@ -231,6 +267,104 @@ def upload_timeline():
     return jsonify({"path": save_path, "name": file.filename})
 
 
+# ==================== 话题分析 ====================
+
+@app.route("/topic")
+def topic_page():
+    return render_template("topic.html")
+
+
+@app.route("/topic-v2")
+def topic_v2_page():
+    return render_template("topic_v2.html")
+
+
+@app.route("/api/start-pipeline", methods=["POST"])
+def start_pipeline():
+    """启动完整话题分析流水线（v2）"""
+    data = request.get_json()
+    flv_path = data.get("flv_path", "")
+    ass_path = data.get("ass_path", "")
+    output_dir = data.get("output_dir", r"F:\Videos\自动切片")
+    manual_timeline_mode = data.get("manual_timeline_mode", "auto")
+    manual_timeline_path = data.get("manual_timeline_path", "")
+
+    if not os.path.isfile(flv_path):
+        return jsonify({"error": "视频文件不存在"})
+    if manual_timeline_mode == "manual" and not os.path.isfile(manual_timeline_path):
+        return jsonify({"error": "指定的辅助时间轴文件不存在"})
+    if manual_timeline_mode == "none":
+        manual_timeline_path = "__none__"
+    elif manual_timeline_mode != "manual":
+        manual_timeline_path = None
+
+    task_id = "pipeline_" + os.path.basename(flv_path).replace(".flv", "")[:35]
+
+    def run():
+        try:
+            from topic_engine import run_pipeline, slice_from_marks
+
+            def cb(msg, step, total):
+                update_task(task_id, status="running", progress=msg, step=step, total=total)
+
+            result = run_pipeline(
+                flv_path,
+                ass_path if os.path.exists(ass_path) else None,
+                progress_callback=cb,
+                manual_timeline_path=manual_timeline_path,
+            )
+
+            # 用新的独立切片功能，不依赖现有切片模式
+            clip_marks = result.get("clip_marks", [])
+            if clip_marks:
+                count, out_dir = slice_from_marks(
+                    flv_path, result["json_path"], output_dir,
+                    progress_callback=cb
+                )
+                result["slice_count"] = count
+                result["slice_dir"] = out_dir
+
+            update_task(task_id, status="done",
+                        progress=f"完成! {len(clip_marks)} 个话题, {result.get('slice_count', 0)} 个切片",
+                        result=json.dumps(result, ensure_ascii=False),
+                        step=100)
+        except Exception as e:
+            import traceback
+            update_task(task_id, status="error", progress="失败",
+                        result=f"{e}\n{traceback.format_exc()}", step=0)
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/api/analyze-topics", methods=["POST"])
+def analyze_topics():
+    """启动话题分析任务"""
+    data = request.get_json()
+    srt_path = data.get("srt_path", "")
+    if not srt_path or not os.path.isfile(srt_path):
+        return jsonify({"error": "SRT 文件不存在"})
+
+    task_id = "topic_" + os.path.basename(srt_path).replace(".srt", "")[:40]
+
+    def run_analysis():
+        try:
+            from topic_analyzer import analyze_srt
+
+            def cb(msg, step, total):
+                update_task(task_id, status="running", progress=msg, step=step, total=total)
+
+            result = analyze_srt(srt_path, progress_callback=cb)
+            update_task(task_id, status="done",
+                        progress=f"完成！{len(result['topics'])} 个话题",
+                        result=json.dumps(result, ensure_ascii=False),
+                        step=100)
+        except Exception as e:
+            update_task(task_id, status="error", progress="分析失败", result=str(e), step=0)
+
+    threading.Thread(target=run_analysis, daemon=True).start()
+    return jsonify({"task_id": task_id})
+
+
 if __name__ == "__main__":
-    # 启动逻辑在 启动.py 里，这样 Ctrl+C 一键全停
     pass

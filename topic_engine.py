@@ -260,14 +260,19 @@ def _parse_manual_timeline_lines(lines, video_start):
     return entries
 
 
-def load_manual_timeline(video_path, timeline_dir=MANUAL_TIMELINE_DIR):
-    """加载与录播日期匹配的人工时间轴 docx。"""
+def load_manual_timeline(video_path, timeline_dir=MANUAL_TIMELINE_DIR, manual_timeline_path=None):
+    """加载人工时间轴 docx；manual_timeline_path=None 自动匹配，'__none__' 禁用。"""
     video_start = _extract_video_start_datetime(video_path)
-    doc_path = _find_manual_timeline_doc(video_path, timeline_dir)
+    if manual_timeline_path == "__none__":
+        return {"path": None, "entries": [], "video_start": video_start, "mode": "disabled"}
+    if manual_timeline_path:
+        doc_path = manual_timeline_path if os.path.isfile(manual_timeline_path) else None
+    else:
+        doc_path = _find_manual_timeline_doc(video_path, timeline_dir)
     if not video_start or not doc_path:
-        return {"path": None, "entries": [], "video_start": video_start}
+        return {"path": None, "entries": [], "video_start": video_start, "mode": "manual" if manual_timeline_path else "auto"}
     entries = _parse_manual_timeline_lines(_read_docx_lines(doc_path), video_start)
-    return {"path": doc_path, "entries": entries, "video_start": video_start}
+    return {"path": doc_path, "entries": entries, "video_start": video_start, "mode": "manual" if manual_timeline_path else "auto"}
 
 
 def _manual_timeline_summary(manual_timeline):
@@ -2274,7 +2279,7 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
     return "\n".join(lines).rstrip() + "\n"
 
 
-def run_pipeline(flv_path, ass_path=None, progress_callback=None):
+def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timeline_path=None):
     """
     完整流水线：SRT → 弹幕 → LLM分析 → 报告 + 切片标记
 
@@ -2309,7 +2314,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         progress_callback("Step 3/5: SRT 分块中...", 20, 100)
     segs = parse_srt_text(srt_path)
     chunks = chunk_srt(segs, peaks)
-    manual_timeline = load_manual_timeline(flv_path)
+    manual_timeline = load_manual_timeline(flv_path, manual_timeline_path=manual_timeline_path)
     manual_entries = manual_timeline.get("entries") or []
     if manual_entries:
         chunks = _attach_manual_timeline_to_chunks(chunks, manual_entries)

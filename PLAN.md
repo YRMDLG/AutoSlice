@@ -592,17 +592,19 @@
 | 完成时间 | 2026-07-10 02:45 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v；真实 20260709 与 20260708 均通过，无超 420 秒切片、无相邻重叠，报告含字幕核查和弹幕依据。 |
 
-### Action 5.36: 话题分析前端支持选择辅助时间轴文件 [待办]
+### Action 5.36: 话题分析前端支持选择辅助时间轴文件 [✅]
 
 | 字段 | 值 |
 |------|-----|
-| 状态 | 待办 |
+| 状态 | 已验证 |
 | 依赖 | Action 5.35 |
 | 描述 | 在 `/topic-v2` 页面增加辅助时间轴选择：自动匹配、不使用、手动选择 docx/填写路径；后端 `/api/start-pipeline` 接收该路径并传给 `run_pipeline()`，避免自动选错 `F:\切片时间轴` 下的文件。 |
 | 涉及文件 | `app.py` `templates/topic_v2.html` `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
 | 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
 | 验证预期 | 所有测试通过；`run_pipeline()` 可自动匹配、禁用人工时间轴、指定人工时间轴路径。 |
 | 重试次数 | 0/3 |
-| 完成时间 | - |
-| 备注 | - |
+| 完成时间 | 2026-07-10 03:00 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v；Flask test_client 检查 /topic-v2 和手动时间轴缺失错误返回正常。 |
+
+
 
