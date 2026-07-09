@@ -1080,7 +1080,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         )
 
         self.assertEqual(CHUNK_SEC, 600)
-        self.assertEqual(LLM_MAX_TOKENS, 2200)
+        self.assertEqual(LLM_MAX_TOKENS, 6000)
         self.assertEqual(len(chunks), 2)
         self.assertEqual(chunks[0]["start"], 0)
         self.assertEqual(chunks[0]["end"], 600)

@@ -505,3 +505,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 15:35 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.30: 适配 DeepSeek Pro reasoning 输出但不污染报告 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.29 |
+| 描述 | 提高 DeepSeek V4 Pro 输出 token，避免 content 被 reasoning 挤空；预检使用更高 token；仅当 `reasoning_content` 含完整 JSON 时用于结构化解析，禁止把非 JSON 推理文本当报告内容。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；API 预检不会因 reasoning_content 挤占 100 token 失败，真实流水线仍不解析非 JSON 推理文本。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 16:10 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

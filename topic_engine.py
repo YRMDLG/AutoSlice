@@ -20,8 +20,8 @@ from datetime import datetime, timedelta
 # ============================================================
 CHUNK_SEC = 600          # 每块 10 分钟：减少 API 调用，降低话题被硬切碎的概率
 LLM_MODEL = "deepseek-v4-pro"
-LLM_MAX_TOKENS = 2200
-LLM_COMPACT_MAX_TOKENS = 1200
+LLM_MAX_TOKENS = 6000
+LLM_COMPACT_MAX_TOKENS = 3000
 LLM_FULL_TEXT_CHARS = 8000
 LLM_COMPACT_TEXT_CHARS = 2200
 LLM_RETRY_DELAYS = (3, 8, 20, 45)
@@ -697,6 +697,12 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
         data = resp.json()
         # 兼容不同 OpenAI 响应格式
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            reasoning_content = data.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")
+            # DeepSeek Pro 可能把主要 token 用在 reasoning_content。
+            # 只允许 reasoning_content 中的完整 JSON 进入后续结构化解析，禁止把普通推理文本当报告。
+            if reasoning_content and "{" in reasoning_content and "}" in reasoning_content:
+                content = reasoning_content
         if not content:
             content = data["choices"][0].get("text", "")
         if not content:
@@ -2025,8 +2031,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
     try:
         test_resp = _call_llm_with_retry(
-            "回复OK即可",
-            max_tokens=100,
+            "只输出 OK 两个字母，不要解释，不要推理。",
+            max_tokens=1000,
             attempts=3,
             progress_callback=progress_callback,
             progress_label="API预检",
