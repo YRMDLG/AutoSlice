@@ -9,9 +9,10 @@
   # result: {"report": "...", "clip_marks": [...], "json_path": "..."}
 """
 
-import os, re, json, time, requests
+import html
+import os, re, json, time, zipfile, requests
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 
 # ============================================================
@@ -39,6 +40,11 @@ SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
 SRT_MAX_ESTIMATED_SEG_SEC = 300 # 单条异常字幕最多估算 5 分钟
 TOPIC_MIN_REPORT_SEC = 60       # 正文较多但模型给出几秒时，报告至少扩到 1 分钟
 TOPIC_MAX_REPAIRED_REPORT_SEC = 180
+MANUAL_TIMELINE_DIR = r"F:\切片时间轴"
+MANUAL_TIMELINE_CHUNK_MARGIN_SEC = 180
+MANUAL_TIMELINE_TOPIC_PRE_SEC = 30
+MANUAL_TIMELINE_TOPIC_POST_SEC = 150
+MANUAL_TIMELINE_STAR_DENSITY_RATIO = 0.80
 
 SC_TRIGGER_KEYWORDS = (
     "sc", "s c", "super chat", "superchat", "醒目留言", "醒目", "付费留言",
@@ -102,6 +108,251 @@ def _repair_short_topic_end(start_s, end_s, body_lines, chunk_end):
         return end_s
     estimated = min(TOPIC_MAX_REPAIRED_REPORT_SEC, max(TOPIC_MIN_REPORT_SEC, body_len / SRT_ESTIMATED_CHARS_PER_SEC))
     return int(min(chunk_end, start_s + estimated))
+
+
+def _extract_video_start_datetime(video_path):
+    """从录播文件名/目录名提取视频起始墙钟时间，用于换算人工时间轴。"""
+    basename = os.path.basename(video_path or "")
+    candidates = [basename] + re.split(r'[\\/]+', video_path or "")
+    patterns = (
+        r'(?P<y>\d{4})年(?P<m>\d{1,2})月(?P<d>\d{1,2})号[-_\s]*'
+        r'(?P<h>\d{1,2})点(?P<mi>\d{1,2})分(?P<s>\d{1,2})秒',
+        r'(?P<y>\d{4})[-.](?P<m>\d{1,2})[-.](?P<d>\d{1,2})[-_\s]+'
+        r'(?P<h>\d{1,2})[-点:](?P<mi>\d{1,2})[-分:](?P<s>\d{1,2})',
+    )
+    for text in candidates:
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if not match:
+                continue
+            parts = {key: int(value) for key, value in match.groupdict().items()}
+            try:
+                return datetime(parts["y"], parts["m"], parts["d"], parts["h"], parts["mi"], parts["s"])
+            except ValueError:
+                continue
+    return None
+
+
+def _manual_timeline_doc_candidates(video_start, timeline_dir=MANUAL_TIMELINE_DIR):
+    """按录播日期生成可能的人工时间轴 docx 路径。"""
+    if not video_start:
+        return []
+    compact = video_start.strftime("%Y%m%d")
+    dotted = f"{video_start.year}.{video_start.month}.{video_start.day}"
+    names = [
+        f"{compact}.docx",
+        f"{compact}切片文档.docx",
+        f"{dotted}.docx",
+        f"{dotted}切片文档.docx",
+    ]
+    return [os.path.join(timeline_dir, name) for name in names]
+
+
+def _find_manual_timeline_doc(video_path, timeline_dir=MANUAL_TIMELINE_DIR):
+    """自动查找 F:\切片时间轴 下和录播日期匹配的 docx。"""
+    video_start = _extract_video_start_datetime(video_path)
+    for path in _manual_timeline_doc_candidates(video_start, timeline_dir):
+        if os.path.exists(path):
+            return path
+    if not video_start or not os.path.isdir(timeline_dir):
+        return None
+    compact = video_start.strftime("%Y%m%d")
+    dotted = f"{video_start.year}.{video_start.month}.{video_start.day}"
+    matches = []
+    for name in os.listdir(timeline_dir):
+        if not name.lower().endswith(".docx"):
+            continue
+        if name.startswith(compact) or name.startswith(dotted):
+            matches.append(os.path.join(timeline_dir, name))
+    if not matches:
+        return None
+    matches.sort(key=lambda p: ("切片文档" in os.path.basename(p), os.path.basename(p)))
+    return matches[0]
+
+
+def _read_docx_lines(docx_path):
+    """读取 docx 段落文本；优先 python-docx，失败时用 zip XML 兜底。"""
+    try:
+        import docx  # type: ignore
+
+        document = docx.Document(docx_path)
+        return [p.text.strip() for p in document.paragraphs if p.text.strip()]
+    except Exception:
+        try:
+            with zipfile.ZipFile(docx_path) as zf:
+                xml = zf.read("word/document.xml").decode("utf-8", "ignore")
+            texts = re.findall(r"<w:t[^>]*>(.*?)</w:t>", xml)
+            merged = []
+            current = []
+            for item in texts:
+                text = html.unescape(item).strip()
+                if not text:
+                    continue
+                current.append(text)
+                if re.search(r'[。！？!?]$', text) or re.match(r'^\d{1,2}:\d{2}', text):
+                    merged.append("".join(current).strip())
+                    current = []
+            if current:
+                merged.append("".join(current).strip())
+            return [line for line in merged if line]
+        except Exception:
+            return []
+
+
+def _parse_manual_timeline_lines(lines, video_start):
+    """解析朋友整理的时间轴文档，把墙钟时间换算成视频内秒数。"""
+    if not video_start:
+        return []
+    entries = []
+    current_date = video_start.date()
+    last_event_dt = None
+    header_re = re.compile(r'(\d{4})-(\d{1,2})-(\d{1,2})\s+\d{1,2}:\d{2}:\d{2}')
+    event_re = re.compile(r'^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(.+?)\s*$')
+    for raw in lines or []:
+        line = re.sub(r'\s+', ' ', str(raw or "")).strip()
+        if not line:
+            continue
+        header = header_re.search(line)
+        if header and "记录如下" in line:
+            y, m, d = map(int, header.groups())
+            try:
+                current_date = datetime(y, m, d).date()
+            except ValueError:
+                pass
+            continue
+        match = event_re.match(line)
+        if not match:
+            continue
+        h, minute, sec, text = match.groups()
+        second = int(sec or 0)
+        try:
+            event_dt = datetime(
+                current_date.year, current_date.month, current_date.day,
+                int(h), int(minute), second,
+            )
+        except ValueError:
+            continue
+        if event_dt < video_start - timedelta(minutes=10):
+            event_dt += timedelta(days=1)
+        if last_event_dt and event_dt + timedelta(hours=12) < last_event_dt:
+            event_dt += timedelta(days=1)
+            current_date = event_dt.date()
+        elapsed = int((event_dt - video_start).total_seconds())
+        if elapsed < 0:
+            continue
+        stars = text.count("⭐") + text.count("★")
+        clean_text = re.sub(r'[⭐★]+', '', text).strip()
+        clean_text = clean_text.strip(" -—，,。")
+        if not clean_text:
+            continue
+        entries.append({
+            "start": elapsed,
+            "clock": f"{event_dt:%Y-%m-%d %H:%M:%S}",
+            "text": clean_text,
+            "stars": stars,
+            "highlight": stars > 0,
+            "source": "manual_timeline",
+        })
+        last_event_dt = event_dt
+    return entries
+
+
+def load_manual_timeline(video_path, timeline_dir=MANUAL_TIMELINE_DIR):
+    """加载与录播日期匹配的人工时间轴 docx。"""
+    video_start = _extract_video_start_datetime(video_path)
+    doc_path = _find_manual_timeline_doc(video_path, timeline_dir)
+    if not video_start or not doc_path:
+        return {"path": None, "entries": [], "video_start": video_start}
+    entries = _parse_manual_timeline_lines(_read_docx_lines(doc_path), video_start)
+    return {"path": doc_path, "entries": entries, "video_start": video_start}
+
+
+def _format_manual_entry_for_prompt(entry):
+    stars = "⭐" * min(int(entry.get("stars", 0)), 5)
+    prefix = f"{stars} " if stars else ""
+    return f"- [{fmt_time(entry['start'])} / {entry.get('clock', '')}] {prefix}{entry.get('text', '')}"
+
+
+def _manual_timeline_info_for_chunk(entries, chunk_start, chunk_end, limit=12):
+    """取当前分块附近的人工时间轴，供 LLM 参考。"""
+    nearby = [
+        item for item in entries or []
+        if chunk_start - MANUAL_TIMELINE_CHUNK_MARGIN_SEC <= item["start"] <= chunk_end + MANUAL_TIMELINE_CHUNK_MARGIN_SEC
+    ]
+    if not nearby:
+        return "无"
+    starred = [item for item in nearby if item.get("stars", 0) > 0]
+    selected = starred[:limit]
+    if len(selected) < limit:
+        selected.extend([item for item in nearby if item not in selected][:limit - len(selected)])
+    selected.sort(key=lambda item: item["start"])
+    return "\n".join(_format_manual_entry_for_prompt(item) for item in selected)
+
+
+def _attach_manual_timeline_to_chunks(chunks, entries):
+    """把人工时间轴摘要挂到每个 SRT 分块上。"""
+    for ch in chunks:
+        ch["manual_timeline_info"] = _manual_timeline_info_for_chunk(
+            entries, int(ch["start"]), int(ch.get("end", ch["start"] + CHUNK_SEC))
+        )
+    return chunks
+
+
+def _manual_title_from_text(text):
+    """从人工时间轴一句话生成短标题。"""
+    clean = re.sub(r'[“”"（）()\[\]【】]', '', text or "")
+    clean = re.sub(r'《(.+?)》', r'\1', clean)
+    clean = re.split(r'[，。；;：:、]', clean, maxsplit=1)[0].strip()
+    if len(clean) < 4:
+        clean = re.sub(r'\s+', '', text or "")[:MAX_TOPIC_TITLE_CHARS]
+    return (clean[:MAX_TOPIC_TITLE_CHARS] or "人工时间轴重点").strip()
+
+
+def _manual_entry_matches_topic(entry, topic, margin=120):
+    return int(topic["start"]) - margin <= int(entry["start"]) <= int(topic["end"]) + margin
+
+
+def _merge_manual_timeline_topics(topics, entries):
+    """把 ⭐ 人工重点附加到话题；LLM 漏掉时补一个人工重点话题。"""
+    if not entries:
+        return topics
+    for topic in topics:
+        matched = [entry for entry in entries if _manual_entry_matches_topic(entry, topic)]
+        if not matched:
+            continue
+        topic["manual_stars"] = max([topic.get("manual_stars", 0)] + [entry.get("stars", 0) for entry in matched])
+        topic["manual_timeline"] = matched
+        body = list(topic.get("body") or [])
+        for entry in matched:
+            if entry.get("stars", 0) <= 0:
+                continue
+            stars = "⭐" * min(entry.get("stars", 0), 5)
+            line = f"●人工时间轴{stars}：{fmt_time(entry['start'])} {entry['text']}"
+            if line not in body:
+                body.append(line)
+        topic["body"] = body
+
+    for entry in entries:
+        if entry.get("stars", 0) <= 0:
+            continue
+        if any(_manual_entry_matches_topic(entry, topic) for topic in topics):
+            continue
+        topic = {
+            "start": max(0, int(entry["start"]) - MANUAL_TIMELINE_TOPIC_PRE_SEC),
+            "end": int(entry["start"]) + MANUAL_TIMELINE_TOPIC_POST_SEC,
+            "start_str": fmt_time(max(0, int(entry["start"]) - MANUAL_TIMELINE_TOPIC_PRE_SEC)),
+            "end_str": fmt_time(int(entry["start"]) + MANUAL_TIMELINE_TOPIC_POST_SEC),
+            "title": _manual_title_from_text(entry["text"]),
+            "can_slice": False,
+            "body": [f"●人工时间轴{'⭐' * min(entry.get('stars', 0), 5)}：{fmt_time(entry['start'])} {entry['text']}"],
+            "manual_stars": entry.get("stars", 0),
+            "manual_timeline": [entry],
+            "source": "manual_timeline",
+        }
+        if not _is_duplicate_topic(topic, topics):
+            topics.append(topic)
+    topics.sort(key=lambda item: (item["start"], item["end"]))
+    return topics
 
 
 def load_api_config():
@@ -378,6 +629,12 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 如果事件跨越分块，只写当前分块内能确认的部分
 - 不要漏掉当前分块的主要讲话内容；能归纳就归纳成“日常闲聊/游戏过程/读弹幕互动”等普通话题
 
+## 人工时间轴参考
+
+- 如果提示中提供“人工时间轴参考”，它是人工整理的墙钟时间，程序已换算成视频内时间；可作为字幕识别错误时的辅助证据
+- 带 ⭐ 的人工时间轴片段更值得留意：如果它与当前字幕/弹幕能对上，优先整理成具体话题，can_slice 可更积极
+- 人工时间轴只是辅助，不要照抄成解释说明；最终 points 仍要写成自然的内容要点
+
 ## 输出格式：只输出 JSON，不要输出 Markdown
 
 **关键要求：**
@@ -511,6 +768,7 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
             "你是直播逐话题时间轴整理助手。只分析当前分块，只输出最终话题条目；"
             "当前分块有连续讲话时只整理成1-2个核心话题，内容特别密集最多3个；普通闲聊/游戏过程也要写；"
             "只有几乎无有效讲话才输出“无明显话题”。"
+            "人工时间轴参考是辅助证据，带⭐的片段更值得留意，但不要输出解释说明。"
             "can_slice只给值得自动切片的段，不值得切也要写进报告。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。"
             "只输出JSON对象：{\"topics\":[{\"start\":\"0:00:00\",\"end\":\"0:05:00\",\"title\":\"话题标题\",\"can_slice\":false,\"points\":[\"具体要点\"]}]}。\n\n"
@@ -525,6 +783,7 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
         f"- 主播展示称呼: {streamer_name or '主播'}（报告里不要写泛称“主播”，用这个称呼代替）\n"
         f"- 粉丝常用称呼: {'、'.join(STREAMER_FAN_ALIASES)}；如果观众留言/SC 原句以这些称呼开头，要保留原话称呼\n"
         f"- 弹幕信息: {ch['danmaku_info']}\n\n"
+        f"## 人工时间轴参考（已换算为视频内时间）\n{ch.get('manual_timeline_info') or '无'}\n\n"
         f"## 字幕:\n{ch['text'][:text_limit]}"
     )
     return prompt, chunk_start, chunk_end
@@ -564,6 +823,8 @@ _META_TITLE_KEYWORDS = (
     "重新考虑分块内容", "我们先把内容分几个话题", "那么我们定义",
     "整体时间段", "让我们尝试提取话题", "我们确保每个话题",
     "这段讨论", "这段继续", "内容有些混乱",
+    "约2分", "划分建议", "先构思", "topic1", "topic2",
+    "观察内容", "更仔细看",
 )
 _META_BODY_KEYWORDS = (
     "但注意", "注意：", "注意:", "我们需要", "我们应该", "我应该", "我倾向", "是否应该",
@@ -624,6 +885,9 @@ _META_BODY_KEYWORDS = (
     "points:", "points：", "title:", "title：", "重新考虑分块内容",
     "我们先把内容分几个话题", "那么我们定义", "整体时间段",
     "让我们尝试提取话题", "我们确保每个话题",
+    "我们仔细阅读字幕", "整体看", "我们试着划分", "可能乱码",
+    "后面还有", "这些时间段有重叠", "观察内容", "更仔细看",
+    "划分建议", "我们还须注意", "先构思", "topic1", "topic2",
 )
 
 _FRAGMENT_BODY_LINES = {
@@ -633,6 +897,8 @@ _FRAGMENT_BODY_LINES = {
     "现在规划", "具体要点", "具体要点：", "具体要点:", "比如", "比如：", "比如:",
     "points", "points:", "points：", "title", "title:", "title：", "要点", "要点：", "要点:",
     "更好的划分", "更好的划分：", "那么我们定义", "那么我们定义：", "整体时间段", "整体时间段：",
+    "观察内容", "观察内容：", "更仔细看", "更仔细看：", "划分建议", "划分建议：",
+    "整体看", "整体看，内容涉及：", "我们试着划分", "我们试着划分：",
     "弹幕/礼物高光", "弹幕礼物高光", "…", "...", "……",
 }
 
@@ -815,7 +1081,7 @@ def _is_meta_body_line(line):
     normalized = clean.strip(' （）()[]【】「」『』：:。；;，,、.!！?？')
     if re.fullmatch(r'\[?\d{1,2}:\d{2}(?::\d{2})?\s*', clean):
         return True
-    if clean.startswith(("“", "\"")) and ("– 说" in clean or "- 说" in clean or len(clean) > 120):
+    if clean.startswith(("“", "”", "\"", "‘", "'")) and ("– 说" in clean or "- 说" in clean or len(clean) > 80):
         return True
     if "->" in clean:
         return True
@@ -848,7 +1114,13 @@ def _is_meta_body_line(line):
         "最终输出示例", "注意称呼", "由于是音音自言自语",
         "重新考虑分块内容", "我们先把内容分几个话题", "那么我们定义",
         "整体时间段", "让我们尝试提取话题", "我们确保每个话题",
+        "我们仔细阅读字幕", "整体看", "我们试着划分", "这些时间段有重叠",
+        "观察内容", "更仔细看", "划分建议", "我们还须注意", "先构思",
     )):
+        return True
+    if re.match(r'^topic\d+\s*[:：]', clean, re.IGNORECASE):
+        return True
+    if re.match(r'^\d+[.)、]\s*(聊|讨论|观看|感谢|游戏|生日)', clean):
         return True
     if re.match(r'^\d+\.\s*\d{1,2}:\d{2}', clean):
         return True
@@ -1497,13 +1769,16 @@ def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
     if not topics:
         return []
     threshold = max(avg_density * CLIP_DENSITY_RATIO, avg_density + 10, 20)
+    manual_threshold = max(avg_density * MANUAL_TIMELINE_STAR_DENSITY_RATIO, 20)
     for topic in topics:
         peak_density = _topic_peak_density(topic, peaks)
         topic["peak_density"] = peak_density
         topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
+        normal_cut = peak_density >= threshold
+        manual_cut = topic.get("manual_stars", 0) > 0 and (not peaks or peak_density >= manual_threshold)
         topic["can_slice"] = bool(
             _is_content_cuttable_topic(topic)
-            and peak_density >= threshold
+            and (normal_cut or manual_cut)
             and topic["end"] > topic["start"]
         )
     return topics
@@ -1518,17 +1793,22 @@ def _clip_marks_from_topics(topics):
     ])
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False):
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
+    manual_timeline = manual_timeline or {}
+    manual_entries = manual_timeline.get("entries") or []
     lines = [
         f"# {video_name} 话题分析报告",
         f"> 自动生成 | 模型: {LLM_MODEL} | {peak_info}",
         "> 时间基准：视频内时间/播放进度（不是现实钟点）；实际切片会自动向前后扩展保留上下文",
-        "---",
-        "",
-        "## 逐话题时间轴",
-        "",
     ]
+    if manual_timeline.get("path"):
+        star_count = sum(1 for item in manual_entries if item.get("stars", 0) > 0)
+        lines.append(
+            f"> 人工时间轴辅助: {os.path.basename(manual_timeline['path'])} | "
+            f"{len(manual_entries)} 条记录, ⭐重点 {star_count} 条"
+        )
+    lines.extend(["---", "", "## 逐话题时间轴", ""])
 
     groups = _group_topics_for_parts(topics)
     if not groups:
@@ -1610,6 +1890,16 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         progress_callback("Step 3/5: SRT 分块中...", 20, 100)
     segs = parse_srt_text(srt_path)
     chunks = chunk_srt(segs, peaks)
+    manual_timeline = load_manual_timeline(flv_path)
+    manual_entries = manual_timeline.get("entries") or []
+    if manual_entries:
+        chunks = _attach_manual_timeline_to_chunks(chunks, manual_entries)
+        if progress_callback:
+            progress_callback(
+                f"已加载人工时间轴: {os.path.basename(manual_timeline['path'])}，"
+                f"{len(manual_entries)} 条记录",
+                21, 100,
+            )
     total = len(chunks)
 
     # Step 4: 逐块 LLM 分析（先预检 API）
@@ -1702,6 +1992,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
     if progress_callback:
         progress_callback("Step 5/5: 生成报告...", 97, 100)
 
+    _merge_manual_timeline_topics(accepted_topics, manual_entries)
     _apply_danmaku_slice_decisions(accepted_topics, peaks, avg_den)
     raw_clip_marks = _clip_marks_from_topics(accepted_topics)
     srt_segments_for_context = parse_srt_segments(srt_path)
@@ -1715,6 +2006,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         failed_chunks=failed_chunks, api_warning=api_precheck_warning,
         streamer_name=streamer_display_name,
         group_by_hour=True,
+        manual_timeline=manual_timeline,
     )
 
     # 保存
@@ -1740,6 +2032,12 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
             },
             "api_precheck_warning": api_precheck_warning,
             "failed_chunks": failed_chunks,
+            "manual_timeline": {
+                "path": manual_timeline.get("path"),
+                "entry_count": len(manual_entries),
+                "star_count": sum(1 for item in manual_entries if item.get("stars", 0) > 0),
+                "time_basis": "wall_clock_converted_to_video_elapsed_seconds" if manual_entries else None,
+            },
             "clip_marks": clip_marks,
         }, f, ensure_ascii=False, indent=2)
 
@@ -1757,6 +2055,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None):
         "srt_path": srt_path,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
+        "manual_timeline": manual_timeline,
     }
 
 
@@ -1837,6 +2136,8 @@ def _parse_hms(s):
 # ============================================================
 if __name__ == "__main__":
     import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if len(sys.argv) > 1:
         flv = sys.argv[1]
         ass = flv[:-4] + ".ass" if not os.path.exists(flv[:-4] + ".ass") else flv[:-4] + ".ass"

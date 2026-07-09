@@ -435,3 +435,17 @@
 | 重试次数 | 0/3 |
 | 完成时间 | 2026-07-09 11:35 |
 | 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |
+
+### Action 5.25: 接入人工切片时间轴 docx 辅助分析 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.24 |
+| 描述 | 自动按录播日期读取 `F:\切片时间轴\YYYYMMDD.docx`/切片文档，解析墙钟时间并换算为视频内时间；将人工时间轴尤其 ⭐ 片段加入 LLM 分块提示、最终报告和切片筛选，提高话题可信度；同时修复 CLI 在 GBK 控制台打印 emoji 崩溃。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有测试通过；可解析 20260708.docx 样式时间轴，⭐ 片段能附加到匹配话题并提高可切优先级，CLI UTF-8 输出不因 emoji 崩溃。 |
+| 重试次数 | 0/3 |
+| 完成时间 | 2026-07-09 12:45 |
+| 备注 | 验证通过：python -B -m unittest test_topic_engine.py -v |

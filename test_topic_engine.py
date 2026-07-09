@@ -1,11 +1,22 @@
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import mock_open, patch
 
 import requests
 
-from topic_engine import (CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL, _apply_danmaku_slice_decisions, _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context, _infer_streamer_name, _is_retryable_llm_error, _make_fallback_topic_from_chunk, _parse_llm_response, _streamer_report_name, chunk_srt, load_api_config, parse_srt_text)
+from topic_engine import (
+    CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
+    _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
+    _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry,
+    _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
+    _extract_video_start_datetime, _infer_streamer_name, _is_retryable_llm_error,
+    _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
+    _manual_timeline_info_for_chunk, _parse_llm_response,
+    _parse_manual_timeline_lines, _streamer_report_name, chunk_srt,
+    load_api_config, parse_srt_text,
+)
 
 def make_http_error(status):
     response = requests.Response()
@@ -312,6 +323,69 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertFalse(topics[2]["can_slice"])
         self.assertFalse(topics[3]["can_slice"])
         self.assertEqual(marks, [{"start": 1000, "end": 1120, "title": "高密度生日企划"}])
+
+    def test_manual_timeline_lines_convert_wall_clock_to_video_time(self):
+        video_start = datetime(2026, 7, 8, 20, 10, 53)
+        lines = [
+            "20:31:56 最喜欢在上帝视角看你们猜了 ⭐",
+            "2026-07-09 00:00:00 至 2026-07-09 04:00:00 的记录如下：",
+            "03:01:14 被妈妈说“脸圆成什么样了” ⭐",
+        ]
+
+        entries = _parse_manual_timeline_lines(lines, video_start)
+
+        self.assertEqual(entries[0]["start"], 1263)
+        self.assertEqual(entries[0]["stars"], 1)
+        self.assertEqual(entries[1]["start"], 24621)
+        self.assertIn("脸圆成什么样了", entries[1]["text"])
+
+    def test_manual_timeline_is_added_to_prompt_report_and_slice_decision(self):
+        entries = _parse_manual_timeline_lines(
+            ["03:01:14 被妈妈说“脸圆成什么样了” ⭐"],
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+        chunks = _attach_manual_timeline_to_chunks(
+            [{"start": 24400, "end": 24800, "text": "[6:49:00] 妈妈说脸圆", "danmaku_info": "峰值80"}],
+            entries,
+        )
+        prompt, _, _ = _build_chunk_prompt(chunks[0], 0, 1, streamer_name="音音")
+        topics = [{
+            "start": 24480,
+            "end": 24740,
+            "title": "妈妈吐槽脸圆长胖",
+            "can_slice": False,
+            "body": ["·音音说妈妈吐槽她脸越来越圆"],
+        }]
+
+        _merge_manual_timeline_topics(topics, entries)
+        _apply_danmaku_slice_decisions(topics, peaks=[(24600, 90)], avg_density=101)
+        report = _build_timeline_report(
+            "测试.flv",
+            "弹幕峰值 1 个窗口",
+            topics,
+            streamer_name="音音",
+            group_by_hour=True,
+            manual_timeline={"path": r"F:\切片时间轴\20260708.docx", "entries": entries},
+        )
+
+        self.assertIn("人工时间轴参考", prompt)
+        self.assertIn("⭐ 被妈妈说", prompt)
+        self.assertIn("人工时间轴辅助: 20260708.docx", report)
+        self.assertIn("●人工时间轴⭐", report)
+        self.assertTrue(topics[0]["can_slice"])
+
+    def test_manual_star_creates_topic_when_llm_misses_it(self):
+        entries = _parse_manual_timeline_lines(
+            ["20:35:30 “只是吃瓜”“太黄暴了，不能跟你们说” ⭐"],
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+        topics = []
+
+        _merge_manual_timeline_topics(topics, entries)
+
+        self.assertEqual(len(topics), 1)
+        self.assertIn("太黄暴", "\n".join(topics[0]["body"]))
+        self.assertEqual(topics[0]["manual_stars"], 1)
 
     def test_filter_current_report_draft_noise(self):
         topics = []
