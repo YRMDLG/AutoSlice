@@ -12,7 +12,7 @@ from topic_engine import (
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
-    _extract_video_start_datetime, _infer_streamer_name, _is_retryable_llm_error,
+    _extract_video_start_datetime, _filter_manual_timeline_entries, _infer_streamer_name, _is_retryable_llm_error,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_manual_timeline_lines, _streamer_report_name,
@@ -456,6 +456,40 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(entries[0]["stars"], 1)
         self.assertEqual(entries[1]["start"], 24621)
         self.assertIn("脸圆成什么样了", entries[1]["text"])
+
+    def test_manual_timeline_ignores_earlier_same_day_record_for_split_video(self):
+        entries = _parse_manual_timeline_lines(
+            [
+                "20:10:13 第一分段里的记录",
+                "21:35:30 第二分段开始后的记录",
+                "23:49:45 第二分段后段记录",
+            ],
+            datetime(2026, 7, 10, 21, 17, 21),
+        )
+
+        self.assertEqual([item["text"] for item in entries], ["第二分段开始后的记录", "第二分段后段记录"])
+        self.assertEqual(entries[0]["start"], 1089)
+        self.assertEqual(entries[1]["start"], 9144)
+
+    def test_manual_timeline_maps_after_midnight_record_to_next_day(self):
+        entries = _parse_manual_timeline_lines(
+            ["00:10:00 跨午夜后的记录"],
+            datetime(2026, 7, 10, 23, 50, 0),
+        )
+
+        self.assertEqual(entries[0]["start"], 1200)
+        self.assertEqual(entries[0]["clock"], "2026-07-11 00:10:00")
+
+    def test_manual_timeline_filters_whole_stream_records_by_segment_duration(self):
+        entries = [
+            {"start": 405, "text": "当前分段开头"},
+            {"start": 2885, "text": "当前分段后段"},
+            {"start": 5522, "text": "下一分段内容"},
+        ]
+
+        filtered = _filter_manual_timeline_entries(entries, video_duration=4405)
+
+        self.assertEqual([item["text"] for item in filtered], ["当前分段开头", "当前分段后段"])
 
     def test_load_manual_timeline_can_be_disabled_or_specified(self):
         video_path = r"F:\001\1947277414-泽音Melody\2026年\07月\08号\2026年07月08号-20点09分46秒开播\变色龙躲猫猫-2026年07月08号-20点10分53秒-001.flv"

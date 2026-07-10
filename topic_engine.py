@@ -48,6 +48,7 @@ MANUAL_TIMELINE_CHUNK_MARGIN_SEC = 180
 MANUAL_TIMELINE_TOPIC_PRE_SEC = 30
 MANUAL_TIMELINE_TOPIC_POST_SEC = 150
 MANUAL_TIMELINE_STAR_DENSITY_RATIO = 0.80
+MANUAL_TIMELINE_END_MARGIN_SEC = 15
 
 SC_TRIGGER_KEYWORDS = (
     "sc", "s c", "super chat", "superchat", "醒目留言", "醒目", "付费留言",
@@ -207,9 +208,13 @@ def _parse_manual_timeline_lines(lines, video_start):
     if not video_start:
         return []
     entries = []
-    current_date = video_start.date()
-    last_event_dt = None
-    header_re = re.compile(r'(\d{4})-(\d{1,2})-(\d{1,2})\s+\d{1,2}:\d{2}:\d{2}')
+    period_start = None
+    period_end = None
+    header_re = re.compile(
+        r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})'
+        r'\s*至\s*'
+        r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})'
+    )
     event_re = re.compile(r'^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(.+?)\s*$')
     for raw in lines or []:
         line = re.sub(r'\s+', ' ', str(raw or "")).strip()
@@ -217,29 +222,38 @@ def _parse_manual_timeline_lines(lines, video_start):
             continue
         header = header_re.search(line)
         if header and "记录如下" in line:
-            y, m, d = map(int, header.groups())
             try:
-                current_date = datetime(y, m, d).date()
+                values = list(map(int, header.groups()))
+                period_start = datetime(*values[:6])
+                period_end = datetime(*values[6:])
             except ValueError:
-                pass
+                period_start = None
+                period_end = None
             continue
         match = event_re.match(line)
         if not match:
             continue
         h, minute, sec, text = match.groups()
         second = int(sec or 0)
+        event_time = (int(h), int(minute), second)
         try:
-            event_dt = datetime(
-                current_date.year, current_date.month, current_date.day,
-                int(h), int(minute), second,
-            )
+            if period_start and period_end:
+                event_dt = datetime(
+                    period_start.year, period_start.month, period_start.day,
+                    *event_time,
+                )
+                if event_dt < period_start:
+                    event_dt += timedelta(days=1)
+            else:
+                candidates = [
+                    datetime.combine(video_start.date() + timedelta(days=offset), datetime.min.time()).replace(
+                        hour=event_time[0], minute=event_time[1], second=event_time[2]
+                    )
+                    for offset in (-1, 0, 1)
+                ]
+                event_dt = min(candidates, key=lambda item: abs((item - video_start).total_seconds()))
         except ValueError:
             continue
-        if event_dt < video_start - timedelta(minutes=10):
-            event_dt += timedelta(days=1)
-        if last_event_dt and event_dt + timedelta(hours=12) < last_event_dt:
-            event_dt += timedelta(days=1)
-            current_date = event_dt.date()
         elapsed = int((event_dt - video_start).total_seconds())
         if elapsed < 0:
             continue
@@ -256,8 +270,38 @@ def _parse_manual_timeline_lines(lines, video_start):
             "highlight": stars > 0,
             "source": "manual_timeline",
         })
-        last_event_dt = event_dt
     return entries
+
+
+def _filter_manual_timeline_entries(entries, video_duration, end_margin_sec=MANUAL_TIMELINE_END_MARGIN_SEC):
+    """只保留当前分段视频范围内的人工时间轴记录。"""
+    if not video_duration or video_duration <= 0:
+        return list(entries or [])
+    max_start = float(video_duration) + max(0, end_margin_sec)
+    return [item for item in entries or [] if 0 <= float(item.get("start", -1)) <= max_start]
+
+
+def _probe_video_duration(video_path):
+    """用 ffprobe 获取当前分段视频的精确时长；失败时返回 None。"""
+    if not video_path or not os.path.isfile(video_path):
+        return None
+    import subprocess as sp
+    try:
+        result = sp.run(
+            [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", video_path,
+            ],
+            check=True,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+        duration = float(result.stdout.strip())
+        return duration if duration > 0 else None
+    except (OSError, ValueError, sp.CalledProcessError):
+        return None
 
 
 def load_manual_timeline(video_path, timeline_dir=MANUAL_TIMELINE_DIR, manual_timeline_path=None):
@@ -285,6 +329,7 @@ def _manual_timeline_summary(manual_timeline):
     return {
         "path": manual_timeline.get("path"),
         "entry_count": len(entries),
+        "source_entry_count": manual_timeline.get("source_entry_count", len(entries)),
         "star_count": sum(1 for item in entries if item.get("stars", 0) > 0),
         "video_start": video_start,
         "time_basis": "wall_clock_converted_to_video_elapsed_seconds" if entries else None,
@@ -2228,9 +2273,11 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
     ]
     if manual_timeline.get("path"):
         star_count = sum(1 for item in manual_entries if item.get("stars", 0) > 0)
+        source_count = manual_timeline.get("source_entry_count", len(manual_entries))
+        count_label = f"当前分段 {len(manual_entries)}/{source_count} 条记录" if source_count != len(manual_entries) else f"{len(manual_entries)} 条记录"
         lines.append(
             f"> 人工时间轴辅助: {os.path.basename(manual_timeline['path'])} | "
-            f"{len(manual_entries)} 条记录, ⭐重点 {star_count} 条"
+            f"{count_label}, ⭐重点 {star_count} 条"
         )
     lines.extend(["---", "", "## 逐话题时间轴", ""])
 
@@ -2315,13 +2362,19 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     segs = parse_srt_text(srt_path)
     chunks = chunk_srt(segs, peaks)
     manual_timeline = load_manual_timeline(flv_path, manual_timeline_path=manual_timeline_path)
-    manual_entries = manual_timeline.get("entries") or []
+    all_manual_entries = manual_timeline.get("entries") or []
+    srt_duration = max((end for _, end, _ in segs), default=None)
+    video_duration = _probe_video_duration(flv_path) or srt_duration
+    manual_entries = _filter_manual_timeline_entries(all_manual_entries, video_duration)
+    manual_timeline["source_entry_count"] = len(all_manual_entries)
+    manual_timeline["entries"] = manual_entries
     if manual_entries:
         chunks = _attach_manual_timeline_to_chunks(chunks, manual_entries)
         if progress_callback:
+            count_label = f"当前分段 {len(manual_entries)}/{len(all_manual_entries)} 条"
             progress_callback(
                 f"已加载人工时间轴: {os.path.basename(manual_timeline['path'])}，"
-                f"{len(manual_entries)} 条记录",
+                f"{count_label}",
                 21, 100,
             )
     total = len(chunks)
