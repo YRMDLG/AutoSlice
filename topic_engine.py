@@ -2668,6 +2668,25 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     }
 
 
+_GENERATED_TOPIC_CLIP_RE = re.compile(r'^\d{2,3}_\d+s_.+\.flv$', re.IGNORECASE)
+
+
+def _cleanup_stale_topic_clips(report_dir):
+    """清理同目录旧的自动切片，保留用户手工命名文件和其他副产物。"""
+    if not os.path.isdir(report_dir):
+        return 0
+    removed = 0
+    for name in os.listdir(report_dir):
+        if not _GENERATED_TOPIC_CLIP_RE.fullmatch(name):
+            continue
+        path = os.path.join(report_dir, name)
+        if not os.path.isfile(path):
+            continue
+        os.remove(path)
+        removed += 1
+    return removed
+
+
 def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
     """
     【新功能】根据话题分析生成的 clip_marks.json 自动切片。
@@ -2699,8 +2718,11 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
     base_name = os.path.splitext(video_name)[0]
     report_dir = os.path.join(output_dir, base_name + "_话题切片")
     os.makedirs(report_dir, exist_ok=True)
+    removed_count = _cleanup_stale_topic_clips(report_dir)
 
     if progress_callback:
+        if removed_count:
+            progress_callback(f"已清理 {removed_count} 个旧自动切片", 0, len(marks))
         progress_callback(f"开始切片 ({len(marks)} 段)...", 0, len(marks))
 
     count = 0

@@ -14,7 +14,8 @@ from topic_engine import (
     LLMResponseTruncatedError, LLMStructuredOutputError,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry,
-    _clean_topics_for_report, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
+    _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_marks_from_topics,
+    _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _infer_streamer_name, _is_retryable_llm_error,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
@@ -261,6 +262,26 @@ class TopicEngineParseTests(unittest.TestCase):
         for previous, current in zip(expanded, expanded[1:]):
             self.assertLessEqual(previous["end"], current["start"])
         self.assertTrue(all(item["end"] - item["start"] <= 300 for item in expanded))
+
+    def test_cleanup_stale_topic_clips_only_removes_generated_flv_files(self):
+        with TemporaryDirectory() as td:
+            output_dir = Path(td)
+            generated = [
+                output_dir / "01_124s_旧自动切片.flv",
+                output_dir / "105_3600s_旧自动切片.flv",
+            ]
+            preserved = [
+                output_dir / "手工精剪.flv",
+                output_dir / "说明.txt",
+            ]
+            for path in generated + preserved:
+                path.write_bytes(b"test")
+
+            removed = _cleanup_stale_topic_clips(str(output_dir))
+
+            self.assertEqual(removed, 2)
+            self.assertTrue(all(not path.exists() for path in generated))
+            self.assertTrue(all(path.exists() for path in preserved))
 
     def test_topic_index_label_uses_circled_number_after_twenty(self):
         topics = [
