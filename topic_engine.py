@@ -79,6 +79,10 @@ def fmt_time(seconds):
 def _infer_streamer_name(video_path):
     """从录播路径推断主播名；例如 1947277414-泽音Melody -> 泽音Melody。"""
     parts = re.split(r'[\\/]+', video_path or "")
+    basename = os.path.basename(video_path or "")
+    for known_name in sorted(STREAMER_NICKNAME_MAP, key=len, reverse=True):
+        if known_name in basename:
+            return known_name
     for part in parts:
         match = re.match(r'^\d{4,}-(.+)$', part)
         if match:

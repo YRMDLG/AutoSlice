@@ -1377,8 +1377,10 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
     def test_infer_streamer_name_from_recording_path(self):
         path = r"F:\001\1947277414-泽音Melody\2026年\07月\05号\测试.flv"
+        direct_recording = r"F:\录播上传\DanmakuRender-5\直播回放\泽音Melody-2026年07月12日22点35分.flv"
 
         self.assertEqual(_infer_streamer_name(path), "泽音Melody")
+        self.assertEqual(_infer_streamer_name(direct_recording), "泽音Melody")
         self.assertEqual(_streamer_report_name("泽音Melody"), "音音")
         self.assertEqual(_infer_streamer_name(r"F:\Videos\测试.flv"), "主播")
 
