@@ -283,6 +283,17 @@ class TopicEngineParseTests(unittest.TestCase):
             self.assertTrue(all(not path.exists() for path in generated))
             self.assertTrue(all(path.exists() for path in preserved))
 
+    def test_pipeline_completion_progress_uses_topic_count_not_clip_count(self):
+        from app import _pipeline_completion_progress
+
+        result = {
+            "topic_count": 15,
+            "clip_marks": [{} for _ in range(10)],
+            "slice_count": 10,
+        }
+
+        self.assertEqual(_pipeline_completion_progress(result), "完成! 15 个话题, 10 个切片")
+
     def test_topic_index_label_uses_circled_number_after_twenty(self):
         topics = [
             {"start": i * 10, "end": i * 10 + 5, "title": f"话题{i}", "body": ["·要点"], "can_slice": False}

@@ -54,6 +54,13 @@ def update_task(task_id, **kwargs):
     broadcast("task_update", {"task_id": task_id, **kwargs})
 
 
+def _pipeline_completion_progress(result):
+    """生成流水线完成提示，区分报告话题数和实际切片数。"""
+    clip_marks = result.get("clip_marks") or []
+    topic_count = result.get("topic_count", len(clip_marks))
+    return f"完成! {topic_count} 个话题, {result.get('slice_count', 0)} 个切片"
+
+
 def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path, timeline_json=None):
     """后台切片任务"""
     if timeline_path and os.path.isfile(timeline_path):
@@ -325,7 +332,7 @@ def start_pipeline():
                 result["slice_dir"] = out_dir
 
             update_task(task_id, status="done",
-                        progress=f"完成! {len(clip_marks)} 个话题, {result.get('slice_count', 0)} 个切片",
+                        progress=_pipeline_completion_progress(result),
                         result=json.dumps(result, ensure_ascii=False),
                         step=100)
         except Exception as e:

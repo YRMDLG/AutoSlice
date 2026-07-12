@@ -2658,6 +2658,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
 
     return {
         "report": report,
+        "topic_count": len(topics),
         "clip_marks": clip_marks,
         "json_path": json_path,
         "md_path": md_path,
