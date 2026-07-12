@@ -1,4 +1,5 @@
 import json
+import os
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -14,8 +15,8 @@ from topic_engine import (
     _clean_topics_for_report, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _infer_streamer_name, _is_retryable_llm_error,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
-    _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
-    _parse_manual_timeline_lines, _streamer_report_name,
+    _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
+    _parse_manual_timeline_lines, _resolve_funasr_model_source, _streamer_report_name,
     _topics_from_manual_timeline, chunk_srt,
     load_api_config, load_manual_timeline, parse_srt_text,
 )
@@ -29,6 +30,41 @@ def make_http_error(status):
 
 class TopicEngineParseTests(unittest.TestCase):
     """话题分析解析与去重的快速回归测试。"""
+
+    def test_funasr_model_loader_uses_local_cache_only(self):
+        calls = []
+
+        def fake_auto_model(**kwargs):
+            calls.append((kwargs, os.environ.get("MODELSCOPE_LOCAL_ONLY")))
+            return object()
+
+        with patch.dict("topic_engine.os.environ", {}, clear=True):
+            model = _load_funasr_model(fake_auto_model, device="cpu")
+
+        self.assertIsNotNone(model)
+        self.assertEqual(calls[0][0]["device"], "cpu")
+        self.assertEqual(calls[0][0]["disable_update"], True)
+        self.assertEqual(calls[0][1], "1")
+
+    def test_funasr_model_source_prefers_local_cache_dir(self):
+        with TemporaryDirectory() as td:
+            model_dir = Path(td)
+            (model_dir / "model.pt").write_bytes(b"fake")
+            with patch("topic_engine._funasr_model_cache_candidates", return_value=[str(model_dir)]):
+                self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
+
+    def test_funasr_model_loader_reports_cache_download_failure(self):
+        events = []
+
+        def fake_auto_model(**_kwargs):
+            raise RuntimeError("SSL EOF")
+
+        with patch.dict("topic_engine.os.environ", {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "FunASR 模型加载失败"):
+                _load_funasr_model(fake_auto_model, progress_callback=lambda *args: events.append(args))
+
+        self.assertTrue(events)
+        self.assertIn("本地 ModelScope 缓存不可用", events[-1][0])
 
     def test_default_llm_model_uses_deepseek_v4_pro(self):
         self.assertEqual(LLM_MODEL, "deepseek-v4-pro")

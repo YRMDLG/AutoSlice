@@ -26,6 +26,11 @@ LLM_FULL_TEXT_CHARS = 8000
 LLM_COMPACT_TEXT_CHARS = 2200
 LLM_RETRY_DELAYS = (3, 8, 20, 45)
 MAX_INITIAL_FAILED_CHUNKS = 3
+FUNASR_MODEL = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "cpu")
+FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
+    r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+)
 DANMAKU_WINDOW = 60
 DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
 CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
@@ -561,6 +566,44 @@ def load_api_config():
 # Step 1: FunASR 自动转录 (复用 core.py 逻辑，降级到 CPU)
 # ============================================================
 
+def _prepare_funasr_environment():
+    """FunASR 模型只使用本地缓存，避免 Web 任务在网络下载失败时长时间卡住。"""
+    os.environ.setdefault("MODELSCOPE_LOCAL_ONLY", "1")
+
+
+def _funasr_model_cache_candidates():
+    return [FUNASR_CACHE_MODEL_DIR]
+
+
+def _resolve_funasr_model_source():
+    """优先返回本地缓存目录，避免 AutoModel 用模型 ID 访问 ModelScope API。"""
+    for model_dir in _funasr_model_cache_candidates():
+        if model_dir and os.path.isfile(os.path.join(model_dir, "model.pt")):
+            return model_dir
+    return FUNASR_MODEL
+
+
+def _load_funasr_model(AutoModel, progress_callback=None, device=None):
+    """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
+    _prepare_funasr_environment()
+    selected_device = device or FUNASR_DEFAULT_DEVICE
+    model_source = _resolve_funasr_model_source()
+    try:
+        return AutoModel(
+            model=model_source,
+            device=selected_device,
+            disable_update=True,
+        )
+    except Exception as exc:
+        message = (
+            "FunASR 模型加载失败：本地 ModelScope 缓存不可用，或模型下载被网络/SSL 中断。"
+            "请先生成同名 SRT，或在网络正常时预下载 FunASR 模型后重试。"
+        )
+        if progress_callback:
+            progress_callback(f"{message} 原始错误: {exc}", 0, 100)
+        raise RuntimeError(message) from exc
+
+
 def ensure_srt(video_path, progress_callback=None):
     """确保 SRT 存在，没有则用 FunASR 生成"""
     srt_path = video_path[:-4] + ".srt"
@@ -589,13 +632,15 @@ def ensure_srt(video_path, progress_callback=None):
            check=True, stdout=sp.PIPE, stderr=sp.DEVNULL,
            encoding="utf-8", errors="replace")
 
-    if progress_callback:
-        progress_callback("加载 FunASR 模型(CPU)...", 10, 100)
+    try:
+        if progress_callback:
+            progress_callback(f"加载 FunASR 模型({FUNASR_DEFAULT_DEVICE})...", 10, 100)
 
-    model = AutoModel(
-        model="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
-        device="cuda:0", disable_update=True
-    )
+        model = _load_funasr_model(AutoModel, progress_callback=progress_callback)
+    except Exception:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+        raise
 
     # 获取时长
     try:
@@ -609,7 +654,7 @@ def ensure_srt(video_path, progress_callback=None):
     # 分段转录
     chunk_dur = 120.0
     all_segs = []
-    n_chunks = max(1, int(dur / chunk_dur))
+    n_chunks = max(1, int((dur + chunk_dur - 0.001) / chunk_dur))
 
     for i in range(n_chunks):
         start_t = i * chunk_dur

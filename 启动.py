@@ -14,8 +14,9 @@ print("=" * 50)
 
 # 自动安装依赖
 print("\n[1/2] 检查依赖...")
-env = {**os.environ, "HTTP_PROXY": "", "HTTPS_PROXY": "",
-       "MODELSCOPE_LOCAL_ONLY": "1"}
+os.environ.setdefault("MODELSCOPE_LOCAL_ONLY", "1")
+os.environ.setdefault("AUTOSLICE_FUNASR_DEVICE", "cpu")
+env = {**os.environ, "HTTP_PROXY": "", "HTTPS_PROXY": ""}
 subprocess.run(
     [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
     env=env
