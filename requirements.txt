@@ -1,0 +1,4 @@
+flask>=3.0
+funasr
+python-docx
+requests>=2.31
