@@ -35,11 +35,11 @@ FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
 DANMAKU_WINDOW = 60
 DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
 CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
-TOPIC_PRE_CONTEXT_SEC = 60      # 话题切片向前保留峰值前因，控制二剪素材长度
-TOPIC_POST_CONTEXT_SEC = 90     # 话题切片向后保留峰值后续反应，避免拖得过长
-TOPIC_MIN_CLIP_SEC = 90         # 太短的高能点至少扩成 1.5 分钟上下文
-TOPIC_MAX_CLIP_SEC = 420        # 单个实际切片最长 7 分钟，合并峰值时优先保证峰值完整
-TOPIC_DIRECT_SLICE_MAX_SEC = 240  # 4 分钟内话题直接切；更长话题只截弹幕峰值核心段
+TOPIC_PRE_CONTEXT_SEC = 45      # 话题切片向前保留前因，避免二剪素材拖得过长
+TOPIC_POST_CONTEXT_SEC = 60     # 话题切片向后保留反应和收尾
+TOPIC_MIN_CLIP_SEC = 75         # 太短的高能点至少扩成 1.25 分钟上下文
+TOPIC_MAX_CLIP_SEC = 300        # 单个实际切片最长 5 分钟
+TOPIC_DIRECT_SLICE_MAX_SEC = 180  # 3 分钟内话题直接切；更长话题只截弹幕峰值核心段
 TOPIC_FOCUS_PRE_SEC = 0         # 长话题核心从弹幕峰值窗口开始，前因由 TOPIC_PRE_CONTEXT_SEC 补
 TOPIC_FOCUS_POST_SEC = DANMAKU_WINDOW  # 长话题核心覆盖完整弹幕峰值窗口
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
@@ -1827,7 +1827,7 @@ def _dedupe_clip_marks(marks):
 
 
 def _merge_expanded_clip_marks(marks):
-    """合并上下文扩展后实际时间重叠的切片，避免导出大量重复视频。"""
+    """处理扩展后的重叠：核心重叠才合并，仅上下文相碰则按语义边界拆开。"""
     def titles_of(mark):
         titles = mark.get("merged_titles") or [mark.get("title", "")]
         result = []
@@ -1839,34 +1839,38 @@ def _merge_expanded_clip_marks(marks):
 
     merged = []
     for mark in sorted(_dedupe_clip_marks(marks), key=lambda m: (m["start"], m["end"])):
-        item = dict(mark)
+        item = _cap_expanded_clip_mark(dict(mark))
         if not merged:
             merged.append(item)
             continue
         prev = merged[-1]
-        if item["start"] > prev["end"]:
+        if item["start"] >= prev["end"]:
             merged.append(item)
             continue
 
-        merged_duration = max(prev["end"], item["end"]) - min(prev["start"], item["start"])
+        prev_topic_start = prev.get("topic_start", prev["start"])
         prev_topic_end = prev.get("topic_end", prev["end"])
         item_topic_start = item.get("topic_start", item["start"])
         item_topic_end = item.get("topic_end", item["end"])
-        if merged_duration > TOPIC_MAX_CLIP_SEC:
-            if item_topic_start - prev_topic_end > 60:
-                if prev["end"] > item["start"] and item["start"] > prev_topic_end:
-                    prev["end"] = item["start"]
-                merged.append(item)
-                continue
-            capped_end = min(
-                max(prev["end"], item["end"]),
-                max(prev_topic_end, item_topic_end) + TOPIC_POST_CONTEXT_SEC,
-                prev["start"] + TOPIC_MAX_CLIP_SEC,
-            )
-        else:
-            capped_end = max(prev["end"], item["end"])
+        core_overlap = _overlap_ratio(
+            prev_topic_start, prev_topic_end, item_topic_start, item_topic_end
+        )
+        same_title = prev.get("title") == item.get("title")
+        if not same_title and core_overlap < 0.5:
+            if prev_topic_end <= item_topic_start:
+                boundary = int((prev_topic_end + item_topic_start) / 2)
+            else:
+                overlap_start = max(prev_topic_start, item_topic_start)
+                overlap_end = min(prev_topic_end, item_topic_end)
+                boundary = int((overlap_start + overlap_end) / 2)
+            boundary = max(int(prev["start"]) + 1, min(boundary, int(item["end"]) - 1))
+            prev["end"] = min(int(prev["end"]), boundary)
+            item["start"] = max(int(item["start"]), boundary)
+            merged[-1] = _cap_expanded_clip_mark(prev)
+            merged.append(_cap_expanded_clip_mark(item))
+            continue
 
-        prev["end"] = max(prev["start"] + 1, capped_end)
+        prev["end"] = max(prev["end"], item["end"])
         prev["topic_start"] = min(prev.get("topic_start", prev["start"]), item.get("topic_start", item["start"]))
         prev["topic_end"] = max(prev.get("topic_end", prev["end"]), item.get("topic_end", item["end"]))
         prev["context_expanded"] = bool(prev.get("context_expanded") or item.get("context_expanded"))
@@ -1878,7 +1882,41 @@ def _merge_expanded_clip_marks(marks):
         if titles:
             prev["title"] = " / ".join(titles)[:60]
             prev["merged_titles"] = titles
+        merged[-1] = _cap_expanded_clip_mark(prev)
     return merged
+
+
+def _cap_expanded_clip_mark(mark):
+    """在字幕吸附和重叠处理后再次限长，优先保留话题核心或弹幕峰值。"""
+    item = dict(mark)
+    start_s = int(item["start"])
+    end_s = int(item["end"])
+    if end_s - start_s <= TOPIC_MAX_CLIP_SEC:
+        return item
+
+    topic_start = max(start_s, int(item.get("topic_start", start_s)))
+    topic_end = min(end_s, int(item.get("topic_end", end_s)))
+    if topic_end <= topic_start:
+        topic_start, topic_end = start_s, end_s
+
+    core_duration = topic_end - topic_start
+    if core_duration >= TOPIC_MAX_CLIP_SEC:
+        anchor = int(item.get("slice_anchor") or ((topic_start + topic_end) / 2))
+        new_start = anchor - TOPIC_MAX_CLIP_SEC // 2
+        new_start = max(start_s, min(new_start, end_s - TOPIC_MAX_CLIP_SEC))
+        new_end = new_start + TOPIC_MAX_CLIP_SEC
+    else:
+        available_context = TOPIC_MAX_CLIP_SEC - core_duration
+        pre_context = min(TOPIC_PRE_CONTEXT_SEC, available_context)
+        new_start = max(start_s, topic_start - pre_context)
+        new_end = min(end_s, new_start + TOPIC_MAX_CLIP_SEC)
+        if new_end < topic_end:
+            new_end = topic_end
+            new_start = max(start_s, new_end - TOPIC_MAX_CLIP_SEC)
+
+    item["start"] = int(new_start)
+    item["end"] = int(max(new_start + 1, new_end))
+    return item
 
 
 # ============================================================
@@ -2012,7 +2050,7 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     expanded["context_expanded"] = True
     expanded["context_pre_sec"] = TOPIC_PRE_CONTEXT_SEC
     expanded["context_post_sec"] = TOPIC_POST_CONTEXT_SEC
-    return expanded
+    return _cap_expanded_clip_mark(expanded)
 
 
 def _expand_clip_marks_with_context(marks, srt_segments=None, video_duration=None):

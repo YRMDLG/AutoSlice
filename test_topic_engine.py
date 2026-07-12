@@ -10,6 +10,7 @@ import requests
 
 from topic_engine import (
     CHUNK_SEC, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
+    TOPIC_MAX_CLIP_SEC,
     LLMResponseTruncatedError, LLMStructuredOutputError,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry,
@@ -190,7 +191,8 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(expanded[0]["topic_start"], 100)
         self.assertEqual(expanded[0]["topic_end"], 110)
         self.assertEqual(expanded[0]["start"], 40)
-        self.assertEqual(expanded[0]["end"], 235)
+        self.assertEqual(expanded[0]["end"], 170)
+        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], TOPIC_MAX_CLIP_SEC)
         self.assertEqual(expanded[0]["time_basis"], "video_elapsed_seconds")
         self.assertTrue(expanded[0]["context_expanded"])
 
@@ -204,7 +206,7 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual([m["title"] for m in deduped], ["话题A", "话题B"])
 
-    def test_expand_clip_marks_merges_overlapping_context_ranges(self):
+    def test_expand_clip_marks_separates_context_only_overlap(self):
         marks = [
             {"start": 100, "end": 160, "title": "前一个高能点"},
             {"start": 220, "end": 280, "title": "后一个高能点"},
@@ -218,11 +220,11 @@ class TopicEngineParseTests(unittest.TestCase):
 
         expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=400)
 
-        self.assertEqual(len(expanded), 1)
+        self.assertEqual(len(expanded), 2)
         self.assertEqual(expanded[0]["topic_start"], 100)
-        self.assertEqual(expanded[0]["topic_end"], 280)
-        self.assertTrue(expanded[0]["merged_context"])
-        self.assertEqual(expanded[0]["merged_titles"], ["前一个高能点", "后一个高能点"])
+        self.assertEqual(expanded[1]["topic_end"], 280)
+        self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
+        self.assertNotIn("merged_context", expanded[0])
 
     def test_expand_clip_marks_does_not_chain_merge_into_too_long_clip(self):
         marks = [
@@ -238,13 +240,27 @@ class TopicEngineParseTests(unittest.TestCase):
 
         expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=5000)
 
-        self.assertEqual(len(expanded), 2)
-        self.assertEqual(expanded[0]["merged_titles"], ["裤装话题", "钥匙话题"])
-        self.assertEqual(expanded[0]["start"], 3463)
-        self.assertEqual(expanded[0]["end"], 3883)
-        self.assertEqual(expanded[1]["title"], "小星星话题")
-        self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
-        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], 900)
+        self.assertEqual(len(expanded), 3)
+        self.assertEqual([item["title"] for item in expanded], ["裤装话题", "钥匙话题", "小星星话题"])
+        for previous, current in zip(expanded, expanded[1:]):
+            self.assertLessEqual(previous["end"], current["start"])
+        for item in expanded:
+            self.assertLessEqual(item["end"] - item["start"], TOPIC_MAX_CLIP_SEC)
+
+    def test_realistic_adjacent_topics_stay_separate_and_under_five_minutes(self):
+        marks = [
+            {"start": 240, "end": 360, "title": "大风掀裙的飞机趣事"},
+            {"start": 360, "end": 452, "title": "活动控场与上台小技巧"},
+            {"start": 616, "end": 750, "title": "备战萤火虫与日常唠嗑"},
+            {"start": 849, "end": 909, "title": "润喉糖来历与虐文吐槽"},
+        ]
+
+        expanded = _expand_clip_marks_with_context(marks, srt_segments=[], video_duration=1200)
+
+        self.assertEqual(len(expanded), 4)
+        for previous, current in zip(expanded, expanded[1:]):
+            self.assertLessEqual(previous["end"], current["start"])
+        self.assertTrue(all(item["end"] - item["start"] <= 300 for item in expanded))
 
     def test_topic_index_label_uses_circled_number_after_twenty(self):
         topics = [
@@ -547,7 +563,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(topics[0]["slice_anchor_source"], "弹幕峰值")
         self.assertEqual(marks[0]["start"], 1500)
         self.assertEqual(marks[0]["end"], 1560)
-        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], 420)
+        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], 300)
         self.assertLess(topics[0]["slice_start"], topics[0]["end"])
 
     def test_manual_timeline_lines_convert_wall_clock_to_video_time(self):
@@ -1422,7 +1438,8 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(expanded[0]["topic_start"], 200)
         self.assertEqual(expanded[0]["topic_end"], 220)
         self.assertEqual(expanded[0]["start"], 65)
-        self.assertGreaterEqual(expanded[0]["end"], 320)
+        self.assertGreaterEqual(expanded[0]["end"], 280)
+        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], TOPIC_MAX_CLIP_SEC)
 
     def test_expand_context_handles_sc_word_misrecognized_as_thanks_gift(self):
         marks = [{"start": 260, "end": 280, "title": "讨论观众问题"}]
