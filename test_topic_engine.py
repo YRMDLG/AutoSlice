@@ -4,12 +4,13 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import mock_open, patch
+from unittest.mock import Mock, mock_open, patch
 
 import requests
 
 from topic_engine import (
-    CHUNK_SEC, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
+    CHUNK_SEC, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
+    LLMResponseTruncatedError, LLMStructuredOutputError,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _clip_marks_from_topics, _dedupe_clip_marks, _expand_clip_marks_with_context,
@@ -18,7 +19,7 @@ from topic_engine import (
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_manual_timeline_lines, _resolve_funasr_model_source, _streamer_report_name,
     _topics_from_manual_timeline, chunk_srt,
-    load_api_config, load_manual_timeline, parse_srt_text,
+    call_llm, load_api_config, load_manual_timeline, parse_srt_text,
 )
 
 def make_http_error(status):
@@ -307,6 +308,77 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(result, "OK")
         self.assertEqual(calls, [("完整提示", 1500), ("完整提示", 1500), ("紧凑提示", 900)])
         self.assertEqual(sleeps, [3, 8])
+
+    def test_call_llm_uses_long_read_timeout_for_deepseek_pro(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": '{"topics": []}'},
+            }],
+        }
+
+        with (
+            patch("topic_engine.load_api_config", return_value=("https://example.test/v1", "sk-test", "deepseek-v4-pro")),
+            patch("topic_engine.requests.post", return_value=response) as post,
+        ):
+            self.assertEqual(call_llm("测试", max_tokens=12000), '{"topics": []}')
+
+        self.assertEqual(post.call_args.kwargs["timeout"], (30, 600))
+
+    def test_truncated_empty_response_is_retryable_and_uses_compact_prompt(self):
+        calls = []
+        sleeps = []
+
+        def fake_call(prompt, max_tokens):
+            calls.append((prompt, max_tokens))
+            if len(calls) == 1:
+                raise LLMResponseTruncatedError("输出被截断")
+            return '{"topics": []}'
+
+        with patch("topic_engine.call_llm", side_effect=fake_call):
+            result = _call_llm_with_retry(
+                "完整提示",
+                compact_prompt="紧凑提示",
+                attempts=4,
+                sleep_func=sleeps.append,
+            )
+
+        self.assertEqual(result, '{"topics": []}')
+        self.assertEqual(calls[0], ("完整提示", LLM_MAX_TOKENS))
+        self.assertEqual(calls[1], ("紧凑提示", LLM_COMPACT_MAX_TOKENS))
+        self.assertGreaterEqual(LLM_MAX_TOKENS, 12000)
+        self.assertGreaterEqual(LLM_COMPACT_MAX_TOKENS, 8000)
+        self.assertEqual(sleeps, [3])
+        self.assertTrue(_is_retryable_llm_error(LLMResponseTruncatedError("输出被截断")))
+
+    def test_invalid_structured_response_immediately_retries_with_compact_prompt(self):
+        calls = []
+        sleeps = []
+
+        def fake_call(prompt, max_tokens):
+            calls.append((prompt, max_tokens))
+            if len(calls) == 1:
+                return "这里是分析过程，没有 JSON"
+            return '{"topics": []}'
+
+        with patch("topic_engine.call_llm", side_effect=fake_call):
+            result = _call_llm_with_retry(
+                "完整提示",
+                compact_prompt="紧凑提示",
+                attempts=3,
+                sleep_func=sleeps.append,
+                require_json=True,
+            )
+
+        self.assertEqual(result, '{"topics": []}')
+        self.assertEqual(calls, [
+            ("完整提示", LLM_MAX_TOKENS),
+            ("紧凑提示", LLM_COMPACT_MAX_TOKENS),
+        ])
+        self.assertEqual(sleeps, [3])
+        self.assertTrue(_is_retryable_llm_error(LLMStructuredOutputError("缺少 JSON")))
 
 
     def test_report_includes_api_warning_and_failed_chunks_without_topics(self):
@@ -1326,7 +1398,8 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         )
 
         self.assertEqual(CHUNK_SEC, 600)
-        self.assertEqual(LLM_MAX_TOKENS, 6000)
+        self.assertGreaterEqual(LLM_MAX_TOKENS, 12000)
+        self.assertGreaterEqual(LLM_COMPACT_MAX_TOKENS, 8000)
         self.assertEqual(len(chunks), 2)
         self.assertEqual(chunks[0]["start"], 0)
         self.assertEqual(chunks[0]["end"], 600)

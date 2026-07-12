@@ -20,11 +20,12 @@ from datetime import datetime, timedelta
 # ============================================================
 CHUNK_SEC = 600          # 每块 10 分钟：减少 API 调用，降低话题被硬切碎的概率
 LLM_MODEL = "deepseek-v4-pro"
-LLM_MAX_TOKENS = 6000
-LLM_COMPACT_MAX_TOKENS = 3000
+LLM_MAX_TOKENS = 16000
+LLM_COMPACT_MAX_TOKENS = 12000
 LLM_FULL_TEXT_CHARS = 8000
 LLM_COMPACT_TEXT_CHARS = 2200
 LLM_RETRY_DELAYS = (3, 8, 20, 45)
+LLM_REQUEST_TIMEOUT = (30, 600)
 MAX_INITIAL_FAILED_CHUNKS = 3
 FUNASR_MODEL = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "cpu")
@@ -882,6 +883,19 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 不要写“我决定/现在写/标题可以/只能基于字幕/注意起始时间”等模型思考过程"""
 
 
+class LLMResponseTruncatedError(RuntimeError):
+    """LLM 因输出额度耗尽而未返回完整结构化结果。"""
+
+
+class LLMStructuredOutputError(RuntimeError):
+    """LLM 返回了文本，但没有可解析的完整 JSON。"""
+
+
+def _llm_response_has_complete_json(content):
+    """判断响应中是否包含可解析的完整 JSON。"""
+    return bool(content and _extract_json_payload(content) is not None)
+
+
 def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
     base_url, token, model = load_api_config()
     # 自动判断 API 格式：sk- 开头 = OpenAI 兼容，否则 = Anthropic
@@ -899,21 +913,27 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
                 "max_tokens": max_tokens,
                 "temperature": 0.3,
             },
-            timeout=120,
+            timeout=LLM_REQUEST_TIMEOUT,
             proxies={"http": None, "https": None},
         )
         resp.raise_for_status()
         data = resp.json()
         # 兼容不同 OpenAI 响应格式
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        choice = data.get("choices", [{}])[0]
+        finish_reason = choice.get("finish_reason")
+        content = choice.get("message", {}).get("content", "")
         if not content:
-            reasoning_content = data.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "")
+            reasoning_content = choice.get("message", {}).get("reasoning_content", "")
             # DeepSeek Pro 可能把主要 token 用在 reasoning_content。
             # 只允许 reasoning_content 中的完整 JSON 进入后续结构化解析，禁止把普通推理文本当报告。
-            if reasoning_content and "{" in reasoning_content and "}" in reasoning_content:
+            if _llm_response_has_complete_json(reasoning_content):
                 content = reasoning_content
         if not content:
-            content = data["choices"][0].get("text", "")
+            content = choice.get("text", "")
+        if finish_reason == "length" and not _llm_response_has_complete_json(content):
+            raise LLMResponseTruncatedError(
+                f"DeepSeek Pro 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+            )
         if not content:
             raise RuntimeError(f"API 返回格式不兼容: {json.dumps(data)[:300]}")
         return content
@@ -932,15 +952,21 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
                 "max_tokens": max_tokens,
                 "temperature": 0.3,
             },
-            timeout=120,
+            timeout=LLM_REQUEST_TIMEOUT,
             proxies={"http": None, "https": None},
         )
         resp.raise_for_status()
         data = resp.json()
+        content = ""
         for block in data.get("content", []):
             if block["type"] == "text":
-                return block["text"]
-        return ""
+                content = block["text"]
+                break
+        if data.get("stop_reason") == "max_tokens" and not _llm_response_has_complete_json(content):
+            raise LLMResponseTruncatedError(
+                f"DeepSeek Pro 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+            )
+        return content
 
 
 def _short_llm_error(error):
@@ -953,6 +979,8 @@ def _short_llm_error(error):
 
 def _is_retryable_llm_error(error):
     """判断是否适合重试：服务端 5xx、限流 429、连接/超时。"""
+    if isinstance(error, (LLMResponseTruncatedError, LLMStructuredOutputError)):
+        return True
     if isinstance(error, (requests.Timeout, requests.ConnectionError)):
         return True
     if isinstance(error, requests.HTTPError) and error.response is not None:
@@ -964,16 +992,21 @@ def _is_retryable_llm_error(error):
 def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
                          compact_max_tokens=LLM_COMPACT_MAX_TOKENS, attempts=None,
                          sleep_func=time.sleep, progress_callback=None,
-                         progress_label="API", progress_step=0):
+                         progress_label="API", progress_step=0, require_json=False):
     """对临时性 LLM/API 错误做退避重试；连续失败后再抛出。"""
     total_attempts = attempts or (len(LLM_RETRY_DELAYS) + 1)
     last_error = None
     for attempt in range(total_attempts):
-        use_compact = compact_prompt is not None and attempt >= 2
+        use_compact = compact_prompt is not None and (
+            attempt >= 2 or isinstance(last_error, (LLMResponseTruncatedError, LLMStructuredOutputError))
+        )
         active_prompt = compact_prompt if use_compact else prompt
         active_tokens = compact_max_tokens if use_compact else max_tokens
         try:
-            return call_llm(active_prompt, max_tokens=active_tokens)
+            result = call_llm(active_prompt, max_tokens=active_tokens)
+            if require_json and _extract_json_payload(result) is None:
+                raise LLMStructuredOutputError("DeepSeek Pro 未返回完整 JSON，将改用紧凑提示重试")
+            return result
         except Exception as e:
             last_error = e
             if not _is_retryable_llm_error(e) or attempt >= total_attempts - 1:
@@ -2482,6 +2515,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
                 response = _call_llm_with_retry(
                     prompt,
                     compact_prompt=compact_prompt,
+                    require_json=True,
                     progress_callback=progress_callback,
                     progress_label=f"块 {i+1} API",
                     progress_step=pct,
