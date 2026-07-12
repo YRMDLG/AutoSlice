@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>话题分析+切片 · AutoSlice</title>
+<style>
+:root{--bg:#0f0f1a;--card:#1a1a2e;--accent:#e94560;--blue:#0f3460;--text:#e0e0e0;--muted:#888;--green:#2ecc71;--red:#e74c3c}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
+.topbar{background:var(--card);border-bottom:1px solid #222;padding:12px 24px;display:flex;align-items:center;gap:24px}
+.topbar .logo{font-size:1.2em;font-weight:700;color:var(--accent)}
+.topbar nav{display:flex;gap:4px}
+.topbar nav a{color:var(--muted);text-decoration:none;padding:6px 14px;border-radius:6px;font-size:14px;transition:.2s}
+.topbar nav a:hover,.topbar nav a.active{color:#fff;background:var(--blue)}
+.main{max-width:1000px;margin:0 auto;padding:24px 20px}
+h2{font-size:1.1em;color:var(--accent);margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid var(--accent);display:flex;align-items:center;gap:8px}
+h2 .icon{font-size:1.2em}
+.card{background:var(--card);border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid #222}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.row label{min-width:80px;font-weight:600;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+input[type="text"],select{flex:1;min-width:200px;padding:10px 14px;border:1px solid #333;border-radius:8px;background:#0d0d1a;color:#fff;font-size:14px;transition:border .2s}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.btn{padding:10px 22px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#c73652;transform:translateY(-1px)}
+.btn-secondary{background:var(--blue);color:#fff}.btn-secondary:hover{background:#1a4a80}
+.vlist{max-height:320px;overflow-y:auto;border-radius:8px}
+.vitem{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #1a1a2e;cursor:pointer;transition:background .15s;font-size:14px}
+.vitem:hover{background:#1a2540}
+.vitem.sel{background:var(--blue);border-left:3px solid var(--accent)}
+.badge{font-size:10px;padding:3px 8px;border-radius:10px;font-weight:600}
+.badge-green{background:#1a4a30;color:var(--green)}
+.badge-blue{background:var(--blue);color:#8af}
+.badge-gray{background:#2a2a3a;color:var(--muted)}
+.progress-box{border-radius:8px;overflow:hidden}
+.progress-item{padding:14px 16px;background:#0d0d1a;border-bottom:1px solid #1a1a2e}
+.progress-item .name{font-size:13px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between}
+.progress-item .status{font-size:11px;padding:2px 8px;border-radius:4px}
+.status-running{background:var(--blue);color:#8af}
+.status-done{background:#1a4a30;color:var(--green)}
+.status-error{background:#3a1a1a;color:var(--red)}
+.progress-bar{height:4px;background:#1a1a2e;border-radius:2px;margin:6px 0;overflow:hidden}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
+.done .progress-fill{background:var(--green)}
+.error .progress-fill{background:var(--red)}
+.progress-msg{font-size:12px;color:var(--muted)}
+.report{background:#0d0d1a;border-radius:12px;padding:28px;max-height:600px;overflow-y:auto;font-size:14px;line-height:1.9;border:1px solid #222;margin-top:16px;font-family:'Segoe UI','Microsoft YaHei',serif}
+.report h1{font-size:1.4em;color:var(--accent);margin-bottom:16px}
+.report h2{font-size:1.05em;color:#ff8a80;margin:20px 0 8px;border:none;padding:0;display:block}
+.report .slice-tag{background:var(--green);color:#000;font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:700}
+.flex-btns{display:flex;gap:10px;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <div class="logo">AutoSlice</div>
+    <nav>
+        <a href="/">弹幕切片</a>
+        <a href="/topic-v2" class="active">话题分析+切片</a>
+    </nav>
+</div>
+
+<div class="main">
+    <div class="card">
+        <h2><span class="icon">选择录播</span></h2>
+        <div class="row">
+            <label>录播目录</label>
+            <input type="text" id="videoDir" value="{{ default_video_dir }}">
+            <button class="btn btn-secondary" onclick="scan()">扫描</button>
+        </div>
+        <div class="row" style="margin-top:-4px">
+            <label></label>
+            <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick='setDir({{ default_video_dir|tojson }})'>默认录播目录</button>
+        </div>
+        <div class="row">
+            <label>输出目录</label>
+            <input type="text" id="outputDir" value="{{ default_output_dir }}">
+        </div>
+        <div class="row">
+            <label>辅助时间轴</label>
+            <select id="timelineMode" onchange="toggleTimelineMode()">
+                <option value="auto">自动匹配日期 docx</option>
+                <option value="none">不使用时间轴</option>
+                <option value="manual">手动选择 docx</option>
+            </select>
+            <button class="btn btn-secondary" style="font-size:12px;padding:6px 10px" onclick="loadTimelines()">刷新</button>
+        </div>
+        <div class="row" id="timelineManualRow" style="display:none">
+            <label>docx 文件</label>
+            <select id="timelineSelect" onchange="document.getElementById('timelinePath').value=this.value"></select>
+            <input type="text" id="timelinePath" placeholder="也可直接粘贴时间轴 docx 路径">
+        </div>
+        <div class="vlist" id="vlist"><p style="color:var(--muted);padding:16px">点击扫描加载视频...</p></div>
+        <div class="flex-btns">
+            <button class="btn btn-primary" onclick="startPipeline()">开始分析+切片</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2><span class="icon">进度</span></h2>
+        <div class="progress-box" id="progressBox"><p style="color:var(--muted);padding:16px">等待任务...</p></div>
+        <div class="report" id="report" style="display:none"></div>
+    </div>
+</div>
+
+<script>
+let selVideo=null,selAss=null,sse=null;
+
+function esc(s){
+    return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function connectSSE(){
+    if(sse)sse.close();
+    sse=new EventSource('/api/events');
+    sse.addEventListener('task_update',e=>{
+        const d=JSON.parse(e.data);
+        if(!d.task_id||!d.task_id.startsWith('pipeline_'))return;
+        const pct=d.total>0?Math.round(d.step/d.total*100):0;
+        const cls=d.status==='done'?'done':d.status==='error'?'error':'';
+        document.getElementById('progressBox').innerHTML=`
+            <div class="progress-item ${cls}">
+                <div class="name"><span>${d.task_id}</span><span class="status status-${d.status==='running'?'running':d.status==='done'?'done':'error'}">${d.status==='running'?'进行中':d.status==='done'?'完成':'失败'}</span></div>
+                ${d.status==='running'?`<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>`:''}
+                <div class="progress-msg">${d.progress||''} ${d.result&&d.status==='done'?'✅ 分析+切片完成':''}</div>
+            </div>`;
+        if(d.status==='done'&&d.result){
+            try{
+                const r=JSON.parse(d.result);
+                const el=document.getElementById('report');
+                el.style.display='block';
+                el.innerHTML=(r.report||'').replace(/\n/g,'<br>')
+                    .replace(/✂️/g,'<span class="slice-tag">已切片</span>')
+                    .replace(/## \[/g,'<h2>[');
+            }catch(ex){}
+        }
+    });
+    sse.onerror=()=>setTimeout(connectSSE,3000);
+}
+
+async function scan(){
+    const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({video_dir:document.getElementById('videoDir').value})});
+    const d=await r.json();
+    document.getElementById('vlist').innerHTML=d.videos.map((v,i)=>`
+        <div class="vitem" onclick="pick(this,'${v.path.replace(/\\/g,'\\\\')}','${v.has_ass}')">
+            <span>${v.name}</span>
+            <span class="badge ${v.has_ass?'badge-blue':'badge-gray'}">${v.has_ass?'ASS弹幕':'无弹幕'}</span>
+            <span class="badge ${v.has_srt?'badge-green':'badge-gray'}">${v.has_srt?'SRT字幕':'无字幕'}</span>
+        </div>`).join('')||'<p style="color:var(--muted);padding:16px">没有找到视频</p>';
+}
+
+async function loadTimelines(){
+    const r=await fetch('/api/timelines');
+    const d=await r.json();
+    const files=d.files||[];
+    document.getElementById('timelineSelect').innerHTML='<option value="">-- 选择 docx --</option>'+files.map(f=>`<option value="${esc(f.path)}">${esc(f.name)}</option>`).join('');
+}
+
+function toggleTimelineMode(){
+    const mode=document.getElementById('timelineMode').value;
+    document.getElementById('timelineManualRow').style.display=mode==='manual'?'flex':'none';
+    if(mode==='manual')loadTimelines();
+}
+
+function setDir(p){document.getElementById('videoDir').value=p;scan();}
+function pick(el,path,hasAss){
+    document.querySelectorAll('.vitem').forEach(e=>e.classList.remove('sel'));
+    el.classList.add('sel');
+    selVideo=path;
+    selAss=hasAss==='true'?path.replace('.flv','.ass'):'';
+}
+
+async function startPipeline(){
+    if(!selVideo){alert('请先选择视频');return}
+    const mode=document.getElementById('timelineMode').value;
+    const timelinePath=document.getElementById('timelinePath').value;
+    if(mode==='manual'&&!timelinePath){alert('请选择或填写辅助时间轴 docx');return}
+    document.getElementById('report').style.display='none';
+    document.getElementById('progressBox').innerHTML='<p style="color:var(--muted);padding:16px">启动中...</p>';
+    await fetch('/api/start-pipeline',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+            flv_path:selVideo,
+            ass_path:selAss,
+            output_dir:document.getElementById('outputDir').value,
+            manual_timeline_mode:mode,
+            manual_timeline_path:timelinePath
+        })});
+}
+
+connectSSE();scan();loadTimelines();toggleTimelineMode();
+</script>
+</body>
+</html>

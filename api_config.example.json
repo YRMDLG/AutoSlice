@@ -1,0 +1,5 @@
+{
+  "base_url": "https://api.example.com/v1",
+  "token": "YOUR_API_TOKEN",
+  "model": "deepseek-v4-pro"
+}

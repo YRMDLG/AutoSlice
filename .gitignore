@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+venv/
+.idea/
+.vscode/
+
+# 本地凭据
+api_config.json
+.env
+.env.*
+!.env.example
+
+# 本地工作目录和发布计划
+recordings/
+output/
+timelines/
+PLAN.md
+
+# 视频、字幕、弹幕、音频和模型
+*.flv
+*.mp4
+*.mkv
+*.ts
+*.wav
+*.mp3
+*.srt
+*.ass
+*.xml
+*.pt
+*.onnx
+
+# 自动分析副产物
+*_clip_marks.json
+*_topics.json
+*_话题分析.md
+*_asr_*.wav
