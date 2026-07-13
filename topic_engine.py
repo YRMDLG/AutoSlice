@@ -3105,11 +3105,7 @@ def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
         topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
         normal_cut = peak_density >= threshold
         manual_stars = topic.get("manual_stars", 0)
-        manual_cut = manual_stars > 0 and (
-            manual_stars >= 2
-            or not peaks
-            or peak_density >= manual_threshold
-        )
+        manual_cut = bool(peaks) and manual_stars > 0 and peak_density >= manual_threshold
         topic["can_slice"] = bool(
             _is_content_cuttable_topic(topic)
             and (normal_cut or manual_cut)

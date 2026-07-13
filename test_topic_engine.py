@@ -1330,13 +1330,28 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         }]
 
         _merge_manual_timeline_topics(topics, entries)
-        _apply_danmaku_slice_decisions(topics, peaks=[], avg_density=101)
+        _apply_danmaku_slice_decisions(topics, peaks=[(5035, 90)], avg_density=101)
         marks = _clip_marks_from_topics(topics)
 
         self.assertEqual(len(topics), 2)
         self.assertFalse(topics[0]["can_slice"])
         self.assertTrue(topics[1]["can_slice"])
         self.assertIn("摇摇尾巴", marks[0]["title"])
+
+    def test_manual_stars_without_danmaku_peak_do_not_force_slice(self):
+        topics = [{
+            "start": 5000,
+            "end": 5180,
+            "title": "人工重点候选",
+            "can_slice": False,
+            "body": ["●人工时间轴⭐⭐⭐⭐：1:23:55 人工记录"],
+            "manual_stars": 4,
+        }]
+
+        _apply_danmaku_slice_decisions(topics, peaks=[], avg_density=101)
+
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertEqual(_clip_marks_from_topics(topics), [])
 
     def test_manual_star_does_not_merge_to_adjacent_topic(self):
         entries = _parse_manual_timeline_lines(
