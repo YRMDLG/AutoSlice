@@ -99,6 +99,8 @@ STREAMER_ASR_LITERAL_REPLACEMENTS = (
 
 PUBLISH_TITLE_PREFIX = "【泽音】"
 MAX_PUBLISH_TITLE_CHARS = 80
+TITLE_STYLE_PROFILE_PATH = os.path.join(os.path.dirname(__file__), "title_style_profile.json")
+TITLE_STYLE_EXAMPLE_LIMIT = 8
 _PUBLISH_TITLE_PREFIX_RE = re.compile(
     r'^\s*[【\[]\s*泽音(?:Melody)?\s*[】\]]\s*',
     re.IGNORECASE,
@@ -111,6 +113,16 @@ _PUBLISH_TITLE_META_KEYWORDS = (
 _GENERIC_PUBLISH_TITLES = {
     "直播精彩片段", "精彩直播片段", "直播高光", "精彩片段",
     "日常聊天", "日常闲聊", "游戏过程", "互动片段",
+}
+
+_TITLE_STYLE_TAG_KEYWORDS = {
+    "SC": ("sc", "醒目留言", "付费留言", "红sc", "留言"),
+    "观众互动": ("观众", "弹幕", "音悦生", "舰长", "礼物", "感谢", "互动"),
+    "游戏": ("游戏", "关卡", "过关", "失败", "挑战", "节奏天国", "躲猫猫"),
+    "看视频": ("看视频", "视频", "二创", "连线", "回放"),
+    "唱歌": ("唱歌", "点歌", "演唱", "歌曲", "舞台"),
+    "温情": ("晚安", "陪伴", "鼓励", "谢谢大家", "温柔", "感动"),
+    "日常": ("出差", "下飞机", "打车", "外卖", "妈妈", "音妈", "线下", "日常"),
 }
 
 REFINEMENT_WORKFLOW_STEPS = (
@@ -1183,6 +1195,102 @@ def _make_chunk(chunk_start, texts, peaks, avg_density=0):
     }
 
 
+def _load_title_style_profile(profile_path=None):
+    """读取历史投稿标题风格配置；配置损坏时安全降级为空配置。"""
+    path = profile_path or TITLE_STYLE_PROFILE_PATH
+    empty = {"source": {}, "rules": [], "examples": []}
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return empty
+    if not isinstance(payload, dict):
+        return empty
+
+    rules = []
+    for rule in payload.get("rules") or []:
+        text = re.sub(r'\s+', ' ', str(rule)).strip()
+        if text and text not in rules:
+            rules.append(text)
+
+    examples = []
+    seen_titles = set()
+    for item in payload.get("examples") or []:
+        if isinstance(item, str):
+            item = {"title": item}
+        if not isinstance(item, dict):
+            continue
+        title = re.sub(r'\s+', ' ', str(item.get("title", ""))).strip()
+        if (
+            not title.startswith(PUBLISH_TITLE_PREFIX)
+            or "直播回放" in title
+            or title in seen_titles
+            or len(title) > MAX_PUBLISH_TITLE_CHARS
+        ):
+            continue
+        tags = [
+            re.sub(r'\s+', ' ', str(tag)).strip()
+            for tag in item.get("tags") or []
+            if str(tag).strip()
+        ]
+        examples.append({
+            "title": title,
+            "tags": tags,
+            "source": str(item.get("source", "history")).strip() or "history",
+        })
+        seen_titles.add(title)
+    return {
+        "source": payload.get("source") if isinstance(payload.get("source"), dict) else {},
+        "rules": rules,
+        "examples": examples,
+    }
+
+
+def _select_title_style_examples(context_text, profile=None, limit=TITLE_STYLE_EXAMPLE_LIMIT):
+    """按当前话题语义选择少量同类真实标题，避免把全部历史标题塞进提示词。"""
+    profile = profile or _load_title_style_profile()
+    examples = profile.get("examples") or []
+    if not examples or limit <= 0:
+        return []
+    context = str(context_text or "").lower()
+    active_tags = {
+        tag
+        for tag, keywords in _TITLE_STYLE_TAG_KEYWORDS.items()
+        if any(keyword.lower() in context for keyword in keywords)
+    }
+    scored = []
+    for index, item in enumerate(examples):
+        tags = set(item.get("tags") or [])
+        score = len(active_tags & tags) * 10
+        if item.get("source") == "recent":
+            score += 2
+        elif item.get("source") == "high_play":
+            score += 1
+        scored.append((-score, index, item))
+    scored.sort(key=lambda row: (row[0], row[1]))
+    return [item for _, _, item in scored[:limit]]
+
+
+def _build_title_style_prompt(context_text="", compact=False):
+    """把账号历史标题规律压缩成可复用的提示词片段。"""
+    profile = _load_title_style_profile()
+    rule_limit = 4 if compact else 8
+    example_limit = 4 if compact else TITLE_STYLE_EXAMPLE_LIMIT
+    rules = (profile.get("rules") or [])[:rule_limit]
+    examples = _select_title_style_examples(context_text, profile=profile, limit=example_limit)
+    if not rules and not examples:
+        return ""
+    source = profile.get("source") or {}
+    reviewed_count = source.get("reviewed_submission_count")
+    basis = f"已审阅账号 {reviewed_count} 条投稿后归纳" if reviewed_count else "由账号历史投稿归纳"
+    lines = [
+        f"{basis}。下面只给少量同类真实标题用于学习语气和结构，禁止照抄旧事件：",
+    ]
+    lines.extend(f"- 规则：{rule}" for rule in rules)
+    lines.extend(f"- 样本：{item['title']}" for item in examples)
+    return "\n".join(lines)
+
+
 # ============================================================
 # Step 4: LLM 分析
 # ============================================================
@@ -1232,12 +1340,8 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 时间戳精确到秒，格式 `H:MM:SS`，例如 `0:04:00`
 - 标题 5-15 字，概括核心内容，可加合适 emoji
 - 每个话题都要给出 publish_title，供程序在弹幕筛选后直接用于投稿；它不影响 can_slice 判断
-- publish_title 固定以“【泽音】”开头，先写具体事件钩子，再写反差、结果或最有传播力的一句原话
-- publish_title 可用“结果、随后、还、却、当场”等词推进事件，适量使用 1-3 个符合语义的 emoji
-- 历史风格参考（只学习结构，不得照抄事件）：
-  - 【泽音】笨比音悦生群发关心SC👀结果被音音识破了🤣“看清楚这里是泽音melody直播间🤭”
-  - 【泽音】看勇哥连线👀神人羊杂咖啡😅事先还没有进行过调研，无敌了😂
-  - 【泽音】赌石小音一刀地狱🤣发出了超可爱绝赞悲鸣🤭
+- publish_title 固定以“【泽音】”开头，根据当前事件选择“事件+原话”“SC+回应”“观看对象+反应”“短句头条”或温情原话等结构
+- 不要机械地让每个 publish_title 都使用“结果、随后、当场”；适量使用符合语义的 emoji，具体账号风格和真实样本见当前提示末尾
 - 禁止把 publish_title 写成“直播精彩片段”“日常聊天”等空标题；不得编造字幕和要点中没有的事件、原话或结果
 - 每个话题 2-6 条 points；礼物、弹幕爆点、观众金句可直接写进 points
 - 遇到 SC/醒目留言/观众长留言时，尽量保留观众开头对主播的称呼，例如“音姐……”“音音……”“麻麻……”
@@ -1392,6 +1496,10 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
     chunk_start = ch["start"]
     chunk_end = ch.get("end", ch["start"] + CHUNK_SEC)
     text_limit = LLM_COMPACT_TEXT_CHARS if compact else LLM_FULL_TEXT_CHARS
+    title_style_prompt = _build_title_style_prompt(
+        f"{ch.get('manual_timeline_info') or ''}\n{ch.get('text') or ''}",
+        compact=compact,
+    )
     if compact:
         prompt_head = (
             "你是直播逐话题时间轴整理助手。只分析当前分块，只输出最终话题条目；"
@@ -1399,8 +1507,8 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
             "只有几乎无有效讲话才输出“无明显话题”。"
             "人工时间轴参考是辅助证据，带⭐的片段更值得留意，但不要输出解释说明。"
             "can_slice只给值得自动切片的段，不值得切也要写进报告。"
-            "每个话题都要给publish_title：固定以【泽音】开头，写具体事件钩子+结果/反差/原话，"
-            "可用1-3个语义emoji，禁止空泛标题和编造。"
+            "每个话题都要给publish_title：固定以【泽音】开头，根据历史风格选择事件+原话、SC+回应、"
+            "观看反应或短句头条等合适结构，不要每条都机械写‘结果/当场’；禁止空泛标题和编造。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。"
             "只输出JSON对象：{\"topics\":[{\"start\":\"0:00:00\",\"end\":\"0:05:00\",\"title\":\"话题标题\","
             "\"publish_title\":\"【泽音】具体事件钩子👀结果或反差\",\"can_slice\":false,\"points\":[\"具体要点\"]}]}。\n\n"
@@ -1416,6 +1524,7 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
         f"- 粉丝常用称呼: {'、'.join(STREAMER_FAN_ALIASES)}；如果观众留言/SC 原句以这些称呼开头，要保留原话称呼\n"
         f"- 弹幕信息: {ch['danmaku_info']}\n\n"
         f"## 人工时间轴参考（已换算为视频内时间）\n{ch.get('manual_timeline_info') or '无'}\n\n"
+        f"## 账号历史投稿标题风格\n{title_style_prompt or '无可用历史样本；只根据当前证据写具体标题'}\n\n"
         f"## 字幕:\n{ch['text'][:text_limit]}"
     )
     return prompt, chunk_start, chunk_end
@@ -2058,17 +2167,21 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compac
             "current_title": topic.get("title", "未命名片段"),
             "evidence": evidence,
         })
+    title_style_prompt = _build_title_style_prompt(
+        json.dumps(candidates, ensure_ascii=False),
+        compact=compact,
+    )
     guide = (
-        "投稿标题固定以【泽音】开头，先写具体事件钩子，再写反差、结果或最有传播力的原话；"
-        "可用结果、随后、还、却、当场等推进词和1-3个语义emoji；"
-        "风格接近【泽音】笨比音悦生群发关心SC👀结果被音音识破了🤣，"
-        "但绝对不能照抄示例事件或编造证据中不存在的信息。"
+        "投稿标题固定以【泽音】开头，按当前证据选择事件+原话、SC+回应、观看对象+反应、"
+        "短句头条或温情原话等合适结构；不要每项都机械使用‘结果/当场’，"
+        "也不能照抄历史事件或编造证据中不存在的信息。"
     )
     return (
         "你是泽音Melody录播的资深切片编辑。下面候选由字幕、弹幕和人工时间轴共同聚合；"
         "人工时间轴只是线索，不是可直接照抄的结论。请逐项核对证据，改善短标题和内容要点，"
         "并生成可直接投稿的publish_title。不得修改id，不得决定是否切片。"
         f"主播在正文中称为{streamer_name}，不要写泛称‘主播’。{guide}"
+        f"\n\n账号历史投稿标题风格：\n{title_style_prompt or '无可用历史样本，只按当前证据写具体标题。'}\n\n"
         "每个候选只选一个前因、事件、反应完整且最值得二剪的连贯事件，不要把两个独立话题硬拼成一个。"
         "focus_start和focus_end必须位于候选start/end内，精确到字幕证据中的时间，完整包住标题所写事件；"
         "优先控制在30秒到4分钟，不能只框一句爆点，也不能夹带前后无关话题。"

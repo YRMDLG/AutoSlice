@@ -14,15 +14,16 @@ from topic_engine import (
     LLMResponseTruncatedError, LLMStructuredOutputError,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_manual_topic_enrichment_prompt, _build_refinement_manifest,
+    _build_title_style_prompt,
     _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_marks_from_topics,
     _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _find_manual_timeline_doc,
-    _infer_streamer_name, _is_retryable_llm_error,
+    _infer_streamer_name, _is_retryable_llm_error, _load_title_style_profile,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_elapsed_timeline_report_lines, _parse_manual_timeline_lines,
-    _resolve_funasr_model_source, _streamer_report_name,
+    _resolve_funasr_model_source, _select_title_style_examples, _streamer_report_name,
     _enrich_manual_topics_with_llm, _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _write_refinement_manifest_files, call_llm, export_corrected_srt, load_api_config,
@@ -2058,8 +2059,10 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn('"topics"', prompt)
         self.assertIn('"publish_title"', prompt)
         self.assertIn("固定以“【泽音】”开头", prompt)
-        self.assertIn("具体事件钩子", prompt)
-        self.assertIn("不得照抄事件", prompt)
+        self.assertIn("账号历史投稿标题风格", prompt)
+        self.assertIn("已审阅账号 2654 条投稿", prompt)
+        self.assertIn("不要机械地", prompt)
+        self.assertNotIn("直播回放】", prompt)
 
         compact_prompt, _, _ = _build_chunk_prompt(
             {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
@@ -2069,7 +2072,44 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             streamer_name="音音",
         )
         self.assertIn('"publish_title"', compact_prompt)
-        self.assertIn("具体事件钩子+结果/反差/原话", compact_prompt)
+        self.assertIn("根据历史风格选择", compact_prompt)
+        self.assertIn("事件+原话、SC+回应", compact_prompt)
+
+    def test_title_style_profile_filters_replays_and_selects_related_examples(self):
+        with TemporaryDirectory() as td:
+            profile_path = Path(td) / "title_style_profile.json"
+            profile_path.write_text(json.dumps({
+                "source": {"reviewed_submission_count": 100},
+                "rules": ["不要机械套模板", "不要机械套模板"],
+                "examples": [
+                    {"title": "【泽音】音悦生发来离谱SC😰音音当场反问🤣", "tags": ["SC"]},
+                    {"title": "【泽音】游戏失败后发出悲鸣🤣", "tags": ["游戏"]},
+                    {"title": "【泽音Melody/直播回放】整场直播", "tags": ["游戏"]},
+                ],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            profile = _load_title_style_profile(str(profile_path))
+            selected = _select_title_style_examples("音音开始念一条红SC", profile=profile, limit=1)
+            with patch("topic_engine.TITLE_STYLE_PROFILE_PATH", str(profile_path)):
+                style_prompt = _build_title_style_prompt("音音开始念一条红SC")
+
+        self.assertEqual(profile["rules"], ["不要机械套模板"])
+        self.assertEqual(len(profile["examples"]), 2)
+        self.assertIn("离谱SC", selected[0]["title"])
+        self.assertIn("已审阅账号 100 条投稿", style_prompt)
+        self.assertNotIn("直播回放", style_prompt)
+
+    def test_manual_enrichment_prompt_uses_relevant_historical_title_style(self):
+        prompt = _build_manual_topic_enrichment_prompt([{
+            "start": 120,
+            "end": 240,
+            "title": "念SC后吐槽",
+            "body": ["·字幕核查：音音念完一条SC后接着回应观众"],
+        }], streamer_name="音音")
+
+        self.assertIn("账号历史投稿标题风格", prompt)
+        self.assertIn("群发关心SC", prompt)
+        self.assertIn("不要每项都机械使用‘结果/当场’", prompt)
 
     def test_default_chunking_uses_ten_minutes_and_natural_topics(self):
         segs = [
