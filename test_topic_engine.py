@@ -20,8 +20,9 @@ from topic_engine import (
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_manual_timeline_lines, _resolve_funasr_model_source, _streamer_report_name,
-    _topic_clip_filename, _topics_from_manual_timeline, chunk_srt,
-    call_llm, load_api_config, load_manual_timeline, parse_srt_text, run_pipeline,
+    _segments_from_funasr_result, _topic_clip_filename, _topics_from_manual_timeline, chunk_srt,
+    call_llm, export_corrected_srt, load_api_config, load_manual_timeline,
+    parse_srt_segments, parse_srt_text, run_pipeline,
 )
 
 def make_http_error(status):
@@ -343,7 +344,10 @@ class TopicEngineParseTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             flv_path = Path(tmp) / "泽音Melody-2026年07月14日20点00分.flv"
             srt_path = flv_path.with_suffix(".srt")
-            srt_path.write_text("", encoding="utf-8")
+            srt_path.write_text(
+                "1\n00:00:01,000 --> 00:00:04,000\n英英开场聊天\n",
+                encoding="utf-8",
+            )
             manual_timeline = {
                 "path": str(Path(tmp) / "20260714.docx"),
                 "entries": timeline_entries,
@@ -367,6 +371,9 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(result["topic_count"], 2)
         self.assertEqual(result["clip_marks"], [])
         self.assertIn("## 逐话题时间轴", result["report"])
+        self.assertTrue(result["corrected_srt_path"].endswith("_校对字幕.srt"))
+        self.assertEqual(result["srt_path"], result["corrected_srt_path"])
+        self.assertIn("剪映校对字幕", result["report"])
 
     def test_topic_index_label_uses_circled_number_after_twenty(self):
         topics = [
@@ -1486,6 +1493,75 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(segs[0][0], 14100)
         self.assertGreater(segs[0][1] - segs[0][0], 20)
         self.assertIn("3:55:00－3:55:", chunks[0]["text"])
+
+    def test_repair_old_funasr_full_text_per_token_srt_and_export_corrected_copy(self):
+        tokens = list("英英晚上好音乐生只有见音乐声的时候一起看新衣剪影猜细节吧")
+        full_text = " ".join(tokens)
+
+        def stamp(seconds):
+            whole = int(seconds)
+            milliseconds = int(round((seconds - whole) * 1000))
+            return f"00:00:{whole:02d},{milliseconds:03d}"
+
+        blocks = []
+        for index, _token in enumerate(tokens, 1):
+            start = (index - 1) * 0.3
+            end = start + 0.24
+            blocks.append(
+                f"{index}\n{stamp(start)} --> {stamp(end)}\n{full_text}\n"
+            )
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "泽音Melody-旧版重复字幕.srt"
+            path.write_text("\n".join(blocks), encoding="utf-8")
+
+            segments = parse_srt_segments(str(path))
+            corrected_path = export_corrected_srt(str(path))
+            corrected_content = Path(corrected_path).read_text(encoding="utf-8")
+
+        combined_text = "".join(item[2] for item in segments)
+        self.assertGreater(len(segments), 1)
+        self.assertLess(len(segments), len(tokens))
+        self.assertIn("音音晚上好音悦生", combined_text)
+        self.assertIn("只有见音悦生的时候", combined_text)
+        self.assertNotIn("英英", combined_text)
+        self.assertEqual(corrected_content.count("-->"), len(segments))
+        self.assertLess(len(corrected_content), len("\n".join(blocks)) / 3)
+
+    def test_healthy_srt_keeps_its_sentence_boundaries(self):
+        content = """1
+00:00:01,000 --> 00:00:04,000
+今天正常开播
+
+2
+00:00:05,000 --> 00:00:08,000
+继续和观众聊天
+"""
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "普通视频.srt"
+            path.write_text(content, encoding="utf-8")
+            segments = parse_srt_segments(str(path))
+
+        self.assertEqual(
+            segments,
+            [(1.0, 4.0, "今天正常开播"), (5.0, 8.0, "继续和观众聊天")],
+        )
+
+    def test_new_funasr_result_is_segmented_instead_of_repeating_full_text(self):
+        tokens = list("音音今天晚上和音悦生一起猜新衣剪影然后继续聊生日安排")
+        timestamps = [[index * 300, index * 300 + 240] for index in range(len(tokens))]
+
+        segments = _segments_from_funasr_result(
+            " ".join(tokens),
+            timestamps,
+            offset=120.0,
+            streamer_name="泽音Melody",
+        )
+
+        self.assertGreater(len(segments), 1)
+        self.assertEqual(segments[0][0], 120.0)
+        self.assertEqual("".join(item[2] for item in segments), "".join(tokens))
+        self.assertTrue(all(_text != "".join(tokens) for _, _, _text in segments))
 
     def test_keep_concrete_danmaku_and_gift_lines(self):
         topics = []

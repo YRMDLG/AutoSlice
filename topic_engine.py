@@ -47,6 +47,11 @@ SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会
 SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
 SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
 SRT_MAX_ESTIMATED_SEG_SEC = 300 # 单条异常字幕最多估算 5 分钟
+SRT_REPEAT_REPAIR_MIN_ENTRIES = 8  # 旧版把整段全文按每个字重复写入时的识别下限
+SUBTITLE_TARGET_CHARS = 18
+SUBTITLE_MAX_CHARS = 28
+SUBTITLE_MAX_DURATION_SEC = 7.0
+SUBTITLE_PAUSE_BREAK_SEC = 0.65
 TOPIC_MIN_REPORT_SEC = 60       # 正文较多但模型给出几秒时，报告至少扩到 1 分钟
 TOPIC_MAX_REPAIRED_REPORT_SEC = 180
 MANUAL_TIMELINE_DIR = r"F:\切片时间轴"
@@ -70,6 +75,17 @@ STREAMER_NICKNAME_MAP = {
 }
 
 STREAMER_FAN_ALIASES = ("音姐", "麻麻", "音音")
+
+STREAMER_ASR_LITERAL_REPLACEMENTS = (
+    ("英英", "音音"),
+    ("莹莹", "音音"),
+    ("盈盈", "音音"),
+    ("应应", "音音"),
+    ("音因", "音音"),
+    ("音乐生", "音悦生"),
+    ("英悦生", "音悦生"),
+    ("音悦声", "音悦生"),
+)
 
 PUBLISH_TITLE_PREFIX = "【泽音】"
 MAX_PUBLISH_TITLE_CHARS = 80
@@ -128,6 +144,194 @@ def _repair_srt_end_time(start_s, end_s, text):
         return end_s
     estimated = min(SRT_MAX_ESTIMATED_SEG_SEC, max(duration, text_len / SRT_ESTIMATED_CHARS_PER_SEC))
     return start_s + estimated
+
+
+def _join_asr_tokens(tokens):
+    """拼接 FunASR 字/词 token；中文不加空格，连续英文词保留分隔。"""
+    result = ""
+    for token in (str(item).strip() for item in tokens):
+        if not token:
+            continue
+        if result and re.search(r'[A-Za-z0-9]$', result) and re.match(r'^[A-Za-z0-9]', token):
+            result += " "
+        result += token
+    return result.strip()
+
+
+def _normalise_asr_text(text, streamer_name="主播"):
+    """清理 ASR 分词空格，并对泽音录播应用低歧义专名纠错。"""
+    if isinstance(text, (list, tuple)):
+        tokens = text
+    else:
+        tokens = re.split(r'\s+', str(text or "").replace("\n", " ").strip())
+    clean = _join_asr_tokens(tokens)
+    if _streamer_report_name(streamer_name) != "音音":
+        return clean
+    for source, target in STREAMER_ASR_LITERAL_REPLACEMENTS:
+        clean = clean.replace(source, target)
+    clean = re.sub(
+        r'音乐声(?=(?:们|宝宝|晚上好|晚安|好[呀啊]?|来|在|都|才|说|看|见|发|给|喜欢|想))',
+        '音悦生',
+        clean,
+    )
+    clean = re.sub(r'(?<=感谢)音乐声', '音悦生', clean)
+    clean = re.sub(r'(?<=见)音乐声', '音悦生', clean)
+    return clean
+
+
+def _subtitle_text_size(text):
+    return len(re.sub(r'\s+', '', text or ""))
+
+
+def _segment_timed_tokens(timed_tokens, streamer_name="主播"):
+    """把字/词时间戳整理成适合阅读和边界吸附的短句字幕。"""
+    if not timed_tokens:
+        return []
+    segments = []
+    current = []
+    current_chars = 0
+    sentence_end_tokens = "。！？!?；;"
+
+    def flush():
+        nonlocal current, current_chars
+        if not current:
+            return
+        text = _normalise_asr_text([item[2] for item in current], streamer_name=streamer_name)
+        if text:
+            segments.append((current[0][0], current[-1][1], text))
+        current = []
+        current_chars = 0
+
+    for index, (start_s, end_s, token) in enumerate(timed_tokens):
+        token = str(token).strip()
+        if not token:
+            continue
+        current.append((float(start_s), float(end_s), token))
+        current_chars += _subtitle_text_size(token)
+        duration = current[-1][1] - current[0][0]
+        next_gap = 0.0
+        if index + 1 < len(timed_tokens):
+            next_gap = max(0.0, float(timed_tokens[index + 1][0]) - float(end_s))
+        should_break = (
+            (token[-1] in sentence_end_tokens and current_chars >= 4)
+            or (next_gap >= SUBTITLE_PAUSE_BREAK_SEC and current_chars >= 2)
+            or (current_chars >= SUBTITLE_TARGET_CHARS and (next_gap >= 0.15 or duration >= 4.5))
+            or current_chars >= SUBTITLE_MAX_CHARS
+            or duration >= SUBTITLE_MAX_DURATION_SEC
+        )
+        if should_break:
+            flush()
+    flush()
+    return segments
+
+
+def _segments_from_funasr_result(text, timestamps, offset=0.0, streamer_name="主播"):
+    """把单个 FunASR 结果转成短句，避免把整段全文复制到每个字时间戳。"""
+    timestamps = [item for item in (timestamps or []) if isinstance(item, (list, tuple)) and len(item) == 2]
+    if not text or not timestamps:
+        return []
+    tokens = str(text).strip().split()
+    if len(tokens) != len(timestamps):
+        compact = re.sub(r'\s+', '', str(text))
+        if len(compact) == len(timestamps):
+            tokens = list(compact)
+        else:
+            start_s = offset + float(timestamps[0][0]) / 1000.0
+            end_s = offset + float(timestamps[-1][1]) / 1000.0
+            clean = _normalise_asr_text(text, streamer_name=streamer_name)
+            return [(start_s, max(end_s, start_s + 0.1), clean)] if clean else []
+    timed_tokens = [
+        (
+            offset + float(timestamp[0]) / 1000.0,
+            offset + float(timestamp[1]) / 1000.0,
+            token,
+        )
+        for token, timestamp in zip(tokens, timestamps)
+    ]
+    return _segment_timed_tokens(timed_tokens, streamer_name=streamer_name)
+
+
+def _read_srt_entries(srt_path):
+    """读取原始 SRT 条目，不提前修正时间，供异常结构识别使用。"""
+    if not srt_path or not os.path.exists(srt_path):
+        return []
+    with open(srt_path, encoding="utf-8") as f:
+        content = f.read()
+    pattern = r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)'
+    entries = []
+    for start_str, end_str, text in re.findall(pattern, content, re.DOTALL):
+        clean_text = text.strip().replace("\n", " ").strip()
+        if not clean_text:
+            continue
+        entries.append((
+            _parse_srt_timestamp(start_str),
+            _parse_srt_timestamp(end_str),
+            clean_text,
+        ))
+    return entries
+
+
+def _load_repaired_srt_segments(srt_path):
+    """加载健康 SRT，并无损还原旧版 FunASR 的“全文逐字重复”异常文件。"""
+    entries = _read_srt_entries(srt_path)
+    if not entries:
+        return []
+    streamer_name = _infer_streamer_name(srt_path)
+    segments = []
+    index = 0
+    while index < len(entries):
+        raw_text = entries[index][2]
+        group_end = index + 1
+        while group_end < len(entries) and entries[group_end][2] == raw_text:
+            group_end += 1
+        group = entries[index:group_end]
+        tokens = raw_text.split()
+        is_repeated_funasr_block = (
+            len(group) >= SRT_REPEAT_REPAIR_MIN_ENTRIES
+            and len(tokens) == len(group)
+            and _subtitle_text_size(raw_text) >= 20
+        )
+        if is_repeated_funasr_block:
+            timed_tokens = [
+                (entry[0], entry[1], token)
+                for entry, token in zip(group, tokens)
+            ]
+            segments.extend(_segment_timed_tokens(timed_tokens, streamer_name=streamer_name))
+        else:
+            for start_s, end_s, text in group:
+                clean_text = _normalise_asr_text(text, streamer_name=streamer_name)
+                if not clean_text:
+                    continue
+                repaired_end = _repair_srt_end_time(start_s, end_s, clean_text)
+                if (
+                    segments
+                    and clean_text == segments[-1][2]
+                    and start_s - segments[-1][1] <= TOPIC_CONTEXT_GAP
+                ):
+                    segments[-1] = (
+                        segments[-1][0],
+                        max(segments[-1][1], repaired_end),
+                        clean_text,
+                    )
+                else:
+                    segments.append((start_s, repaired_end, clean_text))
+        index = group_end
+    return sorted(segments, key=lambda item: (item[0], item[1]))
+
+
+def export_corrected_srt(source_srt_path):
+    """在源字幕旁生成可导入剪映的校对版，不覆盖原始 SRT。"""
+    segments = _load_repaired_srt_segments(source_srt_path)
+    if not segments:
+        return None
+    output_path = os.path.splitext(source_srt_path)[0] + "_校对字幕.srt"
+    with open(output_path, "w", encoding="utf-8") as f:
+        for index, (start_s, end_s, text) in enumerate(segments, 1):
+            f.write(
+                f"{index}\n{_srt_time(start_s)} --> {_srt_time(max(end_s, start_s + 0.1))}\n"
+                f"{text}\n\n"
+            )
+    return output_path
 
 
 def _repair_short_topic_end(start_s, end_s, body_lines, chunk_end):
@@ -676,6 +880,7 @@ def ensure_srt(video_path, progress_callback=None):
     chunk_dur = 120.0
     all_segs = []
     n_chunks = max(1, int((dur + chunk_dur - 0.001) / chunk_dur))
+    streamer_name = _infer_streamer_name(video_path)
 
     for i in range(n_chunks):
         start_t = i * chunk_dur
@@ -698,9 +903,12 @@ def ensure_srt(video_path, progress_callback=None):
                     text = item.get("text", "").strip()
                     ts = item.get("timestamp", [])
                     if text and ts:
-                        for t in ts:
-                            if len(t) == 2:
-                                all_segs.append((start_t + t[0]/1000.0, start_t + t[1]/1000.0, text))
+                        all_segs.extend(_segments_from_funasr_result(
+                            text,
+                            ts,
+                            offset=start_t,
+                            streamer_name=streamer_name,
+                        ))
             if chunk_file != wav_path:
                 os.remove(chunk_file)
         except:
@@ -775,25 +983,11 @@ def analyze_danmaku(ass_path):
 
 def parse_srt_text(srt_path):
     """解析 SRT，去空格，返回 [(start_s, end_s, text), ...]，并修复明显异常时间戳。"""
-    if not os.path.exists(srt_path):
-        return []
-    with open(srt_path, encoding="utf-8") as f:
-        content = f.read()
-    pattern = r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)'
-    matches = re.findall(pattern, content, re.DOTALL)
-    segs = []
-    for start_str, end_str, text in matches:
-        start_s = _parse_srt_timestamp(start_str)
-        end_s = _parse_srt_timestamp(end_str)
-        text = text.strip().replace("\n", " ").replace(" ", "")
-        if len(text) < 2:
-            continue
-        if segs and text == segs[-1][2]:
-            # FunASR 偶发把同一大段按 0.x 秒重复刷几十次，保留一条即可。
-            segs[-1] = (segs[-1][0], max(segs[-1][1], _repair_srt_end_time(start_s, end_s, text)), text)
-            continue
-        segs.append((start_s, _repair_srt_end_time(start_s, end_s, text), text))
-    return sorted(segs, key=lambda x: x[0])
+    return [
+        (start_s, end_s, text)
+        for start_s, end_s, text in _load_repaired_srt_segments(srt_path)
+        if _subtitle_text_size(text) >= 2
+    ]
 
 
 def chunk_srt(segs, peaks, chunk_sec=CHUNK_SEC):
@@ -1991,23 +2185,7 @@ def _parse_srt_timestamp(value):
 
 def parse_srt_segments(srt_path):
     """解析 SRT，返回 [(start_s, end_s, text), ...]。时间均为视频内时间，并修复明显异常时间戳。"""
-    if not srt_path or not os.path.exists(srt_path):
-        return []
-    with open(srt_path, encoding="utf-8") as f:
-        content = f.read()
-    pattern = r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)'
-    segments = []
-    for start_str, end_str, text in re.findall(pattern, content, re.DOTALL):
-        clean_text = text.strip().replace("\n", " ").strip()
-        if not clean_text:
-            continue
-        start_s = _parse_srt_timestamp(start_str)
-        end_s = _repair_srt_end_time(start_s, _parse_srt_timestamp(end_str), clean_text)
-        if segments and clean_text == segments[-1][2]:
-            segments[-1] = (segments[-1][0], max(segments[-1][1], end_s), clean_text)
-            continue
-        segments.append((start_s, end_s, clean_text))
-    return sorted(segments, key=lambda x: x[0])
+    return _load_repaired_srt_segments(srt_path)
 
 
 def _srt_video_duration(srt_segments):
@@ -2475,7 +2653,7 @@ def _publish_title_report_lines(clip_marks):
     return lines
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None, clip_marks=None):
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None, clip_marks=None, corrected_srt_path=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     manual_timeline = manual_timeline or {}
     manual_entries = manual_timeline.get("entries") or []
@@ -2484,6 +2662,8 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
         f"> 自动生成 | 模型: {LLM_MODEL} | {peak_info}",
         "> 时间基准：视频内时间/播放进度（不是现实钟点）；实际切片会自动向前后扩展保留上下文",
     ]
+    if corrected_srt_path:
+        lines.append(f"> 剪映校对字幕: {os.path.basename(corrected_srt_path)}")
     if manual_timeline.get("path"):
         star_count = sum(1 for item in manual_entries if item.get("stars", 0) > 0)
         source_count = manual_timeline.get("source_entry_count", len(manual_entries))
@@ -2562,9 +2742,17 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     # Step 1: 确保 SRT 存在
     if progress_callback:
         progress_callback("Step 1/5: 检查/生成字幕...", 0, 100)
-    srt_path = ensure_srt(flv_path, progress_callback)
-    if not srt_path:
+    source_srt_path = ensure_srt(flv_path, progress_callback)
+    if not source_srt_path:
         raise RuntimeError("无法生成 SRT 字幕")
+    corrected_srt_path = export_corrected_srt(source_srt_path)
+    srt_path = corrected_srt_path or source_srt_path
+    if corrected_srt_path and progress_callback:
+        progress_callback(
+            f"已生成剪映校对字幕: {os.path.basename(corrected_srt_path)}",
+            12,
+            100,
+        )
 
     # Step 2: 弹幕分析
     if progress_callback:
@@ -2719,6 +2907,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
         group_by_hour=True,
         manual_timeline=manual_timeline,
         clip_marks=clip_marks,
+        corrected_srt_path=corrected_srt_path,
     )
 
     # 保存
@@ -2733,6 +2922,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
             "video": video_name,
             "streamer_name": streamer_name,
             "streamer_display_name": streamer_display_name,
+            "source_srt_path": source_srt_path,
+            "corrected_srt_path": corrected_srt_path,
             "time_basis": "video_elapsed_seconds",
             "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
             "expanded_with_context": True,
@@ -2761,6 +2952,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
         "json_path": json_path,
         "md_path": md_path,
         "srt_path": srt_path,
+        "source_srt_path": source_srt_path,
+        "corrected_srt_path": corrected_srt_path,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
         "manual_timeline": _manual_timeline_summary(manual_timeline),
