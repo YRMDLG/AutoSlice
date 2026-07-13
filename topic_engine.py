@@ -106,6 +106,16 @@ _GENERIC_PUBLISH_TITLES = {
     "日常聊天", "日常闲聊", "游戏过程", "互动片段",
 }
 
+REFINEMENT_WORKFLOW_STEPS = (
+    ("verify_context", "核查前后文"),
+    ("trim_breath", "剪气口与停顿"),
+    ("correct_subtitles", "导入校对字幕并修正专名"),
+    ("add_intro_outro", "添加片头片尾"),
+    ("export_video", "导出精调成片"),
+    ("make_cover", "用 AutoCover 制作封面"),
+    ("publish_bilibili", "在 B 站网页投稿"),
+)
+
 
 def fmt_time(seconds):
     return str(timedelta(seconds=int(seconds)))
@@ -2773,6 +2783,139 @@ def _publish_title_report_lines(clip_marks):
     return lines
 
 
+def _refinement_manifest_paths(base_path):
+    return base_path + "_精调任务.json", base_path + "_精调任务.md"
+
+
+def _build_refinement_manifest(video_path, source_srt_path, corrected_srt_path,
+                               analysis_report_path, clip_marks_path, clip_marks,
+                               manifest_json_path, manifest_md_path):
+    """构造一场录播的统一精调任务数据。"""
+    tasks = []
+    for index, mark in enumerate(_dedupe_clip_marks(clip_marks or []), 1):
+        filename = _topic_clip_filename(index, mark)
+        tasks.append({
+            "id": f"{index:02d}",
+            "status": "等待自动切片",
+            "clip_filename": filename,
+            "slice_path": None,
+            "start": int(mark["start"]),
+            "end": int(mark["end"]),
+            "duration": int(mark["end"] - mark["start"]),
+            "topic_start": int(mark.get("topic_start", mark["start"])),
+            "topic_end": int(mark.get("topic_end", mark["end"])),
+            "topic_title": mark.get("title", "未命名片段"),
+            "publish_title": _normalise_publish_title(
+                mark.get("publish_title"), mark.get("title", "未命名片段")
+            ),
+            "natural_boundary_pre_sec": int(mark.get("natural_boundary_pre_sec", 0)),
+            "natural_boundary_post_sec": int(mark.get("natural_boundary_post_sec", 0)),
+            "steps": [
+                {"key": key, "label": label, "status": "待处理"}
+                for key, label in REFINEMENT_WORKFLOW_STEPS
+            ],
+        })
+    now = datetime.now().isoformat(timespec="seconds")
+    return {
+        "schema_version": 1,
+        "status": "等待自动切片" if tasks else "无可切片段",
+        "generated_at": now,
+        "updated_at": now,
+        "video_name": os.path.basename(video_path),
+        "source_video_path": os.path.abspath(video_path),
+        "source_srt_path": os.path.abspath(source_srt_path) if source_srt_path else None,
+        "corrected_srt_path": os.path.abspath(corrected_srt_path) if corrected_srt_path else None,
+        "analysis_report_path": os.path.abspath(analysis_report_path),
+        "clip_marks_path": os.path.abspath(clip_marks_path),
+        "manifest_json_path": os.path.abspath(manifest_json_path),
+        "manifest_md_path": os.path.abspath(manifest_md_path),
+        "slice_output_dir": None,
+        "tasks": tasks,
+    }
+
+
+def _render_refinement_manifest_markdown(manifest):
+    """把精调任务数据渲染成可直接勾选的 Markdown。"""
+    lines = [
+        f"# {manifest.get('video_name', '录播')} 精调任务清单",
+        f"> 自动生成 | 总状态: {manifest.get('status', '待处理')} | "
+        f"更新时间: {manifest.get('updated_at', '')}",
+        "",
+        "## 文件",
+        "",
+        f"- 源录播: `{manifest.get('source_video_path') or '无'}`",
+        f"- 校对字幕: `{manifest.get('corrected_srt_path') or '无'}`",
+        f"- 话题报告: `{manifest.get('analysis_report_path') or '无'}`",
+        f"- 切片标记: `{manifest.get('clip_marks_path') or '无'}`",
+        f"- 切片目录: `{manifest.get('slice_output_dir') or '等待自动切片'}`",
+        "",
+        "## 切片队列",
+        "",
+    ]
+    tasks = manifest.get("tasks") or []
+    if not tasks:
+        lines.append("本次没有可切片段。")
+        lines.append("")
+        return "\n".join(lines)
+    for task in tasks:
+        lines.extend([
+            f"### {task.get('id')} {task.get('topic_title', '未命名片段')}",
+            "",
+            f"- 状态: {task.get('status', '待处理')}",
+            f"- 视频内时间: {_format_report_time(task.get('start', 0))}－"
+            f"{_format_report_time(task.get('end', 0))}（{task.get('duration', 0)} 秒）",
+            f"- 切片文件: `{task.get('slice_path') or task.get('clip_filename')}`",
+            f"- 投稿标题: {task.get('publish_title', '')}",
+        ])
+        for step in task.get("steps") or []:
+            checked = "x" if step.get("status") == "已完成" else " "
+            lines.append(f"- [{checked}] {step.get('label')}（{step.get('status', '待处理')}）")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_refinement_manifest_files(manifest):
+    """同步写入 JSON 和 Markdown 两种任务清单。"""
+    json_path = manifest["manifest_json_path"]
+    md_path = manifest["manifest_md_path"]
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(_render_refinement_manifest_markdown(manifest))
+    return json_path, md_path
+
+
+def _update_refinement_manifest_after_slice(manifest_json_path, report_dir, marks):
+    """自动切片完成后回写实际文件路径，保留已有人工步骤状态。"""
+    if not manifest_json_path or not os.path.isfile(manifest_json_path):
+        return False
+    with open(manifest_json_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+    tasks_by_name = {
+        task.get("clip_filename"): task
+        for task in manifest.get("tasks") or []
+        if task.get("clip_filename")
+    }
+    found_count = 0
+    for index, mark in enumerate(_dedupe_clip_marks(marks or []), 1):
+        filename = _topic_clip_filename(index, mark)
+        task = tasks_by_name.get(filename)
+        if not task:
+            continue
+        output_path = os.path.abspath(os.path.join(report_dir, filename))
+        task["slice_path"] = output_path
+        if os.path.isfile(output_path):
+            task["status"] = "待精调"
+            found_count += 1
+        else:
+            task["status"] = "切片文件缺失"
+    manifest["slice_output_dir"] = os.path.abspath(report_dir)
+    manifest["status"] = "待精调" if found_count else "切片文件缺失"
+    manifest["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_refinement_manifest_files(manifest)
+    return True
+
+
 def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None, clip_marks=None, corrected_srt_path=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     manual_timeline = manual_timeline or {}
@@ -3033,6 +3176,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     # 保存
     md_path = base + "_话题分析.md"
     json_path = base + "_clip_marks.json"
+    task_manifest_json_path, task_manifest_md_path = _refinement_manifest_paths(base)
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(report)
@@ -3044,6 +3188,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
             "streamer_display_name": streamer_display_name,
             "source_srt_path": source_srt_path,
             "corrected_srt_path": corrected_srt_path,
+            "task_manifest_json_path": task_manifest_json_path,
+            "task_manifest_md_path": task_manifest_md_path,
             "time_basis": "video_elapsed_seconds",
             "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
             "expanded_with_context": True,
@@ -3058,6 +3204,18 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
             "manual_timeline": _manual_timeline_summary(manual_timeline),
             "clip_marks": clip_marks,
         }, f, ensure_ascii=False, indent=2)
+
+    refinement_manifest = _build_refinement_manifest(
+        flv_path,
+        source_srt_path,
+        corrected_srt_path,
+        md_path,
+        json_path,
+        clip_marks,
+        task_manifest_json_path,
+        task_manifest_md_path,
+    )
+    _write_refinement_manifest_files(refinement_manifest)
 
     if progress_callback:
         progress_callback(
@@ -3074,6 +3232,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
         "srt_path": srt_path,
         "source_srt_path": source_srt_path,
         "corrected_srt_path": corrected_srt_path,
+        "task_manifest_json_path": task_manifest_json_path,
+        "task_manifest_md_path": task_manifest_md_path,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
         "manual_timeline": _manual_timeline_summary(manual_timeline),
@@ -3158,6 +3318,12 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
         ], check=True, stdout=sp.PIPE, stderr=sp.DEVNULL,
            encoding="utf-8", errors="replace")
         count += 1
+
+    _update_refinement_manifest_after_slice(
+        data.get("task_manifest_json_path"),
+        report_dir,
+        marks,
+    )
 
     if progress_callback:
         progress_callback(f"完成! {count} 个片段 → {report_dir}", len(marks), len(marks))

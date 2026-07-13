@@ -13,7 +13,7 @@ from topic_engine import (
     TOPIC_MAX_CLIP_SEC,
     LLMResponseTruncatedError, LLMStructuredOutputError,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
-    _build_chunk_prompt, _build_timeline_report, _call_llm_with_retry,
+    _build_chunk_prompt, _build_refinement_manifest, _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_marks_from_topics,
     _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _infer_streamer_name, _is_retryable_llm_error,
@@ -21,8 +21,8 @@ from topic_engine import (
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_manual_timeline_lines, _resolve_funasr_model_source, _streamer_report_name,
     _segments_from_funasr_result, _topic_clip_filename, _topics_from_manual_timeline, chunk_srt,
-    call_llm, export_corrected_srt, load_api_config, load_manual_timeline,
-    parse_srt_segments, parse_srt_text, run_pipeline,
+    _write_refinement_manifest_files, call_llm, export_corrected_srt, load_api_config,
+    load_manual_timeline, parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
 )
 
 def make_http_error(status):
@@ -463,6 +463,8 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertTrue(result["corrected_srt_path"].endswith("_校对字幕.srt"))
         self.assertEqual(result["srt_path"], result["corrected_srt_path"])
         self.assertIn("剪映校对字幕", result["report"])
+        self.assertTrue(result["task_manifest_json_path"].endswith("_精调任务.json"))
+        self.assertTrue(result["task_manifest_md_path"].endswith("_精调任务.md"))
 
     def test_topic_index_label_uses_circled_number_after_twenty(self):
         topics = [
@@ -516,6 +518,97 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertIn("**【泽音】音悦生发来离谱SC😰音音当场反问🤣**", title_section)
         self.assertNotIn("这条不应进入投稿标题区", title_section)
         self.assertEqual(expected_filename, "01_65s_回答离谱SC：为什么会这样.flv")
+
+    def test_refinement_manifest_matches_final_clip_names_and_workflow(self):
+        clip_marks = [{
+            "start": 65,
+            "end": 230,
+            "topic_start": 80,
+            "topic_end": 170,
+            "title": "回答离谱SC：为什么/会这样",
+            "publish_title": "【泽音】音悦生发来离谱SC😰音音当场反问🤣",
+            "natural_boundary_pre_sec": 5,
+            "natural_boundary_post_sec": 8,
+        }]
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp) / "测试录播"
+            json_path = str(base) + "_精调任务.json"
+            md_path = str(base) + "_精调任务.md"
+            manifest = _build_refinement_manifest(
+                str(base) + ".flv",
+                str(base) + ".srt",
+                str(base) + "_校对字幕.srt",
+                str(base) + "_话题分析.md",
+                str(base) + "_clip_marks.json",
+                clip_marks,
+                json_path,
+                md_path,
+            )
+            _write_refinement_manifest_files(manifest)
+            saved = json.loads(Path(json_path).read_text(encoding="utf-8"))
+            markdown = Path(md_path).read_text(encoding="utf-8")
+
+        expected_filename = _topic_clip_filename(1, clip_marks[0])
+        self.assertEqual(saved["tasks"][0]["clip_filename"], expected_filename)
+        self.assertEqual(saved["tasks"][0]["duration"], 165)
+        self.assertEqual(saved["tasks"][0]["publish_title"], clip_marks[0]["publish_title"])
+        self.assertEqual(len(saved["tasks"][0]["steps"]), 7)
+        self.assertIn(expected_filename, markdown)
+        self.assertIn("- [ ] 核查前后文（待处理）", markdown)
+        self.assertIn("- [ ] 在 B 站网页投稿（待处理）", markdown)
+
+    def test_slice_from_marks_updates_refinement_manifest_with_actual_paths(self):
+        clip_marks = [{
+            "start": 10,
+            "end": 90,
+            "title": "开场聊天",
+            "publish_title": "【泽音】音音开场聊起赶飞机趣事👀",
+        }]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            manifest_json_path = root / "测试录播_精调任务.json"
+            manifest_md_path = root / "测试录播_精调任务.md"
+            output_dir = root / "输出"
+            manifest = _build_refinement_manifest(
+                str(flv_path),
+                str(root / "测试录播.srt"),
+                str(root / "测试录播_校对字幕.srt"),
+                str(root / "测试录播_话题分析.md"),
+                str(clip_json_path),
+                clip_marks,
+                str(manifest_json_path),
+                str(manifest_md_path),
+            )
+            _write_refinement_manifest_files(manifest)
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "task_manifest_json_path": str(manifest_json_path),
+                "clip_marks": clip_marks,
+            }, ensure_ascii=False), encoding="utf-8")
+
+            def fake_ffmpeg(args, **_kwargs):
+                Path(args[-1]).write_bytes(b"clip")
+                return Mock(returncode=0)
+
+            with patch("subprocess.run", side_effect=fake_ffmpeg):
+                count, report_dir = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(output_dir),
+                )
+
+            updated = json.loads(manifest_json_path.read_text(encoding="utf-8"))
+            markdown = manifest_md_path.read_text(encoding="utf-8")
+
+        expected_path = str(Path(report_dir) / _topic_clip_filename(1, clip_marks[0]))
+        self.assertEqual(count, 1)
+        self.assertEqual(updated["status"], "待精调")
+        self.assertEqual(updated["tasks"][0]["status"], "待精调")
+        self.assertEqual(updated["tasks"][0]["slice_path"], expected_path)
+        self.assertIn(expected_path, markdown)
 
     def test_filter_reasoning_body_and_placeholder_topics(self):
         topics = []
