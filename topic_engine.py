@@ -11,7 +11,7 @@
 
 import html
 import math
-import os, re, json, time, zipfile, requests
+import os, re, json, time, zipfile, requests, threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -101,6 +101,13 @@ PUBLISH_TITLE_PREFIX = "【泽音】"
 MAX_PUBLISH_TITLE_CHARS = 80
 TITLE_STYLE_PROFILE_PATH = os.path.join(os.path.dirname(__file__), "title_style_profile.json")
 TITLE_STYLE_EXAMPLE_LIMIT = 8
+DEFAULT_REFINEMENT_QUEUE_DIR = os.environ.get(
+    "AUTOSLICE_REFINEMENT_QUEUE_DIR",
+    r"F:\Videos\自动切片",
+)
+UNIFIED_REFINEMENT_QUEUE_JSON = "精调任务总清单.json"
+UNIFIED_REFINEMENT_QUEUE_MD = "精调任务总清单.md"
+_UNIFIED_REFINEMENT_QUEUE_LOCK = threading.Lock()
 _PUBLISH_TITLE_PREFIX_RE = re.compile(
     r'^\s*[【\[]\s*泽音(?:Melody)?\s*[】\]]\s*',
     re.IGNORECASE,
@@ -3352,6 +3359,7 @@ def _render_refinement_manifest_markdown(manifest):
         f"- 话题报告: `{manifest.get('analysis_report_path') or '无'}`",
         f"- 切片标记: `{manifest.get('clip_marks_path') or '无'}`",
         f"- 切片目录: `{manifest.get('slice_output_dir') or '等待自动切片'}`",
+        f"- 精调总清单: `{manifest.get('unified_queue_md_path') or '未启用'}`",
         "",
         "## 切片队列",
         "",
@@ -3376,6 +3384,166 @@ def _render_refinement_manifest_markdown(manifest):
             lines.append(f"- [{checked}] {step.get('label')}（{step.get('status', '待处理')}）")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _unified_refinement_queue_paths(queue_dir=None):
+    root = os.path.abspath(queue_dir or DEFAULT_REFINEMENT_QUEUE_DIR)
+    return (
+        os.path.join(root, UNIFIED_REFINEMENT_QUEUE_JSON),
+        os.path.join(root, UNIFIED_REFINEMENT_QUEUE_MD),
+    )
+
+
+def _refinement_task_is_completed(task):
+    status = str(task.get("status", "")).strip()
+    if status in {"已完成", "已发布", "已投稿"}:
+        return True
+    steps = task.get("steps") or []
+    return bool(steps) and all(step.get("status") == "已完成" for step in steps)
+
+
+def _unified_refinement_record(manifest):
+    """从单场清单提取总队列需要的信息，保留剪映阶段的关键路径和首尾依据。"""
+    tasks = []
+    for task in manifest.get("tasks") or []:
+        tasks.append({
+            "id": task.get("id"),
+            "status": task.get("status", "待处理"),
+            "topic_title": task.get("topic_title", "未命名片段"),
+            "publish_title": task.get("publish_title", ""),
+            "start": int(task.get("start", 0)),
+            "end": int(task.get("end", 0)),
+            "duration": int(task.get("duration", 0)),
+            "topic_start": int(task.get("topic_start", task.get("start", 0))),
+            "topic_end": int(task.get("topic_end", task.get("end", 0))),
+            "natural_boundary_pre_sec": int(task.get("natural_boundary_pre_sec", 0)),
+            "natural_boundary_post_sec": int(task.get("natural_boundary_post_sec", 0)),
+            "clip_filename": task.get("clip_filename"),
+            "slice_path": task.get("slice_path"),
+            "steps": [dict(step) for step in task.get("steps") or []],
+        })
+    completed_count = sum(_refinement_task_is_completed(task) for task in tasks)
+    ready_count = sum(
+        not _refinement_task_is_completed(task) and task.get("status") == "待精调"
+        for task in tasks
+    )
+    waiting_slice_count = sum(task.get("status") == "等待自动切片" for task in tasks)
+    source_video_path = os.path.abspath(manifest.get("source_video_path") or manifest.get("video_name") or "")
+    return {
+        "recording_key": os.path.normcase(source_video_path),
+        "video_name": manifest.get("video_name", os.path.basename(source_video_path)),
+        "status": manifest.get("status", "待处理"),
+        "updated_at": manifest.get("updated_at", datetime.now().isoformat(timespec="seconds")),
+        "source_video_path": source_video_path,
+        "corrected_srt_path": manifest.get("corrected_srt_path"),
+        "analysis_report_path": manifest.get("analysis_report_path"),
+        "manifest_json_path": manifest.get("manifest_json_path"),
+        "manifest_md_path": manifest.get("manifest_md_path"),
+        "slice_output_dir": manifest.get("slice_output_dir"),
+        "task_count": len(tasks),
+        "pending_count": len(tasks) - completed_count,
+        "ready_count": ready_count,
+        "waiting_slice_count": waiting_slice_count,
+        "completed_count": completed_count,
+        "tasks": tasks,
+    }
+
+
+def _render_unified_refinement_queue_markdown(queue):
+    """渲染跨录播总队列，优先展示真正需要进入剪映的任务。"""
+    lines = [
+        "# AutoSlice 精调任务总清单",
+        f"> 自动生成 | {queue.get('recording_count', 0)} 场录播 | "
+        f"待处理 {queue.get('pending_count', 0)} 个切片 | "
+        f"可进剪映 {queue.get('ready_count', 0)} 个 | "
+        f"更新时间: {queue.get('updated_at', '')}",
+        "",
+        "## 当前队列",
+        "",
+    ]
+    recordings = queue.get("recordings") or []
+    if not recordings:
+        lines.extend(["目前没有精调任务。", ""])
+        return "\n".join(lines)
+    for recording in recordings:
+        lines.extend([
+            f"### {recording.get('video_name', '录播')}",
+            "",
+            f"- 状态: {recording.get('status', '待处理')}；"
+            f"待处理 {recording.get('pending_count', 0)}/{recording.get('task_count', 0)}",
+            f"- 校对字幕: `{recording.get('corrected_srt_path') or '无'}`",
+            f"- 单场清单: `{recording.get('manifest_md_path') or '无'}`",
+            f"- 切片目录: `{recording.get('slice_output_dir') or '等待自动切片'}`",
+            "",
+        ])
+        tasks = recording.get("tasks") or []
+        if not tasks:
+            lines.extend(["本场没有可切片段。", ""])
+            continue
+        for task in tasks:
+            completed = _refinement_task_is_completed(task)
+            checked = "x" if completed else " "
+            pre_context = max(0, int(task.get("topic_start", 0)) - int(task.get("start", 0)))
+            post_context = max(0, int(task.get("end", 0)) - int(task.get("topic_end", 0)))
+            lines.extend([
+                f"- [{checked}] {task.get('id', '')} {task.get('topic_title', '未命名片段')}"
+                f"（{task.get('status', '待处理')}，{task.get('duration', 0)} 秒）",
+                f"  - 视频内时间: {_format_report_time(task.get('start', 0))}－"
+                f"{_format_report_time(task.get('end', 0))}",
+                f"  - 切片: `{task.get('slice_path') or task.get('clip_filename') or '等待自动切片'}`",
+                f"  - 首尾: 已在话题核心前保留 {pre_context} 秒、后保留 {post_context} 秒；"
+                f"自然停顿额外调整前 {task.get('natural_boundary_pre_sec', 0)} 秒、"
+                f"后 {task.get('natural_boundary_post_sec', 0)} 秒",
+                f"  - 投稿标题: {task.get('publish_title', '')}",
+            ])
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _upsert_unified_refinement_queue(manifest, queue_json_path=None, queue_md_path=None):
+    """按源录播更新总队列；并发流水线通过进程内锁避免互相覆盖。"""
+    default_json_path, default_md_path = _unified_refinement_queue_paths()
+    json_path = os.path.abspath(queue_json_path or default_json_path)
+    md_path = os.path.abspath(queue_md_path or default_md_path)
+    os.makedirs(os.path.dirname(json_path), exist_ok=True)
+    os.makedirs(os.path.dirname(md_path), exist_ok=True)
+    record = _unified_refinement_record(manifest)
+    with _UNIFIED_REFINEMENT_QUEUE_LOCK:
+        queue = {"schema_version": 1, "recordings": []}
+        if os.path.isfile(json_path):
+            try:
+                with open(json_path, encoding="utf-8") as f:
+                    existing = json.load(f)
+                if isinstance(existing, dict) and isinstance(existing.get("recordings"), list):
+                    queue = existing
+            except (OSError, ValueError, TypeError):
+                pass
+        recordings = [
+            item for item in queue.get("recordings") or []
+            if isinstance(item, dict) and item.get("recording_key") != record["recording_key"]
+        ]
+        recordings.append(record)
+        recordings.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
+        queue.update({
+            "schema_version": 1,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "recording_count": len(recordings),
+            "task_count": sum(int(item.get("task_count", 0)) for item in recordings),
+            "pending_count": sum(int(item.get("pending_count", 0)) for item in recordings),
+            "ready_count": sum(int(item.get("ready_count", 0)) for item in recordings),
+            "waiting_slice_count": sum(int(item.get("waiting_slice_count", 0)) for item in recordings),
+            "completed_count": sum(int(item.get("completed_count", 0)) for item in recordings),
+            "recordings": recordings,
+        })
+        json_temp_path = json_path + ".tmp"
+        md_temp_path = md_path + ".tmp"
+        with open(json_temp_path, "w", encoding="utf-8") as f:
+            json.dump(queue, f, ensure_ascii=False, indent=2)
+        with open(md_temp_path, "w", encoding="utf-8") as f:
+            f.write(_render_unified_refinement_queue_markdown(queue))
+        os.replace(json_temp_path, json_path)
+        os.replace(md_temp_path, md_path)
+    return json_path, md_path
 
 
 def _write_refinement_manifest_files(manifest):
@@ -3416,11 +3584,23 @@ def _update_refinement_manifest_after_slice(manifest_json_path, report_dir, mark
     manifest["slice_output_dir"] = os.path.abspath(report_dir)
     manifest["status"] = "待精调" if found_count else "切片文件缺失"
     manifest["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    queue_json_path = manifest.get("unified_queue_json_path")
+    queue_md_path = manifest.get("unified_queue_md_path")
+    if queue_json_path or queue_md_path:
+        try:
+            _upsert_unified_refinement_queue(
+                manifest,
+                queue_json_path=queue_json_path,
+                queue_md_path=queue_md_path,
+            )
+            manifest["unified_queue_warning"] = None
+        except (OSError, ValueError, TypeError) as e:
+            manifest["unified_queue_warning"] = f"精调总清单更新失败: {e}"
     _write_refinement_manifest_files(manifest)
     return True
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None, clip_marks=None, corrected_srt_path=None):
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None, clip_marks=None, corrected_srt_path=None, unified_queue_md_path=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     manual_timeline = manual_timeline or {}
     manual_entries = manual_timeline.get("entries") or []
@@ -3431,6 +3611,8 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
     ]
     if corrected_srt_path:
         lines.append(f"> 剪映校对字幕: {os.path.basename(corrected_srt_path)}")
+    if unified_queue_md_path:
+        lines.append(f"> 精调总清单: {unified_queue_md_path}")
     if manual_timeline.get("path"):
         star_count = sum(1 for item in manual_entries if item.get("stars", 0) > 0)
         source_count = manual_timeline.get("source_entry_count", len(manual_entries))
@@ -3505,6 +3687,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     base = flv_path[:-4]
     streamer_name = _infer_streamer_name(flv_path)
     streamer_display_name = _streamer_report_name(streamer_name)
+    unified_queue_json_path, unified_queue_md_path = _unified_refinement_queue_paths()
 
     # Step 1: 确保 SRT 存在
     if progress_callback:
@@ -3690,6 +3873,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
         manual_timeline=manual_timeline,
         clip_marks=clip_marks,
         corrected_srt_path=corrected_srt_path,
+        unified_queue_md_path=unified_queue_md_path,
     )
 
     # 保存
@@ -3709,6 +3893,8 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
             "corrected_srt_path": corrected_srt_path,
             "task_manifest_json_path": task_manifest_json_path,
             "task_manifest_md_path": task_manifest_md_path,
+            "unified_queue_json_path": unified_queue_json_path,
+            "unified_queue_md_path": unified_queue_md_path,
             "time_basis": "video_elapsed_seconds",
             "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
             "expanded_with_context": True,
@@ -3734,7 +3920,20 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
         task_manifest_json_path,
         task_manifest_md_path,
     )
+    refinement_manifest["unified_queue_json_path"] = unified_queue_json_path
+    refinement_manifest["unified_queue_md_path"] = unified_queue_md_path
     _write_refinement_manifest_files(refinement_manifest)
+    unified_queue_warning = None
+    try:
+        _upsert_unified_refinement_queue(
+            refinement_manifest,
+            queue_json_path=unified_queue_json_path,
+            queue_md_path=unified_queue_md_path,
+        )
+    except (OSError, ValueError, TypeError) as e:
+        unified_queue_warning = f"精调总清单更新失败: {e}"
+        if progress_callback:
+            progress_callback(unified_queue_warning, 99, 100)
 
     if progress_callback:
         progress_callback(
@@ -3753,6 +3952,9 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
         "corrected_srt_path": corrected_srt_path,
         "task_manifest_json_path": task_manifest_json_path,
         "task_manifest_md_path": task_manifest_md_path,
+        "unified_queue_json_path": unified_queue_json_path,
+        "unified_queue_md_path": unified_queue_md_path,
+        "unified_queue_warning": unified_queue_warning,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
         "manual_timeline": _manual_timeline_summary(manual_timeline),

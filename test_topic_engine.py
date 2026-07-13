@@ -23,10 +23,12 @@ from topic_engine import (
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_elapsed_timeline_report_lines, _parse_manual_timeline_lines,
-    _resolve_funasr_model_source, _select_title_style_examples, _streamer_report_name,
+    _render_unified_refinement_queue_markdown, _resolve_funasr_model_source,
+    _select_title_style_examples, _streamer_report_name,
     _enrich_manual_topics_with_llm, _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
-    _write_refinement_manifest_files, call_llm, export_corrected_srt, load_api_config,
+    _upsert_unified_refinement_queue, _write_refinement_manifest_files,
+    call_llm, export_corrected_srt, load_api_config,
     load_manual_timeline, parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
 )
 
@@ -460,8 +462,11 @@ class TopicEngineParseTests(unittest.TestCase):
                 patch("topic_engine._try_enrich_manual_topics", return_value=None),
                 patch("topic_engine._merge_manual_timeline_topics"),
                 patch("topic_engine.parse_srt_segments", return_value=[]),
+                patch("topic_engine.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
             ):
                 result = run_pipeline(str(flv_path), manual_timeline_path=manual_timeline["path"])
+            unified_queue = json.loads(Path(result["unified_queue_json_path"]).read_text(encoding="utf-8"))
+            unified_markdown = Path(result["unified_queue_md_path"]).read_text(encoding="utf-8")
 
         self.assertEqual(result["topic_count"], 2)
         self.assertEqual(result["clip_marks"], [])
@@ -471,6 +476,9 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertIn("剪映校对字幕", result["report"])
         self.assertTrue(result["task_manifest_json_path"].endswith("_精调任务.json"))
         self.assertTrue(result["task_manifest_md_path"].endswith("_精调任务.md"))
+        self.assertEqual(unified_queue["recording_count"], 1)
+        self.assertIn("精调任务总清单", unified_markdown)
+        self.assertIn("精调总清单", result["report"])
 
     def test_topic_index_label_uses_circled_number_after_twenty(self):
         topics = [
@@ -563,6 +571,56 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertIn("- [ ] 核查前后文（待处理）", markdown)
         self.assertIn("- [ ] 在 B 站网页投稿（待处理）", markdown)
 
+    def test_unified_refinement_queue_upserts_same_recording_and_keeps_multiple_recordings(self):
+        clip_marks = [{
+            "start": 65,
+            "end": 230,
+            "topic_start": 80,
+            "topic_end": 170,
+            "title": "回答离谱SC",
+            "publish_title": "【泽音】音悦生发来离谱SC😰音音当场反问🤣",
+            "natural_boundary_pre_sec": 5,
+            "natural_boundary_post_sec": 8,
+        }]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue_json = root / "精调任务总清单.json"
+            queue_md = root / "精调任务总清单.md"
+
+            def make_manifest(name):
+                base = root / name
+                return _build_refinement_manifest(
+                    str(base) + ".flv",
+                    str(base) + ".srt",
+                    str(base) + "_校对字幕.srt",
+                    str(base) + "_话题分析.md",
+                    str(base) + "_clip_marks.json",
+                    clip_marks,
+                    str(base) + "_精调任务.json",
+                    str(base) + "_精调任务.md",
+                )
+
+            first = make_manifest("第一场")
+            _upsert_unified_refinement_queue(first, str(queue_json), str(queue_md))
+            first["status"] = "待精调"
+            first["tasks"][0]["status"] = "待精调"
+            first["tasks"][0]["slice_path"] = str(root / "第一场切片.flv")
+            _upsert_unified_refinement_queue(first, str(queue_json), str(queue_md))
+            second = make_manifest("第二场")
+            _upsert_unified_refinement_queue(second, str(queue_json), str(queue_md))
+
+            queue = json.loads(queue_json.read_text(encoding="utf-8"))
+            markdown = queue_md.read_text(encoding="utf-8")
+
+        self.assertEqual(queue["recording_count"], 2)
+        self.assertEqual(queue["task_count"], 2)
+        self.assertEqual(queue["ready_count"], 1)
+        self.assertEqual(queue["waiting_slice_count"], 1)
+        self.assertEqual(len([item for item in queue["recordings"] if item["video_name"] == "第一场.flv"]), 1)
+        self.assertIn("可进剪映 1 个", markdown)
+        self.assertIn("已在话题核心前保留 15 秒、后保留 60 秒", markdown)
+        self.assertIn("第一场切片.flv", markdown)
+
     def test_slice_from_marks_updates_refinement_manifest_with_actual_paths(self):
         clip_marks = [{
             "start": 10,
@@ -588,6 +646,10 @@ class TopicEngineParseTests(unittest.TestCase):
                 str(manifest_json_path),
                 str(manifest_md_path),
             )
+            queue_json_path = root / "精调任务总清单.json"
+            queue_md_path = root / "精调任务总清单.md"
+            manifest["unified_queue_json_path"] = str(queue_json_path)
+            manifest["unified_queue_md_path"] = str(queue_md_path)
             _write_refinement_manifest_files(manifest)
             clip_json_path.write_text(json.dumps({
                 "expanded_with_context": True,
@@ -608,6 +670,8 @@ class TopicEngineParseTests(unittest.TestCase):
 
             updated = json.loads(manifest_json_path.read_text(encoding="utf-8"))
             markdown = manifest_md_path.read_text(encoding="utf-8")
+            unified_queue = json.loads(queue_json_path.read_text(encoding="utf-8"))
+            unified_markdown = queue_md_path.read_text(encoding="utf-8")
 
         expected_path = str(Path(report_dir) / _topic_clip_filename(1, clip_marks[0]))
         self.assertEqual(count, 1)
@@ -615,6 +679,9 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(updated["tasks"][0]["status"], "待精调")
         self.assertEqual(updated["tasks"][0]["slice_path"], expected_path)
         self.assertIn(expected_path, markdown)
+        self.assertEqual(unified_queue["ready_count"], 1)
+        self.assertEqual(unified_queue["waiting_slice_count"], 0)
+        self.assertIn(expected_path, unified_markdown)
 
     def test_filter_reasoning_body_and_placeholder_topics(self):
         topics = []
