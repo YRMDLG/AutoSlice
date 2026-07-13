@@ -690,5 +690,24 @@
 | 完成时间 | 2026-07-13 02:52 |
 | 备注 | 66 个单元测试全部通过；完成提示单测验证 topic_count=15、slice_count=10 时输出“完成! 15 个话题, 10 个切片”。 |
 
+## Phase 6: 投稿标题随话题报告输出 [已验证]
+
+> 状态: 已验证
+> 说明: 延续既有高点击投稿标题风格，让可切片段在话题分析 Markdown 中同时保留可直接交给 AutoCover 使用的投稿标题。
+
+### Action 6.1: 生成并输出可复用投稿标题 [✅]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 5.42 |
+| 描述 | 扩展 DeepSeek 结构化话题结果的 `publish_title`，仅为最终可切片段在报告中生成“投稿标题建议”区，并按实际切片文件名输出 AutoCover 可读取的 Markdown；标题缺失或不合格时使用安全兜底。 |
+| 涉及文件 | `topic_engine.py` `test_topic_engine.py` `PLAN.md` |
+| 验证命令 | `python -B -m unittest test_topic_engine.py -v` |
+| 验证预期 | 所有单元测试通过；提示词包含投稿标题规范，JSON 标题可保留，报告只为最终 clip_marks 输出建议，原文件名与实际自动切片一致。 |
+| 重试次数 | 1/3 |
+| 完成时间 | 2026-07-14 04:00 |
+| 备注 | 70 个单元测试全部通过；AutoCover 真实 `parse_title_markdown()` 跨项目解析通过。标题复用现有 DeepSeek 结构化结果，不新增 API 请求；最终报告只列实际 `clip_marks`，并与 ffmpeg 共用文件名函数。同步修复 `run_pipeline()` 错用未定义 `topics` 统计话题数的回归。 |
+
 
 

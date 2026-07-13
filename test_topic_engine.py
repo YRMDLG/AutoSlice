@@ -20,8 +20,8 @@ from topic_engine import (
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _parse_manual_timeline_lines, _resolve_funasr_model_source, _streamer_report_name,
-    _topics_from_manual_timeline, chunk_srt,
-    call_llm, load_api_config, load_manual_timeline, parse_srt_text,
+    _topic_clip_filename, _topics_from_manual_timeline, chunk_srt,
+    call_llm, load_api_config, load_manual_timeline, parse_srt_text, run_pipeline,
 )
 
 def make_http_error(status):
@@ -126,6 +126,45 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertIn("疑惑汽车广告奇怪产品", report)
         self.assertNotIn("输出内容要严格按照格式", report)
         self.assertEqual(marks, [{"start": 6530, "end": 6723, "title": "疑惑汽车广告奇怪产品"}])
+
+    def test_json_publish_title_is_preserved_in_final_clip_mark(self):
+        topics = []
+        response = """
+{"topics":[{
+  "start":"0:10:00","end":"0:12:00","title":"群发关心SC被识破",
+  "publish_title":"【泽音】笨比音悦生群发关心SC👀结果被音音识破了🤣",
+  "can_slice":true,
+  "points":["音音读到观众群发的关心SC，很快发现相同内容也发给了别人","音音当场吐槽对方没有看清直播间"]
+}]}
+"""
+
+        _parse_llm_response(response, 590, 730, topics)
+        marks = _clip_marks_from_topics(topics)
+
+        self.assertEqual(
+            topics[0]["publish_title"],
+            "【泽音】笨比音悦生群发关心SC👀结果被音音识破了🤣",
+        )
+        self.assertEqual(marks[0]["publish_title"], topics[0]["publish_title"])
+
+    def test_invalid_or_missing_publish_title_uses_safe_fallback(self):
+        topics = []
+        response = """
+{"topics":[
+  {"start":"0:20:00","end":"0:21:00","title":"赌石失败绝赞悲鸣",
+   "publish_title":"根据要求，投稿标题建议如下：我们需要先分析 points", "can_slice":true,
+   "points":["音音切石失败后发出悲鸣","观众被反应逗笑"]},
+  {"start":"0:22:00","end":"0:23:00","title":"新衣剪影猜测", "can_slice":true,
+   "points":["音音展示新衣剪影，观众集中猜测细节","音音回应弹幕的不同答案"]}
+]}
+"""
+
+        _parse_llm_response(response, 1190, 1390, topics)
+        marks = _clip_marks_from_topics(topics)
+
+        self.assertEqual(marks[0]["publish_title"], "【泽音】赌石失败绝赞悲鸣")
+        self.assertEqual(marks[1]["publish_title"], "【泽音】新衣剪影猜测")
+        self.assertNotIn("points", " ".join(mark["publish_title"] for mark in marks))
 
     def test_strict_json_mode_ignores_markdown_reasoning(self):
         topics = []
@@ -294,6 +333,41 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual(_pipeline_completion_progress(result), "完成! 15 个话题, 10 个切片")
 
+    def test_run_pipeline_returns_final_accepted_topic_count(self):
+        timeline_entries = [{"start": 60, "text": "开场聊天", "stars": 0}]
+        generated_topics = [
+            {"start": 30, "end": 120, "title": "开场聊天", "body": ["·音音聊开场近况"], "can_slice": False},
+            {"start": 180, "end": 300, "title": "新衣讨论", "body": ["·音音回应观众的新衣猜测"], "can_slice": False},
+        ]
+
+        with TemporaryDirectory() as tmp:
+            flv_path = Path(tmp) / "泽音Melody-2026年07月14日20点00分.flv"
+            srt_path = flv_path.with_suffix(".srt")
+            srt_path.write_text("", encoding="utf-8")
+            manual_timeline = {
+                "path": str(Path(tmp) / "20260714.docx"),
+                "entries": timeline_entries,
+                "video_start": datetime(2026, 7, 14, 20, 0, 0),
+                "mode": "manual",
+            }
+            with (
+                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
+                patch("topic_engine.analyze_danmaku", return_value=[]),
+                patch("topic_engine.parse_srt_text", return_value=[(0, 600, "有效字幕")]),
+                patch("topic_engine.chunk_srt", return_value=[]),
+                patch("topic_engine.load_manual_timeline", return_value=manual_timeline),
+                patch("topic_engine._probe_video_duration", return_value=600),
+                patch("topic_engine._attach_manual_timeline_to_chunks", return_value=[]),
+                patch("topic_engine._topics_from_manual_timeline", return_value=generated_topics),
+                patch("topic_engine._merge_manual_timeline_topics"),
+                patch("topic_engine.parse_srt_segments", return_value=[]),
+            ):
+                result = run_pipeline(str(flv_path), manual_timeline_path=manual_timeline["path"])
+
+        self.assertEqual(result["topic_count"], 2)
+        self.assertEqual(result["clip_marks"], [])
+        self.assertIn("## 逐话题时间轴", result["report"])
+
     def test_topic_index_label_uses_circled_number_after_twenty(self):
         topics = [
             {"start": i * 10, "end": i * 10 + 5, "title": f"话题{i}", "body": ["·要点"], "can_slice": False}
@@ -304,6 +378,49 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertIn("㉑[03:20", report)
         self.assertNotIn("21.[03:20", report)
+
+    def test_publish_title_section_only_lists_final_clips_and_matches_output_filename(self):
+        topics = [
+            {
+                "start": 80,
+                "end": 170,
+                "title": "回答离谱SC",
+                "publish_title": "【泽音】音悦生发来离谱SC😰音音当场反问🤣",
+                "body": ["·音音读完SC后接着回应观众的问题"],
+                "can_slice": True,
+            },
+            {
+                "start": 300,
+                "end": 420,
+                "title": "普通游戏过程",
+                "publish_title": "【泽音】这条不应进入投稿标题区",
+                "body": ["·音音继续进行普通游戏流程"],
+                "can_slice": False,
+            },
+        ]
+        clip_marks = [{
+            "start": 65,
+            "end": 230,
+            "title": "回答离谱SC：为什么/会这样",
+            "publish_title": "【泽音】音悦生发来离谱SC😰音音当场反问🤣",
+        }]
+
+        report = _build_timeline_report(
+            "测试.flv",
+            "弹幕峰值 2 个窗口",
+            topics,
+            streamer_name="音音",
+            clip_marks=clip_marks,
+        )
+        title_section = report.split("## 投稿标题建议", 1)[1]
+        expected_filename = _topic_clip_filename(1, clip_marks[0])
+
+        self.assertEqual(report.count("原文件：`"), 1)
+        self.assertIn(f"原文件：`{expected_filename}`", title_section)
+        self.assertIn("**【泽音】音悦生发来离谱SC😰音音当场反问🤣**", title_section)
+        self.assertNotIn("这条不应进入投稿标题区", title_section)
+        self.assertEqual(expected_filename, "01_65s_回答离谱SC：为什么会这样.flv")
+
     def test_filter_reasoning_body_and_placeholder_topics(self):
         topics = []
         response = """
@@ -1430,6 +1547,20 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("音姐、麻麻、音音", prompt)
         self.assertIn("只输出一个 JSON 对象", prompt)
         self.assertIn('"topics"', prompt)
+        self.assertIn('"publish_title"', prompt)
+        self.assertIn("固定以“【泽音】”开头", prompt)
+        self.assertIn("具体事件钩子", prompt)
+        self.assertIn("不得照抄事件", prompt)
+
+        compact_prompt, _, _ = _build_chunk_prompt(
+            {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
+            0,
+            1,
+            compact=True,
+            streamer_name="音音",
+        )
+        self.assertIn('"publish_title"', compact_prompt)
+        self.assertIn("具体事件钩子+结果/反差/原话", compact_prompt)
 
     def test_default_chunking_uses_ten_minutes_and_natural_topics(self):
         segs = [

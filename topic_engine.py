@@ -71,6 +71,22 @@ STREAMER_NICKNAME_MAP = {
 
 STREAMER_FAN_ALIASES = ("音姐", "麻麻", "音音")
 
+PUBLISH_TITLE_PREFIX = "【泽音】"
+MAX_PUBLISH_TITLE_CHARS = 80
+_PUBLISH_TITLE_PREFIX_RE = re.compile(
+    r'^\s*[【\[]\s*泽音(?:Melody)?\s*[】\]]\s*',
+    re.IGNORECASE,
+)
+_PUBLISH_TITLE_META_KEYWORDS = (
+    "publish_title", "投稿标题建议", "标题建议如下", "根据要求", "按照要求",
+    "只输出", "最终JSON", "最终 JSON", "can_slice", "points", "作为模型",
+    "作为AI", "无法生成", "信息不足", "仅供参考",
+)
+_GENERIC_PUBLISH_TITLES = {
+    "直播精彩片段", "精彩直播片段", "直播高光", "精彩片段",
+    "日常聊天", "日常闲聊", "游戏过程", "互动片段",
+}
+
 
 def fmt_time(seconds):
     return str(timedelta(seconds=int(seconds)))
@@ -876,9 +892,17 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 **关键要求：**
 - 只输出一个 JSON 对象，不要输出解释、草稿、分析过程、代码块或 Markdown
 - JSON 格式严格如下：
-{"topics":[{"start":"0:04:00","end":"0:08:00","title":"话题标题","can_slice":false,"points":["具体要点，写清楚事情经过","补充细节"]}]}
+{"topics":[{"start":"0:04:00","end":"0:08:00","title":"话题标题","publish_title":"【泽音】具体事件钩子👀结果或反差","can_slice":false,"points":["具体要点，写清楚事情经过","补充细节"]}]}
 - 时间戳精确到秒，格式 `H:MM:SS`，例如 `0:04:00`
 - 标题 5-15 字，概括核心内容，可加合适 emoji
+- 每个话题都要给出 publish_title，供程序在弹幕筛选后直接用于投稿；它不影响 can_slice 判断
+- publish_title 固定以“【泽音】”开头，先写具体事件钩子，再写反差、结果或最有传播力的一句原话
+- publish_title 可用“结果、随后、还、却、当场”等词推进事件，适量使用 1-3 个符合语义的 emoji
+- 历史风格参考（只学习结构，不得照抄事件）：
+  - 【泽音】笨比音悦生群发关心SC👀结果被音音识破了🤣“看清楚这里是泽音melody直播间🤭”
+  - 【泽音】看勇哥连线👀神人羊杂咖啡😅事先还没有进行过调研，无敌了😂
+  - 【泽音】赌石小音一刀地狱🤣发出了超可爱绝赞悲鸣🤭
+- 禁止把 publish_title 写成“直播精彩片段”“日常聊天”等空标题；不得编造字幕和要点中没有的事件、原话或结果
 - 每个话题 2-6 条 points；礼物、弹幕爆点、观众金句可直接写进 points
 - 遇到 SC/醒目留言/观众长留言时，尽量保留观众开头对主播的称呼，例如“音姐……”“音音……”“麻麻……”
 - 不要编造字幕里没有的信息
@@ -1039,8 +1063,11 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
             "只有几乎无有效讲话才输出“无明显话题”。"
             "人工时间轴参考是辅助证据，带⭐的片段更值得留意，但不要输出解释说明。"
             "can_slice只给值得自动切片的段，不值得切也要写进报告。"
+            "每个话题都要给publish_title：固定以【泽音】开头，写具体事件钩子+结果/反差/原话，"
+            "可用1-3个语义emoji，禁止空泛标题和编造。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。"
-            "只输出JSON对象：{\"topics\":[{\"start\":\"0:00:00\",\"end\":\"0:05:00\",\"title\":\"话题标题\",\"can_slice\":false,\"points\":[\"具体要点\"]}]}。\n\n"
+            "只输出JSON对象：{\"topics\":[{\"start\":\"0:00:00\",\"end\":\"0:05:00\",\"title\":\"话题标题\","
+            "\"publish_title\":\"【泽音】具体事件钩子👀结果或反差\",\"can_slice\":false,\"points\":[\"具体要点\"]}]}。\n\n"
         )
     else:
         prompt_head = SYSTEM_PROMPT
@@ -1590,6 +1617,33 @@ def _json_can_slice(value, raw_title):
     return "✂" in str(raw_title)
 
 
+def _fallback_publish_title(topic_title):
+    """模型标题缺失或受污染时，生成不会泄漏推理文字的安全投稿标题。"""
+    clean_title = _clean_topic_title(str(topic_title or ""))
+    if not clean_title or _is_bad_topic_title(clean_title):
+        clean_title = "值得留意的直播片段"
+    return f"{PUBLISH_TITLE_PREFIX}{clean_title}"[:MAX_PUBLISH_TITLE_CHARS]
+
+
+def _normalise_publish_title(raw_title, topic_title):
+    """清理投稿标题并统一账号前缀；不合格时回退到话题短标题。"""
+    raw_text = "" if raw_title is None else str(raw_title)
+    title = raw_text.replace("**", "").replace("`", "")
+    title = re.sub(r'^\s*(?:publish_title|投稿标题(?:建议)?)\s*[：:]\s*', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s+', ' ', title).strip(' \t\r\n-—')
+    title = _PUBLISH_TITLE_PREFIX_RE.sub('', title, count=1).strip()
+    if (
+        not title
+        or len(title) + len(PUBLISH_TITLE_PREFIX) > MAX_PUBLISH_TITLE_CHARS
+        or len(re.sub(r'\s+', '', title)) < 4
+        or title in _GENERIC_PUBLISH_TITLES
+        or any(keyword.lower() in title.lower() for keyword in _PUBLISH_TITLE_META_KEYWORDS)
+        or any(token in title for token in ('{"topics"', '```', '\\n'))
+    ):
+        return _fallback_publish_title(topic_title)
+    return f"{PUBLISH_TITLE_PREFIX}{title}"
+
+
 def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topics):
     """优先解析结构化 JSON 响应；不是 JSON 时返回 None，由旧 Markdown 解析兜底。"""
     payload = _extract_json_payload(response)
@@ -1636,6 +1690,7 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
             "start_str": start_str,
             "end_str": fmt_time(end_s),
             "title": title,
+            "publish_title": _normalise_publish_title(item.get("publish_title"), title),
             "can_slice": _json_can_slice(item.get("can_slice", False), raw_title),
             "body": body_lines,
         }
@@ -2372,6 +2427,9 @@ def _clip_marks_from_topics(topics):
             "start": topic.get("slice_start", topic["start"]),
             "end": topic.get("slice_end", topic["end"]),
             "title": topic["title"],
+            "publish_title": _normalise_publish_title(
+                topic.get("publish_title"), topic["title"]
+            ),
             "report_start": topic["start"],
             "report_end": topic["end"],
             "slice_anchor": topic.get("slice_anchor"),
@@ -2382,7 +2440,42 @@ def _clip_marks_from_topics(topics):
     ])
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None):
+def _topic_clip_filename(index, mark):
+    """生成自动切片文件名；报告和实际 ffmpeg 输出必须共用此规则。"""
+    title = str(mark.get("title", f"片段{index}")).strip() or f"片段{index}"
+    safe_title = re.sub(r'[\\/:*?"<>|`]', '', title)
+    safe_title = re.sub(r'\s+', ' ', safe_title).strip(' .')[:30]
+    if not safe_title:
+        safe_title = f"片段{index}"
+    start_s = int(float(mark.get("start", 0)))
+    return f"{index:02d}_{start_s}s_{safe_title}.flv"
+
+
+def _publish_title_report_lines(clip_marks):
+    """生成 AutoCover 可直接解析的投稿标题区，只包含最终实际切片。"""
+    marks = _dedupe_clip_marks(clip_marks or [])
+    if not marks:
+        return []
+    lines = ["## 投稿标题建议", ""]
+    for index, mark in enumerate(marks, 1):
+        start = _format_report_time(mark["start"])
+        end = _format_report_time(mark["end"])
+        filename = _topic_clip_filename(index, mark)
+        publish_title = _normalise_publish_title(
+            mark.get("publish_title"), mark.get("title", "未命名片段")
+        )
+        lines.extend([
+            f"### {index:02d}（{start}－{end}）",
+            "",
+            f"原文件：`{filename}`",
+            "",
+            f"**{publish_title}**",
+            "",
+        ])
+    return lines
+
+
+def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None, clip_marks=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     manual_timeline = manual_timeline or {}
     manual_entries = manual_timeline.get("entries") or []
@@ -2426,6 +2519,10 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
                 lines.append(_format_topic_block(topic, topic_index, streamer_name=streamer_name))
                 topic_index += 1
             lines.append("")
+
+    publish_title_lines = _publish_title_report_lines(clip_marks)
+    if publish_title_lines:
+        lines.extend(publish_title_lines)
 
     if api_warning:
         lines.append("## API 预检警告")
@@ -2621,6 +2718,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
         streamer_name=streamer_display_name,
         group_by_hour=True,
         manual_timeline=manual_timeline,
+        clip_marks=clip_marks,
     )
 
     # 保存
@@ -2658,7 +2756,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
 
     return {
         "report": report,
-        "topic_count": len(topics),
+        "topic_count": len(accepted_topics),
         "clip_marks": clip_marks,
         "json_path": json_path,
         "md_path": md_path,
@@ -2735,9 +2833,7 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
         if duration <= 0:
             continue
 
-        # 安全文件名
-        safe_title = re.sub(r'[\\/:*?"<>|]', '', title)[:30]
-        output_name = f"{i+1:02d}_{int(start_s)}s_{safe_title}.flv"
+        output_name = _topic_clip_filename(i + 1, m)
         output_path = os.path.join(report_dir, output_name)
 
         if progress_callback:
