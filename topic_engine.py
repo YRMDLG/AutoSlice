@@ -10,6 +10,7 @@
 """
 
 import html
+import math
 import os, re, json, time, zipfile, requests
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -43,6 +44,8 @@ TOPIC_DIRECT_SLICE_MAX_SEC = 180  # 3 分钟内话题直接切；更长话题只
 TOPIC_FOCUS_PRE_SEC = 0         # 长话题核心从弹幕峰值窗口开始，前因由 TOPIC_PRE_CONTEXT_SEC 补
 TOPIC_FOCUS_POST_SEC = DANMAKU_WINDOW  # 长话题核心覆盖完整弹幕峰值窗口
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
+TOPIC_NATURAL_BOUNDARY_PRE_MAX_SEC = 30
+TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC = 45
 SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会纳入切片
 SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
 SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
@@ -2079,7 +2082,31 @@ def _dedupe_clip_marks(marks):
     return deduped
 
 
-def _merge_expanded_clip_marks(marks):
+def _nearest_safe_srt_boundary(candidate, minimum, maximum, srt_segments):
+    """在允许范围内寻找最接近候选点、且不落在任何字幕句内部的整数秒。"""
+    minimum = math.ceil(minimum)
+    maximum = math.floor(maximum)
+    if minimum > maximum:
+        return None
+    candidate = max(minimum, min(int(candidate), maximum))
+    if not srt_segments:
+        return candidate
+
+    def is_safe(point):
+        return not any(start < point < end for start, end, _ in srt_segments)
+
+    max_distance = max(candidate - minimum, maximum - candidate)
+    for distance in range(max_distance + 1):
+        options = [candidate - distance]
+        if distance:
+            options.append(candidate + distance)
+        for point in options:
+            if minimum <= point <= maximum and is_safe(point):
+                return point
+    return None
+
+
+def _merge_expanded_clip_marks(marks, srt_segments=None):
     """处理扩展后的重叠：核心重叠才合并，仅上下文相碰则按语义边界拆开。"""
     def titles_of(mark):
         titles = mark.get("merged_titles") or [mark.get("title", "")]
@@ -2111,23 +2138,64 @@ def _merge_expanded_clip_marks(marks):
         same_title = prev.get("title") == item.get("title")
         if not same_title and core_overlap < 0.5:
             if prev_topic_end <= item_topic_start:
-                boundary = int((prev_topic_end + item_topic_start) / 2)
+                boundary_candidate = int((prev_topic_end + item_topic_start) / 2)
+                boundary_min = prev_topic_end
+                boundary_max = item_topic_start
             else:
                 overlap_start = max(prev_topic_start, item_topic_start)
                 overlap_end = min(prev_topic_end, item_topic_end)
-                boundary = int((overlap_start + overlap_end) / 2)
-            boundary = max(int(prev["start"]) + 1, min(boundary, int(item["end"]) - 1))
-            prev["end"] = min(int(prev["end"]), boundary)
-            item["start"] = max(int(item["start"]), boundary)
-            merged[-1] = _cap_expanded_clip_mark(prev)
-            merged.append(_cap_expanded_clip_mark(item))
-            continue
+                boundary_candidate = int((overlap_start + overlap_end) / 2)
+                boundary_min = overlap_start
+                boundary_max = overlap_end
+            boundary_min = max(boundary_min, int(prev["start"]) + 1)
+            boundary_max = min(boundary_max, int(item["end"]) - 1)
+            boundary = _nearest_safe_srt_boundary(
+                boundary_candidate,
+                boundary_min,
+                boundary_max,
+                srt_segments or [],
+            )
+            if boundary is None:
+                blocking_segments = [
+                    segment
+                    for segment in (srt_segments or [])
+                    if segment[0] < boundary_max and segment[1] > boundary_min
+                ]
+                reliable_continuous_sentence = (
+                    blocking_segments
+                    and not prev.get("merged_context")
+                    and all(
+                        segment[1] - segment[0] <= TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC
+                        for segment in blocking_segments
+                    )
+                )
+                if not reliable_continuous_sentence:
+                    boundary = max(
+                        math.ceil(boundary_min),
+                        min(boundary_candidate, math.floor(boundary_max)),
+                    )
+            if boundary is not None:
+                prev["end"] = min(int(prev["end"]), boundary)
+                item["start"] = max(int(item["start"]), boundary)
+                merged[-1] = _cap_expanded_clip_mark(prev)
+                merged.append(_cap_expanded_clip_mark(item))
+                continue
 
         prev["end"] = max(prev["end"], item["end"])
         prev["topic_start"] = min(prev.get("topic_start", prev["start"]), item.get("topic_start", item["start"]))
         prev["topic_end"] = max(prev.get("topic_end", prev["end"]), item.get("topic_end", item["end"]))
         prev["context_expanded"] = bool(prev.get("context_expanded") or item.get("context_expanded"))
         prev["merged_context"] = True
+        if "context_start_before_natural" in item:
+            prev["context_start_before_natural"] = min(
+                prev.get("context_start_before_natural", item["context_start_before_natural"]),
+                item["context_start_before_natural"],
+            )
+        if "context_end_before_natural" in item:
+            prev["context_end_before_natural"] = max(
+                prev.get("context_end_before_natural", item["context_end_before_natural"]),
+                item["context_end_before_natural"],
+            )
         titles = titles_of(prev)
         for title in titles_of(item):
             if title not in titles:
@@ -2136,7 +2204,19 @@ def _merge_expanded_clip_marks(marks):
             prev["title"] = " / ".join(titles)[:60]
             prev["merged_titles"] = titles
         merged[-1] = _cap_expanded_clip_mark(prev)
-    return merged
+    return [_refresh_natural_boundary_metadata(item) for item in merged]
+
+
+def _refresh_natural_boundary_metadata(mark):
+    """在限长、合并或去重后刷新实际保留下来的自然边界延伸量。"""
+    item = dict(mark)
+    context_start = item.get("context_start_before_natural")
+    context_end = item.get("context_end_before_natural")
+    if context_start is not None:
+        item["natural_boundary_pre_sec"] = int(max(0, context_start - item["start"]))
+    if context_end is not None:
+        item["natural_boundary_post_sec"] = int(max(0, item["end"] - context_end))
+    return item
 
 
 def _cap_expanded_clip_mark(mark):
@@ -2196,15 +2276,50 @@ def _srt_video_duration(srt_segments):
 
 
 def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
-    """把切片边界吸附到完整字幕句，避免从半句话开始/结束。"""
+    """吸附完整字幕句，并沿连续讲话延伸到最近的自然停顿。"""
     if not srt_segments:
         return start_s, end_s
-    related = [seg for seg in srt_segments if seg[1] >= start_s and seg[0] <= end_s]
-    if not related:
+    segments = sorted(srt_segments, key=lambda item: (item[0], item[1]))
+    related_indexes = [
+        index
+        for index, segment in enumerate(segments)
+        if segment[1] >= start_s and segment[0] <= end_s
+    ]
+    if not related_indexes:
         return start_s, end_s
-    snapped_start = related[0][0] if start_s - related[0][0] <= 30 else start_s
-    snapped_end = related[-1][1] if related[-1][1] - end_s <= 90 else end_s
-    return min(start_s, snapped_start), max(end_s, snapped_end)
+
+    first_index = related_indexes[0]
+    last_index = related_indexes[-1]
+    first_segment = segments[first_index]
+    last_segment = segments[last_index]
+    snapped_start = min(start_s, first_segment[0]) if start_s - first_segment[0] <= 30 else start_s
+    snapped_end = max(end_s, last_segment[1]) if last_segment[1] - end_s <= 90 else end_s
+
+    cursor = first_index - 1
+    current_start = first_segment[0]
+    earliest_start = start_s - TOPIC_NATURAL_BOUNDARY_PRE_MAX_SEC
+    while cursor >= 0:
+        previous = segments[cursor]
+        gap = max(0.0, current_start - previous[1])
+        if gap > TOPIC_CONTEXT_GAP or previous[0] < earliest_start:
+            break
+        snapped_start = min(snapped_start, previous[0])
+        current_start = previous[0]
+        cursor -= 1
+
+    cursor = last_index + 1
+    current_end = last_segment[1]
+    latest_start = end_s + TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC
+    while cursor < len(segments):
+        following = segments[cursor]
+        gap = max(0.0, following[0] - current_end)
+        if gap > TOPIC_CONTEXT_GAP or following[0] > latest_start:
+            break
+        snapped_end = max(snapped_end, following[1])
+        current_end = following[1]
+        cursor += 1
+
+    return snapped_start, snapped_end
 
 
 def _looks_like_sc_or_gift_trigger(text):
@@ -2271,6 +2386,8 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
             end_s = topic_end
             start_s = max(0, end_s - TOPIC_MAX_CLIP_SEC)
 
+    context_start_s = start_s
+    context_end_s = end_s
     start_s, end_s = _snap_clip_to_srt_segments(start_s, end_s, srt_segments or [])
 
     if video_duration:
@@ -2281,13 +2398,16 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     expanded = dict(mark)
     expanded["topic_start"] = topic_start
     expanded["topic_end"] = topic_end
-    expanded["start"] = int(max(0, start_s))
-    expanded["end"] = int(max(end_s, start_s + 1))
+    expanded["start"] = math.floor(max(0, start_s))
+    expanded["end"] = math.ceil(max(end_s, start_s + 1))
     expanded["time_basis"] = "video_elapsed_seconds"
     expanded["context_expanded"] = True
     expanded["context_pre_sec"] = TOPIC_PRE_CONTEXT_SEC
     expanded["context_post_sec"] = TOPIC_POST_CONTEXT_SEC
-    return _cap_expanded_clip_mark(expanded)
+    expanded["context_start_before_natural"] = int(context_start_s)
+    expanded["context_end_before_natural"] = int(context_end_s)
+    expanded = _cap_expanded_clip_mark(expanded)
+    return _refresh_natural_boundary_metadata(expanded)
 
 
 def _expand_clip_marks_with_context(marks, srt_segments=None, video_duration=None):
@@ -2296,7 +2416,7 @@ def _expand_clip_marks_with_context(marks, srt_segments=None, video_duration=Non
         _expand_clip_mark_with_context(mark, srt_segments=srt_segments, video_duration=video_duration)
         for mark in _dedupe_clip_marks(marks)
     ]
-    return _merge_expanded_clip_marks(expanded)
+    return _merge_expanded_clip_marks(expanded, srt_segments=srt_segments)
 
 # ============================================================
 # 逐话题时间轴报告格式化

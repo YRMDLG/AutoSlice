@@ -237,6 +237,49 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(expanded[0]["time_basis"], "video_elapsed_seconds")
         self.assertTrue(expanded[0]["context_expanded"])
 
+    def test_natural_boundary_extends_end_until_continuous_dialogue_pauses(self):
+        marks = [{"start": 100, "end": 120, "title": "连续回答观众问题"}]
+        srt_segments = [
+            (50, 54, "前情开头"),
+            (56, 60, "继续铺垫"),
+            (100, 120, "核心回答"),
+            (170, 181, "固定后文末尾仍在讲话"),
+            (182, 190, "紧接着补充原因"),
+            (192, 204.6, "最后说完结论"),
+            (210, 215, "停顿后进入其他内容"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=300,
+        )
+
+        self.assertEqual(expanded[0]["end"], 205)
+        self.assertEqual(expanded[0]["natural_boundary_post_sec"], 25)
+        self.assertLess(expanded[0]["end"], 210)
+
+    def test_natural_boundary_recovers_continuous_opening_but_stops_at_long_pause(self):
+        marks = [{"start": 100, "end": 120, "title": "回应观众提问"}]
+        srt_segments = [
+            (20, 30, "较早的无关话题"),
+            (41, 46, "观众问题的开头"),
+            (47, 52, "问题继续"),
+            (53, 58, "音音开始接话"),
+            (100, 120, "核心回答"),
+            (170, 175, "固定后文"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=300,
+        )
+
+        self.assertEqual(expanded[0]["start"], 41)
+        self.assertEqual(expanded[0]["natural_boundary_pre_sec"], 14)
+        self.assertGreater(expanded[0]["start"], 30)
+
     def test_dedupe_uses_topic_range_not_expanded_overlap(self):
         marks = [
             {"start": 0, "end": 240, "topic_start": 100, "topic_end": 110, "title": "话题A"},
@@ -266,6 +309,52 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(expanded[1]["topic_end"], 280)
         self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
         self.assertNotIn("merged_context", expanded[0])
+        self.assertEqual(expanded[0]["natural_boundary_post_sec"], 0)
+
+    def test_context_overlap_split_moves_off_a_subtitle_sentence(self):
+        marks = [
+            {"start": 100, "end": 160, "title": "前一个话题"},
+            {"start": 220, "end": 280, "title": "后一个话题"},
+        ]
+        srt_segments = [
+            (95, 165, "前一个话题内容"),
+            (185.2, 195.7, "跨过原中点的一整句话"),
+            (215, 285, "后一个话题内容"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=400,
+        )
+
+        self.assertEqual(len(expanded), 2)
+        self.assertEqual(expanded[0]["end"], expanded[1]["start"])
+        boundary = expanded[0]["end"]
+        self.assertFalse(any(start < boundary < end for start, end, _ in srt_segments))
+        self.assertNotEqual(boundary, 190)
+
+    def test_context_overlap_merges_when_one_sentence_spans_both_topic_cores(self):
+        marks = [
+            {"start": 100, "end": 160, "title": "问题前半段"},
+            {"start": 170, "end": 220, "title": "回答后半段"},
+        ]
+        srt_segments = [
+            (95, 140, "问题铺垫"),
+            (155, 180, "同一句连续对话横跨两个核心范围"),
+            (185, 225, "回答收尾"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=400,
+        )
+
+        self.assertEqual(len(expanded), 1)
+        self.assertTrue(expanded[0]["merged_context"])
+        self.assertIn("问题前半段", expanded[0]["title"])
+        self.assertIn("回答后半段", expanded[0]["title"])
 
     def test_expand_clip_marks_does_not_chain_merge_into_too_long_clip(self):
         marks = [
