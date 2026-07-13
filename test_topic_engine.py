@@ -13,14 +13,18 @@ from topic_engine import (
     TOPIC_MAX_CLIP_SEC,
     LLMResponseTruncatedError, LLMStructuredOutputError,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
-    _build_chunk_prompt, _build_refinement_manifest, _build_timeline_report, _call_llm_with_retry,
+    _build_chunk_prompt, _build_manual_topic_enrichment_prompt, _build_refinement_manifest,
+    _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_marks_from_topics,
     _dedupe_clip_marks, _expand_clip_marks_with_context,
-    _extract_video_start_datetime, _filter_manual_timeline_entries, _infer_streamer_name, _is_retryable_llm_error,
+    _extract_video_start_datetime, _filter_manual_timeline_entries, _find_manual_timeline_doc,
+    _infer_streamer_name, _is_retryable_llm_error,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
-    _parse_manual_timeline_lines, _resolve_funasr_model_source, _streamer_report_name,
-    _segments_from_funasr_result, _topic_clip_filename, _topics_from_manual_timeline, chunk_srt,
+    _parse_elapsed_timeline_report_lines, _parse_manual_timeline_lines,
+    _resolve_funasr_model_source, _streamer_report_name,
+    _enrich_manual_topics_with_llm, _segments_from_funasr_result, _topic_clip_filename,
+    _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _write_refinement_manifest_files, call_llm, export_corrected_srt, load_api_config,
     load_manual_timeline, parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
 )
@@ -452,6 +456,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 patch("topic_engine._probe_video_duration", return_value=600),
                 patch("topic_engine._attach_manual_timeline_to_chunks", return_value=[]),
                 patch("topic_engine._topics_from_manual_timeline", return_value=generated_topics),
+                patch("topic_engine._try_enrich_manual_topics", return_value=None),
                 patch("topic_engine._merge_manual_timeline_topics"),
                 patch("topic_engine.parse_srt_segments", return_value=[]),
             ):
@@ -919,6 +924,62 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(entries[1]["start"], 24621)
         self.assertIn("脸圆成什么样了", entries[1]["text"])
 
+    def test_video_start_datetime_accepts_ri_and_missing_seconds(self):
+        video_path = r"F:\录播上传\泽音Melody-2026年07月12日22点35分.flv"
+
+        video_start = _extract_video_start_datetime(video_path)
+
+        self.assertEqual(video_start, datetime(2026, 7, 12, 22, 35, 0))
+        self.assertEqual(
+            _extract_video_start_datetime("变色龙-2026年07月08号-20点10分53秒-001.flv"),
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+
+    def test_find_manual_timeline_doc_for_recording_without_seconds(self):
+        with TemporaryDirectory() as tmp:
+            timeline_path = Path(tmp) / "20260712.docx"
+            timeline_path.write_bytes(b"fake docx body")
+
+            found = _find_manual_timeline_doc(
+                r"F:\录播上传\泽音Melody-2026年07月12日22点35分.flv",
+                timeline_dir=tmp,
+            )
+
+        self.assertEqual(found, str(timeline_path))
+
+    def test_elapsed_report_reference_requires_explicit_time_basis(self):
+        report_lines = [
+            "> 时间基准：视频内时间/播放进度（不是现实钟点）",
+            "②[02:30－06:00]赶飞机趣事：裙子被风吹起 ✂️",
+            "【泽音】下飞机遇到狂风，裙子当场被吹飞😱",
+            "③[06:00－10:03]控场心得与上台支招 ✂️",
+        ]
+
+        entries = _parse_elapsed_timeline_report_lines(report_lines)
+
+        self.assertEqual([(item["start"], item["end"]) for item in entries], [(150, 360), (360, 603)])
+        self.assertEqual(entries[0]["text"], "赶飞机趣事：裙子被风吹起")
+        self.assertEqual(entries[0]["reference_publish_title"], "【泽音】下飞机遇到狂风，裙子当场被吹飞😱")
+        self.assertEqual(entries[0]["time_basis"], "video_elapsed_seconds")
+        self.assertEqual(_parse_elapsed_timeline_report_lines(report_lines[1:]), [])
+
+    def test_elapsed_report_ranges_stay_as_independent_topic_candidates(self):
+        entries = _parse_elapsed_timeline_report_lines([
+            "> 时间基准：视频内时间/播放进度（不是现实钟点）",
+            "②[02:30－06:00]赶飞机趣事：裙子被风吹起 ✂️",
+            "③[06:00－10:03]控场心得与上台支招 ✂️",
+        ])
+
+        topics = _topics_from_manual_timeline(entries, srt_segments=[], peaks=[])
+
+        self.assertEqual(len(topics), 2)
+        self.assertEqual((topics[0]["start"], topics[0]["end"]), (150, 360))
+        self.assertEqual((topics[1]["start"], topics[1]["end"]), (360, 603))
+
+        _merge_manual_timeline_topics(topics, entries)
+        first_body = "\n".join(topics[0]["body"])
+        self.assertNotIn("控场心得与上台支招", first_body)
+
     def test_manual_timeline_ignores_earlier_same_day_record_for_split_video(self):
         entries = _parse_manual_timeline_lines(
             [
@@ -1078,6 +1139,181 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("·字幕核查：", body)
         self.assertIn("·弹幕依据：", body)
         self.assertIn("·时间轴：", body)
+
+    def test_manual_topics_are_enriched_by_one_batched_llm_request(self):
+        topics = [{
+            "start": 1200,
+            "end": 1500,
+            "title": "新衣剪影",
+            "can_slice": False,
+            "body": [
+                "·字幕核查：音音展示剪影并回应观众猜测",
+                "·弹幕依据：0:23:00 附近峰值约 160 条/分钟",
+                "●人工时间轴⭐：0:23:10 剪影迷惑性很强",
+            ],
+        }]
+        response = """
+{"topics":[{
+  "id":1,
+  "title":"新衣剪影引发竞猜",
+  "publish_title":"【泽音】新衣剪影刚亮相👀音悦生当场猜起尾巴细节🤣",
+  "points":["音音展示新衣剪影，观众集中猜测造型细节","音音逐条回应弹幕答案并继续卖关子"]
+}]}
+"""
+
+        with patch("topic_engine._call_llm_with_retry", return_value=response) as mocked_call:
+            updated = _enrich_manual_topics_with_llm(topics, streamer_name="音音")
+
+        prompt = mocked_call.call_args.args[0]
+        self.assertEqual(mocked_call.call_count, 1)
+        self.assertEqual(updated, 1)
+        self.assertIn("人工时间轴只是线索", prompt)
+        self.assertIn("固定以【泽音】开头", prompt)
+        self.assertIn("字幕核查", prompt)
+        self.assertIn("focus_start", prompt)
+        self.assertEqual(topics[0]["start"], 1200)
+        self.assertEqual(topics[0]["end"], 1500)
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["title"], "新衣剪影引发竞猜")
+        self.assertTrue(topics[0]["publish_title"].startswith("【泽音】"))
+        self.assertTrue(topics[0]["ai_enriched"])
+        body = "\n".join(topics[0]["body"])
+        self.assertIn("音音展示新衣剪影", body)
+        self.assertIn("·弹幕依据：", body)
+        self.assertIn("●人工时间轴⭐", body)
+
+    def test_manual_ai_focus_is_validated_and_drives_density_decision(self):
+        topics = [{
+            "start": 360,
+            "end": 603,
+            "title": "活动控场与上台支招",
+            "can_slice": False,
+            "body": [
+                "·字幕核查：0:06:00-0:07:00 音音讲活动控场",
+                "·字幕核查：0:09:00-0:09:30 音音说动作做错就很抢镜",
+                "·弹幕依据：0:06:32 附近峰值约 81 条/分钟",
+            ],
+            "manual_stars": 1,
+        }]
+        response = """
+{"topics":[{
+  "id":1,
+  "title":"做错动作反而更抢镜",
+  "publish_title":"【泽音】动作做错反而更抢镜🤣音音亲授上台秘籍",
+  "focus_start":"0:09:00",
+  "focus_end":"0:09:30",
+  "points":["音音说动作做错反而会更抢镜","观众疯狂刷屏学会了"]
+}]}
+"""
+
+        with patch("topic_engine._call_llm_with_retry", return_value=response):
+            _enrich_manual_topics_with_llm(topics, streamer_name="音音")
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[(392, 100), (540, 40)],
+            avg_density=60,
+        )
+
+        self.assertEqual((topics[0]["start"], topics[0]["end"]), (540, 570))
+        self.assertEqual((topics[0]["reference_start"], topics[0]["reference_end"]), (360, 603))
+        self.assertTrue(topics[0]["ai_focus_validated"])
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertNotIn("观众疯狂刷屏", "\n".join(topics[0]["body"]))
+
+    def test_validated_semantic_focus_uses_tighter_adaptive_context(self):
+        topics = [{
+            "start": 480,
+            "end": 569,
+            "reference_start": 360,
+            "reference_end": 603,
+            "title": "上台支招",
+            "publish_title": "【泽音】音音传授上台秘诀👀",
+            "can_slice": True,
+            "ai_focus_validated": True,
+        }]
+
+        marks = _clip_marks_from_topics(topics)
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=[],
+            video_duration=1000,
+        )
+
+        self.assertTrue(marks[0]["semantic_focus_validated"])
+        self.assertEqual((expanded[0]["start"], expanded[0]["end"]), (460, 589))
+        self.assertEqual(expanded[0]["context_pre_sec"], 20)
+        self.assertEqual(expanded[0]["context_post_sec"], 20)
+
+    def test_integer_rounding_never_moves_start_into_adjacent_subtitle(self):
+        marks = [{
+            "start": 240,
+            "end": 331,
+            "title": "赶飞机趣事",
+            "semantic_focus_validated": True,
+            "reference_start": 150,
+            "reference_end": 360,
+        }]
+        srt_segments = [
+            (212.889, 217.568, "前一条礼物字幕"),
+            (217.61, 219.188, "紧邻的下一条字幕"),
+            (219.949, 221.949, "继续感谢礼物"),
+            (240, 331, "完整赶飞机话题"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=400,
+        )
+
+        start = expanded[0]["start"]
+        self.assertFalse(any(seg_start < start < seg_end for seg_start, seg_end, _ in srt_segments))
+        self.assertLessEqual(start, 217.61)
+
+    def test_invalid_manual_ai_focus_keeps_program_candidate_range(self):
+        topics = [{
+            "start": 100,
+            "end": 200,
+            "title": "规则候选",
+            "can_slice": False,
+            "body": ["·字幕核查：0:01:40-0:03:20 音音连续聊天"],
+        }]
+        response = """
+{"topics":[{
+  "id":1,
+  "title":"音音连续聊天",
+  "publish_title":"【泽音】音音聊起最近发生的事情👀",
+  "focus_start":"0:00:10",
+  "focus_end":"0:10:00",
+  "points":["音音聊起最近发生的事情"]
+}]}
+"""
+
+        with patch("topic_engine._call_llm_with_retry", return_value=response):
+            _enrich_manual_topics_with_llm(topics, streamer_name="音音")
+
+        self.assertEqual((topics[0]["start"], topics[0]["end"]), (100, 200))
+        self.assertNotIn("ai_focus_validated", topics[0])
+
+    def test_manual_topic_ai_failure_keeps_rule_based_topics(self):
+        topics = [{
+            "start": 100,
+            "end": 200,
+            "title": "规则候选标题",
+            "can_slice": False,
+            "body": ["·字幕核查：音音继续聊天"],
+        }]
+
+        with patch(
+            "topic_engine._enrich_manual_topics_with_llm",
+            side_effect=RuntimeError("上游服务暂时不可用"),
+        ):
+            warning = _try_enrich_manual_topics(topics, streamer_name="音音")
+
+        self.assertIn("AI 复核失败", warning)
+        self.assertIn("上游服务暂时不可用", warning)
+        self.assertEqual(topics[0]["title"], "规则候选标题")
+        self.assertNotIn("ai_enriched", topics[0])
 
     def test_manual_star_is_not_swallowed_by_fallback_topic(self):
         entries = _parse_manual_timeline_lines(
@@ -1875,6 +2111,45 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         expanded = _expand_clip_marks_with_context(marks, srt_segments=srt_segments, video_duration=360)
 
         self.assertEqual(expanded[0]["start"], 100)
+
+    def test_expand_context_ignores_unrelated_old_gift_thanks(self):
+        marks = [{"start": 200, "end": 220, "title": "花礼身高秘密"}]
+        srt_segments = [
+            (100, 110, "感谢阿月老板送的礼物"),
+            (120, 125, "今天突击直播有点困"),
+            (190, 225, "音音开始聊花礼的身高秘密"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=360,
+        )
+
+        self.assertGreater(expanded[0]["start"], 100)
+
+    def test_generic_nearby_question_does_not_turn_gift_into_sc(self):
+        marks = [{
+            "start": 200,
+            "end": 220,
+            "title": "赶飞机趣事",
+            "semantic_focus_validated": True,
+            "reference_start": 100,
+            "reference_end": 300,
+        }]
+        srt_segments = [
+            (145, 150, "感谢阿月老板送的礼物"),
+            (151, 158, "音音今天说话怎么这么震惊是不是在外面吗"),
+            (198, 225, "音音开始讲赶飞机遇到大风"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=360,
+        )
+
+        self.assertGreater(expanded[0]["start"], 150)
 
 
 if __name__ == "__main__":

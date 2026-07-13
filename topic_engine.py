@@ -46,7 +46,14 @@ TOPIC_FOCUS_POST_SEC = DANMAKU_WINDOW  # 长话题核心覆盖完整弹幕峰值
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
 TOPIC_NATURAL_BOUNDARY_PRE_MAX_SEC = 30
 TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC = 45
+TOPIC_AI_FOCUS_PRE_CONTEXT_SEC = 20
+TOPIC_AI_FOCUS_POST_CONTEXT_SEC = 20
+TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC = 45
+TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC = 60
+TOPIC_AI_FOCUS_NATURAL_PRE_BOUNDARY_SEC = 5
+TOPIC_AI_FOCUS_NATURAL_POST_BOUNDARY_SEC = 10
 SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会纳入切片
+SC_FALLBACK_GIFT_LOOKBACK_SEC = 15  # 仅凭“感谢礼物”推断 SC 时避免回溯到无关互动
 SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
 SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
 SRT_MAX_ESTIMATED_SEG_SEC = 300 # 单条异常字幕最多估算 5 分钟
@@ -362,8 +369,8 @@ def _extract_video_start_datetime(video_path):
     basename = os.path.basename(video_path or "")
     candidates = [basename] + re.split(r'[\\/]+', video_path or "")
     patterns = (
-        r'(?P<y>\d{4})年(?P<m>\d{1,2})月(?P<d>\d{1,2})号[-_\s]*'
-        r'(?P<h>\d{1,2})点(?P<mi>\d{1,2})分(?P<s>\d{1,2})秒',
+        r'(?P<y>\d{4})年(?P<m>\d{1,2})月(?P<d>\d{1,2})[日号][-_\s]*'
+        r'(?P<h>\d{1,2})点(?P<mi>\d{1,2})分(?:(?P<s>\d{1,2})秒)?',
         r'(?P<y>\d{4})[-.](?P<m>\d{1,2})[-.](?P<d>\d{1,2})[-_\s]+'
         r'(?P<h>\d{1,2})[-点:](?P<mi>\d{1,2})[-分:](?P<s>\d{1,2})',
     )
@@ -372,7 +379,10 @@ def _extract_video_start_datetime(video_path):
             match = re.search(pattern, text)
             if not match:
                 continue
-            parts = {key: int(value) for key, value in match.groupdict().items()}
+            parts = {
+                key: int(value) if value is not None else 0
+                for key, value in match.groupdict().items()
+            }
             try:
                 return datetime(parts["y"], parts["m"], parts["d"], parts["h"], parts["mi"], parts["s"])
             except ValueError:
@@ -516,6 +526,62 @@ def _parse_manual_timeline_lines(lines, video_start):
     return entries
 
 
+def _parse_elapsed_timeline_report_lines(lines):
+    """解析明确声明为视频内时间的旧报告，作为低权重参考候选。"""
+    normalized_lines = [str(line or "").strip() for line in lines or []]
+    has_elapsed_time_basis = any(
+        "时间基准" in line and ("视频内时间" in line or "播放进度" in line)
+        for line in normalized_lines
+    )
+    if not has_elapsed_time_basis:
+        return []
+
+    time_pattern = r'\d{1,3}:\d{2}(?::\d{2})?'
+    topic_re = re.compile(
+        rf'^\s*(?:[①-⑳㉑-㊿]|\d+[.、)])?\s*'
+        rf'\[\s*(?P<start>{time_pattern})\s*[－—–~-]\s*'
+        rf'(?P<end>{time_pattern})\s*\]\s*(?P<title>.+?)\s*$'
+    )
+    entries = []
+    current = None
+    for line in normalized_lines:
+        match = topic_re.match(line)
+        if match:
+            try:
+                start = _parse_hms(match.group("start"))
+                end = _parse_hms(match.group("end"))
+            except (TypeError, ValueError):
+                current = None
+                continue
+            if end <= start:
+                current = None
+                continue
+            raw_title = match.group("title")
+            stars = raw_title.count("⭐") + raw_title.count("★")
+            if "✂" in raw_title:
+                stars = max(stars, 1)
+            title = re.sub(r'[✂⭐★]\ufe0f?', '', raw_title).strip(" -—，,。")
+            if not title:
+                current = None
+                continue
+            current = {
+                "start": start,
+                "end": end,
+                "clock": "视频内时间",
+                "text": title,
+                "stars": stars,
+                "highlight": stars > 0,
+                "source": "elapsed_report_reference",
+                "time_basis": "video_elapsed_seconds",
+                "explicit_range": True,
+            }
+            entries.append(current)
+            continue
+        if current and line.startswith("【泽音】"):
+            current["reference_publish_title"] = line
+    return entries
+
+
 def _filter_manual_timeline_entries(entries, video_duration, end_margin_sec=MANUAL_TIMELINE_END_MARGIN_SEC):
     """只保留当前分段视频范围内的人工时间轴记录。"""
     if not video_duration or video_duration <= 0:
@@ -556,10 +622,22 @@ def load_manual_timeline(video_path, timeline_dir=MANUAL_TIMELINE_DIR, manual_ti
         doc_path = manual_timeline_path if os.path.isfile(manual_timeline_path) else None
     else:
         doc_path = _find_manual_timeline_doc(video_path, timeline_dir)
-    if not video_start or not doc_path:
+    if not doc_path:
         return {"path": None, "entries": [], "video_start": video_start, "mode": "manual" if manual_timeline_path else "auto"}
-    entries = _parse_manual_timeline_lines(_read_docx_lines(doc_path), video_start)
-    return {"path": doc_path, "entries": entries, "video_start": video_start, "mode": "manual" if manual_timeline_path else "auto"}
+    lines = _read_docx_lines(doc_path)
+    entries = _parse_manual_timeline_lines(lines, video_start)
+    time_basis = "wall_clock_converted_to_video_elapsed_seconds" if entries else None
+    if not entries:
+        entries = _parse_elapsed_timeline_report_lines(lines)
+        if entries:
+            time_basis = "video_elapsed_seconds"
+    return {
+        "path": doc_path,
+        "entries": entries,
+        "video_start": video_start,
+        "mode": "manual" if manual_timeline_path else "auto",
+        "time_basis": time_basis,
+    }
 
 
 def _manual_timeline_summary(manual_timeline):
@@ -575,14 +653,19 @@ def _manual_timeline_summary(manual_timeline):
         "source_entry_count": manual_timeline.get("source_entry_count", len(entries)),
         "star_count": sum(1 for item in entries if item.get("stars", 0) > 0),
         "video_start": video_start,
-        "time_basis": "wall_clock_converted_to_video_elapsed_seconds" if entries else None,
+        "time_basis": manual_timeline.get("time_basis") or (
+            entries[0].get("time_basis", "wall_clock_converted_to_video_elapsed_seconds")
+            if entries else None
+        ),
     }
 
 
 def _format_manual_entry_for_prompt(entry):
     stars = "⭐" * min(int(entry.get("stars", 0)), 5)
     prefix = f"{stars} " if stars else ""
-    return f"- [{fmt_time(entry['start'])} / {entry.get('clock', '')}] {prefix}{entry.get('text', '')}"
+    clock = entry.get("clock")
+    time_label = f"{fmt_time(entry['start'])} / {clock}" if clock else fmt_time(entry["start"])
+    return f"- [{time_label}] {prefix}{entry.get('text', '')}"
 
 
 def _manual_timeline_info_for_chunk(entries, chunk_start, chunk_end, limit=12):
@@ -624,7 +707,10 @@ def _manual_title_from_text(text):
 
 
 def _manual_entry_matches_topic(entry, topic, margin=0):
-    return int(topic["start"]) - margin <= int(entry["start"]) <= int(topic["end"]) + margin
+    start = int(topic["start"]) - margin
+    end = int(topic["end"]) + margin
+    entry_start = int(entry["start"])
+    return start <= entry_start < end
 
 
 def _is_manual_merge_target(topic):
@@ -654,8 +740,15 @@ def _merge_manual_timeline_topics(topics, entries):
         matched = [entry for entry in entries if _manual_entry_matches_topic(entry, topic)]
         if not matched:
             continue
-        topic["manual_stars"] = max([topic.get("manual_stars", 0)] + [entry.get("stars", 0) for entry in matched])
-        topic["manual_timeline"] = matched
+        existing_entries = list(topic.get("manual_timeline") or [])
+        for entry in matched:
+            if entry not in existing_entries:
+                existing_entries.append(entry)
+        topic["manual_stars"] = max(
+            [topic.get("manual_stars", 0)]
+            + [entry.get("stars", 0) for entry in existing_entries]
+        )
+        topic["manual_timeline"] = existing_entries
         body = list(topic.get("body") or [])
         for entry in matched:
             if entry.get("stars", 0) <= 0:
@@ -668,6 +761,8 @@ def _merge_manual_timeline_topics(topics, entries):
 
     for entry in entries:
         if entry.get("stars", 0) <= 0:
+            continue
+        if any(entry in (topic.get("manual_timeline") or []) for topic in topics):
             continue
         if any(_is_manual_merge_target(topic) and _manual_entry_matches_topic(entry, topic) for topic in topics):
             continue
@@ -689,32 +784,53 @@ def _merge_manual_timeline_topics(topics, entries):
     return topics
 
 
-def _topic_srt_summary_lines(start, end, srt_segments, limit=3):
-    """提取话题范围附近的字幕证据，避免报告只复述人工时间轴。"""
+def _topic_srt_summary_lines(start, end, srt_segments, limit=10, bucket_sec=30):
+    """把碎片字幕聚成带时间范围的短窗口，供 AI 核对事件与边界。"""
     if not srt_segments:
         return []
     related = [
         (seg_start, seg_end, text)
         for seg_start, seg_end, text in srt_segments
-        if seg_end >= start - 30 and seg_start <= end + 30
+        if seg_end >= start and seg_start <= end
     ]
     if not related:
         return []
-    if len(related) <= limit:
-        selected = related
+
+    buckets = {}
+    for seg_start, seg_end, text in related:
+        key = max(0, int((max(start, seg_start) - start) // bucket_sec))
+        bucket = buckets.setdefault(key, {
+            "start": max(start, seg_start),
+            "end": min(end, seg_end),
+            "texts": [],
+        })
+        bucket["start"] = min(bucket["start"], max(start, seg_start))
+        bucket["end"] = max(bucket["end"], min(end, seg_end))
+        compact = re.sub(r'\s+', '', text or '')
+        if compact and (not bucket["texts"] or bucket["texts"][-1] != compact):
+            bucket["texts"].append(compact)
+
+    windows = [buckets[key] for key in sorted(buckets)]
+    if len(windows) <= limit:
+        selected = windows
+    elif limit <= 1:
+        selected = [windows[len(windows) // 2]]
     else:
-        step = max(1, (len(related) - 1) // max(1, limit - 1))
-        selected = [related[min(i * step, len(related) - 1)] for i in range(limit)]
+        indexes = sorted({round(i * (len(windows) - 1) / (limit - 1)) for i in range(limit)})
+        selected = [windows[index] for index in indexes]
+
     lines = []
     seen = set()
-    for seg_start, _, text in selected:
-        compact = re.sub(r'\s+', '', text or '')
+    for window in selected:
+        compact = "".join(window["texts"])
         if not compact or compact in seen:
             continue
         seen.add(compact)
-        if len(compact) > 70:
-            compact = compact[:70] + "…"
-        lines.append(f"·字幕核查：{fmt_time(seg_start)} {compact}")
+        if len(compact) > 180:
+            compact = compact[:180] + "…"
+        lines.append(
+            f"·字幕核查：{fmt_time(window['start'])}-{fmt_time(window['end'])} {compact}"
+        )
     return lines
 
 
@@ -739,6 +855,12 @@ def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap
     groups = []
     current = []
     for entry in sorted_entries:
+        if entry.get("explicit_range"):
+            if current:
+                groups.append(current)
+                current = []
+            groups.append([entry])
+            continue
         if not current:
             current = [entry]
             continue
@@ -754,8 +876,13 @@ def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap
     topics = []
     for group in groups:
         title_entry = next((item for item in group if item.get("stars", 0) > 0), group[0])
-        start = max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0))
-        end = int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120)
+        explicit_end = group[0].get("end") if len(group) == 1 and group[0].get("explicit_range") else None
+        if explicit_end is not None:
+            start = max(0, int(group[0]["start"]))
+            end = max(start + 1, int(explicit_end))
+        else:
+            start = max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0))
+            end = int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120)
         body = []
         peak_line = _topic_danmaku_reference_line(start, end, peaks or [])
         if peak_line:
@@ -768,6 +895,8 @@ def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap
                 body.append(f"●人工时间轴{stars}：{time_label} {item['text']}")
             else:
                 body.append(f"·时间轴：{time_label} {item['text']}")
+            if item.get("reference_publish_title"):
+                body.append(f"·参考投稿标题（仅供核对）：{item['reference_publish_title']}")
         topic = {
             "start": start,
             "end": end,
@@ -1912,6 +2041,167 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
     return report_blocks, _dedupe_clip_marks(clip_marks)
 
 
+def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compact=False):
+    """把规则聚合候选压缩成一次批量 AI 复核请求。"""
+    candidates = []
+    for index, topic in enumerate(topics or [], 1):
+        body_limit = 5 if compact else 14
+        evidence = [
+            _strip_body_prefix(line)
+            for line in (topic.get("body") or [])[:body_limit]
+            if _strip_body_prefix(line)
+        ]
+        candidates.append({
+            "id": index,
+            "start": fmt_time(topic["start"]),
+            "end": fmt_time(topic["end"]),
+            "current_title": topic.get("title", "未命名片段"),
+            "evidence": evidence,
+        })
+    guide = (
+        "投稿标题固定以【泽音】开头，先写具体事件钩子，再写反差、结果或最有传播力的原话；"
+        "可用结果、随后、还、却、当场等推进词和1-3个语义emoji；"
+        "风格接近【泽音】笨比音悦生群发关心SC👀结果被音音识破了🤣，"
+        "但绝对不能照抄示例事件或编造证据中不存在的信息。"
+    )
+    return (
+        "你是泽音Melody录播的资深切片编辑。下面候选由字幕、弹幕和人工时间轴共同聚合；"
+        "人工时间轴只是线索，不是可直接照抄的结论。请逐项核对证据，改善短标题和内容要点，"
+        "并生成可直接投稿的publish_title。不得修改id，不得决定是否切片。"
+        f"主播在正文中称为{streamer_name}，不要写泛称‘主播’。{guide}"
+        "每个候选只选一个前因、事件、反应完整且最值得二剪的连贯事件，不要把两个独立话题硬拼成一个。"
+        "focus_start和focus_end必须位于候选start/end内，精确到字幕证据中的时间，完整包住标题所写事件；"
+        "优先控制在30秒到4分钟，不能只框一句爆点，也不能夹带前后无关话题。"
+        "弹幕依据只有密度，没有弹幕正文；除非字幕或人工记录明确写出，否则禁止编造‘观众刷屏、直呼、"
+        "调侃、笑称、齐刷、赞叹’等具体反应。每项写2-5条有证据的具体points；"
+        "禁止模型分析过程、规则说明、弹幕密度判断和空泛描述。"
+        "只输出JSON对象："
+        "{\"topics\":[{\"id\":1,\"title\":\"5-15字具体短标题\","
+        "\"publish_title\":\"【泽音】具体事件钩子👀结果或原话\","
+        "\"focus_start\":\"0:03:40\",\"focus_end\":\"0:05:30\","
+        "\"points\":[\"具体发生了什么\",\"音音如何回应\"]}]}。\n\n"
+        "候选数据：\n"
+        + json.dumps(candidates, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+_UNSUPPORTED_AI_AUDIENCE_REACTION_RE = re.compile(
+    r'(?:观众|弹幕).{0,18}(?:刷屏|刷|直呼|调侃|笑称|齐刷|赞叹|赞|起哄|反应活跃|疯狂)'
+)
+
+
+def _filter_unsupported_ai_points(points):
+    """弹幕密度不能证明具体弹幕内容，过滤模型自行补写的观众反应。"""
+    return [
+        line for line in points or []
+        if not _UNSUPPORTED_AI_AUDIENCE_REACTION_RE.search(_strip_body_prefix(line))
+    ]
+
+
+def _validated_ai_focus_range(item, topic):
+    """校验 AI 建议的语义核心范围；越界或过长时忽略，继续使用程序候选范围。"""
+    try:
+        focus_start = _parse_hms(str(item.get("focus_start", "")))
+        focus_end = _parse_hms(str(item.get("focus_end", "")))
+    except (TypeError, ValueError):
+        return None
+    source_start = int(topic["start"])
+    source_end = int(topic["end"])
+    duration = focus_end - focus_start
+    if not source_start <= focus_start < focus_end <= source_end:
+        return None
+    if duration < 10 or duration > TOPIC_MAX_CLIP_SEC:
+        return None
+    return focus_start, focus_end
+
+
+def _enrich_manual_topics_with_llm(topics, streamer_name="音音", progress_callback=None):
+    """用一次 DeepSeek 请求批量复核人工时间轴候选，原地更新并返回更新数。"""
+    if not topics:
+        return 0
+    prompt = _build_manual_topic_enrichment_prompt(topics, streamer_name=streamer_name)
+    compact_prompt = _build_manual_topic_enrichment_prompt(
+        topics,
+        streamer_name=streamer_name,
+        compact=True,
+    )
+    response = _call_llm_with_retry(
+        prompt,
+        compact_prompt=compact_prompt,
+        require_json=True,
+        progress_callback=progress_callback,
+        progress_label="人工时间轴 AI 复核",
+        progress_step=75,
+    )
+    payload = _extract_json_payload(response)
+    raw_topics = payload.get("topics", []) if isinstance(payload, dict) else []
+    if not isinstance(raw_topics, list):
+        raise LLMStructuredOutputError("人工时间轴 AI 复核未返回 topics 数组")
+
+    updated = 0
+    for item in raw_topics:
+        if not isinstance(item, dict):
+            continue
+        try:
+            topic_index = int(item.get("id")) - 1
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= topic_index < len(topics):
+            continue
+        topic = topics[topic_index]
+        points = _filter_unsupported_ai_points(_json_points_to_body(item.get("points")))
+        if not points:
+            continue
+        title = _derive_topic_title(
+            _clean_topic_title(str(item.get("title", topic.get("title", "")))),
+            points,
+        )
+        if not title:
+            title = topic.get("title", "未命名片段")
+        preserved_evidence = [
+            line
+            for line in topic.get("body") or []
+            if line.startswith("·弹幕依据：") or line.startswith("●人工时间轴")
+        ]
+        body = list(points)
+        for line in preserved_evidence:
+            if line not in body:
+                body.append(line)
+        topic["title"] = title
+        topic["publish_title"] = _normalise_publish_title(
+            item.get("publish_title"), title
+        )
+        topic["body"] = body
+        topic["ai_enriched"] = True
+        focus_range = _validated_ai_focus_range(item, topic)
+        if focus_range:
+            source_start = int(topic["start"])
+            source_end = int(topic["end"])
+            topic["reference_start"] = source_start
+            topic["reference_end"] = source_end
+            topic["start"], topic["end"] = focus_range
+            topic["start_str"] = fmt_time(topic["start"])
+            topic["end_str"] = fmt_time(topic["end"])
+            topic["ai_focus_validated"] = True
+        updated += 1
+    if not updated:
+        raise LLMStructuredOutputError("人工时间轴 AI 复核没有返回可用话题")
+    return updated
+
+
+def _try_enrich_manual_topics(topics, streamer_name="音音", progress_callback=None):
+    """AI 复核失败时保留规则候选，返回适合写入报告的警告。"""
+    try:
+        _enrich_manual_topics_with_llm(
+            topics,
+            streamer_name=streamer_name,
+            progress_callback=progress_callback,
+        )
+        return None
+    except Exception as exc:
+        return f"人工时间轴 AI 复核失败，已保留字幕/弹幕规则结果：{_short_llm_error(exc)}"
+
+
 def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None, allow_markdown_fallback=True):
     """
     解析单个分块的 LLM 输出。
@@ -2285,7 +2575,13 @@ def _srt_video_duration(srt_segments):
     return max(seg_end for _, seg_end, _ in srt_segments)
 
 
-def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
+def _snap_clip_to_srt_segments(
+    start_s,
+    end_s,
+    srt_segments,
+    natural_pre_max_sec=TOPIC_NATURAL_BOUNDARY_PRE_MAX_SEC,
+    natural_post_max_sec=TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC,
+):
     """吸附完整字幕句，并沿连续讲话延伸到最近的自然停顿。"""
     if not srt_segments:
         return start_s, end_s
@@ -2307,7 +2603,7 @@ def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
 
     cursor = first_index - 1
     current_start = first_segment[0]
-    earliest_start = start_s - TOPIC_NATURAL_BOUNDARY_PRE_MAX_SEC
+    earliest_start = start_s - natural_pre_max_sec
     while cursor >= 0:
         previous = segments[cursor]
         gap = max(0.0, current_start - previous[1])
@@ -2319,7 +2615,7 @@ def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
 
     cursor = last_index + 1
     current_end = last_segment[1]
-    latest_start = end_s + TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC
+    latest_start = end_s + natural_post_max_sec
     while cursor < len(segments):
         following = segments[cursor]
         gap = max(0.0, following[0] - current_end)
@@ -2332,6 +2628,33 @@ def _snap_clip_to_srt_segments(start_s, end_s, srt_segments):
     return snapped_start, snapped_end
 
 
+def _integer_clip_bounds_outside_subtitles(start_s, end_s, srt_segments):
+    """整数化时向外避开字幕句，防止 floor/ceil 反而落进相邻句内部。"""
+    start_point = math.floor(max(0, start_s))
+    end_point = math.ceil(max(end_s, start_s + 1))
+    if not srt_segments:
+        return start_point, end_point
+
+    while True:
+        blocking = [segment for segment in srt_segments if segment[0] < start_point < segment[1]]
+        if not blocking:
+            break
+        earlier = math.floor(min(segment[0] for segment in blocking))
+        if earlier >= start_point:
+            earlier = start_point - 1
+        start_point = max(0, earlier)
+
+    while True:
+        blocking = [segment for segment in srt_segments if segment[0] < end_point < segment[1]]
+        if not blocking:
+            break
+        later = math.ceil(max(segment[1] for segment in blocking))
+        if later <= end_point:
+            later = end_point + 1
+        end_point = later
+    return start_point, max(end_point, start_point + 1)
+
+
 def _looks_like_sc_or_gift_trigger(text):
     """判断字幕文本是否像 SC/礼物/付费留言触发点；兼容 ASR 把 SC 漏识别的情况。"""
     compact = re.sub(r'\s+', ' ', (text or "")).strip()
@@ -2341,6 +2664,32 @@ def _looks_like_sc_or_gift_trigger(text):
     if any(keyword in lower for keyword in SC_TRIGGER_KEYWORDS):
         return True
     return bool(THANKS_TRIGGER_RE.search(compact))
+
+
+def _is_explicit_sc_trigger(text):
+    """只有明确识别到 SC/醒目留言时，才允许跨较长时间回溯。"""
+    lower = re.sub(r'\s+', ' ', (text or "")).strip().lower()
+    return any(keyword in lower for keyword in (
+        "sc", "s c", "super chat", "superchat", "醒目留言", "醒目", "付费留言",
+    ))
+
+
+def _gift_trigger_has_question_followup(index, topic_start, srt_segments, window_sec=45):
+    """ASR 漏掉 SC 名词时，用紧随礼物感谢后的提问文本确认关联。"""
+    if not 0 <= index < len(srt_segments):
+        return False
+    trigger_start = srt_segments[index][0]
+    texts = []
+    for seg_start, _, text in srt_segments[index:index + 12]:
+        if seg_start > topic_start or seg_start > trigger_start + window_sec:
+            break
+        texts.append(text or "")
+    compact = re.sub(r'\s+', '', "".join(texts))
+    return bool(re.search(
+        r'(?:他说|她说|音悦生说|观众说|问|留言).{0,50}'
+        r'(?:吗|呢|怎么|为何|为什么|能不能|可不可以|怎么办|[？?])',
+        compact,
+    ))
 
 
 def _find_sc_context_start(topic_start, srt_segments, lookback_sec=SC_CONTEXT_LOOKBACK_SEC):
@@ -2356,7 +2705,19 @@ def _find_sc_context_start(topic_start, srt_segments, lookback_sec=SC_CONTEXT_LO
     if not candidates:
         return None
 
-    idx, seg = candidates[-1]  # 用离话题最近的触发点，避免把更早无关礼物也切进来。
+    eligible = []
+    for idx, seg in candidates:
+        distance = topic_start - seg[0]
+        if (
+            distance <= SC_FALLBACK_GIFT_LOOKBACK_SEC
+            or _is_explicit_sc_trigger(seg[2])
+            or _gift_trigger_has_question_followup(idx, topic_start, srt_segments)
+        ):
+            eligible.append((idx, seg))
+    if not eligible:
+        return None
+
+    idx, seg = eligible[-1]  # 用离话题最近的触发点，避免把更早无关礼物也切进来。
     start_s = seg[0]
     # SC 文本可能被 ASR 切成几句，向前吸附很近的连续字幕，保留完整提问/感谢。
     cursor = idx - 1
@@ -2377,8 +2738,30 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
         topic_end = topic_start + 1
 
     raw_duration = topic_end - topic_start
-    start_s = max(0, topic_start - TOPIC_PRE_CONTEXT_SEC)
-    end_s = topic_end + TOPIC_POST_CONTEXT_SEC
+    semantic_focus = bool(mark.get("semantic_focus_validated"))
+    if semantic_focus:
+        reference_start = int(mark.get("reference_start", topic_start))
+        reference_end = int(mark.get("reference_end", topic_end))
+        pre_context_sec = (
+            TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC
+            if topic_start - reference_start <= 5
+            else TOPIC_AI_FOCUS_PRE_CONTEXT_SEC
+        )
+        post_context_sec = (
+            TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC
+            if reference_end - topic_end <= 5
+            else TOPIC_AI_FOCUS_POST_CONTEXT_SEC
+        )
+        natural_pre_max_sec = TOPIC_AI_FOCUS_NATURAL_PRE_BOUNDARY_SEC
+        natural_post_max_sec = TOPIC_AI_FOCUS_NATURAL_POST_BOUNDARY_SEC
+    else:
+        pre_context_sec = TOPIC_PRE_CONTEXT_SEC
+        post_context_sec = TOPIC_POST_CONTEXT_SEC
+        natural_pre_max_sec = TOPIC_NATURAL_BOUNDARY_PRE_MAX_SEC
+        natural_post_max_sec = TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC
+
+    start_s = max(0, topic_start - pre_context_sec)
+    end_s = topic_end + post_context_sec
     sc_context_start = _find_sc_context_start(topic_start, srt_segments or [])
     if sc_context_start is not None:
         start_s = min(start_s, sc_context_start)
@@ -2398,7 +2781,13 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
 
     context_start_s = start_s
     context_end_s = end_s
-    start_s, end_s = _snap_clip_to_srt_segments(start_s, end_s, srt_segments or [])
+    start_s, end_s = _snap_clip_to_srt_segments(
+        start_s,
+        end_s,
+        srt_segments or [],
+        natural_pre_max_sec=natural_pre_max_sec,
+        natural_post_max_sec=natural_post_max_sec,
+    )
 
     if video_duration:
         end_s = min(end_s, video_duration)
@@ -2408,12 +2797,15 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     expanded = dict(mark)
     expanded["topic_start"] = topic_start
     expanded["topic_end"] = topic_end
-    expanded["start"] = math.floor(max(0, start_s))
-    expanded["end"] = math.ceil(max(end_s, start_s + 1))
+    expanded["start"], expanded["end"] = _integer_clip_bounds_outside_subtitles(
+        start_s,
+        end_s,
+        srt_segments or [],
+    )
     expanded["time_basis"] = "video_elapsed_seconds"
     expanded["context_expanded"] = True
-    expanded["context_pre_sec"] = TOPIC_PRE_CONTEXT_SEC
-    expanded["context_post_sec"] = TOPIC_POST_CONTEXT_SEC
+    expanded["context_pre_sec"] = pre_context_sec
+    expanded["context_post_sec"] = post_context_sec
     expanded["context_start_before_natural"] = int(context_start_s)
     expanded["context_end_before_natural"] = int(context_end_s)
     expanded = _cap_expanded_clip_mark(expanded)
@@ -2742,6 +3134,9 @@ def _clip_marks_from_topics(topics):
             "report_end": topic["end"],
             "slice_anchor": topic.get("slice_anchor"),
             "slice_anchor_source": topic.get("slice_anchor_source"),
+            "semantic_focus_validated": bool(topic.get("ai_focus_validated")),
+            "reference_start": topic.get("reference_start"),
+            "reference_end": topic.get("reference_end"),
         }
         for topic in topics
         if topic.get("can_slice")
@@ -3056,9 +3451,24 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
 
     if manual_entries:
         accepted_topics = _topics_from_manual_timeline(manual_entries, srt_segments=segs, peaks=peaks)
+        if accepted_topics and progress_callback:
+            progress_callback(
+                f"Step 4/5: DeepSeek 批量复核人工时间轴候选 ({len(accepted_topics)} 个话题)...",
+                75,
+                100,
+            )
+        enrichment_warning = _try_enrich_manual_topics(
+            accepted_topics,
+            streamer_name=streamer_display_name,
+            progress_callback=progress_callback,
+        )
+        if enrichment_warning:
+            api_precheck_warning = enrichment_warning
+            if progress_callback:
+                progress_callback(enrichment_warning, 90, 100)
         if progress_callback:
             progress_callback(
-                f"Step 4/5: 基于字幕/弹幕生成话题，人工时间轴辅助 ({len(accepted_topics)} 个话题)...",
+                f"Step 4/5: 字幕/弹幕/人工时间轴复核完成 ({len(accepted_topics)} 个话题)...",
                 93, 100,
             )
     else:
