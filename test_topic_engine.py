@@ -287,6 +287,61 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(expanded[0]["natural_boundary_pre_sec"], 14)
         self.assertGreater(expanded[0]["start"], 30)
 
+    def test_semantic_topic_stops_before_explicit_next_topic_trigger(self):
+        marks = [{
+            "start": 708,
+            "end": 750,
+            "title": "保安认出音音",
+            "semantic_focus_validated": True,
+            "reference_start": 616,
+            "reference_end": 750,
+        }]
+        srt_segments = [
+            (708, 730, "音音说保安已经认识自己"),
+            (730, 750, "前一个话题最后一句"),
+            (779, 783, "后续补充下半年不知道还会不会来"),
+            (796.35, 797.07, "吗对了"),
+            (800.75, 805.29, "你们猜今天发的润喉糖是谁给的"),
+            (808, 813, "继续解释润喉糖来历"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=1200,
+        )
+
+        self.assertEqual(len(expanded), 1)
+        self.assertEqual(expanded[0]["hard_context_end"], 796)
+        self.assertLessEqual(expanded[0]["end"], 796)
+        self.assertGreaterEqual(expanded[0]["end"], 783)
+        self.assertFalse(any(start < expanded[0]["end"] < end for start, end, _ in srt_segments))
+
+    def test_semantic_topic_keeps_continuous_gift_thanks_and_final_goodnight(self):
+        marks = [{
+            "start": 3140,
+            "end": 3247,
+            "title": "下播温柔道晚安",
+            "semantic_focus_validated": True,
+            "reference_start": 3120,
+            "reference_end": 3247,
+        }]
+        srt_segments = [
+            (3230, 3240, "音音继续感谢大家送的流星雨"),
+            (3248.57, 3250.91, "感谢一个美梦小猫天使的做我的小猫"),
+            (3251.63, 3254.85, "感谢奇风披雳的流星雨晚安音悦生"),
+            (3260.47, 3266.61, "今天要好好休息了晚安大家"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=3266.61,
+        )
+
+        self.assertNotIn("hard_context_end", expanded[0])
+        self.assertEqual(expanded[0]["end"], 3267)
+
     def test_dedupe_uses_topic_range_not_expanded_overlap(self):
         marks = [
             {"start": 0, "end": 240, "topic_start": 100, "topic_end": 110, "title": "话题A"},
@@ -317,6 +372,50 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
         self.assertNotIn("merged_context", expanded[0])
         self.assertEqual(expanded[0]["natural_boundary_post_sec"], 0)
+
+    def test_long_semantic_topic_recovers_trigger_and_splits_previous_context_at_overlap(self):
+        marks = [
+            {
+                "start": 676,
+                "end": 750,
+                "title": "保安认出音音",
+                "semantic_focus_validated": True,
+                "reference_start": 616,
+                "reference_end": 750,
+            },
+            {
+                "start": 879,
+                "end": 1078,
+                "title": "润喉糖引出小说吐槽",
+                "semantic_focus_validated": True,
+                "reference_start": 750,
+                "reference_end": 1080,
+            },
+        ]
+        srt_segments = [
+            (730, 750, "前一个话题最后一句"),
+            (796, 798, "对了"),
+            (800, 805, "你们猜今天发的润喉糖是谁给的"),
+            (808, 813, "继续解释润喉糖来历"),
+            (879, 884, "开始讨论小说为什么总把人写死"),
+            (887, 892, "小说讨论继续"),
+            (1072, 1078, "总结自己不爱看这种小说"),
+            (1083, 1090, "最后还是从自己的网盘找"),
+            (1093, 1098, "只能自力更生"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=1200,
+        )
+
+        self.assertEqual(len(expanded), 2)
+        self.assertEqual(expanded[0]["end"], expanded[1]["start"])
+        self.assertLessEqual(expanded[1]["start"], 798)
+        self.assertGreaterEqual(expanded[1]["end"], 1098)
+        self.assertLessEqual(expanded[1]["end"] - expanded[1]["start"], 315)
+        self.assertFalse(any(start < expanded[1]["start"] < end for start, end, _ in srt_segments))
 
     def test_context_overlap_split_moves_off_a_subtitle_sentence(self):
         marks = [
@@ -954,6 +1053,33 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(marks[0]["end"], 1120)
         self.assertEqual(marks[0]["title"], "高密度生日企划")
 
+    def test_peak_window_touching_topic_edge_is_ignored_and_four_minute_core_stays_complete(self):
+        topics = [{
+            "start": 879,
+            "end": 1078,
+            "title": "吐槽小说虐心套路",
+            "can_slice": False,
+            "manual_stars": 1,
+            "body": [
+                "·音音吐槽虐文总把角色写死",
+                "·弹幕依据：0:13:39 附近峰值约 117 条/分钟",
+                "●人工时间轴⭐：小说雷点吐槽",
+            ],
+        }]
+        peaks = [(819, 117), (859, 84), (920, 70)]
+
+        _apply_danmaku_slice_decisions(topics, peaks, avg_density=61)
+        marks = _clip_marks_from_topics(topics)
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["peak_density"], 84)
+        self.assertEqual(marks[0]["start"], 879)
+        self.assertEqual(marks[0]["end"], 1078)
+        self.assertNotIn("slice_anchor_source", topics[0])
+        evidence = "\n".join(topics[0]["body"])
+        self.assertIn("0:14:19 附近峰值约 84", evidence)
+        self.assertNotIn("0:13:39", evidence)
+
     def test_long_topic_slice_window_prefers_danmaku_peak_over_manual_star(self):
         topics = [{
             "start": 1000,
@@ -1249,6 +1375,62 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("音音展示新衣剪影", body)
         self.assertIn("·弹幕依据：", body)
         self.assertIn("●人工时间轴⭐", body)
+
+    def test_manual_candidate_exposes_separate_danmaku_peak_groups(self):
+        entries = [{
+            "start": 750,
+            "end": 1080,
+            "text": "润喉糖来历与小说雷点吐槽",
+            "stars": 1,
+            "highlight": True,
+            "explicit_range": True,
+        }]
+
+        topics = _topics_from_manual_timeline(
+            entries,
+            srt_segments=[(796, 900, "润喉糖事件"), (907, 1078, "小说吐槽事件")],
+            peaks=[(819, 117), (824, 109), (920, 88), (1059, 84)],
+        )
+
+        evidence = [line for line in topics[0]["body"] if line.startswith("·弹幕依据：")]
+        self.assertEqual(len(evidence), 3)
+        self.assertTrue(any("0:13:39" in line for line in evidence))
+        self.assertTrue(any("0:15:20" in line for line in evidence))
+        self.assertTrue(any("0:17:39" in line for line in evidence))
+
+    def test_manual_ai_can_split_one_reference_into_two_independent_topics(self):
+        topics = [{
+            "start": 750,
+            "end": 1080,
+            "title": "润喉糖来历与小说雷点吐槽",
+            "can_slice": False,
+            "body": [
+                "·弹幕依据：0:13:39 附近峰值约 117 条/分钟",
+                "·弹幕依据：0:15:20 附近峰值约 88 条/分钟",
+                "●人工时间轴⭐：0:12:30 润喉糖来历与小说雷点吐槽",
+            ],
+            "manual_stars": 1,
+        }]
+        response = """
+{"topics":[
+ {"id":1,"title":"润喉糖原本要送BL本子","publish_title":"【泽音】润喉糖原本竟是BL本子🤣","focus_start":"0:13:16","focus_end":"0:15:04","points":["音音揭晓润喉糖是谁送的","原本准备送BL本子后来改成润喉糖"]},
+ {"id":1,"title":"吐槽虐文总把人写死","publish_title":"【泽音】虐不是死的意思好吗😡","focus_start":"0:15:07","focus_end":"0:17:58","points":["音音接着聊推荐小说","吐槽虐文总把角色写死"]}
+]}
+"""
+
+        with patch("topic_engine._call_llm_with_retry", return_value=response) as mocked_call:
+            updated = _enrich_manual_topics_with_llm(topics, streamer_name="音音")
+
+        self.assertEqual(updated, 2)
+        self.assertEqual(len(topics), 2)
+        self.assertEqual([(item["start"], item["end"]) for item in topics], [(796, 904), (907, 1078)])
+        self.assertTrue(all(item["ai_focus_validated"] for item in topics))
+        self.assertTrue(all(
+            (item["reference_start"], item["reference_end"]) == (750, 1080)
+            for item in topics
+        ))
+        prompt = mocked_call.call_args.args[0]
+        self.assertIn("同一个id输出为两项", prompt)
 
     def test_manual_ai_focus_is_validated_and_drives_density_decision(self):
         topics = [{
@@ -2101,6 +2283,23 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertNotIn("泽音Melody", report)
         self.assertNotIn("主播", report)
 
+    def test_report_normalises_fan_name_misrecognition_from_ai_points(self):
+        report = _build_timeline_report(
+            "测试.flv",
+            "无弹幕数据",
+            [{
+                "start": 0,
+                "end": 60,
+                "title": "下播道晚安",
+                "can_slice": False,
+                "body": ["·音音与音乐声们道晚安"],
+            }],
+            streamer_name="音音",
+        )
+
+        self.assertIn("音悦生们", report)
+        self.assertNotIn("音乐声们", report)
+
     def test_infer_streamer_name_from_recording_path(self):
         path = r"F:\001\1947277414-泽音Melody\2026年\07月\05号\测试.flv"
         direct_recording = r"F:\录播上传\DanmakuRender-5\直播回放\泽音Melody-2026年07月12日22点35分.flv"
@@ -2177,6 +2376,8 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("账号历史投稿标题风格", prompt)
         self.assertIn("群发关心SC", prompt)
         self.assertIn("不要每项都机械使用‘结果/当场’", prompt)
+        self.assertIn("focus_start必须从念出触发内容或明确引出问题处开始", prompt)
+        self.assertIn("ASR没有识别出SC字样", prompt)
 
     def test_default_chunking_uses_ten_minutes_and_natural_topics(self):
         segs = [

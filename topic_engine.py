@@ -40,7 +40,8 @@ TOPIC_PRE_CONTEXT_SEC = 45      # 话题切片向前保留前因，避免二剪�
 TOPIC_POST_CONTEXT_SEC = 60     # 话题切片向后保留反应和收尾
 TOPIC_MIN_CLIP_SEC = 75         # 太短的高能点至少扩成 1.25 分钟上下文
 TOPIC_MAX_CLIP_SEC = 300        # 单个实际切片最长 5 分钟
-TOPIC_DIRECT_SLICE_MAX_SEC = 180  # 3 分钟内话题直接切；更长话题只截弹幕峰值核心段
+TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC = 15  # 为保住 SC/明确触发句和完整收尾，最多允许额外 15 秒
+TOPIC_DIRECT_SLICE_MAX_SEC = 240  # 4 分钟内的连贯话题保留完整语义核心；更长话题才截弹幕峰值核心段
 TOPIC_FOCUS_PRE_SEC = 0         # 长话题核心从弹幕峰值窗口开始，前因由 TOPIC_PRE_CONTEXT_SEC 补
 TOPIC_FOCUS_POST_SEC = DANMAKU_WINDOW  # 长话题核心覆盖完整弹幕峰值窗口
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
@@ -52,6 +53,8 @@ TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC = 45
 TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC = 60
 TOPIC_AI_FOCUS_NATURAL_PRE_BOUNDARY_SEC = 5
 TOPIC_AI_FOCUS_NATURAL_POST_BOUNDARY_SEC = 10
+TOPIC_LEAD_IN_RECOVERY_MIN_SEC = 180
+TOPIC_LEAD_IN_LOOKBACK_SEC = 180
 SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会纳入切片
 SC_FALLBACK_GIFT_LOOKBACK_SEC = 15  # 仅凭“感谢礼物”推断 SC 时避免回溯到无关互动
 SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
@@ -204,6 +207,12 @@ def _normalise_asr_text(text, streamer_name="主播"):
     else:
         tokens = re.split(r'\s+', str(text or "").replace("\n", " ").strip())
     clean = _join_asr_tokens(tokens)
+    return _normalise_streamer_terms(clean, streamer_name=streamer_name)
+
+
+def _normalise_streamer_terms(text, streamer_name="主播"):
+    """统一字幕和 AI 报告中的主播/粉丝专名，不改动其它排版。"""
+    clean = str(text or "")
     if _streamer_report_name(streamer_name) != "音音":
         return clean
     for source, target in STREAMER_ASR_LITERAL_REPLACEMENTS:
@@ -803,7 +812,7 @@ def _merge_manual_timeline_topics(topics, entries):
     return topics
 
 
-def _topic_srt_summary_lines(start, end, srt_segments, limit=10, bucket_sec=30):
+def _topic_srt_summary_lines(start, end, srt_segments, limit=12, bucket_sec=30):
     """把碎片字幕聚成带时间范围的短窗口，供 AI 核对事件与边界。"""
     if not srt_segments:
         return []
@@ -868,6 +877,26 @@ def _topic_danmaku_reference_line(start, end, peaks):
     return f"·弹幕依据：{fmt_time(peak_start)} 附近峰值约 {int(density)} 条/分钟"
 
 
+def _topic_danmaku_reference_lines(start, end, peaks, limit=3):
+    """保留相隔较远的多个峰值，让 AI 能识别人工记录中的并列事件。"""
+    candidates = [
+        (peak_start, density)
+        for peak_start, density in peaks or []
+        if peak_start + DANMAKU_WINDOW >= start and peak_start <= end
+    ]
+    selected = []
+    for peak_start, density in sorted(candidates, key=lambda item: item[1], reverse=True):
+        if any(abs(peak_start - old_start) < DANMAKU_WINDOW for old_start, _ in selected):
+            continue
+        selected.append((peak_start, density))
+        if len(selected) >= limit:
+            break
+    return [
+        f"·弹幕依据：{fmt_time(peak_start)} 附近峰值约 {int(density)} 条/分钟"
+        for peak_start, density in sorted(selected)
+    ]
+
+
 def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap_sec=240):
     """基于字幕/弹幕生成话题，人工时间轴只作为辅助参考和校准。"""
     sorted_entries = sorted(entries or [], key=lambda item: item["start"])
@@ -903,9 +932,7 @@ def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap
             start = max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0))
             end = int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120)
         body = []
-        peak_line = _topic_danmaku_reference_line(start, end, peaks or [])
-        if peak_line:
-            body.append(peak_line)
+        body.extend(_topic_danmaku_reference_lines(start, end, peaks or []))
         body.extend(_topic_srt_summary_lines(start, end, srt_segments or []))
         for item in group:
             time_label = fmt_time(item["start"])
@@ -1331,6 +1358,7 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 不允许输出历史分块、示例分块、其它视频片段的时间戳
 - 如果事件跨越分块，只写当前分块内能确认的部分
 - 不要漏掉当前分块的主要讲话内容；能归纳就归纳成“日常闲聊/游戏过程/读弹幕互动”等普通话题
+- 话题开始必须包含触发事件：由 SC、观众长留言、礼物、提问或外部视频引发的讨论，要从念出触发内容或明确引出问题处开始；结束要覆盖最后一轮回应，不能只框弹幕爆点一句
 
 ## 人工时间轴参考
 
@@ -1514,6 +1542,7 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
             "只有几乎无有效讲话才输出“无明显话题”。"
             "人工时间轴参考是辅助证据，带⭐的片段更值得留意，但不要输出解释说明。"
             "can_slice只给值得自动切片的段，不值得切也要写进报告。"
+            "SC、长留言、礼物或提问引发的讨论必须从触发内容开始，到最后一轮回应结束。"
             "每个话题都要给publish_title：固定以【泽音】开头，根据历史风格选择事件+原话、SC+回应、"
             "观看反应或短句头条等合适结构，不要每条都机械写‘结果/当场’；禁止空泛标题和编造。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。"
@@ -2161,7 +2190,7 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compac
     """把规则聚合候选压缩成一次批量 AI 复核请求。"""
     candidates = []
     for index, topic in enumerate(topics or [], 1):
-        body_limit = 5 if compact else 14
+        body_limit = 8 if compact else 18
         evidence = [
             _strip_body_prefix(line)
             for line in (topic.get("body") or [])[:body_limit]
@@ -2189,8 +2218,12 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compac
         "并生成可直接投稿的publish_title。不得修改id，不得决定是否切片。"
         f"主播在正文中称为{streamer_name}，不要写泛称‘主播’。{guide}"
         f"\n\n账号历史投稿标题风格：\n{title_style_prompt or '无可用历史样本，只按当前证据写具体标题。'}\n\n"
-        "每个候选只选一个前因、事件、反应完整且最值得二剪的连贯事件，不要把两个独立话题硬拼成一个。"
+        "每个候选通常输出一个前因、事件、反应完整且最值得二剪的连贯事件，不要把两个独立话题硬拼成一个。"
+        "如果current_title或字幕明确包含两个独立事件（例如用‘与/和/及’并列），且各自附近都有不同弹幕峰值，"
+        "必须把同一个id输出为两项，每项只写一个事件；同一个id最多两项，禁止为了凑数拆分连续对话。"
         "focus_start和focus_end必须位于候选start/end内，精确到字幕证据中的时间，完整包住标题所写事件；"
+        "如果事件由SC、观众长留言、礼物、提问或外部视频触发，focus_start必须从念出触发内容或明确引出问题处开始；"
+        "ASR没有识别出SC字样时，要结合感谢、复述留言和紧随其后的回答判断；focus_end必须覆盖最后一轮回应。"
         "优先控制在30秒到4分钟，不能只框一句爆点，也不能夹带前后无关话题。"
         "弹幕依据只有密度，没有弹幕正文；除非字幕或人工记录明确写出，否则禁止编造‘观众刷屏、直呼、"
         "调侃、笑称、齐刷、赞叹’等具体反应。每项写2-5条有证据的具体points；"
@@ -2235,8 +2268,48 @@ def _validated_ai_focus_range(item, topic):
     return focus_start, focus_end
 
 
+def _enriched_manual_topic_from_item(topic, item):
+    """把一项 AI 复核结果应用到候选副本；无有效正文时返回 None。"""
+    points = _filter_unsupported_ai_points(_json_points_to_body(item.get("points")))
+    if not points:
+        return None
+    enriched = dict(topic)
+    title = _derive_topic_title(
+        _clean_topic_title(str(item.get("title", topic.get("title", "")))),
+        points,
+    )
+    if not title:
+        title = topic.get("title", "未命名片段")
+    preserved_evidence = [
+        line
+        for line in topic.get("body") or []
+        if line.startswith("·弹幕依据：") or line.startswith("●人工时间轴")
+    ]
+    body = list(points)
+    for line in preserved_evidence:
+        if line not in body:
+            body.append(line)
+    enriched["title"] = title
+    enriched["publish_title"] = _normalise_publish_title(
+        item.get("publish_title"), title
+    )
+    enriched["body"] = body
+    enriched["ai_enriched"] = True
+    focus_range = _validated_ai_focus_range(item, topic)
+    if focus_range:
+        source_start = int(topic["start"])
+        source_end = int(topic["end"])
+        enriched["reference_start"] = source_start
+        enriched["reference_end"] = source_end
+        enriched["start"], enriched["end"] = focus_range
+        enriched["start_str"] = fmt_time(enriched["start"])
+        enriched["end_str"] = fmt_time(enriched["end"])
+        enriched["ai_focus_validated"] = True
+    return enriched
+
+
 def _enrich_manual_topics_with_llm(topics, streamer_name="音音", progress_callback=None):
-    """用一次 DeepSeek 请求批量复核人工时间轴候选，原地更新并返回更新数。"""
+    """用一次 DeepSeek 请求批量复核人工候选，并允许并列事件拆成两项。"""
     if not topics:
         return 0
     prompt = _build_manual_topic_enrichment_prompt(topics, streamer_name=streamer_name)
@@ -2258,7 +2331,7 @@ def _enrich_manual_topics_with_llm(topics, streamer_name="音音", progress_call
     if not isinstance(raw_topics, list):
         raise LLMStructuredOutputError("人工时间轴 AI 复核未返回 topics 数组")
 
-    updated = 0
+    grouped_items = defaultdict(list)
     for item in raw_topics:
         if not isinstance(item, dict):
             continue
@@ -2268,44 +2341,32 @@ def _enrich_manual_topics_with_llm(topics, streamer_name="音音", progress_call
             continue
         if not 0 <= topic_index < len(topics):
             continue
-        topic = topics[topic_index]
-        points = _filter_unsupported_ai_points(_json_points_to_body(item.get("points")))
-        if not points:
-            continue
-        title = _derive_topic_title(
-            _clean_topic_title(str(item.get("title", topic.get("title", "")))),
-            points,
-        )
-        if not title:
-            title = topic.get("title", "未命名片段")
-        preserved_evidence = [
-            line
-            for line in topic.get("body") or []
-            if line.startswith("·弹幕依据：") or line.startswith("●人工时间轴")
-        ]
-        body = list(points)
-        for line in preserved_evidence:
-            if line not in body:
-                body.append(line)
-        topic["title"] = title
-        topic["publish_title"] = _normalise_publish_title(
-            item.get("publish_title"), title
-        )
-        topic["body"] = body
-        topic["ai_enriched"] = True
-        focus_range = _validated_ai_focus_range(item, topic)
-        if focus_range:
-            source_start = int(topic["start"])
-            source_end = int(topic["end"])
-            topic["reference_start"] = source_start
-            topic["reference_end"] = source_end
-            topic["start"], topic["end"] = focus_range
-            topic["start_str"] = fmt_time(topic["start"])
-            topic["end_str"] = fmt_time(topic["end"])
-            topic["ai_focus_validated"] = True
-        updated += 1
+        if len(grouped_items[topic_index]) < 2:
+            grouped_items[topic_index].append(item)
+
+    updated = 0
+    enriched_topics = []
+    for topic_index, topic in enumerate(topics):
+        items = grouped_items.get(topic_index, [])
+        replacements = []
+        for item in items:
+            enriched = _enriched_manual_topic_from_item(topic, item)
+            if not enriched:
+                continue
+            if len(items) > 1 and not enriched.get("ai_focus_validated"):
+                continue
+            if _is_duplicate_topic(enriched, replacements):
+                continue
+            replacements.append(enriched)
+        if replacements:
+            replacements.sort(key=lambda value: (value["start"], value["end"]))
+            enriched_topics.extend(replacements)
+            updated += len(replacements)
+        else:
+            enriched_topics.append(topic)
     if not updated:
         raise LLMStructuredOutputError("人工时间轴 AI 复核没有返回可用话题")
+    topics[:] = sorted(enriched_topics, key=lambda value: (value["start"], value["end"]))
     return updated
 
 
@@ -2557,18 +2618,26 @@ def _merge_expanded_clip_marks(marks, srt_segments=None):
         )
         same_title = prev.get("title") == item.get("title")
         if not same_title and core_overlap < 0.5:
+            actual_overlap_start = max(int(prev["start"]), int(item["start"]))
+            actual_overlap_end = min(int(prev["end"]), int(item["end"]))
             if prev_topic_end <= item_topic_start:
-                boundary_candidate = int((prev_topic_end + item_topic_start) / 2)
-                boundary_min = prev_topic_end
-                boundary_max = item_topic_start
+                boundary_min = max(actual_overlap_start, int(prev_topic_end))
+                boundary_max = min(actual_overlap_end, int(item_topic_start))
             else:
                 overlap_start = max(prev_topic_start, item_topic_start)
                 overlap_end = min(prev_topic_end, item_topic_end)
-                boundary_candidate = int((overlap_start + overlap_end) / 2)
-                boundary_min = overlap_start
-                boundary_max = overlap_end
+                boundary_min = max(actual_overlap_start, int(overlap_start))
+                boundary_max = min(actual_overlap_end, int(overlap_end))
             boundary_min = max(boundary_min, int(prev["start"]) + 1)
             boundary_max = min(boundary_max, int(item["end"]) - 1)
+            preferred_boundary = item.get("required_context_start")
+            if preferred_boundary is None:
+                boundary_candidate = int((boundary_min + boundary_max) / 2)
+            else:
+                boundary_candidate = max(
+                    math.ceil(boundary_min),
+                    min(int(preferred_boundary), math.floor(boundary_max)),
+                )
             boundary = _nearest_safe_srt_boundary(
                 boundary_candidate,
                 boundary_min,
@@ -2651,6 +2720,24 @@ def _cap_expanded_clip_mark(mark):
     topic_end = min(end_s, int(item.get("topic_end", end_s)))
     if topic_end <= topic_start:
         topic_start, topic_end = start_s, end_s
+
+    required_context_start = item.get("required_context_start")
+    if required_context_start is not None:
+        required_context_start = max(start_s, min(topic_start, int(required_context_start)))
+        if topic_end - required_context_start < TOPIC_MAX_CLIP_SEC:
+            # 触发语句和语义核心都能装入上限时，优先保留完整收尾，再从开头裁掉最少的静态前文。
+            if end_s - required_context_start <= TOPIC_MAX_CLIP_SEC + TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC:
+                item["start"] = int(required_context_start)
+                item["end"] = int(max(required_context_start + 1, end_s))
+                return item
+            new_end = end_s
+            new_start = max(start_s, new_end - TOPIC_MAX_CLIP_SEC)
+            if new_start > topic_start:
+                new_start = topic_start
+                new_end = min(end_s, new_start + TOPIC_MAX_CLIP_SEC)
+            item["start"] = int(new_start)
+            item["end"] = int(max(new_start + 1, new_end))
+            return item
 
     core_duration = topic_end - topic_start
     if core_duration >= TOPIC_MAX_CLIP_SEC:
@@ -2850,6 +2937,61 @@ def _find_sc_context_start(topic_start, srt_segments, lookback_sec=SC_CONTEXT_LO
     return start_s
 
 
+_TOPIC_LEAD_IN_TRIGGER_RE = re.compile(
+    r'(?:对了|说到这个|说起来|你们猜|有个音悦生|有位音悦生|看到一条|念一条|刚才有|'
+    r'昨天.{0,20}(?:发|送|问)|今天发的|接下来(?:看|玩)|下一个(?:视频|话题|游戏))'
+)
+
+
+def _find_topic_lead_in_start(reference_start, topic_start, srt_segments):
+    """长话题的 AI 核心偏晚时，从参考范围内恢复明确的新话题触发语句。"""
+    if not srt_segments or topic_start - reference_start < 30:
+        return None
+    search_start = max(reference_start, topic_start - TOPIC_LEAD_IN_LOOKBACK_SEC)
+    for seg_start, _, text in srt_segments:
+        if seg_start < search_start:
+            continue
+        if seg_start >= topic_start:
+            break
+        if _TOPIC_LEAD_IN_TRIGGER_RE.search(re.sub(r'\s+', '', text or "")):
+            return seg_start
+    return None
+
+
+def _find_next_topic_hard_end(topic_end, reference_end, search_end, srt_segments):
+    """核心已到参考范围末尾时，用明确转场阻止固定后文吞入下一话题。"""
+    if not srt_segments or reference_end - topic_end > 5:
+        return None
+    for index, (seg_start, _, text) in enumerate(srt_segments):
+        if seg_start < topic_end:
+            continue
+        if seg_start > search_end:
+            break
+        compact = re.sub(r'\s+', '', text or "")
+        if not (
+            _TOPIC_LEAD_IN_TRIGGER_RE.search(compact)
+            or _is_explicit_sc_trigger(compact)
+            or (
+                _looks_like_sc_or_gift_trigger(compact)
+                and _gift_trigger_has_question_followup(
+                    index,
+                    search_end,
+                    srt_segments,
+                )
+            )
+        ):
+            continue
+        latest_boundary = math.floor(seg_start)
+        boundary = _nearest_safe_srt_boundary(
+            latest_boundary,
+            math.ceil(topic_end),
+            latest_boundary,
+            srt_segments,
+        )
+        return boundary if boundary is not None else latest_boundary
+    return None
+
+
 def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None):
     """把 LLM 标记的话题范围扩展为真正用于 ffmpeg 的前后文切片范围。"""
     topic_start = int(float(mark.get("topic_start", mark["start"])))
@@ -2882,14 +3024,33 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
 
     start_s = max(0, topic_start - pre_context_sec)
     end_s = topic_end + post_context_sec
+    hard_context_end = None
+    if semantic_focus:
+        hard_context_end = _find_next_topic_hard_end(
+            topic_end,
+            int(mark.get("reference_end", topic_end)),
+            end_s,
+            srt_segments or [],
+        )
+        if hard_context_end is not None:
+            end_s = min(end_s, hard_context_end)
     sc_context_start = _find_sc_context_start(topic_start, srt_segments or [])
     if sc_context_start is not None:
         start_s = min(start_s, sc_context_start)
+    lead_in_start = None
+    if semantic_focus and raw_duration >= TOPIC_LEAD_IN_RECOVERY_MIN_SEC:
+        lead_in_start = _find_topic_lead_in_start(
+            int(mark.get("reference_start", topic_start)),
+            topic_start,
+            srt_segments or [],
+        )
+        if lead_in_start is not None:
+            start_s = min(start_s, lead_in_start)
 
     if end_s - start_s < TOPIC_MIN_CLIP_SEC:
         deficit = TOPIC_MIN_CLIP_SEC - (end_s - start_s)
-        left = int(deficit * 0.4)
-        right = deficit - left
+        left = deficit if hard_context_end is not None else int(deficit * 0.4)
+        right = 0 if hard_context_end is not None else deficit - left
         start_s = max(0, start_s - left)
         end_s += right
 
@@ -2908,6 +3069,8 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
         natural_pre_max_sec=natural_pre_max_sec,
         natural_post_max_sec=natural_post_max_sec,
     )
+    if hard_context_end is not None:
+        end_s = min(end_s, hard_context_end)
 
     if video_duration:
         end_s = min(end_s, video_duration)
@@ -2922,12 +3085,21 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
         end_s,
         srt_segments or [],
     )
+    if hard_context_end is not None:
+        expanded["end"] = min(expanded["end"], int(hard_context_end))
+        expanded["hard_context_end"] = int(hard_context_end)
     expanded["time_basis"] = "video_elapsed_seconds"
     expanded["context_expanded"] = True
     expanded["context_pre_sec"] = pre_context_sec
     expanded["context_post_sec"] = post_context_sec
     expanded["context_start_before_natural"] = int(context_start_s)
     expanded["context_end_before_natural"] = int(context_end_s)
+    required_context_starts = [
+        value for value in (sc_context_start, lead_in_start)
+        if value is not None
+    ]
+    if required_context_starts:
+        expanded["required_context_start"] = int(min(required_context_starts))
     expanded = _cap_expanded_clip_mark(expanded)
     return _refresh_natural_boundary_metadata(expanded)
 
@@ -2971,7 +3143,8 @@ def _replace_streamer_role(text, streamer_name):
     result = text or ""
     for formal_name in STREAMER_NICKNAME_MAP:
         result = result.replace(formal_name, display_name)
-    return result.replace("主播", display_name)
+    result = result.replace("主播", display_name)
+    return _normalise_streamer_terms(result, streamer_name=display_name)
 
 
 def _strip_emoji_for_title(title):
@@ -3050,30 +3223,28 @@ def _group_topics_by_hour(topics):
     return buckets
 
 
-def _topic_peak_density(topic, peaks, window_sec=DANMAKU_WINDOW):
-    """计算话题时间范围内/附近最高弹幕密度。"""
+def _topic_peak_candidates(topic, peaks, window_sec=DANMAKU_WINDOW):
+    """只保留中心落在语义核心内的峰值，避免擦边窗口误导切片锚点。"""
     if not peaks:
-        return 0
+        return []
     start = int(topic["start"])
     end = int(topic["end"])
-    densities = [
-        density for peak_start, density in peaks
-        if peak_start + window_sec >= start and peak_start <= end
+    return [
+        (peak_start, density)
+        for peak_start, density in peaks
+        if start <= peak_start + window_sec / 2 <= end
     ]
+
+
+def _topic_peak_density(topic, peaks, window_sec=DANMAKU_WINDOW):
+    """计算语义核心内最高弹幕密度。"""
+    densities = [density for _, density in _topic_peak_candidates(topic, peaks, window_sec)]
     return max(densities) if densities else 0
 
 
 def _topic_peak_anchor(topic, peaks, window_sec=DANMAKU_WINDOW):
     """返回话题内最高弹幕峰值中心点；没有峰值则返回 None。"""
-    if not peaks:
-        return None
-    start = int(topic["start"])
-    end = int(topic["end"])
-    candidates = [
-        (peak_start, density)
-        for peak_start, density in peaks
-        if peak_start + window_sec >= start and peak_start <= end
-    ]
+    candidates = _topic_peak_candidates(topic, peaks, window_sec)
     if not candidates:
         return None
     peak_start, _ = max(candidates, key=lambda item: item[1])
@@ -3082,15 +3253,9 @@ def _topic_peak_anchor(topic, peaks, window_sec=DANMAKU_WINDOW):
 
 def _topic_peak_focus_window(topic, peaks, window_sec=DANMAKU_WINDOW):
     """返回话题内最高弹幕峰值窗口；实际切片优先围绕该窗口扩前后文。"""
-    if not peaks:
-        return None
     start = int(topic["start"])
     end = int(topic["end"])
-    candidates = [
-        (peak_start, density)
-        for peak_start, density in peaks
-        if peak_start + window_sec >= start and peak_start <= end
-    ]
+    candidates = _topic_peak_candidates(topic, peaks, window_sec)
     if not candidates:
         return None
     peak_start, density = max(candidates, key=lambda item: item[1])
@@ -3213,6 +3378,32 @@ def _clean_topics_for_report(topics):
     return cleaned
 
 
+def _refresh_topic_danmaku_evidence(topic, peaks):
+    """AI 缩小语义核心后重新计算弹幕依据，移除已落在核心外的旧峰值说明。"""
+    candidates = _topic_peak_candidates(topic, peaks)
+    best = max(candidates, key=lambda item: item[1]) if candidates else None
+    evidence = None
+    if best:
+        peak_start, density = best
+        evidence = f"·弹幕依据：{fmt_time(peak_start)} 附近峰值约 {density:.0f} 条/分钟"
+    body = []
+    inserted = False
+    for line in topic.get("body") or []:
+        if str(line).startswith("·弹幕依据："):
+            if evidence and not inserted:
+                body.append(evidence)
+                inserted = True
+            continue
+        if evidence and not inserted and str(line).startswith("●人工时间轴"):
+            body.append(evidence)
+            inserted = True
+        body.append(line)
+    if evidence and not inserted:
+        body.append(evidence)
+    topic["body"] = body
+    return best
+
+
 def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
     """从每小时重点中按弹幕密度筛选可切片段。"""
     if not topics:
@@ -3220,6 +3411,7 @@ def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
     threshold = max(avg_density * CLIP_DENSITY_RATIO, avg_density + 10, 20)
     manual_threshold = max(avg_density * MANUAL_TIMELINE_STAR_DENSITY_RATIO, 20)
     for topic in topics:
+        _refresh_topic_danmaku_evidence(topic, peaks)
         peak_density = _topic_peak_density(topic, peaks)
         topic["peak_density"] = peak_density
         topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
@@ -3903,6 +4095,7 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
                 "post_context_sec": TOPIC_POST_CONTEXT_SEC,
                 "min_clip_sec": TOPIC_MIN_CLIP_SEC,
                 "max_clip_sec": TOPIC_MAX_CLIP_SEC,
+                "required_context_overflow_sec": TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
             },
             "api_precheck_warning": api_precheck_warning,
             "failed_chunks": failed_chunks,
