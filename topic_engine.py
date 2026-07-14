@@ -11,6 +11,8 @@
 
 import html
 import math
+import bisect
+import difflib
 import os, re, json, time, zipfile, requests, threading
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -34,7 +36,7 @@ FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
     r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 )
 DANMAKU_WINDOW = 60
-DENSITY_RATIO = 0.30     # 弹幕密度阈值（稍低，用于标记而非切片）
+DANMAKU_WINDOW_STEP = 15  # 每 15 秒采样一个 60 秒窗口，兼顾峰值定位和全场覆盖
 CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
 TOPIC_PRE_CONTEXT_SEC = 45      # 话题切片向前保留前因，避免二剪素材拖得过长
 TOPIC_POST_CONTEXT_SEC = 60     # 话题切片向后保留反应和收尾
@@ -73,6 +75,13 @@ MANUAL_TIMELINE_TOPIC_PRE_SEC = 30
 MANUAL_TIMELINE_TOPIC_POST_SEC = 150
 MANUAL_TIMELINE_STAR_DENSITY_RATIO = 0.80
 MANUAL_TIMELINE_END_MARGIN_SEC = 15
+MANUAL_TIMELINE_OPTIMIZE_GAP_SEC = 180
+MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC = 600
+MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE = 6
+MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC = 600
+MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC = 80
+MANUAL_TIMELINE_ALIGNMENT_STEP_SEC = 20
+MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE = 0.12
 
 SC_TRIGGER_KEYWORDS = (
     "sc", "s c", "super chat", "superchat", "醒目留言", "醒目", "付费留言",
@@ -498,6 +507,8 @@ def _parse_manual_timeline_lines(lines, video_start):
         r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})'
     )
     event_re = re.compile(r'^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(.+?)\s*$')
+    expanded_lines = []
+    event_marker_re = re.compile(r'(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?=\s)')
     for raw in lines or []:
         line = re.sub(r'\s+', ' ', str(raw or "")).strip()
         if not line:
@@ -512,6 +523,18 @@ def _parse_manual_timeline_lines(lines, video_start):
                 period_start = None
                 period_end = None
             continue
+        markers = list(event_marker_re.finditer(line))
+        if not markers:
+            continue
+        for index, marker in enumerate(markers):
+            end = markers[index + 1].start() if index + 1 < len(markers) else len(line)
+            expanded_lines.append((
+                line[marker.start():end].strip(),
+                period_start,
+                period_end,
+            ))
+
+    for line, line_period_start, line_period_end in expanded_lines:
         match = event_re.match(line)
         if not match:
             continue
@@ -519,12 +542,12 @@ def _parse_manual_timeline_lines(lines, video_start):
         second = int(sec or 0)
         event_time = (int(h), int(minute), second)
         try:
-            if period_start and period_end:
+            if line_period_start and line_period_end:
                 event_dt = datetime(
-                    period_start.year, period_start.month, period_start.day,
+                    line_period_start.year, line_period_start.month, line_period_start.day,
                     *event_time,
                 )
-                if event_dt < period_start:
+                if event_dt < line_period_start:
                     event_dt += timedelta(days=1)
             else:
                 candidates = [
@@ -680,6 +703,11 @@ def _manual_timeline_summary(manual_timeline):
         "path": manual_timeline.get("path"),
         "entry_count": len(entries),
         "source_entry_count": manual_timeline.get("source_entry_count", len(entries)),
+        "raw_entry_count": manual_timeline.get("raw_entry_count", len(entries)),
+        "optimized_entry_count": manual_timeline.get("optimized_entry_count"),
+        "optimized_json_path": manual_timeline.get("optimized_json_path"),
+        "optimized_md_path": manual_timeline.get("optimized_md_path"),
+        "optimization_warning": manual_timeline.get("optimization_warning"),
         "star_count": sum(1 for item in entries if item.get("stars", 0) > 0),
         "video_start": video_start,
         "time_basis": manual_timeline.get("time_basis") or (
@@ -693,8 +721,17 @@ def _format_manual_entry_for_prompt(entry):
     stars = "⭐" * min(int(entry.get("stars", 0)), 5)
     prefix = f"{stars} " if stars else ""
     clock = entry.get("clock")
-    time_label = f"{fmt_time(entry['start'])} / {clock}" if clock else fmt_time(entry["start"])
-    return f"- [{time_label}] {prefix}{entry.get('text', '')}"
+    elapsed_label = fmt_time(entry["start"])
+    if entry.get("end") is not None and int(entry["end"]) > int(entry["start"]):
+        elapsed_label = f"{elapsed_label}-{fmt_time(entry['end'])}"
+    time_label = f"{elapsed_label} / {clock}" if clock else elapsed_label
+    summary = "；".join(
+        _strip_body_prefix(item)
+        for item in (entry.get("summary") or [])[:2]
+        if _strip_body_prefix(item)
+    )
+    summary_suffix = f" | {summary}" if summary else ""
+    return f"- [{time_label}] {prefix}{entry.get('text', '')}{summary_suffix}"
 
 
 def _manual_timeline_info_for_chunk(entries, chunk_start, chunk_end, limit=12):
@@ -739,7 +776,8 @@ def _manual_entry_matches_topic(entry, topic, margin=0):
     start = int(topic["start"]) - margin
     end = int(topic["end"]) + margin
     entry_start = int(entry["start"])
-    return start <= entry_start < end
+    entry_end = max(entry_start + 1, int(entry.get("end", entry_start + 1)))
+    return entry_start < end and entry_end > start
 
 
 def _is_manual_merge_target(topic):
@@ -760,7 +798,7 @@ def _is_manual_merge_target(topic):
 
 
 def _merge_manual_timeline_topics(topics, entries):
-    """把 ⭐ 人工重点附加到话题；LLM 漏掉时补一个人工重点话题。"""
+    """后置对照优化时间轴；命中只附证据，遗漏候选必须再次复核。"""
     if not entries:
         return topics
     for topic in topics:
@@ -789,23 +827,44 @@ def _merge_manual_timeline_topics(topics, entries):
         topic["body"] = body
 
     for entry in entries:
-        if entry.get("stars", 0) <= 0:
+        optimized = entry.get("source") == "optimized_manual_timeline"
+        if entry.get("stars", 0) <= 0 and not optimized:
             continue
         if any(entry in (topic.get("manual_timeline") or []) for topic in topics):
             continue
         if any(_is_manual_merge_target(topic) and _manual_entry_matches_topic(entry, topic) for topic in topics):
             continue
+        topic_start = (
+            max(0, int(entry["start"]))
+            if optimized
+            else max(0, int(entry["start"]) - MANUAL_TIMELINE_TOPIC_PRE_SEC)
+        )
+        topic_end = (
+            max(topic_start + 1, int(entry.get("end", topic_start + 1)))
+            if optimized
+            else int(entry["start"]) + MANUAL_TIMELINE_TOPIC_POST_SEC
+        )
         topic = {
-            "start": max(0, int(entry["start"]) - MANUAL_TIMELINE_TOPIC_PRE_SEC),
-            "end": int(entry["start"]) + MANUAL_TIMELINE_TOPIC_POST_SEC,
-            "start_str": fmt_time(max(0, int(entry["start"]) - MANUAL_TIMELINE_TOPIC_PRE_SEC)),
-            "end_str": fmt_time(int(entry["start"]) + MANUAL_TIMELINE_TOPIC_POST_SEC),
+            "start": topic_start,
+            "end": topic_end,
+            "start_str": fmt_time(topic_start),
+            "end_str": fmt_time(topic_end),
             "title": _manual_title_from_text(entry["text"]),
             "can_slice": False,
-            "body": [f"●人工时间轴{'⭐' * min(entry.get('stars', 0), 5)}：{fmt_time(entry['start'])} {entry['text']}"],
+            "body": list(entry.get("summary") or []) + [
+                f"●人工时间轴{'⭐' * min(entry.get('stars', 0), 5)}："
+                f"{fmt_time(entry['start'])} {entry['text']}"
+            ],
             "manual_stars": entry.get("stars", 0),
             "manual_timeline": [entry],
-            "source": "manual_timeline",
+            "source": entry.get("source", "manual_timeline"),
+            # 时间轴优化阶段只负责整理候选。首轮遗漏后必须再做一次独立复核，
+            # 成功前不能把优化阶段的 ai_enriched 当作切片许可。
+            "ai_enriched": False if optimized else bool(entry.get("ai_enriched")),
+            "ai_focus_validated": False if optimized else bool(entry.get("ai_focus_validated")),
+            "postcheck_pending": optimized,
+            "reference_only": optimized,
+            "publish_title": entry.get("publish_title"),
         }
         if not _is_duplicate_topic(topic, [old for old in topics if _is_manual_merge_target(old)]):
             topics.append(topic)
@@ -898,7 +957,9 @@ def _topic_danmaku_reference_lines(start, end, peaks, limit=3):
     ]
 
 
-def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap_sec=240):
+def _topics_from_manual_timeline(
+        entries, srt_segments=None, peaks=None, max_gap_sec=240,
+        max_group_duration_sec=None):
     """基于字幕/弹幕生成话题，人工时间轴只作为辅助参考和校准。"""
     sorted_entries = sorted(entries or [], key=lambda item: item["start"])
     groups = []
@@ -914,7 +975,15 @@ def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap
             current = [entry]
             continue
         same_hour = int(entry["start"] // 3600) == int(current[-1]["start"] // 3600)
-        if same_hour and entry["start"] - current[-1]["start"] <= max_gap_sec:
+        within_group_duration = (
+            max_group_duration_sec is None
+            or entry["start"] - current[0]["start"] <= max_group_duration_sec
+        )
+        if (
+            same_hour
+            and within_group_duration
+            and entry["start"] - current[-1]["start"] <= max_gap_sec
+        ):
             current.append(entry)
         else:
             groups.append(current)
@@ -924,7 +993,17 @@ def _topics_from_manual_timeline(entries, srt_segments=None, peaks=None, max_gap
 
     topics = []
     for group in groups:
-        title_entry = next((item for item in group if item.get("stars", 0) > 0), group[0])
+        starred_entries = [item for item in group if item.get("stars", 0) > 0]
+        if starred_entries and any(item.get("alignment_score") is not None for item in starred_entries):
+            title_entry = max(
+                starred_entries,
+                key=lambda item: (
+                    float(item.get("alignment_score") or 0),
+                    len(str(item.get("text", ""))),
+                ),
+            )
+        else:
+            title_entry = starred_entries[0] if starred_entries else group[0]
         explicit_end = group[0].get("end") if len(group) == 1 and group[0].get("explicit_range") else None
         if explicit_end is not None:
             start = max(0, int(group[0]["start"]))
@@ -1133,37 +1212,60 @@ def _srt_time(s):
 # Step 2: 弹幕密度分析
 # ============================================================
 
+class DanmakuDensitySeries(list):
+    """等间隔弹幕密度窗口，并保留按整场时长计算的真实平均值。"""
+
+    def __init__(self, windows=(), average_density=0.0, message_count=0, duration=0.0):
+        super().__init__(windows)
+        self.average_density = float(average_density)
+        self.message_count = int(message_count)
+        self.duration = float(duration)
+
+
+def _average_danmaku_density(windows):
+    """优先读取整场真实均值；普通列表继续兼容既有测试和调用方。"""
+    if hasattr(windows, "average_density"):
+        return float(windows.average_density)
+    densities = [density for _, density in windows or []]
+    return sum(densities) / len(densities) if densities else 0.0
+
+
 def analyze_danmaku(ass_path):
-    """提取弹幕密度峰值，返回 [(start_s, density), ...]"""
+    """按固定步长统计 60 秒滑动窗口，不丢弃低密度样本。"""
     if not ass_path or not os.path.exists(ass_path):
-        return []
+        return DanmakuDensitySeries()
 
     timestamps = []
     with open(ass_path, encoding="utf-8") as f:
         for line in f:
             if line.startswith("Dialogue:"):
-                parts = line.split(",")
-                h, m, s = parts[1].strip().split(":")
-                timestamps.append(int(h) * 3600 + int(m) * 60 + float(s))
+                parts = line.split(",", 3)
+                if len(parts) < 2:
+                    continue
+                try:
+                    h, m, s = parts[1].strip().split(":")
+                    timestamps.append(int(h) * 3600 + int(m) * 60 + float(s))
+                except (TypeError, ValueError):
+                    continue
 
-    time_counts = defaultdict(int)
-    for t in timestamps:
-        time_counts[t] += 1
+    if not timestamps:
+        return DanmakuDensitySeries()
 
-    sorted_times = sorted(time_counts.keys())
-    peaks = []
-    for i in range(0, len(sorted_times), max(1, len(sorted_times) // 200)):
-        start = sorted_times[i]
-        end = start + DANMAKU_WINDOW
-        density = sum(c for t, c in time_counts.items() if start <= t < end)
-        peaks.append((int(start), density))
+    timestamps.sort()
+    duration = max(float(timestamps[-1]), float(DANMAKU_WINDOW))
+    average_density = len(timestamps) * 60.0 / duration
+    windows = []
+    for start in range(0, int(math.floor(timestamps[-1])) + 1, DANMAKU_WINDOW_STEP):
+        left = bisect.bisect_left(timestamps, start)
+        right = bisect.bisect_left(timestamps, start + DANMAKU_WINDOW)
+        windows.append((start, right - left))
 
-    peaks.sort(key=lambda x: x[1], reverse=True)
-    if peaks:
-        threshold = max(peaks[0][1] * DENSITY_RATIO, 2)
-        peaks = [(s, d) for s, d in peaks if d >= threshold]
-
-    return peaks
+    return DanmakuDensitySeries(
+        windows,
+        average_density=average_density,
+        message_count=len(timestamps),
+        duration=duration,
+    )
 
 
 # ============================================================
@@ -1183,9 +1285,7 @@ def chunk_srt(segs, peaks, chunk_sec=CHUNK_SEC):
     """将 SRT 按时间分块，每块附带弹幕密度信息"""
     if not segs:
         return []
-    # 计算全场平均密度
-    all_densities = [d for _, d in peaks] if peaks else [0]
-    avg_density = sum(all_densities) / len(all_densities) if all_densities else 0
+    avg_density = _average_danmaku_density(peaks)
 
     chunks = []
     chunk_start = segs[0][0]
@@ -1361,12 +1461,6 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 不要漏掉当前分块的主要讲话内容；能归纳就归纳成“日常闲聊/游戏过程/读弹幕互动”等普通话题
 - 话题开始必须包含触发事件：由 SC、观众长留言、礼物、提问或外部视频引发的讨论，要从念出触发内容或明确引出问题处开始；结束要覆盖最后一轮回应，不能只框弹幕爆点一句
 
-## 人工时间轴参考
-
-- 如果提示中提供“人工时间轴参考”，它是人工整理的墙钟时间，程序已换算成视频内时间；可作为字幕识别错误时的辅助证据
-- 带 ⭐ 的人工时间轴片段更值得留意：如果它与当前字幕/弹幕能对上，优先整理成具体话题，can_slice 可更积极
-- 人工时间轴只是辅助，不要照抄成解释说明；最终 points 仍要写成自然的内容要点
-
 ## 输出格式：只输出 JSON，不要输出 Markdown
 
 **关键要求：**
@@ -1528,20 +1622,16 @@ def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
 
 
 def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播"):
-    """构造分块 prompt；compact=True 用于 API 5xx 后降级。"""
+    """构造字幕/弹幕首轮 prompt；人工时间轴不得参与这一轮。"""
     chunk_start = ch["start"]
     chunk_end = ch.get("end", ch["start"] + CHUNK_SEC)
     text_limit = LLM_COMPACT_TEXT_CHARS if compact else LLM_FULL_TEXT_CHARS
-    title_style_prompt = _build_title_style_prompt(
-        f"{ch.get('manual_timeline_info') or ''}\n{ch.get('text') or ''}",
-        compact=compact,
-    )
+    title_style_prompt = _build_title_style_prompt(ch.get("text") or "", compact=compact)
     if compact:
         prompt_head = (
             "你是直播逐话题时间轴整理助手。只分析当前分块，只输出最终话题条目；"
             "当前分块有连续讲话时只整理成1-2个核心话题，内容特别密集最多3个；普通闲聊/游戏过程也要写；"
             "只有几乎无有效讲话才输出“无明显话题”。"
-            "人工时间轴参考是辅助证据，带⭐的片段更值得留意，但不要输出解释说明。"
             "can_slice只给值得自动切片的段，不值得切也要写进报告。"
             "SC、长留言、礼物或提问引发的讨论必须从触发内容开始，到最后一轮回应结束。"
             "每个话题都要给publish_title：固定以【泽音】开头，根据历史风格选择事件+原话、SC+回应、"
@@ -1560,7 +1650,6 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
         f"- 主播展示称呼: {streamer_name or '主播'}（报告里不要写泛称“主播”，用这个称呼代替）\n"
         f"- 粉丝常用称呼: {'、'.join(STREAMER_FAN_ALIASES)}；如果观众留言/SC 原句以这些称呼开头，要保留原话称呼\n"
         f"- 弹幕信息: {ch['danmaku_info']}\n\n"
-        f"## 人工时间轴参考（已换算为视频内时间）\n{ch.get('manual_timeline_info') or '无'}\n\n"
         f"## 账号历史投稿标题风格\n{title_style_prompt or '无可用历史样本；只根据当前证据写具体标题'}\n\n"
         f"## 字幕:\n{ch['text'][:text_limit]}"
     )
@@ -2296,6 +2385,9 @@ def _enriched_manual_topic_from_item(topic, item):
     )
     enriched["body"] = body
     enriched["ai_enriched"] = True
+    enriched["postcheck_pending"] = False
+    enriched["postcheck_validated"] = True
+    enriched.pop("reference_only", None)
     focus_range = _validated_ai_focus_range(item, topic)
     if focus_range:
         source_start = int(topic["start"])
@@ -2382,6 +2474,348 @@ def _try_enrich_manual_topics(topics, streamer_name="音音", progress_callback=
         return None
     except Exception as exc:
         return f"人工时间轴 AI 复核失败，已保留字幕/弹幕规则结果：{_short_llm_error(exc)}"
+
+
+def _enrich_manual_topics_in_batches(
+        topics, streamer_name="音音", progress_callback=None,
+        batch_size=MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE):
+    """分批优化复杂人工时间轴，避免一次请求塞入整场证据。"""
+    optimized_topics = []
+    warnings = []
+    total_batches = max(1, math.ceil(len(topics or []) / max(1, batch_size)))
+    for batch_index, offset in enumerate(range(0, len(topics or []), max(1, batch_size)), 1):
+        batch = list(topics[offset:offset + max(1, batch_size)])
+        if progress_callback:
+            progress_callback(
+                f"字幕校准人工时间轴 ({batch_index}/{total_batches})...",
+                22,
+                100,
+            )
+        try:
+            _enrich_manual_topics_with_llm(
+                batch,
+                streamer_name=streamer_name,
+                progress_callback=progress_callback,
+            )
+        except Exception as exc:
+            warning = f"第 {batch_index}/{total_batches} 批优化失败：{_short_llm_error(exc)}"
+            warnings.append(warning)
+            for topic in batch:
+                topic["reference_only"] = True
+        optimized_topics.extend(batch)
+    topics[:] = sorted(optimized_topics, key=lambda item: (item["start"], item["end"]))
+    if not warnings:
+        return None
+    return "人工时间轴部分未完成字幕校准，相关条目仅作低权重参考：" + "；".join(warnings)
+
+
+def _manual_alignment_text(text):
+    return "".join(re.findall(r'[\u4e00-\u9fffA-Za-z0-9]+', str(text or ""))).lower()
+
+
+def _manual_alignment_score(reference, candidate):
+    """用二元字组和最长公共片段匹配人工概述与噪声 ASR。"""
+    reference = _manual_alignment_text(reference)
+    candidate = _manual_alignment_text(candidate)
+    if len(reference) < 2 or len(candidate) < 2:
+        return 0.0
+    reference_grams = {reference[index:index + 2] for index in range(len(reference) - 1)}
+    candidate_grams = {candidate[index:index + 2] for index in range(len(candidate) - 1)}
+    overlap = len(reference_grams & candidate_grams)
+    if not overlap:
+        return 0.0
+    f1 = 2 * overlap / (len(reference_grams) + len(candidate_grams))
+    recall = overlap / len(reference_grams)
+    longest = difflib.SequenceMatcher(
+        None,
+        reference,
+        candidate,
+        autojunk=False,
+    ).find_longest_match().size
+    longest_ratio = longest / max(8, min(len(reference), 40))
+    return 0.35 * f1 + 0.35 * recall + 0.30 * min(1.0, longest_ratio)
+
+
+def _srt_alignment_windows(srt_segments):
+    """把整场字幕预聚合为固定窗口，供人工时间轴做宽范围模糊校时。"""
+    segments = sorted(srt_segments or [], key=lambda item: (item[0], item[1]))
+    if not segments:
+        return []
+    duration = int(math.ceil(max(end for _, end, _ in segments)))
+    windows = []
+    left = 0
+    right = 0
+    for start in range(0, duration + 1, MANUAL_TIMELINE_ALIGNMENT_STEP_SEC):
+        end = start + MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC
+        while left < len(segments) and segments[left][1] < start:
+            left += 1
+        right = max(right, left)
+        while right < len(segments) and segments[right][0] <= end:
+            right += 1
+        text = "".join(item[2] for item in segments[left:right])
+        if text:
+            windows.append((start, end, text))
+    return windows
+
+
+def _align_manual_timeline_entries_to_srt(entries, srt_segments):
+    """在原墙钟点前后十分钟搜索字幕证据，修正人工记录的粗略锚点。"""
+    windows = _srt_alignment_windows(srt_segments)
+    if not windows:
+        return [dict(entry) for entry in entries or []]
+    aligned_entries = []
+    for entry in entries or []:
+        raw_start = int(entry.get("start", 0))
+        nearby = [
+            window for window in windows
+            if abs((window[0] + MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC / 2) - raw_start)
+            <= MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC
+        ]
+        best_window = None
+        best_score = 0.0
+        for window in nearby:
+            content_score = _manual_alignment_score(entry.get("text", ""), window[2])
+            distance = abs((window[0] + MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC / 2) - raw_start)
+            proximity_bonus = 0.02 * max(
+                0.0,
+                1.0 - distance / MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC,
+            )
+            score = content_score + proximity_bonus
+            if score > best_score:
+                best_window = window
+                best_score = score
+        fixed = dict(entry)
+        fixed["original_start"] = raw_start
+        fixed["alignment_score"] = round(best_score, 4)
+        if best_window and best_score >= MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE:
+            fixed["start"] = int(best_window[0])
+            fixed["alignment_shift_sec"] = int(best_window[0] - raw_start)
+            fixed["alignment_source"] = "subtitle_fuzzy_match"
+        else:
+            fixed["alignment_shift_sec"] = 0
+            fixed["alignment_source"] = "wall_clock_fallback"
+        aligned_entries.append(fixed)
+    return sorted(aligned_entries, key=lambda item: (item["start"], item.get("original_start", 0)))
+
+
+def _optimized_manual_entries_from_topics(topics):
+    """把字幕复核话题转换成供后续分块分析使用的简洁时间轴。"""
+    entries = []
+    for topic in topics or []:
+        original_entries = [
+            {
+                "start": int(item.get("start", 0)),
+                "original_start": int(item.get("original_start", item.get("start", 0))),
+                "clock": item.get("clock"),
+                "text": item.get("text", ""),
+                "stars": int(item.get("stars", 0)),
+                "alignment_score": item.get("alignment_score"),
+                "alignment_shift_sec": int(item.get("alignment_shift_sec", 0)),
+            }
+            for item in topic.get("manual_timeline") or []
+        ]
+        stars = max(
+            [int(topic.get("manual_stars", 0))]
+            + [item["stars"] for item in original_entries]
+        )
+        summary = []
+        for line in topic.get("body") or []:
+            clean = _strip_body_prefix(line)
+            if not clean:
+                continue
+            if str(line).startswith(("·弹幕依据：", "·字幕核查：", "·时间轴：", "●人工时间轴")):
+                continue
+            if clean not in summary:
+                summary.append(clean)
+            if len(summary) >= 4:
+                break
+        entry = {
+            "start": int(topic["start"]),
+            "end": int(topic["end"]),
+            "clock": original_entries[0].get("clock") if original_entries else None,
+            "text": topic.get("title", "人工时间轴重点"),
+            "summary": summary,
+            "stars": stars,
+            "highlight": stars > 0,
+            "source": "optimized_manual_timeline",
+            "ai_enriched": bool(topic.get("ai_enriched")),
+            "ai_focus_validated": bool(topic.get("ai_focus_validated")),
+            "reference_only": bool(topic.get("reference_only")),
+            "publish_title": topic.get("publish_title"),
+            "original_entries": original_entries,
+        }
+        entries.append(entry)
+    return entries
+
+
+def _optimize_manual_timeline(
+        entries, srt_segments, peaks, streamer_name="音音", progress_callback=None):
+    """先用字幕/弹幕聚合人工记录，再由 AI 改写标题、要点和语义范围。"""
+    if not entries:
+        return [], None
+    aligned_entries = _align_manual_timeline_entries_to_srt(entries, srt_segments)
+    topics = _topics_from_manual_timeline(
+        aligned_entries,
+        srt_segments=srt_segments,
+        peaks=peaks,
+        max_gap_sec=MANUAL_TIMELINE_OPTIMIZE_GAP_SEC,
+        max_group_duration_sec=MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC,
+    )
+    warning = _enrich_manual_topics_in_batches(
+        topics,
+        streamer_name=streamer_name,
+        progress_callback=progress_callback,
+    )
+    return _optimized_manual_entries_from_topics(topics), warning
+
+
+def _optimized_timeline_paths(video_base):
+    return video_base + "_优化时间轴.json", video_base + "_优化时间轴.md"
+
+
+def _write_optimized_timeline_files(
+        video_base, source_path, raw_entries, optimized_entries, warning=None):
+    """保存可审阅的优化时间轴，便于判断人工参考如何被字幕校准。"""
+    json_path, md_path = _optimized_timeline_paths(video_base)
+    payload = {
+        "source_path": source_path,
+        "raw_entry_count": len(raw_entries or []),
+        "optimized_entry_count": len(optimized_entries or []),
+        "warning": warning,
+        "entries": optimized_entries or [],
+    }
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    lines = [
+        "# 字幕校准后的人工时间轴",
+        "",
+        f"> 原始文件: {source_path or '无'}",
+        f"> 原始 {len(raw_entries or [])} 条 → 优化 {len(optimized_entries or [])} 个话题候选",
+    ]
+    if warning:
+        lines.append(f"> 警告: {warning}")
+    lines.extend(["", "---", ""])
+    for index, entry in enumerate(optimized_entries or [], 1):
+        stars = " ⭐" * min(int(entry.get("stars", 0)), 5)
+        confidence = "字幕/AI已复核" if entry.get("ai_enriched") else "低权重参考"
+        lines.append(
+            f"## {index:02d} [{fmt_time(entry['start'])}－{fmt_time(entry['end'])}] "
+            f"{entry.get('text', '未命名话题')}{stars}"
+        )
+        lines.append(f"- 状态: {confidence}")
+        adjustments = [
+            f"{fmt_time(item.get('original_start', item.get('start', 0)))}→"
+            f"{fmt_time(item.get('start', 0))} ({int(item.get('alignment_shift_sec', 0)):+d}秒)"
+            for item in entry.get("original_entries") or []
+            if int(item.get("alignment_shift_sec", 0)) != 0
+        ]
+        if adjustments:
+            lines.append(f"- 字幕校时: {'；'.join(adjustments[:4])}")
+        for point in entry.get("summary") or []:
+            lines.append(f"- {point}")
+        lines.append("")
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines).rstrip() + "\n")
+    return json_path, md_path
+
+
+def _prepare_optimized_manual_timeline(
+        flv_path, video_base, srt_segments, peaks, video_duration,
+        manual_timeline_path, streamer_name="音音", progress_callback=None):
+    """加载、过滤并优化人工时间轴，返回后续可直接使用的结构。"""
+    manual_timeline = load_manual_timeline(
+        flv_path,
+        manual_timeline_path=manual_timeline_path,
+    )
+    all_entries = manual_timeline.get("entries") or []
+    raw_entries = _filter_manual_timeline_entries(all_entries, video_duration)
+    manual_timeline["source_entry_count"] = len(all_entries)
+    manual_timeline["raw_entry_count"] = len(raw_entries)
+    manual_timeline["entries"] = raw_entries
+    if not raw_entries:
+        return manual_timeline
+
+    optimized_entries, warning = _optimize_manual_timeline(
+        raw_entries,
+        srt_segments=srt_segments,
+        peaks=peaks,
+        streamer_name=streamer_name,
+        progress_callback=progress_callback,
+    )
+    optimized_json_path, optimized_md_path = _write_optimized_timeline_files(
+        video_base,
+        manual_timeline.get("path"),
+        raw_entries,
+        optimized_entries,
+        warning=warning,
+    )
+    manual_timeline["entries"] = optimized_entries
+    manual_timeline["optimized_entry_count"] = len(optimized_entries)
+    manual_timeline["optimized_json_path"] = optimized_json_path
+    manual_timeline["optimized_md_path"] = optimized_md_path
+    manual_timeline["optimization_warning"] = warning
+    return manual_timeline
+
+
+def optimize_manual_timeline_for_video(
+        flv_path, manual_timeline_path, ass_path=None, progress_callback=None):
+    """仅优化人工时间轴，不启动整场话题分析或自动切片。"""
+    if not os.path.isfile(flv_path):
+        raise FileNotFoundError(f"录播文件不存在: {flv_path}")
+    if not manual_timeline_path or not os.path.isfile(manual_timeline_path):
+        raise FileNotFoundError(f"人工时间轴文件不存在: {manual_timeline_path or '未选择'}")
+
+    if progress_callback:
+        progress_callback("检查完整版字幕...", 0, 100)
+    source_srt_path = ensure_srt(flv_path, progress_callback)
+    if not source_srt_path:
+        raise RuntimeError("无法生成 SRT 字幕")
+    corrected_srt_path = export_corrected_srt(source_srt_path)
+    srt_path = corrected_srt_path or source_srt_path
+    srt_segments = parse_srt_text(srt_path)
+    if not srt_segments:
+        raise RuntimeError("字幕文件没有可用于校时的有效内容")
+
+    if ass_path is None:
+        candidate_ass_path = os.path.splitext(flv_path)[0] + ".ass"
+        ass_path = candidate_ass_path if os.path.isfile(candidate_ass_path) else None
+    if progress_callback:
+        progress_callback("计算人工时间轴附近弹幕依据...", 15, 100)
+    peaks = analyze_danmaku(ass_path) if ass_path and os.path.isfile(ass_path) else DanmakuDensitySeries()
+    srt_duration = max((end for _, end, _ in srt_segments), default=None)
+    video_duration = _probe_video_duration(flv_path) or srt_duration
+    streamer_name = _streamer_report_name(_infer_streamer_name(flv_path))
+    video_base = os.path.splitext(flv_path)[0]
+    manual_timeline = _prepare_optimized_manual_timeline(
+        flv_path,
+        video_base,
+        srt_segments,
+        peaks,
+        video_duration,
+        manual_timeline_path,
+        streamer_name=streamer_name,
+        progress_callback=progress_callback,
+    )
+    if not manual_timeline.get("raw_entry_count"):
+        raise ValueError("所选人工时间轴没有落在当前完整版录播范围内的记录")
+    if progress_callback:
+        progress_callback(
+            f"完成! 原始 {manual_timeline['raw_entry_count']} 条 → "
+            f"优化 {manual_timeline.get('optimized_entry_count', 0)} 个候选",
+            100,
+            100,
+        )
+    return {
+        "video_path": flv_path,
+        "source_srt_path": source_srt_path,
+        "corrected_srt_path": corrected_srt_path,
+        "srt_path": srt_path,
+        "optimized_json_path": manual_timeline.get("optimized_json_path"),
+        "optimized_md_path": manual_timeline.get("optimized_md_path"),
+        "warning": manual_timeline.get("optimization_warning"),
+        "manual_timeline": _manual_timeline_summary(manual_timeline),
+    }
 
 
 def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None, allow_markdown_fallback=True):
@@ -3345,6 +3779,10 @@ def _is_content_cuttable_topic(topic):
     """判断话题内容本身是否适合切片，避免只有背景语音/兜底说明被高弹幕误切。"""
     if topic.get("fallback"):
         return False
+    if topic.get("reference_only"):
+        return False
+    if topic.get("source") in {"manual_timeline", "optimized_manual_timeline"} and not topic.get("ai_enriched"):
+        return False
     if _is_bad_topic_title(topic.get("title", "")):
         return False
     text = " ".join([topic.get("title", "")] + list(topic.get("body") or []))
@@ -3858,11 +4296,22 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
     if manual_timeline.get("path"):
         star_count = sum(1 for item in manual_entries if item.get("stars", 0) > 0)
         source_count = manual_timeline.get("source_entry_count", len(manual_entries))
-        count_label = f"当前分段 {len(manual_entries)}/{source_count} 条记录" if source_count != len(manual_entries) else f"{len(manual_entries)} 条记录"
+        raw_count = manual_timeline.get("raw_entry_count", source_count)
+        optimized_count = manual_timeline.get("optimized_entry_count")
+        if optimized_count is not None:
+            count_label = f"当前分段原始 {raw_count} 条 → 字幕优化 {optimized_count} 个候选"
+        else:
+            count_label = (
+                f"当前分段 {len(manual_entries)}/{source_count} 条记录"
+                if source_count != len(manual_entries)
+                else f"{len(manual_entries)} 条记录"
+            )
         lines.append(
             f"> 人工时间轴辅助: {os.path.basename(manual_timeline['path'])} | "
             f"{count_label}, ⭐重点 {star_count} 条"
         )
+        if manual_timeline.get("optimized_md_path"):
+            lines.append(f"> 字幕优化时间轴: {manual_timeline['optimized_md_path']}")
     lines.extend(["---", "", "## 逐话题时间轴", ""])
 
     groups = _group_topics_for_parts(topics)
@@ -3914,6 +4363,159 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _analyze_topic_chunks(chunks, streamer_display_name, progress_callback=None):
+    """逐块独立分析完整字幕和弹幕，不读取人工时间轴。"""
+    if not chunks:
+        return [], [], None
+
+    api_warning = None
+    if progress_callback:
+        progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
+    try:
+        test_resp = _call_llm_with_retry(
+            "只输出 OK 两个字母，不要解释，不要推理。",
+            max_tokens=1000,
+            attempts=3,
+            progress_callback=progress_callback,
+            progress_label="API预检",
+            progress_step=22,
+        )
+        if not test_resp or len(test_resp.strip()) < 1:
+            raise RuntimeError("API 返回空内容")
+    except Exception as exc:
+        message = _short_llm_error(exc)
+        if not _is_retryable_llm_error(exc):
+            if progress_callback:
+                progress_callback(f"API 预检失败: {message}", 0, 100)
+            raise RuntimeError(f"API 预检失败: {message}") from exc
+        api_warning = f"API 预检遇到临时错误，正式分块已继续重试：{message}"
+        if progress_callback:
+            progress_callback(api_warning, 22, 100)
+
+    accepted_topics = []
+    failed_chunks = []
+    consecutive_failed_chunks = 0
+    successful_response_count = 0
+    total = len(chunks)
+    for index, chunk in enumerate(chunks):
+        pct = 25 + int((index / total) * 68)
+        chunk_time = fmt_time(chunk["start"])
+        if progress_callback:
+            progress_callback(
+                f"Step 4/5: LLM分析 ({index + 1}/{total}, {chunk_time})...",
+                pct,
+                100,
+            )
+
+        prompt, chunk_start, chunk_end = _build_chunk_prompt(
+            chunk,
+            index,
+            total,
+            compact=False,
+            streamer_name=streamer_display_name,
+        )
+        compact_prompt, _, _ = _build_chunk_prompt(
+            chunk,
+            index,
+            total,
+            compact=True,
+            streamer_name=streamer_display_name,
+        )
+        try:
+            response = _call_llm_with_retry(
+                prompt,
+                compact_prompt=compact_prompt,
+                require_json=True,
+                progress_callback=progress_callback,
+                progress_label=f"块 {index + 1} API",
+                progress_step=pct,
+            )
+        except Exception as exc:
+            error = _short_llm_error(exc)
+            failed_chunks.append({
+                "index": index + 1,
+                "start": int(chunk_start),
+                "end": int(chunk_end),
+                "time": fmt_time(chunk_start),
+                "error": error,
+            })
+            if progress_callback:
+                progress_callback(f"块 {index + 1} API 连续失败，已跳过: {error}", pct, 100)
+            consecutive_failed_chunks = (
+                consecutive_failed_chunks + 1
+                if _is_retryable_llm_error(exc)
+                else MAX_INITIAL_FAILED_CHUNKS
+            )
+            if (
+                consecutive_failed_chunks >= MAX_INITIAL_FAILED_CHUNKS
+                and successful_response_count == 0
+            ):
+                raise RuntimeError(
+                    f"LLM API 连续 {consecutive_failed_chunks} 个分块失败，疑似上游服务不可用。"
+                    f"最后错误: {error}"
+                ) from exc
+            fallback_topic = _make_fallback_topic_from_chunk(
+                chunk,
+                streamer_name=streamer_display_name,
+            )
+            if fallback_topic and not _is_duplicate_topic(fallback_topic, accepted_topics):
+                accepted_topics.append(fallback_topic)
+            continue
+
+        successful_response_count += 1
+        consecutive_failed_chunks = 0
+        before_topic_count = len(accepted_topics)
+        _parse_llm_response(
+            response,
+            chunk_start,
+            chunk_end,
+            accepted_topics,
+            allow_markdown_fallback=False,
+        )
+        if len(accepted_topics) == before_topic_count:
+            fallback_topic = _make_fallback_topic_from_chunk(
+                chunk,
+                streamer_name=streamer_display_name,
+            )
+            if fallback_topic and not _is_duplicate_topic(fallback_topic, accepted_topics):
+                accepted_topics.append(fallback_topic)
+        time.sleep(0.3)
+
+    return accepted_topics, failed_chunks, api_warning
+
+
+def _validate_unmatched_manual_topics(topics, streamer_name="音音", progress_callback=None):
+    """后置复核首轮遗漏的时间轴候选；失败时只保留报告线索。"""
+    manual_topics = [
+        topic for topic in topics
+        if topic.get("source") in {"manual_timeline", "optimized_manual_timeline"}
+        and (not topic.get("ai_enriched") or topic.get("postcheck_pending"))
+    ]
+    if not manual_topics:
+        return None
+
+    original_ids = {id(topic) for topic in manual_topics}
+    try:
+        _enrich_manual_topics_with_llm(
+            manual_topics,
+            streamer_name=streamer_name,
+            progress_callback=progress_callback,
+        )
+    except Exception as exc:
+        for topic in topics:
+            if id(topic) in original_ids:
+                topic["reference_only"] = True
+        return (
+            "人工星标补充复核失败，未核验条目仅写入报告且不会自动切片："
+            f"{_short_llm_error(exc)}"
+        )
+
+    topics[:] = [topic for topic in topics if id(topic) not in original_ids]
+    topics.extend(manual_topics)
+    topics.sort(key=lambda item: (item["start"], item["end"]))
+    return None
+
+
 def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timeline_path=None):
     """
     完整流水线：SRT → 弹幕 → LLM分析 → 报告 + 切片标记
@@ -3949,155 +4551,75 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     # Step 2: 弹幕分析
     if progress_callback:
         progress_callback("Step 2/5: 弹幕密度分析...", 15, 100)
-    peaks = analyze_danmaku(ass_path) if ass_path else []
-    avg_den = sum(d for _, d in peaks) / len(peaks) if peaks else 0
-    peak_info = f"弹幕峰值 {len(peaks)} 个窗口, 全场平均密度 {avg_den:.0f}条/分钟" if peaks else "无弹幕数据"
+    peaks = analyze_danmaku(ass_path) if ass_path else DanmakuDensitySeries()
+    avg_den = _average_danmaku_density(peaks)
+    if peaks:
+        high_window_count = sum(
+            density >= avg_den * CLIP_DENSITY_RATIO
+            for _, density in peaks
+        )
+        peak_info = (
+            f"弹幕密度 {len(peaks)} 个滑动窗口, "
+            f"高能窗口 {high_window_count} 个, 全场平均密度 {avg_den:.0f}条/分钟"
+        )
+    else:
+        peak_info = "无弹幕数据"
 
     # Step 3: SRT 分块
     if progress_callback:
         progress_callback("Step 3/5: SRT 分块中...", 20, 100)
     segs = parse_srt_text(srt_path)
     chunks = chunk_srt(segs, peaks)
-    manual_timeline = load_manual_timeline(flv_path, manual_timeline_path=manual_timeline_path)
-    all_manual_entries = manual_timeline.get("entries") or []
     srt_duration = max((end for _, end, _ in segs), default=None)
     video_duration = _probe_video_duration(flv_path) or srt_duration
-    manual_entries = _filter_manual_timeline_entries(all_manual_entries, video_duration)
-    manual_timeline["source_entry_count"] = len(all_manual_entries)
-    manual_timeline["entries"] = manual_entries
+    manual_timeline = _prepare_optimized_manual_timeline(
+        flv_path,
+        base,
+        segs,
+        peaks,
+        video_duration,
+        manual_timeline_path,
+        streamer_name=streamer_display_name,
+        progress_callback=progress_callback,
+    )
+    raw_manual_entry_count = int(manual_timeline.get("raw_entry_count", 0))
+    manual_entries = manual_timeline.get("entries") or []
+    optimization_warning = manual_timeline.get("optimization_warning")
     if manual_entries:
-        chunks = _attach_manual_timeline_to_chunks(chunks, manual_entries)
         if progress_callback:
-            count_label = f"当前分段 {len(manual_entries)}/{len(all_manual_entries)} 条"
+            count_label = (
+                f"原始 {raw_manual_entry_count} 条 → 字幕优化 {len(manual_entries)} 个候选"
+            )
             progress_callback(
                 f"已加载人工时间轴: {os.path.basename(manual_timeline['path'])}，"
                 f"{count_label}",
                 21, 100,
             )
-    total = len(chunks)
-
-    # Step 4: 有人工时间轴时只作为辅助参考，仍以字幕/弹幕为主生成话题；无人工时间轴再调用 LLM。
-    api_precheck_warning = None
-    clip_marks = []
-    accepted_topics = []
-    failed_chunks = []
-    consecutive_failed_chunks = 0
-
-    if manual_entries:
-        accepted_topics = _topics_from_manual_timeline(manual_entries, srt_segments=segs, peaks=peaks)
-        if accepted_topics and progress_callback:
-            progress_callback(
-                f"Step 4/5: DeepSeek 批量复核人工时间轴候选 ({len(accepted_topics)} 个话题)...",
-                75,
-                100,
-            )
-        enrichment_warning = _try_enrich_manual_topics(
-            accepted_topics,
-            streamer_name=streamer_display_name,
-            progress_callback=progress_callback,
+    # Step 4: 首轮只分析字幕和弹幕，避免人工措辞锚定标题与语义边界。
+    accepted_topics, failed_chunks, api_precheck_warning = _analyze_topic_chunks(
+        chunks,
+        streamer_display_name,
+        progress_callback=progress_callback,
+    )
+    if optimization_warning:
+        api_precheck_warning = "；".join(
+            item for item in (optimization_warning, api_precheck_warning) if item
         )
-        if enrichment_warning:
-            api_precheck_warning = enrichment_warning
-            if progress_callback:
-                progress_callback(enrichment_warning, 90, 100)
-        if progress_callback:
-            progress_callback(
-                f"Step 4/5: 字幕/弹幕/人工时间轴复核完成 ({len(accepted_topics)} 个话题)...",
-                93, 100,
-            )
-    else:
-        if progress_callback:
-            progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
-        try:
-            test_resp = _call_llm_with_retry(
-                "只输出 OK 两个字母，不要解释，不要推理。",
-                max_tokens=1000,
-                attempts=3,
-                progress_callback=progress_callback,
-                progress_label="API预检",
-                progress_step=22,
-            )
-            if not test_resp or len(test_resp.strip()) < 1:
-                raise RuntimeError("API 返回空内容")
-        except Exception as e:
-            msg = _short_llm_error(e)
-            if _is_retryable_llm_error(e):
-                api_precheck_warning = msg
-                if progress_callback:
-                    progress_callback(
-                        f"API 预检遇到上游临时错误，将继续尝试正式分块: {msg}",
-                        22, 100,
-                    )
-            else:
-                if progress_callback:
-                    progress_callback(f"API 预检失败: {msg}", 0, 100)
-                raise RuntimeError(f"API 预检失败: {msg}") from e
-
-
-
-        for i, ch in enumerate(chunks):
-            pct = 25 + int((i / total) * 70)
-            t = fmt_time(ch["start"])
-            if progress_callback:
-                progress_callback(f"Step 4/5: LLM分析 ({i+1}/{total}, {t})...", pct, 100)
-
-            # 构造 prompt：失败重试时会自动降级为紧凑提示，降低 5xx 概率
-            prompt, chunk_start, chunk_end = _build_chunk_prompt(ch, i, total, compact=False, streamer_name=streamer_display_name)
-            compact_prompt, _, _ = _build_chunk_prompt(ch, i, total, compact=True, streamer_name=streamer_display_name)
-
-            try:
-                response = _call_llm_with_retry(
-                    prompt,
-                    compact_prompt=compact_prompt,
-                    require_json=True,
-                    progress_callback=progress_callback,
-                    progress_label=f"块 {i+1} API",
-                    progress_step=pct,
-                )
-            except Exception as e:
-                err = _short_llm_error(e)
-                failed_chunks.append({
-                    "index": i + 1,
-                    "start": int(chunk_start),
-                    "end": int(chunk_end),
-                    "time": fmt_time(chunk_start),
-                    "error": err,
-                })
-                if progress_callback:
-                    progress_callback(f"块 {i+1} API 连续失败，已跳过: {err}", pct, 100)
-                if _is_retryable_llm_error(e):
-                    consecutive_failed_chunks += 1
-                else:
-                    consecutive_failed_chunks = MAX_INITIAL_FAILED_CHUNKS
-                if consecutive_failed_chunks >= MAX_INITIAL_FAILED_CHUNKS and not accepted_topics and not clip_marks:
-                    raise RuntimeError(
-                        f"LLM API 连续 {consecutive_failed_chunks} 个分块失败，疑似上游服务不可用。"
-                        f"最后错误: {err}"
-                    ) from e
-                continue
-
-            consecutive_failed_chunks = 0
-            # 解析话题和切片标记：按当前块时间范围过滤，正文进入最终时间轴报告
-            before_topic_count = len(accepted_topics)
-            _, marks = _parse_llm_response(
-                response,
-                chunk_start,
-                chunk_end,
-                accepted_topics,
-                allow_markdown_fallback=False,
-            )
-            clip_marks.extend(marks)
-            if len(accepted_topics) == before_topic_count:
-                fallback_topic = _make_fallback_topic_from_chunk(ch, streamer_name=streamer_display_name)
-                if fallback_topic and not _is_duplicate_topic(fallback_topic, accepted_topics):
-                    accepted_topics.append(fallback_topic)
-            time.sleep(0.3)  # 避免限流
 
     # Step 5: 生成文件
     if progress_callback:
         progress_callback("Step 5/5: 生成报告...", 97, 100)
 
     _merge_manual_timeline_topics(accepted_topics, manual_entries)
+    manual_validation_warning = _validate_unmatched_manual_topics(
+        accepted_topics,
+        streamer_name=streamer_display_name,
+        progress_callback=progress_callback,
+    )
+    if manual_validation_warning:
+        api_precheck_warning = "；".join(
+            item for item in (api_precheck_warning, manual_validation_warning) if item
+        )
     accepted_topics = _clean_topics_for_report(accepted_topics)
     _apply_danmaku_slice_decisions(accepted_topics, peaks, avg_den)
     raw_clip_marks = _clip_marks_from_topics(accepted_topics)

@@ -12,6 +12,7 @@ from topic_engine import (
     CHUNK_SEC, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
     TOPIC_MAX_CLIP_SEC,
     LLMResponseTruncatedError, LLMStructuredOutputError,
+    _align_manual_timeline_entries_to_srt, _analyze_topic_chunks,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_manual_topic_enrichment_prompt, _build_refinement_manifest,
     _build_title_style_prompt,
@@ -22,15 +23,17 @@ from topic_engine import (
     _infer_streamer_name, _is_retryable_llm_error, _load_title_style_profile,
     _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
+    _optimize_manual_timeline,
     _parse_elapsed_timeline_report_lines, _parse_manual_timeline_lines,
     _render_unified_refinement_queue_markdown, _resolve_funasr_model_source,
     _select_title_style_examples, _streamer_report_name,
     _enrich_manual_topics_with_llm, _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
-    _write_clip_srt,
-    call_llm, export_corrected_srt, load_api_config,
-    load_manual_timeline, parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
+    _validate_unmatched_manual_topics, _write_clip_srt, _write_optimized_timeline_files,
+    analyze_danmaku, call_llm, export_corrected_srt, load_api_config,
+    load_manual_timeline, optimize_manual_timeline_for_video,
+    parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
 )
 
 def make_http_error(status):
@@ -42,6 +45,25 @@ def make_http_error(status):
 
 class TopicEngineParseTests(unittest.TestCase):
     """话题分析解析与去重的快速回归测试。"""
+
+    def test_danmaku_density_keeps_uniform_low_windows_and_true_stream_average(self):
+        timestamps = [0, 10, 20, 30, 40, 50, 120]
+        lines = []
+        for value in timestamps:
+            minute, second = divmod(value, 60)
+            lines.append(
+                f"Dialogue: 0,0:{minute:02d}:{second:02d}.00,0:00:00.00,Default,,0,0,0,,测试弹幕"
+            )
+        with TemporaryDirectory() as td:
+            ass_path = Path(td) / "测试.ass"
+            ass_path.write_text("\n".join(lines), encoding="utf-8")
+
+            density = analyze_danmaku(str(ass_path))
+
+        self.assertEqual(len(density), 9)
+        self.assertIn((60, 0), density)
+        self.assertEqual(density[0], (0, 6))
+        self.assertAlmostEqual(density.average_density, 3.5)
 
     def test_funasr_model_loader_uses_local_cache_only(self):
         calls = []
@@ -551,6 +573,12 @@ class TopicEngineParseTests(unittest.TestCase):
 
     def test_run_pipeline_returns_final_accepted_topic_count(self):
         timeline_entries = [{"start": 60, "text": "开场聊天", "stars": 0}]
+        analysis_chunks = [{
+            "start": 0,
+            "end": 600,
+            "text": "[0:00:01] 有效字幕",
+            "danmaku_info": "无弹幕",
+        }]
         generated_topics = [
             {"start": 30, "end": 120, "title": "开场聊天", "body": ["·音音聊开场近况"], "can_slice": False},
             {"start": 180, "end": 300, "title": "新衣讨论", "body": ["·音音回应观众的新衣猜测"], "can_slice": False},
@@ -573,12 +601,25 @@ class TopicEngineParseTests(unittest.TestCase):
                 patch("topic_engine.ensure_srt", return_value=str(srt_path)),
                 patch("topic_engine.analyze_danmaku", return_value=[]),
                 patch("topic_engine.parse_srt_text", return_value=[(0, 600, "有效字幕")]),
-                patch("topic_engine.chunk_srt", return_value=[]),
+                patch("topic_engine.chunk_srt", return_value=analysis_chunks),
                 patch("topic_engine.load_manual_timeline", return_value=manual_timeline),
                 patch("topic_engine._probe_video_duration", return_value=600),
-                patch("topic_engine._attach_manual_timeline_to_chunks", return_value=[]),
-                patch("topic_engine._topics_from_manual_timeline", return_value=generated_topics),
-                patch("topic_engine._try_enrich_manual_topics", return_value=None),
+                patch(
+                    "topic_engine._optimize_manual_timeline",
+                    return_value=(timeline_entries, None),
+                ),
+                patch(
+                    "topic_engine._write_optimized_timeline_files",
+                    return_value=(str(Path(tmp) / "优化.json"), str(Path(tmp) / "优化.md")),
+                ),
+                patch(
+                    "topic_engine._attach_manual_timeline_to_chunks",
+                    side_effect=AssertionError("首轮分析不得挂载人工时间轴"),
+                ),
+                patch(
+                    "topic_engine._analyze_topic_chunks",
+                    return_value=(generated_topics, [], None),
+                ) as analyze_chunks,
                 patch("topic_engine._merge_manual_timeline_topics"),
                 patch("topic_engine.parse_srt_segments", return_value=[]),
                 patch("topic_engine.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
@@ -589,6 +630,11 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual(result["topic_count"], 2)
         self.assertEqual(result["clip_marks"], [])
+        analyze_chunks.assert_called_once_with(
+            analysis_chunks,
+            "音音",
+            progress_callback=None,
+        )
         self.assertIn("## 逐话题时间轴", result["report"])
         self.assertTrue(result["corrected_srt_path"].endswith("_校对字幕.srt"))
         self.assertEqual(result["srt_path"], result["corrected_srt_path"])
@@ -873,6 +919,40 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(calls, [("完整提示", 1500), ("完整提示", 1500), ("紧凑提示", 900)])
         self.assertEqual(sleeps, [3, 8])
 
+    def test_analyze_topic_chunks_ignores_manual_timeline_in_first_pass(self):
+        chunks = [{
+            "start": 0,
+            "end": 600,
+            "text": "[0:01:00] 音音讲述闹钟设成半夜十二点的经过",
+            "danmaku_info": "[弹幕: 本段峰值120条/分钟]",
+            "manual_timeline_info": "- [0:01:05] ⭐ 华为闹钟设成半夜十二点",
+        }]
+        response = json.dumps({
+            "topics": [{
+                "start": "0:00:50",
+                "end": "0:02:20",
+                "title": "闹钟误设半夜十二点",
+                "publish_title": "【泽音】华为把中午十二点设成半夜了😡",
+                "can_slice": True,
+                "points": ["音音展示闹钟时间并说明自己因此睡过头"],
+            }],
+        }, ensure_ascii=False)
+
+        with (
+            patch("topic_engine._call_llm_with_retry", side_effect=["OK", response]) as call,
+            patch("topic_engine.time.sleep"),
+        ):
+            topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
+
+        analysis_prompt = call.call_args_list[1].args[0]
+        self.assertEqual(len(topics), 1)
+        self.assertEqual(topics[0]["title"], "闹钟误设半夜十二点")
+        self.assertEqual(failed_chunks, [])
+        self.assertIsNone(warning)
+        self.assertNotIn("人工时间轴参考", analysis_prompt)
+        self.assertNotIn("华为闹钟设成半夜十二点", analysis_prompt)
+        self.assertIn("音音讲述闹钟", analysis_prompt)
+
     def test_call_llm_uses_long_read_timeout_for_deepseek_pro(self):
         response = Mock()
         response.raise_for_status.return_value = None
@@ -1156,6 +1236,21 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(entries[1]["start"], 24621)
         self.assertIn("脸圆成什么样了", entries[1]["text"])
 
+    def test_manual_timeline_splits_two_clock_records_joined_in_one_paragraph(self):
+        entries = _parse_manual_timeline_lines(
+            [
+                "22:59:27 用app控制电器，回家前提前打开"
+                "23:10:42 《这个声音好听啊》学说话‘黑心商家’ ⭐",
+            ],
+            datetime(2026, 7, 14, 19, 59, 0),
+        )
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual([item["start"] for item in entries], [10827, 11502])
+        self.assertEqual([item["stars"] for item in entries], [0, 1])
+        self.assertIn("控制电器", entries[0]["text"])
+        self.assertIn("黑心商家", entries[1]["text"])
+
     def test_video_start_datetime_accepts_ri_and_missing_seconds(self):
         video_path = r"F:\录播上传\泽音Melody-2026年07月12日22点35分.flv"
 
@@ -1280,7 +1375,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(summary["entry_count"], 2)
         self.assertEqual(summary["star_count"], 1)
 
-    def test_manual_timeline_is_added_to_prompt_report_and_slice_decision(self):
+    def test_manual_timeline_is_only_added_after_independent_first_pass(self):
         entries = _parse_manual_timeline_lines(
             ["03:01:14 被妈妈说“脸圆成什么样了” ⭐"],
             datetime(2026, 7, 8, 20, 10, 53),
@@ -1309,8 +1404,9 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             manual_timeline={"path": r"F:\切片时间轴\20260708.docx", "entries": entries},
         )
 
-        self.assertIn("人工时间轴参考", prompt)
-        self.assertIn("⭐ 被妈妈说", prompt)
+        self.assertNotIn("人工时间轴参考", prompt)
+        self.assertNotIn("⭐ 被妈妈说", prompt)
+        self.assertIn("妈妈说脸圆", prompt)
         self.assertIn("人工时间轴辅助: 20260708.docx", report)
         self.assertIn("●人工时间轴⭐", report)
         self.assertTrue(topics[0]["can_slice"])
@@ -1371,6 +1467,157 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("·字幕核查：", body)
         self.assertIn("·弹幕依据：", body)
         self.assertIn("·时间轴：", body)
+
+    def test_manual_timeline_fuzzy_alignment_corrects_large_wall_clock_drift(self):
+        entries = [{
+            "start": 400,
+            "clock": "2026-07-14 20:06:40",
+            "text": "华为闹钟怎么设成半夜十二点了",
+            "stars": 1,
+        }]
+        aligned = _align_manual_timeline_entries_to_srt(
+            entries,
+            srt_segments=[
+                (100, 130, "音音发现华为把闹钟设置成了半夜十二点真的很生气"),
+                (380, 430, "音音继续感谢礼物并准备打开游戏"),
+            ],
+        )
+
+        self.assertEqual(aligned[0]["original_start"], 400)
+        self.assertLessEqual(aligned[0]["start"], 140)
+        self.assertLess(aligned[0]["alignment_shift_sec"], -200)
+        self.assertEqual(aligned[0]["alignment_source"], "subtitle_fuzzy_match")
+        self.assertEqual(entries[0]["start"], 400)
+
+    def test_optimize_manual_timeline_uses_subtitles_and_writes_review_artifact(self):
+        entries = [
+            {"start": 60, "clock": "2026-07-14 20:00:00", "text": "很长的第一条记录", "stars": 1},
+            {"start": 180, "clock": "2026-07-14 20:02:00", "text": "同一事件后续细节", "stars": 0},
+            {"start": 900, "clock": "2026-07-14 20:14:00", "text": "另一个独立事件", "stars": 0},
+        ]
+
+        def fake_enrich(topics, **_kwargs):
+            self.assertEqual(len(topics), 2)
+            self.assertTrue(all("字幕核查" in "\n".join(topic["body"]) for topic in topics))
+            for index, topic in enumerate(topics, 1):
+                topic["title"] = f"字幕校准话题{index}"
+                topic["body"] = [f"·音音完整说明第{index}个事件的经过"]
+                topic["ai_enriched"] = True
+            return None
+
+        with patch("topic_engine._enrich_manual_topics_in_batches", side_effect=fake_enrich):
+            optimized, warning = _optimize_manual_timeline(
+                entries,
+                srt_segments=[
+                    (40, 220, "音音讲述第一件事的前因后果"),
+                    (880, 980, "音音开始讲另一个独立事件"),
+                ],
+                peaks=[(90, 100), (900, 80)],
+                streamer_name="音音",
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual(len(optimized), 2)
+        self.assertEqual([item["text"] for item in optimized], ["字幕校准话题1", "字幕校准话题2"])
+        self.assertEqual(optimized[0]["stars"], 1)
+        self.assertEqual(optimized[0]["source"], "optimized_manual_timeline")
+        self.assertEqual(optimized[0]["summary"], ["音音完整说明第1个事件的经过"])
+
+        with TemporaryDirectory() as td:
+            base = str(Path(td) / "测试录播")
+            json_path, md_path = _write_optimized_timeline_files(
+                base,
+                "人工时间轴.docx",
+                entries,
+                optimized,
+            )
+            payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
+            markdown = Path(md_path).read_text(encoding="utf-8")
+
+        self.assertEqual(payload["raw_entry_count"], 3)
+        self.assertEqual(payload["optimized_entry_count"], 2)
+        self.assertIn("字幕校准话题1", markdown)
+        self.assertIn("原始 3 条 → 优化 2 个话题候选", markdown)
+
+    def test_optimize_manual_timeline_for_video_does_not_run_full_analysis(self):
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "泽音Melody-2026年07月14日19点59分.flv"
+            timeline_path = Path(td) / "20260714.docx"
+            srt_path = flv_path.with_suffix(".srt")
+            flv_path.write_bytes(b"flv")
+            timeline_path.write_bytes(b"docx")
+            srt_path.write_text(
+                "1\n00:00:01,000 --> 00:00:05,000\n音音讲闹钟的事情\n",
+                encoding="utf-8",
+            )
+            prepared = {
+                "path": str(timeline_path),
+                "entries": [{"start": 1, "end": 5, "text": "闹钟故事", "stars": 1}],
+                "source_entry_count": 1,
+                "raw_entry_count": 1,
+                "optimized_entry_count": 1,
+                "optimized_json_path": str(flv_path.with_name(flv_path.stem + "_优化时间轴.json")),
+                "optimized_md_path": str(flv_path.with_name(flv_path.stem + "_优化时间轴.md")),
+                "optimization_warning": None,
+                "video_start": datetime(2026, 7, 14, 19, 59, 0),
+            }
+
+            with (
+                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
+                patch("topic_engine.export_corrected_srt", return_value=None),
+                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音讲闹钟的事情")]),
+                patch("topic_engine.analyze_danmaku", return_value=[]),
+                patch("topic_engine._probe_video_duration", return_value=600),
+                patch("topic_engine._prepare_optimized_manual_timeline", return_value=prepared) as prepare,
+                patch(
+                    "topic_engine._analyze_topic_chunks",
+                    side_effect=AssertionError("独立优化不应运行整场话题分析"),
+                ),
+                patch(
+                    "topic_engine.chunk_srt",
+                    side_effect=AssertionError("独立优化不应生成分析分块"),
+                ),
+            ):
+                result = optimize_manual_timeline_for_video(
+                    str(flv_path),
+                    str(timeline_path),
+                )
+
+        prepare.assert_called_once()
+        self.assertEqual(result["optimized_entry_count"] if "optimized_entry_count" in result else result["manual_timeline"]["optimized_entry_count"], 1)
+        self.assertTrue(result["optimized_md_path"].endswith("_优化时间轴.md"))
+
+    def test_unmatched_optimized_timeline_entry_requires_postcheck(self):
+        entries = [{
+            "start": 120,
+            "end": 220,
+            "text": "闹钟误设半夜十二点",
+            "summary": ["音音说明闹钟为什么设错"],
+            "stars": 0,
+            "source": "optimized_manual_timeline",
+            "ai_enriched": True,
+        }]
+        topics = []
+        _merge_manual_timeline_topics(topics, entries)
+
+        self.assertEqual(len(topics), 1)
+        self.assertFalse(topics[0]["ai_enriched"])
+        self.assertTrue(topics[0]["postcheck_pending"])
+        self.assertTrue(topics[0]["reference_only"])
+
+        def fake_validate(candidates, **_kwargs):
+            candidates[0]["ai_enriched"] = True
+            candidates[0]["postcheck_pending"] = False
+            candidates[0]["postcheck_validated"] = True
+            candidates[0].pop("reference_only", None)
+            return 1
+
+        with patch("topic_engine._enrich_manual_topics_with_llm", side_effect=fake_validate):
+            warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
+
+        self.assertIsNone(warning)
+        self.assertTrue(topics[0]["postcheck_validated"])
+        self.assertNotIn("reference_only", topics[0])
 
     def test_manual_topics_are_enriched_by_one_batched_llm_request(self):
         topics = [{
@@ -1603,7 +1850,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(topics[0]["title"], "规则候选标题")
         self.assertNotIn("ai_enriched", topics[0])
 
-    def test_manual_star_is_not_swallowed_by_fallback_topic(self):
+    def test_unvalidated_manual_star_is_report_only_when_ai_misses_it(self):
         entries = _parse_manual_timeline_lines(
             ["21:34:48 “来音悦生，摇摇尾巴”（抽打 ⭐⭐⭐⭐"],
             datetime(2026, 7, 8, 20, 10, 53),
@@ -1618,13 +1865,20 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         }]
 
         _merge_manual_timeline_topics(topics, entries)
+        with patch(
+            "topic_engine._enrich_manual_topics_with_llm",
+            side_effect=RuntimeError("上游服务暂时不可用"),
+        ):
+            warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
         _apply_danmaku_slice_decisions(topics, peaks=[(5035, 90)], avg_density=101)
         marks = _clip_marks_from_topics(topics)
 
         self.assertEqual(len(topics), 2)
         self.assertFalse(topics[0]["can_slice"])
-        self.assertTrue(topics[1]["can_slice"])
-        self.assertIn("摇摇尾巴", marks[0]["title"])
+        self.assertFalse(topics[1]["can_slice"])
+        self.assertTrue(topics[1]["reference_only"])
+        self.assertEqual(marks, [])
+        self.assertIn("仅写入报告", warning)
 
     def test_manual_stars_without_danmaku_peak_do_not_force_slice(self):
         topics = [{
