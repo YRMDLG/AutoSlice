@@ -98,6 +98,7 @@ STREAMER_ASR_LITERAL_REPLACEMENTS = (
     ("音乐生", "音悦生"),
     ("英悦生", "音悦生"),
     ("音悦声", "音悦生"),
+    ("晚安音乐声", "晚安音悦生"),
 )
 
 PUBLISH_TITLE_PREFIX = "【泽音】"
@@ -138,7 +139,7 @@ _TITLE_STYLE_TAG_KEYWORDS = {
 REFINEMENT_WORKFLOW_STEPS = (
     ("verify_context", "核查前后文"),
     ("trim_breath", "剪气口与停顿"),
-    ("correct_subtitles", "导入校对字幕并修正专名"),
+    ("correct_subtitles", "导入片段同名校对字幕并检查专名"),
     ("add_intro_outro", "添加片头片尾"),
     ("export_video", "导出精调成片"),
     ("make_cover", "用 AutoCover 制作封面"),
@@ -3462,6 +3463,44 @@ def _topic_clip_filename(index, mark):
     return f"{index:02d}_{start_s}s_{safe_title}.flv"
 
 
+def _clip_subtitle_filename(clip_filename):
+    """片段字幕与视频同名，便于剪映成对导入。"""
+    return os.path.splitext(clip_filename)[0] + ".srt"
+
+
+def _write_clip_srt(srt_segments, clip_start, clip_end, output_path):
+    """裁剪整场字幕并减去切片起点，生成从 0 秒开始的片段 SRT。"""
+    clip_start = float(clip_start)
+    clip_end = float(clip_end)
+    entries = []
+    for seg_start, seg_end, text in srt_segments or []:
+        local_start = max(float(seg_start), clip_start) - clip_start
+        local_end = min(float(seg_end), clip_end) - clip_start
+        clean_text = str(text or "").strip()
+        if local_end <= local_start or not clean_text:
+            continue
+        entries.append((local_start, local_end, clean_text))
+
+    with open(output_path, "w", encoding="utf-8", newline="\n") as f:
+        for index, (start_s, end_s, text) in enumerate(entries, 1):
+            f.write(f"{index}\n{_srt_time(start_s)} --> {_srt_time(end_s)}\n{text}\n\n")
+    return len(entries)
+
+
+def _resolve_clip_subtitle_source(flv_path, data):
+    """优先使用流水线校对字幕，兼容旧 JSON 回退到同名 SRT。"""
+    candidates = [
+        data.get("corrected_srt_path"),
+        flv_path[:-4] + "_校对字幕.srt",
+        data.get("srt_path"),
+        flv_path[:-4] + ".srt",
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return os.path.abspath(path)
+    return None
+
+
 def _publish_title_report_lines(clip_marks):
     """生成 AutoCover 可直接解析的投稿标题区，只包含最终实际切片。"""
     marks = _dedupe_clip_marks(clip_marks or [])
@@ -3502,6 +3541,7 @@ def _build_refinement_manifest(video_path, source_srt_path, corrected_srt_path,
             "status": "等待自动切片",
             "clip_filename": filename,
             "slice_path": None,
+            "subtitle_path": None,
             "start": int(mark["start"]),
             "end": int(mark["end"]),
             "duration": int(mark["end"] - mark["start"]),
@@ -3569,6 +3609,7 @@ def _render_refinement_manifest_markdown(manifest):
             f"- 视频内时间: {_format_report_time(task.get('start', 0))}－"
             f"{_format_report_time(task.get('end', 0))}（{task.get('duration', 0)} 秒）",
             f"- 切片文件: `{task.get('slice_path') or task.get('clip_filename')}`",
+            f"- 片段字幕: `{task.get('subtitle_path') or '等待自动切片'}`",
             f"- 投稿标题: {task.get('publish_title', '')}",
         ])
         for step in task.get("steps") or []:
@@ -3612,6 +3653,7 @@ def _unified_refinement_record(manifest):
             "natural_boundary_post_sec": int(task.get("natural_boundary_post_sec", 0)),
             "clip_filename": task.get("clip_filename"),
             "slice_path": task.get("slice_path"),
+            "subtitle_path": task.get("subtitle_path"),
             "steps": [dict(step) for step in task.get("steps") or []],
         })
     completed_count = sum(_refinement_task_is_completed(task) for task in tasks)
@@ -3683,6 +3725,7 @@ def _render_unified_refinement_queue_markdown(queue):
                 f"  - 视频内时间: {_format_report_time(task.get('start', 0))}－"
                 f"{_format_report_time(task.get('end', 0))}",
                 f"  - 切片: `{task.get('slice_path') or task.get('clip_filename') or '等待自动切片'}`",
+                f"  - 片段字幕: `{task.get('subtitle_path') or '等待自动切片'}`",
                 f"  - 首尾: 已在话题核心前保留 {pre_context} 秒、后保留 {post_context} 秒；"
                 f"自然停顿额外调整前 {task.get('natural_boundary_pre_sec', 0)} 秒、"
                 f"后 {task.get('natural_boundary_post_sec', 0)} 秒",
@@ -3768,6 +3811,13 @@ def _update_refinement_manifest_after_slice(manifest_json_path, report_dir, mark
             continue
         output_path = os.path.abspath(os.path.join(report_dir, filename))
         task["slice_path"] = output_path
+        subtitle_path = os.path.abspath(
+            os.path.join(report_dir, _clip_subtitle_filename(filename))
+        )
+        task["subtitle_path"] = subtitle_path if os.path.isfile(subtitle_path) else None
+        for step in task.get("steps") or []:
+            if step.get("key") == "correct_subtitles":
+                step["label"] = "导入片段同名校对字幕并检查专名"
         if os.path.isfile(output_path):
             task["status"] = "待精调"
             found_count += 1
@@ -4154,16 +4204,19 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     }
 
 
-_GENERATED_TOPIC_CLIP_RE = re.compile(r'^\d{2,3}_\d+s_.+\.flv$', re.IGNORECASE)
+_GENERATED_TOPIC_ARTIFACT_RE = re.compile(
+    r'^\d{2,3}_\d+s_.+\.(?:flv|srt)$',
+    re.IGNORECASE,
+)
 
 
 def _cleanup_stale_topic_clips(report_dir):
-    """清理同目录旧的自动切片，保留用户手工命名文件和其他副产物。"""
+    """清理同目录旧自动视频/字幕，保留用户手工命名文件和其他副产物。"""
     if not os.path.isdir(report_dir):
         return 0
     removed = 0
     for name in os.listdir(report_dir):
-        if not _GENERATED_TOPIC_CLIP_RE.fullmatch(name):
+        if not _GENERATED_TOPIC_ARTIFACT_RE.fullmatch(name):
             continue
         path = os.path.join(report_dir, name)
         if not os.path.isfile(path):
@@ -4205,6 +4258,12 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
     report_dir = os.path.join(output_dir, base_name + "_话题切片")
     os.makedirs(report_dir, exist_ok=True)
     removed_count = _cleanup_stale_topic_clips(report_dir)
+    subtitle_source_path = _resolve_clip_subtitle_source(flv_path, data)
+    subtitle_segments = (
+        parse_srt_segments(subtitle_source_path)
+        if subtitle_source_path
+        else []
+    )
 
     if progress_callback:
         if removed_count:
@@ -4231,6 +4290,17 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
             "-t", str(duration), "-c", "copy", output_path
         ], check=True, stdout=sp.PIPE, stderr=sp.DEVNULL,
            encoding="utf-8", errors="replace")
+        if subtitle_segments:
+            subtitle_path = os.path.join(
+                report_dir,
+                _clip_subtitle_filename(output_name),
+            )
+            _write_clip_srt(
+                subtitle_segments,
+                start_s,
+                end_s,
+                subtitle_path,
+            )
         count += 1
 
     _update_refinement_manifest_after_slice(

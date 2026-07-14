@@ -28,6 +28,7 @@ from topic_engine import (
     _enrich_manual_topics_with_llm, _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
+    _write_clip_srt,
     call_llm, export_corrected_srt, load_api_config,
     load_manual_timeline, parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
 )
@@ -498,15 +499,18 @@ class TopicEngineParseTests(unittest.TestCase):
             self.assertLessEqual(previous["end"], current["start"])
         self.assertTrue(all(item["end"] - item["start"] <= 300 for item in expanded))
 
-    def test_cleanup_stale_topic_clips_only_removes_generated_flv_files(self):
+    def test_cleanup_stale_topic_clips_only_removes_generated_video_and_subtitle_files(self):
         with TemporaryDirectory() as td:
             output_dir = Path(td)
             generated = [
                 output_dir / "01_124s_旧自动切片.flv",
+                output_dir / "01_124s_旧自动切片.srt",
                 output_dir / "105_3600s_旧自动切片.flv",
+                output_dir / "105_3600s_旧自动切片.srt",
             ]
             preserved = [
                 output_dir / "手工精剪.flv",
+                output_dir / "手工精剪.srt",
                 output_dir / "说明.txt",
             ]
             for path in generated + preserved:
@@ -514,9 +518,25 @@ class TopicEngineParseTests(unittest.TestCase):
 
             removed = _cleanup_stale_topic_clips(str(output_dir))
 
-            self.assertEqual(removed, 2)
+            self.assertEqual(removed, 4)
             self.assertTrue(all(not path.exists() for path in generated))
             self.assertTrue(all(path.exists() for path in preserved))
+
+    def test_write_clip_srt_crops_and_rebases_timestamps(self):
+        segments = [
+            (8, 12, "跨过切片开头"),
+            (13, 17.5, "音音开始回答"),
+            (19, 22, "跨过切片结尾"),
+            (25, 28, "切片外字幕"),
+        ]
+        with TemporaryDirectory() as td:
+            output_path = Path(td) / "片段.srt"
+            count = _write_clip_srt(segments, 10, 20, str(output_path))
+            parsed = parse_srt_segments(str(output_path))
+
+        self.assertEqual(count, 3)
+        self.assertEqual([(start, end) for start, end, _ in parsed], [(0, 2), (3, 7.5), (9, 10)])
+        self.assertEqual([text for _, _, text in parsed], ["跨过切片开头", "音音开始回答", "跨过切片结尾"])
 
     def test_pipeline_completion_progress_uses_topic_count_not_clip_count(self):
         from app import _pipeline_completion_progress
@@ -663,6 +683,7 @@ class TopicEngineParseTests(unittest.TestCase):
 
         expected_filename = _topic_clip_filename(1, clip_marks[0])
         self.assertEqual(saved["tasks"][0]["clip_filename"], expected_filename)
+        self.assertIsNone(saved["tasks"][0]["subtitle_path"])
         self.assertEqual(saved["tasks"][0]["duration"], 165)
         self.assertEqual(saved["tasks"][0]["publish_title"], clip_marks[0]["publish_title"])
         self.assertEqual(len(saved["tasks"][0]["steps"]), 7)
@@ -731,6 +752,12 @@ class TopicEngineParseTests(unittest.TestCase):
             root = Path(tmp)
             flv_path = root / "测试录播.flv"
             flv_path.write_bytes(b"video")
+            corrected_srt_path = root / "测试录播_校对字幕.srt"
+            corrected_srt_path.write_text(
+                "1\n00:00:08,000 --> 00:00:12,000\n切片开头字幕\n\n"
+                "2\n00:00:15,000 --> 00:00:20,000\n音音继续回答\n\n",
+                encoding="utf-8",
+            )
             clip_json_path = root / "测试录播_clip_marks.json"
             manifest_json_path = root / "测试录播_精调任务.json"
             manifest_md_path = root / "测试录播_精调任务.md"
@@ -738,7 +765,7 @@ class TopicEngineParseTests(unittest.TestCase):
             manifest = _build_refinement_manifest(
                 str(flv_path),
                 str(root / "测试录播.srt"),
-                str(root / "测试录播_校对字幕.srt"),
+                str(corrected_srt_path),
                 str(root / "测试录播_话题分析.md"),
                 str(clip_json_path),
                 clip_marks,
@@ -753,6 +780,7 @@ class TopicEngineParseTests(unittest.TestCase):
             clip_json_path.write_text(json.dumps({
                 "expanded_with_context": True,
                 "task_manifest_json_path": str(manifest_json_path),
+                "corrected_srt_path": str(corrected_srt_path),
                 "clip_marks": clip_marks,
             }, ensure_ascii=False), encoding="utf-8")
 
@@ -771,16 +799,26 @@ class TopicEngineParseTests(unittest.TestCase):
             markdown = manifest_md_path.read_text(encoding="utf-8")
             unified_queue = json.loads(queue_json_path.read_text(encoding="utf-8"))
             unified_markdown = queue_md_path.read_text(encoding="utf-8")
+            expected_path = str(Path(report_dir) / _topic_clip_filename(1, clip_marks[0]))
+            expected_subtitle_path = str(Path(expected_path).with_suffix(".srt"))
+            subtitle_exists = Path(expected_subtitle_path).is_file()
+            clip_subtitles = parse_srt_segments(expected_subtitle_path)
 
-        expected_path = str(Path(report_dir) / _topic_clip_filename(1, clip_marks[0]))
         self.assertEqual(count, 1)
         self.assertEqual(updated["status"], "待精调")
         self.assertEqual(updated["tasks"][0]["status"], "待精调")
         self.assertEqual(updated["tasks"][0]["slice_path"], expected_path)
+        self.assertEqual(updated["tasks"][0]["subtitle_path"], expected_subtitle_path)
+        self.assertTrue(subtitle_exists)
+        self.assertEqual((clip_subtitles[0][0], clip_subtitles[0][1]), (0, 2))
+        self.assertEqual((clip_subtitles[1][0], clip_subtitles[1][1]), (5, 10))
         self.assertIn(expected_path, markdown)
+        self.assertIn(expected_subtitle_path, markdown)
         self.assertEqual(unified_queue["ready_count"], 1)
         self.assertEqual(unified_queue["waiting_slice_count"], 0)
+        self.assertEqual(unified_queue["recordings"][0]["tasks"][0]["subtitle_path"], expected_subtitle_path)
         self.assertIn(expected_path, unified_markdown)
+        self.assertIn(expected_subtitle_path, unified_markdown)
 
     def test_filter_reasoning_body_and_placeholder_topics(self):
         topics = []
@@ -2228,6 +2266,26 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(
             segments,
             [(1.0, 4.0, "今天正常开播"), (5.0, 8.0, "继续和观众聊天")],
+        )
+
+    def test_healthy_srt_only_repairs_unambiguous_fan_name_context(self):
+        content = """1
+00:00:01,000 --> 00:00:03,000
+晚安音乐声
+
+2
+00:00:04,000 --> 00:00:07,000
+就是音乐声很大对吧
+"""
+        with TemporaryDirectory() as td:
+            path = Path(td) / "泽音Melody-测试.srt"
+            path.write_text(content, encoding="utf-8")
+
+            segments = parse_srt_segments(str(path))
+
+        self.assertEqual(
+            [text for _, _, text in segments],
+            ["晚安音悦生", "就是音乐声很大对吧"],
         )
 
     def test_new_funasr_result_is_segmented_instead_of_repeating_full_text(self):
