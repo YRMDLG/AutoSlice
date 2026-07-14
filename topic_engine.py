@@ -2678,6 +2678,7 @@ def _write_optimized_timeline_files(
     """保存可审阅的优化时间轴，便于判断人工参考如何被字幕校准。"""
     json_path, md_path = _optimized_timeline_paths(video_base)
     payload = {
+        "video_path": video_base + ".flv",
         "source_path": source_path,
         "raw_entry_count": len(raw_entries or []),
         "optimized_entry_count": len(optimized_entries or []),
@@ -2718,6 +2719,43 @@ def _write_optimized_timeline_files(
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines).rstrip() + "\n")
     return json_path, md_path
+
+
+def _load_optimized_timeline_artifact(
+        artifact_path, flv_path, manual_timeline_path=None):
+    """加载独立优化产物，并核对录播及原始 DOCX，避免串用时间轴。"""
+    if not artifact_path or not os.path.isfile(artifact_path):
+        raise FileNotFoundError(f"优化时间轴文件不存在: {artifact_path or '未选择'}")
+    try:
+        with open(artifact_path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"优化时间轴 JSON 无法读取: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("entries"), list):
+        raise ValueError("优化时间轴 JSON 缺少 entries 数组")
+
+    def normalized(path):
+        return os.path.normcase(os.path.abspath(str(path or "")))
+
+    artifact_video_path = payload.get("video_path")
+    if not artifact_video_path or normalized(artifact_video_path) != normalized(flv_path):
+        raise ValueError("优化时间轴不属于当前选择的录播文件")
+    source_path = payload.get("source_path")
+    if manual_timeline_path and normalized(source_path) != normalized(manual_timeline_path):
+        raise ValueError("优化时间轴与当前选择的人工 DOCX 不一致")
+
+    return {
+        "path": source_path,
+        "entries": payload["entries"],
+        "source_entry_count": int(payload.get("raw_entry_count", 0)),
+        "raw_entry_count": int(payload.get("raw_entry_count", 0)),
+        "optimized_entry_count": int(payload.get("optimized_entry_count", len(payload["entries"]))),
+        "optimized_json_path": artifact_path,
+        "optimized_md_path": os.path.splitext(artifact_path)[0] + ".md",
+        "optimization_warning": payload.get("warning"),
+        "mode": "optimized_artifact",
+        "video_start": _extract_video_start_datetime(flv_path),
+    }
 
 
 def _prepare_optimized_manual_timeline(
@@ -4516,7 +4554,9 @@ def _validate_unmatched_manual_topics(topics, streamer_name="音音", progress_c
     return None
 
 
-def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timeline_path=None):
+def run_pipeline(
+        flv_path, ass_path=None, progress_callback=None, manual_timeline_path=None,
+        optimized_timeline_path=None):
     """
     完整流水线：SRT → 弹幕 → LLM分析 → 报告 + 切片标记
 
@@ -4572,16 +4612,27 @@ def run_pipeline(flv_path, ass_path=None, progress_callback=None, manual_timelin
     chunks = chunk_srt(segs, peaks)
     srt_duration = max((end for _, end, _ in segs), default=None)
     video_duration = _probe_video_duration(flv_path) or srt_duration
-    manual_timeline = _prepare_optimized_manual_timeline(
-        flv_path,
-        base,
-        segs,
-        peaks,
-        video_duration,
-        manual_timeline_path,
-        streamer_name=streamer_display_name,
-        progress_callback=progress_callback,
-    )
+    if optimized_timeline_path:
+        manual_timeline = _load_optimized_timeline_artifact(
+            optimized_timeline_path,
+            flv_path,
+            manual_timeline_path=(
+                manual_timeline_path
+                if manual_timeline_path not in (None, "__none__")
+                else None
+            ),
+        )
+    else:
+        manual_timeline = _prepare_optimized_manual_timeline(
+            flv_path,
+            base,
+            segs,
+            peaks,
+            video_duration,
+            manual_timeline_path,
+            streamer_name=streamer_display_name,
+            progress_callback=progress_callback,
+        )
     raw_manual_entry_count = int(manual_timeline.get("raw_entry_count", 0))
     manual_entries = manual_timeline.get("entries") or []
     optimization_warning = manual_timeline.get("optimization_warning")

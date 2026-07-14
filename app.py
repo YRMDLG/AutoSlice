@@ -61,6 +61,49 @@ def _pipeline_completion_progress(result):
     return f"完成! {topic_count} 个话题, {result.get('slice_count', 0)} 个切片"
 
 
+def run_timeline_optimization_task(
+        task_id, flv_path, manual_timeline_path, ass_path=None):
+    """后台仅优化人工时间轴，不启动话题分析和切片。"""
+    update_task(task_id, status="running", progress="准备校准人工时间轴...", step=0, total=100)
+
+    def callback(msg, step, total):
+        update_task(
+            task_id,
+            status="running",
+            progress=msg,
+            step=step,
+            total=total,
+        )
+
+    try:
+        from topic_engine import optimize_manual_timeline_for_video
+
+        result = optimize_manual_timeline_for_video(
+            flv_path,
+            manual_timeline_path,
+            ass_path=ass_path if ass_path and os.path.isfile(ass_path) else None,
+            progress_callback=callback,
+        )
+        update_task(
+            task_id,
+            status="done",
+            progress="人工时间轴优化完成",
+            result=json.dumps(result, ensure_ascii=False),
+            step=100,
+            total=100,
+        )
+    except Exception as e:
+        import traceback
+        update_task(
+            task_id,
+            status="error",
+            progress="人工时间轴优化失败",
+            result=f"{e}\n{traceback.format_exc()}",
+            step=0,
+            total=100,
+        )
+
+
 def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path, timeline_json=None):
     """后台切片任务"""
     if timeline_path and os.path.isfile(timeline_path):
@@ -293,17 +336,22 @@ def start_pipeline():
     flv_path = data.get("flv_path", "")
     ass_path = data.get("ass_path", "")
     output_dir = data.get("output_dir", r"F:\Videos\自动切片")
-    manual_timeline_mode = data.get("manual_timeline_mode", "auto")
+    manual_timeline_mode = data.get("manual_timeline_mode", "none")
     manual_timeline_path = data.get("manual_timeline_path", "")
+    optimized_timeline_path = data.get("optimized_timeline_path", "")
 
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"})
     if manual_timeline_mode == "manual" and not os.path.isfile(manual_timeline_path):
         return jsonify({"error": "指定的辅助时间轴文件不存在"})
+    if optimized_timeline_path and not os.path.isfile(optimized_timeline_path):
+        return jsonify({"error": "指定的优化时间轴文件不存在"})
     if manual_timeline_mode == "none":
         manual_timeline_path = "__none__"
+        optimized_timeline_path = None
     elif manual_timeline_mode != "manual":
         manual_timeline_path = None
+        optimized_timeline_path = None
 
     task_id = "pipeline_" + os.path.basename(flv_path).replace(".flv", "")[:35]
 
@@ -319,6 +367,7 @@ def start_pipeline():
                 ass_path if os.path.exists(ass_path) else None,
                 progress_callback=cb,
                 manual_timeline_path=manual_timeline_path,
+                optimized_timeline_path=optimized_timeline_path,
             )
 
             # 用新的独立切片功能，不依赖现有切片模式
@@ -341,6 +390,27 @@ def start_pipeline():
                         result=f"{e}\n{traceback.format_exc()}", step=0)
 
     threading.Thread(target=run, daemon=True).start()
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/api/optimize-manual-timeline", methods=["POST"])
+def optimize_manual_timeline():
+    """启动独立人工时间轴优化任务。"""
+    data = request.get_json(silent=True) or {}
+    flv_path = data.get("flv_path", "")
+    ass_path = data.get("ass_path", "")
+    manual_timeline_path = data.get("manual_timeline_path", "")
+    if not os.path.isfile(flv_path):
+        return jsonify({"error": "视频文件不存在"}), 400
+    if not os.path.isfile(manual_timeline_path):
+        return jsonify({"error": "指定的人工时间轴 DOCX 不存在"}), 400
+
+    task_id = "timeline_opt_" + os.path.basename(flv_path).replace(".flv", "")[:35]
+    threading.Thread(
+        target=run_timeline_optimization_task,
+        args=(task_id, flv_path, manual_timeline_path, ass_path),
+        daemon=True,
+    ).start()
     return jsonify({"task_id": task_id})
 
 

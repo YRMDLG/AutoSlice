@@ -21,7 +21,8 @@ from topic_engine import (
     _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _find_manual_timeline_doc,
     _infer_streamer_name, _is_retryable_llm_error, _load_title_style_profile,
-    _make_fallback_topic_from_chunk, _merge_manual_timeline_topics,
+    _load_optimized_timeline_artifact, _make_fallback_topic_from_chunk,
+    _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
     _optimize_manual_timeline,
     _parse_elapsed_timeline_report_lines, _parse_manual_timeline_lines,
@@ -1584,8 +1585,45 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
                 )
 
         prepare.assert_called_once()
-        self.assertEqual(result["optimized_entry_count"] if "optimized_entry_count" in result else result["manual_timeline"]["optimized_entry_count"], 1)
+        self.assertEqual(result["manual_timeline"]["optimized_entry_count"], 1)
         self.assertTrue(result["optimized_md_path"].endswith("_优化时间轴.md"))
+
+    def test_optimized_timeline_artifact_is_bound_to_video_and_docx(self):
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "完整版.flv"
+            timeline_path = Path(td) / "20260714.docx"
+            artifact_path = Path(td) / "完整版_优化时间轴.json"
+            artifact_path.write_text(
+                json.dumps({
+                    "video_path": str(flv_path),
+                    "source_path": str(timeline_path),
+                    "raw_entry_count": 2,
+                    "optimized_entry_count": 1,
+                    "entries": [{"start": 10, "end": 80, "text": "闹钟故事"}],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            loaded = _load_optimized_timeline_artifact(
+                str(artifact_path),
+                str(flv_path),
+                str(timeline_path),
+            )
+
+            self.assertEqual(loaded["mode"], "optimized_artifact")
+            self.assertEqual(loaded["optimized_entry_count"], 1)
+            with self.assertRaisesRegex(ValueError, "不属于当前选择的录播"):
+                _load_optimized_timeline_artifact(
+                    str(artifact_path),
+                    str(Path(td) / "另一场.flv"),
+                    str(timeline_path),
+                )
+            with self.assertRaisesRegex(ValueError, "人工 DOCX 不一致"):
+                _load_optimized_timeline_artifact(
+                    str(artifact_path),
+                    str(flv_path),
+                    str(Path(td) / "另一天.docx"),
+                )
 
     def test_unmatched_optimized_timeline_entry_requires_postcheck(self):
         entries = [{
