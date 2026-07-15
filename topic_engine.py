@@ -79,6 +79,8 @@ TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEARCH_SEC = 180
 SLICE_EXACT_SEEK_PREROLL_SEC = 10
 SLICE_DURATION_TOLERANCE_SEC = 0.5
 SLICE_INDEX_MIN_CLIPS = 4
+SLICE_DEFAULT_CONCURRENCY = 2
+SLICE_MAX_CONCURRENCY = 2
 SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会纳入切片
 SC_FALLBACK_GIFT_LOOKBACK_SEC = 15  # 仅凭“感谢礼物”推断 SC 时避免回溯到无关互动
 SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
@@ -6801,6 +6803,19 @@ def _software_slice_video_encoder_args():
     ]
 
 
+def _configured_slice_concurrency():
+    """首次索引切片最多使用 2 路 NVENC，环境变量可主动降为 1。"""
+    raw_value = os.environ.get(
+        "AUTOSLICE_SLICE_CONCURRENCY",
+        str(SLICE_DEFAULT_CONCURRENCY),
+    )
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        value = SLICE_DEFAULT_CONCURRENCY
+    return max(1, min(SLICE_MAX_CONCURRENCY, value))
+
+
 def _build_precise_slice_ffmpeg_command(
         input_path, output_path, start_s, duration, video_encoder_args):
     """双重 seek 丢弃关键帧前置内容，再编码视频得到精确首尾。"""
@@ -6956,38 +6971,33 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
         if pending_jobs
         else None
     )
-    try:
-        if pending_jobs:
-            slice_source, temporary_seek_source = _prepare_seekable_slice_source(
-                flv_path,
-                report_dir,
-                len(pending_jobs),
-                sp,
-                progress_callback=progress_callback,
+    slice_progress = _serialized_progress_callback(progress_callback)
+
+    def encode_slice_job(job, requested_encoder_args):
+        index = job["index"]
+        start_s = job["start"]
+        duration = job["duration"]
+        title = job["title"]
+        output_path = job["output_path"]
+        temporary_output_path = output_path + ".part.flv"
+        effective_encoder_args = list(requested_encoder_args)
+
+        if slice_progress:
+            slice_progress(
+                f"切片 {index}/{len(marks)}: {title}",
+                index,
+                len(marks),
             )
-        for job in pending_jobs:
-            index = job["index"]
-            start_s = job["start"]
-            duration = job["duration"]
-            title = job["title"]
-            output_path = job["output_path"]
-            temporary_output_path = output_path + ".part.flv"
 
-            if progress_callback:
-                progress_callback(
-                    f"切片 {index}/{len(marks)}: {title}",
-                    index,
-                    len(marks),
-                )
-
-            if os.path.exists(temporary_output_path):
-                os.remove(temporary_output_path)
+        if os.path.exists(temporary_output_path):
+            os.remove(temporary_output_path)
+        try:
             command = _build_precise_slice_ffmpeg_command(
                 slice_source,
                 temporary_output_path,
                 start_s,
                 duration,
-                video_encoder_args,
+                effective_encoder_args,
             )
             try:
                 sp.run(
@@ -6999,13 +7009,13 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
                     errors="replace",
                 )
             except sp.CalledProcessError:
-                if "h264_nvenc" not in video_encoder_args:
+                if "h264_nvenc" not in effective_encoder_args:
                     raise
                 if os.path.exists(temporary_output_path):
                     os.remove(temporary_output_path)
-                video_encoder_args = _software_slice_video_encoder_args()
-                if progress_callback:
-                    progress_callback(
+                effective_encoder_args = _software_slice_video_encoder_args()
+                if slice_progress:
+                    slice_progress(
                         "NVENC 不可用，已改用 CPU 精确编码",
                         index - 1,
                         len(marks),
@@ -7015,7 +7025,7 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
                     temporary_output_path,
                     start_s,
                     duration,
-                    video_encoder_args,
+                    effective_encoder_args,
                 )
                 sp.run(
                     command,
@@ -7030,14 +7040,65 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
             if (
                     actual_duration is None
                     or abs(actual_duration - duration) > SLICE_DURATION_TOLERANCE_SEC):
-                if os.path.exists(temporary_output_path):
-                    os.remove(temporary_output_path)
                 raise RuntimeError(
                     f"切片 {index} 时长校验失败：计划 {duration:.3f}s，"
                     f"实际 {actual_duration if actual_duration is not None else '无法读取'}"
                 )
             os.replace(temporary_output_path, output_path)
+            return effective_encoder_args
+        except Exception:
+            if os.path.exists(temporary_output_path):
+                os.remove(temporary_output_path)
+            raise
+
+    try:
+        if pending_jobs:
+            slice_source, temporary_seek_source = _prepare_seekable_slice_source(
+                flv_path,
+                report_dir,
+                len(pending_jobs),
+                sp,
+                progress_callback=progress_callback,
+            )
+        remaining_jobs = list(pending_jobs)
+        can_probe_parallel_nvenc = (
+            len(remaining_jobs) >= SLICE_INDEX_MIN_CLIPS
+            and temporary_seek_source is not None
+            and "h264_nvenc" in (video_encoder_args or [])
+            and _configured_slice_concurrency() > 1
+        )
+        if can_probe_parallel_nvenc:
+            probe_job = remaining_jobs.pop(0)
+            video_encoder_args = encode_slice_job(probe_job, video_encoder_args)
             count += 1
+
+        can_parallel_encode = (
+            can_probe_parallel_nvenc
+            and "h264_nvenc" in (video_encoder_args or [])
+            and len(remaining_jobs) > 1
+        )
+        if can_parallel_encode:
+            workers = min(_configured_slice_concurrency(), len(remaining_jobs))
+            if slice_progress:
+                slice_progress(
+                    f"NVENC 探针通过，启用 {workers} 路并行切片",
+                    count,
+                    len(marks),
+                )
+            with ThreadPoolExecutor(
+                    max_workers=workers,
+                    thread_name_prefix="autoslice-encode") as executor:
+                futures = [
+                    executor.submit(encode_slice_job, job, video_encoder_args)
+                    for job in remaining_jobs
+                ]
+                for future in as_completed(futures):
+                    future.result()
+                    count += 1
+        else:
+            for job in remaining_jobs:
+                video_encoder_args = encode_slice_job(job, video_encoder_args)
+                count += 1
     finally:
         if temporary_seek_source and os.path.exists(temporary_seek_source):
             os.remove(temporary_seek_source)

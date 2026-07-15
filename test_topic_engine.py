@@ -1397,6 +1397,171 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(len(ffmpeg_calls), 1)
         self.assertEqual(probe.call_count, 1)
 
+    def test_slice_from_marks_uses_two_nvenc_workers_after_indexed_probe_clip(self):
+        marks = [
+            {
+                "start": 10 + index * 100,
+                "end": 90 + index * 100,
+                "title": f"并行片段{index + 1}",
+            }
+            for index in range(4)
+        ]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"source-video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": marks,
+            }, ensure_ascii=False), encoding="utf-8")
+            seek_index = root / "seek-index.mkv"
+            seek_index.write_bytes(b"index")
+            state = {"active": 0, "max_active": 0}
+            state_lock = threading.Lock()
+            ffmpeg_calls = []
+
+            def fake_ffmpeg(args, **_kwargs):
+                with state_lock:
+                    state["active"] += 1
+                    state["max_active"] = max(state["max_active"], state["active"])
+                    ffmpeg_calls.append(args)
+                try:
+                    time.sleep(0.04)
+                    Path(args[-1]).write_bytes(b"clip")
+                    return Mock(returncode=0)
+                finally:
+                    with state_lock:
+                        state["active"] -= 1
+
+            with (
+                patch(
+                    "topic_engine._prepare_seekable_slice_source",
+                    return_value=(str(seek_index), str(seek_index)),
+                ),
+                patch(
+                    "topic_engine._preferred_slice_video_encoder_args",
+                    return_value=["-c:v", "h264_nvenc"],
+                ),
+                patch("topic_engine._probe_video_duration", return_value=80.03),
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                count, report_dir = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                )
+            output_files = list(Path(report_dir).glob("*.flv"))
+            part_files = list(Path(report_dir).glob("*.part.flv"))
+            seek_index_exists = seek_index.exists()
+
+        self.assertEqual(count, 4)
+        self.assertEqual(len(ffmpeg_calls), 4)
+        self.assertEqual(state["max_active"], 2)
+        self.assertEqual(len(output_files), 4)
+        self.assertEqual(part_files, [])
+        self.assertFalse(seek_index_exists)
+
+    def test_slice_from_marks_keeps_no_index_and_software_modes_serial(self):
+        marks = [
+            {
+                "start": 10 + index * 100,
+                "end": 90 + index * 100,
+                "title": f"串行片段{index + 1}",
+            }
+            for index in range(4)
+        ]
+        scenarios = (
+            ("无索引NVENC", ["-c:v", "h264_nvenc"], False),
+            ("有索引CPU", ["-c:v", "libx264"], True),
+        )
+        for label, encoder_args, has_index in scenarios:
+            with self.subTest(label=label), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                flv_path = root / "测试录播.flv"
+                flv_path.write_bytes(b"source-video")
+                clip_json_path = root / "测试录播_clip_marks.json"
+                clip_json_path.write_text(json.dumps({
+                    "expanded_with_context": True,
+                    "clip_marks": marks,
+                }, ensure_ascii=False), encoding="utf-8")
+                seek_index = root / "seek-index.mkv"
+                if has_index:
+                    seek_index.write_bytes(b"index")
+                prepared_source = (
+                    (str(seek_index), str(seek_index))
+                    if has_index
+                    else (str(flv_path), None)
+                )
+                state = {"active": 0, "max_active": 0}
+                state_lock = threading.Lock()
+
+                def fake_ffmpeg(args, **_kwargs):
+                    with state_lock:
+                        state["active"] += 1
+                        state["max_active"] = max(state["max_active"], state["active"])
+                    try:
+                        time.sleep(0.02)
+                        Path(args[-1]).write_bytes(b"clip")
+                        return Mock(returncode=0)
+                    finally:
+                        with state_lock:
+                            state["active"] -= 1
+
+                with (
+                    patch(
+                        "topic_engine._prepare_seekable_slice_source",
+                        return_value=prepared_source,
+                    ),
+                    patch(
+                        "topic_engine._preferred_slice_video_encoder_args",
+                        return_value=encoder_args,
+                    ),
+                    patch("topic_engine._probe_video_duration", return_value=80.03),
+                    patch("subprocess.run", side_effect=fake_ffmpeg),
+                ):
+                    count, _ = slice_from_marks(
+                        str(flv_path),
+                        str(clip_json_path),
+                        str(root / "输出"),
+                    )
+
+                self.assertEqual(count, 4)
+                self.assertEqual(state["max_active"], 1)
+
+    def test_slice_from_marks_removes_partial_file_when_encoder_fails(self):
+        mark = {"start": 10, "end": 90, "title": "失败清理测试"}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"source-video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": [mark],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            def fail_ffmpeg(args, **_kwargs):
+                Path(args[-1]).write_bytes(b"partial")
+                raise subprocess.CalledProcessError(1, args, stderr="encode failed")
+
+            with (
+                patch(
+                    "topic_engine._preferred_slice_video_encoder_args",
+                    return_value=["-c:v", "libx264"],
+                ),
+                patch("subprocess.run", side_effect=fail_ffmpeg),
+                self.assertRaises(subprocess.CalledProcessError),
+            ):
+                slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                )
+            part_files = list((root / "输出").rglob("*.part.flv"))
+
+        self.assertEqual(part_files, [])
+
     def test_precise_slice_command_uses_dual_seek_and_reencodes_video(self):
         command = _build_precise_slice_ffmpeg_command(
             "input.flv",
