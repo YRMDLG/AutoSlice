@@ -1,6 +1,9 @@
 import json
 import os
+import re
 import subprocess
+import threading
+import time
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -987,6 +990,7 @@ class TopicEngineParseTests(unittest.TestCase):
             analysis_chunks,
             "音音",
             progress_callback=None,
+            checkpoint_path=str(flv_path.with_name(flv_path.stem + "_topic_analysis_checkpoint.json")),
         )
         self.assertIn("## 逐话题时间轴", result["report"])
         self.assertTrue(result["corrected_srt_path"].endswith("_校对字幕.srt"))
@@ -1529,12 +1533,12 @@ class TopicEngineParseTests(unittest.TestCase):
         }, ensure_ascii=False)
 
         with (
-            patch("topic_engine._call_llm_with_retry", side_effect=["OK", response]) as call,
-            patch("topic_engine.time.sleep"),
+            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+            patch("topic_engine._call_llm_with_retry", return_value=response) as call,
         ):
             topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
 
-        analysis_prompt = call.call_args_list[1].args[0]
+        analysis_prompt = call.call_args_list[0].args[0]
         self.assertEqual(len(topics), 1)
         self.assertEqual(topics[0]["title"], "闹钟误设半夜十二点")
         self.assertEqual(failed_chunks, [])
@@ -1542,6 +1546,192 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertNotIn("人工时间轴参考", analysis_prompt)
         self.assertNotIn("华为闹钟设成半夜十二点", analysis_prompt)
         self.assertIn("音音讲述闹钟", analysis_prompt)
+
+    def test_analyze_topic_chunks_runs_three_requests_in_parallel_and_merges_in_order(self):
+        chunks = [
+            {
+                "start": index * 600,
+                "end": (index + 1) * 600,
+                "text": f"[字幕] 第{index + 1}块独立话题",
+                "danmaku_info": "无弹幕",
+            }
+            for index in range(6)
+        ]
+        state = {"active": 0, "max_active": 0}
+        state_lock = threading.Lock()
+
+        def fake_call(prompt, **_kwargs):
+            index = int(re.search(r"第(\d+)/6块", prompt).group(1))
+            with state_lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+            try:
+                time.sleep((7 - index) * 0.015)
+                start = (index - 1) * 600 + 30
+                end = start + 120
+                return json.dumps({"topics": [{
+                    "start": f"0:{start // 60:02d}:{start % 60:02d}",
+                    "end": f"0:{end // 60:02d}:{end % 60:02d}",
+                    "title": f"话题{index}",
+                    "publish_title": f"【泽音】话题{index}",
+                    "can_slice": False,
+                    "points": [f"音音完整说明第{index}件事"],
+                }]}, ensure_ascii=False)
+            finally:
+                with state_lock:
+                    state["active"] -= 1
+
+        with (
+            patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
+            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+            patch("topic_engine._call_llm_with_retry", side_effect=fake_call) as call,
+        ):
+            topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
+
+        self.assertEqual(call.call_count, 6)
+        self.assertEqual(state["max_active"], 3)
+        self.assertEqual([topic["title"] for topic in topics], [f"话题{index}" for index in range(1, 7)])
+        self.assertEqual(failed_chunks, [])
+        self.assertIsNone(warning)
+
+    def test_analyze_topic_chunks_reuses_raw_response_cache_and_invalidates_one_changed_chunk(self):
+        chunks = [
+            {
+                "start": index * 600,
+                "end": (index + 1) * 600,
+                "text": f"[字幕] 原始内容{index + 1}",
+                "danmaku_info": "无弹幕",
+            }
+            for index in range(2)
+        ]
+
+        def response_for_prompt(prompt, **_kwargs):
+            index = int(re.search(r"第(\d+)/2块", prompt).group(1))
+            title = "更新后的话题2" if "更新字幕" in prompt else f"原始话题{index}"
+            start = (index - 1) * 600 + 30
+            return json.dumps({"topics": [{
+                "start": f"0:{start // 60:02d}:{start % 60:02d}",
+                "end": f"0:{(start + 120) // 60:02d}:{(start + 120) % 60:02d}",
+                "title": title,
+                "publish_title": f"【泽音】{title}",
+                "can_slice": False,
+                "points": [f"音音完整说明{title}"],
+            }]}, ensure_ascii=False)
+
+        with TemporaryDirectory() as td:
+            checkpoint_path = Path(td) / "首轮检查点.json"
+            checkpoint_path.write_text("{中断写入", encoding="utf-8")
+            with (
+                patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+                patch("topic_engine._call_llm_with_retry", side_effect=response_for_prompt) as first_call,
+            ):
+                first_topics, _, _ = _analyze_topic_chunks(
+                    chunks,
+                    "音音",
+                    checkpoint_path=str(checkpoint_path),
+                )
+
+            with (
+                patch("topic_engine.load_api_config", side_effect=AssertionError("全缓存时不应检查 API")),
+                patch("topic_engine._call_llm_with_retry", side_effect=AssertionError("全缓存时不应调用 API")) as cached_call,
+            ):
+                cached_topics, _, _ = _analyze_topic_chunks(
+                    chunks,
+                    "音音",
+                    checkpoint_path=str(checkpoint_path),
+                )
+
+            chunks[1]["text"] += " 更新字幕"
+            with (
+                patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+                patch("topic_engine._call_llm_with_retry", side_effect=response_for_prompt) as changed_call,
+            ):
+                changed_topics, _, _ = _analyze_topic_chunks(
+                    chunks,
+                    "音音",
+                    checkpoint_path=str(checkpoint_path),
+                )
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(first_call.call_count, 2)
+        self.assertEqual(cached_call.call_count, 0)
+        self.assertEqual(changed_call.call_count, 1)
+        self.assertEqual(
+            [topic["title"] for topic in first_topics],
+            ["原始话题1", "原始话题2"],
+        )
+        self.assertEqual(
+            [topic["title"] for topic in cached_topics],
+            ["原始话题1", "原始话题2"],
+        )
+        self.assertEqual(
+            [topic["title"] for topic in changed_topics],
+            ["原始话题1", "更新后的话题2"],
+        )
+        self.assertEqual(len(checkpoint["responses"]), 2)
+
+    def test_analyze_topic_chunks_stops_after_first_parallel_wave_when_api_is_down(self):
+        chunks = [
+            {
+                "start": index * 600,
+                "end": (index + 1) * 600,
+                "text": f"[字幕] 话题{index + 1}",
+                "danmaku_info": "无弹幕",
+            }
+            for index in range(8)
+        ]
+
+        with (
+            patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
+            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+            patch("topic_engine._call_llm_with_retry", side_effect=make_http_error(500)) as call,
+            self.assertRaisesRegex(RuntimeError, "连续 3 个分块失败"),
+        ):
+            _analyze_topic_chunks(chunks, "音音")
+
+        self.assertEqual(call.call_count, 3)
+
+    def test_analyze_topic_chunks_keeps_previous_checkpoint_when_atomic_replace_fails(self):
+        chunks = [{
+            "start": 0,
+            "end": 600,
+            "text": "[字幕] 音音完整说明一件事",
+            "danmaku_info": "无弹幕",
+        }]
+        response = json.dumps({"topics": [{
+            "start": "0:00:30",
+            "end": "0:02:30",
+            "title": "完整说明一件事",
+            "publish_title": "【泽音】完整说明一件事",
+            "can_slice": False,
+            "points": ["音音交代事情经过并作出回应"],
+        }]}, ensure_ascii=False)
+
+        with TemporaryDirectory() as td:
+            checkpoint_path = Path(td) / "首轮检查点.json"
+            old_content = '{"old_complete_checkpoint": true}'
+            checkpoint_path.write_text(old_content, encoding="utf-8")
+            progress = []
+            with (
+                patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+                patch("topic_engine._call_llm_with_retry", return_value=response),
+                patch("topic_engine.os.replace", side_effect=OSError("磁盘暂时不可写")),
+            ):
+                topics, failed_chunks, warning = _analyze_topic_chunks(
+                    chunks,
+                    "音音",
+                    checkpoint_path=str(checkpoint_path),
+                    progress_callback=lambda message, step, total: progress.append(message),
+                )
+            saved_content = checkpoint_path.read_text(encoding="utf-8")
+            temp_exists = Path(str(checkpoint_path) + ".tmp").exists()
+
+        self.assertEqual([topic["title"] for topic in topics], ["完整说明一件事"])
+        self.assertEqual(failed_chunks, [])
+        self.assertIsNone(warning)
+        self.assertEqual(saved_content, old_content)
+        self.assertFalse(temp_exists)
+        self.assertTrue(any("检查点写入失败" in message for message in progress))
 
     def test_call_llm_uses_long_read_timeout_for_deepseek_pro(self):
         response = Mock()

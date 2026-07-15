@@ -10,11 +10,13 @@
 """
 
 import html
+import hashlib
 import math
 import bisect
 import difflib
 import os, re, json, time, zipfile, requests, threading, shutil
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 
@@ -30,6 +32,9 @@ LLM_COMPACT_TEXT_CHARS = 2200
 LLM_RETRY_DELAYS = (3, 8, 20, 45)
 LLM_REQUEST_TIMEOUT = (30, 600)
 MAX_INITIAL_FAILED_CHUNKS = 3
+LLM_DEFAULT_CONCURRENCY = 3
+LLM_MAX_CONCURRENCY = 4
+TOPIC_ANALYSIS_CHECKPOINT_VERSION = 1
 FUNASR_MODEL = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "cpu")
 FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
@@ -5407,50 +5412,104 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _analyze_topic_chunks(chunks, streamer_display_name, progress_callback=None):
-    """逐块独立分析完整字幕和弹幕，不读取人工时间轴。"""
+def _configured_llm_concurrency():
+    """读取受控并发数；默认 3 路，避免过度请求上游服务。"""
+    raw_value = os.environ.get(
+        "AUTOSLICE_LLM_CONCURRENCY",
+        str(LLM_DEFAULT_CONCURRENCY),
+    )
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        value = LLM_DEFAULT_CONCURRENCY
+    return max(1, min(LLM_MAX_CONCURRENCY, value))
+
+
+def _topic_analysis_prompt_fingerprint(prompt, compact_prompt):
+    """提示、模型或输出上限变化时自动让对应分块缓存失效。"""
+    payload = "\n".join((
+        str(TOPIC_ANALYSIS_CHECKPOINT_VERSION),
+        LLM_MODEL,
+        str(LLM_MAX_TOKENS),
+        str(LLM_COMPACT_MAX_TOKENS),
+        prompt,
+        compact_prompt,
+    ))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_topic_analysis_checkpoint(path):
+    """容错读取首轮原始响应检查点；损坏文件按空缓存处理。"""
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return {}
+    if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != TOPIC_ANALYSIS_CHECKPOINT_VERSION
+            or not isinstance(payload.get("responses"), dict)):
+        return {}
+    return payload["responses"]
+
+
+def _write_topic_analysis_checkpoint(path, responses, chunk_count):
+    """原子保存原始模型响应；写入失败时保留上一个完整检查点。"""
+    if not path:
+        return True
+    payload = {
+        "schema_version": TOPIC_ANALYSIS_CHECKPOINT_VERSION,
+        "model": LLM_MODEL,
+        "chunk_count": int(chunk_count),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "responses": responses,
+    }
+    temp_path = path + ".tmp"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, path)
+        return True
+    except OSError:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+        return False
+
+
+def _serialized_progress_callback(progress_callback):
+    """让并发重试日志按完整消息写入 SSE 和控制台。"""
+    if not progress_callback:
+        return None
+    lock = threading.Lock()
+
+    def report(message, step, total):
+        with lock:
+            progress_callback(message, step, total)
+
+    return report
+
+
+def _analyze_topic_chunks(
+        chunks, streamer_display_name, progress_callback=None,
+        checkpoint_path=None):
+    """逐块独立分析字幕和弹幕；请求并行，结果仍按视频顺序合并。"""
     if not chunks:
         return [], [], None
 
-    api_warning = None
-    if progress_callback:
-        progress_callback("Step 4/5: 预检 API 连通性...", 22, 100)
-    try:
-        test_resp = _call_llm_with_retry(
-            "只输出 OK 两个字母，不要解释，不要推理。",
-            max_tokens=1000,
-            attempts=3,
-            progress_callback=progress_callback,
-            progress_label="API预检",
-            progress_step=22,
-        )
-        if not test_resp or len(test_resp.strip()) < 1:
-            raise RuntimeError("API 返回空内容")
-    except Exception as exc:
-        message = _short_llm_error(exc)
-        if not _is_retryable_llm_error(exc):
-            if progress_callback:
-                progress_callback(f"API 预检失败: {message}", 0, 100)
-            raise RuntimeError(f"API 预检失败: {message}") from exc
-        api_warning = f"API 预检遇到临时错误，正式分块已继续重试：{message}"
-        if progress_callback:
-            progress_callback(api_warning, 22, 100)
-
-    accepted_topics = []
-    failed_chunks = []
-    consecutive_failed_chunks = 0
-    successful_response_count = 0
     total = len(chunks)
-    for index, chunk in enumerate(chunks):
-        pct = 25 + int((index / total) * 68)
-        chunk_time = fmt_time(chunk["start"])
-        if progress_callback:
-            progress_callback(
-                f"Step 4/5: LLM分析 ({index + 1}/{total}, {chunk_time})...",
-                pct,
-                100,
-            )
+    report_progress = _serialized_progress_callback(progress_callback)
+    stored_responses = _load_topic_analysis_checkpoint(checkpoint_path)
+    active_checkpoint_responses = {}
+    prepared_chunks = []
+    outcomes = {}
+    pending = []
 
+    for index, chunk in enumerate(chunks):
         prompt, chunk_start, chunk_end = _build_chunk_prompt(
             chunk,
             index,
@@ -5465,39 +5524,164 @@ def _analyze_topic_chunks(chunks, streamer_display_name, progress_callback=None)
             compact=True,
             streamer_name=streamer_display_name,
         )
+        fingerprint = _topic_analysis_prompt_fingerprint(prompt, compact_prompt)
+        prepared = {
+            "index": index,
+            "chunk": chunk,
+            "prompt": prompt,
+            "compact_prompt": compact_prompt,
+            "chunk_start": chunk_start,
+            "chunk_end": chunk_end,
+            "fingerprint": fingerprint,
+            "pct": 25 + int((index / total) * 68),
+        }
+        prepared_chunks.append(prepared)
+        cache_key = str(index + 1)
+        cached = stored_responses.get(cache_key)
+        if (
+                isinstance(cached, dict)
+                and cached.get("fingerprint") == fingerprint
+                and isinstance(cached.get("response"), str)
+                and _extract_json_payload(cached["response"]) is not None):
+            outcomes[index] = {"response": cached["response"], "cached": True}
+            active_checkpoint_responses[cache_key] = cached
+        else:
+            pending.append(prepared)
+
+    cached_count = total - len(pending)
+    if report_progress and cached_count:
+        report_progress(
+            f"Step 4/5: 已复用首轮分析缓存 {cached_count}/{total} 块",
+            24,
+            100,
+        )
+
+    if pending:
         try:
-            response = _call_llm_with_retry(
-                prompt,
-                compact_prompt=compact_prompt,
-                require_json=True,
-                progress_callback=progress_callback,
-                progress_label=f"块 {index + 1} API",
-                progress_step=pct,
-            )
+            load_api_config()
         except Exception as exc:
-            error = _short_llm_error(exc)
+            message = _short_llm_error(exc)
+            if report_progress:
+                report_progress(f"API 配置无效: {message}", 0, 100)
+            raise RuntimeError(f"API 配置无效: {message}") from exc
+
+        concurrency = min(_configured_llm_concurrency(), len(pending))
+        if report_progress:
+            report_progress(
+                f"Step 4/5: DeepSeek V4 Pro 分块分析 "
+                f"({len(pending)} 块待处理，{concurrency} 路并行)...",
+                25,
+                100,
+            )
+
+        successful_response_count = cached_count
+        consecutive_failed_chunks = 0
+        completed_pending = 0
+        checkpoint_warning_reported = False
+
+        for wave_offset in range(0, len(pending), concurrency):
+            wave = pending[wave_offset:wave_offset + concurrency]
+
+            def request_chunk(prepared):
+                return _call_llm_with_retry(
+                    prepared["prompt"],
+                    compact_prompt=prepared["compact_prompt"],
+                    require_json=True,
+                    progress_callback=report_progress,
+                    progress_label=f"块 {prepared['index'] + 1} API",
+                    progress_step=prepared["pct"],
+                )
+
+            with ThreadPoolExecutor(
+                    max_workers=concurrency,
+                    thread_name_prefix="autoslice-llm") as executor:
+                futures = {
+                    executor.submit(request_chunk, prepared): prepared
+                    for prepared in wave
+                }
+                for future in as_completed(futures):
+                    prepared = futures[future]
+                    index = prepared["index"]
+                    try:
+                        response = future.result()
+                    except Exception as exc:
+                        outcomes[index] = {"error": exc}
+                    else:
+                        outcomes[index] = {"response": response, "cached": False}
+                        active_checkpoint_responses[str(index + 1)] = {
+                            "fingerprint": prepared["fingerprint"],
+                            "response": response,
+                            "updated_at": datetime.now().isoformat(timespec="seconds"),
+                        }
+                        checkpoint_saved = _write_topic_analysis_checkpoint(
+                            checkpoint_path,
+                            active_checkpoint_responses,
+                            total,
+                        )
+                        if (
+                                not checkpoint_saved
+                                and report_progress
+                                and not checkpoint_warning_reported):
+                            checkpoint_warning_reported = True
+                            report_progress(
+                                "首轮分析检查点写入失败，本次分析继续；请检查目录权限",
+                                prepared["pct"],
+                                100,
+                            )
+                    completed_pending += 1
+                    if report_progress:
+                        report_progress(
+                            f"Step 4/5: LLM分析完成 "
+                            f"({cached_count + completed_pending}/{total}，"
+                            f"第 {index + 1} 块)",
+                            25 + int(((cached_count + completed_pending) / total) * 68),
+                            100,
+                        )
+
+            for prepared in wave:
+                outcome = outcomes[prepared["index"]]
+                error = outcome.get("error")
+                if error is None:
+                    successful_response_count += 1
+                    consecutive_failed_chunks = 0
+                    continue
+                short_error = _short_llm_error(error)
+                consecutive_failed_chunks = (
+                    consecutive_failed_chunks + 1
+                    if _is_retryable_llm_error(error)
+                    else MAX_INITIAL_FAILED_CHUNKS
+                )
+                if report_progress:
+                    report_progress(
+                        f"块 {prepared['index'] + 1} API 连续失败，已跳过: {short_error}",
+                        prepared["pct"],
+                        100,
+                    )
+                if (
+                        consecutive_failed_chunks >= MAX_INITIAL_FAILED_CHUNKS
+                        and successful_response_count == 0):
+                    raise RuntimeError(
+                        f"LLM API 连续 {consecutive_failed_chunks} 个分块失败，"
+                        f"疑似上游服务不可用。最后错误: {short_error}"
+                    ) from error
+
+    accepted_topics = []
+    failed_chunks = []
+    for prepared in prepared_chunks:
+        index = prepared["index"]
+        chunk = prepared["chunk"]
+        chunk_start = prepared["chunk_start"]
+        chunk_end = prepared["chunk_end"]
+        outcome = outcomes[index]
+        error = outcome.get("error")
+        if error is not None:
             failed_chunks.append({
                 "index": index + 1,
                 "start": int(chunk_start),
                 "end": int(chunk_end),
                 "time": fmt_time(chunk_start),
-                "error": error,
+                "error": _short_llm_error(error),
             })
-            if progress_callback:
-                progress_callback(f"块 {index + 1} API 连续失败，已跳过: {error}", pct, 100)
-            consecutive_failed_chunks = (
-                consecutive_failed_chunks + 1
-                if _is_retryable_llm_error(exc)
-                else MAX_INITIAL_FAILED_CHUNKS
-            )
-            if (
-                consecutive_failed_chunks >= MAX_INITIAL_FAILED_CHUNKS
-                and successful_response_count == 0
-            ):
-                raise RuntimeError(
-                    f"LLM API 连续 {consecutive_failed_chunks} 个分块失败，疑似上游服务不可用。"
-                    f"最后错误: {error}"
-                ) from exc
             fallback_topic = _make_fallback_topic_from_chunk(
                 chunk,
                 streamer_name=streamer_display_name,
@@ -5506,11 +5690,9 @@ def _analyze_topic_chunks(chunks, streamer_display_name, progress_callback=None)
                 accepted_topics.append(fallback_topic)
             continue
 
-        successful_response_count += 1
-        consecutive_failed_chunks = 0
         before_topic_count = len(accepted_topics)
         _parse_llm_response(
-            response,
+            outcome["response"],
             chunk_start,
             chunk_end,
             accepted_topics,
@@ -5523,9 +5705,8 @@ def _analyze_topic_chunks(chunks, streamer_display_name, progress_callback=None)
             )
             if fallback_topic and not _is_duplicate_topic(fallback_topic, accepted_topics):
                 accepted_topics.append(fallback_topic)
-        time.sleep(0.3)
 
-    return accepted_topics, failed_chunks, api_warning
+    return accepted_topics, failed_chunks, None
 
 
 def _fresh_manual_topic_evidence(topic, srt_segments=None, peaks=None):
@@ -5943,10 +6124,12 @@ def run_pipeline(
                 21, 100,
             )
     # Step 4: 首轮只分析字幕和弹幕，避免人工措辞锚定标题与语义边界。
+    topic_analysis_checkpoint_path = base + "_topic_analysis_checkpoint.json"
     accepted_topics, failed_chunks, api_precheck_warning = _analyze_topic_chunks(
         chunks,
         streamer_display_name,
         progress_callback=progress_callback,
+        checkpoint_path=topic_analysis_checkpoint_path,
     )
     if optimization_warning:
         api_precheck_warning = "；".join(
@@ -6051,6 +6234,7 @@ def run_pipeline(
             "unified_queue_json_path": unified_queue_json_path,
             "unified_queue_md_path": unified_queue_md_path,
             "clip_review_checkpoint_path": clip_review_checkpoint_path,
+            "topic_analysis_checkpoint_path": topic_analysis_checkpoint_path,
             "time_basis": "video_elapsed_seconds",
             "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
             "expanded_with_context": True,
@@ -6122,6 +6306,7 @@ def run_pipeline(
         "unified_queue_json_path": unified_queue_json_path,
         "unified_queue_md_path": unified_queue_md_path,
         "unified_queue_warning": unified_queue_warning,
+        "topic_analysis_checkpoint_path": topic_analysis_checkpoint_path,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
         "manual_timeline": _manual_timeline_summary(manual_timeline),
