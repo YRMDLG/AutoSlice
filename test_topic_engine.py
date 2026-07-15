@@ -2,12 +2,14 @@ import json
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import ModuleType
 from unittest.mock import Mock, mock_open, patch
 
 import requests
@@ -30,12 +32,15 @@ from topic_engine import (
     _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _find_manual_timeline_doc,
     _filter_unsupported_ai_points, _fit_final_clip_to_safe_srt_boundaries,
+    _funasr_chunk_fingerprint, _funasr_checkpoint_path,
+    _funasr_source_fingerprint,
     _high_energy_danmaku_peaks, _infer_streamer_name, _is_retryable_llm_error,
     _load_title_style_profile,
     _load_optimized_timeline_artifact, _make_fallback_topic_from_chunk,
     _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
-    _optimize_manual_timeline, _prepare_optimized_manual_timeline,
+    _optimize_manual_timeline, _prepare_funasr_checkpoint,
+    _prepare_optimized_manual_timeline,
     _parse_elapsed_timeline_report_lines, _parse_generated_topic_report,
     _parse_manual_timeline_lines,
     _render_unified_refinement_queue_markdown, _resolve_funasr_device,
@@ -48,10 +53,12 @@ from topic_engine import (
     _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
-    _validate_unmatched_manual_topics, _write_clip_srt, _write_optimized_timeline_files,
+    _validate_unmatched_manual_topics, _write_clip_srt,
+    _write_funasr_checkpoint, _write_optimized_timeline_files,
     analyze_danmaku, call_llm, export_corrected_srt, load_api_config,
     load_manual_timeline, optimize_manual_timeline_for_video,
     parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
+    ensure_srt,
 )
 
 def make_http_error(status):
@@ -146,6 +153,196 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertTrue(events)
         self.assertIn("本地 ModelScope 缓存不可用", events[-1][0])
+
+    def test_ensure_srt_rebuilds_from_complete_checkpoint_without_model_or_ffmpeg(self):
+        with TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "recording.flv"
+            video_path.write_bytes(b"source")
+            duration = 240.0
+            checkpoint_path, payload = _prepare_funasr_checkpoint(
+                str(video_path),
+                duration,
+                2,
+            )
+            for index, text_value in enumerate(("测试", "继续")):
+                start = index * 120.0
+                payload["chunks"][str(index)] = {
+                    "fingerprint": _funasr_chunk_fingerprint(
+                        payload["source_fingerprint"], index, start, 120.0
+                    ),
+                    "start": start,
+                    "duration": 120.0,
+                    "result": [{
+                        "text": text_value,
+                        "timestamp": [[0, 500], [500, 1000]],
+                    }],
+                }
+            _write_funasr_checkpoint(checkpoint_path, payload)
+
+            with (
+                patch("topic_engine._probe_video_duration", return_value=duration),
+                patch(
+                    "topic_engine._load_funasr_model",
+                    side_effect=AssertionError("完整检查点不应加载模型"),
+                ),
+                patch("subprocess.run") as run,
+            ):
+                srt_path = ensure_srt(str(video_path))
+
+            srt_text = Path(srt_path).read_text(encoding="utf-8")
+
+        run.assert_not_called()
+        self.assertIn("测试", srt_text)
+        self.assertIn("继续", srt_text)
+        self.assertIn("00:02:00,000", srt_text)
+
+    def test_prepare_funasr_checkpoint_only_drops_invalid_chunk_entry(self):
+        with TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "recording.flv"
+            video_path.write_bytes(b"source")
+            duration = 240.0
+            checkpoint_path, payload = _prepare_funasr_checkpoint(
+                str(video_path), duration, 2
+            )
+            payload["chunks"] = {
+                "0": {
+                    "fingerprint": _funasr_chunk_fingerprint(
+                        payload["source_fingerprint"], 0, 0.0, 120.0
+                    ),
+                    "result": [],
+                },
+                "1": {
+                    "fingerprint": _funasr_chunk_fingerprint(
+                        payload["source_fingerprint"], 1, 120.0, 120.0
+                    ),
+                    "result": [{"text": "错误缓存", "timestamp": "corrupted"}],
+                },
+            }
+            _write_funasr_checkpoint(checkpoint_path, payload)
+
+            _, recovered = _prepare_funasr_checkpoint(
+                str(video_path), duration, 2
+            )
+
+        self.assertEqual(list(recovered["chunks"]), ["0"])
+
+    def test_funasr_checkpoint_atomic_replace_failure_keeps_previous_file(self):
+        with TemporaryDirectory() as tmp:
+            checkpoint_path = Path(tmp) / "recording_asr_checkpoint.json"
+            checkpoint_path.write_text('{"old": true}', encoding="utf-8")
+
+            with (
+                patch("topic_engine.os.replace", side_effect=OSError("disk busy")),
+                self.assertRaises(OSError),
+            ):
+                _write_funasr_checkpoint(
+                    str(checkpoint_path),
+                    {"version": 1, "chunks": {}},
+                )
+
+            previous = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            temp_exists = Path(str(checkpoint_path) + ".tmp").exists()
+
+        self.assertEqual(previous, {"old": True})
+        self.assertFalse(temp_exists)
+
+    def test_ensure_srt_falls_back_to_cpu_after_gpu_inference_failure(self):
+        fake_funasr = ModuleType("funasr")
+        fake_funasr.AutoModel = object
+        load_devices = []
+        progress = []
+
+        class GpuModel:
+            def generate(self, **_kwargs):
+                raise RuntimeError("CUDA out of memory")
+
+        class CpuModel:
+            def generate(self, **_kwargs):
+                return [{
+                    "text": "测试",
+                    "timestamp": [[0, 500], [500, 1000]],
+                }]
+
+        def fake_load(_auto_model, progress_callback=None, device=None):
+            load_devices.append(device)
+            return GpuModel() if str(device).startswith("cuda") else CpuModel()
+
+        def fake_ffmpeg(args, **_kwargs):
+            Path(args[-1]).write_bytes(b"audio")
+            return Mock(returncode=0)
+
+        with TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "recording.flv"
+            video_path.write_bytes(b"source")
+            with (
+                patch.dict(sys.modules, {"funasr": fake_funasr}),
+                patch("topic_engine._probe_video_duration", return_value=120.0),
+                patch("topic_engine._resolve_funasr_device", return_value="cuda:0"),
+                patch("topic_engine._load_funasr_model", side_effect=fake_load),
+                patch("topic_engine._clear_funasr_cuda_cache"),
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                srt_path = ensure_srt(
+                    str(video_path),
+                    progress_callback=lambda *args: progress.append(args),
+                )
+            srt_text = Path(srt_path).read_text(encoding="utf-8")
+
+        self.assertEqual(load_devices, ["cuda:0", "cpu"])
+        self.assertIn("测试", srt_text)
+        self.assertTrue(any("GPU 转录失败" in event[0] for event in progress))
+
+    def test_ensure_srt_keeps_checkpoint_and_aborts_after_repeated_chunk_failure(self):
+        fake_funasr = ModuleType("funasr")
+        fake_funasr.AutoModel = object
+
+        class FailingSecondChunkModel:
+            def __init__(self):
+                self.calls = 0
+
+            def generate(self, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return [{
+                        "text": "测试",
+                        "timestamp": [[0, 500], [500, 1000]],
+                    }]
+                raise RuntimeError("decode failed")
+
+        model = FailingSecondChunkModel()
+
+        def fake_ffmpeg(args, **_kwargs):
+            Path(args[-1]).write_bytes(b"audio")
+            return Mock(returncode=0)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video_path = root / "recording.flv"
+            video_path.write_bytes(b"source")
+            with (
+                patch.dict(sys.modules, {"funasr": fake_funasr}),
+                patch("topic_engine._probe_video_duration", return_value=240.0),
+                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
+                patch("topic_engine._load_funasr_model", return_value=model),
+                patch("topic_engine.FUNASR_CPU_RETRY_DELAY_SEC", 0),
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+                self.assertRaisesRegex(RuntimeError, "连续失败"),
+            ):
+                ensure_srt(str(video_path))
+
+            checkpoint = json.loads(
+                Path(_funasr_checkpoint_path(str(video_path))).read_text(encoding="utf-8")
+            )
+            leftovers = [
+                path.name for path in root.iterdir()
+                if path.suffix == ".wav" or path.name.endswith(".srt.tmp")
+            ]
+            formal_srt_exists = (root / "recording.srt").exists()
+
+        self.assertEqual(list(checkpoint["chunks"]), ["0"])
+        self.assertFalse(formal_srt_exists)
+        self.assertEqual(leftovers, [])
+        self.assertEqual(model.calls, 3)
 
     def test_default_llm_model_uses_deepseek_v4_pro(self):
         self.assertEqual(LLM_MODEL, "deepseek-v4-pro")

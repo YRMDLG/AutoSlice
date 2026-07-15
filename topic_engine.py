@@ -37,6 +37,10 @@ LLM_MAX_CONCURRENCY = 4
 TOPIC_ANALYSIS_CHECKPOINT_VERSION = 1
 FUNASR_MODEL = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
+FUNASR_CHUNK_SEC = 120.0
+FUNASR_BATCH_SIZE_SEC = 60
+FUNASR_CHECKPOINT_VERSION = 1
+FUNASR_CPU_RETRY_DELAY_SEC = 1
 FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
     r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 )
@@ -1190,11 +1194,16 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
     selected_device = _resolve_funasr_device(device)
     model_source = _resolve_funasr_model_source()
     try:
-        return AutoModel(
+        model = AutoModel(
             model=model_source,
             device=selected_device,
             disable_update=True,
         )
+        try:
+            model._autoslice_device = selected_device
+        except (AttributeError, TypeError):
+            pass
+        return model
     except Exception as exc:
         if selected_device.startswith("cuda"):
             if progress_callback:
@@ -1202,13 +1211,18 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
                     f"FunASR GPU 加载失败，自动改用 CPU: {exc}",
                     10,
                     100,
-                )
+            )
             try:
-                return AutoModel(
+                model = AutoModel(
                     model=model_source,
                     device="cpu",
                     disable_update=True,
                 )
+                try:
+                    model._autoslice_device = "cpu"
+                except (AttributeError, TypeError):
+                    pass
+                return model
             except Exception as cpu_exc:
                 exc = cpu_exc
         message = (
@@ -1220,9 +1234,152 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
         raise RuntimeError(message) from exc
 
 
+def _funasr_checkpoint_path(video_path):
+    return os.path.splitext(video_path)[0] + "_asr_checkpoint.json"
+
+
+def _funasr_source_fingerprint(video_path, duration):
+    stat = os.stat(video_path)
+    payload = {
+        "path": os.path.normcase(os.path.abspath(video_path)),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "duration": round(float(duration), 3),
+        "sample_rate": 16000,
+        "channels": 1,
+        "chunk_sec": FUNASR_CHUNK_SEC,
+    }
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _funasr_chunk_fingerprint(source_fingerprint, index, start, duration):
+    value = f"{source_fingerprint}:{index}:{start:.3f}:{duration:.3f}"
+    return hashlib.sha256(value.encode("ascii")).hexdigest()
+
+
+def _normalise_funasr_result(result):
+    """只保存恢复 SRT 所需字段，并把 numpy 标量转成 JSON 基础类型。"""
+    normalised = []
+    for item in result or []:
+        if not isinstance(item, dict):
+            continue
+        timestamps = []
+        for pair in item.get("timestamp", []) or []:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            values = []
+            for value in pair[:2]:
+                if hasattr(value, "item"):
+                    value = value.item()
+                if value is not None and not isinstance(value, (int, float)):
+                    value = float(value)
+                values.append(value)
+            timestamps.append(values)
+        normalised.append({
+            "text": str(item.get("text", "")),
+            "timestamp": timestamps,
+        })
+    return normalised
+
+
+def _is_valid_funasr_result(result):
+    if not isinstance(result, list):
+        return False
+    for item in result:
+        if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("text"), str)
+                or not isinstance(item.get("timestamp"), list)):
+            return False
+        for pair in item["timestamp"]:
+            if (
+                    not isinstance(pair, list)
+                    or len(pair) != 2
+                    or any(
+                        value is not None and not isinstance(value, (int, float))
+                        for value in pair
+                    )):
+                return False
+    return True
+
+
+def _prepare_funasr_checkpoint(video_path, duration, chunk_count):
+    checkpoint_path = _funasr_checkpoint_path(video_path)
+    source_fingerprint = _funasr_source_fingerprint(video_path, duration)
+    payload = {
+        "version": FUNASR_CHECKPOINT_VERSION,
+        "source_fingerprint": source_fingerprint,
+        "video_path": os.path.abspath(video_path),
+        "duration": float(duration),
+        "chunk_sec": FUNASR_CHUNK_SEC,
+        "chunk_count": int(chunk_count),
+        "chunks": {},
+    }
+    try:
+        with open(checkpoint_path, encoding="utf-8") as handle:
+            existing = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        existing = None
+    if not isinstance(existing, dict):
+        return checkpoint_path, payload
+    if (
+            existing.get("version") != FUNASR_CHECKPOINT_VERSION
+            or existing.get("source_fingerprint") != source_fingerprint
+            or existing.get("chunk_count") != chunk_count):
+        return checkpoint_path, payload
+
+    existing_chunks = existing.get("chunks")
+    if not isinstance(existing_chunks, dict):
+        return checkpoint_path, payload
+    for index in range(chunk_count):
+        start = index * FUNASR_CHUNK_SEC
+        chunk_duration = min(FUNASR_CHUNK_SEC, max(0.0, duration - start))
+        expected_fingerprint = _funasr_chunk_fingerprint(
+            source_fingerprint,
+            index,
+            start,
+            chunk_duration,
+        )
+        entry = existing_chunks.get(str(index))
+        if (
+                isinstance(entry, dict)
+                and entry.get("fingerprint") == expected_fingerprint
+                and _is_valid_funasr_result(entry.get("result"))):
+            payload["chunks"][str(index)] = entry
+    return checkpoint_path, payload
+
+
+def _write_funasr_checkpoint(path, payload):
+    temp_path = path + ".tmp"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+
+
+def _clear_funasr_cuda_cache():
+    try:
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except (ImportError, OSError, RuntimeError):
+        pass
+
+
 def ensure_srt(video_path, progress_callback=None):
-    """确保 SRT 存在，没有则用 FunASR 生成"""
-    srt_path = video_path[:-4] + ".srt"
+    """确保 SRT 存在；分块检查点可恢复，全部成功后才原子写入正式字幕。"""
+    import subprocess as sp
+    import uuid
+
+    srt_path = os.path.splitext(video_path)[0] + ".srt"
+    srt_temp_path = srt_path + ".tmp"
     if os.path.exists(srt_path) and os.path.getsize(srt_path) > 0:
         if progress_callback:
             progress_callback("SRT 已存在，跳过转录", 5, 100)
@@ -1231,102 +1388,194 @@ def ensure_srt(video_path, progress_callback=None):
     if progress_callback:
         progress_callback("FunASR 转录中...", 5, 100)
 
-    import subprocess as sp, json as _json, uuid
-
-    try:
-        from funasr import AutoModel
-    except ImportError:
-        if progress_callback:
-            progress_callback("FunASR 未安装", 0, 100)
-        return None
-
-    wav_path = video_path[:-4] + f"_asr_{uuid.uuid4().hex[:6]}.wav"
-
-    # 提取音频
-    sp.run(["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-            "-ar", "16000", "-ac", "1", "-y", wav_path],
-           check=True, stdout=sp.PIPE, stderr=sp.DEVNULL,
-           encoding="utf-8", errors="replace")
-
-    try:
-        funasr_device = _resolve_funasr_device()
-        if progress_callback:
-            progress_callback(f"加载 FunASR 模型({funasr_device})...", 10, 100)
-
-        model = _load_funasr_model(
-            AutoModel,
-            progress_callback=progress_callback,
-            device=funasr_device,
+    duration = _probe_video_duration(video_path)
+    if not duration:
+        raise RuntimeError("无法读取录播时长，FunASR 转录未启动。")
+    chunk_count = max(1, int(math.ceil(duration / FUNASR_CHUNK_SEC)))
+    checkpoint_path, checkpoint = _prepare_funasr_checkpoint(
+        video_path,
+        duration,
+        chunk_count,
+    )
+    missing_indices = [
+        index for index in range(chunk_count)
+        if str(index) not in checkpoint["chunks"]
+    ]
+    if progress_callback and len(missing_indices) < chunk_count:
+        progress_callback(
+            f"已复用 FunASR 检查点 {chunk_count - len(missing_indices)}/{chunk_count} 块",
+            10,
+            100,
         )
-    except Exception:
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
-        raise
 
-    # 获取时长
+    wav_path = None
+    active_chunk_path = None
+    model = None
+    current_device = None
     try:
-        probe = sp.run(["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", wav_path],
-                       stdout=sp.PIPE, stderr=sp.DEVNULL)
-        dur = float(_json.loads(probe.stdout.decode("utf-8", errors="replace"))
-                    .get("format", {}).get("duration", 0))
-    except:
-        dur = os.path.getsize(wav_path) / (16000 * 2)
+        if missing_indices:
+            try:
+                from funasr import AutoModel
+            except ImportError as exc:
+                raise RuntimeError("FunASR 未安装，无法生成字幕。") from exc
 
-    # 分段转录
-    chunk_dur = 120.0
-    all_segs = []
-    n_chunks = max(1, int((dur + chunk_dur - 0.001) / chunk_dur))
-    streamer_name = _infer_streamer_name(video_path)
+            wav_path = os.path.splitext(video_path)[0] + f"_asr_{uuid.uuid4().hex[:6]}.wav"
+            sp.run(
+                [
+                    "ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
+                    "-ar", "16000", "-ac", "1", "-y", wav_path,
+                ],
+                check=True,
+                stdout=sp.PIPE,
+                stderr=sp.DEVNULL,
+                encoding="utf-8",
+                errors="replace",
+            )
+            requested_device = _resolve_funasr_device()
+            if progress_callback:
+                progress_callback(f"加载 FunASR 模型({requested_device})...", 10, 100)
+            model = _load_funasr_model(
+                AutoModel,
+                progress_callback=progress_callback,
+                device=requested_device,
+            )
+            current_device = getattr(model, "_autoslice_device", requested_device)
 
-    for i in range(n_chunks):
-        start_t = i * chunk_dur
+            for index in missing_indices:
+                start = index * FUNASR_CHUNK_SEC
+                chunk_duration = min(FUNASR_CHUNK_SEC, max(0.0, duration - start))
+                if progress_callback:
+                    pct = 10 + int((index / chunk_count) * 80)
+                    progress_callback(
+                        f"转录中 ({index + 1}/{chunk_count})...",
+                        pct,
+                        100,
+                    )
+
+                if chunk_count == 1:
+                    active_chunk_path = wav_path
+                else:
+                    active_chunk_path = (
+                        os.path.splitext(video_path)[0] + f"_chunk_{index}.wav"
+                    )
+                    sp.run(
+                        [
+                            "ffmpeg", "-y", "-ss", str(start), "-i", wav_path,
+                            "-t", str(chunk_duration), "-acodec", "pcm_s16le",
+                            "-ar", "16000", "-ac", "1", active_chunk_path,
+                        ],
+                        check=True,
+                        stdout=sp.PIPE,
+                        stderr=sp.DEVNULL,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+
+                try:
+                    result = model.generate(
+                        input=active_chunk_path,
+                        batch_size_s=FUNASR_BATCH_SIZE_SEC,
+                        disable_pbar=True,
+                    )
+                except Exception as first_error:
+                    if str(current_device).startswith("cuda"):
+                        if progress_callback:
+                            progress_callback(
+                                f"第 {index + 1} 块 GPU 转录失败，改用 CPU 重试: {first_error}",
+                                10 + int((index / chunk_count) * 80),
+                                100,
+                            )
+                        model = None
+                        _clear_funasr_cuda_cache()
+                        model = _load_funasr_model(
+                            AutoModel,
+                            progress_callback=progress_callback,
+                            device="cpu",
+                        )
+                        current_device = "cpu"
+                    else:
+                        if FUNASR_CPU_RETRY_DELAY_SEC:
+                            time.sleep(FUNASR_CPU_RETRY_DELAY_SEC)
+                    try:
+                        result = model.generate(
+                            input=active_chunk_path,
+                            batch_size_s=FUNASR_BATCH_SIZE_SEC,
+                            disable_pbar=True,
+                        )
+                    except Exception as retry_error:
+                        raise RuntimeError(
+                            f"FunASR 第 {index + 1}/{chunk_count} 块连续失败，"
+                            "已保留此前检查点，未生成残缺 SRT。"
+                        ) from retry_error
+
+                normalised_result = _normalise_funasr_result(result)
+                chunk_fingerprint = _funasr_chunk_fingerprint(
+                    checkpoint["source_fingerprint"],
+                    index,
+                    start,
+                    chunk_duration,
+                )
+                checkpoint["chunks"][str(index)] = {
+                    "fingerprint": chunk_fingerprint,
+                    "start": start,
+                    "duration": chunk_duration,
+                    "result": normalised_result,
+                    "completed_at": datetime.now().isoformat(timespec="seconds"),
+                }
+                _write_funasr_checkpoint(checkpoint_path, checkpoint)
+                if active_chunk_path != wav_path and os.path.exists(active_chunk_path):
+                    os.remove(active_chunk_path)
+                active_chunk_path = None
+
+        streamer_name = _infer_streamer_name(video_path)
+        all_segments = []
+        for index in range(chunk_count):
+            entry = checkpoint["chunks"].get(str(index))
+            if not entry:
+                raise RuntimeError(
+                    f"FunASR 第 {index + 1}/{chunk_count} 块缺失，未生成残缺 SRT。"
+                )
+            start = index * FUNASR_CHUNK_SEC
+            for item in entry.get("result") or []:
+                text_value = str(item.get("text", "")).strip()
+                timestamps = item.get("timestamp", [])
+                if text_value and timestamps:
+                    all_segments.extend(_segments_from_funasr_result(
+                        text_value,
+                        timestamps,
+                        offset=start,
+                        streamer_name=streamer_name,
+                    ))
+
+        if not all_segments:
+            if progress_callback:
+                progress_callback("未识别到有效语音，未生成空 SRT", 0, 100)
+            return None
+
+        written_count = 0
+        with open(srt_temp_path, "w", encoding="utf-8") as handle:
+            for start, end, text_value in all_segments:
+                if len(text_value) < 2:
+                    continue
+                written_count += 1
+                handle.write(
+                    f"{written_count}\n{_srt_time(start)} --> {_srt_time(end)}\n"
+                    f"{text_value}\n\n"
+                )
+        if not written_count:
+            os.remove(srt_temp_path)
+            return None
+        os.replace(srt_temp_path, srt_path)
         if progress_callback:
-            pct = 10 + int((i / n_chunks) * 80)
-            progress_callback(f"转录中 ({i+1}/{n_chunks})...", pct, 100)
-
-        chunk_file = wav_path if n_chunks == 1 else video_path[:-4] + f"_chunk_{i}.wav"
-        if n_chunks > 1:
-            sp.run(["ffmpeg", "-y", "-ss", str(start_t), "-i", wav_path,
-                    "-t", str(chunk_dur), "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1", chunk_file],
-                   check=True, stdout=sp.PIPE, stderr=sp.DEVNULL,
-                   encoding="utf-8", errors="replace")
-
-        try:
-            result = model.generate(input=chunk_file, batch_size_s=60, disable_pbar=True)
-            if result:
-                for item in result:
-                    text = item.get("text", "").strip()
-                    ts = item.get("timestamp", [])
-                    if text and ts:
-                        all_segs.extend(_segments_from_funasr_result(
-                            text,
-                            ts,
-                            offset=start_t,
-                            streamer_name=streamer_name,
-                        ))
-            if chunk_file != wav_path:
-                os.remove(chunk_file)
-        except:
-            if chunk_file != wav_path and os.path.exists(chunk_file):
-                os.remove(chunk_file)
-
-    os.remove(wav_path)
-
-    if not all_segs:
-        return None
-
-    # 写 SRT
-    with open(srt_path, "w", encoding="utf-8") as f:
-        for idx, (ss, se, txt) in enumerate(all_segs, 1):
-            if len(txt) < 2:
-                continue
-            f.write(f"{idx}\n{_srt_time(ss)} --> {_srt_time(se)}\n{txt}\n\n")
-
-    if progress_callback:
-        progress_callback(f"转录完成 ({len(all_segs)} 条)", 90, 100)
-
-    return srt_path
+            progress_callback(f"转录完成 ({written_count} 条)", 90, 100)
+        return srt_path
+    finally:
+        if active_chunk_path and active_chunk_path != wav_path and os.path.exists(active_chunk_path):
+            os.remove(active_chunk_path)
+        if wav_path and os.path.exists(wav_path):
+            os.remove(wav_path)
+        if os.path.exists(srt_temp_path):
+            os.remove(srt_temp_path)
 
 
 def _srt_time(s):
