@@ -2556,6 +2556,15 @@ def _is_manual_ai_placeholder(value):
     return not compact or any(phrase in compact for phrase in _MANUAL_AI_PLACEHOLDER_PHRASES)
 
 
+def _is_incomplete_ai_title(value):
+    """识别模型截在时间连接词上的半句标题。"""
+    compact = re.sub(r'\s+', '', str(value or "")).strip('，。！？!?：:；;')
+    if not compact.endswith("时"):
+        return False
+    complete_time_words = ("小时", "当时", "平时", "有时", "临时", "及时", "准时", "顿时")
+    return len(compact) >= 6 and not compact.endswith(complete_time_words)
+
+
 def _filter_unsupported_ai_points(points):
     """弹幕密度不能证明具体弹幕内容，过滤模型自行补写的观众反应。"""
     return [
@@ -2592,13 +2601,13 @@ def _enriched_manual_topic_from_item(topic, item):
         return None
     enriched = dict(topic)
     raw_title = _clean_topic_title(str(item.get("title", topic.get("title", ""))))
-    if _is_manual_ai_placeholder(raw_title):
+    if _is_manual_ai_placeholder(raw_title) or _is_incomplete_ai_title(raw_title):
         raw_title = ""
     title = _derive_topic_title(
         raw_title,
         points,
     )
-    if not title or _is_manual_ai_placeholder(title):
+    if not title or _is_manual_ai_placeholder(title) or _is_incomplete_ai_title(title):
         return None
     preserved_evidence = [
         line
@@ -2612,8 +2621,11 @@ def _enriched_manual_topic_from_item(topic, item):
     evidence_lines = list(topic.get("body") or []) + points
     title = _sanitize_transport_claims(title, evidence_lines)
     enriched["title"] = title
+    publish_title = item.get("publish_title")
+    if _is_incomplete_ai_title(publish_title):
+        publish_title = None
     enriched["publish_title"] = _sanitize_transport_claims(
-        _normalise_publish_title(item.get("publish_title"), title),
+        _normalise_publish_title(publish_title, title),
         evidence_lines,
     )
     enriched["body"] = body
@@ -2716,42 +2728,64 @@ def _enrich_manual_topics_in_batches(
     """分批优化复杂人工时间轴，避免一次请求塞入整场证据。"""
     optimized_topics = []
     warnings = []
-    total_batches = max(1, math.ceil(len(topics or []) / max(1, batch_size)))
-    for batch_index, offset in enumerate(range(0, len(topics or []), max(1, batch_size)), 1):
-        batch = list(topics[offset:offset + max(1, batch_size)])
-        if progress_callback:
-            progress_callback(
+    safe_batch_size = max(1, batch_size)
+    total_batches = max(1, math.ceil(len(topics or []) / safe_batch_size))
+    report_progress = _serialized_progress_callback(progress_callback)
+    jobs = []
+    for batch_index, offset in enumerate(
+            range(0, len(topics or []), safe_batch_size), 1):
+        batch = list(topics[offset:offset + safe_batch_size])
+        if report_progress:
+            report_progress(
                 f"字幕校准人工时间轴 ({batch_index}/{total_batches})...",
                 22,
                 100,
             )
-        try:
-            _enrich_manual_topics_with_llm(
-                batch,
-                streamer_name=streamer_name,
-                progress_callback=progress_callback,
-            )
-            unresolved = [topic for topic in batch if not topic.get("ai_enriched")]
-            if unresolved:
-                for topic in unresolved:
+        jobs.append({
+            "batch_index": batch_index,
+            "offset": offset,
+            "batch": batch,
+        })
+
+    def enrich_job(job):
+        return _enrich_manual_topics_with_llm(
+            job["batch"],
+            streamer_name=streamer_name,
+            progress_callback=report_progress,
+        )
+
+    concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
+    with ThreadPoolExecutor(
+            max_workers=concurrency,
+            thread_name_prefix="autoslice-manual") as executor:
+        futures = [executor.submit(enrich_job, job) for job in jobs]
+        for job, future in zip(jobs, futures):
+            batch_index = job["batch_index"]
+            offset = job["offset"]
+            batch = job["batch"]
+            try:
+                future.result()
+                unresolved = [topic for topic in batch if not topic.get("ai_enriched")]
+                if unresolved:
+                    for topic in unresolved:
+                        topic["reference_only"] = True
+                    warnings.append(
+                        f"第 {batch_index}/{total_batches} 批仅复核 "
+                        f"{len(batch) - len(unresolved)}/{len(batch)} 项，"
+                        f"其余 {len(unresolved)} 项未返回"
+                    )
+            except Exception as exc:
+                warning = f"第 {batch_index}/{total_batches} 批优化失败：{_short_llm_error(exc)}"
+                warnings.append(warning)
+                for topic in batch:
                     topic["reference_only"] = True
-                warnings.append(
-                    f"第 {batch_index}/{total_batches} 批仅复核 "
-                    f"{len(batch) - len(unresolved)}/{len(batch)} 项，"
-                    f"其余 {len(unresolved)} 项未返回"
+            optimized_topics.extend(batch)
+            if batch_result_callback:
+                batch_result_callback(
+                    list(optimized_topics),
+                    list(topics[offset + safe_batch_size:]),
+                    list(warnings),
                 )
-        except Exception as exc:
-            warning = f"第 {batch_index}/{total_batches} 批优化失败：{_short_llm_error(exc)}"
-            warnings.append(warning)
-            for topic in batch:
-                topic["reference_only"] = True
-        optimized_topics.extend(batch)
-        if batch_result_callback:
-            batch_result_callback(
-                list(optimized_topics),
-                list(topics[offset + max(1, batch_size):]),
-                list(warnings),
-            )
     topics[:] = sorted(optimized_topics, key=lambda item: (item["start"], item["end"]))
     if not warnings:
         return None
@@ -5868,6 +5902,7 @@ def _review_peak_selected_topics(
 
     unresolved = list(selected)
     last_errors = {}
+    report_progress = _serialized_progress_callback(progress_callback)
     review_rounds = (
         (
             (CLIP_REVIEW_RETRY_BATCH_SIZE, "检查点补充"),
@@ -5884,14 +5919,15 @@ def _review_peak_selected_topics(
             break
         retry_items = []
         total_batches = math.ceil(len(unresolved) / batch_size)
+        jobs = []
         for batch_index, offset in enumerate(range(0, len(unresolved), batch_size), 1):
             originals = unresolved[offset:offset + batch_size]
             candidates = [
                 _clip_review_candidate(topic, srt_segments, high_energy_peaks)
                 for topic in originals
             ]
-            if progress_callback:
-                progress_callback(
+            if report_progress:
+                report_progress(
                     f"高能切片字幕复核 {round_label} ({batch_index}/{total_batches})...",
                     95,
                     100,
@@ -5910,66 +5946,93 @@ def _review_peak_selected_topics(
                 original["clip_review_attempts"] = int(
                     original.get("clip_review_attempts", 0)
                 ) + 1
-            try:
-                response = _call_llm_with_retry(
-                    prompt,
-                    compact_prompt=compact_prompt,
-                    require_json=True,
-                    progress_callback=progress_callback,
-                    progress_label="高能切片字幕复核",
-                    progress_step=95,
-                )
-                response_payload = _extract_json_payload(response)
-                raw_items = (
-                    response_payload.get("topics", [])
-                    if isinstance(response_payload, dict)
-                    else []
-                )
-                items_by_id = {}
-                for item in raw_items if isinstance(raw_items, list) else []:
-                    if not isinstance(item, dict):
-                        continue
-                    try:
-                        item_id = int(item.get("id"))
-                    except (TypeError, ValueError):
-                        continue
-                    if 1 <= item_id <= len(candidates) and item_id not in items_by_id:
-                        items_by_id[item_id] = item
+            jobs.append({
+                "batch_index": batch_index,
+                "originals": originals,
+                "candidates": candidates,
+                "prompt": prompt,
+                "compact_prompt": compact_prompt,
+            })
 
-                for item_id, (original, candidate) in enumerate(
-                        zip(originals, candidates), 1):
-                    item = items_by_id.get(item_id)
-                    if item is None or "valid" not in item:
-                        last_errors[id(original)] = "模型未返回该候选的有效结构"
+        def review_job(job):
+            return _call_llm_with_retry(
+                job["prompt"],
+                compact_prompt=job["compact_prompt"],
+                require_json=True,
+                progress_callback=report_progress,
+                progress_label="高能切片字幕复核",
+                progress_step=95,
+            )
+
+        concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
+        with ThreadPoolExecutor(
+                max_workers=concurrency,
+                thread_name_prefix="autoslice-review") as executor:
+            futures = [executor.submit(review_job, job) for job in jobs]
+            for job, future in zip(jobs, futures):
+                batch_index = job["batch_index"]
+                originals = job["originals"]
+                candidates = job["candidates"]
+                try:
+                    response = future.result()
+                except Exception as exc:
+                    error = f"API复核失败：{_short_llm_error(exc)}"
+                    for original in originals:
+                        last_errors[id(original)] = error
                         retry_items.append(original)
-                        continue
-                    if not _json_can_slice(item.get("valid"), ""):
-                        original["clip_review_validated"] = False
-                        original["clip_review_rejection"] = str(
-                            item.get("reason", "字幕证据不足")
-                        ).strip() or "字幕证据不足"
+                else:
+                    response_payload = _extract_json_payload(response)
+                    raw_items = (
+                        response_payload.get("topics", [])
+                        if isinstance(response_payload, dict)
+                        else []
+                    )
+                    items_by_id = {}
+                    for item in raw_items if isinstance(raw_items, list) else []:
+                        if not isinstance(item, dict):
+                            continue
+                        try:
+                            item_id = int(item.get("id"))
+                        except (TypeError, ValueError):
+                            continue
+                        if 1 <= item_id <= len(candidates) and item_id not in items_by_id:
+                            items_by_id[item_id] = item
+
+                    for item_id, (original, candidate) in enumerate(
+                            zip(originals, candidates), 1):
+                        item = items_by_id.get(item_id)
+                        if item is None or "valid" not in item:
+                            last_errors[id(original)] = "模型未返回该候选的有效结构"
+                            retry_items.append(original)
+                            continue
+                        if not _json_can_slice(item.get("valid"), ""):
+                            original["clip_review_validated"] = False
+                            original["clip_review_rejection"] = str(
+                                item.get("reason", "字幕证据不足")
+                            ).strip() or "字幕证据不足"
+                            last_errors.pop(id(original), None)
+                            continue
+                        enriched = _enriched_manual_topic_from_item(candidate, item)
+                        if not enriched or not enriched.get("ai_focus_validated"):
+                            last_errors[id(original)] = "复核边界或正文无效"
+                            retry_items.append(original)
+                            continue
+                        enriched["clip_review_validated"] = True
+                        enriched["clip_review_rejection"] = None
+                        enriched["clip_review_attempts"] = original["clip_review_attempts"]
+                        enriched["can_slice"] = False
+                        original.clear()
+                        original.update(enriched)
                         last_errors.pop(id(original), None)
-                        continue
-                    enriched = _enriched_manual_topic_from_item(candidate, item)
-                    if not enriched or not enriched.get("ai_focus_validated"):
-                        last_errors[id(original)] = "复核边界或正文无效"
-                        retry_items.append(original)
-                        continue
-                    enriched["clip_review_validated"] = True
-                    enriched["clip_review_rejection"] = None
-                    enriched["clip_review_attempts"] = original["clip_review_attempts"]
-                    enriched["can_slice"] = False
-                    original.clear()
-                    original.update(enriched)
-                    last_errors.pop(id(original), None)
-            except Exception as exc:
-                error = f"API复核失败：{_short_llm_error(exc)}"
-                for original in originals:
-                    last_errors[id(original)] = error
-                    retry_items.append(original)
 
-            if checkpoint_callback:
-                checkpoint_callback(topics, retry_items, round_label, batch_index, total_batches)
+                if checkpoint_callback:
+                    checkpoint_callback(
+                        topics,
+                        retry_items,
+                        round_label,
+                        batch_index,
+                        total_batches,
+                    )
         unresolved = retry_items
 
     for original in unresolved:

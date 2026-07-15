@@ -2081,6 +2081,82 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         marks = _clip_marks_from_topics(topics)
         self.assertEqual([mark["title"] for mark in marks], ["看方言短剧听不懂"])
 
+    def test_clip_review_runs_independent_batches_in_parallel_and_applies_in_order(self):
+        topics = [
+            {
+                "start": 100 + index * 300,
+                "end": 160 + index * 300,
+                "title": f"候选{index + 1}",
+                "body": [f"·首轮摘要{index + 1}"],
+                "can_slice": True,
+                "slice_anchor": 130 + index * 300,
+                "slice_anchor_source": "弹幕峰值",
+            }
+            for index in range(7)
+        ]
+        srt_segments = [
+            (topic["start"] - 20, topic["end"] + 20, f"音音完整说明{topic['title']}")
+            for topic in topics
+        ]
+        peaks = [(topic["slice_anchor"], 150) for topic in topics]
+        state = {"active": 0, "max_active": 0}
+        state_lock = threading.Lock()
+        checkpoint_batches = []
+
+        def fake_review(prompt, **_kwargs):
+            payload = json.loads(prompt.rsplit("候选数据：\n", 1)[1])
+            first_number = int(re.search(r"候选(\d+)", payload[0]["provisional_title"]).group(1))
+            with state_lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+            try:
+                time.sleep((8 - first_number) * 0.015)
+                return json.dumps({"topics": [
+                    {
+                        "id": item["id"],
+                        "valid": True,
+                        "title": item["provisional_title"] + "已核实",
+                        "publish_title": "【泽音】" + item["provisional_title"] + "已核实",
+                        "focus_start": item["reference_start"],
+                        "focus_end": item["reference_end"],
+                        "points": [
+                            f"音音完整说明{item['provisional_title']}",
+                            "话题包含触发和最后回应",
+                        ],
+                        "reason": "",
+                    }
+                    for item in payload
+                ]}, ensure_ascii=False)
+            finally:
+                with state_lock:
+                    state["active"] -= 1
+
+        with (
+            patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
+            patch("topic_engine._call_llm_with_retry", side_effect=fake_review) as call,
+        ):
+            warning = _review_peak_selected_topics(
+                topics,
+                srt_segments=srt_segments,
+                peaks=peaks,
+                checkpoint_callback=lambda current, pending, label, batch, total: (
+                    checkpoint_batches.append((label, batch, total, len(pending)))
+                ),
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(state["max_active"], 3)
+        self.assertTrue(all(topic["clip_review_validated"] for topic in topics))
+        self.assertEqual(
+            [topic["title"] for topic in topics],
+            [f"候选{index}已核实" for index in range(1, 8)],
+        )
+        self.assertEqual(
+            [(label, batch, total) for label, batch, total, _ in checkpoint_batches],
+            [("首轮", 1, 3), ("首轮", 2, 3), ("首轮", 3, 3)],
+        )
+
     def test_clip_review_retries_missing_candidate_in_smaller_batch(self):
         topics = [
             {
@@ -2169,6 +2245,72 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         mocked_call.assert_called_once()
         self.assertFalse(topics[0]["clip_review_validated"])
         self.assertEqual(topics[0]["clip_review_rejection"], "音音没有形成足够回应")
+
+    def test_clip_review_rebuilds_title_when_model_returns_dangling_time_clause(self):
+        topic = {
+            "start": 100,
+            "end": 200,
+            "title": "观众SC谈孩子话题",
+            "body": ["·首轮摘要"],
+            "can_slice": True,
+            "slice_anchor": 140,
+            "slice_anchor_source": "弹幕峰值",
+        }
+        response = json.dumps({"topics": [{
+            "id": 1,
+            "valid": True,
+            "title": "音音念观众留言时",
+            "publish_title": "【泽音】音音念观众留言时",
+            "focus_start": "0:01:40",
+            "focus_end": "0:03:20",
+            "points": [
+                "音音念出观众关于孩子没了的留言",
+                "音音随后解释自己没有种子并完整回应",
+            ],
+            "reason": "",
+        }]}, ensure_ascii=False)
+
+        with patch("topic_engine._call_llm_with_retry", return_value=response):
+            warning = _review_peak_selected_topics(
+                [topic],
+                srt_segments=[(100, 200, "音音念出留言后完整回应")],
+                peaks=[(140, 150)],
+            )
+
+        self.assertIsNone(warning)
+        self.assertTrue(topic["clip_review_validated"])
+        self.assertNotEqual(topic["title"], "音音念观众留言时")
+        self.assertFalse(topic["title"].endswith("时"))
+        self.assertNotIn("音音念观众留言时", topic["publish_title"])
+
+    def test_parallel_clip_review_api_failures_never_approve_candidates(self):
+        topics = [
+            {
+                "start": 100 + index * 300,
+                "end": 180 + index * 300,
+                "title": f"待复核候选{index + 1}",
+                "body": ["·首轮摘要不能作为独立复核结论"],
+                "can_slice": True,
+                "slice_anchor": 130 + index * 300,
+                "slice_anchor_source": "弹幕峰值",
+            }
+            for index in range(4)
+        ]
+
+        with (
+            patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
+            patch("topic_engine._call_llm_with_retry", side_effect=make_http_error(500)) as call,
+        ):
+            warning = _review_peak_selected_topics(
+                topics,
+                srt_segments=[(0, 1400, "音音依次讨论四件事")],
+                peaks=[(topic["slice_anchor"], 150) for topic in topics],
+            )
+
+        self.assertIn("仍有 4 项", warning)
+        self.assertEqual(call.call_count, 8)
+        self.assertTrue(all(not topic["clip_review_validated"] for topic in topics))
+        self.assertTrue(all("API复核失败" in topic["clip_review_rejection"] for topic in topics))
 
     def test_clip_review_resume_only_processes_checkpoint_pending_topics(self):
         topics = [
@@ -3136,6 +3278,56 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertTrue(topics[0]["ai_enriched"])
         self.assertTrue(topics[1]["reference_only"])
         self.assertTrue(topics[2]["reference_only"])
+
+    def test_manual_timeline_enrichment_runs_batches_in_parallel_but_checkpoints_in_order(self):
+        topics = [
+            {
+                "start": index * 100,
+                "end": index * 100 + 80,
+                "title": f"人工候选{index + 1}",
+                "body": [f"·字幕核查：人工候选{index + 1}字幕"],
+            }
+            for index in range(9)
+        ]
+        state = {"active": 0, "max_active": 0}
+        state_lock = threading.Lock()
+        checkpoints = []
+
+        def enrich_batch(batch, **_kwargs):
+            first_index = int(batch[0]["start"] / 100) + 1
+            with state_lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+            try:
+                time.sleep((10 - first_index) * 0.015)
+                for topic in batch:
+                    topic["title"] += "已校准"
+                    topic["ai_enriched"] = True
+                return len(batch)
+            finally:
+                with state_lock:
+                    state["active"] -= 1
+
+        with (
+            patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
+            patch("topic_engine._enrich_manual_topics_with_llm", side_effect=enrich_batch) as call,
+        ):
+            warning = _enrich_manual_topics_in_batches(
+                topics,
+                batch_size=3,
+                batch_result_callback=lambda completed, remaining, warnings: (
+                    checkpoints.append((len(completed), len(remaining), len(warnings)))
+                ),
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(state["max_active"], 3)
+        self.assertEqual(checkpoints, [(3, 6, 0), (6, 3, 0), (9, 0, 0)])
+        self.assertEqual(
+            [topic["title"] for topic in topics],
+            [f"人工候选{index}已校准" for index in range(1, 10)],
+        )
 
     def test_retry_optimized_timeline_keeps_success_and_checkpoints_each_batch(self):
         entries = [{
