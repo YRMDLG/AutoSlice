@@ -15,7 +15,8 @@ from unittest.mock import Mock, mock_open, patch
 import requests
 
 from topic_engine import (
-    CHUNK_SEC, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
+    CHUNK_SEC, FUNASR_CHUNK_PRE_CONTEXT_SEC,
+    LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
     MANUAL_TIMELINE_OPTIMIZATION_VERSION,
     TOPIC_MAX_CLIP_SEC, TOPIC_REVIEW_FOCUS_MAX_SEC,
     DanmakuDensitySeries,
@@ -30,6 +31,7 @@ from topic_engine import (
     _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_context_requires_trigger,
     _clip_marks_from_topics,
     _dedupe_clip_marks, _expand_clip_marks_with_context,
+    _dedupe_overlapping_funasr_segments,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _find_manual_timeline_doc,
     _filter_unsupported_ai_points, _fit_final_clip_to_safe_srt_boundaries,
     _funasr_chunk_fingerprint, _funasr_checkpoint_path,
@@ -52,6 +54,7 @@ from topic_engine import (
     _prepare_seekable_slice_source,
     _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
+    _trim_funasr_tokens_to_core,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
     _validate_unmatched_manual_topics, _write_clip_srt,
     _write_funasr_checkpoint, _write_optimized_timeline_files,
@@ -166,15 +169,22 @@ class TopicEngineParseTests(unittest.TestCase):
             )
             for index, text_value in enumerate(("测试", "继续")):
                 start = index * 120.0
+                pre_context = min(FUNASR_CHUNK_PRE_CONTEXT_SEC, start)
+                timestamp_offset_ms = int(pre_context * 1000)
                 payload["chunks"][str(index)] = {
                     "fingerprint": _funasr_chunk_fingerprint(
                         payload["source_fingerprint"], index, start, 120.0
                     ),
                     "start": start,
                     "duration": 120.0,
+                    "input_start": max(0.0, start - FUNASR_CHUNK_PRE_CONTEXT_SEC),
+                    "input_duration": 120.0 + pre_context,
                     "result": [{
                         "text": text_value,
-                        "timestamp": [[0, 500], [500, 1000]],
+                        "timestamp": [
+                            [timestamp_offset_ms, timestamp_offset_ms + 500],
+                            [timestamp_offset_ms + 500, timestamp_offset_ms + 1000],
+                        ],
                     }],
                 }
             _write_funasr_checkpoint(checkpoint_path, payload)
@@ -209,12 +219,16 @@ class TopicEngineParseTests(unittest.TestCase):
                     "fingerprint": _funasr_chunk_fingerprint(
                         payload["source_fingerprint"], 0, 0.0, 120.0
                     ),
+                    "input_start": 0.0,
+                    "input_duration": 120.0,
                     "result": [],
                 },
                 "1": {
                     "fingerprint": _funasr_chunk_fingerprint(
                         payload["source_fingerprint"], 1, 120.0, 120.0
                     ),
+                    "input_start": 100.0,
+                    "input_duration": 140.0,
                     "result": [{"text": "错误缓存", "timestamp": "corrupted"}],
                 },
             }
@@ -225,6 +239,95 @@ class TopicEngineParseTests(unittest.TestCase):
             )
 
         self.assertEqual(list(recovered["chunks"]), ["0"])
+
+    def test_ensure_srt_uses_pre_context_without_duplicating_previous_core(self):
+        fake_funasr = ModuleType("funasr")
+        fake_funasr.AutoModel = object
+        ffmpeg_calls = []
+
+        class ContextModel:
+            def __init__(self):
+                self.calls = 0
+
+            def generate(self, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return [{
+                        "text": "前 段",
+                        "timestamp": [[118000, 118500], [118500, 119000]],
+                    }]
+                return [{
+                    "text": "前 段 后 段",
+                    "timestamp": [
+                        [18000, 18500], [18500, 19000],
+                        [25000, 25500], [25500, 26000],
+                    ],
+                }]
+
+        model = ContextModel()
+
+        def fake_ffmpeg(args, **_kwargs):
+            ffmpeg_calls.append(args)
+            Path(args[-1]).write_bytes(b"audio")
+            return Mock(returncode=0)
+
+        with TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "recording.flv"
+            video_path.write_bytes(b"source")
+            with (
+                patch.dict(sys.modules, {"funasr": fake_funasr}),
+                patch("topic_engine._probe_video_duration", return_value=240.0),
+                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
+                patch("topic_engine._load_funasr_model", return_value=model),
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                srt_path = ensure_srt(str(video_path))
+            srt_text = Path(srt_path).read_text(encoding="utf-8")
+
+        self.assertEqual(model.calls, 2)
+        self.assertEqual(len(ffmpeg_calls), 3)
+        second_chunk_call = ffmpeg_calls[2]
+        self.assertEqual(
+            float(second_chunk_call[second_chunk_call.index("-ss") + 1]),
+            120.0 - FUNASR_CHUNK_PRE_CONTEXT_SEC,
+        )
+        self.assertEqual(
+            float(second_chunk_call[second_chunk_call.index("-t") + 1]),
+            120.0 + FUNASR_CHUNK_PRE_CONTEXT_SEC,
+        )
+        self.assertEqual(srt_text.count("前段"), 1)
+        self.assertEqual(srt_text.count("后段"), 1)
+        self.assertIn("00:02:05,000", srt_text)
+
+    def test_funasr_boundary_dedupe_prefers_complete_overlapping_sentence(self):
+        segments = [
+            (119.25, 119.98, "这个好像真"),
+            (119.31, 122.09, "这个好像真是手套"),
+            (130.0, 131.0, "下一句"),
+            (131.0, 132.0, "一句"),
+        ]
+
+        deduped = _dedupe_overlapping_funasr_segments(segments)
+
+        self.assertEqual(len(deduped), 3)
+        self.assertEqual(deduped[0], (119.25, 122.09, "这个好像真是手套"))
+        self.assertEqual(deduped[1:], segments[2:])
+
+    def test_funasr_pre_context_tokens_are_trimmed_before_sentence_building(self):
+        text, timestamps, aligned = _trim_funasr_tokens_to_core(
+            "前 段 后 段",
+            [
+                [18000, 18500], [18500, 19000],
+                [25000, 25500], [25500, 26000],
+            ],
+            input_start=100.0,
+            core_start=120.0,
+            core_end=240.0,
+        )
+
+        self.assertTrue(aligned)
+        self.assertEqual(text, "后 段")
+        self.assertEqual(timestamps, [[25000, 25500], [25500, 26000]])
 
     def test_funasr_checkpoint_atomic_replace_failure_keeps_previous_file(self):
         with TemporaryDirectory() as tmp:
@@ -681,6 +784,28 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(fixed["end"], 338)
         self.assertLessEqual(fixed["end"] - fixed["start"], TOPIC_MAX_CLIP_SEC)
 
+    def test_duration_cap_rewinds_to_continuous_tail_start(self):
+        fixed = _fit_final_clip_to_safe_srt_boundaries(
+            {
+                "start": 100,
+                "end": 340,
+                "topic_start": 120,
+                "topic_end": 250,
+                "title": "限长片段",
+                "duration_capped": True,
+                "context_end_before_natural": 380,
+            },
+            [
+                (290.2, 299.0, "连续收尾第一句"),
+                (300.2, 305.0, "连续收尾第二句"),
+                (307.0, 312.0, "连续收尾第三句"),
+                (314.0, 345.0, "限长点切进的最后一句"),
+            ],
+        )
+
+        self.assertEqual(fixed["end"], 290)
+        self.assertLessEqual(fixed["end"] - fixed["start"], TOPIC_MAX_CLIP_SEC)
+
     def test_dedupe_uses_topic_range_not_expanded_overlap(self):
         marks = [
             {"start": 0, "end": 240, "topic_start": 100, "topic_end": 110, "title": "话题A"},
@@ -813,6 +938,32 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(expanded[0]["start"], 10513)
         self.assertGreaterEqual(expanded[0]["end"], 10580)
 
+    def test_boundary_evidence_recovers_sentence_before_ai_reference_start(self):
+        marks = [{
+            "start": 1275,
+            "end": 1426,
+            "title": "闹钟定成半夜十二点",
+            "boundary_evidence": ["音音发现闹钟被定成半夜十二点，怀疑自己睡过了"],
+            "semantic_focus_validated": True,
+            "reference_start": 1275,
+            "reference_end": 1450,
+        }]
+        srt_segments = [
+            (1240, 1245, "前一个话题的最后一句"),
+            (1263, 1267, "上车以后我还在想"),
+            (1268, 1271, "我真的睡过了吗"),
+            (1272, 1279, "后来发现闹钟定成了半夜十二点"),
+            (1400, 1426, "我从来不会睡过，真的气死人了"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=1600,
+        )
+
+        self.assertEqual(expanded[0]["start"], 1263)
+
     def test_boundary_evidence_keeps_silent_visual_lead_in(self):
         marks = [{
             "start": 12707,
@@ -923,6 +1074,174 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual(expanded[0]["end"], 9790)
 
+    def test_boundary_evidence_keeps_delayed_verdict_and_refund_conclusion(self):
+        marks = [{
+            "start": 8803,
+            "end": 8952,
+            "title": "备注不放麻酱却单点芝麻酱",
+            "boundary_evidence": [
+                "顾客备注不放麻酱却单点芝麻酱，音音判断如何退款",
+            ],
+            "semantic_focus_validated": True,
+            "reference_start": 8683,
+            "reference_end": 9168,
+            "next_report_topic_start": 9109,
+        }]
+        srt_segments = [
+            (8940, 8952, "顾客到底要不要芝麻酱"),
+            (8955, 8970, "音音继续推理是不是单独分装"),
+            (8980, 9045, "麻酱和炸酱应该分开放"),
+            (9061, 9073, "我觉得应该可以展示，把第二个炸酱的钱给退了"),
+            (9109, 9120, "来看下一个饮品评价"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=9300,
+        )
+
+        self.assertGreaterEqual(expanded[0]["end"], 9073)
+        self.assertLessEqual(expanded[0]["end"], 9109)
+
+    def test_boundary_evidence_finds_followup_just_beyond_reference_tolerance(self):
+        marks = [{
+            "start": 15285,
+            "end": 15442,
+            "title": "塑料袋装汤还要单买碗",
+            "boundary_evidence": [
+                "塑料袋装汤，音音判断是否适合展示",
+                "塑料袋容易破，汤可能流出来",
+            ],
+            "semantic_focus_validated": True,
+            "reference_start": 15180,
+            "reference_end": 15487,
+            "next_report_topic_start": 15635,
+        }]
+        srt_segments = [
+            (15438, 15471, "顾客没有点碗，商家说需要单买几个小碗"),
+            (15481, 15493, "正常打包费应该会有"),
+            (15500, 15504, "汤用袋子装确实没想到"),
+            (15508, 15516, "我觉得适合展示，他家用袋子装汤"),
+            (15532, 15536, "顾客点的汤总得拿盒子打包吧"),
+            (15542, 15552, "塑料袋这么容易破，这个塑料袋太脆弱，汤会流出来"),
+            (15572, 15578, "开始讨论不给餐具的新案例"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=15800,
+        )
+
+        self.assertGreaterEqual(expanded[0]["end"], 15552)
+        self.assertLessEqual(expanded[0]["end"], 15572)
+
+    def test_boundary_evidence_keeps_discourse_continuation_after_second_pause(self):
+        marks = [{
+            "start": 16316,
+            "end": 16405,
+            "title": "珍珠少一颗也差评",
+            "boundary_evidence": ["顾客数珍珠少了一颗，商家仍然照做"],
+            "semantic_focus_validated": True,
+            "reference_start": 16200,
+            "reference_end": 16600,
+        }]
+        srt_segments = [
+            (16399, 16405, "这个要求太夸张了"),
+            (16412, 16420, "主要是商家还真的照做了"),
+            (16427, 16432, "顾客喝之前还拿出来数了一遍"),
+            (16455, 16468, "开始评论另一个网红产品"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=16800,
+        )
+
+        self.assertGreaterEqual(expanded[0]["end"], 16432)
+        self.assertLessEqual(expanded[0]["end"], 16455)
+
+    def test_boundary_evidence_stops_at_look_at_what_they_said_transition(self):
+        marks = [{
+            "start": 16753,
+            "end": 16810,
+            "title": "为什么越吃越饱",
+            "boundary_evidence": ["顾客问为什么越吃越饱，音音觉得很离谱"],
+            "semantic_focus_validated": True,
+            "reference_start": 16600,
+            "reference_end": 17000,
+        }]
+        srt_segments = [
+            (16806, 16810, "今天看的神人太多了"),
+            (16813, 16815, "真是够了"),
+            (16816, 16818, "看看他说什么"),
+            (16821, 16826, "少麻油少米线不要豆皮"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=17200,
+        )
+
+        self.assertLessEqual(expanded[0]["end"], 16816)
+
+    def test_boundary_evidence_stops_at_next_report_topic_after_crossing_sentence(self):
+        marks = [{
+            "start": 12878,
+            "end": 12938,
+            "title": "人造双腿脚臭度零分",
+            "boundary_evidence": ["人造双腿没有脚，脚臭度为零"],
+            "semantic_focus_validated": True,
+            "reference_start": 12610,
+            "reference_end": 12938,
+            "next_report_topic_start": 12972,
+        }]
+        srt_segments = [
+            (12930, 12940, "人造双腿没有脚所以脚臭度零分"),
+            (12945, 12960, "音音说这个榜单太地狱了"),
+            (12965, 12973, "说完莫宁教授这一项"),
+            (12974, 13010, "开始分析下一个角色的鞋和袜子"),
+            (13011, 13080, "继续逐个介绍排行榜其他角色"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=13200,
+        )
+
+        self.assertEqual(expanded[0]["end"], 12973)
+
+    def test_next_report_crossing_does_not_override_earlier_case_transition(self):
+        marks = [{
+            "start": 10929,
+            "end": 11010,
+            "title": "发热刀与自热米饭差评",
+            "boundary_evidence": ["发热刀没反应，自热米饭没有加热"],
+            "semantic_focus_validated": True,
+            "reference_start": 10519,
+            "reference_end": 11224,
+            "next_report_topic_start": 11360,
+        }]
+        srt_segments = [
+            (10998, 11012, "老人不会吃这种自热米饭"),
+            (11040, 11042, "商家下一个"),
+            (11044, 11058, "开始讨论锅贴数量的新案例"),
+            (11358, 11361, "跨过下一报告话题边界的一句话"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=11600,
+        )
+
+        self.assertGreaterEqual(expanded[0]["end"], 11012)
+        self.assertLessEqual(expanded[0]["end"], 11040)
+
     def test_boundary_evidence_keeps_same_topic_then_stops_at_new_case(self):
         marks = [{
             "start": 10513,
@@ -947,6 +1266,30 @@ class TopicEngineParseTests(unittest.TestCase):
         )
 
         self.assertEqual(expanded[0]["end"], 10626)
+
+    def test_boundary_evidence_stops_at_low_score_visual_case_shift(self):
+        marks = [{
+            "start": 10502,
+            "end": 10618,
+            "title": "土豆丝放姜",
+            "boundary_evidence": ["土豆丝放姜，商家面对差评没法嘴硬"],
+            "semantic_focus_validated": True,
+            "reference_start": 10400,
+            "reference_end": 10800,
+        }]
+        srt_segments = [
+            (10606, 10615, "怎么这么多地方土豆丝还放姜"),
+            (10626, 10630, "左边食物质量很差，右边是赠品"),
+            (10633, 10640, "上面不是原厂，这两个遥控器很像"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=11000,
+        )
+
+        self.assertLessEqual(expanded[0]["end"], 10626)
 
     def test_boundary_evidence_stops_at_asr_next_case_variant(self):
         marks = [{
@@ -1986,6 +2329,47 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(failed_chunks, [])
         self.assertIsNone(warning)
 
+    def test_analyze_topic_chunks_refills_worker_before_slow_request_finishes(self):
+        chunks = [
+            {
+                "start": index * 600,
+                "end": (index + 1) * 600,
+                "text": f"[字幕] 第{index + 1}块独立话题",
+                "danmaku_info": "无弹幕",
+            }
+            for index in range(4)
+        ]
+        third_started = threading.Event()
+        state = {"head_of_line_blocked": False}
+
+        def fake_call(prompt, **_kwargs):
+            index = int(re.search(r"第(\d+)/4块", prompt).group(1))
+            if index == 1 and not third_started.wait(timeout=0.5):
+                state["head_of_line_blocked"] = True
+            if index == 3:
+                third_started.set()
+            start = (index - 1) * 600 + 30
+            return json.dumps({"topics": [{
+                "start": f"0:{start // 60:02d}:{start % 60:02d}",
+                "end": f"0:{(start + 90) // 60:02d}:{(start + 90) % 60:02d}",
+                "title": f"话题{index}",
+                "publish_title": f"【泽音】话题{index}",
+                "can_slice": False,
+                "points": [f"音音说明第{index}件事"],
+            }]}, ensure_ascii=False)
+
+        with (
+            patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "2"}),
+            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+            patch("topic_engine._call_llm_with_retry", side_effect=fake_call),
+        ):
+            topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
+
+        self.assertFalse(state["head_of_line_blocked"])
+        self.assertEqual([topic["title"] for topic in topics], [f"话题{i}" for i in range(1, 5)])
+        self.assertEqual(failed_chunks, [])
+        self.assertIsNone(warning)
+
     def test_analyze_topic_chunks_reuses_raw_response_cache_and_invalidates_one_changed_chunk(self):
         chunks = [
             {
@@ -2144,7 +2528,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 '{"topics": []}',
             )
 
-        self.assertEqual(post.call_args.kwargs["timeout"], (30, 600))
+        self.assertEqual(post.call_args.kwargs["timeout"], (30, 300))
         self.assertEqual(
             post.call_args.kwargs["json"]["response_format"],
             {"type": "json_object"},
@@ -2349,6 +2733,27 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(marks[0]["start"], 1000)
         self.assertEqual(marks[0]["end"], 1120)
         self.assertEqual(marks[0]["title"], "高密度生日企划")
+
+    def test_danmaku_reselection_removes_stale_clip_focus_note(self):
+        topics = [{
+            "start": 9586,
+            "end": 9766,
+            "title": "商家证据照片与订单日期不符",
+            "body": [
+                "·音音发现商家证据照片与订单日期不符",
+                "·切片核心：完整话题较长，实际切片围绕弹幕峰值3:26:45截取，保留峰值前后完整反应",
+            ],
+        }]
+
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[(9585, 120), (9600, 150), (9700, 80)],
+            avg_density=50,
+        )
+
+        body = "\n".join(topics[0]["body"])
+        self.assertNotIn("3:26:45", body)
+        self.assertNotIn("切片核心：", body)
 
     def test_local_peaks_are_declustered_and_capped_per_video_hour(self):
         peak_starts = [100, 200, 400, 700, 1000, 1300, 1600, 1900]
@@ -2854,6 +3259,26 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertNotIn("0:14:19", evidence)
         self.assertNotIn("0:13:39", evidence)
 
+    def test_peak_center_within_one_sampling_step_survives_boundary_sync(self):
+        topics = [{
+            "start": 6321,
+            "end": 6383,
+            "title": "龟苓膏连号巧遇staff手指杆",
+            "body": ["·音音看到三位观众账号连号后笑出声"],
+            "clip_review_validated": True,
+            "ai_focus_validated": True,
+        }]
+
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[(6285, 74)],
+            avg_density=46,
+            require_clip_review=True,
+        )
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["slice_anchor"], 6315)
+
     def test_reviewed_core_up_to_three_minutes_keeps_title_aligned_full_range(self):
         topics = [{
             "start": 3560,
@@ -3176,9 +3601,13 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         def fake_enrich(topics, **_kwargs):
             self.assertEqual(len(topics), 2)
             self.assertTrue(all("字幕核查" in "\n".join(topic["body"]) for topic in topics))
+            grounded_points = (
+                "很长的第一条记录与同一事件后续细节已完整说明",
+                "另一个独立事件的经过已完整说明",
+            )
             for index, topic in enumerate(topics, 1):
                 topic["title"] = f"字幕校准话题{index}"
-                topic["body"] = [f"·音音完整说明第{index}个事件的经过"]
+                topic["body"] = [f"·音音{grounded_points[index - 1]}"]
                 topic["ai_enriched"] = True
             return None
 
@@ -3198,7 +3627,10 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertEqual([item["text"] for item in optimized], ["字幕校准话题1", "字幕校准话题2"])
         self.assertEqual(optimized[0]["stars"], 1)
         self.assertEqual(optimized[0]["source"], "optimized_manual_timeline")
-        self.assertEqual(optimized[0]["summary"], ["音音完整说明第1个事件的经过"])
+        self.assertEqual(
+            optimized[0]["summary"],
+            ["音音很长的第一条记录与同一事件后续细节已完整说明"],
+        )
 
         with TemporaryDirectory() as td:
             base = str(Path(td) / "测试录播")
@@ -3304,6 +3736,75 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                     str(flv_path),
                     str(Path(td) / "另一天.docx"),
                 )
+
+    def test_optimized_timeline_artifact_drops_ungrounded_rewrite_and_wrong_nested_star(self):
+        with TemporaryDirectory() as td:
+            video_path = Path(td) / "完整版.flv"
+            video_path.write_bytes(b"video")
+            artifact_path = Path(td) / "完整版_优化时间轴.json"
+            artifact_path.write_text(json.dumps({
+                "video_path": str(video_path),
+                "source_path": None,
+                "optimization_version": MANUAL_TIMELINE_OPTIMIZATION_VERSION,
+                "raw_entry_count": 5,
+                "optimized_entry_count": 2,
+                "entries": [
+                    {
+                        "start": 12872,
+                        "end": 13046,
+                        "text": "看脚臭排行榜绷不住了",
+                        "summary": ["视频展示拉海洛角色脚臭排行榜"],
+                        "stars": 1,
+                        "ai_enriched": True,
+                        "reference_only": False,
+                        "evidence": [
+                            "·弹幕依据：3:34:00 附近峰值约 69 条/分钟",
+                            "●人工时间轴⭐：3:34:56 看男生仿妆小鞠",
+                        ],
+                        "original_entries": [
+                            {
+                                "start": 12820,
+                                "text": "看拉海洛脚臭排行榜",
+                                "stars": 0,
+                            },
+                            {
+                                "start": 12896,
+                                "text": "看男生仿妆小鞠（直接超大震惊）",
+                                "stars": 1,
+                            },
+                        ],
+                    },
+                    {
+                        "start": 17076,
+                        "end": 17124,
+                        "text": "0元标价被当真后改天价",
+                        "summary": ["商家把价格改成9999"],
+                        "stars": 0,
+                        "ai_enriched": True,
+                        "reference_only": False,
+                        "evidence": [],
+                        "original_entries": [{
+                            "start": 17005,
+                            "text": "手机没电了",
+                            "stars": 0,
+                        }],
+                    },
+                ],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            loaded = _load_optimized_timeline_artifact(
+                str(artifact_path), str(video_path)
+            )
+
+        self.assertEqual(len(loaded["entries"]), 1)
+        entry = loaded["entries"][0]
+        self.assertEqual(entry["text"], "看脚臭排行榜绷不住了")
+        self.assertEqual(
+            [item["text"] for item in entry["original_entries"]],
+            ["看拉海洛脚臭排行榜"],
+        )
+        self.assertEqual(entry["stars"], 0)
+        self.assertNotIn("男生仿妆", "\n".join(entry["evidence"]))
 
     def test_prepare_manual_timeline_resumes_only_failed_artifact_entries(self):
         with TemporaryDirectory() as td:
@@ -4110,6 +4611,162 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         self.assertEqual([topic["title"] for topic in cleaned], ["总结美团神人最多"])
         self.assertFalse(any(topic.get("fallback") for topic in cleaned))
+
+    def test_final_cleanup_rechecks_manual_evidence_after_ai_focus_shrinks(self):
+        topics = [{
+            "start": 1275,
+            "end": 1426,
+            "title": "闹钟定成半夜12点，音音气炸",
+            "body": [
+                "·音音发现华为把12点闹钟定成了半夜12点",
+                "●人工时间轴⭐：0:17:40 定闹钟后睡过头抢高铁票",
+                "●人工时间轴⭐：0:25:20 下车发现包落在高铁上",
+                "●人工时间轴⭐：0:27:00 车上零食打不开旁人帮忙",
+            ],
+            "manual_stars": 1,
+            "manual_timeline": [
+                {
+                    "start": 1030,
+                    "end": 1390,
+                    "text": "华为闹钟定错气炸音音",
+                    "summary": ["华为把12点闹钟设成半夜，音音醒来后非常生气"],
+                    "source": "optimized_manual_timeline",
+                    "original_entries": [{
+                        "start": 1060,
+                        "text": "定个12点闹钟，结果华为设成半夜，没响后睡过头抢高铁票",
+                        "stars": 1,
+                    }],
+                },
+                {
+                    "start": 1520,
+                    "end": 1580,
+                    "text": "下车发现包落车上冲回",
+                    "summary": ["包和身份证差点落在高铁座位"],
+                    "source": "optimized_manual_timeline",
+                    "original_entries": [{
+                        "start": 1520,
+                        "text": "下车发现包落在高铁上",
+                        "stars": 1,
+                    }],
+                },
+                {
+                    "start": 1620,
+                    "end": 1730,
+                    "text": "车上零食打不开旁人帮忙",
+                    "summary": ["旁边乘客帮音音打开零食"],
+                    "source": "optimized_manual_timeline",
+                    "original_entries": [{
+                        "start": 1620,
+                        "text": "车上零食打不开旁人帮忙",
+                        "stars": 1,
+                    }],
+                },
+            ],
+        }]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertEqual(len(cleaned), 1)
+        self.assertEqual(len(cleaned[0]["manual_timeline"]), 1)
+        body = "\n".join(cleaned[0]["body"])
+        self.assertIn("华为设成半夜", body)
+        self.assertNotIn("包落在高铁", body)
+        self.assertNotIn("零食打不开", body)
+
+    def test_final_cleanup_removes_manual_evidence_from_nearby_unrelated_topic(self):
+        topics = [{
+            "start": 15285,
+            "end": 15442,
+            "title": "商家塑料袋装汤还要单买碗",
+            "body": [
+                "·音音读到商家用塑料袋装汤，碗还要另付一元",
+                "●人工时间轴⭐：4:05:00 音音是你们孩子的母亲",
+                "·时间轴：4:09:22 工作机没电了",
+            ],
+            "manual_stars": 1,
+            "manual_timeline": [
+                {
+                    "start": 14791,
+                    "end": 14890,
+                    "text": "音音是你们孩子的母亲",
+                    "stars": 1,
+                },
+                {
+                    "start": 14962,
+                    "end": 15052,
+                    "text": "工作机没电音音吐槽不耐电",
+                    "stars": 0,
+                },
+            ],
+        }]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertEqual(cleaned[0]["manual_timeline"], [])
+        self.assertEqual(cleaned[0]["manual_stars"], 0)
+        body = "\n".join(cleaned[0]["body"])
+        self.assertNotIn("孩子的母亲", body)
+        self.assertNotIn("工作机没电", body)
+
+    def test_final_cleanup_rejects_manual_entry_that_only_touches_topic_edge(self):
+        topics = [{
+            "start": 13320,
+            "end": 13572,
+            "title": "聊BW穿洞洞鞋走路太累",
+            "body": [
+                "·音音说BW走一天穿洞洞鞋很累，最后感谢二创手书礼物",
+                "●人工时间轴⭐：3:46:00 看露露二创手书赞漂亮",
+            ],
+            "manual_stars": 1,
+            "manual_timeline": [{
+                "start": 13560,
+                "end": 13680,
+                "text": "看露露二创手书赞漂亮",
+                "summary": ["音音打开二创作品后夸画面漂亮"],
+                "stars": 1,
+            }],
+        }]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertEqual(cleaned[0]["manual_timeline"], [])
+        self.assertNotIn("人工时间轴", "\n".join(cleaned[0]["body"]))
+
+    def test_final_cleanup_rebuilds_generic_title_from_specific_body(self):
+        topics = [{
+            "start": 9586,
+            "end": 9766,
+            "title": "音音在外卖评审中",
+            "publish_title": "【泽音】音音评审发现商家证据造假？日期对不上！",
+            "body": [
+                "·音音在外卖评审中，发现商家提供的证据照片与订单日期不符",
+                "·音音指出商家拿别的证据滥竽充数，直呼商家会骗人",
+            ],
+        }]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertEqual(cleaned[0]["title"], "商家证据照片与订单日期不符")
+
+    def test_final_cleanup_dedupes_contained_real_topic_with_same_event(self):
+        topics = [
+            {
+                "start": 12878,
+                "end": 12938,
+                "title": "看拉海洛脚臭排行榜",
+                "body": ["·视频介绍人造双腿没有脚，脚臭度为零"],
+            },
+            {
+                "start": 12878,
+                "end": 12972,
+                "title": "观看拉海洛脚臭排行榜",
+                "body": ["·视频旁白介绍莫宁人造双腿没有脚臭"],
+            },
+        ]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertEqual(len(cleaned), 1)
 
     def test_filter_current_report_draft_noise(self):
         topics = []
