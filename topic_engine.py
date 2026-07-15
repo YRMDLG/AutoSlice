@@ -13,7 +13,7 @@ import html
 import math
 import bisect
 import difflib
-import os, re, json, time, zipfile, requests, threading
+import os, re, json, time, zipfile, requests, threading, shutil
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -38,12 +38,19 @@ FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
 DANMAKU_WINDOW = 60
 DANMAKU_WINDOW_STEP = 15  # 每 15 秒采样一个 60 秒窗口，兼顾峰值定位和全场覆盖
 CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
-TOPIC_PRE_CONTEXT_SEC = 45      # 话题切片向前保留前因，避免二剪素材拖得过长
-TOPIC_POST_CONTEXT_SEC = 60     # 话题切片向后保留反应和收尾
-TOPIC_MIN_CLIP_SEC = 75         # 太短的高能点至少扩成 1.25 分钟上下文
-TOPIC_MAX_CLIP_SEC = 300        # 单个实际切片最长 5 分钟
-TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC = 15  # 为保住 SC/明确触发句和完整收尾，最多允许额外 15 秒
-TOPIC_DIRECT_SLICE_MAX_SEC = 240  # 4 分钟内的连贯话题保留完整语义核心；更长话题才截弹幕峰值核心段
+CLIP_DENSITY_PERCENTILE = 0.85  # 同时达到整场较高分位，避免把普通波动当爆点
+CLIP_LOCAL_PEAK_RADIUS_SEC = 150  # 只保留前后 2.5 分钟内最高的独立峰值
+CLIP_MAX_PER_HOUR = 5      # 每个视频小时只保留最强的几个候选，便于二次剪辑
+CLIP_REVIEW_MAX_PER_HOUR = 7  # 二次复核略多取候选，淘汰误判后再收敛到正式上限
+CLIP_REVIEW_BATCH_SIZE = 3      # 小批复核可显著降低模型漏项和 JSON 截断概率
+CLIP_REVIEW_RETRY_BATCH_SIZE = 2
+TOPIC_PRE_CONTEXT_SEC = 45      # 通用候选向前保留前因；AI 复核片段另用更紧的 20 秒
+TOPIC_POST_CONTEXT_SEC = 60     # 通用候选向后保留收尾；AI 复核片段另用更紧的 20 秒
+TOPIC_MIN_CLIP_SEC = 75         # 未经语义复核的短候选至少保留 1.25 分钟上下文
+TOPIC_MAX_CLIP_SEC = 240        # 单个实际切片严格不超过 4 分钟
+TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC = 60  # 仅证据确认的必要前后文可放宽到 5 分钟
+TOPIC_REVIEW_FOCUS_MAX_SEC = 180  # AI 语义核心最多 3 分钟，给前因和收尾预留扩展空间
+TOPIC_DIRECT_SLICE_MAX_SEC = TOPIC_REVIEW_FOCUS_MAX_SEC
 TOPIC_FOCUS_PRE_SEC = 0         # 长话题核心从弹幕峰值窗口开始，前因由 TOPIC_PRE_CONTEXT_SEC 补
 TOPIC_FOCUS_POST_SEC = DANMAKU_WINDOW  # 长话题核心覆盖完整弹幕峰值窗口
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
@@ -55,8 +62,18 @@ TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC = 45
 TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC = 60
 TOPIC_AI_FOCUS_NATURAL_PRE_BOUNDARY_SEC = 5
 TOPIC_AI_FOCUS_NATURAL_POST_BOUNDARY_SEC = 10
-TOPIC_LEAD_IN_RECOVERY_MIN_SEC = 180
+TOPIC_LEAD_IN_RECOVERY_MIN_SEC = 90
 TOPIC_LEAD_IN_LOOKBACK_SEC = 180
+TOPIC_BOUNDARY_EVIDENCE_LOOKBACK_SEC = 90
+TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEC = 60
+TOPIC_BOUNDARY_FORWARD_SHIFT_MAX_SEC = 30
+TOPIC_BOUNDARY_EVIDENCE_MIN_SCORE = 10
+TOPIC_HARD_TRANSITION_GAP_SEC = 10
+TOPIC_RELEVANT_CONTINUATION_GAP_SEC = 50
+TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEARCH_SEC = 180
+SLICE_EXACT_SEEK_PREROLL_SEC = 10
+SLICE_DURATION_TOLERANCE_SEC = 0.5
+SLICE_INDEX_MIN_CLIPS = 4
 SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会纳入切片
 SC_FALLBACK_GIFT_LOOKBACK_SEC = 15  # 仅凭“感谢礼物”推断 SC 时避免回溯到无关互动
 SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
@@ -73,11 +90,11 @@ MANUAL_TIMELINE_DIR = r"F:\切片时间轴"
 MANUAL_TIMELINE_CHUNK_MARGIN_SEC = 180
 MANUAL_TIMELINE_TOPIC_PRE_SEC = 30
 MANUAL_TIMELINE_TOPIC_POST_SEC = 150
-MANUAL_TIMELINE_STAR_DENSITY_RATIO = 0.80
 MANUAL_TIMELINE_END_MARGIN_SEC = 15
 MANUAL_TIMELINE_OPTIMIZE_GAP_SEC = 180
 MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC = 600
-MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE = 6
+MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE = 3
+MANUAL_TIMELINE_OPTIMIZATION_VERSION = 3
 MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC = 600
 MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC = 80
 MANUAL_TIMELINE_ALIGNMENT_STEP_SEC = 20
@@ -632,6 +649,70 @@ def _parse_elapsed_timeline_report_lines(lines):
         if current and line.startswith("【泽音】"):
             current["reference_publish_title"] = line
     return entries
+
+
+_GENERATED_REPORT_TOPIC_RE = re.compile(
+    r'^\s*(?:[①-⑳㉑-㊿]|\d+[.、)])\s*'
+    rf'\[\s*(?P<start>\d{{1,3}}:\d{{2}}(?::\d{{2}})?)\s*[－—–~-]\s*'
+    rf'(?P<end>\d{{1,3}}:\d{{2}}(?::\d{{2}})?)\s*\]\s*(?P<title>.+?)\s*$'
+)
+
+
+def _parse_generated_topic_report(report_path):
+    """从已有逐话题报告恢复首轮话题，供仅重做候选复核使用。"""
+    if not report_path or not os.path.isfile(report_path):
+        raise FileNotFoundError(f"话题报告不存在: {report_path or '未指定'}")
+    with open(report_path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    if not any("时间基准" in line and "视频内时间" in line for line in lines):
+        raise ValueError("话题报告未声明视频内时间基准，不能安全恢复候选")
+
+    topics = []
+    current = None
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line.startswith("## 投稿标题建议") or line.startswith("## 分析警告"):
+            current = None
+            break
+        match = _GENERATED_REPORT_TOPIC_RE.match(line)
+        if match:
+            try:
+                start = _parse_hms(match.group("start"))
+                end = _parse_hms(match.group("end"))
+            except (TypeError, ValueError):
+                current = None
+                continue
+            title = re.sub(r'[✂⭐★]\ufe0f?', '', match.group("title")).strip()
+            title = _clean_topic_title(title)
+            if end <= start or not title:
+                current = None
+                continue
+            current = {
+                "start": start,
+                "end": end,
+                "start_str": fmt_time(start),
+                "end_str": fmt_time(end),
+                "title": title,
+                "body": [],
+                "can_slice": False,
+                "source": "recovered_report",
+                "recovered_from_report": True,
+            }
+            topics.append(current)
+            continue
+        if current and line.startswith(("·", "●")):
+            if line.startswith("·切片核心："):
+                continue
+            current["body"].append(line)
+
+    for topic in topics:
+        topic["body"] = _filter_unsupported_ai_points(topic.get("body") or [])
+        body_text = " ".join(topic.get("body") or [])
+        if "未形成稳定可切片主题" in body_text or "暂不标记为自动切片" in body_text:
+            topic["fallback"] = True
+    if not topics:
+        raise ValueError("话题报告中没有可恢复的逐话题条目")
+    return topics
 
 
 def _filter_manual_timeline_entries(entries, video_duration, end_margin_sec=MANUAL_TIMELINE_END_MARGIN_SEC):
@@ -1230,6 +1311,63 @@ def _average_danmaku_density(windows):
     return sum(densities) / len(densities) if densities else 0.0
 
 
+def _density_percentile(windows, percentile):
+    """返回密度最近秩分位数；样本为空时返回 0。"""
+    densities = sorted(float(density) for _, density in windows or [])
+    if not densities:
+        return 0.0
+    rank = max(0, min(len(densities) - 1, math.ceil(len(densities) * percentile) - 1))
+    return densities[rank]
+
+
+def _danmaku_clip_threshold(peaks, avg_density):
+    """计算正式切片门槛；完整滑窗还需达到整场较高分位。"""
+    threshold = max(avg_density * CLIP_DENSITY_RATIO, avg_density + 10, 20)
+    if isinstance(peaks, DanmakuDensitySeries) and len(peaks) >= 20:
+        threshold = max(
+            threshold,
+            _density_percentile(peaks, CLIP_DENSITY_PERCENTILE),
+        )
+    return float(threshold)
+
+
+def _high_energy_danmaku_peaks(peaks, avg_density=None):
+    """从滑动窗口中提取互相独立的局部高能峰值。"""
+    if not peaks:
+        return []
+    avg_density = (
+        _average_danmaku_density(peaks)
+        if avg_density is None
+        else float(avg_density)
+    )
+    threshold = _danmaku_clip_threshold(peaks, avg_density)
+    all_windows = [
+        (int(start), float(density))
+        for start, density in peaks
+    ]
+    candidates = [
+        (int(start), float(density))
+        for start, density in all_windows
+        if float(density) >= threshold
+    ]
+
+    # 必须是邻域内真正最高的窗口。不能只和“已选峰值”比较，否则一个
+    # 被更高峰压掉的肩峰仍可能继续放行更外侧的次级肩峰。
+    selected = []
+    for start, density in candidates:
+        if any(
+            abs(start - other_start) <= CLIP_LOCAL_PEAK_RADIUS_SEC
+            and (
+                other_density > density
+                or (other_density == density and other_start < start)
+            )
+            for other_start, other_density in all_windows
+        ):
+            continue
+        selected.append((start, density))
+    return sorted(selected, key=lambda item: item[0])
+
+
 def analyze_danmaku(ass_path):
     """按固定步长统计 60 秒滑动窗口，不丢弃低密度样本。"""
     if not ass_path or not os.path.exists(ass_path):
@@ -1451,6 +1589,15 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 密度 ≈ 或 < 全场平均 → 常态/冷场 → 不加 ✂️
 - 如果字幕内容平淡、只有游戏台词/沉默/机械复读，即使有短暂弹幕也谨慎不切
 
+## 发言归属与事实核对
+
+- 字幕可能混有音音本人、SC/观众留言、游戏角色、广告、教程和正在播放的视频旁白，绝不能默认所有第一人称或连贯文本都是音音说的
+- 感谢昵称或礼物后紧跟的长段经历，若之后出现第二人称追问/回应，优先判断为音音念出观众留言；写成“观众留言……，音音回应……”，不能把观众经历写成音音本人经历
+- 连续配方步骤、榜单解说、第三人称介绍、成段商品文案或方言短剧通常是外部视频原声；标题写“观看/听到某内容”，points 把原声归因给“视频中”，只把能确认的短评、笑声、追问归因给音音
+- 没有明确证据时，禁止写成音音亲自制作、讲解、模仿、透露或经历了外部内容
+- 严格保留否定、反问、时间和交通工具事实；抢到最后一张高铁票不等于误车，更不能写成误机，“没必要换电池”不能反写成“质疑为什么不换”
+- 弹幕信息只有密度，没有弹幕正文；除非字幕明确念出，否则不能编造“观众刷屏、齐刷、起哄、直呼”等具体反应
+
 ## 时间范围硬约束
 
 - 所有时间都是视频内时间/播放进度（从 0:00:00 开始），不是真实钟点时间
@@ -1494,23 +1641,26 @@ def _llm_response_has_complete_json(content):
     return bool(content and _extract_json_payload(content) is not None)
 
 
-def call_llm(prompt, max_tokens=LLM_MAX_TOKENS):
+def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False):
     base_url, token, model = load_api_config()
     # 自动判断 API 格式：sk- 开头 = OpenAI 兼容，否则 = Anthropic
     if token.startswith("sk-"):
         # OpenAI 兼容格式 (opencode.ai 等)
+        request_payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": 0.3,
+        }
+        if json_mode:
+            request_payload["response_format"] = {"type": "json_object"}
         resp = requests.post(
             f"{base_url}/chat/completions",
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": 0.3,
-            },
+            json=request_payload,
             timeout=LLM_REQUEST_TIMEOUT,
             proxies={"http": None, "https": None},
         )
@@ -1601,7 +1751,11 @@ def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
         active_prompt = compact_prompt if use_compact else prompt
         active_tokens = compact_max_tokens if use_compact else max_tokens
         try:
-            result = call_llm(active_prompt, max_tokens=active_tokens)
+            result = call_llm(
+                active_prompt,
+                max_tokens=active_tokens,
+                json_mode=require_json,
+            )
             if require_json and _extract_json_payload(result) is None:
                 raise LLMStructuredOutputError("DeepSeek Pro 未返回完整 JSON，将改用紧凑提示重试")
             return result
@@ -1634,6 +1788,10 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
             "只有几乎无有效讲话才输出“无明显话题”。"
             "can_slice只给值得自动切片的段，不值得切也要写进报告。"
             "SC、长留言、礼物或提问引发的讨论必须从触发内容开始，到最后一轮回应结束。"
+            "字幕可能混有观众留言、游戏角色、教程、榜单和外部视频旁白；长段经历要核对是否在念SC，"
+            "连续配方/榜单/商品文案要写成观看外部内容，只把明确短评归因给音音。"
+            "严格保留否定、时间和交通工具事实；抢到高铁票不等于误车或误机。"
+            "弹幕信息只有密度，禁止编造观众刷屏、起哄等具体反应。"
             "每个话题都要给publish_title：固定以【泽音】开头，根据历史风格选择事件+原话、SC+回应、"
             "观看反应或短句头条等合适结构，不要每条都机械写‘结果/当场’；禁止空泛标题和编造。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。"
@@ -2246,9 +2404,9 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
         raw_title = str(item.get("title", "")).strip()
         if _is_placeholder_title(raw_title):
             continue
-        body_lines = _json_points_to_body(
+        body_lines = _filter_unsupported_ai_points(_json_points_to_body(
             item.get("points", item.get("body", item.get("summary", item.get("details"))))
-        )
+        ))
         if not body_lines:
             continue
         end_s = _repair_short_topic_end(start_s, end_s, body_lines, chunk_end)
@@ -2315,6 +2473,14 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compac
         "如果事件由SC、观众长留言、礼物、提问或外部视频触发，focus_start必须从念出触发内容或明确引出问题处开始；"
         "ASR没有识别出SC字样时，要结合感谢、复述留言和紧随其后的回答判断；focus_end必须覆盖最后一轮回应。"
         "优先控制在30秒到4分钟，不能只框一句爆点，也不能夹带前后无关话题。"
+        "字幕可能同时包含音音本人、SC/弹幕、游戏角色、广告、教程和正在播放的视频旁白，绝不能默认所有字幕都是音音说的。"
+        "连续的配方步骤、榜单解说、第三人称介绍或成段商品文案通常是外部视频原声；这种情况标题应写‘观看/听到某内容’，"
+        "points要把原声归因给‘视频中’，只把字幕里能确认的短评、笑声、追问和回应归因给音音。"
+        "没有明确证据时，禁止写成音音亲自制作、讲解、模仿、透露或经历了视频中的事情。"
+        "感谢昵称/礼物后紧跟的长段第一人称经历，很可能是音音在念SC或观众留言；若随后出现‘你去了哪里/你怎么做’等第二人称回应，"
+        "必须写成‘音音念出观众留言后回应’，不能把观众经历写成音音本人经历。"
+        "人工记录与字幕冲突时以字幕为准，尤其要核对上午/下午、日期、数量和人物关系，不能为了让故事通顺而补写。"
+        "严格保留否定、反问和交通工具语义：‘没必要换电池’不能写成‘质疑为什么不换’，高铁赶不上应写误车/错过车次，不能写误机。"
         "弹幕依据只有密度，没有弹幕正文；除非字幕或人工记录明确写出，否则禁止编造‘观众刷屏、直呼、"
         "调侃、笑称、齐刷、赞叹’等具体反应。每项写2-5条有证据的具体points；"
         "禁止模型分析过程、规则说明、弹幕密度判断和空泛描述。"
@@ -2329,8 +2495,60 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compac
 
 
 _UNSUPPORTED_AI_AUDIENCE_REACTION_RE = re.compile(
-    r'(?:观众|弹幕).{0,18}(?:刷屏|刷|直呼|调侃|笑称|齐刷|赞叹|赞|起哄|反应活跃|疯狂)'
+    r'(?:'
+    r'(?:观众|弹幕).{0,18}(?:刷屏|刷|直呼|调侃|笑称|齐刷|赞叹|赞|起哄|反应活跃|疯狂|热闹|沸腾|炸锅)'
+    r'|(?:现场|全场|气氛).{0,10}(?:热烈|活跃|沸腾|炸锅|爆笑|高涨)'
+    r')'
 )
+
+_SUCCESSFUL_RAIL_EVIDENCE_RE = re.compile(
+    r'(?:抢到|买到|订到|拿到).{0,16}(?:高铁|车)?票|'
+    r'(?:还好|幸好|庆幸).{0,24}(?:高铁|车|票)|'
+    r'(?<!没)赶上(?:了)?(?:高铁|车)|顺利.{0,12}(?:到家|回来)'
+)
+
+
+def _sanitize_transport_claims(title, evidence_lines):
+    """用字幕中的确定事实清理投稿标题里的误车/误机反写。"""
+    value = str(title or "").strip()
+    evidence = re.sub(
+        r'\s+', '', " ".join(_strip_body_prefix(line) for line in evidence_lines or [])
+    )
+    if not value:
+        return value
+
+    if re.search(r'闹钟(?:在)?半夜(?:十二|12)点响', value) and re.search(
+            r'闹钟(?:没响|未响|没有响|.{0,12}误设.{0,8}半夜)', evidence):
+        value = re.sub(
+            r'闹钟(?:在)?半夜(?:十二|12)点响',
+            '闹钟误设成半夜12点',
+            value,
+        )
+    if not _SUCCESSFUL_RAIL_EVIDENCE_RE.search(evidence):
+        return value
+
+    replacements = (
+        (r'痛失高铁票', '差点错过最后一班高铁'),
+        (r'(?<!差点)(?:错过|误了)(?:最后一班)?高铁(?:票|车次)?', '差点错过最后一班高铁'),
+        (r'(?<!差点)没赶上(?:最后一班)?高铁', '差点没赶上最后一班高铁'),
+        (r'误机', '赶高铁惊魂'),
+    )
+    for pattern, replacement in replacements:
+        value = re.sub(pattern, replacement, value)
+    return value
+
+_MANUAL_AI_PLACEHOLDER_PHRASES = (
+    "5-15字具体短标题",
+    "具体发生了什么",
+    "音音如何回应",
+    "具体事件钩子",
+    "结果或原话",
+)
+
+
+def _is_manual_ai_placeholder(value):
+    compact = re.sub(r'\s+', '', str(value or ""))
+    return not compact or any(phrase in compact for phrase in _MANUAL_AI_PLACEHOLDER_PHRASES)
 
 
 def _filter_unsupported_ai_points(points):
@@ -2353,23 +2571,30 @@ def _validated_ai_focus_range(item, topic):
     duration = focus_end - focus_start
     if not source_start <= focus_start < focus_end <= source_end:
         return None
-    if duration < 10 or duration > TOPIC_MAX_CLIP_SEC:
+    if duration < 10 or duration > TOPIC_REVIEW_FOCUS_MAX_SEC:
         return None
     return focus_start, focus_end
 
 
 def _enriched_manual_topic_from_item(topic, item):
     """把一项 AI 复核结果应用到候选副本；无有效正文时返回 None。"""
-    points = _filter_unsupported_ai_points(_json_points_to_body(item.get("points")))
+    points = [
+        point
+        for point in _filter_unsupported_ai_points(_json_points_to_body(item.get("points")))
+        if not _is_manual_ai_placeholder(_strip_body_prefix(point))
+    ]
     if not points:
         return None
     enriched = dict(topic)
+    raw_title = _clean_topic_title(str(item.get("title", topic.get("title", ""))))
+    if _is_manual_ai_placeholder(raw_title):
+        raw_title = ""
     title = _derive_topic_title(
-        _clean_topic_title(str(item.get("title", topic.get("title", "")))),
+        raw_title,
         points,
     )
-    if not title:
-        title = topic.get("title", "未命名片段")
+    if not title or _is_manual_ai_placeholder(title):
+        return None
     preserved_evidence = [
         line
         for line in topic.get("body") or []
@@ -2379,9 +2604,12 @@ def _enriched_manual_topic_from_item(topic, item):
     for line in preserved_evidence:
         if line not in body:
             body.append(line)
+    evidence_lines = list(topic.get("body") or []) + points
+    title = _sanitize_transport_claims(title, evidence_lines)
     enriched["title"] = title
-    enriched["publish_title"] = _normalise_publish_title(
-        item.get("publish_title"), title
+    enriched["publish_title"] = _sanitize_transport_claims(
+        _normalise_publish_title(item.get("publish_title"), title),
+        evidence_lines,
     )
     enriched["body"] = body
     enriched["ai_enriched"] = True
@@ -2478,7 +2706,8 @@ def _try_enrich_manual_topics(topics, streamer_name="音音", progress_callback=
 
 def _enrich_manual_topics_in_batches(
         topics, streamer_name="音音", progress_callback=None,
-        batch_size=MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE):
+        batch_size=MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE,
+        batch_result_callback=None):
     """分批优化复杂人工时间轴，避免一次请求塞入整场证据。"""
     optimized_topics = []
     warnings = []
@@ -2497,12 +2726,27 @@ def _enrich_manual_topics_in_batches(
                 streamer_name=streamer_name,
                 progress_callback=progress_callback,
             )
+            unresolved = [topic for topic in batch if not topic.get("ai_enriched")]
+            if unresolved:
+                for topic in unresolved:
+                    topic["reference_only"] = True
+                warnings.append(
+                    f"第 {batch_index}/{total_batches} 批仅复核 "
+                    f"{len(batch) - len(unresolved)}/{len(batch)} 项，"
+                    f"其余 {len(unresolved)} 项未返回"
+                )
         except Exception as exc:
             warning = f"第 {batch_index}/{total_batches} 批优化失败：{_short_llm_error(exc)}"
             warnings.append(warning)
             for topic in batch:
                 topic["reference_only"] = True
         optimized_topics.extend(batch)
+        if batch_result_callback:
+            batch_result_callback(
+                list(optimized_topics),
+                list(topics[offset + max(1, batch_size):]),
+                list(warnings),
+            )
     topics[:] = sorted(optimized_topics, key=lambda item: (item["start"], item["end"]))
     if not warnings:
         return None
@@ -2642,14 +2886,119 @@ def _optimized_manual_entries_from_topics(topics):
             "ai_focus_validated": bool(topic.get("ai_focus_validated")),
             "reference_only": bool(topic.get("reference_only")),
             "publish_title": topic.get("publish_title"),
+            "evidence": [
+                line for line in topic.get("body") or []
+                if str(line).startswith(("·字幕核查：", "·弹幕依据：", "●人工时间轴", "·时间轴："))
+            ],
             "original_entries": original_entries,
         }
         entries.append(entry)
     return entries
 
 
+def _optimized_entry_needs_retry(entry):
+    """识别未复核、降级或被模型模板占位污染的优化候选。"""
+    if not entry.get("ai_enriched") or entry.get("reference_only"):
+        return True
+    if _is_manual_ai_placeholder(entry.get("text")):
+        return True
+    return any(
+        _is_manual_ai_placeholder(_strip_body_prefix(point))
+        for point in entry.get("summary") or []
+    )
+
+
+def _topic_from_optimized_entry(entry, srt_segments, peaks):
+    """把优化 JSON 中的低权重候选还原为可重试的 AI 复核话题。"""
+    start = int(entry.get("start", 0))
+    end = max(start + 1, int(entry.get("end", start + 1)))
+    original_entries = list(entry.get("original_entries") or [])
+    if not original_entries:
+        original_entries = [{
+            "start": start,
+            "original_start": start,
+            "text": entry.get("text", "人工时间轴重点"),
+            "stars": int(entry.get("stars", 0)),
+        }]
+    body = list(entry.get("evidence") or [])
+    if not any(str(line).startswith("·弹幕依据：") for line in body):
+        body[:0] = _topic_danmaku_reference_lines(start, end, peaks or [])
+    if not any(str(line).startswith("·字幕核查：") for line in body):
+        body.extend(_topic_srt_summary_lines(start, end, srt_segments or []))
+    for item in original_entries:
+        stars = int(item.get("stars", 0))
+        prefix = f"●人工时间轴{'⭐' * min(stars, 5)}" if stars else "·时间轴"
+        line = f"{prefix}：{fmt_time(int(item.get('start', start)))} {item.get('text', '')}"
+        if line not in body:
+            body.append(line)
+    return {
+        "start": start,
+        "end": end,
+        "start_str": fmt_time(start),
+        "end_str": fmt_time(end),
+        "title": entry.get("text", "人工时间轴重点"),
+        "publish_title": entry.get("publish_title"),
+        "body": body,
+        "can_slice": False,
+        "manual_stars": int(entry.get("stars", 0)),
+        "manual_timeline": original_entries,
+        "source": "optimized_manual_timeline",
+        "reference_only": True,
+    }
+
+
+def _batch_warning_text(warnings, pending_count=0):
+    details = list(warnings or [])
+    if pending_count:
+        details.append(f"尚有 {pending_count} 项等待后续批次")
+    if not details:
+        return None
+    return "人工时间轴部分未完成字幕校准，相关条目仅作低权重参考：" + "；".join(details)
+
+
+def _retry_optimized_timeline_entries(
+        entries, srt_segments, peaks, streamer_name="音音", progress_callback=None,
+        checkpoint_callback=None):
+    """保留已通过候选，仅以小批量重试低权重或占位污染项。"""
+    accepted_entries = [dict(entry) for entry in entries or [] if not _optimized_entry_needs_retry(entry)]
+    retry_topics = [
+        _topic_from_optimized_entry(entry, srt_segments, peaks)
+        for entry in entries or []
+        if _optimized_entry_needs_retry(entry)
+    ]
+    if not retry_topics:
+        return sorted(accepted_entries, key=lambda item: (item["start"], item["end"])), None
+
+    def save_checkpoint(processed_topics, remaining_topics, warnings):
+        if not checkpoint_callback:
+            return
+        pending_topics = []
+        for topic in remaining_topics:
+            pending = dict(topic)
+            pending["reference_only"] = True
+            pending_topics.append(pending)
+        checkpoint_entries = accepted_entries + _optimized_manual_entries_from_topics(
+            list(processed_topics) + pending_topics
+        )
+        checkpoint_callback(
+            sorted(checkpoint_entries, key=lambda item: (item["start"], item["end"])),
+            _batch_warning_text(warnings, pending_count=len(remaining_topics)),
+        )
+
+    warning = _enrich_manual_topics_in_batches(
+        retry_topics,
+        streamer_name=streamer_name,
+        progress_callback=progress_callback,
+        batch_size=MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE,
+        batch_result_callback=save_checkpoint,
+    )
+    optimized_entries = accepted_entries + _optimized_manual_entries_from_topics(retry_topics)
+    return sorted(optimized_entries, key=lambda item: (item["start"], item["end"])), warning
+
+
 def _optimize_manual_timeline(
-        entries, srt_segments, peaks, streamer_name="音音", progress_callback=None):
+        entries, srt_segments, peaks, streamer_name="音音", progress_callback=None,
+        batch_result_callback=None):
     """先用字幕/弹幕聚合人工记录，再由 AI 改写标题、要点和语义范围。"""
     if not entries:
         return [], None
@@ -2665,6 +3014,7 @@ def _optimize_manual_timeline(
         topics,
         streamer_name=streamer_name,
         progress_callback=progress_callback,
+        batch_result_callback=batch_result_callback,
     )
     return _optimized_manual_entries_from_topics(topics), warning
 
@@ -2680,6 +3030,7 @@ def _write_optimized_timeline_files(
     payload = {
         "video_path": video_base + ".flv",
         "source_path": source_path,
+        "optimization_version": MANUAL_TIMELINE_OPTIMIZATION_VERSION,
         "raw_entry_count": len(raw_entries or []),
         "optimized_entry_count": len(optimized_entries or []),
         "warning": warning,
@@ -2699,7 +3050,11 @@ def _write_optimized_timeline_files(
     lines.extend(["", "---", ""])
     for index, entry in enumerate(optimized_entries or [], 1):
         stars = " ⭐" * min(int(entry.get("stars", 0)), 5)
-        confidence = "字幕/AI已复核" if entry.get("ai_enriched") else "低权重参考"
+        confidence = (
+            "字幕/AI初审（完整分析时再次独立复核）"
+            if entry.get("ai_enriched")
+            else "低权重参考"
+        )
         lines.append(
             f"## {index:02d} [{fmt_time(entry['start'])}－{fmt_time(entry['end'])}] "
             f"{entry.get('text', '未命名话题')}{stars}"
@@ -2753,6 +3108,7 @@ def _load_optimized_timeline_artifact(
         "optimized_json_path": artifact_path,
         "optimized_md_path": os.path.splitext(artifact_path)[0] + ".md",
         "optimization_warning": payload.get("warning"),
+        "optimization_version": int(payload.get("optimization_version", 0)),
         "mode": "optimized_artifact",
         "video_start": _extract_video_start_datetime(flv_path),
     }
@@ -2774,16 +3130,86 @@ def _prepare_optimized_manual_timeline(
     if not raw_entries:
         return manual_timeline
 
-    optimized_entries, warning = _optimize_manual_timeline(
-        raw_entries,
-        srt_segments=srt_segments,
-        peaks=peaks,
-        streamer_name=streamer_name,
-        progress_callback=progress_callback,
-    )
+    optimized_json_path, optimized_md_path = _optimized_timeline_paths(video_base)
+
+    def write_checkpoint(entries, warning):
+        _write_optimized_timeline_files(
+            video_base,
+            manual_timeline.get("path"),
+            raw_entries,
+            entries,
+            warning=warning,
+        )
+
+    reusable_artifact = None
+    source_path = manual_timeline.get("path")
+    if os.path.isfile(optimized_json_path) and source_path and os.path.isfile(source_path):
+        try:
+            artifact_is_current = (
+                os.path.getmtime(optimized_json_path) >= os.path.getmtime(source_path)
+            )
+            if artifact_is_current:
+                candidate = _load_optimized_timeline_artifact(
+                    optimized_json_path,
+                    flv_path,
+                    source_path,
+                )
+                if (
+                    candidate.get("raw_entry_count") == len(raw_entries)
+                    and candidate.get("optimization_version")
+                    == MANUAL_TIMELINE_OPTIMIZATION_VERSION
+                ):
+                    reusable_artifact = candidate
+        except (OSError, ValueError, TypeError):
+            reusable_artifact = None
+
+    if reusable_artifact:
+        retry_count = sum(
+            _optimized_entry_needs_retry(entry)
+            for entry in reusable_artifact.get("entries") or []
+        )
+        if progress_callback:
+            progress_callback(
+                f"复用 {len(reusable_artifact['entries']) - retry_count} 个已通过候选，"
+                f"仅重试 {retry_count} 个低权重候选...",
+                20,
+                100,
+            )
+        optimized_entries, warning = _retry_optimized_timeline_entries(
+            reusable_artifact.get("entries") or [],
+            srt_segments=srt_segments,
+            peaks=peaks,
+            streamer_name=streamer_name,
+            progress_callback=progress_callback,
+            checkpoint_callback=write_checkpoint,
+        )
+    else:
+        def save_fresh_checkpoint(processed_topics, remaining_topics, warnings):
+            pending_topics = []
+            for topic in remaining_topics:
+                pending = dict(topic)
+                pending["reference_only"] = True
+                pending_topics.append(pending)
+            checkpoint_entries = _optimized_manual_entries_from_topics(
+                list(processed_topics) + pending_topics
+            )
+            write_checkpoint(
+                checkpoint_entries,
+                _batch_warning_text(warnings, pending_count=len(remaining_topics)),
+            )
+
+        optimized_entries, warning = _optimize_manual_timeline(
+            raw_entries,
+            srt_segments=srt_segments,
+            peaks=peaks,
+            streamer_name=streamer_name,
+            progress_callback=progress_callback,
+            batch_result_callback=save_fresh_checkpoint,
+        )
+
     optimized_json_path, optimized_md_path = _write_optimized_timeline_files(
         video_base,
-        manual_timeline.get("path"),
+        source_path,
         raw_entries,
         optimized_entries,
         warning=warning,
@@ -3105,6 +3531,8 @@ def _merge_expanded_clip_marks(marks, srt_segments=None):
             boundary_max = min(boundary_max, int(item["end"]) - 1)
             preferred_boundary = item.get("required_context_start")
             if preferred_boundary is None:
+                preferred_boundary = item.get("topic_start")
+            if preferred_boundary is None:
                 boundary_candidate = int((boundary_min + boundary_max) / 2)
             else:
                 boundary_candidate = max(
@@ -3195,19 +3623,34 @@ def _cap_expanded_clip_mark(mark):
         topic_start, topic_end = start_s, end_s
 
     required_context_start = item.get("required_context_start")
+    required_context_end = item.get("required_context_end")
+    if required_context_end is not None:
+        required_context_end = min(
+            end_s,
+            max(topic_end, int(required_context_end)),
+        )
+    if required_context_start is not None and required_context_end is not None:
+        required_context_start = max(start_s, min(topic_start, int(required_context_start)))
+        required_max_duration = TOPIC_MAX_CLIP_SEC + TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC
+        if required_context_end - required_context_start <= required_max_duration:
+            new_start = required_context_start
+            new_end = min(end_s, new_start + required_max_duration)
+            if new_end < required_context_end:
+                new_end = required_context_end
+                new_start = max(start_s, new_end - required_max_duration)
+            item["start"] = int(new_start)
+            item["end"] = int(max(new_start + 1, new_end))
+            return item
     if required_context_start is not None:
         required_context_start = max(start_s, min(topic_start, int(required_context_start)))
-        if topic_end - required_context_start < TOPIC_MAX_CLIP_SEC:
-            # 触发语句和语义核心都能装入上限时，优先保留完整收尾，再从开头裁掉最少的静态前文。
-            if end_s - required_context_start <= TOPIC_MAX_CLIP_SEC + TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC:
-                item["start"] = int(required_context_start)
-                item["end"] = int(max(required_context_start + 1, end_s))
-                return item
-            new_end = end_s
-            new_start = max(start_s, new_end - TOPIC_MAX_CLIP_SEC)
-            if new_start > topic_start:
-                new_start = topic_start
-                new_end = min(end_s, new_start + TOPIC_MAX_CLIP_SEC)
+        if topic_end - required_context_start <= TOPIC_MAX_CLIP_SEC:
+            # 触发语句和语义核心能同时装入上限时，保住触发句，优先裁掉
+            # 核心结束后的普通延伸，不再突破 300 秒。
+            new_start = required_context_start
+            new_end = min(end_s, new_start + TOPIC_MAX_CLIP_SEC)
+            if new_end < topic_end:
+                new_end = topic_end
+                new_start = max(required_context_start, new_end - TOPIC_MAX_CLIP_SEC)
             item["start"] = int(new_start)
             item["end"] = int(max(new_start + 1, new_end))
             return item
@@ -3335,6 +3778,39 @@ def _integer_clip_bounds_outside_subtitles(start_s, end_s, srt_segments):
     return start_point, max(end_point, start_point + 1)
 
 
+def _fit_final_clip_to_safe_srt_boundaries(mark, srt_segments):
+    """限长与去重后向内避开字幕句，避免最终整数边界重新切断一句话。"""
+    item = _cap_expanded_clip_mark(mark)
+    start_point = int(item["start"])
+    end_point = int(item["end"])
+    if not srt_segments:
+        return _refresh_natural_boundary_metadata(item)
+
+    while True:
+        blocking = [
+            segment for segment in srt_segments
+            if segment[0] < start_point < segment[1]
+        ]
+        if not blocking:
+            break
+        start_point = math.ceil(max(segment[1] for segment in blocking))
+
+    while True:
+        blocking = [
+            segment for segment in srt_segments
+            if segment[0] < end_point < segment[1]
+        ]
+        if not blocking:
+            break
+        end_point = math.floor(min(segment[0] for segment in blocking))
+
+    if end_point <= start_point:
+        return _refresh_natural_boundary_metadata(item)
+    item["start"] = start_point
+    item["end"] = end_point
+    return _refresh_natural_boundary_metadata(item)
+
+
 def _looks_like_sc_or_gift_trigger(text):
     """判断字幕文本是否像 SC/礼物/付费留言触发点；兼容 ASR 把 SC 漏识别的情况。"""
     compact = re.sub(r'\s+', ' ', (text or "")).strip()
@@ -3410,10 +3886,308 @@ def _find_sc_context_start(topic_start, srt_segments, lookback_sec=SC_CONTEXT_LO
     return start_s
 
 
+_TRIGGER_CONTEXT_TOPIC_RE = re.compile(
+    r'(?:\bSC\b|s\s*c|super\s*chat|醒目留言|付费留言|'
+    r'观众.{0,10}(?:留言|提问|问题|投稿|来信)|'
+    r'(?:念|读|回应|回答).{0,10}(?:留言|提问|问题|投稿|来信)|'
+    r'感谢.{0,12}(?:礼物|舰长|提督|总督)|(?:礼物|舰长|提督|总督).{0,10}(?:感谢|回应))',
+    re.IGNORECASE,
+)
+
+
+def _clip_context_requires_trigger(mark):
+    """判断话题是否确实由 SC、留言或礼物触发，避免普通话题回溯无关感谢。"""
+    if "context_requires_trigger" in mark:
+        return bool(mark.get("context_requires_trigger"))
+    text = " ".join([
+        str(mark.get("title", "")),
+        str(mark.get("publish_title", "")),
+        *[str(line) for line in mark.get("body") or []],
+    ])
+    return bool(_TRIGGER_CONTEXT_TOPIC_RE.search(text))
+
+
 _TOPIC_LEAD_IN_TRIGGER_RE = re.compile(
     r'(?:对了|说到这个|说起来|你们猜|有个音悦生|有位音悦生|看到一条|念一条|刚才有|'
-    r'昨天.{0,20}(?:发|送|问)|今天发的|接下来(?:看|玩)|下一个(?:视频|话题|游戏))'
+    r'昨天.{0,20}(?:发|送|问)|今天发的|接下来(?:看|玩)|'
+    r'下一个(?:视频|话题|游戏|评价|差评|案例|商家|商品)?)'
 )
+
+_NEXT_CASE_ASR_TRIGGER_RE = re.compile(
+    r'(?:再(?:看|能|给你)|来看|出给|给你|接着看|继续看)下(?:一(?:个)?|个)|'
+    r'下一个(?:视频|话题|游戏|评价|差评|案例|商家|商品)?|'
+    r'(?:谁|有谁)记得(?:上次|之前).{0,20}(?:吗|嘛)?'
+)
+
+_VISUAL_REVIEW_TOPIC_RE = re.compile(
+    r'(?:评价|差评|评论|照片|图片|视频|投稿|商品|外卖|美团|手套|画面)'
+)
+_VISUAL_REACTION_LEAD_IN_RE = re.compile(
+    r'(?:这是在干|这到底是|谁.{0,8}(?:弄|放|干)|哪一个环节|'
+    r'怎么回事|放大看|看一下.{0,8}(?:规格|图片)|这是什么)'
+)
+
+_BOUNDARY_EVIDENCE_STOP_TERMS = {
+    "音音", "泽音", "观众", "商家", "外卖", "评价", "差评", "这个", "那个",
+    "真的", "然后", "开始", "继续", "感谢", "觉得", "表示", "看到", "观看",
+    "内容", "话题", "视频", "弹幕", "回应", "一个", "没有", "怎么", "什么",
+    "就是", "还是", "可以", "不是", "因为", "所以", "一下", "自己", "进行",
+    "发现",
+    "默认",
+}
+
+
+def _normalise_boundary_evidence_text(value):
+    return re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]+', '', str(value or "")).lower()
+
+
+def _boundary_evidence_term_counts(mark):
+    """从标题和复核要点提取边界关键词；短词重复出现时权重更高。"""
+    evidence = [
+        mark.get("title", ""),
+        mark.get("publish_title", ""),
+        *(mark.get("boundary_evidence") or []),
+    ]
+    counts = defaultdict(int)
+    for value in evidence:
+        normalised = _normalise_boundary_evidence_text(value)
+        for run in re.findall(r'[\u4e00-\u9fff]{2,}|[a-z0-9]{2,}', normalised):
+            if re.fullmatch(r'[a-z0-9]+', run):
+                counts[run] += 2
+                continue
+            for size in range(2, min(6, len(run)) + 1):
+                for offset in range(len(run) - size + 1):
+                    term = run[offset:offset + size]
+                    if term not in _BOUNDARY_EVIDENCE_STOP_TERMS:
+                        counts[term] += 1
+    return counts
+
+
+def _score_boundary_evidence_text(text, term_counts):
+    normalised = _normalise_boundary_evidence_text(text)
+    score = 0
+    for term, count in term_counts.items():
+        if term not in normalised:
+            continue
+        length_weight = 1 if len(term) == 2 else 3 if len(term) == 3 else 5 if len(term) == 4 else 7
+        score += length_weight + min(3, count - 1)
+    return score
+
+
+def _boundary_evidence_text_is_relevant(text, term_counts):
+    """短句命中多次出现在标题/要点中的核心词时，也视为同话题证据。"""
+    if _score_boundary_evidence_text(text, term_counts) >= TOPIC_BOUNDARY_EVIDENCE_MIN_SCORE:
+        return True
+    normalised = _normalise_boundary_evidence_text(text)
+    return any(
+        len(term) >= 2 and count >= 4 and term in normalised
+        for term, count in term_counts.items()
+    )
+
+
+def _subtitle_speech_chains(srt_segments, minimum, maximum):
+    selected = [
+        segment for segment in srt_segments or []
+        if segment[1] >= minimum and segment[0] <= maximum
+    ]
+    chains = []
+    for segment in selected:
+        if not chains or segment[0] - chains[-1][-1][1] > TOPIC_CONTEXT_GAP:
+            chains.append([segment])
+        else:
+            chains[-1].append(segment)
+    return chains
+
+
+def _find_relevant_topic_context_start(mark, topic_start, topic_end, srt_segments):
+    """用标题/要点匹配离核心最近的连续语链，识别真正案由起点。"""
+    term_counts = _boundary_evidence_term_counts(mark)
+    if not term_counts or not srt_segments:
+        return None, 0
+    reference_start = int(mark.get("reference_start", topic_start))
+    search_start = max(reference_start, topic_start - TOPIC_BOUNDARY_EVIDENCE_LOOKBACK_SEC)
+    search_end = min(topic_end, topic_start + TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEC)
+    chains = _subtitle_speech_chains(srt_segments, search_start, search_end)
+    candidates = []
+    for chain_index, chain in enumerate(chains):
+        score = _score_boundary_evidence_text(
+            " ".join(segment[2] for segment in chain),
+            term_counts,
+        )
+        if score < TOPIC_BOUNDARY_EVIDENCE_MIN_SCORE:
+            continue
+        chain_start = max(float(search_start), float(chain[0][0]))
+        chain_end = min(float(search_end), float(chain[-1][1]))
+        midpoint_distance = abs((chain_start + chain_end) / 2 - topic_start)
+        candidates.append((midpoint_distance, -score, chain_index, chain_start, score))
+    if not candidates:
+        return None, 0
+    _, _, chain_index, chain_start, score = min(candidates)
+    while chain_index > 0:
+        previous_chain = chains[chain_index - 1]
+        gap = chain_start - previous_chain[-1][1]
+        previous_score = _score_boundary_evidence_text(
+            " ".join(segment[2] for segment in previous_chain),
+            term_counts,
+        )
+        if gap > TOPIC_HARD_TRANSITION_GAP_SEC or previous_score <= 0:
+            break
+        chain_start = max(float(search_start), float(previous_chain[0][0]))
+        chain_index -= 1
+    return int(math.floor(chain_start)), int(score)
+
+
+def _boundary_context_has_speech(start_s, end_s, srt_segments):
+    if end_s <= start_s:
+        return False
+    return any(
+        seg_end > start_s and seg_start < end_s
+        for seg_start, seg_end, _ in srt_segments or []
+    )
+
+
+def _boundary_context_is_relevant(mark, start_s, end_s, srt_segments):
+    texts = [
+        text for seg_start, seg_end, text in srt_segments or []
+        if seg_end > start_s and seg_start < end_s
+    ]
+    if not texts:
+        return False
+    return _score_boundary_evidence_text(
+        " ".join(texts),
+        _boundary_evidence_term_counts(mark),
+    ) >= TOPIC_BOUNDARY_EVIDENCE_MIN_SCORE
+
+
+def _find_unrelated_next_speech_start(mark, topic_end, search_end, srt_segments):
+    """核心结束后出现至少 10 秒无语音时，将下一语链视为新案例。"""
+    if not mark.get("boundary_evidence") or search_end <= topic_end:
+        return None
+    previous_end = None
+    for seg_start, seg_end, _ in srt_segments or []:
+        if seg_end <= topic_end:
+            previous_end = seg_end
+            continue
+        if seg_start < topic_end:
+            previous_end = max(previous_end or seg_end, seg_end)
+            continue
+        if seg_start > search_end:
+            break
+        gap = seg_start - (previous_end if previous_end is not None else topic_end)
+        if gap < TOPIC_HARD_TRANSITION_GAP_SEC:
+            previous_end = seg_end
+            continue
+        return int(math.floor(seg_start))
+    return None
+
+
+def _looks_like_next_case_transition(text):
+    """识别“再看下一个”及常见 ASR 误识别，避免吞入下一案例。"""
+    compact = re.sub(r'\s+', '', text or "")
+    return bool(_NEXT_CASE_ASR_TRIGGER_RE.search(compact))
+
+
+def _find_relevant_topic_context_end(mark, topic_end, search_end, srt_segments):
+    """保留静默后的同话题回应，并返回首个确认无关的后续语链起点。"""
+    if not mark.get("boundary_evidence") or search_end <= topic_end:
+        return topic_end, None
+
+    term_counts = _boundary_evidence_term_counts(mark)
+    chains = _subtitle_speech_chains(srt_segments, topic_end, search_end)
+    if not chains:
+        return topic_end, None
+
+    records = []
+    for chain in chains:
+        transition_start = next(
+            (
+                seg_start for seg_start, _, text in chain
+                if seg_start >= topic_end and _looks_like_next_case_transition(text)
+            ),
+            None,
+        )
+        evidence_text = " ".join(
+            text for seg_start, _, text in chain
+            if transition_start is None or seg_start < transition_start
+        )
+        records.append({
+            "chain": chain,
+            "start": max(float(topic_end), float(chain[0][0])),
+            "end": max(float(topic_end), float(chain[-1][1])),
+            "score": _score_boundary_evidence_text(evidence_text, term_counts),
+            "transition_start": transition_start,
+        })
+
+    nearby_transition = next(
+        (
+            record["transition_start"] for record in records
+            if (
+                record["transition_start"] is not None
+                and record["transition_start"] - topic_end <= 90
+            )
+        ),
+        None,
+    )
+    if nearby_transition is not None:
+        prior_segments = [
+            segment
+            for record in records
+            for segment in record["chain"]
+            if segment[0] < nearby_transition
+        ]
+        context_end = max(
+            [float(topic_end), *[segment[1] for segment in prior_segments]]
+        )
+        return int(math.ceil(context_end)), int(math.floor(nearby_transition))
+
+    context_end = float(topic_end)
+    natural_grace_used = False
+    for index, record in enumerate(records):
+        transition_start = record["transition_start"]
+        if transition_start is not None:
+            before_transition = [
+                segment for segment in record["chain"]
+                if segment[0] < transition_start
+            ]
+            if before_transition:
+                context_end = max(context_end, before_transition[-1][1])
+            return int(math.ceil(context_end)), int(math.floor(transition_start))
+
+        starts_inside_core = record["chain"][0][0] <= topic_end + 1
+        evidence_relevant = (
+            _boundary_evidence_text_is_relevant(
+                " ".join(segment[2] for segment in record["chain"]),
+                term_counts,
+            )
+            and record["start"] - context_end <= TOPIC_RELEVANT_CONTINUATION_GAP_SEC
+        )
+        natural_closure = (
+            not natural_grace_used
+            and record["start"] - context_end
+            <= TOPIC_AI_FOCUS_NATURAL_POST_BOUNDARY_SEC
+        )
+        if starts_inside_core or evidence_relevant or natural_closure:
+            context_end = max(context_end, record["end"])
+            if not starts_inside_core and natural_closure:
+                natural_grace_used = True
+            continue
+
+        future_relevant = False
+        for future in records[index + 1:]:
+            if future["transition_start"] is not None:
+                break
+            if future["start"] - context_end > TOPIC_RELEVANT_CONTINUATION_GAP_SEC:
+                break
+            if _boundary_evidence_text_is_relevant(
+                    " ".join(segment[2] for segment in future["chain"]),
+                    term_counts):
+                future_relevant = True
+                break
+        if future_relevant:
+            continue
+        return int(math.ceil(context_end)), int(math.floor(record["start"]))
+
+    return int(math.ceil(context_end)), None
 
 
 def _find_topic_lead_in_start(reference_start, topic_start, srt_segments):
@@ -3421,19 +4195,75 @@ def _find_topic_lead_in_start(reference_start, topic_start, srt_segments):
     if not srt_segments or topic_start - reference_start < 30:
         return None
     search_start = max(reference_start, topic_start - TOPIC_LEAD_IN_LOOKBACK_SEC)
+    triggers = []
     for seg_start, _, text in srt_segments:
         if seg_start < search_start:
             continue
         if seg_start >= topic_start:
             break
         if _TOPIC_LEAD_IN_TRIGGER_RE.search(re.sub(r'\s+', '', text or "")):
-            return seg_start
-    return None
+            triggers.append(seg_start)
+    if not triggers:
+        return None
+
+    # 同一引子可能连续拆成“对了 / 你们猜”等数句。取离核心最近的
+    # 一组触发词，但保留该组第一句。
+    cluster_start = triggers[0]
+    previous = triggers[0]
+    for trigger in triggers[1:]:
+        if trigger - previous > 20:
+            cluster_start = trigger
+        previous = trigger
+    return cluster_start
 
 
-def _find_next_topic_hard_end(topic_end, reference_end, search_end, srt_segments):
+def _find_visual_reaction_context_start(mark, topic_start, srt_segments):
+    """为看图/评价类话题保留尚未说出主体名称时的第一反应。"""
+    evidence_text = " ".join([
+        str(mark.get("title", "")),
+        str(mark.get("publish_title", "")),
+        *[str(line) for line in mark.get("boundary_evidence") or []],
+    ])
+    if not _VISUAL_REVIEW_TOPIC_RE.search(evidence_text):
+        return None
+
+    search_start = max(0, topic_start - TOPIC_BOUNDARY_EVIDENCE_LOOKBACK_SEC)
+    triggers = [
+        seg_start
+        for seg_start, _, text in srt_segments or []
+        if (
+            search_start <= seg_start < topic_start
+            and _VISUAL_REACTION_LEAD_IN_RE.search(re.sub(r'\s+', '', text or ""))
+        )
+    ]
+    if not triggers:
+        return None
+
+    cluster_start = triggers[0]
+    previous = triggers[0]
+    for trigger in triggers[1:]:
+        if trigger - previous > 30:
+            cluster_start = trigger
+        previous = trigger
+    return int(math.floor(cluster_start))
+
+
+def _is_explicit_sc_topic(mark):
+    text = " ".join([
+        str(mark.get("title", "")),
+        str(mark.get("publish_title", "")),
+    ]).lower()
+    return bool(re.search(r'(?:\bsc\b|s\s*c|super\s*chat|醒目留言|付费留言)', text))
+
+
+def _find_next_topic_hard_end(
+        topic_end, reference_end, search_end, srt_segments,
+        stop_at_gift_trigger=False):
     """核心已到参考范围末尾时，用明确转场阻止固定后文吞入下一话题。"""
-    if not srt_segments or reference_end - topic_end > 5:
+    if (
+        not srt_segments
+        or (not stop_at_gift_trigger and reference_end - topic_end > 5)
+    ):
         return None
     for index, (seg_start, _, text) in enumerate(srt_segments):
         if seg_start < topic_end:
@@ -3446,10 +4276,13 @@ def _find_next_topic_hard_end(topic_end, reference_end, search_end, srt_segments
             or _is_explicit_sc_trigger(compact)
             or (
                 _looks_like_sc_or_gift_trigger(compact)
-                and _gift_trigger_has_question_followup(
-                    index,
-                    search_end,
-                    srt_segments,
+                and (
+                    stop_at_gift_trigger
+                    or _gift_trigger_has_question_followup(
+                        index,
+                        search_end,
+                        srt_segments,
+                    )
                 )
             )
         ):
@@ -3471,6 +4304,19 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     topic_end = int(float(mark.get("topic_end", mark["end"])))
     if topic_end <= topic_start:
         topic_end = topic_start + 1
+
+    relevant_context_start, relevant_context_score = _find_relevant_topic_context_start(
+        mark,
+        topic_start,
+        topic_end,
+        srt_segments or [],
+    )
+    if (
+            relevant_context_score >= TOPIC_BOUNDARY_EVIDENCE_MIN_SCORE
+            and not _clip_context_requires_trigger(mark)
+            and topic_start + 5 < relevant_context_start
+            and relevant_context_start - topic_start <= TOPIC_BOUNDARY_FORWARD_SHIFT_MAX_SEC):
+        topic_start = relevant_context_start
 
     raw_duration = topic_end - topic_start
     semantic_focus = bool(mark.get("semantic_focus_validated"))
@@ -3498,40 +4344,136 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     start_s = max(0, topic_start - pre_context_sec)
     end_s = topic_end + post_context_sec
     hard_context_end = None
+    relevant_context_end = topic_end
     if semantic_focus:
+        next_topic_start = mark.get("next_report_topic_start")
+        boundary_search_end = min(
+            topic_end + TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEARCH_SEC,
+            topic_start + TOPIC_MAX_CLIP_SEC,
+            int(mark.get("reference_end", topic_end))
+            + TOPIC_RELEVANT_CONTINUATION_GAP_SEC,
+        )
+        if next_topic_start is not None and int(next_topic_start) >= topic_end:
+            boundary_search_end = min(boundary_search_end, int(next_topic_start))
+        relevant_context_end, unrelated_next_start = _find_relevant_topic_context_end(
+            mark,
+            topic_end,
+            boundary_search_end,
+            srt_segments or [],
+        )
+        end_s = max(end_s, relevant_context_end)
         hard_context_end = _find_next_topic_hard_end(
             topic_end,
             int(mark.get("reference_end", topic_end)),
             end_s,
             srt_segments or [],
+            stop_at_gift_trigger=_clip_context_requires_trigger(mark),
         )
         if hard_context_end is not None:
             end_s = min(end_s, hard_context_end)
-    sc_context_start = _find_sc_context_start(topic_start, srt_segments or [])
+        if next_topic_start is not None:
+            next_topic_start = int(next_topic_start)
+            if (
+                    topic_end - 5 <= next_topic_start <= end_s
+                    and next_topic_start >= relevant_context_end):
+                hard_context_end = (
+                    min(hard_context_end, next_topic_start)
+                    if hard_context_end is not None
+                    else next_topic_start
+                )
+                end_s = min(end_s, hard_context_end)
+        if unrelated_next_start is not None:
+            hard_context_end = (
+                min(hard_context_end, unrelated_next_start)
+                if hard_context_end is not None
+                else unrelated_next_start
+            )
+            end_s = min(end_s, hard_context_end)
+    sc_context_start = None
+    if _clip_context_requires_trigger(mark):
+        sc_context_start = _find_sc_context_start(topic_start, srt_segments or [])
     if sc_context_start is not None:
         start_s = min(start_s, sc_context_start)
     lead_in_start = None
-    if semantic_focus and raw_duration >= TOPIC_LEAD_IN_RECOVERY_MIN_SEC:
+    visual_lead_in_start = None
+    if (
+        semantic_focus
+        and raw_duration >= TOPIC_LEAD_IN_RECOVERY_MIN_SEC
+        and not _clip_context_requires_trigger(mark)
+    ):
         lead_in_start = _find_topic_lead_in_start(
             int(mark.get("reference_start", topic_start)),
             topic_start,
             srt_segments or [],
         )
         if lead_in_start is not None:
-            start_s = min(start_s, lead_in_start)
+            if (
+                    mark.get("boundary_evidence")
+                    and relevant_context_start is not None
+                    and lead_in_start < relevant_context_start
+                    and not _boundary_context_is_relevant(
+                        mark,
+                        lead_in_start,
+                        relevant_context_start,
+                        srt_segments or [],
+                    )):
+                lead_in_start = None
+    if semantic_focus and not _clip_context_requires_trigger(mark):
+        visual_lead_in_start = _find_visual_reaction_context_start(
+            mark,
+            topic_start,
+            srt_segments or [],
+        )
 
-    if end_s - start_s < TOPIC_MIN_CLIP_SEC:
+    boundary_trimmed_context = False
+    if (
+            _clip_context_requires_trigger(mark)
+            and sc_context_start is None
+            and _is_explicit_sc_topic(mark)):
+        # 无法在字幕中找到明确 SC 名词时，AI 复核核心起点就是最可信的提问起点；
+        # 不再机械带入前一话题的固定 20 秒。
+        start_s = topic_start
+        boundary_trimmed_context = True
+    else:
+        semantic_context_starts = [
+            value for value in (
+                sc_context_start,
+                lead_in_start,
+                visual_lead_in_start,
+                relevant_context_start,
+            )
+            if value is not None and value <= topic_start
+        ]
+        if semantic_context_starts:
+            semantic_context_start = min(semantic_context_starts)
+            if semantic_context_start < start_s:
+                start_s = semantic_context_start
+            elif (
+                    semantic_context_start > start_s
+                    and _boundary_context_has_speech(
+                        start_s,
+                        semantic_context_start,
+                        srt_segments or [],
+                    )):
+                # 语义案由前已有另一段讲话时裁掉；纯静默/画面铺垫仍保留。
+                start_s = semantic_context_start
+                boundary_trimmed_context = True
+
+    if end_s - start_s < TOPIC_MIN_CLIP_SEC and not boundary_trimmed_context:
         deficit = TOPIC_MIN_CLIP_SEC - (end_s - start_s)
         left = deficit if hard_context_end is not None else int(deficit * 0.4)
         right = 0 if hard_context_end is not None else deficit - left
         start_s = max(0, start_s - left)
         end_s += right
 
-    if raw_duration < TOPIC_MAX_CLIP_SEC and end_s - start_s > TOPIC_MAX_CLIP_SEC:
-        end_s = start_s + TOPIC_MAX_CLIP_SEC
+    context_duration_limit = TOPIC_MAX_CLIP_SEC
+    if relevant_context_end > topic_end:
+        context_duration_limit += TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC
+    if raw_duration < TOPIC_MAX_CLIP_SEC and end_s - start_s > context_duration_limit:
+        end_s = start_s + context_duration_limit
         if end_s < topic_end:
             end_s = topic_end
-            start_s = max(0, end_s - TOPIC_MAX_CLIP_SEC)
+            start_s = max(0, end_s - context_duration_limit)
 
     context_start_s = start_s
     context_end_s = end_s
@@ -3553,6 +4495,8 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     expanded = dict(mark)
     expanded["topic_start"] = topic_start
     expanded["topic_end"] = topic_end
+    if int(expanded.get("report_start", topic_start)) < topic_start:
+        expanded["report_start"] = topic_start
     expanded["start"], expanded["end"] = _integer_clip_bounds_outside_subtitles(
         start_s,
         end_s,
@@ -3568,11 +4512,18 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
     expanded["context_start_before_natural"] = int(context_start_s)
     expanded["context_end_before_natural"] = int(context_end_s)
     required_context_starts = [
-        value for value in (sc_context_start, lead_in_start)
-        if value is not None
+        value for value in (
+            sc_context_start,
+            lead_in_start,
+            visual_lead_in_start,
+            relevant_context_start,
+        )
+        if value is not None and value < topic_start
     ]
     if required_context_starts:
         expanded["required_context_start"] = int(min(required_context_starts))
+    if relevant_context_end > topic_end:
+        expanded["required_context_end"] = int(relevant_context_end)
     expanded = _cap_expanded_clip_mark(expanded)
     return _refresh_natural_boundary_metadata(expanded)
 
@@ -3583,7 +4534,11 @@ def _expand_clip_marks_with_context(marks, srt_segments=None, video_duration=Non
         _expand_clip_mark_with_context(mark, srt_segments=srt_segments, video_duration=video_duration)
         for mark in _dedupe_clip_marks(marks)
     ]
-    return _merge_expanded_clip_marks(expanded, srt_segments=srt_segments)
+    merged = _merge_expanded_clip_marks(expanded, srt_segments=srt_segments)
+    return [
+        _fit_final_clip_to_safe_srt_boundaries(mark, srt_segments or [])
+        for mark in merged
+    ]
 
 # ============================================================
 # 逐话题时间轴报告格式化
@@ -3744,19 +4699,6 @@ def _topic_peak_focus_window(topic, peaks, window_sec=DANMAKU_WINDOW):
     }
 
 
-def _topic_manual_star_anchor(topic):
-    """返回话题内人工 ⭐ 的核心时间点；人工时间轴只作为参考，不直接决定完整切片长度。"""
-    entries = topic.get("manual_timeline") or []
-    starred = [
-        item for item in entries
-        if item.get("stars", 0) > 0 and topic["start"] <= item.get("start", -1) <= topic["end"]
-    ]
-    if not starred:
-        return None
-    best = max(starred, key=lambda item: (item.get("stars", 0), -abs(item["start"] - topic["start"])))
-    return int(best["start"])
-
-
 def _assign_topic_slice_window(topic, peaks):
     """为话题分配较短的实际切片核心范围；报告范围仍保留完整话题。"""
     topic_start = int(topic["start"])
@@ -3766,46 +4708,25 @@ def _assign_topic_slice_window(topic, peaks):
 
     duration = topic_end - topic_start
     fixed = topic
+    peak_focus = _topic_peak_focus_window(topic, peaks)
+    if not peak_focus:
+        fixed["can_slice"] = False
+        return fixed
+
+    fixed["slice_anchor"] = peak_focus["anchor"]
+    fixed["slice_anchor_source"] = "弹幕峰值"
+    fixed["slice_peak_density"] = peak_focus["density"]
     if duration <= TOPIC_DIRECT_SLICE_MAX_SEC:
         fixed["slice_start"] = topic_start
         fixed["slice_end"] = topic_end
         return fixed
 
-    peak_focus = _topic_peak_focus_window(topic, peaks)
-    if peak_focus:
-        fixed["slice_start"] = peak_focus["start"]
-        fixed["slice_end"] = peak_focus["end"]
-        fixed["slice_anchor"] = peak_focus["anchor"]
-        fixed["slice_anchor_source"] = "弹幕峰值"
-        body = list(fixed.get("body") or [])
-        note = (
-            f"·切片核心：完整话题较长，实际切片围绕弹幕峰值"
-            f"{fmt_time(peak_focus['anchor'])}截取，保留峰值前后完整反应"
-        )
-        if note not in body:
-            body.append(note)
-        fixed["body"] = body
-        return fixed
-
-    anchor = _topic_manual_star_anchor(topic)
-    anchor_source = "人工⭐"
-    if anchor is None:
-        anchor = int((topic_start + topic_end) / 2)
-        anchor_source = "话题中点"
-
-    slice_start = max(topic_start, anchor - TOPIC_FOCUS_PRE_SEC)
-    slice_end = min(topic_end, anchor + TOPIC_FOCUS_POST_SEC)
-    if slice_end <= slice_start:
-        slice_end = min(topic_end, slice_start + TOPIC_FOCUS_PRE_SEC + TOPIC_FOCUS_POST_SEC)
-    fixed["slice_start"] = int(slice_start)
-    fixed["slice_end"] = int(max(slice_end, slice_start + 1))
-    fixed["slice_anchor"] = int(anchor)
-    fixed["slice_anchor_source"] = anchor_source
-
+    fixed["slice_start"] = peak_focus["start"]
+    fixed["slice_end"] = peak_focus["end"]
     body = list(fixed.get("body") or [])
     note = (
-        f"·切片核心：完整话题较长，实际切片围绕{anchor_source}"
-        f"{fmt_time(anchor)}截取，报告仍保留完整上下文"
+        f"·切片核心：完整话题较长，实际切片围绕弹幕峰值"
+        f"{fmt_time(peak_focus['anchor'])}截取，保留峰值前后完整反应"
     )
     if note not in body:
         body.append(note)
@@ -3834,10 +4755,10 @@ def _is_content_cuttable_topic(topic):
 
 def _clean_topics_for_report(topics):
     """生成报告/切片前做最后一道清洗，防止坏标题或提示残留漏网。"""
-    cleaned = []
-    for topic in sorted(topics or [], key=lambda item: (item.get("start", 0), item.get("end", 0))):
+    prepared = []
+    for topic in topics or []:
         if topic.get("fallback"):
-            cleaned.append(topic)
+            prepared.append(topic)
             continue
         body_lines = [_normalise_body_line(line) for line in topic.get("body") or []]
         body_lines = [line for line in body_lines if line]
@@ -3849,10 +4770,23 @@ def _clean_topics_for_report(topics):
         fixed = dict(topic)
         fixed["title"] = title
         fixed["body"] = body_lines
+        prepared.append(fixed)
+
+    # 具体 AI/字幕话题优先去重。十分钟兜底段最后处理，避免它先占住
+    # 整个范围后把内部已经二次复核的短话题误判为重复项。
+    cleaned = []
+    for fixed in sorted(
+        prepared,
+        key=lambda item: (
+            bool(item.get("fallback")),
+            item.get("start", 0),
+            item.get("end", 0),
+        ),
+    ):
         if _is_duplicate_topic(fixed, cleaned):
             continue
         cleaned.append(fixed)
-    return cleaned
+    return sorted(cleaned, key=lambda item: (item.get("start", 0), item.get("end", 0)))
 
 
 def _refresh_topic_danmaku_evidence(topic, peaks):
@@ -3881,39 +4815,88 @@ def _refresh_topic_danmaku_evidence(topic, peaks):
     return best
 
 
-def _apply_danmaku_slice_decisions(topics, peaks, avg_density):
-    """从每小时重点中按弹幕密度筛选可切片段。"""
+def _apply_danmaku_slice_decisions(
+        topics, peaks, avg_density, max_per_hour=CLIP_MAX_PER_HOUR,
+        require_clip_review=False):
+    """按独立局部峰值筛选每小时最强话题；人工星标不参与放行。"""
     if not topics:
         return []
-    threshold = max(avg_density * CLIP_DENSITY_RATIO, avg_density + 10, 20)
-    manual_threshold = max(avg_density * MANUAL_TIMELINE_STAR_DENSITY_RATIO, 20)
+    high_energy_peaks = _high_energy_danmaku_peaks(peaks, avg_density)
+    candidates = []
     for topic in topics:
-        _refresh_topic_danmaku_evidence(topic, peaks)
-        peak_density = _topic_peak_density(topic, peaks)
+        topic["can_slice"] = False
+        for key in (
+            "slice_start", "slice_end", "slice_anchor", "slice_anchor_source",
+            "slice_peak_density",
+        ):
+            topic.pop(key, None)
+        _refresh_topic_danmaku_evidence(topic, high_energy_peaks)
+        peak_candidates = _topic_peak_candidates(topic, high_energy_peaks)
+        best_peak = max(peak_candidates, key=lambda item: item[1]) if peak_candidates else None
+        peak_density = float(best_peak[1]) if best_peak else 0.0
         topic["peak_density"] = peak_density
         topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
-        normal_cut = peak_density >= threshold
-        manual_stars = topic.get("manual_stars", 0)
-        manual_cut = bool(peaks) and manual_stars > 0 and peak_density >= manual_threshold
-        topic["can_slice"] = bool(
-            _is_content_cuttable_topic(topic)
-            and (normal_cut or manual_cut)
-            and topic["end"] > topic["start"]
-        )
-        if topic["can_slice"]:
-            _assign_topic_slice_window(topic, peaks)
+        if not best_peak or not _is_content_cuttable_topic(topic):
+            continue
+        if require_clip_review and not topic.get("clip_review_validated"):
+            continue
+        if topic["end"] <= topic["start"]:
+            continue
+        peak_start, density = best_peak
+        anchor = int(peak_start + DANMAKU_WINDOW / 2)
+        candidates.append((topic, int(peak_start), float(density), anchor))
+
+    # 同一峰值可能落入两个重叠话题；优先 AI 已确认语义核心且范围更具体者。
+    candidates.sort(key=lambda row: (
+        -row[2],
+        -int(bool(row[0].get("ai_focus_validated"))),
+        row[0]["end"] - row[0]["start"],
+        row[0]["start"],
+    ))
+    used_peak_starts = set()
+    selected_per_hour = defaultdict(int)
+    for topic, peak_start, _, anchor in candidates:
+        hour = max(0, int(anchor // 3600))
+        if peak_start in used_peak_starts or selected_per_hour[hour] >= max_per_hour:
+            continue
+        topic["can_slice"] = True
+        _assign_topic_slice_window(topic, [(peak_start, topic["peak_density"])])
+        if not topic.get("can_slice") or topic.get("slice_anchor_source") != "弹幕峰值":
+            topic["can_slice"] = False
+            continue
+        used_peak_starts.add(peak_start)
+        selected_per_hour[hour] += 1
     return topics
 
 
 def _clip_marks_from_topics(topics):
     """根据已筛选的重点话题生成 clip_marks。"""
-    return _dedupe_clip_marks([
-        {
+    topic_list = list(topics or [])
+    marks = []
+    for topic in topic_list:
+        if not (
+                topic.get("can_slice")
+                and topic.get("slice_anchor") is not None
+                and topic.get("slice_anchor_source") == "弹幕峰值"):
+            continue
+        next_topic_starts = [
+            int(other.get("start", 0))
+            for other in topic_list
+            if (
+                other is not topic
+                and int(other.get("start", 0)) > int(topic.get("start", 0))
+                and int(other.get("start", 0)) >= int(topic.get("end", 0)) - 5
+            )
+        ]
+        marks.append({
             "start": topic.get("slice_start", topic["start"]),
             "end": topic.get("slice_end", topic["end"]),
             "title": topic["title"],
-            "publish_title": _normalise_publish_title(
-                topic.get("publish_title"), topic["title"]
+            "publish_title": _sanitize_transport_claims(
+                _normalise_publish_title(
+                    topic.get("publish_title"), topic["title"]
+                ),
+                topic.get("body") or [],
             ),
             "report_start": topic["start"],
             "report_end": topic["end"],
@@ -3922,10 +4905,11 @@ def _clip_marks_from_topics(topics):
             "semantic_focus_validated": bool(topic.get("ai_focus_validated")),
             "reference_start": topic.get("reference_start"),
             "reference_end": topic.get("reference_end"),
-        }
-        for topic in topics
-        if topic.get("can_slice")
-    ])
+            "context_requires_trigger": _clip_context_requires_trigger(topic),
+            "boundary_evidence": list(topic.get("body") or []),
+            "next_report_topic_start": min(next_topic_starts) if next_topic_starts else None,
+        })
+    return _dedupe_clip_marks(marks)
 
 
 def _topic_clip_filename(index, mark):
@@ -3937,6 +4921,28 @@ def _topic_clip_filename(index, mark):
         safe_title = f"片段{index}"
     start_s = int(float(mark.get("start", 0)))
     return f"{index:02d}_{start_s}s_{safe_title}.flv"
+
+
+def _synchronise_selected_topic_ranges(topics, clip_marks):
+    """将字幕证据后移的核心起点同步回报告，避免报告继续显示上一案例时间。"""
+    used = set()
+    for mark in clip_marks or []:
+        candidates = [
+            (index, topic)
+            for index, topic in enumerate(topics or [])
+            if index not in used and topic.get("title") == mark.get("title")
+        ]
+        if not candidates:
+            continue
+        report_start = int(mark.get("report_start", mark.get("topic_start", 0)))
+        index, topic = min(
+            candidates,
+            key=lambda item: abs(int(item[1].get("start", 0)) - report_start),
+        )
+        used.add(index)
+        if report_start > int(topic.get("start", report_start)):
+            topic["start"] = report_start
+            topic["start_str"] = _format_report_time(report_start)
 
 
 def _clip_subtitle_filename(clip_filename):
@@ -4383,9 +5389,9 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
         lines.extend(publish_title_lines)
 
     if api_warning:
-        lines.append("## API 预检警告")
+        lines.append("## 分析警告")
         lines.append("")
-        lines.append(f"- 预检遇到临时错误，已继续尝试正式分块：{api_warning}")
+        lines.append(f"- {api_warning}")
         lines.append("")
 
     if failed_chunks:
@@ -4522,7 +5528,292 @@ def _analyze_topic_chunks(chunks, streamer_display_name, progress_callback=None)
     return accepted_topics, failed_chunks, api_warning
 
 
-def _validate_unmatched_manual_topics(topics, streamer_name="音音", progress_callback=None):
+def _fresh_manual_topic_evidence(topic, srt_segments=None, peaks=None):
+    """为后置复核重建原始证据，避免沿用上一轮 AI 摘要造成错误自证。"""
+    start = int(topic.get("start", 0))
+    end = max(start + 1, int(topic.get("end", start + 1)))
+    body = []
+    if peaks:
+        body.extend(_topic_danmaku_reference_lines(start, end, peaks))
+    if srt_segments:
+        body.extend(_topic_srt_summary_lines(start, end, srt_segments))
+
+    for entry in topic.get("manual_timeline") or []:
+        source_entries = entry.get("original_entries") or [entry]
+        for source_entry in source_entries:
+            stars = int(source_entry.get("stars", entry.get("stars", 0)))
+            prefix = f"●人工时间轴{'⭐' * min(stars, 5)}" if stars else "·时间轴"
+            line = (
+                f"{prefix}：{fmt_time(int(source_entry.get('start', start)))} "
+                f"{source_entry.get('text', '')}"
+            )
+            if line not in body:
+                body.append(line)
+    return body
+
+
+def _clip_review_candidate(topic, srt_segments, peaks):
+    """用原字幕重新构造高能候选，首轮标题和摘要不作为复核证据。"""
+    source_start = int(topic.get("start", 0))
+    source_end = max(source_start + 1, int(topic.get("end", source_start + 1)))
+    review_start = max(0, source_start - TOPIC_PRE_CONTEXT_SEC)
+    review_end = source_end + TOPIC_POST_CONTEXT_SEC
+    candidate = dict(topic)
+    candidate["start"] = review_start
+    candidate["end"] = review_end
+    candidate["start_str"] = fmt_time(review_start)
+    candidate["end_str"] = fmt_time(review_end)
+    candidate["body"] = _fresh_manual_topic_evidence(
+        candidate,
+        srt_segments=srt_segments,
+        peaks=peaks,
+    )
+    candidate["review_original_start"] = source_start
+    candidate["review_original_end"] = source_end
+    return candidate
+
+
+def _build_clip_candidate_review_prompt(candidates, streamer_name="音音", compact=False):
+    """构造切片候选独立复核提示；只把原字幕、峰值和原始人工记录作为证据。"""
+    payload = []
+    for index, candidate in enumerate(candidates, 1):
+        evidence_limit = 10 if compact else 24
+        evidence = [
+            _strip_body_prefix(line)
+            for line in (candidate.get("body") or [])[:evidence_limit]
+            if _strip_body_prefix(line)
+        ]
+        payload.append({
+            "id": index,
+            "reference_start": fmt_time(candidate["start"]),
+            "reference_end": fmt_time(candidate["end"]),
+            "danmaku_peak": fmt_time(candidate.get("slice_anchor", candidate["start"])),
+            "provisional_title": candidate.get("title", "待核查高能片段"),
+            "evidence": evidence,
+        })
+    title_style_prompt = _build_title_style_prompt(
+        json.dumps(payload, ensure_ascii=False),
+        compact=compact,
+    )
+    return (
+        "你是泽音Melody录播的资深切片复核编辑。程序已按独立弹幕局部峰值选出候选，"
+        "你只负责用原字幕确认事件、说话人和完整边界，不得因为人工星标或暂定标题强行通过。"
+        f"正文称呼使用{streamer_name}，不要写泛称‘主播’。"
+        "provisional_title只是待核查主张，不是证据；与evidence冲突时必须改正。"
+        "每个id必须恰好返回一项。valid=false适用于：主要是外部原声且音音没有足够反应、"
+        "只有机械感谢/碎词、峰值与标题事件不一致、或证据不足以形成可独立观看的片段。"
+        "valid=true时，focus_start/focus_end必须位于reference范围内，并完整包含触发、前因、"
+        "爆点和最后回应；SC/长留言要从念出内容开始，不能只留音音答案。"
+        f"focus时长必须为30-{TOPIC_REVIEW_FOCUS_MAX_SEC}秒；reference超过上限时，必须围绕danmaku_peak选择"
+        "一个前因后果完整的独立子事件，并按该子事件重写title和publish_title，禁止原样返回整段reference。"
+        "字幕可能混有SC、观众留言、游戏角色、广告、教程、榜单和外部视频旁白。"
+        "感谢礼物后出现第一人称经历、随后音音以第二人称追问时，应写成观众经历。"
+        "连续配方、榜单、商品文案、方言短剧应归因给视频中；只有明确短评、笑声、追问属于音音。"
+        "禁止把外部内容写成音音亲自制作、讲解、模仿、透露或经历。"
+        "严格保留否定、上午/下午、数量和交通事实：抢到最后一张高铁票不等于误车或误机，"
+        "‘没必要换电池’不能反写成‘质疑为什么不换’。"
+        "弹幕证据只有密度，禁止编造观众刷屏、起哄、直呼等具体反应。"
+        "title写5-18字具体短标题；publish_title固定以【泽音】开头，只写证据能支持的钩子与原话。"
+        "points写2-5条具体事实，不要规则说明或推理过程。"
+        "只输出JSON对象："
+        "{\"topics\":[{\"id\":1,\"valid\":true,\"title\":\"具体短标题\","
+        "\"publish_title\":\"【泽音】具体事件与原话\",\"focus_start\":\"0:01:00\","
+        "\"focus_end\":\"0:03:00\",\"points\":[\"触发和前因\",\"音音的回应与收尾\"],"
+        "\"reason\":\"\"}]}。valid=false时仍保留id，并在reason用一句话说明证据问题。\n\n"
+        f"账号标题风格（只能学习语气，不得照抄事实）：\n{title_style_prompt or '无'}\n\n"
+        "候选数据：\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+_TOPIC_REVIEW_TRANSIENT_KEYS = {
+    "can_slice", "slice_start", "slice_end", "slice_anchor",
+    "slice_anchor_source", "slice_peak_density", "peak_density", "density_ratio",
+    "clip_review_validated", "clip_review_rejection", "clip_review_attempts",
+}
+
+
+def _analysis_topics_snapshot(topics):
+    """保存可重复执行候选复核的首轮话题快照，不带上一次筛选状态。"""
+    snapshot = json.loads(json.dumps(topics or [], ensure_ascii=False))
+    for topic in snapshot:
+        for key in _TOPIC_REVIEW_TRANSIENT_KEYS:
+            topic.pop(key, None)
+    return snapshot
+
+
+def _write_clip_review_checkpoint(path, topics, **status):
+    """原子写入候选复核检查点，API 中断后无需重跑整场首轮分析。"""
+    if not path:
+        return None
+    payload = {
+        "schema_version": 1,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "topics": topics,
+    }
+    payload.update(status)
+    temp_path = path + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    os.replace(temp_path, path)
+    return path
+
+
+def _review_peak_selected_topics(
+        topics, srt_segments, peaks, streamer_name="音音", progress_callback=None,
+        checkpoint_callback=None, resume=False):
+    """对峰值候选做独立字幕复核；缺项会逐步缩小批次重试。"""
+    if resume:
+        selected = [
+            topic for topic in topics
+            if (
+                topic.get("can_slice")
+                and not topic.get("clip_review_validated")
+                and topic.get("clip_review_rejection") == "等待独立字幕复核"
+            )
+        ]
+    else:
+        selected = [topic for topic in topics if topic.get("can_slice")]
+    if not selected:
+        return None
+    high_energy_peaks = _high_energy_danmaku_peaks(
+        peaks,
+        _average_danmaku_density(peaks),
+    )
+    for original in selected:
+        original["clip_review_validated"] = False
+        original["clip_review_rejection"] = "等待独立字幕复核"
+        if not resume:
+            original["clip_review_attempts"] = 0
+
+    unresolved = list(selected)
+    last_errors = {}
+    review_rounds = (
+        (
+            (CLIP_REVIEW_RETRY_BATCH_SIZE, "检查点补充"),
+            (1, "检查点逐项兜底"),
+        )
+        if resume else (
+            (CLIP_REVIEW_BATCH_SIZE, "首轮"),
+            (CLIP_REVIEW_RETRY_BATCH_SIZE, "缺项补充"),
+            (1, "逐项兜底"),
+        )
+    )
+    for batch_size, round_label in review_rounds:
+        if not unresolved:
+            break
+        retry_items = []
+        total_batches = math.ceil(len(unresolved) / batch_size)
+        for batch_index, offset in enumerate(range(0, len(unresolved), batch_size), 1):
+            originals = unresolved[offset:offset + batch_size]
+            candidates = [
+                _clip_review_candidate(topic, srt_segments, high_energy_peaks)
+                for topic in originals
+            ]
+            if progress_callback:
+                progress_callback(
+                    f"高能切片字幕复核 {round_label} ({batch_index}/{total_batches})...",
+                    95,
+                    100,
+                )
+            prompt = _build_clip_candidate_review_prompt(
+                candidates,
+                streamer_name=streamer_name,
+                compact=False,
+            )
+            compact_prompt = _build_clip_candidate_review_prompt(
+                candidates,
+                streamer_name=streamer_name,
+                compact=True,
+            )
+            for original in originals:
+                original["clip_review_attempts"] = int(
+                    original.get("clip_review_attempts", 0)
+                ) + 1
+            try:
+                response = _call_llm_with_retry(
+                    prompt,
+                    compact_prompt=compact_prompt,
+                    require_json=True,
+                    progress_callback=progress_callback,
+                    progress_label="高能切片字幕复核",
+                    progress_step=95,
+                )
+                response_payload = _extract_json_payload(response)
+                raw_items = (
+                    response_payload.get("topics", [])
+                    if isinstance(response_payload, dict)
+                    else []
+                )
+                items_by_id = {}
+                for item in raw_items if isinstance(raw_items, list) else []:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        item_id = int(item.get("id"))
+                    except (TypeError, ValueError):
+                        continue
+                    if 1 <= item_id <= len(candidates) and item_id not in items_by_id:
+                        items_by_id[item_id] = item
+
+                for item_id, (original, candidate) in enumerate(
+                        zip(originals, candidates), 1):
+                    item = items_by_id.get(item_id)
+                    if item is None or "valid" not in item:
+                        last_errors[id(original)] = "模型未返回该候选的有效结构"
+                        retry_items.append(original)
+                        continue
+                    if not _json_can_slice(item.get("valid"), ""):
+                        original["clip_review_validated"] = False
+                        original["clip_review_rejection"] = str(
+                            item.get("reason", "字幕证据不足")
+                        ).strip() or "字幕证据不足"
+                        last_errors.pop(id(original), None)
+                        continue
+                    enriched = _enriched_manual_topic_from_item(candidate, item)
+                    if not enriched or not enriched.get("ai_focus_validated"):
+                        last_errors[id(original)] = "复核边界或正文无效"
+                        retry_items.append(original)
+                        continue
+                    enriched["clip_review_validated"] = True
+                    enriched["clip_review_rejection"] = None
+                    enriched["clip_review_attempts"] = original["clip_review_attempts"]
+                    enriched["can_slice"] = False
+                    original.clear()
+                    original.update(enriched)
+                    last_errors.pop(id(original), None)
+            except Exception as exc:
+                error = f"API复核失败：{_short_llm_error(exc)}"
+                for original in originals:
+                    last_errors[id(original)] = error
+                    retry_items.append(original)
+
+            if checkpoint_callback:
+                checkpoint_callback(topics, retry_items, round_label, batch_index, total_batches)
+        unresolved = retry_items
+
+    for original in unresolved:
+        original["clip_review_validated"] = False
+        original["clip_review_rejection"] = last_errors.get(
+            id(original), "独立字幕复核未完成"
+        )
+
+    if not unresolved:
+        return None
+    details = "；".join(
+        f"{topic.get('title', '未命名候选')}：{topic.get('clip_review_rejection')}"
+        for topic in unresolved[:5]
+    )
+    if len(unresolved) > 5:
+        details += f"；另有 {len(unresolved) - 5} 项"
+    return (
+        f"高能切片候选仍有 {len(unresolved)} 项在全部复核轮次后缺少有效结构，"
+        f"未通过项不会自动切片：{details}"
+    )
+
+
+def _validate_unmatched_manual_topics(
+        topics, streamer_name="音音", progress_callback=None,
+        srt_segments=None, peaks=None):
     """后置复核首轮遗漏的时间轴候选；失败时只保留报告线索。"""
     manual_topics = [
         topic for topic in topics
@@ -4532,25 +5823,32 @@ def _validate_unmatched_manual_topics(topics, streamer_name="音音", progress_c
     if not manual_topics:
         return None
 
+    if srt_segments:
+        for topic in manual_topics:
+            fresh_evidence = _fresh_manual_topic_evidence(
+                topic,
+                srt_segments=srt_segments,
+                peaks=peaks,
+            )
+            if fresh_evidence:
+                topic["body"] = fresh_evidence
+
     original_ids = {id(topic) for topic in manual_topics}
-    try:
-        _enrich_manual_topics_with_llm(
-            manual_topics,
-            streamer_name=streamer_name,
-            progress_callback=progress_callback,
-        )
-    except Exception as exc:
-        for topic in topics:
-            if id(topic) in original_ids:
-                topic["reference_only"] = True
-        return (
-            "人工星标补充复核失败，未核验条目仅写入报告且不会自动切片："
-            f"{_short_llm_error(exc)}"
-        )
+    warning = _enrich_manual_topics_in_batches(
+        manual_topics,
+        streamer_name=streamer_name,
+        progress_callback=progress_callback,
+        batch_size=MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE,
+    )
 
     topics[:] = [topic for topic in topics if id(topic) not in original_ids]
     topics.extend(manual_topics)
     topics.sort(key=lambda item: (item["start"], item["end"]))
+    if warning:
+        return (
+            "人工时间轴补充项部分复核失败；未核验条目仅写入报告且不会自动切片："
+            f"{warning}"
+        )
     return None
 
 
@@ -4594,13 +5892,11 @@ def run_pipeline(
     peaks = analyze_danmaku(ass_path) if ass_path else DanmakuDensitySeries()
     avg_den = _average_danmaku_density(peaks)
     if peaks:
-        high_window_count = sum(
-            density >= avg_den * CLIP_DENSITY_RATIO
-            for _, density in peaks
-        )
+        high_energy_peaks = _high_energy_danmaku_peaks(peaks, avg_den)
         peak_info = (
             f"弹幕密度 {len(peaks)} 个滑动窗口, "
-            f"高能窗口 {high_window_count} 个, 全场平均密度 {avg_den:.0f}条/分钟"
+            f"独立高能峰值 {len(high_energy_peaks)} 个, "
+            f"全场平均密度 {avg_den:.0f}条/分钟"
         )
     else:
         peak_info = "无弹幕数据"
@@ -4657,22 +5953,62 @@ def run_pipeline(
             item for item in (optimization_warning, api_precheck_warning) if item
         )
 
-    # Step 5: 生成文件
-    if progress_callback:
-        progress_callback("Step 5/5: 生成报告...", 97, 100)
-
     _merge_manual_timeline_topics(accepted_topics, manual_entries)
     manual_validation_warning = _validate_unmatched_manual_topics(
         accepted_topics,
         streamer_name=streamer_display_name,
         progress_callback=progress_callback,
+        srt_segments=segs,
+        peaks=peaks,
     )
     if manual_validation_warning:
         api_precheck_warning = "；".join(
             item for item in (api_precheck_warning, manual_validation_warning) if item
         )
     accepted_topics = _clean_topics_for_report(accepted_topics)
-    _apply_danmaku_slice_decisions(accepted_topics, peaks, avg_den)
+    analysis_topics = _analysis_topics_snapshot(accepted_topics)
+    clip_review_checkpoint_path = base + "_clip_review_checkpoint.json"
+    _write_clip_review_checkpoint(
+        clip_review_checkpoint_path,
+        analysis_topics,
+        stage="ready",
+    )
+    _apply_danmaku_slice_decisions(
+        accepted_topics,
+        peaks,
+        avg_den,
+        max_per_hour=CLIP_REVIEW_MAX_PER_HOUR,
+    )
+    clip_review_warning = _review_peak_selected_topics(
+        accepted_topics,
+        srt_segments=segs,
+        peaks=peaks,
+        streamer_name=streamer_display_name,
+        progress_callback=progress_callback,
+        checkpoint_callback=lambda current, pending, round_label, batch_index, total_batches: (
+            _write_clip_review_checkpoint(
+                clip_review_checkpoint_path,
+                current,
+                stage="reviewing",
+                pending_count=len(pending),
+                round=round_label,
+                batch_index=batch_index,
+                total_batches=total_batches,
+            )
+        ),
+    )
+    if clip_review_warning:
+        api_precheck_warning = "；".join(
+            item for item in (api_precheck_warning, clip_review_warning) if item
+        )
+    accepted_topics = _clean_topics_for_report(accepted_topics)
+    _apply_danmaku_slice_decisions(
+        accepted_topics,
+        peaks,
+        avg_den,
+        max_per_hour=CLIP_MAX_PER_HOUR,
+        require_clip_review=True,
+    )
     raw_clip_marks = _clip_marks_from_topics(accepted_topics)
     srt_segments_for_context = parse_srt_segments(srt_path)
     clip_marks = _expand_clip_marks_with_context(
@@ -4680,6 +6016,10 @@ def run_pipeline(
         srt_segments=srt_segments_for_context,
         video_duration=_srt_video_duration(srt_segments_for_context),
     )
+    _synchronise_selected_topic_ranges(accepted_topics, clip_marks)
+    analysis_topics = _analysis_topics_snapshot(accepted_topics)
+    if progress_callback:
+        progress_callback("Step 5/5: 生成报告...", 97, 100)
     report = _build_timeline_report(
         video_name, peak_info, accepted_topics,
         failed_chunks=failed_chunks, api_warning=api_precheck_warning,
@@ -4710,6 +6050,7 @@ def run_pipeline(
             "task_manifest_md_path": task_manifest_md_path,
             "unified_queue_json_path": unified_queue_json_path,
             "unified_queue_md_path": unified_queue_md_path,
+            "clip_review_checkpoint_path": clip_review_checkpoint_path,
             "time_basis": "video_elapsed_seconds",
             "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
             "expanded_with_context": True,
@@ -4720,9 +6061,19 @@ def run_pipeline(
                 "max_clip_sec": TOPIC_MAX_CLIP_SEC,
                 "required_context_overflow_sec": TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
             },
+            "danmaku_selection_policy": {
+                "average_density": round(avg_den, 3),
+                "density_threshold": round(_danmaku_clip_threshold(peaks, avg_den), 3),
+                "local_peak_radius_sec": CLIP_LOCAL_PEAK_RADIUS_SEC,
+                "max_clips_per_hour": CLIP_MAX_PER_HOUR,
+                "manual_star_can_force_slice": False,
+                "independent_subtitle_review_required": True,
+            },
             "api_precheck_warning": api_precheck_warning,
+            "clip_review_warning": clip_review_warning,
             "failed_chunks": failed_chunks,
             "manual_timeline": _manual_timeline_summary(manual_timeline),
+            "analysis_topics": analysis_topics,
             "clip_marks": clip_marks,
         }, f, ensure_ascii=False, indent=2)
 
@@ -4777,8 +6128,351 @@ def run_pipeline(
     }
 
 
+def _manual_timeline_for_rebuilt_report(summary, flv_path):
+    """从现有 JSON 恢复报告头所需的人工时间轴元数据。"""
+    summary = dict(summary or {})
+    optimized_path = summary.get("optimized_json_path")
+    source_path = summary.get("path")
+    if optimized_path and os.path.isfile(optimized_path):
+        try:
+            return _load_optimized_timeline_artifact(
+                optimized_path,
+                flv_path,
+                manual_timeline_path=source_path,
+            )
+        except (OSError, ValueError, TypeError):
+            pass
+    entry_count = int(summary.get("entry_count", 0) or 0)
+    star_count = min(entry_count, int(summary.get("star_count", 0) or 0))
+    summary["entries"] = [
+        {"stars": 1 if index < star_count else 0}
+        for index in range(entry_count)
+    ]
+    return summary
+
+
+def _warning_without_previous_clip_review(data):
+    """保留首轮/人工时间轴警告，移除上一次候选复核失败说明。"""
+    warning = str(data.get("api_precheck_warning") or "").strip()
+    clip_warning = str(data.get("clip_review_warning") or "").strip()
+    if clip_warning and clip_warning in warning:
+        warning = warning.replace(clip_warning, "").strip("； ")
+    marker_index = warning.find("高能切片候选")
+    if marker_index >= 0:
+        warning = warning[:marker_index].strip("； ")
+    return warning or None
+
+
+def retry_clip_review_from_artifacts(
+        flv_path, ass_path=None, json_path=None, report_path=None,
+        progress_callback=None):
+    """复用已有逐话题报告，只重做弹幕候选筛选、字幕复核和最终产物。"""
+    base, _ = os.path.splitext(flv_path)
+    json_path = json_path or base + "_clip_marks.json"
+    report_path = report_path or base + "_话题分析.md"
+    if not os.path.isfile(json_path):
+        raise FileNotFoundError(f"切片标记 JSON 不存在: {json_path}")
+    with open(json_path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("切片标记 JSON 根节点必须是对象")
+
+    recovered_topics = data.get("analysis_topics")
+    if not isinstance(recovered_topics, list) or not recovered_topics:
+        recovered_topics = _parse_generated_topic_report(report_path)
+    baseline_topics = _clean_topics_for_report(
+        _analysis_topics_snapshot(recovered_topics)
+    )
+    analysis_topics = _analysis_topics_snapshot(baseline_topics)
+
+    clip_review_checkpoint_path = (
+        data.get("clip_review_checkpoint_path")
+        or base + "_clip_review_checkpoint.json"
+    )
+    resume_review = False
+    reuse_completed_review = False
+    accepted_topics = baseline_topics
+    if os.path.isfile(clip_review_checkpoint_path):
+        try:
+            with open(clip_review_checkpoint_path, encoding="utf-8") as f:
+                checkpoint = json.load(f)
+            checkpoint_topics = checkpoint.get("topics") if isinstance(checkpoint, dict) else None
+            resume_stages = {"reviewing", "resuming", "completed_with_warning"}
+            if (
+                isinstance(checkpoint_topics, list)
+                and checkpoint_topics
+                and checkpoint.get("source") == "artifact_retry"
+            ):
+                for topic in checkpoint_topics:
+                    if (
+                        topic.get("clip_review_validated") is True
+                        and int(topic.get("end", 0)) - int(topic.get("start", 0))
+                        > TOPIC_REVIEW_FOCUS_MAX_SEC
+                    ):
+                        topic["clip_review_validated"] = False
+                        topic["clip_review_rejection"] = "等待独立字幕复核"
+                        topic["can_slice"] = True
+                pending_topics = [
+                    topic for topic in checkpoint_topics
+                    if (
+                        topic.get("can_slice")
+                        and not topic.get("clip_review_validated")
+                        and topic.get("clip_review_rejection") == "等待独立字幕复核"
+                    )
+                ]
+                if pending_topics:
+                    accepted_topics = _clean_topics_for_report(checkpoint_topics)
+                    resume_review = True
+                elif checkpoint.get("stage") == "completed":
+                    reviewed_topics = [
+                        topic for topic in checkpoint_topics
+                        if topic.get("clip_review_attempts") is not None
+                    ]
+                    if reviewed_topics and all(
+                            topic.get("clip_review_validated") is not None
+                            for topic in reviewed_topics):
+                        accepted_topics = _clean_topics_for_report(checkpoint_topics)
+                        reuse_completed_review = True
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            resume_review = False
+    if not accepted_topics:
+        raise ValueError("已有产物中没有可用于复核的话题")
+
+    corrected_srt_path = data.get("corrected_srt_path")
+    source_srt_path = data.get("source_srt_path") or base + ".srt"
+    srt_path = (
+        corrected_srt_path
+        if corrected_srt_path and os.path.isfile(corrected_srt_path)
+        else source_srt_path
+    )
+    if not srt_path or not os.path.isfile(srt_path):
+        raise FileNotFoundError(f"复核字幕不存在: {srt_path or '未记录'}")
+    srt_segments = parse_srt_segments(srt_path)
+    if not srt_segments:
+        raise ValueError("复核字幕中没有有效句段")
+
+    if ass_path is None:
+        ass_candidate = base + ".ass"
+        ass_path = ass_candidate if os.path.isfile(ass_candidate) else None
+    peaks = analyze_danmaku(ass_path) if ass_path else DanmakuDensitySeries()
+    avg_den = _average_danmaku_density(peaks)
+    high_energy_peaks = _high_energy_danmaku_peaks(peaks, avg_den)
+    peak_info = (
+        f"弹幕密度 {len(peaks)} 个滑动窗口, "
+        f"独立高能峰值 {len(high_energy_peaks)} 个, "
+        f"全场平均密度 {avg_den:.0f}条/分钟"
+        if peaks else "无弹幕数据"
+    )
+    if progress_callback:
+        pending_count = sum(
+            1 for topic in accepted_topics
+            if topic.get("can_slice")
+            and topic.get("clip_review_rejection") == "等待独立字幕复核"
+        )
+        if resume_review:
+            resume_note = f"，从检查点续跑 {pending_count} 项"
+        elif reuse_completed_review:
+            resume_note = "，复用已完成的独立字幕复核"
+        else:
+            resume_note = ""
+        progress_callback(
+            f"已恢复 {len(accepted_topics)} 个话题，仅重做高能候选复核{resume_note}",
+            90,
+            100,
+        )
+
+    _write_clip_review_checkpoint(
+        clip_review_checkpoint_path,
+        accepted_topics if (resume_review or reuse_completed_review) else analysis_topics,
+        stage=(
+            "resuming" if resume_review
+            else "rebuilding" if reuse_completed_review
+            else "ready"
+        ),
+        source="artifact_retry",
+    )
+    if not resume_review and not reuse_completed_review:
+        _apply_danmaku_slice_decisions(
+            accepted_topics,
+            peaks,
+            avg_den,
+            max_per_hour=CLIP_REVIEW_MAX_PER_HOUR,
+        )
+    if reuse_completed_review:
+        clip_review_warning = None
+    else:
+        clip_review_warning = _review_peak_selected_topics(
+            accepted_topics,
+            srt_segments=srt_segments,
+            peaks=peaks,
+            streamer_name=data.get("streamer_display_name") or "音音",
+            progress_callback=progress_callback,
+            checkpoint_callback=lambda current, pending, round_label, batch_index, total_batches: (
+                _write_clip_review_checkpoint(
+                    clip_review_checkpoint_path,
+                    current,
+                    stage="reviewing",
+                    source="artifact_retry",
+                    pending_count=len(pending),
+                    round=round_label,
+                    batch_index=batch_index,
+                    total_batches=total_batches,
+                )
+            ),
+            resume=resume_review,
+        )
+    accepted_topics = _clean_topics_for_report(accepted_topics)
+    _apply_danmaku_slice_decisions(
+        accepted_topics,
+        peaks,
+        avg_den,
+        max_per_hour=CLIP_MAX_PER_HOUR,
+        require_clip_review=True,
+    )
+    raw_clip_marks = _clip_marks_from_topics(accepted_topics)
+    video_duration = _probe_video_duration(flv_path) or _srt_video_duration(srt_segments)
+    clip_marks = _expand_clip_marks_with_context(
+        raw_clip_marks,
+        srt_segments=srt_segments,
+        video_duration=video_duration,
+    )
+    _synchronise_selected_topic_ranges(accepted_topics, clip_marks)
+
+    base_warning = _warning_without_previous_clip_review(data)
+    api_warning = "；".join(
+        item for item in (base_warning, clip_review_warning) if item
+    ) or None
+    manual_timeline = _manual_timeline_for_rebuilt_report(
+        data.get("manual_timeline"),
+        flv_path,
+    )
+    unified_queue_json_path = data.get("unified_queue_json_path")
+    unified_queue_md_path = data.get("unified_queue_md_path")
+    if not unified_queue_json_path or not unified_queue_md_path:
+        unified_queue_json_path, unified_queue_md_path = _unified_refinement_queue_paths()
+    video_name = os.path.basename(flv_path)
+    streamer_name = data.get("streamer_name") or _infer_streamer_name(flv_path)
+    streamer_display_name = (
+        data.get("streamer_display_name") or _streamer_report_name(streamer_name)
+    )
+    report = _build_timeline_report(
+        video_name,
+        peak_info,
+        accepted_topics,
+        failed_chunks=data.get("failed_chunks") or [],
+        api_warning=api_warning,
+        streamer_name=streamer_display_name,
+        group_by_hour=True,
+        manual_timeline=manual_timeline,
+        clip_marks=clip_marks,
+        corrected_srt_path=corrected_srt_path,
+        unified_queue_md_path=unified_queue_md_path,
+    )
+    analysis_topics = _analysis_topics_snapshot(accepted_topics)
+
+    data.update({
+        "video": video_name,
+        "streamer_name": streamer_name,
+        "streamer_display_name": streamer_display_name,
+        "source_srt_path": source_srt_path,
+        "corrected_srt_path": corrected_srt_path,
+        "unified_queue_json_path": unified_queue_json_path,
+        "unified_queue_md_path": unified_queue_md_path,
+        "clip_review_checkpoint_path": clip_review_checkpoint_path,
+        "expanded_with_context": True,
+        "context_policy": {
+            "pre_context_sec": TOPIC_PRE_CONTEXT_SEC,
+            "post_context_sec": TOPIC_POST_CONTEXT_SEC,
+            "min_clip_sec": TOPIC_MIN_CLIP_SEC,
+            "max_clip_sec": TOPIC_MAX_CLIP_SEC,
+            "required_context_overflow_sec": TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
+        },
+        "danmaku_selection_policy": {
+            "average_density": round(avg_den, 3),
+            "density_threshold": round(_danmaku_clip_threshold(peaks, avg_den), 3),
+            "local_peak_radius_sec": CLIP_LOCAL_PEAK_RADIUS_SEC,
+            "max_clips_per_hour": CLIP_MAX_PER_HOUR,
+            "manual_star_can_force_slice": False,
+            "independent_subtitle_review_required": True,
+        },
+        "api_precheck_warning": api_warning,
+        "clip_review_warning": clip_review_warning,
+        "analysis_topics": analysis_topics,
+        "clip_marks": clip_marks,
+        "clip_review_completed_at": datetime.now().isoformat(timespec="seconds"),
+    })
+
+    report_temp_path = report_path + ".tmp"
+    json_temp_path = json_path + ".tmp"
+    with open(report_temp_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    with open(json_temp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(report_temp_path, report_path)
+    os.replace(json_temp_path, json_path)
+
+    task_manifest_json_path = data.get("task_manifest_json_path")
+    task_manifest_md_path = data.get("task_manifest_md_path")
+    if not task_manifest_json_path or not task_manifest_md_path:
+        task_manifest_json_path, task_manifest_md_path = _refinement_manifest_paths(base)
+    refinement_manifest = _build_refinement_manifest(
+        flv_path,
+        source_srt_path,
+        corrected_srt_path,
+        report_path,
+        json_path,
+        clip_marks,
+        task_manifest_json_path,
+        task_manifest_md_path,
+    )
+    refinement_manifest["unified_queue_json_path"] = unified_queue_json_path
+    refinement_manifest["unified_queue_md_path"] = unified_queue_md_path
+    _write_refinement_manifest_files(refinement_manifest)
+    try:
+        _upsert_unified_refinement_queue(
+            refinement_manifest,
+            queue_json_path=unified_queue_json_path,
+            queue_md_path=unified_queue_md_path,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        refinement_manifest["unified_queue_warning"] = f"精调总清单更新失败: {exc}"
+        _write_refinement_manifest_files(refinement_manifest)
+
+    _write_clip_review_checkpoint(
+        clip_review_checkpoint_path,
+        accepted_topics,
+        stage="completed" if not clip_review_warning else "completed_with_warning",
+        source="artifact_retry",
+        pending_count=sum(
+            1 for topic in accepted_topics
+            if topic.get("clip_review_rejection") and topic.get("can_slice")
+        ),
+    )
+    if progress_callback:
+        progress_callback(
+            f"候选复核完成：{len(clip_marks)} 个可切片段 → {json_path}",
+            100,
+            100,
+        )
+    return {
+        "report": report,
+        "topic_count": len(accepted_topics),
+        "clip_marks": clip_marks,
+        "json_path": json_path,
+        "md_path": report_path,
+        "srt_path": srt_path,
+        "failed_chunks": data.get("failed_chunks") or [],
+        "api_precheck_warning": api_warning,
+        "clip_review_warning": clip_review_warning,
+    }
+
+
 _GENERATED_TOPIC_ARTIFACT_RE = re.compile(
     r'^\d{2,3}_\d+s_.+\.(?:flv|srt)$',
+    re.IGNORECASE,
+)
+_GENERATED_TOPIC_TEMP_RE = re.compile(
+    r'^(?:\d{2,3}_\d+s_.+\.flv\.part\.flv|\.autoslice_seek_index_\d+\.mkv)$',
     re.IGNORECASE,
 )
 
@@ -4789,7 +6483,9 @@ def _cleanup_stale_topic_clips(report_dir):
         return 0
     removed = 0
     for name in os.listdir(report_dir):
-        if not _GENERATED_TOPIC_ARTIFACT_RE.fullmatch(name):
+        if not (
+                _GENERATED_TOPIC_ARTIFACT_RE.fullmatch(name)
+                or _GENERATED_TOPIC_TEMP_RE.fullmatch(name)):
             continue
         path = os.path.join(report_dir, name)
         if not os.path.isfile(path):
@@ -4797,6 +6493,89 @@ def _cleanup_stale_topic_clips(report_dir):
         os.remove(path)
         removed += 1
     return removed
+
+
+def _format_ffmpeg_seconds(value):
+    """生成稳定的 ffmpeg 秒数字符串，避免无意义的长浮点尾数。"""
+    return f"{float(value):.3f}".rstrip("0").rstrip(".") or "0"
+
+
+def _preferred_slice_video_encoder_args():
+    """优先使用本机 NVENC；无 NVIDIA 环境时回退到高质量软件编码。"""
+    requested = os.environ.get("AUTOSLICE_VIDEO_ENCODER", "auto").strip().lower()
+    use_nvenc = requested in {"nvenc", "h264_nvenc"}
+    if requested == "auto":
+        use_nvenc = shutil.which("nvidia-smi") is not None
+    if use_nvenc:
+        return [
+            "-c:v", "h264_nvenc", "-preset", "p5", "-profile:v", "high",
+            "-rc:v", "vbr", "-cq:v", "23", "-b:v", "0",
+        ]
+    return [
+        "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high",
+        "-crf", "19",
+    ]
+
+
+def _software_slice_video_encoder_args():
+    return [
+        "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high",
+        "-crf", "19",
+    ]
+
+
+def _build_precise_slice_ffmpeg_command(
+        input_path, output_path, start_s, duration, video_encoder_args):
+    """双重 seek 丢弃关键帧前置内容，再编码视频得到精确首尾。"""
+    coarse_start = max(0.0, float(start_s) - SLICE_EXACT_SEEK_PREROLL_SEC)
+    precise_offset = max(0.0, float(start_s) - coarse_start)
+    command = [
+        "ffmpeg", "-y",
+        "-ss", _format_ffmpeg_seconds(coarse_start),
+        "-i", input_path,
+    ]
+    if precise_offset > 0:
+        command.extend(["-ss", _format_ffmpeg_seconds(precise_offset)])
+    command.extend([
+        "-t", _format_ffmpeg_seconds(duration),
+        "-map", "0:v:0", "-map", "0:a:0?",
+        *video_encoder_args,
+        "-c:a", "copy",
+        "-avoid_negative_ts", "make_zero",
+        output_path,
+    ])
+    return command
+
+
+def _prepare_seekable_slice_source(
+        flv_path, report_dir, mark_count, subprocess_module, progress_callback=None):
+    """多片段 FLV 先临时重封装为带索引的 MKV，避免每段线性扫描整场。"""
+    if mark_count < SLICE_INDEX_MIN_CLIPS or os.path.splitext(flv_path)[1].lower() != ".flv":
+        return flv_path, None
+    try:
+        source_size = os.path.getsize(flv_path)
+        if shutil.disk_usage(report_dir).free < source_size * 1.2:
+            return flv_path, None
+    except OSError:
+        return flv_path, None
+
+    temp_path = os.path.join(report_dir, f".autoslice_seek_index_{os.getpid()}.mkv")
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+    if progress_callback:
+        progress_callback("正在构建临时快速定位索引...", 0, mark_count)
+    try:
+        subprocess_module.run([
+            "ffmpeg", "-y", "-i", flv_path,
+            "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", temp_path,
+        ], check=True, stdout=subprocess_module.DEVNULL, stderr=subprocess_module.DEVNULL)
+    except (OSError, subprocess_module.CalledProcessError):
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        if progress_callback:
+            progress_callback("临时索引构建失败，改用源录播定位", 0, mark_count)
+        return flv_path, None
+    return temp_path, temp_path
 
 
 def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
@@ -4844,37 +6623,100 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
         progress_callback(f"开始切片 ({len(marks)} 段)...", 0, len(marks))
 
     count = 0
-    for i, m in enumerate(marks):
-        start_s = m["start"]
-        end_s = m["end"]
-        title = m.get("title", f"片段{i+1}")
-        duration = end_s - start_s
-        if duration <= 0:
-            continue
+    slice_source = flv_path
+    temporary_seek_source = None
+    video_encoder_args = _preferred_slice_video_encoder_args()
+    try:
+        slice_source, temporary_seek_source = _prepare_seekable_slice_source(
+            flv_path,
+            report_dir,
+            len(marks),
+            sp,
+            progress_callback=progress_callback,
+        )
+        for i, m in enumerate(marks):
+            start_s = m["start"]
+            end_s = m["end"]
+            title = m.get("title", f"片段{i+1}")
+            duration = end_s - start_s
+            if duration <= 0:
+                continue
 
-        output_name = _topic_clip_filename(i + 1, m)
-        output_path = os.path.join(report_dir, output_name)
+            output_name = _topic_clip_filename(i + 1, m)
+            output_path = os.path.join(report_dir, output_name)
+            temporary_output_path = output_path + ".part.flv"
 
-        if progress_callback:
-            progress_callback(f"切片 {i+1}/{len(marks)}: {title}", i+1, len(marks))
+            if progress_callback:
+                progress_callback(f"切片 {i+1}/{len(marks)}: {title}", i+1, len(marks))
 
-        sp.run([
-            "ffmpeg", "-y", "-ss", str(start_s), "-i", flv_path,
-            "-t", str(duration), "-c", "copy", output_path
-        ], check=True, stdout=sp.PIPE, stderr=sp.DEVNULL,
-           encoding="utf-8", errors="replace")
-        if subtitle_segments:
-            subtitle_path = os.path.join(
-                report_dir,
-                _clip_subtitle_filename(output_name),
-            )
-            _write_clip_srt(
-                subtitle_segments,
+            if os.path.exists(temporary_output_path):
+                os.remove(temporary_output_path)
+            command = _build_precise_slice_ffmpeg_command(
+                slice_source,
+                temporary_output_path,
                 start_s,
-                end_s,
-                subtitle_path,
+                duration,
+                video_encoder_args,
             )
-        count += 1
+            try:
+                sp.run(
+                    command,
+                    check=True,
+                    stdout=sp.DEVNULL,
+                    stderr=sp.PIPE,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except sp.CalledProcessError:
+                if "h264_nvenc" not in video_encoder_args:
+                    raise
+                if os.path.exists(temporary_output_path):
+                    os.remove(temporary_output_path)
+                video_encoder_args = _software_slice_video_encoder_args()
+                if progress_callback:
+                    progress_callback("NVENC 不可用，已改用 CPU 精确编码", i, len(marks))
+                command = _build_precise_slice_ffmpeg_command(
+                    slice_source,
+                    temporary_output_path,
+                    start_s,
+                    duration,
+                    video_encoder_args,
+                )
+                sp.run(
+                    command,
+                    check=True,
+                    stdout=sp.DEVNULL,
+                    stderr=sp.PIPE,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+
+            actual_duration = _probe_video_duration(temporary_output_path)
+            if (
+                    actual_duration is None
+                    or abs(actual_duration - duration) > SLICE_DURATION_TOLERANCE_SEC):
+                if os.path.exists(temporary_output_path):
+                    os.remove(temporary_output_path)
+                raise RuntimeError(
+                    f"切片 {i+1} 时长校验失败：计划 {duration:.3f}s，"
+                    f"实际 {actual_duration if actual_duration is not None else '无法读取'}"
+                )
+            os.replace(temporary_output_path, output_path)
+            if subtitle_segments:
+                subtitle_path = os.path.join(
+                    report_dir,
+                    _clip_subtitle_filename(output_name),
+                )
+                _write_clip_srt(
+                    subtitle_segments,
+                    start_s,
+                    end_s,
+                    subtitle_path,
+                )
+            count += 1
+    finally:
+        if temporary_seek_source and os.path.exists(temporary_seek_source):
+            os.remove(temporary_seek_source)
 
     _update_refinement_manifest_after_slice(
         data.get("task_manifest_json_path"),

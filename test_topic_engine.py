@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -10,25 +11,36 @@ import requests
 
 from topic_engine import (
     CHUNK_SEC, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
-    TOPIC_MAX_CLIP_SEC,
+    MANUAL_TIMELINE_OPTIMIZATION_VERSION,
+    TOPIC_MAX_CLIP_SEC, TOPIC_REVIEW_FOCUS_MAX_SEC,
+    DanmakuDensitySeries,
     LLMResponseTruncatedError, LLMStructuredOutputError,
     _align_manual_timeline_entries_to_srt, _analyze_topic_chunks,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
-    _build_chunk_prompt, _build_manual_topic_enrichment_prompt, _build_refinement_manifest,
+    _build_chunk_prompt, _build_clip_candidate_review_prompt,
+    _build_precise_slice_ffmpeg_command,
+    _build_manual_topic_enrichment_prompt, _build_refinement_manifest,
     _build_title_style_prompt,
     _build_timeline_report, _call_llm_with_retry,
-    _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_marks_from_topics,
+    _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_context_requires_trigger,
+    _clip_marks_from_topics,
     _dedupe_clip_marks, _expand_clip_marks_with_context,
     _extract_video_start_datetime, _filter_manual_timeline_entries, _find_manual_timeline_doc,
-    _infer_streamer_name, _is_retryable_llm_error, _load_title_style_profile,
+    _filter_unsupported_ai_points, _fit_final_clip_to_safe_srt_boundaries,
+    _high_energy_danmaku_peaks, _infer_streamer_name, _is_retryable_llm_error,
+    _load_title_style_profile,
     _load_optimized_timeline_artifact, _make_fallback_topic_from_chunk,
     _merge_manual_timeline_topics,
     _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
-    _optimize_manual_timeline,
-    _parse_elapsed_timeline_report_lines, _parse_manual_timeline_lines,
+    _optimize_manual_timeline, _prepare_optimized_manual_timeline,
+    _parse_elapsed_timeline_report_lines, _parse_generated_topic_report,
+    _parse_manual_timeline_lines,
     _render_unified_refinement_queue_markdown, _resolve_funasr_model_source,
     _select_title_style_examples, _streamer_report_name,
-    _enrich_manual_topics_with_llm, _segments_from_funasr_result, _topic_clip_filename,
+    _enrich_manual_topics_in_batches, _enrich_manual_topics_with_llm,
+    _optimized_entry_needs_retry, _retry_optimized_timeline_entries,
+    _review_peak_selected_topics, _sanitize_transport_claims,
+    _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
     _validate_unmatched_manual_topics, _write_clip_srt, _write_optimized_timeline_files,
@@ -171,6 +183,8 @@ class TopicEngineParseTests(unittest.TestCase):
 """
 
         _parse_llm_response(response, 590, 730, topics)
+        topics[0]["slice_anchor"] = 660
+        topics[0]["slice_anchor_source"] = "弹幕峰值"
         marks = _clip_marks_from_topics(topics)
 
         self.assertEqual(
@@ -192,6 +206,9 @@ class TopicEngineParseTests(unittest.TestCase):
 """
 
         _parse_llm_response(response, 1190, 1390, topics)
+        for topic in topics:
+            topic["slice_anchor"] = int((topic["start"] + topic["end"]) / 2)
+            topic["slice_anchor_source"] = "弹幕峰值"
         marks = _clip_marks_from_topics(topics)
 
         self.assertEqual(marks[0]["publish_title"], "【泽音】赌石失败绝赞悲鸣")
@@ -366,6 +383,73 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertNotIn("hard_context_end", expanded[0])
         self.assertEqual(expanded[0]["end"], 3267)
 
+    def test_sc_topic_stops_before_next_gift_even_inside_reference_range(self):
+        marks = [{
+            "start": 100,
+            "end": 200,
+            "title": "回应第一条SC",
+            "semantic_focus_validated": True,
+            "reference_start": 80,
+            "reference_end": 300,
+            "context_requires_trigger": True,
+        }]
+        srt_segments = [
+            (100, 200, "音音完整回应第一条SC"),
+            (210, 215, "感谢小明老板送的礼物"),
+            (216, 230, "开始念下一条观众留言"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=400,
+        )
+
+        self.assertEqual(expanded[0]["hard_context_end"], 210)
+        self.assertEqual(expanded[0]["end"], 210)
+
+    def test_sc_topic_does_not_recover_unrelated_generic_lead_in(self):
+        marks = [{
+            "start": 100,
+            "end": 200,
+            "title": "回应观众SC",
+            "semantic_focus_validated": True,
+            "reference_start": 40,
+            "reference_end": 220,
+            "context_requires_trigger": True,
+        }]
+        srt_segments = [
+            (45, 50, "你们猜前一个活动的主题是什么"),
+            (100, 110, "观众留言说我们的孩子没了"),
+            (115, 200, "音音完整回应观众"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=300,
+        )
+
+        self.assertGreater(expanded[0]["start"], 50)
+        self.assertLessEqual(expanded[0]["start"], 100)
+
+    def test_final_clip_cap_moves_end_inside_to_safe_subtitle_boundary(self):
+        mark = {
+            "start": 100,
+            "end": 340,
+            "topic_start": 120,
+            "topic_end": 300,
+            "title": "限长片段",
+        }
+
+        fixed = _fit_final_clip_to_safe_srt_boundaries(
+            mark,
+            [(338.4, 345.2, "限长后不能切断的句子")],
+        )
+
+        self.assertEqual(fixed["end"], 338)
+        self.assertLessEqual(fixed["end"] - fixed["start"], TOPIC_MAX_CLIP_SEC)
+
     def test_dedupe_uses_topic_range_not_expanded_overlap(self):
         marks = [
             {"start": 0, "end": 240, "topic_start": 100, "topic_end": 110, "title": "话题A"},
@@ -435,11 +519,276 @@ class TopicEngineParseTests(unittest.TestCase):
         )
 
         self.assertEqual(len(expanded), 2)
-        self.assertEqual(expanded[0]["end"], expanded[1]["start"])
-        self.assertLessEqual(expanded[1]["start"], 798)
-        self.assertGreaterEqual(expanded[1]["end"], 1098)
-        self.assertLessEqual(expanded[1]["end"] - expanded[1]["start"], 315)
+        self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
+        self.assertLessEqual(expanded[1]["start"], 879)
+        self.assertGreaterEqual(expanded[1]["end"], 1078)
+        self.assertLessEqual(expanded[1]["end"] - expanded[1]["start"], TOPIC_MAX_CLIP_SEC)
         self.assertFalse(any(start < expanded[1]["start"] < end for start, end, _ in srt_segments))
+
+    def test_short_semantic_topic_recovers_nearest_case_lead_in(self):
+        marks = [{
+            "start": 570,
+            "end": 715,
+            "title": "发现商家证据日期不对",
+            "semantic_focus_validated": True,
+            "reference_start": 500,
+            "reference_end": 740,
+        }]
+        srt_segments = [
+            (505, 510, "前一个案例最后一句"),
+            (525, 530, "来看下一个案例"),
+            (532, 540, "顾客说黑糖波波没有黑糖"),
+            (570, 580, "音音发现商家照片日期不对"),
+            (700, 715, "音音完成判断"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=800,
+        )
+
+        self.assertLessEqual(expanded[0]["start"], 525)
+        self.assertGreaterEqual(expanded[0]["end"], 715)
+        self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], TOPIC_MAX_CLIP_SEC)
+
+    def test_boundary_evidence_trims_previous_case_and_updates_core_start(self):
+        marks = [{
+            "start": 10468,
+            "end": 10580,
+            "topic_start": 10490,
+            "topic_end": 10580,
+            "title": "土豆丝里放姜",
+            "boundary_evidence": ["顾客说土豆丝里面居然放姜，音音联想到土豆丝炒僵尸"],
+            "semantic_focus_validated": True,
+            "reference_start": 10400,
+            "reference_end": 10620,
+        }]
+        srt_segments = [
+            (10468, 10481, "身份证卡套里面怎么没有身份证"),
+            (10488, 10506, "送卡套当然不会送身份证"),
+            (10513.5, 10518, "真的难吃土豆丝里面居然还放姜"),
+            (10519.8, 10529, "土豆丝炒僵尸居然是真的"),
+            (10560, 10580, "音音完成吐槽"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=10700,
+        )
+
+        self.assertEqual(expanded[0]["topic_start"], 10513)
+        self.assertEqual(expanded[0]["start"], 10513)
+        self.assertGreaterEqual(expanded[0]["end"], 10580)
+
+    def test_boundary_evidence_keeps_silent_visual_lead_in(self):
+        marks = [{
+            "start": 12707,
+            "end": 12884,
+            "topic_start": 12727,
+            "topic_end": 12884,
+            "title": "看粉丝化妆视频",
+            "boundary_evidence": ["粉丝展示化妆过程，眼妆手法很厉害"],
+            "semantic_focus_validated": True,
+            "reference_start": 12600,
+            "reference_end": 12900,
+        }]
+        srt_segments = [
+            (12727, 12735, "这个化妆手法好厉害"),
+            (12870, 12884, "看完化妆视频"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=13000,
+        )
+
+        self.assertEqual(expanded[0]["start"], 12707)
+
+    def test_boundary_evidence_keeps_spoken_visual_reaction_lead_in(self):
+        marks = [{
+            "start": 8010,
+            "end": 8130,
+            "title": "手套评价太变态",
+            "boundary_evidence": ["音音查看手套评价，被第三个指头的描述惊到"],
+            "semantic_focus_validated": True,
+            "reference_start": 7980,
+            "reference_end": 8266,
+        }]
+        srt_segments = [
+            (7936, 7939, "这是在干嘛"),
+            (7948, 7959, "这到底是谁往里面弄的，哪一个环节会这么干"),
+            (7975, 7978, "华莱士怎么回事"),
+            (7983, 7987, "放大看一下到底是哪种规格"),
+            (8010, 8030, "确认这是手套，评价写第三个指头"),
+            (8110, 8130, "音音继续吐槽这太变态了"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=8400,
+        )
+
+        self.assertEqual(expanded[0]["start"], 7936)
+
+    def test_boundary_evidence_stops_before_unreported_case_after_long_pause(self):
+        marks = [{
+            "start": 11322,
+            "end": 11459,
+            "title": "卖家秀和买家秀差别太大",
+            "boundary_evidence": ["卖家秀看着有食欲，买家秀差别太大"],
+            "semantic_focus_validated": True,
+            "reference_start": 11200,
+            "reference_end": 11900,
+        }]
+        srt_segments = [
+            (11322, 11348, "看卖家秀和买家秀差别太大"),
+            (11453, 11459.5, "直到看到他们卖家秀"),
+            (11477.1, 11482.7, "这个是麦乐鸡的酱"),
+            (11485, 11490, "开始讨论番茄酱"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=12000,
+        )
+
+        self.assertEqual(expanded[0]["end"], 11477)
+
+    def test_boundary_evidence_keeps_relevant_continuation_after_long_pause(self):
+        marks = [{
+            "start": 9501,
+            "end": 9715,
+            "topic_start": 9570,
+            "topic_end": 9715,
+            "title": "19号图冒充16号证据",
+            "boundary_evidence": [
+                "商家拿19号图片冒充16号订单，黑糖没有放还嘴硬",
+                "音音发现商家用不同日期的图片滥竽充数",
+                "音音断定商家忘记放黑糖，颜色明显不对",
+            ],
+            "semantic_focus_validated": True,
+            "reference_start": 9411,
+            "reference_end": 9755,
+            "next_report_topic_start": 9790,
+        }]
+        srt_segments = [
+            (9705, 9722, "黑糖十二分钟不可能化完"),
+            (9728, 9732, "评审团还在开玩笑"),
+            (9757, 9770, "看图还是没有黑糖，明显是商家忘放了"),
+            (9781, 9790, "还拿十九号的图滥竽充数"),
+            (9801, 9810, "再给你下一个粗粉案例"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=9900,
+        )
+
+        self.assertEqual(expanded[0]["end"], 9790)
+
+    def test_boundary_evidence_keeps_same_topic_then_stops_at_new_case(self):
+        marks = [{
+            "start": 10513,
+            "end": 10580,
+            "title": "土豆丝里放姜",
+            "boundary_evidence": ["土豆丝放姜，音音吐槽土豆丝炒僵尸"],
+            "semantic_focus_validated": True,
+            "reference_start": 9986,
+            "reference_end": 10691,
+        }]
+        srt_segments = [
+            (10560, 10580, "商家给土豆丝放姜还不反驳"),
+            (10583, 10600, "厨师跑路前最后一道土豆丝"),
+            (10605, 10626, "这么多地方土豆丝还放姜，用姜冒充土豆"),
+            (10637, 10650, "左边食物质量差右边赠品"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=10700,
+        )
+
+        self.assertEqual(expanded[0]["end"], 10626)
+
+    def test_boundary_evidence_stops_at_asr_next_case_variant(self):
+        marks = [{
+            "start": 16297,
+            "end": 16440,
+            "title": "完整冰块",
+            "boundary_evidence": ["要求完整冰块，音音同情配合的商家"],
+            "semantic_focus_validated": True,
+            "reference_start": 16022,
+            "reference_end": 16727,
+        }]
+        srt_segments = [
+            (16436, 16449, "商家居然配合了，真是神人"),
+            (16458, 16462, "再能下个这么多的量少一双筷子"),
+            (16468, 16472, "单人套餐一双筷子"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=16600,
+        )
+
+        self.assertEqual(expanded[0]["end"], 16458)
+
+    def test_boundary_evidence_stops_at_recalled_next_case_question(self):
+        marks = [{
+            "start": 9210,
+            "end": 9410,
+            "title": "0元赠品设置",
+            "boundary_evidence": ["0元赠品应该设置999元，避免顾客误点"],
+            "semantic_focus_validated": True,
+            "reference_start": 9180,
+            "reference_end": 9500,
+        }]
+        srt_segments = [
+            (9400, 9418, "终于知道那些赠品为什么有人点，原来都是这样的"),
+            (9422, 9424, "谁记得上次那个鲜奶吗"),
+            (9425, 9430, "上次玩的纯鲜奶制作"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=9600,
+        )
+
+        self.assertEqual(expanded[0]["end"], 9422)
+
+    def test_boundary_evidence_stops_before_short_gap_unrelated_branch(self):
+        marks = [{
+            "start": 15248,
+            "end": 15404,
+            "title": "塑料袋装热汤",
+            "boundary_evidence": ["塑料袋装热汤，大家默认应该用碗装汤"],
+            "semantic_focus_validated": True,
+            "reference_start": 15076,
+            "reference_end": 15523,
+        }]
+        srt_segments = [
+            (15398, 15404, "几乎没见过用袋子装汤"),
+            (15409, 15413, "有时候外卖包装费还挺贵"),
+            (15419, 15430, "用户没有单点打包碗却备注多要几个碗"),
+            (15482, 15496, "这家汤用袋子装不是用碗装"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=15600,
+        )
+
+        self.assertEqual(expanded[0]["end"], 15419)
 
     def test_context_overlap_split_moves_off_a_subtitle_sentence(self):
         marks = [
@@ -530,6 +879,8 @@ class TopicEngineParseTests(unittest.TestCase):
                 output_dir / "01_124s_旧自动切片.srt",
                 output_dir / "105_3600s_旧自动切片.flv",
                 output_dir / "105_3600s_旧自动切片.srt",
+                output_dir / "01_124s_旧自动切片.flv.part.flv",
+                output_dir / ".autoslice_seek_index_1234.mkv",
             ]
             preserved = [
                 output_dir / "手工精剪.flv",
@@ -541,7 +892,7 @@ class TopicEngineParseTests(unittest.TestCase):
 
             removed = _cleanup_stale_topic_clips(str(output_dir))
 
-            self.assertEqual(removed, 4)
+            self.assertEqual(removed, 6)
             self.assertTrue(all(not path.exists() for path in generated))
             self.assertTrue(all(path.exists() for path in preserved))
 
@@ -831,7 +1182,12 @@ class TopicEngineParseTests(unittest.TestCase):
                 "clip_marks": clip_marks,
             }, ensure_ascii=False), encoding="utf-8")
 
+            ffmpeg_calls = []
+
             def fake_ffmpeg(args, **_kwargs):
+                if args[0] == "ffprobe":
+                    return Mock(returncode=0, stdout="80.035")
+                ffmpeg_calls.append(args)
                 Path(args[-1]).write_bytes(b"clip")
                 return Mock(returncode=0)
 
@@ -866,6 +1222,75 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(unified_queue["recordings"][0]["tasks"][0]["subtitle_path"], expected_subtitle_path)
         self.assertIn(expected_path, unified_markdown)
         self.assertIn(expected_subtitle_path, unified_markdown)
+        self.assertEqual(len(ffmpeg_calls), 1)
+        self.assertEqual(ffmpeg_calls[0].count("-ss"), 2)
+        input_index = ffmpeg_calls[0].index("-i")
+        self.assertLess(ffmpeg_calls[0].index("-ss"), input_index)
+        self.assertGreater(ffmpeg_calls[0].index("-ss", input_index), input_index)
+        self.assertNotIn(["-c", "copy"], [ffmpeg_calls[0][i:i + 2] for i in range(len(ffmpeg_calls[0]) - 1)])
+
+    def test_precise_slice_command_uses_dual_seek_and_reencodes_video(self):
+        command = _build_precise_slice_ffmpeg_command(
+            "input.flv",
+            "output.flv",
+            1474,
+            153,
+            ["-c:v", "h264_nvenc", "-cq:v", "23"],
+        )
+
+        input_index = command.index("-i")
+        first_seek_index = command.index("-ss")
+        second_seek_index = command.index("-ss", input_index)
+        self.assertEqual(command[first_seek_index + 1], "1464")
+        self.assertEqual(command[second_seek_index + 1], "10")
+        self.assertEqual(command[command.index("-t") + 1], "153")
+        self.assertLess(first_seek_index, input_index)
+        self.assertGreater(second_seek_index, input_index)
+        self.assertIn("h264_nvenc", command)
+        self.assertIn(["-c:a", "copy"], [command[i:i + 2] for i in range(len(command) - 1)])
+        self.assertNotIn(["-c", "copy"], [command[i:i + 2] for i in range(len(command) - 1)])
+
+    def test_slice_from_marks_falls_back_to_software_when_nvenc_fails(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": [{"start": 10, "end": 90, "title": "测试片段"}],
+            }, ensure_ascii=False), encoding="utf-8")
+            calls = []
+            progress = []
+
+            def fake_ffmpeg(args, **_kwargs):
+                if args[0] == "ffprobe":
+                    return Mock(returncode=0, stdout="80.035")
+                calls.append(args)
+                if "h264_nvenc" in args:
+                    raise subprocess.CalledProcessError(1, args, stderr="NVENC unavailable")
+                Path(args[-1]).write_bytes(b"clip")
+                return Mock(returncode=0)
+
+            with (
+                patch("topic_engine._preferred_slice_video_encoder_args", return_value=["-c:v", "h264_nvenc"]),
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                count, report_dir = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                    progress_callback=lambda message, current, total: progress.append(message),
+                )
+
+            output_files = list(Path(report_dir).glob("*.flv"))
+
+        self.assertEqual(count, 1)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("h264_nvenc", calls[0])
+        self.assertIn("libx264", calls[1])
+        self.assertEqual(len(output_files), 1)
+        self.assertIn("NVENC 不可用，已改用 CPU 精确编码", progress)
 
     def test_filter_reasoning_body_and_placeholder_topics(self):
         topics = []
@@ -900,7 +1325,7 @@ class TopicEngineParseTests(unittest.TestCase):
         calls = []
         sleeps = []
 
-        def fake_call(prompt, max_tokens):
+        def fake_call(prompt, max_tokens, **_kwargs):
             calls.append((prompt, max_tokens))
             if len(calls) < 3:
                 raise make_http_error(500)
@@ -968,15 +1393,22 @@ class TopicEngineParseTests(unittest.TestCase):
             patch("topic_engine.load_api_config", return_value=("https://example.test/v1", "sk-test", "deepseek-v4-pro")),
             patch("topic_engine.requests.post", return_value=response) as post,
         ):
-            self.assertEqual(call_llm("测试", max_tokens=12000), '{"topics": []}')
+            self.assertEqual(
+                call_llm("测试", max_tokens=12000, json_mode=True),
+                '{"topics": []}',
+            )
 
         self.assertEqual(post.call_args.kwargs["timeout"], (30, 600))
+        self.assertEqual(
+            post.call_args.kwargs["json"]["response_format"],
+            {"type": "json_object"},
+        )
 
     def test_truncated_empty_response_is_retryable_and_uses_compact_prompt(self):
         calls = []
         sleeps = []
 
-        def fake_call(prompt, max_tokens):
+        def fake_call(prompt, max_tokens, **_kwargs):
             calls.append((prompt, max_tokens))
             if len(calls) == 1:
                 raise LLMResponseTruncatedError("输出被截断")
@@ -1002,8 +1434,8 @@ class TopicEngineParseTests(unittest.TestCase):
         calls = []
         sleeps = []
 
-        def fake_call(prompt, max_tokens):
-            calls.append((prompt, max_tokens))
+        def fake_call(prompt, max_tokens, json_mode=False):
+            calls.append((prompt, max_tokens, json_mode))
             if len(calls) == 1:
                 return "这里是分析过程，没有 JSON"
             return '{"topics": []}'
@@ -1019,8 +1451,8 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual(result, '{"topics": []}')
         self.assertEqual(calls, [
-            ("完整提示", LLM_MAX_TOKENS),
-            ("紧凑提示", LLM_COMPACT_MAX_TOKENS),
+            ("完整提示", LLM_MAX_TOKENS, True),
+            ("紧凑提示", LLM_COMPACT_MAX_TOKENS, True),
         ])
         self.assertEqual(sleeps, [3])
         self.assertTrue(_is_retryable_llm_error(LLMStructuredOutputError("缺少 JSON")))
@@ -1036,7 +1468,7 @@ class TopicEngineParseTests(unittest.TestCase):
         )
 
         self.assertIn("本次没有解析到有效话题。", report)
-        self.assertIn("## API 预检警告", report)
+        self.assertIn("## 分析警告", report)
         self.assertIn("HTTP 500", report)
         self.assertIn("## LLM 分块失败记录", report)
         self.assertIn("块 1 [0:00:48]", report)
@@ -1044,7 +1476,7 @@ class TopicEngineParseTests(unittest.TestCase):
         calls = []
         sleeps = []
 
-        def fake_call(prompt, max_tokens):
+        def fake_call(prompt, max_tokens, **_kwargs):
             calls.append((prompt, max_tokens))
             raise make_http_error(400)
 
@@ -1172,6 +1604,342 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(marks[0]["end"], 1120)
         self.assertEqual(marks[0]["title"], "高密度生日企划")
 
+    def test_local_peaks_are_declustered_and_capped_per_video_hour(self):
+        peak_starts = [100, 200, 400, 700, 1000, 1300, 1600, 1900]
+        peak_densities = [145, 150, 140, 130, 120, 110, 100, 90]
+        topics = [
+            {
+                "start": peak_start + 20,
+                "end": peak_start + 100,
+                "title": f"峰值话题{peak_start}",
+                "can_slice": False,
+                "body": [f"·音音讨论第{index}个具体话题"],
+            }
+            for index, peak_start in enumerate(peak_starts, 1)
+        ]
+        peaks = list(zip(peak_starts, peak_densities))
+
+        _apply_danmaku_slice_decisions(topics, peaks, avg_density=50)
+        marks = _clip_marks_from_topics(topics)
+
+        self.assertEqual(len(marks), 5)
+        self.assertNotIn("峰值话题100", {mark["title"] for mark in marks})
+        self.assertTrue(all(mark["slice_anchor_source"] == "弹幕峰值" for mark in marks))
+
+    def test_full_density_series_uses_true_local_peaks_not_sliding_shoulders(self):
+        windows = [(start, 10) for start in range(0, 600, 15)]
+        windows[10] = (150, 100)
+        windows[11] = (165, 90)
+        windows[30] = (450, 80)
+        series = DanmakuDensitySeries(windows, average_density=20, duration=600)
+
+        peaks = _high_energy_danmaku_peaks(series, avg_density=20)
+
+        self.assertEqual(peaks, [(150, 100.0), (450, 80.0)])
+
+    def test_manual_star_with_only_normal_density_cannot_force_slice(self):
+        topics = [{
+            "start": 500,
+            "end": 620,
+            "title": "人工星标普通互动",
+            "manual_stars": 5,
+            "body": ["●人工时间轴⭐⭐⭐⭐⭐：普通互动"],
+        }]
+
+        _apply_danmaku_slice_decisions(topics, peaks=[(520, 50)], avg_density=50)
+
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertEqual(_clip_marks_from_topics(topics), [])
+
+    def test_peak_candidates_require_independent_subtitle_review_before_final_slice(self):
+        topics = [
+            {
+                "start": 100,
+                "end": 200,
+                "title": "误写成音音亲自讲段子",
+                "publish_title": "【泽音】音音亲自讲段子",
+                "body": ["·首轮摘要不应作为复核证据"],
+                "can_slice": True,
+                "slice_anchor": 130,
+                "slice_anchor_source": "弹幕峰值",
+            },
+            {
+                "start": 500,
+                "end": 600,
+                "title": "只有外部视频旁白",
+                "body": ["·首轮摘要不应作为复核证据"],
+                "can_slice": True,
+                "slice_anchor": 530,
+                "slice_anchor_source": "弹幕峰值",
+            },
+        ]
+        srt_segments = [
+            (90, 120, "视频中播放一段方言短剧"),
+            (125, 150, "音音听完后吐槽完全没听懂"),
+            (180, 200, "音音回应观众后结束话题"),
+            (500, 600, "视频旁白连续介绍商品配方和步骤"),
+        ]
+        response = json.dumps({"topics": [
+            {
+                "id": 1,
+                "valid": True,
+                "title": "看方言短剧听不懂",
+                "publish_title": "【泽音】看方言短剧全程懵圈🤣音音：完全听不懂",
+                "focus_start": "0:01:30",
+                "focus_end": "0:03:20",
+                "points": [
+                    "视频中播放一段方言短剧",
+                    "音音听完后表示完全听不懂，并回应观众后收尾",
+                ],
+            },
+            {
+                "id": 2,
+                "valid": False,
+                "title": "只有外部视频旁白",
+                "publish_title": "【泽音】只有外部视频旁白",
+                "focus_start": "0:08:20",
+                "focus_end": "0:10:00",
+                "points": ["只有视频旁白"],
+                "reason": "没有足够的音音反应",
+            },
+        ]}, ensure_ascii=False)
+
+        with patch("topic_engine._call_llm_with_retry", return_value=response):
+            warning = _review_peak_selected_topics(
+                topics,
+                srt_segments=srt_segments,
+                peaks=[(100, 120), (500, 130)],
+                streamer_name="音音",
+            )
+
+        self.assertIsNone(warning)
+        self.assertTrue(topics[0]["clip_review_validated"])
+        self.assertEqual(topics[0]["title"], "看方言短剧听不懂")
+        self.assertFalse(topics[1]["clip_review_validated"])
+        self.assertEqual(topics[1]["clip_review_rejection"], "没有足够的音音反应")
+
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[(100, 120), (500, 130)],
+            avg_density=50,
+            require_clip_review=True,
+        )
+        marks = _clip_marks_from_topics(topics)
+        self.assertEqual([mark["title"] for mark in marks], ["看方言短剧听不懂"])
+
+    def test_clip_review_retries_missing_candidate_in_smaller_batch(self):
+        topics = [
+            {
+                "start": 100,
+                "end": 200,
+                "title": "候选一",
+                "body": ["·首轮摘要"],
+                "can_slice": True,
+                "slice_anchor": 130,
+                "slice_anchor_source": "弹幕峰值",
+            },
+            {
+                "start": 400,
+                "end": 500,
+                "title": "候选二",
+                "body": ["·首轮摘要"],
+                "can_slice": True,
+                "slice_anchor": 430,
+                "slice_anchor_source": "弹幕峰值",
+            },
+        ]
+        first_response = json.dumps({"topics": [{
+            "id": 1,
+            "valid": True,
+            "title": "第一段完整互动",
+            "publish_title": "【泽音】第一段完整互动",
+            "focus_start": "0:01:40",
+            "focus_end": "0:03:00",
+            "points": ["音音引出第一件事", "音音回应后收尾"],
+        }]}, ensure_ascii=False)
+        retry_response = json.dumps({"topics": [{
+            "id": 1,
+            "valid": True,
+            "title": "第二段完整互动",
+            "publish_title": "【泽音】第二段完整互动",
+            "focus_start": "0:06:40",
+            "focus_end": "0:08:20",
+            "points": ["音音引出第二件事", "音音回应后收尾"],
+        }]}, ensure_ascii=False)
+
+        with patch(
+                "topic_engine._call_llm_with_retry",
+                side_effect=[first_response, retry_response],
+        ) as mocked_call:
+            warning = _review_peak_selected_topics(
+                topics,
+                srt_segments=[
+                    (100, 180, "第一段字幕"),
+                    (400, 500, "第二段字幕"),
+                ],
+                peaks=[(100, 120), (400, 130)],
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual(mocked_call.call_count, 2)
+        self.assertTrue(all(topic["clip_review_validated"] for topic in topics))
+        self.assertEqual(topics[1]["clip_review_attempts"], 2)
+
+    def test_clip_review_valid_false_is_final_and_not_retried(self):
+        topics = [{
+            "start": 100,
+            "end": 200,
+            "title": "只有外部旁白",
+            "body": ["·首轮摘要"],
+            "can_slice": True,
+            "slice_anchor": 130,
+            "slice_anchor_source": "弹幕峰值",
+        }]
+        response = json.dumps({"topics": [{
+            "id": 1,
+            "valid": False,
+            "reason": "音音没有形成足够回应",
+        }]}, ensure_ascii=False)
+
+        with patch(
+                "topic_engine._call_llm_with_retry",
+                return_value=response,
+        ) as mocked_call:
+            warning = _review_peak_selected_topics(
+                topics,
+                srt_segments=[(100, 200, "外部视频连续旁白")],
+                peaks=[(100, 120)],
+            )
+
+        self.assertIsNone(warning)
+        mocked_call.assert_called_once()
+        self.assertFalse(topics[0]["clip_review_validated"])
+        self.assertEqual(topics[0]["clip_review_rejection"], "音音没有形成足够回应")
+
+    def test_clip_review_resume_only_processes_checkpoint_pending_topics(self):
+        topics = [
+            {
+                "start": 100,
+                "end": 180,
+                "title": "已经通过",
+                "body": ["·已经通过的正文"],
+                "can_slice": False,
+                "clip_review_validated": True,
+                "clip_review_rejection": None,
+                "clip_review_attempts": 1,
+            },
+            {
+                "start": 300,
+                "end": 380,
+                "title": "明确拒绝",
+                "body": ["·只有外部旁白"],
+                "can_slice": True,
+                "clip_review_validated": False,
+                "clip_review_rejection": "音音没有足够回应",
+                "clip_review_attempts": 1,
+            },
+            {
+                "start": 500,
+                "end": 620,
+                "title": "等待补答",
+                "body": ["·首轮结构缺失"],
+                "can_slice": True,
+                "clip_review_validated": False,
+                "clip_review_rejection": "等待独立字幕复核",
+                "clip_review_attempts": 2,
+                "slice_anchor": 550,
+                "slice_anchor_source": "弹幕峰值",
+            },
+        ]
+        response = json.dumps({"topics": [{
+            "id": 1,
+            "valid": True,
+            "title": "补答后通过",
+            "publish_title": "【泽音】补答后通过",
+            "focus_start": "0:08:20",
+            "focus_end": "0:10:00",
+            "points": ["音音引出话题", "音音完整回应"],
+        }]}, ensure_ascii=False)
+
+        with patch(
+                "topic_engine._call_llm_with_retry",
+                return_value=response,
+        ) as mocked_call:
+            warning = _review_peak_selected_topics(
+                topics,
+                srt_segments=[(500, 600, "等待补答的原字幕")],
+                peaks=[(520, 120)],
+                resume=True,
+            )
+
+        self.assertIsNone(warning)
+        mocked_call.assert_called_once()
+        self.assertEqual(topics[0]["title"], "已经通过")
+        self.assertEqual(topics[1]["clip_review_rejection"], "音音没有足够回应")
+        self.assertEqual(topics[2]["title"], "补答后通过")
+        self.assertEqual(topics[2]["clip_review_attempts"], 3)
+
+    def test_generated_report_recovery_supports_topics_after_fifty(self):
+        report = """# 测试.flv 话题分析报告
+> 时间基准：视频内时间/播放进度（不是现实钟点）
+
+## 逐话题时间轴
+
+Part 1: 第5小时重点 (4:00:00－4:10:00)
+㊿[4:00:00－4:02:00]第五十个话题 ✂️
+·音音完整回应观众
+·现场气氛热烈
+51.[4:02:10－4:05:00]第五十一个话题
+·音音继续讨论下一件事
+
+## 投稿标题建议
+"""
+        with TemporaryDirectory() as td:
+            path = Path(td) / "测试_话题分析.md"
+            path.write_text(report, encoding="utf-8")
+            topics = _parse_generated_topic_report(str(path))
+
+        self.assertEqual([topic["title"] for topic in topics], ["第五十个话题", "第五十一个话题"])
+        self.assertEqual(topics[1]["start"], 4 * 3600 + 2 * 60 + 10)
+        self.assertNotIn("现场气氛热烈", " ".join(topics[0]["body"]))
+
+    def test_transport_title_cleanup_keeps_successful_high_speed_rail_fact(self):
+        cleaned = _sanitize_transport_claims(
+            "【泽音】闹钟半夜12点响，音音痛失高铁票还误机",
+            ["闹钟没响，醒来后还好抢到了最后一班高铁票并顺利回来"],
+        )
+
+        self.assertIn("闹钟误设成半夜12点", cleaned)
+        self.assertIn("差点错过最后一班高铁", cleaned)
+        self.assertNotIn("痛失", cleaned)
+        self.assertNotIn("误机", cleaned)
+
+        clock_only = _sanitize_transport_claims(
+            "【泽音】华为闹钟半夜12点响，音音气炸了",
+            ["音音发现闹钟被误设为半夜12点"],
+        )
+        self.assertIn("闹钟误设成半夜12点", clock_only)
+        self.assertNotIn("半夜12点响", clock_only)
+
+    def test_unsupported_reaction_filter_removes_generic_scene_claim(self):
+        points = _filter_unsupported_ai_points([
+            "·音音念完留言后回答问题",
+            "·现场气氛热烈",
+            "·全场沸腾",
+        ])
+
+        self.assertEqual(points, ["·音音念完留言后回答问题"])
+
+    def test_sc_context_gate_only_enables_triggered_topics(self):
+        self.assertFalse(_clip_context_requires_trigger({
+            "title": "音音展示华为手机闹钟",
+            "body": ["·音音吐槽系统时间显示"],
+        }))
+        self.assertTrue(_clip_context_requires_trigger({
+            "title": "音音回应观众留言",
+            "body": ["·音音念完问题后回答"],
+        }))
+
     def test_peak_window_touching_topic_edge_is_ignored_and_four_minute_core_stays_complete(self):
         topics = [{
             "start": 879,
@@ -1190,14 +1958,34 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         _apply_danmaku_slice_decisions(topics, peaks, avg_density=61)
         marks = _clip_marks_from_topics(topics)
 
-        self.assertTrue(topics[0]["can_slice"])
-        self.assertEqual(topics[0]["peak_density"], 84)
-        self.assertEqual(marks[0]["start"], 879)
-        self.assertEqual(marks[0]["end"], 1078)
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["peak_density"], 0)
+        self.assertEqual(marks, [])
         self.assertNotIn("slice_anchor_source", topics[0])
         evidence = "\n".join(topics[0]["body"])
-        self.assertIn("0:14:19 附近峰值约 84", evidence)
+        self.assertNotIn("0:14:19", evidence)
         self.assertNotIn("0:13:39", evidence)
+
+    def test_reviewed_core_up_to_three_minutes_keeps_title_aligned_full_range(self):
+        topics = [{
+            "start": 3560,
+            "end": 3740,
+            "title": "SC回应与后续技巧",
+            "body": ["·前半回应SC", "·后半分享技巧"],
+            "clip_review_validated": True,
+            "ai_focus_validated": True,
+        }]
+
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[(3600, 120)],
+            avg_density=50,
+            require_clip_review=True,
+        )
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["slice_start"], 3560)
+        self.assertEqual(topics[0]["slice_end"], 3740)
 
     def test_long_topic_slice_window_prefers_danmaku_peak_over_manual_star(self):
         topics = [{
@@ -1410,7 +2198,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("妈妈说脸圆", prompt)
         self.assertIn("人工时间轴辅助: 20260708.docx", report)
         self.assertIn("●人工时间轴⭐", report)
-        self.assertTrue(topics[0]["can_slice"])
+        self.assertFalse(topics[0]["can_slice"])
 
     def test_manual_star_creates_topic_when_llm_misses_it(self):
         entries = _parse_manual_timeline_lines(
@@ -1537,6 +2325,10 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
         self.assertEqual(payload["raw_entry_count"], 3)
         self.assertEqual(payload["optimized_entry_count"], 2)
+        self.assertEqual(
+            payload["optimization_version"],
+            MANUAL_TIMELINE_OPTIMIZATION_VERSION,
+        )
         self.assertIn("字幕校准话题1", markdown)
         self.assertIn("原始 3 条 → 优化 2 个话题候选", markdown)
 
@@ -1625,15 +2417,147 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
                     str(Path(td) / "另一天.docx"),
                 )
 
+    def test_prepare_manual_timeline_resumes_only_failed_artifact_entries(self):
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "完整版.flv"
+            timeline_path = Path(td) / "20260714.docx"
+            artifact_path = Path(td) / "完整版_优化时间轴.json"
+            flv_path.write_bytes(b"flv")
+            timeline_path.write_bytes(b"docx")
+            artifact_entries = [
+                {
+                    "start": 10,
+                    "end": 80,
+                    "text": "已通过候选",
+                    "summary": ["音音说明第一件事"],
+                    "ai_enriched": True,
+                },
+                {
+                    "start": 100,
+                    "end": 180,
+                    "text": "待重试候选",
+                    "summary": [],
+                    "ai_enriched": False,
+                    "reference_only": True,
+                },
+            ]
+            artifact_path.write_text(
+                json.dumps({
+                    "video_path": str(flv_path),
+                    "source_path": str(timeline_path),
+                    "optimization_version": MANUAL_TIMELINE_OPTIMIZATION_VERSION,
+                    "raw_entry_count": 1,
+                    "optimized_entry_count": 2,
+                    "warning": "存在低权重候选",
+                    "entries": artifact_entries,
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            raw_entries = [{"start": 10, "text": "人工记录", "stars": 0}]
+            resumed_entries = [dict(item, ai_enriched=True, reference_only=False) for item in artifact_entries]
+
+            with (
+                patch("topic_engine.load_manual_timeline", return_value={
+                    "path": str(timeline_path),
+                    "entries": raw_entries,
+                    "video_start": datetime(2026, 7, 14, 19, 59, 0),
+                }),
+                patch(
+                    "topic_engine._retry_optimized_timeline_entries",
+                    return_value=(resumed_entries, None),
+                ) as retry,
+                patch(
+                    "topic_engine._optimize_manual_timeline",
+                    side_effect=AssertionError("已有断点时不应全量重跑"),
+                ),
+            ):
+                prepared = _prepare_optimized_manual_timeline(
+                    str(flv_path),
+                    str(flv_path.with_suffix("")),
+                    srt_segments=[(0, 200, "音音说明两件事")],
+                    peaks=[],
+                    video_duration=600,
+                    manual_timeline_path=str(timeline_path),
+                )
+
+        retry.assert_called_once()
+        self.assertEqual(prepared["optimized_entry_count"], 2)
+        self.assertIsNone(prepared["optimization_warning"])
+
+    def test_prepare_manual_timeline_rebuilds_outdated_optimization_version(self):
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "完整版.flv"
+            timeline_path = Path(td) / "20260714.docx"
+            artifact_path = Path(td) / "完整版_优化时间轴.json"
+            flv_path.write_bytes(b"flv")
+            timeline_path.write_bytes(b"docx")
+            artifact_path.write_text(
+                json.dumps({
+                    "video_path": str(flv_path),
+                    "source_path": str(timeline_path),
+                    "optimization_version": MANUAL_TIMELINE_OPTIMIZATION_VERSION - 1,
+                    "raw_entry_count": 1,
+                    "optimized_entry_count": 1,
+                    "entries": [{
+                        "start": 10,
+                        "end": 80,
+                        "text": "旧提示词结果",
+                        "summary": ["音音亲自制作视频里的食物"],
+                        "ai_enriched": True,
+                    }],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            raw_entries = [{"start": 10, "text": "人工记录", "stars": 0}]
+            rebuilt_entries = [{
+                "start": 10,
+                "end": 80,
+                "text": "观看制作视频",
+                "summary": ["视频展示制作过程，音音只表达想吃"],
+                "ai_enriched": True,
+            }]
+
+            with (
+                patch("topic_engine.load_manual_timeline", return_value={
+                    "path": str(timeline_path),
+                    "entries": raw_entries,
+                    "video_start": datetime(2026, 7, 14, 19, 59, 0),
+                }),
+                patch(
+                    "topic_engine._retry_optimized_timeline_entries",
+                    side_effect=AssertionError("旧版本产物不应按断点复用"),
+                ),
+                patch(
+                    "topic_engine._optimize_manual_timeline",
+                    return_value=(rebuilt_entries, None),
+                ) as rebuild,
+            ):
+                prepared = _prepare_optimized_manual_timeline(
+                    str(flv_path),
+                    str(flv_path.with_suffix("")),
+                    srt_segments=[(0, 100, "视频展示食物，音音说想吃")],
+                    peaks=[],
+                    video_duration=600,
+                    manual_timeline_path=str(timeline_path),
+                )
+
+        rebuild.assert_called_once()
+        self.assertEqual(prepared["entries"][0]["text"], "观看制作视频")
+
     def test_unmatched_optimized_timeline_entry_requires_postcheck(self):
         entries = [{
             "start": 120,
             "end": 220,
             "text": "闹钟误设半夜十二点",
-            "summary": ["音音说明闹钟为什么设错"],
+            "summary": ["音音亲手制作绿豆饼"],
             "stars": 0,
             "source": "optimized_manual_timeline",
             "ai_enriched": True,
+            "original_entries": [{
+                "start": 130,
+                "text": "看绿豆饼视频",
+                "stars": 0,
+            }],
         }]
         topics = []
         _merge_manual_timeline_topics(topics, entries)
@@ -1643,7 +2567,10 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertTrue(topics[0]["postcheck_pending"])
         self.assertTrue(topics[0]["reference_only"])
 
+        seen_body = []
+
         def fake_validate(candidates, **_kwargs):
+            seen_body.extend(candidates[0]["body"])
             candidates[0]["ai_enriched"] = True
             candidates[0]["postcheck_pending"] = False
             candidates[0]["postcheck_validated"] = True
@@ -1651,11 +2578,53 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             return 1
 
         with patch("topic_engine._enrich_manual_topics_with_llm", side_effect=fake_validate):
-            warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
+            warning = _validate_unmatched_manual_topics(
+                topics,
+                streamer_name="音音",
+                srt_segments=[
+                    (120, 160, "视频中逐步介绍绿豆饼配方"),
+                    (161, 180, "音音说看起来好想吃"),
+                ],
+                peaks=[(135, 80)],
+            )
 
         self.assertIsNone(warning)
         self.assertTrue(topics[0]["postcheck_validated"])
         self.assertNotIn("reference_only", topics[0])
+        evidence = "\n".join(seen_body)
+        self.assertIn("视频中逐步介绍绿豆饼配方", evidence)
+        self.assertIn("看绿豆饼视频", evidence)
+        self.assertNotIn("音音亲手制作绿豆饼", evidence)
+
+    def test_unmatched_manual_postcheck_uses_small_batches(self):
+        topics = [{
+            "start": index * 100,
+            "end": index * 100 + 80,
+            "title": f"补漏候选{index}",
+            "body": [f"·字幕核查：音音说明第{index}件事"],
+            "source": "optimized_manual_timeline",
+            "postcheck_pending": True,
+            "reference_only": True,
+        } for index in range(4)]
+        batch_sizes = []
+
+        def fake_validate(candidates, **_kwargs):
+            batch_sizes.append(len(candidates))
+            for candidate in candidates:
+                candidate["ai_enriched"] = True
+                candidate["postcheck_pending"] = False
+                candidate.pop("reference_only", None)
+            return len(candidates)
+
+        with patch(
+            "topic_engine._enrich_manual_topics_with_llm",
+            side_effect=fake_validate,
+        ):
+            warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
+
+        self.assertIsNone(warning)
+        self.assertEqual(batch_sizes, [3, 1])
+        self.assertTrue(all(topic["ai_enriched"] for topic in topics))
 
     def test_manual_topics_are_enriched_by_one_batched_llm_request(self):
         topics = [{
@@ -1688,6 +2657,12 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("固定以【泽音】开头", prompt)
         self.assertIn("字幕核查", prompt)
         self.assertIn("focus_start", prompt)
+        self.assertIn("绝不能默认所有字幕都是音音说的", prompt)
+        self.assertIn("配方步骤、榜单解说", prompt)
+        self.assertIn("禁止写成音音亲自制作、讲解、模仿", prompt)
+        self.assertIn("很可能是音音在念SC或观众留言", prompt)
+        self.assertIn("没必要换电池", prompt)
+        self.assertIn("高铁赶不上应写误车", prompt)
         self.assertEqual(topics[0]["start"], 1200)
         self.assertEqual(topics[0]["end"], 1500)
         self.assertFalse(topics[0]["can_slice"])
@@ -1755,6 +2730,114 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         prompt = mocked_call.call_args.args[0]
         self.assertIn("同一个id输出为两项", prompt)
 
+    def test_manual_ai_placeholder_output_is_rejected(self):
+        topics = [{
+            "start": 100,
+            "end": 220,
+            "title": "人工原始标题",
+            "body": ["·字幕核查：0:01:40-0:03:40 音音说明事情经过"],
+            "can_slice": False,
+        }]
+        response = json.dumps({
+            "topics": [{
+                "id": 1,
+                "title": "5-15字具体短标题",
+                "publish_title": "【泽音】具体事件钩子",
+                "focus_start": "0:01:50",
+                "focus_end": "0:02:50",
+                "points": ["具体发生了什么", "音音如何回应"],
+            }],
+        }, ensure_ascii=False)
+
+        with (
+            patch("topic_engine._call_llm_with_retry", return_value=response),
+            self.assertRaisesRegex(LLMStructuredOutputError, "没有返回可用话题"),
+        ):
+            _enrich_manual_topics_with_llm(topics, streamer_name="音音")
+
+        self.assertFalse(topics[0].get("ai_enriched"))
+
+    def test_manual_batch_marks_candidates_missing_from_partial_response(self):
+        topics = [
+            {
+                "start": index * 100,
+                "end": index * 100 + 80,
+                "title": f"候选{index}",
+                "body": [f"·字幕核查：候选{index}字幕"],
+            }
+            for index in range(3)
+        ]
+
+        def enrich_first_only(batch, **_kwargs):
+            batch[0]["ai_enriched"] = True
+            return 1
+
+        with patch(
+            "topic_engine._enrich_manual_topics_with_llm",
+            side_effect=enrich_first_only,
+        ):
+            warning = _enrich_manual_topics_in_batches(topics, batch_size=3)
+
+        self.assertIn("仅复核 1/3 项", warning)
+        self.assertTrue(topics[0]["ai_enriched"])
+        self.assertTrue(topics[1]["reference_only"])
+        self.assertTrue(topics[2]["reference_only"])
+
+    def test_retry_optimized_timeline_keeps_success_and_checkpoints_each_batch(self):
+        entries = [{
+            "start": 0,
+            "end": 80,
+            "text": "已通过候选",
+            "summary": ["音音完整讲完第一件事"],
+            "stars": 0,
+            "ai_enriched": True,
+            "reference_only": False,
+            "original_entries": [],
+        }]
+        entries.extend({
+            "start": index * 100,
+            "end": index * 100 + 80,
+            "text": "5-15字具体短标题" if index == 1 else f"待重试候选{index}",
+            "summary": ["具体发生了什么"] if index == 1 else [],
+            "stars": 0,
+            "ai_enriched": index == 1,
+            "reference_only": index != 1,
+            "original_entries": [{
+                "start": index * 100,
+                "original_start": index * 100,
+                "text": f"人工记录{index}",
+                "stars": 0,
+            }],
+        } for index in range(1, 5))
+        checkpoints = []
+
+        def enrich_all(batch, **_kwargs):
+            for topic in batch:
+                topic["title"] = f"复核通过{topic['start']}"
+                topic["body"] = ["·音音完整说明该事件的前因后果"]
+                topic["ai_enriched"] = True
+                topic.pop("reference_only", None)
+            return len(batch)
+
+        with patch(
+            "topic_engine._enrich_manual_topics_with_llm",
+            side_effect=enrich_all,
+        ):
+            optimized, warning = _retry_optimized_timeline_entries(
+                entries,
+                srt_segments=[(0, 500, "音音依次讲述四件事")],
+                peaks=[],
+                checkpoint_callback=lambda current, note: checkpoints.append((current, note)),
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual(len(checkpoints), 2)
+        self.assertIn("尚有 1 项等待后续批次", checkpoints[0][1])
+        self.assertIsNone(checkpoints[1][1])
+        self.assertEqual(optimized[0]["text"], "已通过候选")
+        self.assertTrue(all(not _optimized_entry_needs_retry(entry) for entry in optimized))
+        self.assertNotIn("5-15字具体短标题", {entry["text"] for entry in optimized})
+
     def test_manual_ai_focus_is_validated_and_drives_density_decision(self):
         topics = [{
             "start": 360,
@@ -1775,7 +2858,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
   "publish_title":"【泽音】动作做错反而更抢镜🤣音音亲授上台秘籍",
   "focus_start":"0:09:00",
   "focus_end":"0:09:30",
-  "points":["音音说动作做错反而会更抢镜","观众疯狂刷屏学会了"]
+  "points":["音音说动作做错反而会更抢镜","观众疯狂刷屏学会了","弹幕瞬间热闹起来"]
 }]}
 """
 
@@ -1792,6 +2875,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertTrue(topics[0]["ai_focus_validated"])
         self.assertFalse(topics[0]["can_slice"])
         self.assertNotIn("观众疯狂刷屏", "\n".join(topics[0]["body"]))
+        self.assertNotIn("弹幕瞬间热闹", "\n".join(topics[0]["body"]))
 
     def test_validated_semantic_focus_uses_tighter_adaptive_context(self):
         topics = [{
@@ -1803,6 +2887,8 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             "publish_title": "【泽音】音音传授上台秘诀👀",
             "can_slice": True,
             "ai_focus_validated": True,
+            "slice_anchor": 525,
+            "slice_anchor_source": "弹幕峰值",
         }]
 
         marks = _clip_marks_from_topics(topics)
@@ -2045,6 +3131,9 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         ]
 
         cleaned = _clean_topics_for_report(topics)
+        for topic in cleaned:
+            topic["slice_anchor"] = int((topic["start"] + topic["end"]) / 2)
+            topic["slice_anchor_source"] = "弹幕峰值"
         report = _build_timeline_report("测试.flv", "无弹幕数据", cleaned, streamer_name="音音")
         marks = _clip_marks_from_topics(cleaned)
 
@@ -2058,6 +3147,31 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         ])
         for dirty in ("这些人工时间轴", "与上一段有重叠", "下一段", "一个合理的划分", "输出JSON模板"):
             self.assertNotIn(dirty, report)
+
+    def test_specific_postcheck_topic_replaces_overlapping_fallback_block(self):
+        topics = [
+            {
+                "start": 17200,
+                "end": 17800,
+                "title": "生日相关聊天",
+                "fallback": True,
+                "can_slice": False,
+                "body": ["·该段字幕识别较碎"],
+            },
+            {
+                "start": 17411,
+                "end": 17469,
+                "title": "总结美团神人最多",
+                "source": "optimized_manual_timeline",
+                "ai_enriched": True,
+                "body": ["·音音总结今天几个评审平台里美团神人最多"],
+            },
+        ]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertEqual([topic["title"] for topic in cleaned], ["总结美团神人最多"])
+        self.assertFalse(any(topic.get("fallback") for topic in cleaned))
 
     def test_filter_current_report_draft_noise(self):
         topics = []
@@ -2678,6 +3792,9 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn("账号历史投稿标题风格", prompt)
         self.assertIn("已审阅账号 2654 条投稿", prompt)
         self.assertIn("不要机械地", prompt)
+        self.assertIn("连续配方步骤、榜单解说", prompt)
+        self.assertIn("抢到最后一张高铁票不等于误车", prompt)
+        self.assertIn("弹幕信息只有密度", prompt)
         self.assertNotIn("直播回放】", prompt)
 
         compact_prompt, _, _ = _build_chunk_prompt(
@@ -2690,6 +3807,25 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertIn('"publish_title"', compact_prompt)
         self.assertIn("根据历史风格选择", compact_prompt)
         self.assertIn("事件+原话、SC+回应", compact_prompt)
+        self.assertIn("连续配方/榜单/商品文案", compact_prompt)
+
+    def test_clip_review_prompt_treats_provisional_title_as_untrusted_claim(self):
+        prompt = _build_clip_candidate_review_prompt([{
+            "start": 100,
+            "end": 240,
+            "slice_anchor": 160,
+            "title": "音音亲自做绿豆饼",
+            "body": [
+                "·字幕核查：0:02:00-0:03:00 视频旁白连续讲解绿豆饼配方",
+                "·字幕核查：0:03:10-0:03:20 音音说感觉很好吃",
+            ],
+        }], streamer_name="音音")
+
+        self.assertIn("provisional_title只是待核查主张，不是证据", prompt)
+        self.assertIn("连续配方、榜单、商品文案、方言短剧应归因给视频中", prompt)
+        self.assertIn("抢到最后一张高铁票不等于误车或误机", prompt)
+        self.assertIn(f"focus时长必须为30-{TOPIC_REVIEW_FOCUS_MAX_SEC}秒", prompt)
+        self.assertIn('"valid":true', prompt)
 
     def test_title_style_profile_filters_replays_and_selects_related_examples(self):
         with TemporaryDirectory() as td:
