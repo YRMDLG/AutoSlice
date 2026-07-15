@@ -6477,15 +6477,24 @@ _GENERATED_TOPIC_TEMP_RE = re.compile(
 )
 
 
-def _cleanup_stale_topic_clips(report_dir):
-    """清理同目录旧自动视频/字幕，保留用户手工命名文件和其他副产物。"""
+def _cleanup_stale_topic_clips(report_dir, preserve_names=None):
+    """清理失效自动产物；可保留已通过校验的现有切片视频。"""
     if not os.path.isdir(report_dir):
         return 0
+    preserved = {
+        str(name).casefold()
+        for name in (preserve_names or [])
+        if str(name).strip()
+    }
     removed = 0
     for name in os.listdir(report_dir):
         if not (
                 _GENERATED_TOPIC_ARTIFACT_RE.fullmatch(name)
                 or _GENERATED_TOPIC_TEMP_RE.fullmatch(name)):
+            continue
+        if (
+                _GENERATED_TOPIC_ARTIFACT_RE.fullmatch(name)
+                and name.casefold() in preserved):
             continue
         path = os.path.join(report_dir, name)
         if not os.path.isfile(path):
@@ -6498,6 +6507,26 @@ def _cleanup_stale_topic_clips(report_dir):
 def _format_ffmpeg_seconds(value):
     """生成稳定的 ffmpeg 秒数字符串，避免无意义的长浮点尾数。"""
     return f"{float(value):.3f}".rstrip("0").rstrip(".") or "0"
+
+
+def _is_reusable_topic_clip(output_path, source_path, expected_duration):
+    """校验已有切片是否仍对应当前源录播和当前计划时长。"""
+    force_rebuild = os.environ.get("AUTOSLICE_FORCE_RESLICE", "").strip().lower()
+    if force_rebuild in {"1", "true", "yes", "on"}:
+        return False
+    try:
+        output_stat = os.stat(output_path)
+        source_stat = os.stat(source_path)
+    except OSError:
+        return False
+    if output_stat.st_size <= 0 or output_stat.st_mtime_ns < source_stat.st_mtime_ns:
+        return False
+    actual_duration = _probe_video_duration(output_path)
+    return (
+        actual_duration is not None
+        and abs(float(actual_duration) - float(expected_duration))
+        <= SLICE_DURATION_TOLERANCE_SEC
+    )
 
 
 def _preferred_slice_video_encoder_args():
@@ -6609,7 +6638,6 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
     base_name = os.path.splitext(video_name)[0]
     report_dir = os.path.join(output_dir, base_name + "_话题切片")
     os.makedirs(report_dir, exist_ok=True)
-    removed_count = _cleanup_stale_topic_clips(report_dir)
     subtitle_source_path = _resolve_clip_subtitle_source(flv_path, data)
     subtitle_segments = (
         parse_srt_segments(subtitle_source_path)
@@ -6617,37 +6645,92 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
         else []
     )
 
+    slice_jobs = []
+    for index, mark in enumerate(marks, 1):
+        start_s = float(mark["start"])
+        end_s = float(mark["end"])
+        duration = end_s - start_s
+        if duration <= 0:
+            continue
+        output_name = _topic_clip_filename(index, mark)
+        slice_jobs.append({
+            "index": index,
+            "mark": mark,
+            "start": start_s,
+            "end": end_s,
+            "duration": duration,
+            "title": mark.get("title", f"片段{index}"),
+            "output_name": output_name,
+            "output_path": os.path.join(report_dir, output_name),
+        })
+
+    reusable_jobs = []
+    pending_jobs = []
+    for job in slice_jobs:
+        if _is_reusable_topic_clip(
+                job["output_path"], flv_path, job["duration"]):
+            reusable_jobs.append(job)
+        else:
+            pending_jobs.append(job)
+
+    removed_count = _cleanup_stale_topic_clips(
+        report_dir,
+        preserve_names=[job["output_name"] for job in reusable_jobs],
+    )
+
     if progress_callback:
         if removed_count:
-            progress_callback(f"已清理 {removed_count} 个旧自动切片", 0, len(marks))
-        progress_callback(f"开始切片 ({len(marks)} 段)...", 0, len(marks))
+            progress_callback(
+                f"已清理 {removed_count} 个旧字幕或失效自动产物",
+                0,
+                len(marks),
+            )
+        if reusable_jobs and pending_jobs:
+            progress_callback(
+                f"已复用 {len(reusable_jobs)} 个现有切片，仅重切 {len(pending_jobs)} 个",
+                0,
+                len(marks),
+            )
+        elif reusable_jobs:
+            progress_callback(
+                f"已复用 {len(reusable_jobs)} 个现有切片，无需重新编码",
+                0,
+                len(marks),
+            )
+        else:
+            progress_callback(f"开始切片 ({len(pending_jobs)} 段)...", 0, len(marks))
 
-    count = 0
+    count = len(reusable_jobs)
     slice_source = flv_path
     temporary_seek_source = None
-    video_encoder_args = _preferred_slice_video_encoder_args()
+    video_encoder_args = (
+        _preferred_slice_video_encoder_args()
+        if pending_jobs
+        else None
+    )
     try:
-        slice_source, temporary_seek_source = _prepare_seekable_slice_source(
-            flv_path,
-            report_dir,
-            len(marks),
-            sp,
-            progress_callback=progress_callback,
-        )
-        for i, m in enumerate(marks):
-            start_s = m["start"]
-            end_s = m["end"]
-            title = m.get("title", f"片段{i+1}")
-            duration = end_s - start_s
-            if duration <= 0:
-                continue
-
-            output_name = _topic_clip_filename(i + 1, m)
-            output_path = os.path.join(report_dir, output_name)
+        if pending_jobs:
+            slice_source, temporary_seek_source = _prepare_seekable_slice_source(
+                flv_path,
+                report_dir,
+                len(pending_jobs),
+                sp,
+                progress_callback=progress_callback,
+            )
+        for job in pending_jobs:
+            index = job["index"]
+            start_s = job["start"]
+            duration = job["duration"]
+            title = job["title"]
+            output_path = job["output_path"]
             temporary_output_path = output_path + ".part.flv"
 
             if progress_callback:
-                progress_callback(f"切片 {i+1}/{len(marks)}: {title}", i+1, len(marks))
+                progress_callback(
+                    f"切片 {index}/{len(marks)}: {title}",
+                    index,
+                    len(marks),
+                )
 
             if os.path.exists(temporary_output_path):
                 os.remove(temporary_output_path)
@@ -6674,7 +6757,11 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
                     os.remove(temporary_output_path)
                 video_encoder_args = _software_slice_video_encoder_args()
                 if progress_callback:
-                    progress_callback("NVENC 不可用，已改用 CPU 精确编码", i, len(marks))
+                    progress_callback(
+                        "NVENC 不可用，已改用 CPU 精确编码",
+                        index - 1,
+                        len(marks),
+                    )
                 command = _build_precise_slice_ffmpeg_command(
                     slice_source,
                     temporary_output_path,
@@ -6698,25 +6785,29 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
                 if os.path.exists(temporary_output_path):
                     os.remove(temporary_output_path)
                 raise RuntimeError(
-                    f"切片 {i+1} 时长校验失败：计划 {duration:.3f}s，"
+                    f"切片 {index} 时长校验失败：计划 {duration:.3f}s，"
                     f"实际 {actual_duration if actual_duration is not None else '无法读取'}"
                 )
             os.replace(temporary_output_path, output_path)
-            if subtitle_segments:
-                subtitle_path = os.path.join(
-                    report_dir,
-                    _clip_subtitle_filename(output_name),
-                )
-                _write_clip_srt(
-                    subtitle_segments,
-                    start_s,
-                    end_s,
-                    subtitle_path,
-                )
             count += 1
     finally:
         if temporary_seek_source and os.path.exists(temporary_seek_source):
             os.remove(temporary_seek_source)
+
+    if subtitle_segments:
+        for job in slice_jobs:
+            if not os.path.isfile(job["output_path"]):
+                continue
+            subtitle_path = os.path.join(
+                report_dir,
+                _clip_subtitle_filename(job["output_name"]),
+            )
+            _write_clip_srt(
+                subtitle_segments,
+                job["start"],
+                job["end"],
+                subtitle_path,
+            )
 
     _update_refinement_manifest_after_slice(
         data.get("task_manifest_json_path"),

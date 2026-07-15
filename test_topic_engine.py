@@ -40,6 +40,7 @@ from topic_engine import (
     _enrich_manual_topics_in_batches, _enrich_manual_topics_with_llm,
     _optimized_entry_needs_retry, _retry_optimized_timeline_entries,
     _review_peak_selected_topics, _sanitize_transport_claims,
+    _prepare_seekable_slice_source,
     _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
@@ -1228,6 +1229,169 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertLess(ffmpeg_calls[0].index("-ss"), input_index)
         self.assertGreater(ffmpeg_calls[0].index("-ss", input_index), input_index)
         self.assertNotIn(["-c", "copy"], [ffmpeg_calls[0][i:i + 2] for i in range(len(ffmpeg_calls[0]) - 1)])
+
+    def test_slice_from_marks_reuses_valid_clips_and_only_rebuilds_subtitles(self):
+        mark = {"start": 10, "end": 90, "title": "开场聊天"}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"source-video")
+            source_srt = flv_path.with_suffix(".srt")
+            source_srt.write_text(
+                "1\n00:00:12,000 --> 00:00:18,000\n音音开始聊天\n",
+                encoding="utf-8",
+            )
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": [mark],
+            }, ensure_ascii=False), encoding="utf-8")
+            report_dir = root / "输出" / "测试录播_话题切片"
+            report_dir.mkdir(parents=True)
+            output_path = report_dir / _topic_clip_filename(1, mark)
+            output_path.write_bytes(b"validated-existing-clip")
+            subtitle_path = output_path.with_suffix(".srt")
+            subtitle_path.write_text("旧字幕", encoding="utf-8")
+            stale_path = report_dir / "02_200s_旧自动切片.flv"
+            stale_path.write_bytes(b"stale")
+            manual_path = report_dir / "手工精剪.flv"
+            manual_path.write_bytes(b"manual")
+            progress = []
+
+            with (
+                patch("topic_engine._probe_video_duration", return_value=80.035) as probe,
+                patch("topic_engine._prepare_seekable_slice_source") as prepare_source,
+                patch("subprocess.run") as run,
+            ):
+                count, actual_report_dir = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                    progress_callback=lambda message, current, total: progress.append(message),
+                )
+
+            rebuilt_subtitles = parse_srt_segments(str(subtitle_path))
+            output_bytes = output_path.read_bytes()
+            stale_exists = stale_path.exists()
+            manual_exists = manual_path.exists()
+
+        self.assertEqual(count, 1)
+        self.assertEqual(actual_report_dir, str(report_dir))
+        self.assertEqual(output_bytes, b"validated-existing-clip")
+        self.assertFalse(stale_exists)
+        self.assertTrue(manual_exists)
+        self.assertEqual(rebuilt_subtitles, [(2, 8, "音音开始聊天")])
+        self.assertIn("已复用 1 个现有切片，无需重新编码", progress)
+        probe.assert_called_once_with(str(output_path))
+        prepare_source.assert_not_called()
+        run.assert_not_called()
+
+    def test_slice_from_marks_only_reencodes_changed_boundary_without_large_index(self):
+        marks = [
+            {"start": 10 + index * 100, "end": 90 + index * 100, "title": f"片段{index + 1}"}
+            for index in range(5)
+        ]
+        marks[2]["end"] += 15
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"source-video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": marks,
+            }, ensure_ascii=False), encoding="utf-8")
+            report_dir = root / "输出" / "测试录播_话题切片"
+            report_dir.mkdir(parents=True)
+            for index, mark in enumerate(marks, 1):
+                (report_dir / _topic_clip_filename(index, mark)).write_bytes(
+                    f"existing-{index}".encode("ascii")
+                )
+            progress = []
+            ffmpeg_calls = []
+
+            def fake_probe(path):
+                name = Path(path).name
+                if name.endswith(".part.flv"):
+                    return 95.02
+                if name.startswith("03_"):
+                    return 80.02
+                return 80.02
+
+            def fake_ffmpeg(args, **_kwargs):
+                ffmpeg_calls.append(args)
+                Path(args[-1]).write_bytes(b"rebuilt-third-clip")
+                return Mock(returncode=0)
+
+            with (
+                patch("topic_engine._probe_video_duration", side_effect=fake_probe),
+                patch(
+                    "topic_engine._prepare_seekable_slice_source",
+                    wraps=_prepare_seekable_slice_source,
+                ) as prepare_source,
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                count, _ = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                    progress_callback=lambda message, current, total: progress.append(message),
+                )
+
+            third_path = report_dir / _topic_clip_filename(3, marks[2])
+            third_bytes = third_path.read_bytes()
+
+        self.assertEqual(count, 5)
+        self.assertEqual(len(ffmpeg_calls), 1)
+        self.assertTrue(str(ffmpeg_calls[0][-1]).endswith("03_210s_片段3.flv.part.flv"))
+        self.assertEqual(third_bytes, b"rebuilt-third-clip")
+        self.assertEqual(prepare_source.call_args.args[2], 1)
+        self.assertFalse(any(str(part).endswith(".mkv") for part in ffmpeg_calls[0]))
+        self.assertIn("已复用 4 个现有切片，仅重切 1 个", progress)
+
+    def test_slice_from_marks_reencodes_clip_older_than_source(self):
+        mark = {"start": 10, "end": 90, "title": "源文件更新测试"}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"new-source-video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": [mark],
+            }, ensure_ascii=False), encoding="utf-8")
+            report_dir = root / "输出" / "测试录播_话题切片"
+            report_dir.mkdir(parents=True)
+            output_path = report_dir / _topic_clip_filename(1, mark)
+            output_path.write_bytes(b"old-clip")
+            source_mtime = flv_path.stat().st_mtime
+            os.utime(output_path, (source_mtime - 10, source_mtime - 10))
+            ffmpeg_calls = []
+
+            def fake_probe(path):
+                self.assertTrue(str(path).endswith(".part.flv"))
+                return 80.03
+
+            def fake_ffmpeg(args, **_kwargs):
+                ffmpeg_calls.append(args)
+                Path(args[-1]).write_bytes(b"fresh-clip")
+                return Mock(returncode=0)
+
+            with (
+                patch("topic_engine._probe_video_duration", side_effect=fake_probe) as probe,
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                count, _ = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                )
+            output_bytes = output_path.read_bytes()
+
+        self.assertEqual(count, 1)
+        self.assertEqual(output_bytes, b"fresh-clip")
+        self.assertEqual(len(ffmpeg_calls), 1)
+        self.assertEqual(probe.call_count, 1)
 
     def test_precise_slice_command_uses_dual_seek_and_reencodes_video(self):
         command = _build_precise_slice_ffmpeg_command(
