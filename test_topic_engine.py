@@ -38,7 +38,8 @@ from topic_engine import (
     _optimize_manual_timeline, _prepare_optimized_manual_timeline,
     _parse_elapsed_timeline_report_lines, _parse_generated_topic_report,
     _parse_manual_timeline_lines,
-    _render_unified_refinement_queue_markdown, _resolve_funasr_model_source,
+    _render_unified_refinement_queue_markdown, _resolve_funasr_device,
+    _resolve_funasr_model_source,
     _select_title_style_examples, _streamer_report_name,
     _enrich_manual_topics_in_batches, _enrich_manual_topics_with_llm,
     _optimized_entry_needs_retry, _retry_optimized_timeline_entries,
@@ -103,6 +104,35 @@ class TopicEngineParseTests(unittest.TestCase):
             (model_dir / "model.pt").write_bytes(b"fake")
             with patch("topic_engine._funasr_model_cache_candidates", return_value=[str(model_dir)]):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
+
+    def test_funasr_device_auto_uses_cuda_only_when_torch_reports_available(self):
+        with patch("torch.cuda.is_available", return_value=True):
+            self.assertEqual(_resolve_funasr_device("auto"), "cuda:0")
+        with patch("torch.cuda.is_available", return_value=False):
+            self.assertEqual(_resolve_funasr_device("auto"), "cpu")
+        self.assertEqual(_resolve_funasr_device("cuda"), "cuda:0")
+        self.assertEqual(_resolve_funasr_device("cpu"), "cpu")
+
+    def test_funasr_model_loader_falls_back_to_cpu_when_cuda_load_fails(self):
+        calls = []
+        events = []
+        cpu_model = object()
+
+        def fake_auto_model(**kwargs):
+            calls.append(kwargs["device"])
+            if kwargs["device"].startswith("cuda"):
+                raise RuntimeError("CUDA out of memory")
+            return cpu_model
+
+        model = _load_funasr_model(
+            fake_auto_model,
+            progress_callback=lambda *args: events.append(args),
+            device="cuda:0",
+        )
+
+        self.assertIs(model, cpu_model)
+        self.assertEqual(calls, ["cuda:0", "cpu"])
+        self.assertTrue(any("自动改用 CPU" in event[0] for event in events))
 
     def test_funasr_model_loader_reports_cache_download_failure(self):
         events = []

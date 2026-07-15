@@ -36,7 +36,7 @@ LLM_DEFAULT_CONCURRENCY = 3
 LLM_MAX_CONCURRENCY = 4
 TOPIC_ANALYSIS_CHECKPOINT_VERSION = 1
 FUNASR_MODEL = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "cpu")
+FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
 FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
     r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 )
@@ -1164,10 +1164,30 @@ def _resolve_funasr_model_source():
     return FUNASR_MODEL
 
 
+def _resolve_funasr_device(requested_device=None):
+    """优先使用可用的 CUDA；显卡运行时缺失时保持 CPU 路径。"""
+    requested = str(
+        requested_device
+        or os.environ.get("AUTOSLICE_FUNASR_DEVICE", FUNASR_DEFAULT_DEVICE)
+        or "auto"
+    ).strip().lower()
+    if requested == "cuda":
+        return "cuda:0"
+    if requested not in {"", "auto"}:
+        return requested
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda:0"
+    except (ImportError, OSError, RuntimeError):
+        pass
+    return "cpu"
+
+
 def _load_funasr_model(AutoModel, progress_callback=None, device=None):
     """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
     _prepare_funasr_environment()
-    selected_device = device or FUNASR_DEFAULT_DEVICE
+    selected_device = _resolve_funasr_device(device)
     model_source = _resolve_funasr_model_source()
     try:
         return AutoModel(
@@ -1176,6 +1196,21 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
             disable_update=True,
         )
     except Exception as exc:
+        if selected_device.startswith("cuda"):
+            if progress_callback:
+                progress_callback(
+                    f"FunASR GPU 加载失败，自动改用 CPU: {exc}",
+                    10,
+                    100,
+                )
+            try:
+                return AutoModel(
+                    model=model_source,
+                    device="cpu",
+                    disable_update=True,
+                )
+            except Exception as cpu_exc:
+                exc = cpu_exc
         message = (
             "FunASR 模型加载失败：本地 ModelScope 缓存不可用，或模型下载被网络/SSL 中断。"
             "请先生成同名 SRT，或在网络正常时预下载 FunASR 模型后重试。"
@@ -1214,10 +1249,15 @@ def ensure_srt(video_path, progress_callback=None):
            encoding="utf-8", errors="replace")
 
     try:
+        funasr_device = _resolve_funasr_device()
         if progress_callback:
-            progress_callback(f"加载 FunASR 模型({FUNASR_DEFAULT_DEVICE})...", 10, 100)
+            progress_callback(f"加载 FunASR 模型({funasr_device})...", 10, 100)
 
-        model = _load_funasr_model(AutoModel, progress_callback=progress_callback)
+        model = _load_funasr_model(
+            AutoModel,
+            progress_callback=progress_callback,
+            device=funasr_device,
+        )
     except Exception:
         if os.path.exists(wav_path):
             os.remove(wav_path)

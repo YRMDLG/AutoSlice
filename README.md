@@ -13,20 +13,25 @@
 ## 快速开始
 
 ```powershell
-# 安装依赖并启动
+# 推荐：NVIDIA 显卡首次运行时安装隔离 GPU 环境（约 1.9 GB）
+python setup_gpu_runtime.py
+
+# 启动；隔离环境健康时自动使用 GPU，否则使用 CPU
 python 启动.py
 
 # 浏览器打开
 http://localhost:5002
 ```
 
-首次运行会自动下载 FunASR 模型（约 1GB），后续使用缓存。
+FunASR 模型需要提前存在于本机 ModelScope 缓存。GPU 安装脚本只写入
+`%LOCALAPPDATA%\AutoSlice`，不会替换系统 Python 的 CPU PyTorch。
 
 ## 项目结构
 
 ```
 AutoSlice/
-├── 启动.py              # 一键启动，自动安装依赖
+├── 启动.py              # 一键启动，自动选择隔离 GPU/CPU 运行时
+├── setup_gpu_runtime.py # 一次性安装并校验 CUDA PyTorch
 ├── app.py               # Flask Web 服务 + SSE 实时推送
 ├── core.py              # 切片核心引擎
 ├── requirements.txt     # Python 依赖
@@ -68,8 +73,8 @@ ffmpeg（系统安装）
 
 ## 已知限制
 
-- FunASR 模型需要约 4GB 空闲内存，与录播进程同时运行时可能内存不足
-- 内存不足时 ASR 自动跳过，降级为纯弹幕密度切片
+- RTX 2060 6GB 已通过 FunASR CUDA 转录测试；GPU 模型加载失败会明确回退 CPU
+- 未安装隔离 CUDA 运行时也可正常使用，只是首次生成 SRT 会更慢
 - Windows 终端需 UTF-8 编码，避免中文乱码
 
 ## 相关项目
