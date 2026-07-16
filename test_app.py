@@ -1,3 +1,4 @@
+import io
 import json
 import unittest
 from pathlib import Path
@@ -26,6 +27,30 @@ class TopicPipelineApiTests(unittest.TestCase):
         app_module.app.config.update(TESTING=True)
         app_module.tasks.clear()
         self.client = app_module.app.test_client()
+
+    def test_update_task_does_not_fail_when_gbk_console_cannot_encode_emoji(self):
+        raw_output = io.BytesIO()
+        gbk_console = io.TextIOWrapper(
+            raw_output,
+            encoding="gbk",
+            errors="strict",
+        )
+
+        with patch.object(app_module.sys, "stdout", gbk_console):
+            app_module.update_task(
+                "emoji_slice",
+                status="done",
+                progress="切片 1/19: 玩偶标题🧸",
+                result='{"title":"玩偶标题🧸"}',
+                step=1,
+                total=19,
+            )
+            gbk_console.flush()
+
+        output = raw_output.getvalue().decode("gbk")
+        self.assertIn("切片 1/19", output)
+        self.assertIn("emoji_slice", output)
+        self.assertEqual(app_module.tasks["emoji_slice"]["status"], "done")
 
     def test_optimize_manual_timeline_rejects_missing_files(self):
         response = self.client.post(

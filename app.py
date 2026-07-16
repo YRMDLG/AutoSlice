@@ -33,6 +33,29 @@ def broadcast(event_type, data):
             event_queues.remove(q)
 
 
+def _console_print(message, stream=None):
+    """控制台编码不支持标题字符时降级输出，日志失败不得中断任务。"""
+    stream = stream or sys.stdout
+    text = str(message)
+    try:
+        stream.write(text + "\n")
+        stream.flush()
+        return
+    except (UnicodeEncodeError, OSError):
+        pass
+
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    safe_text = text.encode(encoding, errors="replace").decode(
+        encoding,
+        errors="replace",
+    )
+    try:
+        stream.write(safe_text + "\n")
+        stream.flush()
+    except (UnicodeEncodeError, OSError):
+        pass
+
+
 def update_task(task_id, **kwargs):
     """更新任务状态并广播 + 控制台输出"""
     with task_lock:
@@ -45,10 +68,10 @@ def update_task(task_id, **kwargs):
     progress = kwargs.get("progress", "")
     pct = kwargs.get("step", 0)
     if progress:
-        print(f"  [{task_id[:40]}] [{pct}%] {progress}")
+        _console_print(f"  [{task_id[:40]}] [{pct}%] {progress}")
     if status in ("done", "error"):
         result = kwargs.get("result", "")
-        print(f"  [{task_id[:40]}] >>> {status}: {result}")
+        _console_print(f"  [{task_id[:40]}] >>> {status}: {result}")
 
     # SSE 广播
     broadcast("task_update", {"task_id": task_id, **kwargs})
