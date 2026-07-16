@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 
 
-SUBTITLE_REVIEW_VERSION = 2
+SUBTITLE_REVIEW_VERSION = 3
 SUBTITLE_REVIEW_BATCH_SIZE = 30
 SUBTITLE_REVIEW_CONTEXT_CUES = 3
 SUBTITLE_REVIEW_CONCURRENCY = 2
@@ -223,10 +223,7 @@ def save_corrected_srt(source_srt_path, corrections, output_path=None):
         updates[index] = corrected
 
     destination = Path(output_path) if output_path else _corrected_srt_path(source_srt_path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = destination.with_name(destination.name + ".tmp")
-    temp_path.write_text(serialise_srt(cues, updates), encoding="utf-8")
-    os.replace(temp_path, destination)
+    _atomic_write_text(destination, serialise_srt(cues, updates))
     return str(destination)
 
 
@@ -319,6 +316,56 @@ def _subtitle_source_fingerprint(srt_path, context_title, glossary):
 def _review_cache_path(srt_path):
     source = Path(srt_path)
     return source.with_name(f"{source.stem}_字幕校对建议.json")
+
+
+def _validated_cached_review(
+        cached, srt_path, cues, fingerprint, context_title, glossary, cache_path):
+    """只接受由当前规则和当前字幕生成的完整缓存。"""
+    if not isinstance(cached, dict):
+        return None
+    try:
+        version = int(cached.get("version"))
+        cue_count = int(cached.get("cue_count"))
+    except (TypeError, ValueError):
+        return None
+    if version != SUBTITLE_REVIEW_VERSION or cue_count != len(cues):
+        return None
+    if cached.get("source_fingerprint") != fingerprint:
+        return None
+    if str(cached.get("context_title", "")) != str(context_title or ""):
+        return None
+    if cached.get("glossary") != list(glossary):
+        return None
+    cached_source = cached.get("source_srt_path")
+    if not cached_source or os.path.normcase(os.path.abspath(cached_source)) != os.path.normcase(
+            os.path.abspath(srt_path)):
+        return None
+
+    raw_suggestions = cached.get("suggestions")
+    if not isinstance(raw_suggestions, list):
+        return None
+    cue_by_index = {cue.index: cue for cue in cues}
+    target_indices = set(cue_by_index)
+    suggestions = []
+    seen_indices = set()
+    for item in raw_suggestions:
+        suggestion = _normalise_suggestion(item, cue_by_index, target_indices)
+        if suggestion is None or suggestion["index"] in seen_indices:
+            return None
+        seen_indices.add(suggestion["index"])
+        suggestions.append(suggestion)
+
+    return {
+        "version": SUBTITLE_REVIEW_VERSION,
+        "source_srt_path": str(Path(srt_path)),
+        "source_fingerprint": fingerprint,
+        "context_title": str(context_title or ""),
+        "cue_count": len(cues),
+        "glossary": list(glossary),
+        "suggestions": sorted(suggestions, key=lambda item: item["index"]),
+        "cache_path": str(cache_path),
+        "cache_hit": True,
+    }
 
 
 def _review_prompt(cues, target_indices, context_title, glossary, compact=False):
@@ -437,18 +484,52 @@ def _review_batch(cues, target_indices, context_title, glossary, llm_runner):
         if not payload:
             last_error = "AI 未返回 JSON 对象"
             continue
+        raw_reviewed = payload.get("reviewed_indices")
+        raw_corrections = payload.get("corrections")
+        if not isinstance(raw_reviewed, list):
+            last_error = "AI 返回的 reviewed_indices 不是数组"
+            continue
+        if not isinstance(raw_corrections, list) or any(
+                not isinstance(item, dict) for item in raw_corrections):
+            last_error = "AI 返回的 corrections 不是对象数组"
+            continue
         try:
-            reviewed = sorted({int(value) for value in payload.get("reviewed_indices", [])})
+            reviewed_values = [int(value) for value in raw_reviewed]
         except (TypeError, ValueError):
-            reviewed = []
+            reviewed_values = []
+        reviewed = sorted(set(reviewed_values))
+        if len(reviewed_values) != len(reviewed):
+            last_error = "AI 返回了重复或无效的已检查序号"
+            continue
         if reviewed != sorted(target_indices):
             last_error = "AI 未确认完整检查本批字幕"
             continue
         suggestions = []
-        for item in payload.get("corrections", []) or []:
+        correction_indices = set()
+        malformed_correction = False
+        for item in raw_corrections:
+            if not {"index", "original", "corrected"}.issubset(item):
+                malformed_correction = True
+                break
+            if not isinstance(item.get("original"), str) or not isinstance(
+                    item.get("corrected"), str):
+                malformed_correction = True
+                break
+            try:
+                correction_index = int(item.get("index"))
+            except (TypeError, ValueError):
+                malformed_correction = True
+                break
+            if correction_index in correction_indices:
+                malformed_correction = True
+                break
+            correction_indices.add(correction_index)
             suggestion = _normalise_suggestion(item, cue_by_index, set(target_indices))
             if suggestion:
                 suggestions.append(suggestion)
+        if malformed_correction:
+            last_error = "AI 返回了缺字段、类型错误或重复的修正项"
+            continue
         return suggestions
     raise RuntimeError(last_error or "字幕 AI 校对结果无效")
 
@@ -466,9 +547,17 @@ def suggest_subtitle_corrections(
     if use_cache and cache_path.is_file():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if cached.get("source_fingerprint") == fingerprint:
-                cached["cache_hit"] = True
-                return cached
+            validated = _validated_cached_review(
+                cached,
+                srt_path,
+                cues,
+                fingerprint,
+                context_title,
+                active_glossary,
+                cache_path,
+            )
+            if validated:
+                return validated
         except (OSError, ValueError, TypeError):
             pass
 
@@ -548,9 +637,12 @@ def suggest_subtitle_corrections(
         "cache_path": str(cache_path),
         "cache_hit": False,
     }
-    temp_path = cache_path.with_name(cache_path.name + ".tmp")
-    temp_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temp_path, cache_path)
+    if _subtitle_source_fingerprint(srt_path, context_title, active_glossary) != fingerprint:
+        raise RuntimeError("源字幕在 AI 检查期间已变化，请重新检查")
+    _atomic_write_text(
+        cache_path,
+        json.dumps(result, ensure_ascii=False, indent=2),
+    )
     if progress_callback:
         progress_callback("字幕 AI 校对完成", total_batches, total_batches)
     return result
@@ -558,13 +650,33 @@ def suggest_subtitle_corrections(
 
 def high_confidence_corrections(review_result, minimum_confidence=0.95):
     """返回可默认勾选的保守修正；增删字符的建议必须人工确认。"""
-    return [
-        item
-        for item in (review_result or {}).get("suggestions", [])
-        if float(item.get("confidence", 0)) >= float(minimum_confidence)
-        and len(_semantic_text(str(item.get("original", ""))))
-        == len(_semantic_text(str(item.get("corrected", ""))))
-    ]
+    selected = []
+    for item in (review_result or {}).get("suggestions", []):
+        try:
+            confidence = float(item.get("confidence", 0))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        original = _semantic_text(str(item.get("original", "")))
+        corrected = _semantic_text(str(item.get("corrected", "")))
+        if confidence < float(minimum_confidence) or len(original) != len(corrected):
+            continue
+        matcher = difflib.SequenceMatcher(None, original, corrected)
+        changed_chars = 0
+        safe_replacements_only = True
+        for tag, start_a, end_a, start_b, end_b in matcher.get_opcodes():
+            if tag == "equal":
+                continue
+            if tag != "replace" or end_a - start_a != end_b - start_b:
+                safe_replacements_only = False
+                break
+            changed_chars += end_a - start_a
+        maximum_changes = 1 if len(original) <= 8 else min(
+            3,
+            max(2, (len(original) + 6) // 7),
+        )
+        if safe_replacements_only and 0 < changed_chars <= maximum_changes:
+            selected.append(item)
+    return selected
 
 
 def normalise_subtitle_style(style=None):
@@ -774,9 +886,25 @@ def _style_output_path(srt_path):
 def _atomic_write_text(path, text):
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = destination.with_name(destination.name + ".tmp")
-    temp_path.write_text(text, encoding="utf-8")
-    os.replace(temp_path, destination)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="",
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                dir=destination.parent,
+                delete=False) as stream:
+            temp_path = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, destination)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def write_ass_from_srt(

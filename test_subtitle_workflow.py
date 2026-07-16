@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -256,6 +257,130 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 2)
 
+    def test_review_retries_when_corrections_shape_is_invalid(self):
+        calls = []
+
+        def runner(prompt, _compact_prompt):
+            indices = json.loads(prompt.split("待检查序号：", 1)[1].split("\n", 1)[0])
+            calls.append(indices)
+            if len(calls) == 1:
+                return {"reviewed_indices": indices, "corrections": {}}
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            result = suggest_subtitle_corrections(
+                source,
+                llm_runner=runner,
+                use_cache=False,
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(result["suggestions"], [])
+
+    def test_malformed_matching_cache_is_ignored_and_rebuilt(self):
+        calls = []
+
+        def runner(prompt, _compact_prompt):
+            calls.append(1)
+            indices = json.loads(prompt.split("待检查序号：", 1)[1].split("\n", 1)[0])
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            first = suggest_subtitle_corrections(source, llm_runner=runner)
+            cache_path = Path(first["cache_path"])
+            malformed = json.loads(cache_path.read_text(encoding="utf-8"))
+            malformed["suggestions"] = "不是建议数组"
+            cache_path.write_text(
+                json.dumps(malformed, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            rebuilt = suggest_subtitle_corrections(source, llm_runner=runner)
+
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(rebuilt["cache_hit"])
+
+    def test_force_review_failure_preserves_last_valid_cache(self):
+        def successful_runner(prompt, _compact_prompt):
+            indices = json.loads(prompt.split("待检查序号：", 1)[1].split("\n", 1)[0])
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            suggest_subtitle_corrections(source, llm_runner=successful_runner)
+
+            with self.assertRaisesRegex(RuntimeError, "重新检查失败"):
+                suggest_subtitle_corrections(
+                    source,
+                    llm_runner=lambda *_: (_ for _ in ()).throw(RuntimeError("重新检查失败")),
+                    use_cache=False,
+                )
+
+            cached = suggest_subtitle_corrections(
+                source,
+                llm_runner=lambda *_: self.fail("失败重检不应破坏旧缓存"),
+            )
+
+        self.assertTrue(cached["cache_hit"])
+
+    def test_review_aborts_if_source_changes_during_ai_request(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+
+            def runner(prompt, _compact_prompt):
+                indices = json.loads(prompt.split("待检查序号：", 1)[1].split("\n", 1)[0])
+                source.write_text(
+                    SAMPLE_SRT.replace("这个娃衣很特别", "这个娃衣非常特别"),
+                    encoding="utf-8",
+                )
+                return {"reviewed_indices": indices, "corrections": []}
+
+            with self.assertRaisesRegex(RuntimeError, "检查期间已变化"):
+                suggest_subtitle_corrections(
+                    source,
+                    llm_runner=runner,
+                    use_cache=False,
+                )
+
+            self.assertFalse((source.parent / "字幕_字幕校对建议.json").exists())
+
+    def test_concurrent_review_cache_writes_are_atomic(self):
+        barrier = threading.Barrier(2)
+
+        def runner(prompt, _compact_prompt):
+            indices = json.loads(prompt.split("待检查序号：", 1)[1].split("\n", 1)[0])
+            barrier.wait(timeout=2)
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(
+                        suggest_subtitle_corrections,
+                        source,
+                        llm_runner=runner,
+                        use_cache=False,
+                    )
+                    for _ in range(2)
+                ]
+                results = [future.result(timeout=5) for future in futures]
+
+            cache_payload = json.loads(
+                Path(results[0]["cache_path"]).read_text(encoding="utf-8")
+            )
+            leftovers = list(source.parent.glob("*.tmp"))
+
+        self.assertEqual(cache_payload["suggestions"], [])
+        self.assertEqual(leftovers, [])
+
     def test_high_confidence_only_selects_default_safe_items(self):
         selected = high_confidence_corrections({
             "suggestions": [
@@ -276,6 +401,12 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
                     "confidence": 0.72,
                     "original": "叉上",
                     "corrected": "X上",
+                },
+                {
+                    "index": 4,
+                    "confidence": 0.99,
+                    "original": "今天真的非常开心",
+                    "corrected": "昨天其实特别难过",
                 },
             ]
         })
