@@ -54,10 +54,10 @@ EXACT_SUBTITLE_FONT = "Noto Sans S Chinese Black"
 EXACT_SUBTITLE_FONT_RESOLVED = "NotoSansHans-Black"
 DEFAULT_SUBTITLE_STYLE = {
     "font_name": EXACT_SUBTITLE_FONT,
-    "font_size": 8.0,
+    "font_size": 20.0,
     "font_color": "ffffff",
     "outline_color": "d06e95",
-    "outline_width": 60.0,
+    "outline_width": 100.0,
     "x": 0.0,
     "y": -788.0,
     "shadow": 0.0,

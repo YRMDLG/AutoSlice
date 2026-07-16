@@ -155,10 +155,10 @@ input[type=color]{width:38px;height:36px;border:1px solid var(--line);background
             <div class="section">
                 <div class="section-title">字幕样式</div>
                 <div class="field"><label>字体</label><div class="readonly" id="fontName">Noto Sans S Chinese Black</div></div>
-                <div class="field"><label for="fontSize">剪映字号</label><input id="fontSize" type="number" min="1" max="30" step="0.1" value="8"></div>
+                <div class="field"><label for="fontSize">剪映字号</label><input id="fontSize" type="number" min="1" max="30" step="0.1" value="20"></div>
                 <div class="field"><label for="fontColor">字体颜色</label><div class="color-field"><input id="fontColor" type="text" value="ffffff"><input id="fontColorPicker" type="color" value="#ffffff" aria-label="字体颜色选择"></div></div>
                 <div class="field"><label for="outlineColor">描边颜色</label><div class="color-field"><input id="outlineColor" type="text" value="d06e95"><input id="outlineColorPicker" type="color" value="#d06e95" aria-label="描边颜色选择"></div></div>
-                <div class="field"><label for="outlineWidth">描边粗细</label><input id="outlineWidth" type="number" min="0" max="100" step="1" value="60"></div>
+                <div class="field"><label for="outlineWidth">描边粗细</label><input id="outlineWidth" type="number" min="0" max="100" step="1" value="100"></div>
                 <div class="field"><label for="positionX">位置 X</label><input id="positionX" type="number" min="-1000" max="1000" step="1" value="0"></div>
                 <div class="field"><label for="positionY">位置 Y</label><input id="positionY" type="number" min="-1000" max="1000" step="1" value="-788"></div>
             </div>
@@ -195,7 +195,7 @@ function styleValues(){return{font_name:'Noto Sans S Chinese Black',font_size:Nu
 function exportValues(){return{width:1920,height:1080,bitrate_kbps:Number(document.getElementById('bitrate').value),rate_control:'vbr',codec:'h264',container:'mp4',fps:Number(document.getElementById('fps').value),color_space:'bt709',color_range:'tv',audio:'copy'};}
 
 async function loadDefaults(){try{const data=await jsonRequest('/api/subtitles/defaults');state.defaults=data;const font=data.font||{};const el=document.getElementById('fontStatus');el.textContent=font.available?`${font.requested} → ${font.resolved}`:`字体不可用：${font.resolved||'未解析'}`;el.className=`font-status ${font.available?'ok':''}`;applyDefaults(data);}catch(error){setTask(error.message,'error');}}
-function applyDefaults(data){const style=data.style||{},exp=data.export||{};document.getElementById('fontSize').value=style.font_size??8;setColor('fontColor',style.font_color||'ffffff');setColor('outlineColor',style.outline_color||'d06e95');document.getElementById('outlineWidth').value=style.outline_width??60;document.getElementById('positionX').value=style.x??0;document.getElementById('positionY').value=style.y??-788;document.getElementById('bitrate').value=exp.bitrate_kbps??8000;document.getElementById('fps').value=exp.fps??60;}
+function applyDefaults(data){const style=data.style||{},exp=data.export||{};document.getElementById('fontSize').value=style.font_size??20;setColor('fontColor',style.font_color||'ffffff');setColor('outlineColor',style.outline_color||'d06e95');document.getElementById('outlineWidth').value=style.outline_width??100;document.getElementById('positionX').value=style.x??0;document.getElementById('positionY').value=style.y??-788;document.getElementById('bitrate').value=exp.bitrate_kbps??8000;document.getElementById('fps').value=exp.fps??60;}
 function setColor(id,value){const clean=String(value).replace('#','').toLowerCase();document.getElementById(id).value=clean;document.getElementById(`${id}Picker`).value=`#${clean}`;}
 
 async function scan(){setBusy(true);setTask('扫描投稿目录...');try{const data=await jsonRequest('/api/subtitles/scan',{method:'POST',body:JSON.stringify({root_dir:document.getElementById('rootDir').value})});state.pairs=data.pairs||[];state.selectedIndex=-1;renderQueue();clearEditor();setTask(`找到 ${data.count} 组投稿`,'done');}catch(error){setTask(error.message,'error');}finally{setBusy(false);}}

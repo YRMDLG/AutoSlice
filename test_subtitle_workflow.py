@@ -299,10 +299,10 @@ class SubtitleRenderingTests(unittest.TestCase):
     def test_default_style_is_exact_user_requested_jianying_style(self):
         self.assertEqual(DEFAULT_SUBTITLE_STYLE, {
             "font_name": "Noto Sans S Chinese Black",
-            "font_size": 8.0,
+            "font_size": 20.0,
             "font_color": "ffffff",
             "outline_color": "d06e95",
-            "outline_width": 60.0,
+            "outline_width": 100.0,
             "x": 0.0,
             "y": -788.0,
             "shadow": 0.0,
@@ -345,10 +345,10 @@ class SubtitleRenderingTests(unittest.TestCase):
             )[0]
         ]
         document = build_ass_document(cues, 1920, 1080)
-        self.assertIn(f"Style: Default,{EXACT_SUBTITLE_FONT},54.0", document)
+        self.assertIn(f"Style: Default,{EXACT_SUBTITLE_FONT},135.0", document)
         self.assertIn("&H00FFFFFF", document)
         self.assertIn("&H00956ED0", document)
-        self.assertIn(",3.2,0.0,5,", document)
+        self.assertIn(",5.33,0.0,5,", document)
         self.assertIn(r"{\an5\pos(960,966)}", document)
         self.assertIn(r"测试\{样式\}\\路径\N第二行", document)
 
