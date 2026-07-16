@@ -1,11 +1,59 @@
 import io
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import app as app_module
+
+
+class AutoCoverIntegrationTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+
+    def test_autocover_redirect_uses_only_configured_local_service(self):
+        with patch.dict(
+                os.environ,
+                {"AUTOCOVER_URL": "http://127.0.0.1:5017"},
+                clear=False):
+            response = self.client.get("/autocover")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "http://127.0.0.1:5017")
+
+        with patch.dict(
+                os.environ,
+                {"AUTOCOVER_URL": "https://example.com/steal"},
+                clear=False):
+            rejected = self.client.get("/autocover")
+
+        self.assertEqual(rejected.headers["Location"], "http://127.0.0.1:5010")
+
+    def test_all_primary_pages_link_to_autocover(self):
+        for path in ("/", "/topic-v2", "/subtitle-workflow"):
+            response = self.client.get(path)
+            html = response.get_data(as_text=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('href="/autocover"', html)
+            self.assertIn("自动封面", html)
+
+    def test_service_contract_reports_actual_autocover_url(self):
+        with patch.dict(
+                os.environ,
+                {"AUTOCOVER_URL": "http://localhost:5013"},
+                clear=False):
+            response = self.client.get("/api/service")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {
+            "service": "autoslice",
+            "api_version": 1,
+            "autocover_url": "http://localhost:5013",
+        })
 
 
 class ImmediateThread:

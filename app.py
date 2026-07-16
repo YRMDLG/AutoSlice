@@ -3,7 +3,9 @@ AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 """
 
 import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, subprocess
-from flask import Flask, render_template, request, jsonify, Response
+from urllib.parse import urlsplit
+
+from flask import Flask, render_template, request, jsonify, Response, redirect
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import process_video
@@ -17,6 +19,32 @@ event_queues = []
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_TL_DIR = os.path.join(PROJECT_DIR, "timelines")
 os.makedirs(PROJECT_TL_DIR, exist_ok=True)
+DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
+AUTOSLICE_SERVICE_ID = "autoslice"
+AUTOSLICE_API_VERSION = 1
+
+
+def _configured_autocover_url(environ=None):
+    """只允许跳转到本机 AutoCover，拒绝环境变量注入外部地址。"""
+    env = environ if environ is not None else os.environ
+    candidate = str(env.get("AUTOCOVER_URL", DEFAULT_AUTOCOVER_URL)).strip().rstrip("/")
+    try:
+        parsed = urlsplit(candidate)
+        port = parsed.port
+    except ValueError:
+        return DEFAULT_AUTOCOVER_URL
+    if (
+            parsed.scheme != "http"
+            or parsed.hostname not in {"127.0.0.1", "localhost"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or port is None
+            or not 1 <= port <= 65535
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment):
+        return DEFAULT_AUTOCOVER_URL
+    return candidate
 
 
 def broadcast(event_type, data):
@@ -645,6 +673,20 @@ def topic_v2_page():
 @app.route("/subtitle-workflow")
 def subtitle_workflow_page():
     return render_template("subtitle_workflow.html")
+
+
+@app.route("/autocover")
+def autocover_page():
+    return redirect(_configured_autocover_url())
+
+
+@app.route("/api/service")
+def service_contract():
+    return jsonify({
+        "service": AUTOSLICE_SERVICE_ID,
+        "api_version": AUTOSLICE_API_VERSION,
+        "autocover_url": _configured_autocover_url(),
+    })
 
 
 @app.route("/api/start-pipeline", methods=["POST"])

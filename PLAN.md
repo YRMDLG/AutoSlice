@@ -1123,9 +1123,9 @@
 | 完成时间 | 2026-07-17 00:48 |
 | 备注 | 字号 20 映射为 1080p ASS 字号 135，描边 100 映射为 5.33；7 个字幕渲染定向测试与 222 个全量测试通过。真实投稿 2.8 秒预览使用 `Noto Sans S Chinese Black` 精确字体成功生成，页面与 API 默认参数均同步为 20/100。 |
 
-## Phase 17: AutoSlice 与 AutoCover 统一启动 [进行中]
+## Phase 17: AutoSlice 与 AutoCover 统一启动 [已完成]
 
-> 状态: 进行中
+> 状态: 已完成
 > 说明: 保持两个项目的代码和依赖边界，由 AutoSlice 启动器统一管理 AutoCover 本地服务，并从 AutoSlice 页面直接进入封面工作台。
 
 ### Action 17.1: AutoCover 子服务生命周期管理 [已验证]
@@ -1142,19 +1142,19 @@
 | 完成时间 | 2026-07-17 01:02 |
 | 备注 | 9 个启动器测试全部通过。AutoCover 兼容服务按 service/api_version 契约复用；非兼容端口自动顺延；GPU 子运行时通过 `AUTOSLICE_HOST_PYTHON` 使用宿主 Python；新子服务带 UTF-8 环境启动并等待健康接口，失败或 AutoSlice 退出时只清理本次拥有的进程。 |
 
-### Action 17.2: AutoCover 页面入口与双服务端到端验收 [待办]
+### Action 17.2: AutoCover 页面入口与双服务端到端验收 [已验证]
 
 | 字段 | 值 |
 |------|-----|
-| 状态 | 待办 |
+| 状态 | 已验证 |
 | 依赖 | Action 17.1 |
 | 描述 | 增加 `/autocover` 安全跳转和所有主工作页的“自动封面”导航；补充使用说明，并用一个启动脚本实际拉起 5002/5010，验证两边契约、页面跳转、重复启动及退出行为。 |
 | 涉及文件 | `app.py` `templates/index.html` `templates/topic_v2.html` `templates/subtitle_workflow.html` `test_app.py` `README.md` `PLAN.md` |
 | 验证命令 | `python -B -m unittest test_subtitle_workflow.py test_app.py test_topic_engine.py test_launcher.py -v` |
 | 验证预期 | 全量测试通过；一次启动后 AutoSlice 与 AutoCover 均可访问，导航地址与实际端口一致，原有工作流不回归。 |
 | 重试次数 | 0/10 |
-| 完成时间 |  |
-| 备注 |  |
+| 完成时间 | 2026-07-17 01:17 |
+| 备注 | AutoSlice 230 个测试与 AutoCover 93 个测试全部通过。实际单次启动后，AutoSlice service v1 监听 5002，AutoCover service v3 监听 5010，`/autocover` 返回 302 到实际封面地址；浏览器点击新导航成功打开 AutoCover，扫描到 43 个视频任务且两页控制台无错误。重复执行 `启动.py` 会识别两项健康契约并直接退出，不新增进程。运行中的字幕默认 API 已确认字号 20、描边 100、字体精确解析为 `NotoSansHans-Black`。 |
 
 
 

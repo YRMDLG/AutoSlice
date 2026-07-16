@@ -10,6 +10,7 @@
 - **Web 界面**：浏览器操作，选路径、选模式、一键切片，SSE 实时进度
 - **语音识别**：内建 FunASR Paraformer 中文识别，自动生成 SRT 字幕
 - **字幕校对与压制**：扫描投稿 MP4/SRT，人工确认 AI 错字建议，并按剪映样式生成硬字幕 MP4
+- **自动封面联动**：同一个启动脚本管理 AutoCover，并从 AutoSlice 顶部导航直接进入封面工作台
 
 ## 快速开始
 
@@ -23,6 +24,11 @@ python 启动.py
 # 浏览器打开
 http://localhost:5002
 ```
+
+`启动.py` 会同时启动 AutoSlice（默认 5002）和相邻目录中的 AutoCover
+（默认 5010）。AutoCover 已运行时会直接复用；端口冲突时会自动顺延，
+顶部“自动封面”入口始终跳转到本次实际地址。按 `Ctrl+C` 会同时停止本次
+启动的两个服务，不会关闭原本已经独立运行的 AutoCover。
 
 FunASR 模型需要提前存在于本机 ModelScope 缓存。GPU 安装脚本只写入
 `%LOCALAPPDATA%\AutoSlice`，不会替换系统 Python 的 CPU PyTorch。

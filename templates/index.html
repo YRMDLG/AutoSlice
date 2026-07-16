@@ -7,8 +7,9 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
 .topbar{background:var(--card);border-bottom:1px solid #222;padding:12px 24px;display:flex;align-items:center;gap:24px}
-.topbar .logo{font-size:1.2em;font-weight:700;color:var(--accent)}
-.topbar nav{display:flex;gap:4px}
+.topbar .logo{font-size:1.2em;font-weight:700;color:var(--accent);flex:0 0 auto}
+.topbar nav{display:flex;gap:4px;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+.topbar nav::-webkit-scrollbar{display:none}
 .topbar nav a{color:var(--muted);text-decoration:none;padding:6px 14px;border-radius:6px;font-size:14px;transition:.2s}
 .topbar nav a:hover,.topbar nav a.active{color:#fff;background:var(--blue)}
 .main{max-width:1000px;margin:0 auto;padding:24px 20px}
@@ -36,7 +37,7 @@ input[type="file"]{flex:1;min-width:160px;font-size:13px}
 .pmsg{font-size:12px;color:var(--muted)}
 .flex-btns{display:flex;gap:10px;margin-top:16px}
 </style></head><body>
-<div class="topbar"><div class="logo">AutoSlice</div><nav><a href="/" class="active">弹幕切片</a><a href="/topic-v2">话题分析+切片</a><a href="/subtitle-workflow">字幕校对+压制</a></nav></div>
+<div class="topbar"><div class="logo">AutoSlice</div><nav><a href="/" class="active">弹幕切片</a><a href="/topic-v2">话题分析+切片</a><a href="/subtitle-workflow">字幕校对+压制</a><a href="/autocover" target="_blank" rel="noopener">自动封面</a></nav></div>
 <div class="main">
 <div class="card">
     <div class="row"><label>录播目录</label><input type="text" id="vd"><button class="btn btn-dark" onclick="scan()">扫描</button></div>

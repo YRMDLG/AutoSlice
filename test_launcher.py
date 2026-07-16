@@ -142,6 +142,37 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(env["AUTOCOVER_URL"], url)
         process_factory.assert_not_called()
 
+    def test_existing_unified_services_are_reused_and_require_healthy_cover(self):
+        slice_payload = {
+            "service": "autoslice",
+            "api_version": 1,
+            "autocover_url": "http://127.0.0.1:5012",
+        }
+        cover_payload = {"service": "autocover", "api_version": 3}
+        slice_probe = Mock(return_value=slice_payload)
+        cover_probe = Mock(return_value=cover_payload)
+
+        result = launcher._existing_unified_services(slice_probe, cover_probe)
+
+        self.assertEqual(result, {
+            "autoslice_url": "http://127.0.0.1:5002",
+            "autocover_url": "http://127.0.0.1:5012",
+        })
+        slice_probe.assert_called_once_with(5002)
+        cover_probe.assert_called_once_with(5012)
+
+        with self.assertRaisesRegex(RuntimeError, "AutoCover 未就绪"):
+            launcher._existing_unified_services(
+                Mock(return_value=slice_payload),
+                Mock(return_value=None),
+            )
+        invalid_payload = dict(slice_payload, autocover_url="http://127.0.0.1:bad")
+        with self.assertRaisesRegex(RuntimeError, "没有有效"):
+            launcher._existing_unified_services(
+                Mock(return_value=invalid_payload),
+                Mock(),
+            )
+
     def test_autocover_starts_with_host_python_and_selected_port(self):
         with TemporaryDirectory() as directory:
             cover_dir = Path(directory) / "AutoCover"

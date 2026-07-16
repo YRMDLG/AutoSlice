@@ -11,8 +11,9 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI","Mic
 button,input,textarea,select{font:inherit;letter-spacing:0}
 button{cursor:pointer}
 .topbar{height:52px;padding:0 20px;border-bottom:1px solid var(--line);background:#16171c;display:flex;align-items:center;gap:24px}
-.logo{font-weight:800;color:var(--pink);font-size:18px}
-nav{display:flex;gap:4px}
+.logo{font-weight:800;color:var(--pink);font-size:18px;flex:0 0 auto}
+nav{display:flex;gap:4px;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
 nav a{color:var(--muted);text-decoration:none;padding:7px 12px;border-radius:5px;font-size:13px}
 nav a:hover,nav a.active{background:var(--surface);color:#fff}
 .layout{display:grid;grid-template-columns:minmax(280px,340px) minmax(500px,1fr) minmax(320px,390px);height:calc(100vh - 52px);min-height:650px}
@@ -95,6 +96,7 @@ input[type=color]{width:38px;height:36px;border:1px solid var(--line);background
         <a href="/">弹幕切片</a>
         <a href="/topic-v2">话题分析+切片</a>
         <a href="/subtitle-workflow" class="active">字幕校对+压制</a>
+        <a href="/autocover" target="_blank" rel="noopener">自动封面</a>
     </nav>
 </header>
 <main class="layout">
