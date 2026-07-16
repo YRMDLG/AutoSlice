@@ -2,14 +2,20 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from subtitle_workflow import (
     DEFAULT_SUBTITLE_STYLE,
     DEFAULT_VIDEO_EXPORT,
     EXACT_SUBTITLE_FONT,
     EXACT_SUBTITLE_FONT_RESOLVED,
+    SUBTITLE_REVIEW_BATCH_SIZE,
+    SUBTITLE_REVIEW_CONCURRENCY,
+    _default_llm_runner,
+    _nvenc_available,
     build_ass_document,
     burn_subtitles,
     high_confidence_corrections,
@@ -175,6 +181,64 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertFalse(result["cache_hit"])
         self.assertTrue(cached["cache_hit"])
 
+    def test_review_uses_small_batches_for_reasoning_model(self):
+        calls = []
+        active_calls = 0
+        peak_calls = 0
+        lock = threading.Lock()
+        first_wave = threading.Barrier(2)
+
+        def runner(prompt, _compact_prompt):
+            nonlocal active_calls, peak_calls
+            self.assertIn("不能只因视频标题或优先词表", prompt)
+            encoded_indices = prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            indices = json.loads(encoded_indices)
+            with lock:
+                calls.append(indices)
+                active_calls += 1
+                peak_calls = max(peak_calls, active_calls)
+            try:
+                if len(indices) == SUBTITLE_REVIEW_BATCH_SIZE:
+                    first_wave.wait(timeout=2)
+                return {"reviewed_indices": indices, "corrections": []}
+            finally:
+                with lock:
+                    active_calls -= 1
+
+        cues = []
+        for index in range(1, 66):
+            start = index - 1
+            cues.append(
+                f"{index}\n"
+                f"00:{start // 60:02d}:{start % 60:02d},000 --> "
+                f"00:{start // 60:02d}:{start % 60:02d},900\n"
+                f"第{index}条字幕"
+            )
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "长字幕.srt"
+            source.write_text("\n\n".join(cues), encoding="utf-8")
+            suggest_subtitle_corrections(
+                source,
+                llm_runner=runner,
+                use_cache=False,
+            )
+
+        self.assertEqual(SUBTITLE_REVIEW_BATCH_SIZE, 30)
+        self.assertEqual(SUBTITLE_REVIEW_CONCURRENCY, 2)
+        self.assertEqual(sorted(len(indices) for indices in calls), [5, 30, 30])
+        self.assertEqual(sorted(index for batch in calls for index in batch), list(range(1, 66)))
+        self.assertEqual(peak_calls, 2)
+
+    def test_default_review_runner_reserves_reasoning_output_budget(self):
+        response = '{"reviewed_indices":[],"corrections":[]}'
+        with patch("topic_engine._call_llm_with_retry", return_value=response) as call:
+            payload = _default_llm_runner("完整提示", "紧凑提示")
+
+        self.assertEqual(payload["reviewed_indices"], [])
+        kwargs = call.call_args.kwargs
+        self.assertGreaterEqual(kwargs["max_tokens"], 12000)
+        self.assertGreaterEqual(kwargs["compact_max_tokens"], 12000)
+
     def test_review_cache_invalidates_when_source_changes(self):
         calls = []
 
@@ -195,8 +259,24 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
     def test_high_confidence_only_selects_default_safe_items(self):
         selected = high_confidence_corrections({
             "suggestions": [
-                {"index": 1, "confidence": 0.91},
-                {"index": 2, "confidence": 0.72},
+                {
+                    "index": 1,
+                    "confidence": 0.96,
+                    "original": "看到瓦衣",
+                    "corrected": "看到娃衣",
+                },
+                {
+                    "index": 2,
+                    "confidence": 0.99,
+                    "original": "兔女郎瓦瓦衣",
+                    "corrected": "兔女郎娃衣",
+                },
+                {
+                    "index": 3,
+                    "confidence": 0.72,
+                    "original": "叉上",
+                    "corrected": "X上",
+                },
             ]
         })
         self.assertEqual([item["index"] for item in selected], [1])
@@ -244,6 +324,19 @@ class SubtitleRenderingTests(unittest.TestCase):
             "audio": "copy",
         })
         self.assertEqual(DEFAULT_VIDEO_EXPORT["bitrate_kbps"], 8000)
+
+    def test_nvenc_probe_uses_supported_frame_dimensions(self):
+        _nvenc_available.cache_clear()
+        try:
+            with patch("subtitle_workflow.subprocess.run") as run:
+                run.return_value.returncode = 0
+                self.assertTrue(_nvenc_available())
+
+            command = run.call_args.args[0]
+            source = command[command.index("-i") + 1]
+            self.assertIn("s=320x180", source)
+        finally:
+            _nvenc_available.cache_clear()
 
     def test_ass_maps_style_color_position_and_escapes_text(self):
         cues = [

@@ -9,14 +9,16 @@ import os
 import re
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 
 
-SUBTITLE_REVIEW_VERSION = 1
-SUBTITLE_REVIEW_BATCH_SIZE = 80
+SUBTITLE_REVIEW_VERSION = 2
+SUBTITLE_REVIEW_BATCH_SIZE = 30
 SUBTITLE_REVIEW_CONTEXT_CUES = 3
+SUBTITLE_REVIEW_CONCURRENCY = 2
 
 DEFAULT_SUBTITLE_GLOSSARY = (
     "泽音Melody",
@@ -327,10 +329,14 @@ def _review_prompt(cues, target_indices, context_title, glossary, compact=False)
     rules = (
         "只修正能从上下文确认的错别字、同音误识别、专名和断词错误。"
         "禁止润色、改写语气、删除口头重复、增补标点或猜测听不清内容。"
+        "原文若是语义成立的常用词，不能只因视频标题或优先词表就替换成同主题词。"
         "没有错误的字幕不要放入 corrections。original 必须逐字复制输入原文。"
     )
     if compact:
-        rules = "只改确定错字和专名；不润色、不改标点、不删口癖；original 必须与输入完全一致。"
+        rules = (
+            "只改确定错字和专名；不润色、不改标点、不删口癖；"
+            "不能仅凭标题或词表替换语义成立的常用词；original 必须与输入完全一致。"
+        )
     return (
         "你是泽音Melody直播切片的字幕校对员。"
         f"视频标题：{context_title or '未提供'}\n"
@@ -353,8 +359,8 @@ def _default_llm_runner(prompt, compact_prompt):
     response = _call_llm_with_retry(
         prompt,
         compact_prompt=compact_prompt,
-        max_tokens=4096,
-        compact_max_tokens=3072,
+        max_tokens=12000,
+        compact_max_tokens=12000,
         attempts=3,
         progress_label="字幕 AI 校对",
         require_json=True,
@@ -468,7 +474,7 @@ def suggest_subtitle_corrections(
 
     runner = llm_runner or _default_llm_runner
     suggestions_by_index = {}
-    total_batches = max(1, (len(cues) + SUBTITLE_REVIEW_BATCH_SIZE - 1) // SUBTITLE_REVIEW_BATCH_SIZE)
+    batch_specs = []
     for batch_number, target_start in enumerate(
             range(0, len(cues), SUBTITLE_REVIEW_BATCH_SIZE), 1):
         target_cues = cues[target_start:target_start + SUBTITLE_REVIEW_BATCH_SIZE]
@@ -479,19 +485,53 @@ def suggest_subtitle_corrections(
         )
         context_cues = cues[context_start:context_end]
         target_indices = [cue.index for cue in target_cues]
-        if progress_callback:
-            progress_callback(
-                f"字幕 AI 校对 ({batch_number}/{total_batches})...",
-                batch_number - 1,
-                total_batches,
-            )
-        batch_suggestions = _review_batch(
+        batch_specs.append((batch_number, context_cues, target_indices))
+
+    total_batches = len(batch_specs)
+    batch_results = [None] * total_batches
+
+    def review_spec(spec):
+        batch_number, context_cues, target_indices = spec
+        return batch_number, _review_batch(
             context_cues,
             target_indices,
             context_title,
             active_glossary,
             runner,
         )
+
+    if total_batches == 1:
+        if progress_callback:
+            progress_callback("字幕 AI 校对 (1/1)...", 0, 1)
+        _, batch_results[0] = review_spec(batch_specs[0])
+    else:
+        worker_count = min(SUBTITLE_REVIEW_CONCURRENCY, total_batches)
+        if progress_callback:
+            progress_callback(
+                f"字幕 AI 校对并行处理中 (0/{total_batches})...",
+                0,
+                total_batches,
+            )
+        with ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix="autoslice-subtitle-review") as executor:
+            futures = {
+                executor.submit(review_spec, spec): spec[0]
+                for spec in batch_specs
+            }
+            completed = 0
+            for future in as_completed(futures):
+                batch_number, batch_suggestions = future.result()
+                batch_results[batch_number - 1] = batch_suggestions
+                completed += 1
+                if progress_callback:
+                    progress_callback(
+                        f"字幕 AI 校对并行处理中 ({completed}/{total_batches})...",
+                        completed,
+                        total_batches,
+                    )
+
+    for batch_suggestions in batch_results:
         for suggestion in batch_suggestions:
             current = suggestions_by_index.get(suggestion["index"])
             if current is None or suggestion["confidence"] > current["confidence"]:
@@ -516,12 +556,14 @@ def suggest_subtitle_corrections(
     return result
 
 
-def high_confidence_corrections(review_result, minimum_confidence=0.88):
-    """返回默认勾选的高置信度修正，最终仍由用户确认。"""
+def high_confidence_corrections(review_result, minimum_confidence=0.95):
+    """返回可默认勾选的保守修正；增删字符的建议必须人工确认。"""
     return [
         item
         for item in (review_result or {}).get("suggestions", [])
         if float(item.get("confidence", 0)) >= float(minimum_confidence)
+        and len(_semantic_text(str(item.get("original", ""))))
+        == len(_semantic_text(str(item.get("corrected", ""))))
     ]
 
 
@@ -883,7 +925,7 @@ def _nvenc_available():
     result = subprocess.run(
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=black:s=128x72:d=0.2",
+            "-f", "lavfi", "-i", "color=c=black:s=320x180:d=0.2",
             "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", os.devnull,
         ],
         stdout=subprocess.DEVNULL,
