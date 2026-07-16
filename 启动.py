@@ -5,15 +5,25 @@ Ctrl+C 完全停止
 """
 
 import importlib.util
+import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
 GPU_RUNTIME_RELATIVE_PATH = Path("AutoSlice") / "gpu-py310-cu130" / "Scripts" / "python.exe"
 REQUIRED_IMPORTS = ("flask", "funasr", "docx")
+AUTOCOVER_PROJECT_DIR = PROJECT_DIR.parent / "AutoCover"
+AUTOCOVER_PREFERRED_PORT = 5010
+AUTOCOVER_SERVICE_ID = "autocover"
+AUTOCOVER_API_VERSION = 3
+AUTOCOVER_START_TIMEOUT = 20.0
 
 
 def _gpu_runtime_python(local_app_data=None):
@@ -69,10 +79,16 @@ def _select_gpu_runtime(
     return runtime_python if health_check(runtime_python) else None
 
 
-def _run_gpu_child(runtime_python, argv=None, environ=None, runner=subprocess.run):
+def _run_gpu_child(
+        runtime_python, argv=None, environ=None, runner=subprocess.run,
+        current_executable=None):
     child_env = dict(environ if environ is not None else os.environ)
     child_env["AUTOSLICE_GPU_RUNTIME_ACTIVE"] = "1"
     child_env["AUTOSLICE_FUNASR_DEVICE"] = "cuda:0"
+    child_env.setdefault(
+        "AUTOSLICE_HOST_PYTHON",
+        str(current_executable or sys.executable),
+    )
     command = [
         str(runtime_python),
         str(Path(__file__).resolve()),
@@ -99,6 +115,138 @@ def _install_dependencies(runner=subprocess.run):
         raise RuntimeError("依赖安装失败，请检查网络后重新启动。")
 
 
+def _is_compatible_autocover_service(payload):
+    return bool(
+        payload
+        and payload.get("service") == AUTOCOVER_SERVICE_ID
+        and payload.get("api_version") == AUTOCOVER_API_VERSION
+    )
+
+
+def _probe_autocover_service(port, timeout=0.8):
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/options",
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.load(response)
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _find_available_local_port(preferred, attempts=20):
+    if not 1 <= int(preferred) <= 65535:
+        raise ValueError("端口必须在 1 到 65535 之间")
+    for port in range(int(preferred), min(65536, int(preferred) + attempts)):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    raise RuntimeError(f"端口 {preferred} 起连续 {attempts} 个端口均被占用")
+
+
+def _autocover_python(environ=None, current_executable=None):
+    env = environ if environ is not None else os.environ
+    return Path(
+        env.get("AUTOSLICE_HOST_PYTHON")
+        or current_executable
+        or sys.executable
+    )
+
+
+def _ensure_autocover_dependencies(python_executable, project_dir, runner=subprocess.run):
+    probe = runner(
+        [str(python_executable), "-c", "import flask; from PIL import Image"],
+        cwd=str(project_dir),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if probe.returncode == 0:
+        return
+    requirements = Path(project_dir) / "requirements.txt"
+    if not requirements.is_file():
+        raise RuntimeError("AutoCover 缺少 requirements.txt")
+    env = {**os.environ, "HTTP_PROXY": "", "HTTPS_PROXY": ""}
+    result = runner(
+        [
+            str(python_executable), "-m", "pip", "install",
+            "-r", str(requirements), "-q",
+        ],
+        cwd=str(project_dir),
+        env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("AutoCover 依赖安装失败，请检查网络后重新启动。")
+
+
+def _wait_for_autocover(port, process, timeout=AUTOCOVER_START_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _is_compatible_autocover_service(_probe_autocover_service(port)):
+            return True
+        if process.poll() is not None:
+            return False
+        time.sleep(0.1)
+    return False
+
+
+def _stop_autocover(process):
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def _start_autocover(
+        environ=None, project_dir=None, preferred_port=AUTOCOVER_PREFERRED_PORT,
+        service_probe=None, port_finder=None, dependency_setup=None,
+        process_factory=None, service_waiter=None):
+    env = environ if environ is not None else os.environ
+    cover_dir = Path(project_dir or AUTOCOVER_PROJECT_DIR)
+    probe = service_probe or _probe_autocover_service
+    existing = probe(preferred_port)
+    if _is_compatible_autocover_service(existing):
+        url = f"http://127.0.0.1:{preferred_port}"
+        env["AUTOCOVER_URL"] = url
+        return None, url, True
+    if not cover_dir.is_dir():
+        raise RuntimeError(f"AutoCover 项目不存在: {cover_dir}")
+
+    select_port = port_finder or _find_available_local_port
+    selected_port = select_port(preferred_port)
+    python_executable = _autocover_python(env)
+    prepare_dependencies = dependency_setup or _ensure_autocover_dependencies
+    prepare_dependencies(python_executable, cover_dir)
+
+    factory = process_factory or subprocess.Popen
+    child_env = dict(env)
+    child_env["PYTHONUTF8"] = "1"
+    process = factory(
+        [
+            str(python_executable), "-m", "autocover.cli", "serve",
+            "--port", str(selected_port), "--no-browser",
+        ],
+        cwd=str(cover_dir),
+        env=child_env,
+    )
+    waiter = service_waiter or _wait_for_autocover
+    if not waiter(selected_port, process):
+        _stop_autocover(process)
+        raise RuntimeError("AutoCover 启动失败，请检查上方错误信息。")
+
+    url = f"http://127.0.0.1:{selected_port}"
+    env["AUTOCOVER_URL"] = url
+    return process, url, False
+
+
 def main():
     os.chdir(PROJECT_DIR)
     print("=" * 50)
@@ -117,24 +265,34 @@ def main():
     else:
         os.environ.setdefault("AUTOSLICE_FUNASR_DEVICE", "auto")
 
-    print("\n[1/2] 检查依赖...")
+    print("\n[1/3] 检查依赖...")
     missing = _missing_dependencies()
     if missing:
         print(f"  缺少依赖: {', '.join(missing)}，正在安装...")
         _install_dependencies()
 
-    print("[2/2] 启动 Web 服务...")
-    print("\n  浏览器打开: http://localhost:5002")
-    print("  按 Ctrl+C 停止\n")
-    print("=" * 50 + "\n")
+    print("[2/3] 启动 AutoCover 封面服务...")
+    cover_process = None
+    try:
+        cover_process, cover_url, reused_cover = _start_autocover()
+        cover_state = "复用已有服务" if reused_cover else "已随 AutoSlice 启动"
+        print(f"  AutoCover: {cover_url}（{cover_state}）")
 
-    sys.path.insert(0, str(PROJECT_DIR))
-    from app import app
+        print("[3/3] 启动 AutoSlice Web 服务...")
+        print("\n  浏览器打开: http://localhost:5002")
+        print("  自动封面入口: http://localhost:5002/autocover")
+        print("  按 Ctrl+C 同时停止本次启动的服务\n")
+        print("=" * 50 + "\n")
 
-    device = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
-    print(f"AutoSlice Web 已启动: http://localhost:5002（FunASR: {device}）")
-    print("控制台将实时显示所有任务进度")
-    app.run(host="0.0.0.0", port=5002, debug=False, threaded=True)
+        sys.path.insert(0, str(PROJECT_DIR))
+        from app import app
+
+        device = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
+        print(f"AutoSlice Web 已启动: http://localhost:5002（FunASR: {device}）")
+        print("控制台将实时显示所有任务进度")
+        app.run(host="0.0.0.0", port=5002, debug=False, threaded=True)
+    finally:
+        _stop_autocover(cover_process)
     return 0
 
 

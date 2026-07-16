@@ -1,9 +1,10 @@
 import importlib.util
 import os
 from pathlib import Path
+import socket
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 LAUNCHER_PATH = Path(__file__).with_name("启动.py")
@@ -81,6 +82,7 @@ class LauncherTests(unittest.TestCase):
             argv=["--test"],
             environ=parent_env,
             runner=fake_runner,
+            current_executable=r"C:\Python310\python.exe",
         )
 
         self.assertEqual(code, 0)
@@ -88,6 +90,10 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(captured["command"][-1], "--test")
         self.assertEqual(captured["env"]["AUTOSLICE_FUNASR_DEVICE"], "cuda:0")
         self.assertEqual(captured["env"]["AUTOSLICE_GPU_RUNTIME_ACTIVE"], "1")
+        self.assertEqual(
+            captured["env"]["AUTOSLICE_HOST_PYTHON"],
+            r"C:\Python310\python.exe",
+        )
         self.assertNotIn("AUTOSLICE_FUNASR_DEVICE", parent_env)
 
     def test_dependency_check_uses_module_specs_without_importing_funasr(self):
@@ -96,6 +102,110 @@ class LauncherTests(unittest.TestCase):
         missing = launcher._missing_dependencies(lambda name: available[name])
 
         self.assertEqual(missing, ["funasr"])
+
+    def test_autocover_contract_and_port_selection(self):
+        self.assertTrue(launcher._is_compatible_autocover_service({
+            "service": "autocover",
+            "api_version": 3,
+        }))
+        self.assertFalse(launcher._is_compatible_autocover_service({
+            "service": "autocover",
+            "api_version": 2,
+        }))
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            port = occupied.getsockname()[1]
+            self.assertEqual(
+                launcher._find_available_local_port(port, attempts=2),
+                port + 1,
+            )
+
+    def test_autocover_reuses_compatible_service_without_starting_process(self):
+        env = {}
+        process_factory = Mock()
+
+        process, url, reused = launcher._start_autocover(
+            environ=env,
+            preferred_port=5010,
+            service_probe=Mock(return_value={
+                "service": "autocover",
+                "api_version": 3,
+            }),
+            process_factory=process_factory,
+        )
+
+        self.assertIsNone(process)
+        self.assertEqual(url, "http://127.0.0.1:5010")
+        self.assertTrue(reused)
+        self.assertEqual(env["AUTOCOVER_URL"], url)
+        process_factory.assert_not_called()
+
+    def test_autocover_starts_with_host_python_and_selected_port(self):
+        with TemporaryDirectory() as directory:
+            cover_dir = Path(directory) / "AutoCover"
+            cover_dir.mkdir()
+            process = Mock()
+            process.poll.return_value = None
+            process_factory = Mock(return_value=process)
+            dependency_setup = Mock()
+            waiter = Mock(return_value=True)
+            env = {"AUTOSLICE_HOST_PYTHON": r"C:\Python310\python.exe"}
+
+            result_process, url, reused = launcher._start_autocover(
+                environ=env,
+                project_dir=cover_dir,
+                preferred_port=5010,
+                service_probe=Mock(return_value=None),
+                port_finder=Mock(return_value=5011),
+                dependency_setup=dependency_setup,
+                process_factory=process_factory,
+                service_waiter=waiter,
+            )
+
+        self.assertIs(result_process, process)
+        self.assertEqual(url, "http://127.0.0.1:5011")
+        self.assertFalse(reused)
+        dependency_setup.assert_called_once_with(
+            Path(r"C:\Python310\python.exe"), cover_dir
+        )
+        command = process_factory.call_args.args[0]
+        self.assertEqual(command, [
+            r"C:\Python310\python.exe",
+            "-m", "autocover.cli", "serve",
+            "--port", "5011", "--no-browser",
+        ])
+        self.assertEqual(process_factory.call_args.kwargs["cwd"], str(cover_dir))
+        self.assertEqual(process_factory.call_args.kwargs["env"]["PYTHONUTF8"], "1")
+        waiter.assert_called_once_with(5011, process)
+        self.assertEqual(env["AUTOCOVER_URL"], url)
+
+    def test_autocover_start_failure_stops_child_and_exit_stops_only_owned_process(self):
+        with TemporaryDirectory() as directory:
+            cover_dir = Path(directory) / "AutoCover"
+            cover_dir.mkdir()
+            failed_process = Mock()
+            failed_process.poll.return_value = None
+
+            with self.assertRaisesRegex(RuntimeError, "AutoCover 启动失败"):
+                launcher._start_autocover(
+                    environ={},
+                    project_dir=cover_dir,
+                    service_probe=Mock(return_value=None),
+                    port_finder=Mock(return_value=5010),
+                    dependency_setup=Mock(),
+                    process_factory=Mock(return_value=failed_process),
+                    service_waiter=Mock(return_value=False),
+                )
+
+        failed_process.terminate.assert_called_once_with()
+        failed_process.wait.assert_called_once_with(timeout=5)
+
+        exited_process = Mock()
+        exited_process.poll.return_value = 0
+        launcher._stop_autocover(exited_process)
+        exited_process.terminate.assert_not_called()
 
 
 if __name__ == "__main__":
