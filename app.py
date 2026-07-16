@@ -642,6 +642,11 @@ def topic_v2_page():
     return render_template("topic_v2.html")
 
 
+@app.route("/subtitle-workflow")
+def subtitle_workflow_page():
+    return render_template("subtitle_workflow.html")
+
+
 @app.route("/api/start-pipeline", methods=["POST"])
 def start_pipeline():
     """启动完整话题分析流水线（v2）"""

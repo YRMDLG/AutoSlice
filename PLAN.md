@@ -1067,26 +1067,40 @@
 | 完成时间 | 2026-07-16 19:08 |
 | 备注 | 默认扫描目录为 `F:\Videos\投稿`。6 个 API 定向测试全部通过；提供默认参数与精确字体状态、递归配对扫描、完整字幕加载、AI 检查、确认保存、JPEG 预览和后台压制接口。视频/SRT 必须同目录，修正保存核对序号与原文版本，输出只能位于原投稿目录且禁止覆盖原视频；后台失败写入 SSE 错误状态。 |
 
-### Action 16.4: 可视化校对与样式压制页面 [进行中]
+### Action 16.4: 可视化校对与样式压制页面 [已验证]
+
+| 字段 | 值 |
+|------|-----|
+| 状态 | 已验证 |
+| 依赖 | Action 16.3 |
+| 描述 | 新增独立页面，提供投稿队列、逐条原文/修正文/理由/置信度、批量勾选与直接编辑、样式颜色和剪映参数、视频帧预览、保存校对及开始压制操作。 |
+| 涉及文件 | `app.py` `templates/subtitle_workflow.html` `PLAN.md` |
+| 验证命令 | `python -B -c "from app import app; c=app.test_client(); r=c.get('/subtitle-workflow'); h=r.get_data(as_text=True); assert r.status_code==200 and 'Noto Sans S Chinese Black' in h and '/api/subtitles/render' in h and 'd06e95' in h; print('字幕页面路由与核心控件通过')"` |
+| 验证预期 | 页面路由返回 200，包含精确字体、默认样式、逐句编辑、筛选、预览、保存、压制及 SSE 状态处理。 |
+| 重试次数 | 0/10 |
+| 完成时间 | 2026-07-16 19:17 |
+| 备注 | 页面不使用嵌套卡片，长标题和长字幕可滚动且不溢出。Flask 测试客户端确认路由返回 200 且精确字体、默认颜色和压制 API 均存在；Node `new Function` 独立编译内嵌脚本通过。页面支持投稿队列状态、全部/建议/已改筛选、逐句原文对照和直接编辑、高置信度默认采用、十六进制颜色联动、剪映字号/描边/X/Y、1080p/8000K/60fps 参数、自动保存后预览以及 SSE 压制状态。 |
+
+### Action 16.5: 主页面导航入口 [进行中]
 
 | 字段 | 值 |
 |------|-----|
 | 状态 | 进行中 |
-| 依赖 | Action 16.3 |
-| 描述 | 新增独立页面，提供投稿队列、逐条原文/修正文/理由/置信度、批量勾选与直接编辑、样式颜色和剪映参数、视频帧预览、保存校对及开始压制操作。 |
-| 涉及文件 | `templates/subtitle_workflow.html` `test_app.py` `PLAN.md` |
-| 验证命令 | `python -B -m unittest test_app.SubtitleWorkflowPageTests -v` |
-| 验证预期 | 页面路由、默认样式、HTML 转义、选择/编辑/预览/保存/压制控件及 SSE 状态处理测试全部通过。 |
+| 依赖 | Action 16.4 |
+| 描述 | 在现有弹幕切片和话题分析页面加入“字幕校对+压制”入口，并为页面交互契约补充回归检查，保证无需手输网址即可进入。 |
+| 涉及文件 | `templates/index.html` `templates/topic_v2.html` `PLAN.md` |
+| 验证命令 | `python -B -c "from app import app; c=app.test_client(); assert all('/subtitle-workflow' in c.get(p).get_data(as_text=True) for p in ('/','/topic-v2')); print('主页面字幕入口通过')"` |
+| 验证预期 | 两个现有主页面都显示字幕工作流入口，原导航和页面 API 不受影响。 |
 | 重试次数 | 0/10 |
 | 完成时间 | - |
-| 备注 | 页面不使用嵌套卡片，长标题和长字幕可滚动且不溢出。 |
+| 备注 | - |
 
-### Action 16.5: 真实投稿端到端验收与说明 [待办]
+### Action 16.6: 真实投稿端到端验收与说明 [待办]
 
 | 字段 | 值 |
 |------|-----|
 | 状态 | 待办 |
-| 依赖 | Action 16.4 |
+| 依赖 | Action 16.5 |
 | 描述 | 用当前四组真实投稿 MP4/SRT 检查 AI 建议，至少完成一组校对字幕、ASS、预览和硬字幕 MP4；逐项核验原文件未变、字幕可见、样式位置、音频、时长和完整解码，并补充使用说明。 |
 | 涉及文件 | `README.md` `PLAN.md` |
 | 验证命令 | `python -B -m unittest test_subtitle_workflow.py test_app.py test_topic_engine.py test_launcher.py -v` |
