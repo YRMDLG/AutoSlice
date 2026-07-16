@@ -2176,7 +2176,7 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False, model_override=
             content = choice.get("text", "")
         if finish_reason == "length" and not _llm_response_has_complete_json(content):
             raise LLMResponseTruncatedError(
-                f"DeepSeek Pro 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+                f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
             )
         if not content:
             raise RuntimeError(f"API 返回格式不兼容: {json.dumps(data)[:300]}")
@@ -2208,7 +2208,7 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False, model_override=
                 break
         if data.get("stop_reason") == "max_tokens" and not _llm_response_has_complete_json(content):
             raise LLMResponseTruncatedError(
-                f"DeepSeek Pro 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+                f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
             )
         return content
 
@@ -2276,7 +2276,7 @@ def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
             result = call_llm(active_prompt, **call_kwargs)
             if require_json and _extract_json_payload(result) is None:
                 raise LLMStructuredOutputError(
-                    "DeepSeek Pro 未返回完整 JSON，将改用紧凑提示重试"
+                    "模型未返回完整 JSON，将改用紧凑提示重试"
                 )
             return result
 
