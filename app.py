@@ -2,7 +2,7 @@
 AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 """
 
-import os, sys, json, time, threading, queue, glob as glob_mod
+import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, subprocess
 from flask import Flask, render_template, request, jsonify, Response
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -82,6 +82,152 @@ def _pipeline_completion_progress(result):
     clip_marks = result.get("clip_marks") or []
     topic_count = result.get("topic_count", len(clip_marks))
     return f"完成! {topic_count} 个话题, {result.get('slice_count', 0)} 个切片"
+
+
+def _subtitle_task_id(prefix, path):
+    normalized = os.path.normcase(os.path.abspath(path))
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:10]
+    stem = os.path.splitext(os.path.basename(path))[0][:24]
+    return f"{prefix}_{stem}_{digest}"
+
+
+def _validate_subtitle_path(srt_path):
+    if not srt_path or not os.path.isfile(srt_path):
+        raise ValueError("SRT 字幕文件不存在")
+    if os.path.splitext(srt_path)[1].lower() != ".srt":
+        raise ValueError("字幕文件必须是 SRT")
+    return os.path.abspath(srt_path)
+
+
+def _validate_subtitle_pair(video_path, srt_path):
+    if not video_path or not os.path.isfile(video_path):
+        raise ValueError("投稿视频文件不存在")
+    if os.path.splitext(video_path)[1].lower() not in {".mp4", ".mov", ".mkv"}:
+        raise ValueError("投稿视频格式不受支持")
+    video_path = os.path.abspath(video_path)
+    srt_path = _validate_subtitle_path(srt_path)
+    if os.path.normcase(os.path.dirname(video_path)) != os.path.normcase(os.path.dirname(srt_path)):
+        raise ValueError("视频和字幕必须位于同一投稿目录")
+    return video_path, srt_path
+
+
+def _validate_subtitle_output_path(video_path, output_path):
+    if not output_path:
+        return None
+    output_path = os.path.abspath(output_path)
+    if os.path.splitext(output_path)[1].lower() != ".mp4":
+        raise ValueError("字幕版输出文件必须是 MP4")
+    if os.path.normcase(os.path.dirname(video_path)) != os.path.normcase(os.path.dirname(output_path)):
+        raise ValueError("字幕版视频必须输出到原投稿目录")
+    if os.path.normcase(video_path) == os.path.normcase(output_path):
+        raise ValueError("字幕版输出不能覆盖原视频")
+    return output_path
+
+
+def run_subtitle_review_task(
+        task_id, srt_path, context_title, glossary=None, force=False):
+    """后台生成字幕错字建议，不直接改文件。"""
+    update_task(
+        task_id,
+        status="running",
+        progress="准备检查字幕错别字...",
+        step=0,
+        total=100,
+    )
+
+    def callback(msg, step, total):
+        update_task(
+            task_id,
+            status="running",
+            progress=msg,
+            step=step,
+            total=total,
+        )
+
+    try:
+        from subtitle_workflow import (
+            high_confidence_corrections,
+            suggest_subtitle_corrections,
+        )
+
+        result = suggest_subtitle_corrections(
+            srt_path,
+            context_title=context_title,
+            glossary=glossary,
+            use_cache=not force,
+            progress_callback=callback,
+        )
+        result["default_corrections"] = high_confidence_corrections(result)
+        update_task(
+            task_id,
+            status="done",
+            progress=f"字幕检查完成，发现 {len(result['suggestions'])} 条建议",
+            result=json.dumps(result, ensure_ascii=False),
+            step=100,
+            total=100,
+        )
+    except Exception as exc:
+        import traceback
+        update_task(
+            task_id,
+            status="error",
+            progress="字幕检查失败",
+            result=f"{exc}\n{traceback.format_exc()}",
+            step=0,
+            total=100,
+        )
+
+
+def run_subtitle_render_task(
+        task_id, video_path, srt_path, style, export_settings,
+        output_path=None):
+    """后台把确认后的字幕压制进新视频。"""
+    update_task(
+        task_id,
+        status="running",
+        progress="准备字幕样式和编码器...",
+        step=0,
+        total=100,
+    )
+
+    def callback(msg, step, total):
+        update_task(
+            task_id,
+            status="running",
+            progress=msg,
+            step=step,
+            total=total,
+        )
+
+    try:
+        from subtitle_workflow import burn_subtitles
+
+        result = burn_subtitles(
+            video_path,
+            srt_path,
+            style=style,
+            export_settings=export_settings,
+            output_path=output_path,
+            progress_callback=callback,
+        )
+        update_task(
+            task_id,
+            status="done",
+            progress="字幕版视频压制完成",
+            result=json.dumps(result, ensure_ascii=False),
+            step=100,
+            total=100,
+        )
+    except Exception as exc:
+        import traceback
+        update_task(
+            task_id,
+            status="error",
+            progress="字幕版视频压制失败",
+            result=f"{exc}\n{traceback.format_exc()}",
+            step=0,
+            total=100,
+        )
 
 
 def run_timeline_optimization_task(
@@ -286,6 +432,150 @@ def slice_all():
 def list_tasks():
     with task_lock:
         return jsonify(dict(tasks))
+
+
+# ==================== 字幕校对与压制 ====================
+
+@app.route("/api/subtitles/defaults", methods=["GET"])
+def subtitle_defaults():
+    from subtitle_workflow import (
+        DEFAULT_SUBTITLE_STYLE,
+        DEFAULT_VIDEO_EXPORT,
+        verify_exact_subtitle_font,
+    )
+
+    return jsonify({
+        "submission_dir": r"F:\Videos\投稿",
+        "style": DEFAULT_SUBTITLE_STYLE,
+        "export": DEFAULT_VIDEO_EXPORT,
+        "font": verify_exact_subtitle_font(),
+    })
+
+
+@app.route("/api/subtitles/scan", methods=["POST"])
+def subtitle_scan():
+    from subtitle_workflow import scan_submission_pairs
+
+    data = request.get_json(silent=True) or {}
+    root_dir = data.get("root_dir") or r"F:\Videos\投稿"
+    try:
+        pairs = scan_submission_pairs(root_dir)
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"root_dir": os.path.abspath(root_dir), "pairs": pairs, "count": len(pairs)})
+
+
+@app.route("/api/subtitles/cues", methods=["POST"])
+def subtitle_cues():
+    from subtitle_workflow import parse_srt_document
+
+    data = request.get_json(silent=True) or {}
+    try:
+        srt_path = _validate_subtitle_path(data.get("srt_path", ""))
+        cues = [cue.to_dict() for cue in parse_srt_document(srt_path)]
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"srt_path": srt_path, "cues": cues, "count": len(cues)})
+
+
+@app.route("/api/subtitles/review", methods=["POST"])
+def subtitle_review():
+    data = request.get_json(silent=True) or {}
+    try:
+        video_path, srt_path = _validate_subtitle_pair(
+            data.get("video_path", ""),
+            data.get("srt_path", ""),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    context_title = str(data.get("context_title") or os.path.basename(os.path.dirname(video_path)))
+    glossary = data.get("glossary")
+    if glossary is not None and not isinstance(glossary, list):
+        return jsonify({"error": "优先词表必须是数组"}), 400
+    task_id = _subtitle_task_id("subtitle_review", srt_path)
+    threading.Thread(
+        target=run_subtitle_review_task,
+        args=(task_id, srt_path, context_title, glossary, bool(data.get("force"))),
+        daemon=True,
+    ).start()
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/api/subtitles/save", methods=["POST"])
+def subtitle_save():
+    from subtitle_workflow import parse_srt_document, save_corrected_srt
+
+    data = request.get_json(silent=True) or {}
+    corrections = data.get("corrections", [])
+    if not isinstance(corrections, list):
+        return jsonify({"error": "字幕修正必须是数组"}), 400
+    try:
+        srt_path = _validate_subtitle_path(data.get("srt_path", ""))
+        output_path = save_corrected_srt(srt_path, corrections)
+        cue_count = len(parse_srt_document(output_path))
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({
+        "source_srt_path": srt_path,
+        "corrected_srt_path": output_path,
+        "correction_count": len(corrections),
+        "cue_count": cue_count,
+    })
+
+
+@app.route("/api/subtitles/preview", methods=["POST"])
+def subtitle_preview():
+    from subtitle_workflow import render_subtitle_preview
+
+    data = request.get_json(silent=True) or {}
+    try:
+        video_path, srt_path = _validate_subtitle_pair(
+            data.get("video_path", ""),
+            data.get("srt_path", ""),
+        )
+        image_bytes, selected_time = render_subtitle_preview(
+            video_path,
+            srt_path,
+            style=data.get("style"),
+            preview_time=data.get("preview_time"),
+            export_settings=data.get("export"),
+        )
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    response = Response(image_bytes, mimetype="image/jpeg")
+    response.headers["X-Subtitle-Preview-Time"] = f"{selected_time:.3f}"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/api/subtitles/render", methods=["POST"])
+def subtitle_render():
+    data = request.get_json(silent=True) or {}
+    try:
+        video_path, srt_path = _validate_subtitle_pair(
+            data.get("video_path", ""),
+            data.get("srt_path", ""),
+        )
+        output_path = _validate_subtitle_output_path(
+            video_path,
+            data.get("output_path", ""),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    task_id = _subtitle_task_id("subtitle_render", video_path)
+    threading.Thread(
+        target=run_subtitle_render_task,
+        args=(
+            task_id,
+            video_path,
+            srt_path,
+            data.get("style"),
+            data.get("export"),
+            output_path,
+        ),
+        daemon=True,
+    ).start()
+    return jsonify({"task_id": task_id})
 
 
 @app.route("/api/list-json-timelines", methods=["GET"])

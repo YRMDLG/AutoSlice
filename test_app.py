@@ -155,5 +155,199 @@ class TopicPipelineApiTests(unittest.TestCase):
         )
 
 
+class SubtitleWorkflowApiTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        app_module.tasks.clear()
+        self.client = app_module.app.test_client()
+
+    @staticmethod
+    def _write_pair(root):
+        folder = Path(root) / "【泽音】测试投稿"
+        folder.mkdir()
+        video = folder / "剪映导出.mp4"
+        srt = folder / "剪映字幕.srt"
+        video.write_bytes(b"video")
+        srt.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n瓦衣\n",
+            encoding="utf-8",
+        )
+        return video, srt
+
+    def test_scan_returns_submission_pairs_and_missing_dir_is_400(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            response = self.client.post("/api/subtitles/scan", json={"root_dir": td})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["pairs"][0]["video_name"], video.name)
+        self.assertEqual(payload["pairs"][0]["srt_name"], srt.name)
+        missing = self.client.post(
+            "/api/subtitles/scan",
+            json={"root_dir": r"F:\不存在\投稿"},
+        )
+        self.assertEqual(missing.status_code, 400)
+
+    def test_cues_and_save_validate_indices_without_overwriting_source(self):
+        with TemporaryDirectory() as td:
+            _, srt = self._write_pair(td)
+            original = srt.read_bytes()
+            cues_response = self.client.post(
+                "/api/subtitles/cues",
+                json={"srt_path": str(srt)},
+            )
+            invalid = self.client.post(
+                "/api/subtitles/save",
+                json={
+                    "srt_path": str(srt),
+                    "corrections": [{"index": 9, "corrected": "娃衣"}],
+                },
+            )
+            saved = self.client.post(
+                "/api/subtitles/save",
+                json={
+                    "srt_path": str(srt),
+                    "corrections": [{
+                        "index": 1,
+                        "original": "瓦衣",
+                        "corrected": "娃衣",
+                    }],
+                },
+            )
+            corrected = Path(saved.get_json()["corrected_srt_path"])
+            corrected_text = corrected.read_text(encoding="utf-8")
+            source_after = srt.read_bytes()
+
+        self.assertEqual(cues_response.status_code, 200)
+        self.assertEqual(cues_response.get_json()["cues"][0]["text"], "瓦衣")
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("序号不存在", invalid.get_json()["error"])
+        self.assertEqual(saved.status_code, 200)
+        self.assertIn("娃衣", corrected_text)
+        self.assertEqual(source_after, original)
+
+    def test_review_runs_in_background_and_exposes_default_corrections(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            review_result = {
+                "suggestions": [{
+                    "index": 1,
+                    "original": "瓦衣",
+                    "corrected": "娃衣",
+                    "confidence": 0.97,
+                }],
+            }
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "subtitle_workflow.suggest_subtitle_corrections",
+                    return_value=review_result,
+                ) as review,
+            ):
+                response = self.client.post(
+                    "/api/subtitles/review",
+                    json={"video_path": str(video), "srt_path": str(srt)},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        task_id = response.get_json()["task_id"]
+        self.assertEqual(app_module.tasks[task_id]["status"], "done")
+        result = json.loads(app_module.tasks[task_id]["result"])
+        self.assertEqual(result["default_corrections"][0]["corrected"], "娃衣")
+        self.assertEqual(review.call_args.kwargs["context_title"], "【泽音】测试投稿")
+
+    def test_preview_returns_jpeg_and_rejects_mismatched_directory(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            with patch(
+                "subtitle_workflow.render_subtitle_preview",
+                return_value=(b"\xff\xd8preview", 0.5),
+            ) as preview:
+                response = self.client.post(
+                    "/api/subtitles/preview",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "style": {"font_name": "Noto Sans S Chinese Black"},
+                    },
+                )
+            other = Path(td) / "other"
+            other.mkdir()
+            other_srt = other / "字幕.srt"
+            other_srt.write_text(srt.read_text(encoding="utf-8"), encoding="utf-8")
+            mismatch = self.client.post(
+                "/api/subtitles/preview",
+                json={"video_path": str(video), "srt_path": str(other_srt)},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "image/jpeg")
+        self.assertEqual(response.headers["X-Subtitle-Preview-Time"], "0.500")
+        preview.assert_called_once()
+        self.assertEqual(mismatch.status_code, 400)
+        self.assertIn("同一投稿目录", mismatch.get_json()["error"])
+
+    def test_render_task_completes_and_rejects_source_overwrite(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            output = video.with_name("完成_字幕版.mp4")
+            render_result = {
+                "output_video_path": str(output),
+                "encoder": "h264_nvenc",
+            }
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "subtitle_workflow.burn_subtitles",
+                    return_value=render_result,
+                ) as render,
+            ):
+                response = self.client.post(
+                    "/api/subtitles/render",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "output_path": str(output),
+                    },
+                )
+            overwrite = self.client.post(
+                "/api/subtitles/render",
+                json={
+                    "video_path": str(video),
+                    "srt_path": str(srt),
+                    "output_path": str(video),
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        task_id = response.get_json()["task_id"]
+        self.assertEqual(app_module.tasks[task_id]["status"], "done")
+        render.assert_called_once()
+        self.assertEqual(overwrite.status_code, 400)
+        self.assertIn("不能覆盖", overwrite.get_json()["error"])
+
+    def test_render_failure_is_recorded_as_task_error(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "subtitle_workflow.burn_subtitles",
+                    side_effect=RuntimeError("编码失败"),
+                ),
+            ):
+                response = self.client.post(
+                    "/api/subtitles/render",
+                    json={"video_path": str(video), "srt_path": str(srt)},
+                )
+
+        task_id = response.get_json()["task_id"]
+        self.assertEqual(app_module.tasks[task_id]["status"], "error")
+        self.assertIn("编码失败", app_module.tasks[task_id]["result"])
+
+
 if __name__ == "__main__":
     unittest.main()
