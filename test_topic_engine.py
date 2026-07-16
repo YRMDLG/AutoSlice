@@ -5558,6 +5558,118 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertGreater(expanded[0]["start"], 150)
 
 
+class PipelineProgressTests(unittest.TestCase):
+    """完整分析流水线的阶段进度和批次日志。"""
+
+    def test_pipeline_progress_does_not_fall_back_after_transcription(self):
+        events = []
+
+        def progress(message, step, total):
+            events.append((message, step, total))
+
+        def fake_ensure_srt(_path, progress_callback):
+            progress_callback("加载 FunASR 模型(cuda:0)...", 10, 100)
+            progress_callback("转录完成 (10 条)", 90, 100)
+            return str(srt_path)
+
+        def fake_prepare(*_args, progress_callback=None, **_kwargs):
+            progress_callback("字幕校准人工时间轴：2 批，2 路并行...", 22, 100)
+            progress_callback("字幕校准人工时间轴完成 (2/2)", 24, 100)
+            return {
+                "path": None,
+                "entries": [],
+                "raw_entry_count": 0,
+                "optimization_warning": None,
+            }
+
+        def fake_analyze(*_args, progress_callback=None, **_kwargs):
+            progress_callback("Step 4/5: DeepSeek V4 Pro 分块分析...", 25, 100)
+            return [], [], None
+
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "泽音Melody-2026年07月14日19点59分.flv"
+            srt_path = flv_path.with_suffix(".srt")
+            flv_path.write_bytes(b"flv")
+            srt_path.write_text(
+                "1\n00:00:01,000 --> 00:00:05,000\n音音测试字幕\n",
+                encoding="utf-8",
+            )
+            with (
+                patch("topic_engine.ensure_srt", side_effect=fake_ensure_srt),
+                patch("topic_engine.export_corrected_srt", return_value=str(srt_path)),
+                patch("topic_engine.analyze_danmaku", return_value=DanmakuDensitySeries()),
+                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音测试字幕")]),
+                patch("topic_engine.chunk_srt", return_value=[]),
+                patch("topic_engine._probe_video_duration", return_value=5),
+                patch("topic_engine._prepare_optimized_manual_timeline", side_effect=fake_prepare),
+                patch("topic_engine._analyze_topic_chunks", side_effect=fake_analyze),
+                patch("topic_engine._write_clip_review_checkpoint"),
+                patch("topic_engine._build_timeline_report", return_value="# 测试报告\n"),
+                patch("topic_engine._build_refinement_manifest", return_value={}),
+                patch("topic_engine._write_refinement_manifest_files"),
+                patch("topic_engine._upsert_unified_refinement_queue"),
+            ):
+                run_pipeline(
+                    str(flv_path),
+                    progress_callback=progress,
+                    manual_timeline_path="__none__",
+                )
+
+        steps = [step for _message, step, _total in events]
+        event_steps = {message: step for message, step, _total in events}
+        self.assertEqual(steps, sorted(steps))
+        self.assertEqual(event_steps["转录完成 (10 条)"], 13)
+        self.assertEqual(
+            event_steps[f"已生成剪映校对字幕: {srt_path.name}"],
+            14,
+        )
+        self.assertEqual(event_steps["Step 2/5: 弹幕密度分析..."], 15)
+        self.assertEqual(event_steps["字幕校准人工时间轴完成 (2/2)"], 24)
+        self.assertEqual(
+            event_steps["Step 4/5: DeepSeek V4 Pro 分块分析..."],
+            25,
+        )
+        self.assertNotIn(75, steps)
+
+    def test_manual_timeline_batches_log_start_and_real_completions(self):
+        topics = [{
+            "start": index * 100,
+            "end": index * 100 + 80,
+            "title": f"候选{index + 1}",
+            "body": [f"·字幕核查：候选{index + 1}"],
+        } for index in range(9)]
+        events = []
+
+        def fake_enrich(batch, **_kwargs):
+            for topic in batch:
+                topic["ai_enriched"] = True
+            return len(batch)
+
+        with (
+            patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
+            patch("topic_engine._enrich_manual_topics_with_llm", side_effect=fake_enrich),
+        ):
+            warning = _enrich_manual_topics_in_batches(
+                topics,
+                batch_size=3,
+                progress_callback=lambda message, step, total: events.append(
+                    (message, step, total)
+                ),
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual(events[0][0], "字幕校准人工时间轴：3 批，3 路并行...")
+        self.assertEqual(
+            [message for message, _step, _total in events[1:]],
+            [
+                "字幕校准人工时间轴完成 (1/3)",
+                "字幕校准人工时间轴完成 (2/3)",
+                "字幕校准人工时间轴完成 (3/3)",
+            ],
+        )
+        self.assertEqual([step for _message, step, _total in events], [22, 22, 23, 24])
+
+
 class LLMRetryTests(unittest.TestCase):
     """上游不可用时的共享恢复策略。"""
 

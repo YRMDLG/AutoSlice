@@ -3244,7 +3244,8 @@ def _enriched_manual_topic_from_item(topic, item):
 
 def _enrich_manual_topics_with_llm(
         topics, streamer_name="音音", progress_callback=None,
-        retry_coordinator=None):
+        retry_coordinator=None, progress_label="人工时间轴 AI 复核",
+        progress_step=75):
     """用一次 DeepSeek 请求批量复核人工候选，并允许并列事件拆成两项。"""
     if not topics:
         return 0
@@ -3259,8 +3260,8 @@ def _enrich_manual_topics_with_llm(
         compact_prompt=compact_prompt,
         require_json=True,
         progress_callback=progress_callback,
-        progress_label="人工时间轴 AI 复核",
-        progress_step=75,
+        progress_label=progress_label,
+        progress_step=progress_step,
         retry_coordinator=retry_coordinator,
     )
     payload = _extract_json_payload(response)
@@ -3323,7 +3324,8 @@ def _try_enrich_manual_topics(topics, streamer_name="音音", progress_callback=
 def _enrich_manual_topics_in_batches(
         topics, streamer_name="音音", progress_callback=None,
         batch_size=MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE,
-        batch_result_callback=None):
+        batch_result_callback=None, progress_start=22, progress_end=24,
+        progress_label="字幕校准人工时间轴"):
     """分批优化复杂人工时间轴，避免一次请求塞入整场证据。"""
     optimized_topics = []
     warnings = []
@@ -3334,12 +3336,6 @@ def _enrich_manual_topics_in_batches(
     for batch_index, offset in enumerate(
             range(0, len(topics or []), safe_batch_size), 1):
         batch = list(topics[offset:offset + safe_batch_size])
-        if report_progress:
-            report_progress(
-                f"字幕校准人工时间轴 ({batch_index}/{total_batches})...",
-                22,
-                100,
-            )
         jobs.append({
             "batch_index": batch_index,
             "offset": offset,
@@ -3352,10 +3348,19 @@ def _enrich_manual_topics_in_batches(
             streamer_name=streamer_name,
             progress_callback=report_progress,
             retry_coordinator=provider_retry_coordinator,
+            progress_label=f"{progress_label} AI 复核",
+            progress_step=progress_start,
         )
 
     provider_retry_coordinator = _LLMProviderRetryCoordinator()
     concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
+    if report_progress:
+        report_progress(
+            f"{progress_label}：{total_batches} 批，{concurrency} 路并行...",
+            progress_start,
+            100,
+        )
+    completed_batches = 0
     with ThreadPoolExecutor(
             max_workers=concurrency,
             thread_name_prefix="autoslice-manual") as executor:
@@ -3381,6 +3386,18 @@ def _enrich_manual_topics_in_batches(
                 for topic in batch:
                     topic["reference_only"] = True
             optimized_topics.extend(batch)
+            completed_batches += 1
+            if report_progress:
+                progress_span = max(0, progress_end - progress_start)
+                current_step = progress_start + int(
+                    progress_span * completed_batches / total_batches
+                )
+                report_progress(
+                    f"{progress_label}完成 "
+                    f"({completed_batches}/{total_batches})",
+                    current_step,
+                    100,
+                )
             if batch_result_callback:
                 batch_result_callback(
                     list(optimized_topics),
@@ -6605,6 +6622,46 @@ def _serialized_progress_callback(progress_callback):
     return report
 
 
+def _scaled_progress_callback(progress_callback, start_step, end_step):
+    """把子任务百分比映射到完整流水线的固定阶段区间。"""
+    if not progress_callback:
+        return None
+    start_step = int(start_step)
+    end_step = max(start_step, int(end_step))
+
+    def report(message, step, total):
+        try:
+            ratio = float(step) / max(1.0, float(total))
+        except (TypeError, ValueError):
+            ratio = 0.0
+        ratio = min(1.0, max(0.0, ratio))
+        mapped = start_step + int(round((end_step - start_step) * ratio))
+        progress_callback(message, mapped, 100)
+
+    return report
+
+
+def _monotonic_progress_callback(progress_callback):
+    """并发阶段可乱序完成，但单次分析任务的百分比不得倒退。"""
+    if not progress_callback:
+        return None
+    lock = threading.Lock()
+    highest_step = 0
+
+    def report(message, step, total):
+        nonlocal highest_step
+        try:
+            normalised = int(round(float(step) / max(1.0, float(total)) * 100))
+        except (TypeError, ValueError):
+            normalised = highest_step
+        normalised = min(100, max(0, normalised))
+        with lock:
+            highest_step = max(highest_step, normalised)
+            progress_callback(message, highest_step, 100)
+
+    return report
+
+
 def _analyze_topic_chunks(
         chunks, streamer_display_name, progress_callback=None,
         checkpoint_path=None):
@@ -7180,6 +7237,9 @@ def _validate_unmatched_manual_topics(
         streamer_name=streamer_name,
         progress_callback=progress_callback,
         batch_size=MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE,
+        progress_start=94,
+        progress_end=94,
+        progress_label="人工时间轴补充项复核",
     )
 
     topics[:] = [topic for topic in topics if id(topic) not in original_ids]
@@ -7206,6 +7266,7 @@ def run_pipeline(
         "md_path": str,
     }
     """
+    progress_callback = _monotonic_progress_callback(progress_callback)
     video_name = os.path.basename(flv_path)
     base = flv_path[:-4]
     streamer_name = _infer_streamer_name(flv_path)
@@ -7215,7 +7276,10 @@ def run_pipeline(
     # Step 1: 确保 SRT 存在
     if progress_callback:
         progress_callback("Step 1/5: 检查/生成字幕...", 0, 100)
-    source_srt_path = ensure_srt(flv_path, progress_callback)
+    source_srt_path = ensure_srt(
+        flv_path,
+        _scaled_progress_callback(progress_callback, 0, 14),
+    )
     if not source_srt_path:
         raise RuntimeError("无法生成 SRT 字幕")
     corrected_srt_path = export_corrected_srt(source_srt_path)
@@ -7223,7 +7287,7 @@ def run_pipeline(
     if corrected_srt_path and progress_callback:
         progress_callback(
             f"已生成剪映校对字幕: {os.path.basename(corrected_srt_path)}",
-            12,
+            14,
             100,
         )
 
@@ -7281,7 +7345,7 @@ def run_pipeline(
             progress_callback(
                 f"已加载人工时间轴: {os.path.basename(manual_timeline['path'])}，"
                 f"{count_label}",
-                21, 100,
+                24, 100,
             )
     # Step 4: 首轮只分析字幕和弹幕，避免人工措辞锚定标题与语义边界。
     topic_analysis_checkpoint_path = base + "_topic_analysis_checkpoint.json"
