@@ -30,6 +30,7 @@ LLM_COMPACT_MAX_TOKENS = 12000
 LLM_FULL_TEXT_CHARS = 8000
 LLM_COMPACT_TEXT_CHARS = 2200
 LLM_RETRY_DELAYS = (3, 8, 20, 45)
+LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS = (3, 8)
 LLM_REQUEST_TIMEOUT = (30, 300)
 MAX_INITIAL_FAILED_CHUNKS = 3
 LLM_DEFAULT_CONCURRENCY = 3
@@ -2048,6 +2049,87 @@ class LLMStructuredOutputError(RuntimeError):
     """LLM 返回了文本，但没有可解析的完整 JSON。"""
 
 
+class LLMProviderUnavailableError(RuntimeError):
+    """上游推理节点在共享探测后仍不可用。"""
+
+
+_RETRY_AFTER_SHARED_RECOVERY = object()
+
+
+class _LLMProviderRetryCoordinator:
+    """让同一并发阶段只由一个请求探测暂时不可用的上游。"""
+
+    def __init__(self, delays=LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS):
+        self.delays = tuple(max(0, float(value)) for value in delays)
+        self._state_lock = threading.Lock()
+        self._recovery_lock = threading.Lock()
+        self._generation = 0
+        self._retry_index = 0
+        self._terminal_message = None
+
+    def generation(self):
+        with self._state_lock:
+            return self._generation
+
+    def _mark_recovered(self):
+        with self._state_lock:
+            self._generation += 1
+
+    def _terminal_error(self, error):
+        status = _llm_http_status(error)
+        status_note = f"HTTP {status}" if status else "上游错误"
+        return LLMProviderUnavailableError(
+            f"上游推理服务暂不可用（{status_note}），"
+            f"已完成 {len(self.delays)} 次共享恢复探测；"
+            "已完成的检查点会保留，请稍后直接重试。"
+        )
+
+    def recover(self, observed_generation, request_func, original_error,
+                sleep_func=time.sleep, progress_callback=None,
+                progress_label="API", progress_step=0):
+        """串行执行恢复探测；等待者复用恢复状态，不重复休眠和请求。"""
+        with self._recovery_lock:
+            with self._state_lock:
+                if self._terminal_message:
+                    raise LLMProviderUnavailableError(self._terminal_message)
+                if self._generation != observed_generation:
+                    return _RETRY_AFTER_SHARED_RECOVERY
+
+            last_error = original_error
+            while True:
+                with self._state_lock:
+                    retry_index = self._retry_index
+                    if retry_index >= len(self.delays):
+                        terminal = self._terminal_error(last_error)
+                        self._terminal_message = str(terminal)
+                        raise terminal
+                    self._retry_index += 1
+
+                delay = self.delays[retry_index]
+                remaining_wait = int(sum(self.delays[retry_index:]))
+                delay_label = int(delay) if delay.is_integer() else delay
+                if progress_callback:
+                    progress_callback(
+                        f"{progress_label}：上游推理服务暂不可用，"
+                        f"{delay_label}s 后统一探测 "
+                        f"({retry_index + 1}/{len(self.delays)}，"
+                        f"最多再等待 {remaining_wait}s): {_short_llm_error(last_error)}",
+                        progress_step,
+                        100,
+                    )
+                sleep_func(delay_label)
+                try:
+                    result = request_func()
+                except Exception as exc:
+                    if _is_provider_service_unavailable(exc):
+                        last_error = exc
+                        continue
+                    self._mark_recovered()
+                    raise
+                self._mark_recovered()
+                return result
+
+
 def _llm_response_has_complete_json(content):
     """判断响应中是否包含可解析的完整 JSON。"""
     return bool(content and _extract_json_payload(content) is not None)
@@ -2137,6 +2219,17 @@ def _short_llm_error(error):
     return str(error)[:200]
 
 
+def _llm_http_status(error):
+    if isinstance(error, requests.HTTPError) and error.response is not None:
+        return error.response.status_code
+    return None
+
+
+def _is_provider_service_unavailable(error):
+    """502/503/504 表示网关没有可用推理节点，需跨并发批次统一处理。"""
+    return _llm_http_status(error) in {502, 503, 504}
+
+
 def _is_retryable_llm_error(error):
     """判断是否适合重试：服务端 5xx、限流 429、连接/超时。"""
     if isinstance(error, (LLMResponseTruncatedError, LLMStructuredOutputError)):
@@ -2150,37 +2243,95 @@ def _is_retryable_llm_error(error):
 
 
 def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
-                         compact_max_tokens=LLM_COMPACT_MAX_TOKENS, attempts=None,
-                         sleep_func=time.sleep, progress_callback=None,
-                         progress_label="API", progress_step=0, require_json=False):
+                          compact_max_tokens=LLM_COMPACT_MAX_TOKENS, attempts=None,
+                          sleep_func=time.sleep, progress_callback=None,
+                          progress_label="API", progress_step=0, require_json=False,
+                          retry_coordinator=None):
     """对临时性 LLM/API 错误做退避重试；连续失败后再抛出。"""
     total_attempts = attempts or (len(LLM_RETRY_DELAYS) + 1)
     last_error = None
+    regular_failures = 0
+    provider_failures = 0
+    provider_retry_limit = min(
+        len(LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS),
+        max(0, total_attempts - 1),
+    )
     for attempt in range(total_attempts):
         use_compact = compact_prompt is not None and (
-            attempt >= 2 or isinstance(last_error, (LLMResponseTruncatedError, LLMStructuredOutputError))
+            regular_failures >= 2
+            or isinstance(last_error, (LLMResponseTruncatedError, LLMStructuredOutputError))
         )
         active_prompt = compact_prompt if use_compact else prompt
         active_tokens = compact_max_tokens if use_compact else max_tokens
-        try:
+
+        def request_once():
             result = call_llm(
                 active_prompt,
                 max_tokens=active_tokens,
                 json_mode=require_json,
             )
             if require_json and _extract_json_payload(result) is None:
-                raise LLMStructuredOutputError("DeepSeek Pro 未返回完整 JSON，将改用紧凑提示重试")
+                raise LLMStructuredOutputError(
+                    "DeepSeek Pro 未返回完整 JSON，将改用紧凑提示重试"
+                )
             return result
+
+        observed_generation = (
+            retry_coordinator.generation() if retry_coordinator else None
+        )
+        try:
+            return request_once()
         except Exception as e:
             last_error = e
+            if _is_provider_service_unavailable(e):
+                if retry_coordinator:
+                    recovered = retry_coordinator.recover(
+                        observed_generation,
+                        request_once,
+                        e,
+                        sleep_func=sleep_func,
+                        progress_callback=progress_callback,
+                        progress_label=progress_label,
+                        progress_step=progress_step,
+                    )
+                    if recovered is _RETRY_AFTER_SHARED_RECOVERY:
+                        continue
+                    return recovered
+                if provider_failures >= provider_retry_limit:
+                    raise LLMProviderUnavailableError(
+                        "上游推理服务暂不可用，"
+                        f"已完成 {provider_retry_limit} 次恢复探测；"
+                        "请稍后直接重试，已完成的检查点不会丢失。"
+                    ) from e
+                delay = LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS[provider_failures]
+                provider_failures += 1
+                remaining_wait = sum(
+                    LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS[
+                        provider_failures - 1:provider_retry_limit
+                    ]
+                )
+                if progress_callback:
+                    progress_callback(
+                        f"{progress_label}：上游推理服务暂不可用，"
+                        f"{delay}s 后探测 "
+                        f"({provider_failures}/{provider_retry_limit}，"
+                        f"最多再等待 {remaining_wait}s): {_short_llm_error(e)}",
+                        progress_step,
+                        100,
+                    )
+                sleep_func(delay)
+                continue
             if not _is_retryable_llm_error(e) or attempt >= total_attempts - 1:
                 raise
-            delay = LLM_RETRY_DELAYS[min(attempt, len(LLM_RETRY_DELAYS) - 1)]
+            delay = LLM_RETRY_DELAYS[
+                min(regular_failures, len(LLM_RETRY_DELAYS) - 1)
+            ]
+            regular_failures += 1
             compact_note = "，改用紧凑提示" if use_compact else ""
             if progress_callback:
                 progress_callback(
                     f"{progress_label} 失败{compact_note}，{delay}s 后重试 "
-                    f"({attempt + 1}/{total_attempts}): {_short_llm_error(e)}",
+                    f"({regular_failures}/{total_attempts - 1}): {_short_llm_error(e)}",
                     progress_step, 100,
                 )
             sleep_func(delay)
@@ -3091,7 +3242,9 @@ def _enriched_manual_topic_from_item(topic, item):
     return enriched
 
 
-def _enrich_manual_topics_with_llm(topics, streamer_name="音音", progress_callback=None):
+def _enrich_manual_topics_with_llm(
+        topics, streamer_name="音音", progress_callback=None,
+        retry_coordinator=None):
     """用一次 DeepSeek 请求批量复核人工候选，并允许并列事件拆成两项。"""
     if not topics:
         return 0
@@ -3108,6 +3261,7 @@ def _enrich_manual_topics_with_llm(topics, streamer_name="音音", progress_call
         progress_callback=progress_callback,
         progress_label="人工时间轴 AI 复核",
         progress_step=75,
+        retry_coordinator=retry_coordinator,
     )
     payload = _extract_json_payload(response)
     raw_topics = payload.get("topics", []) if isinstance(payload, dict) else []
@@ -3197,8 +3351,10 @@ def _enrich_manual_topics_in_batches(
             job["batch"],
             streamer_name=streamer_name,
             progress_callback=report_progress,
+            retry_coordinator=provider_retry_coordinator,
         )
 
+    provider_retry_coordinator = _LLMProviderRetryCoordinator()
     concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
     with ThreadPoolExecutor(
             max_workers=concurrency,
@@ -6533,6 +6689,7 @@ def _analyze_topic_chunks(
         consecutive_failed_chunks = 0
         completed_pending = 0
         checkpoint_warning_reported = False
+        provider_retry_coordinator = _LLMProviderRetryCoordinator()
 
         def request_chunk(prepared):
             return _call_llm_with_retry(
@@ -6542,6 +6699,7 @@ def _analyze_topic_chunks(
                 progress_callback=report_progress,
                 progress_label=f"块 {prepared['index'] + 1} API",
                 progress_step=prepared["pct"],
+                retry_coordinator=provider_retry_coordinator,
             )
 
         pending_iterator = iter(pending)
@@ -6840,6 +6998,7 @@ def _review_peak_selected_topics(
     unresolved = list(selected)
     last_errors = {}
     report_progress = _serialized_progress_callback(progress_callback)
+    provider_retry_coordinator = _LLMProviderRetryCoordinator()
     review_rounds = (
         (
             (CLIP_REVIEW_RETRY_BATCH_SIZE, "检查点补充"),
@@ -6899,6 +7058,7 @@ def _review_peak_selected_topics(
                 progress_callback=report_progress,
                 progress_label="高能切片字幕复核",
                 progress_step=95,
+                retry_coordinator=provider_retry_coordinator,
             )
 
         concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))

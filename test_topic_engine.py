@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,7 +21,8 @@ from topic_engine import (
     MANUAL_TIMELINE_OPTIMIZATION_VERSION,
     TOPIC_MAX_CLIP_SEC, TOPIC_REVIEW_FOCUS_MAX_SEC,
     DanmakuDensitySeries,
-    LLMResponseTruncatedError, LLMStructuredOutputError,
+    LLMProviderUnavailableError, LLMResponseTruncatedError, LLMStructuredOutputError,
+    _LLMProviderRetryCoordinator,
     _align_manual_timeline_entries_to_srt, _analyze_topic_chunks,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _build_chunk_prompt, _build_clip_candidate_review_prompt,
@@ -5554,6 +5556,99 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         )
 
         self.assertGreater(expanded[0]["start"], 150)
+
+
+class LLMRetryTests(unittest.TestCase):
+    """上游不可用时的共享恢复策略。"""
+
+    def _run_parallel_requests(self, fake_call):
+        coordinator = _LLMProviderRetryCoordinator(delays=(3, 8))
+        sleeps = []
+        progress = []
+
+        def request():
+            return _call_llm_with_retry(
+                "完整提示",
+                retry_coordinator=coordinator,
+                sleep_func=sleeps.append,
+                progress_callback=lambda message, step, total: progress.append(message),
+            )
+
+        with (
+            patch("topic_engine.call_llm", side_effect=fake_call),
+            ThreadPoolExecutor(max_workers=3) as executor,
+        ):
+            futures = [executor.submit(request) for _ in range(3)]
+            outcomes = []
+            for future in as_completed(futures):
+                try:
+                    outcomes.append(future.result())
+                except Exception as exc:
+                    outcomes.append(exc)
+        return outcomes, sleeps, progress
+
+    def test_parallel_503_uses_only_two_shared_recovery_probes(self):
+        initial_wave = threading.Barrier(3)
+        state = {"calls": 0}
+        lock = threading.Lock()
+
+        def fake_call(*_args, **_kwargs):
+            with lock:
+                state["calls"] += 1
+                call_number = state["calls"]
+            if call_number <= 3:
+                initial_wave.wait(timeout=1)
+            raise make_http_error(503)
+
+        outcomes, sleeps, progress = self._run_parallel_requests(fake_call)
+
+        self.assertEqual(state["calls"], 5)
+        self.assertEqual(sleeps, [3, 8])
+        self.assertEqual(len(progress), 2)
+        self.assertIn("最多再等待 11s", progress[0])
+        self.assertIn("最多再等待 8s", progress[1])
+        self.assertTrue(all(
+            isinstance(outcome, LLMProviderUnavailableError)
+            for outcome in outcomes
+        ))
+
+    def test_parallel_503_recovery_releases_waiting_requests(self):
+        initial_wave = threading.Barrier(3)
+        state = {"calls": 0}
+        lock = threading.Lock()
+
+        def fake_call(*_args, **_kwargs):
+            with lock:
+                state["calls"] += 1
+                call_number = state["calls"]
+            if call_number <= 3:
+                initial_wave.wait(timeout=1)
+                raise make_http_error(503)
+            return "OK"
+
+        outcomes, sleeps, progress = self._run_parallel_requests(fake_call)
+
+        self.assertEqual(outcomes, ["OK", "OK", "OK"])
+        self.assertEqual(state["calls"], 6)
+        self.assertEqual(sleeps, [3])
+        self.assertEqual(len(progress), 1)
+
+    def test_single_503_has_bounded_wait_and_clear_error(self):
+        sleeps = []
+        progress = []
+        with (
+            patch("topic_engine.call_llm", side_effect=make_http_error(503)) as call,
+            self.assertRaisesRegex(LLMProviderUnavailableError, "检查点不会丢失"),
+        ):
+            _call_llm_with_retry(
+                "完整提示",
+                sleep_func=sleeps.append,
+                progress_callback=lambda message, step, total: progress.append(message),
+            )
+
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(sleeps, [3, 8])
+        self.assertEqual(len(progress), 2)
 
 
 if __name__ == "__main__":
