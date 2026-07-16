@@ -1,15 +1,28 @@
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from subtitle_workflow import (
+    DEFAULT_SUBTITLE_STYLE,
+    DEFAULT_VIDEO_EXPORT,
+    EXACT_SUBTITLE_FONT,
+    EXACT_SUBTITLE_FONT_RESOLVED,
+    build_ass_document,
+    burn_subtitles,
     high_confidence_corrections,
+    normalise_subtitle_style,
+    normalise_video_export,
     parse_srt_document,
+    render_subtitle_preview,
     save_corrected_srt,
     scan_submission_pairs,
     serialise_srt,
     suggest_subtitle_corrections,
+    verify_exact_subtitle_font,
+    write_ass_from_srt,
 )
 
 
@@ -187,6 +200,154 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             ]
         })
         self.assertEqual([item["index"] for item in selected], [1])
+
+
+class SubtitleRenderingTests(unittest.TestCase):
+    @staticmethod
+    def _make_video(path, duration=2):
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", f"color=c=0x243044:s=640x360:d={duration}",
+                "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "-shortest", str(path),
+            ],
+            check=True,
+        )
+
+    def test_default_style_is_exact_user_requested_jianying_style(self):
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE, {
+            "font_name": "Noto Sans S Chinese Black",
+            "font_size": 8.0,
+            "font_color": "ffffff",
+            "outline_color": "d06e95",
+            "outline_width": 60.0,
+            "x": 0.0,
+            "y": -788.0,
+            "shadow": 0.0,
+        })
+        with self.assertRaisesRegex(ValueError, "字体必须"):
+            normalise_subtitle_style({"font_name": "Noto Sans SC"})
+
+    def test_default_video_export_matches_jianying_settings(self):
+        self.assertEqual(normalise_video_export(), {
+            "width": 1920,
+            "height": 1080,
+            "bitrate_kbps": 8000,
+            "rate_control": "vbr",
+            "codec": "h264",
+            "container": "mp4",
+            "fps": 60.0,
+            "color_space": "bt709",
+            "color_range": "tv",
+            "audio": "copy",
+        })
+        self.assertEqual(DEFAULT_VIDEO_EXPORT["bitrate_kbps"], 8000)
+
+    def test_ass_maps_style_color_position_and_escapes_text(self):
+        cues = [
+            parse_srt_document_from_text(
+                "1\n00:00:00,000 --> 00:00:01,000\n测试{样式}\\路径\n第二行\n"
+            )[0]
+        ]
+        document = build_ass_document(cues, 1920, 1080)
+        self.assertIn(f"Style: Default,{EXACT_SUBTITLE_FONT},54.0", document)
+        self.assertIn("&H00FFFFFF", document)
+        self.assertIn("&H00956ED0", document)
+        self.assertIn(",3.2,0.0,5,", document)
+        self.assertIn(r"{\an5\pos(960,966)}", document)
+        self.assertIn(r"测试\{样式\}\\路径\N第二行", document)
+
+    def test_exact_font_resolves_to_noto_sans_hans_black(self):
+        verify_exact_subtitle_font.cache_clear()
+        result = verify_exact_subtitle_font()
+        self.assertTrue(result["available"], result)
+        self.assertEqual(result["requested"], EXACT_SUBTITLE_FONT)
+        self.assertEqual(result["resolved"], EXACT_SUBTITLE_FONT_RESOLVED)
+
+    def test_write_ass_saves_style_without_touching_srt(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            video = root / "clip.mp4"
+            srt = root / "clip_校对.srt"
+            self._make_video(video)
+            srt.write_text(SAMPLE_SRT, encoding="utf-8")
+            original = srt.read_bytes()
+
+            result = write_ass_from_srt(srt, video)
+
+            self.assertEqual(srt.read_bytes(), original)
+            self.assertTrue(Path(result["ass_path"]).is_file())
+            self.assertTrue(Path(result["style_path"]).is_file())
+            self.assertIn(EXACT_SUBTITLE_FONT, Path(result["ass_path"]).read_text(encoding="utf-8"))
+            style = json.loads(Path(result["style_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(style, DEFAULT_SUBTITLE_STYLE)
+
+    def test_preview_and_software_burn_produce_valid_media(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            video = root / "clip.mp4"
+            srt = root / "clip_校对.srt"
+            output = root / "clip_字幕版.mp4"
+            self._make_video(video)
+            srt.write_text(
+                "1\n00:00:00,000 --> 00:00:01,900\n音音字幕预览\n",
+                encoding="utf-8",
+            )
+
+            fast_export = {
+                "width": 640,
+                "height": 360,
+                "fps": 30,
+                "bitrate_kbps": 1200,
+            }
+            jpeg, selected_time = render_subtitle_preview(
+                video,
+                srt,
+                export_settings=fast_export,
+            )
+            result = burn_subtitles(
+                video,
+                srt,
+                output_path=output,
+                encoder="libx264",
+                export_settings=fast_export,
+            )
+            decode = subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-xerror",
+                    "-i", str(output), "-f", "null", os.devnull,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertTrue(jpeg.startswith(b"\xff\xd8"))
+            self.assertGreater(len(jpeg), 1000)
+            self.assertAlmostEqual(selected_time, 0.95, places=2)
+            self.assertTrue(output.is_file())
+            self.assertEqual(result["encoder"], "libx264")
+            self.assertTrue(result["output_video_info"]["has_audio"])
+            self.assertEqual(result["output_video_info"]["width"], 640)
+            self.assertEqual(result["output_video_info"]["height"], 360)
+            self.assertAlmostEqual(result["output_video_info"]["fps"], 30, places=2)
+            self.assertEqual(result["output_video_info"]["color_space"], "bt709")
+            self.assertEqual(result["output_video_info"]["color_transfer"], "bt709")
+            self.assertEqual(result["output_video_info"]["color_primaries"], "bt709")
+            self.assertLess(
+                abs(result["output_video_info"]["duration"] - 2.0),
+                0.2,
+            )
+            self.assertEqual(decode.returncode, 0, decode.stderr.decode("utf-8", errors="replace"))
+            self.assertFalse((root / "clip_字幕版.part.mp4").exists())
+
+
+def parse_srt_document_from_text(text):
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "inline.srt"
+        path.write_text(text, encoding="utf-8")
+        return parse_srt_document(path)
 
 
 if __name__ == "__main__":

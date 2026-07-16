@@ -7,7 +7,10 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import tempfile
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -44,6 +47,33 @@ _GENERATED_SUBTITLE_SUFFIXES = (
     "_字幕版",
     "_字幕预览",
 )
+
+EXACT_SUBTITLE_FONT = "Noto Sans S Chinese Black"
+EXACT_SUBTITLE_FONT_RESOLVED = "NotoSansHans-Black"
+DEFAULT_SUBTITLE_STYLE = {
+    "font_name": EXACT_SUBTITLE_FONT,
+    "font_size": 8.0,
+    "font_color": "ffffff",
+    "outline_color": "d06e95",
+    "outline_width": 60.0,
+    "x": 0.0,
+    "y": -788.0,
+    "shadow": 0.0,
+}
+DEFAULT_VIDEO_EXPORT = {
+    "width": 1920,
+    "height": 1080,
+    "bitrate_kbps": 8000,
+    "rate_control": "vbr",
+    "codec": "h264",
+    "container": "mp4",
+    "fps": 60.0,
+    "color_space": "bt709",
+    "color_range": "tv",
+    "audio": "copy",
+}
+_JIANYING_FONT_TO_1080_ASS = 6.75
+_JIANYING_OUTLINE_TO_1080_ASS = 0.0533333333
 
 
 @dataclass(frozen=True)
@@ -199,7 +229,10 @@ def save_corrected_srt(source_srt_path, corrections, output_path=None):
 
 
 def _is_generated_stem(stem):
-    return any(stem.endswith(suffix) for suffix in _GENERATED_SUBTITLE_SUFFIXES)
+    return (
+        stem.endswith(".part")
+        or any(stem.endswith(suffix) for suffix in _GENERATED_SUBTITLE_SUFFIXES)
+    )
 
 
 def _pair_result(video_path, srt_path):
@@ -490,3 +523,530 @@ def high_confidence_corrections(review_result, minimum_confidence=0.88):
         for item in (review_result or {}).get("suggestions", [])
         if float(item.get("confidence", 0)) >= float(minimum_confidence)
     ]
+
+
+def normalise_subtitle_style(style=None):
+    """校验剪映参数；指定字体固定为用户确认的精确字体。"""
+    values = dict(DEFAULT_SUBTITLE_STYLE)
+    values.update(style or {})
+    if str(values.get("font_name", "")).strip() != EXACT_SUBTITLE_FONT:
+        raise ValueError(f"字幕字体必须是 {EXACT_SUBTITLE_FONT}")
+    for key, minimum, maximum in (
+        ("font_size", 1.0, 30.0),
+        ("outline_width", 0.0, 100.0),
+        ("x", -1000.0, 1000.0),
+        ("y", -1000.0, 1000.0),
+        ("shadow", 0.0, 100.0),
+    ):
+        try:
+            values[key] = float(values[key])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"字幕样式 {key} 必须是数字") from exc
+        if not minimum <= values[key] <= maximum:
+            raise ValueError(f"字幕样式 {key} 超出范围")
+    for key in ("font_color", "outline_color"):
+        color = str(values.get(key, "")).strip().lstrip("#").lower()
+        if not re.fullmatch(r"[0-9a-f]{6}", color):
+            raise ValueError(f"字幕样式 {key} 必须是 6 位十六进制颜色")
+        values[key] = color
+    values["font_name"] = EXACT_SUBTITLE_FONT
+    return values
+
+
+def normalise_video_export(settings=None):
+    """校验剪映视频导出参数。"""
+    values = dict(DEFAULT_VIDEO_EXPORT)
+    values.update(settings or {})
+    for key, minimum, maximum in (
+        ("width", 320, 7680),
+        ("height", 180, 4320),
+        ("bitrate_kbps", 500, 100000),
+    ):
+        try:
+            values[key] = int(values[key])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"视频导出参数 {key} 必须是整数") from exc
+        if not minimum <= values[key] <= maximum:
+            raise ValueError(f"视频导出参数 {key} 超出范围")
+    try:
+        values["fps"] = float(values["fps"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("视频导出参数 fps 必须是数字") from exc
+    if not 1 <= values["fps"] <= 240:
+        raise ValueError("视频导出参数 fps 超出范围")
+    fixed_values = {
+        "rate_control": "vbr",
+        "codec": "h264",
+        "container": "mp4",
+        "color_space": "bt709",
+        "color_range": "tv",
+        "audio": "copy",
+    }
+    for key, expected in fixed_values.items():
+        if str(values.get(key, "")).lower() != expected:
+            raise ValueError(f"视频导出参数 {key} 必须是 {expected}")
+        values[key] = expected
+    return values
+
+
+def _probe_video_info(video_path):
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-show_streams", "-show_format",
+            "-of", "json", str(video_path),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+    )
+    payload = json.loads(result.stdout)
+    streams = payload.get("streams", [])
+    video_stream = next(
+        (stream for stream in streams if stream.get("codec_type") == "video"),
+        None,
+    )
+    if not video_stream:
+        raise ValueError("视频文件没有画面流")
+    width = int(video_stream.get("width") or 0)
+    height = int(video_stream.get("height") or 0)
+    duration = float(
+        payload.get("format", {}).get("duration")
+        or video_stream.get("duration")
+        or 0
+    )
+    if width <= 0 or height <= 0 or duration <= 0:
+        raise ValueError("无法读取视频分辨率或时长")
+    return {
+        "width": width,
+        "height": height,
+        "duration": duration,
+        "has_audio": any(stream.get("codec_type") == "audio" for stream in streams),
+        "video_codec": video_stream.get("codec_name", ""),
+        "fps": _parse_frame_rate(video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")),
+        "bit_rate": int(video_stream.get("bit_rate") or 0),
+        "pixel_format": video_stream.get("pix_fmt", ""),
+        "color_range": video_stream.get("color_range", ""),
+        "color_space": video_stream.get("color_space", ""),
+        "color_transfer": video_stream.get("color_transfer", ""),
+        "color_primaries": video_stream.get("color_primaries", ""),
+    }
+
+
+def _parse_frame_rate(value):
+    if not value:
+        return 0.0
+    if "/" in str(value):
+        numerator, denominator = str(value).split("/", 1)
+        try:
+            return float(numerator) / float(denominator)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _html_color_to_ass(color):
+    value = color.lstrip("#")
+    red, green, blue = value[0:2], value[2:4], value[4:6]
+    return f"&H00{blue}{green}{red}".upper()
+
+
+def _ass_timestamp(seconds):
+    centiseconds = max(0, int(round(float(seconds) * 100)))
+    hours, remainder = divmod(centiseconds, 360000)
+    minutes, remainder = divmod(remainder, 6000)
+    whole_seconds, centiseconds = divmod(remainder, 100)
+    return f"{hours}:{minutes:02d}:{whole_seconds:02d}.{centiseconds:02d}"
+
+
+def _escape_ass_text(text):
+    return (
+        str(text)
+        .replace("\\", r"\\")
+        .replace("{", r"\{")
+        .replace("}", r"\}")
+        .replace("\r\n", r"\N")
+        .replace("\r", r"\N")
+        .replace("\n", r"\N")
+    )
+
+
+def _style_geometry(style, width, height):
+    scale = float(height) / 1080.0
+    return {
+        "font_size": round(style["font_size"] * _JIANYING_FONT_TO_1080_ASS * scale, 2),
+        "outline": round(style["outline_width"] * _JIANYING_OUTLINE_TO_1080_ASS * scale, 2),
+        "shadow": round(style["shadow"] * _JIANYING_OUTLINE_TO_1080_ASS * scale, 2),
+        "x": int(round(width / 2.0 + style["x"] / 1000.0 * width / 2.0)),
+        "y": int(round(height / 2.0 - style["y"] / 1000.0 * height / 2.0)),
+        "margin": max(10, int(round(width * 0.04))),
+    }
+
+
+def build_ass_document(cues, width, height, style=None):
+    """把 SRT 内容和剪映样式参数转换为分辨率自适应 ASS。"""
+    active_style = normalise_subtitle_style(style)
+    geometry = _style_geometry(active_style, width, height)
+    primary = _html_color_to_ass(active_style["font_color"])
+    outline = _html_color_to_ass(active_style["outline_color"])
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {int(width)}
+PlayResY: {int(height)}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{EXACT_SUBTITLE_FONT},{geometry['font_size']},{primary},{primary},{outline},&H00000000,-1,0,0,0,100,100,0,0,1,{geometry['outline']},{geometry['shadow']},5,{geometry['margin']},{geometry['margin']},0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    position = rf"{{\an5\pos({geometry['x']},{geometry['y']})}}"
+    events = []
+    for cue in cues:
+        events.append(
+            "Dialogue: 0,"
+            f"{_ass_timestamp(cue.start_seconds)},{_ass_timestamp(cue.end_seconds)},"
+            f"Default,,0,0,0,,{position}{_escape_ass_text(cue.text)}"
+        )
+    return header + "\n".join(events) + "\n"
+
+
+def _ass_output_path(srt_path):
+    source = Path(srt_path)
+    return source.with_name(f"{source.stem}_字幕样式.ass")
+
+
+def _style_output_path(srt_path):
+    source = Path(srt_path)
+    return source.with_name(f"{source.stem}_字幕样式.json")
+
+
+def _atomic_write_text(path, text):
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = destination.with_name(destination.name + ".tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    os.replace(temp_path, destination)
+
+
+def write_ass_from_srt(
+        srt_path, video_path, style=None, output_path=None,
+        canvas_width=None, canvas_height=None):
+    """保存可复用 ASS 和样式 JSON，不覆盖 SRT。"""
+    cues = parse_srt_document(srt_path)
+    video_info = _probe_video_info(video_path)
+    active_style = normalise_subtitle_style(style)
+    render_width = int(canvas_width or video_info["width"])
+    render_height = int(canvas_height or video_info["height"])
+    ass_path = Path(output_path) if output_path else _ass_output_path(srt_path)
+    style_path = _style_output_path(srt_path)
+    _atomic_write_text(
+        ass_path,
+        build_ass_document(cues, render_width, render_height, active_style),
+    )
+    _atomic_write_text(
+        style_path,
+        json.dumps(active_style, ensure_ascii=False, indent=2) + "\n",
+    )
+    return {
+        "ass_path": str(ass_path),
+        "style_path": str(style_path),
+        "style": active_style,
+        "video_info": video_info,
+        "canvas_width": render_width,
+        "canvas_height": render_height,
+    }
+
+
+def _ffmpeg_filter_path(path):
+    value = str(Path(path).resolve()).replace("\\", "/")
+    value = value.replace(":", r"\:").replace("'", r"\'")
+    return f"'{value}'"
+
+
+def _ass_filter(ass_path):
+    return f"ass={_ffmpeg_filter_path(ass_path)}"
+
+
+@lru_cache(maxsize=1)
+def verify_exact_subtitle_font():
+    """让 libass 实际选字并确认没有回退到相近字体。"""
+    with tempfile.TemporaryDirectory(prefix="autoslice_font_probe_") as td:
+        ass_path = Path(td) / "font_probe.ass"
+        cue = SubtitleCue(1, "00:00:00,000", "00:00:00,500", "", "字体检查")
+        ass_path.write_text(build_ass_document([cue], 320, 180), encoding="utf-8")
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "verbose",
+                "-f", "lavfi", "-i", "color=c=black:s=320x180:d=0.5",
+                "-vf", _ass_filter(ass_path), "-frames:v", "1",
+                "-f", "null", os.devnull,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+    log = result.stderr
+    match = re.search(
+        rf"fontselect:\s*\({re.escape(EXACT_SUBTITLE_FONT)},[^\n]+?\)\s*->\s*([^,\r\n]+)",
+        log,
+        re.IGNORECASE,
+    )
+    resolved = match.group(1).strip() if match else ""
+    available = result.returncode == 0 and resolved.casefold() == EXACT_SUBTITLE_FONT_RESOLVED.casefold()
+    return {
+        "available": available,
+        "requested": EXACT_SUBTITLE_FONT,
+        "resolved": resolved,
+        "expected_resolved": EXACT_SUBTITLE_FONT_RESOLVED,
+    }
+
+
+def _ensure_exact_subtitle_font():
+    result = verify_exact_subtitle_font()
+    if not result["available"]:
+        raise RuntimeError(
+            f"无法精确加载字幕字体 {EXACT_SUBTITLE_FONT}，"
+            f"实际解析为 {result['resolved'] or '未知字体'}"
+        )
+    return result
+
+
+def _video_filter_chain(ass_path, export_settings):
+    width = export_settings["width"]
+    height = export_settings["height"]
+    fps = export_settings["fps"]
+    return ",".join((
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos",
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black",
+        "setsar=1",
+        f"fps={fps:g}",
+        _ass_filter(ass_path),
+        "format=yuv420p",
+    ))
+
+
+def render_subtitle_preview(
+        video_path, srt_path, style=None, preview_time=None,
+        export_settings=None):
+    """渲染一张带真实字幕样式的视频帧，返回 JPEG 字节。"""
+    _ensure_exact_subtitle_font()
+    cues = parse_srt_document(srt_path)
+    if not cues:
+        raise ValueError("字幕文件没有有效内容")
+    video_info = _probe_video_info(video_path)
+    active_export = normalise_video_export(export_settings)
+    selected_time = (
+        float(preview_time)
+        if preview_time is not None
+        else (cues[0].start_seconds + cues[0].end_seconds) / 2.0
+    )
+    selected_time = max(0.0, min(selected_time, max(0.0, video_info["duration"] - 0.05)))
+    with tempfile.TemporaryDirectory(prefix="autoslice_subtitle_preview_") as td:
+        ass_path = Path(td) / "preview.ass"
+        ass_path.write_text(
+            build_ass_document(
+                cues,
+                active_export["width"],
+                active_export["height"],
+                style,
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-i", str(video_path), "-ss", f"{selected_time:.3f}",
+                "-vf", _video_filter_chain(ass_path, active_export), "-frames:v", "1",
+                "-q:v", "2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    if result.returncode != 0 or not result.stdout.startswith(b"\xff\xd8"):
+        message = result.stderr.decode("utf-8", errors="replace")[-500:]
+        raise RuntimeError(f"字幕预览生成失败: {message}")
+    return result.stdout, selected_time
+
+
+@lru_cache(maxsize=1)
+def _nvenc_available():
+    result = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=black:s=128x72:d=0.2",
+            "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", os.devnull,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
+def _output_video_path(video_path):
+    source = Path(video_path)
+    return source.with_name(f"{source.stem}_字幕版.mp4")
+
+
+def _encoder_arguments(encoder, export_settings):
+    bitrate = f"{export_settings['bitrate_kbps']}k"
+    maxrate = f"{int(round(export_settings['bitrate_kbps'] * 1.5))}k"
+    buffer_size = f"{int(round(export_settings['bitrate_kbps'] * 2))}k"
+    if encoder == "h264_nvenc":
+        return [
+            "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
+            "-rc", "vbr", "-b:v", bitrate,
+            "-maxrate", maxrate, "-bufsize", buffer_size,
+        ]
+    return [
+        "-c:v", "libx264", "-preset", "medium", "-b:v", bitrate,
+        "-maxrate", maxrate, "-bufsize", buffer_size,
+    ]
+
+
+def _run_subtitle_encode(command, duration, progress_callback=None):
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        if process.stdout is not None:
+            for raw_line in process.stdout:
+                line = raw_line.strip()
+                if not line.startswith(("out_time_us=", "out_time_ms=")):
+                    continue
+                try:
+                    elapsed = int(line.split("=", 1)[1]) / 1_000_000.0
+                except ValueError:
+                    continue
+                if progress_callback and duration > 0:
+                    percent = min(99, max(0, int(elapsed / duration * 100)))
+                    progress_callback(f"字幕压制中 ({percent}%)...", percent, 100)
+        stderr = process.stderr.read() if process.stderr is not None else ""
+        return_code = process.wait()
+    finally:
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+    if return_code != 0:
+        raise RuntimeError(stderr.strip()[-1000:] or f"FFmpeg 返回 {return_code}")
+
+
+def burn_subtitles(
+        video_path, srt_path, style=None, output_path=None, encoder="auto",
+        progress_callback=None, export_settings=None):
+    """把校对字幕压制到新 MP4；优先 NVENC，失败自动回退 libx264。"""
+    font_result = _ensure_exact_subtitle_font()
+    video_info = _probe_video_info(video_path)
+    active_export = normalise_video_export(export_settings)
+    artifacts = write_ass_from_srt(
+        srt_path,
+        video_path,
+        style,
+        canvas_width=active_export["width"],
+        canvas_height=active_export["height"],
+    )
+    destination = Path(output_path) if output_path else _output_video_path(video_path)
+    if destination.suffix.lower() != ".mp4":
+        raise ValueError("字幕版输出文件必须是 MP4")
+    if destination.resolve() == Path(video_path).resolve():
+        raise ValueError("字幕版输出不能覆盖原视频")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    part_path = destination.with_name(destination.stem + ".part.mp4")
+    if part_path.exists():
+        part_path.unlink()
+
+    selected_encoder = encoder
+    if selected_encoder == "auto":
+        selected_encoder = "h264_nvenc" if _nvenc_available() else "libx264"
+    if selected_encoder not in {"h264_nvenc", "libx264"}:
+        raise ValueError("不支持的字幕压制编码器")
+
+    def make_command(active_encoder):
+        command = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(video_path),
+            "-vf", _video_filter_chain(artifacts["ass_path"], active_export),
+            "-map", "0:v:0", "-map", "0:a:0?",
+        ]
+        command.extend(_encoder_arguments(active_encoder, active_export))
+        command.extend([
+            "-r", f"{active_export['fps']:g}",
+            "-pix_fmt", "yuv420p",
+            "-colorspace", "bt709", "-color_primaries", "bt709",
+            "-color_trc", "bt709", "-color_range", "tv",
+            "-bsf:v",
+            "h264_metadata=colour_primaries=1:transfer_characteristics=1:"
+            "matrix_coefficients=1:video_full_range_flag=0",
+            "-c:a", "copy", "-movflags", "+faststart",
+            "-max_muxing_queue_size", "4096", "-progress", "pipe:1", "-nostats",
+            str(part_path),
+        ])
+        return command
+
+    used_encoder = selected_encoder
+    try:
+        try:
+            _run_subtitle_encode(
+                make_command(selected_encoder),
+                video_info["duration"],
+                progress_callback,
+            )
+        except RuntimeError:
+            if selected_encoder != "h264_nvenc":
+                raise
+            if part_path.exists():
+                part_path.unlink()
+            used_encoder = "libx264"
+            if progress_callback:
+                progress_callback("NVENC 压制失败，自动改用软件编码...", 0, 100)
+            _run_subtitle_encode(
+                make_command("libx264"),
+                video_info["duration"],
+                progress_callback,
+            )
+        output_info = _probe_video_info(part_path)
+        if output_info["has_audio"] != video_info["has_audio"]:
+            raise RuntimeError("字幕版视频音频流与原视频不一致")
+        if abs(output_info["duration"] - video_info["duration"]) > 0.5:
+            raise RuntimeError("字幕版视频时长误差超过 0.5 秒")
+        if output_info["width"] != active_export["width"] or output_info["height"] != active_export["height"]:
+            raise RuntimeError("字幕版视频分辨率不符合导出参数")
+        if abs(output_info["fps"] - active_export["fps"]) > 0.05:
+            raise RuntimeError("字幕版视频帧率不符合导出参数")
+        if (
+            output_info["color_space"] != "bt709"
+            or output_info["color_transfer"] != "bt709"
+            or output_info["color_primaries"] != "bt709"
+        ):
+            raise RuntimeError("字幕版视频不是 Rec.709 SDR")
+        os.replace(part_path, destination)
+    finally:
+        if part_path.exists():
+            part_path.unlink()
+    if progress_callback:
+        progress_callback("字幕压制完成", 100, 100)
+    return {
+        "output_video_path": str(destination),
+        "ass_path": artifacts["ass_path"],
+        "style_path": artifacts["style_path"],
+        "style": artifacts["style"],
+        "font": font_result,
+        "encoder": used_encoder,
+        "export_settings": active_export,
+        "source_video_info": video_info,
+        "output_video_info": output_info,
+    }
