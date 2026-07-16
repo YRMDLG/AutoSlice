@@ -1,6 +1,9 @@
 import io
 import json
 import os
+import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -54,6 +57,55 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             "api_version": 1,
             "autocover_url": "http://localhost:5013",
         })
+
+
+class SubtitleWorkflowPageTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+
+    def _page_script(self):
+        response = self.client.get("/subtitle-workflow")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        matches = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(matches)
+        return html, matches[-1]
+
+    def test_review_script_tracks_task_ownership_and_protects_manual_edits(self):
+        html, script = self._page_script()
+
+        for marker in (
+            "taskEvents:new Map()",
+            "taskContexts:new Map()",
+            "state.taskContexts.get(data.task_id)",
+            "if(!context)return",
+            "registerTask(data.task_id,context)",
+            "state.aiApplied",
+            "state.protectedEdits",
+            "sourceText(index)!==item.original",
+            "correctedTimelineMatches",
+        ):
+            self.assertIn(marker, script)
+        self.assertIn("重新检查", html)
+        self.assertNotIn(
+            "data.task_id.startsWith('subtitle_review_'))applyReview(result)",
+            script,
+        )
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查页面脚本语法")
+    def test_review_page_script_compiles(self):
+        _, script = self._page_script()
+        result = subprocess.run(
+            ["node", "-e", "new Function(require('fs').readFileSync(0,'utf8'))"],
+            input=script,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class ImmediateThread:
