@@ -17,7 +17,8 @@ import requests
 
 from topic_engine import (
     CHUNK_SEC, FUNASR_CHUNK_PRE_CONTEXT_SEC,
-    LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS, LLM_MAX_TOKENS, LLM_MODEL,
+    LLM_ANALYSIS_MODEL, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS,
+    LLM_MAX_TOKENS, LLM_MODEL,
     MANUAL_TIMELINE_OPTIMIZATION_VERSION,
     TOPIC_MAX_CLIP_SEC, TOPIC_REVIEW_FOCUS_MAX_SEC,
     DanmakuDensitySeries,
@@ -5558,6 +5559,208 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertGreater(expanded[0]["start"], 150)
 
 
+class HybridModelRoutingTests(unittest.TestCase):
+    """整场快速分析与关键 Pro 复核必须走不同模型。"""
+
+    def test_topic_chunks_use_flash_and_checkpoint_records_model(self):
+        chunks = [{
+            "start": 0,
+            "end": 600,
+            "text": "[0:01:00] 音音讲今天出门遇到的事",
+            "danmaku_info": "[弹幕: 本段峰值120条/分钟]",
+        }]
+        response = json.dumps({"topics": []}, ensure_ascii=False)
+        progress = []
+
+        with TemporaryDirectory() as td:
+            checkpoint_path = Path(td) / "话题检查点.json"
+            with (
+                patch(
+                    "topic_engine.load_api_config",
+                    return_value=("https://example.test", "token", LLM_MODEL),
+                ),
+                patch(
+                    "topic_engine._call_llm_with_retry",
+                    return_value=response,
+                ) as call,
+            ):
+                _analyze_topic_chunks(
+                    chunks,
+                    "音音",
+                    checkpoint_path=str(checkpoint_path),
+                    progress_callback=lambda message, *_args: progress.append(message),
+                )
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(LLM_ANALYSIS_MODEL, "deepseek-v4-flash")
+        self.assertEqual(call.call_args.kwargs["model_override"], LLM_ANALYSIS_MODEL)
+        self.assertEqual(checkpoint["model"], LLM_ANALYSIS_MODEL)
+        self.assertTrue(any("DeepSeek V4 Flash 分块分析" in item for item in progress))
+        self.assertFalse(any("DeepSeek V4 Pro 分块分析" in item for item in progress))
+
+    def test_manual_timeline_and_clip_review_keep_configured_pro(self):
+        manual_topics = [{
+            "start": 60,
+            "end": 150,
+            "title": "出门遇到大雨",
+            "body": ["·字幕核查：音音说明出门后突然下大雨"],
+            "can_slice": False,
+        }]
+        manual_response = json.dumps({"topics": [{
+            "id": 1,
+            "title": "出门突遇大雨",
+            "publish_title": "【泽音】刚出门就被大雨拦住了",
+            "points": ["音音说明刚出门就突然下起大雨"],
+        }]}, ensure_ascii=False)
+        with patch(
+                "topic_engine._call_llm_with_retry",
+                return_value=manual_response,
+        ) as manual_call:
+            _enrich_manual_topics_with_llm(manual_topics)
+
+        clip_topics = [{
+            "start": 60,
+            "end": 150,
+            "title": "出门突遇大雨",
+            "body": ["·音音说明刚出门就突然下起大雨"],
+            "can_slice": True,
+            "slice_anchor": 100,
+            "slice_anchor_source": "弹幕峰值",
+        }]
+        clip_response = json.dumps({"topics": [{
+            "id": 1,
+            "valid": True,
+            "title": "出门突遇大雨",
+            "publish_title": "【泽音】刚出门就被大雨拦住了",
+            "focus_start": "0:01:00",
+            "focus_end": "0:02:30",
+            "points": ["音音说明刚出门就下起大雨，并回应观众后收尾"],
+            "reason": "",
+        }]}, ensure_ascii=False)
+        with patch(
+                "topic_engine._call_llm_with_retry",
+                return_value=clip_response,
+        ) as review_call:
+            _review_peak_selected_topics(
+                clip_topics,
+                srt_segments=[(60, 150, "音音说明刚出门就下起大雨，并回应观众后收尾")],
+                peaks=[(100, 120)],
+            )
+
+        self.assertEqual(LLM_MODEL, "deepseek-v4-pro")
+        self.assertNotIn("model_override", manual_call.call_args.kwargs)
+        self.assertNotIn("model_override", review_call.call_args.kwargs)
+        self.assertTrue(clip_topics[0]["clip_review_validated"])
+
+    def test_pipeline_reuses_partial_timeline_and_writes_hybrid_policy(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            flv_path = root / "泽音Melody-2026年07月14日19点59分.flv"
+            srt_path = flv_path.with_suffix(".srt")
+            flv_path.write_bytes(b"flv")
+            srt_path.write_text(
+                "1\n00:00:01,000 --> 00:00:05,000\n音音测试字幕\n",
+                encoding="utf-8",
+            )
+            prepared = {
+                "path": None,
+                "entries": [],
+                "raw_entry_count": 0,
+                "optimization_warning": None,
+            }
+            with (
+                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
+                patch("topic_engine.export_corrected_srt", return_value=str(srt_path)),
+                patch("topic_engine.analyze_danmaku", return_value=DanmakuDensitySeries()),
+                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音测试字幕")]),
+                patch("topic_engine.chunk_srt", return_value=[]),
+                patch("topic_engine._probe_video_duration", return_value=5),
+                patch(
+                    "topic_engine._prepare_optimized_manual_timeline",
+                    return_value=prepared,
+                ) as prepare,
+                patch("topic_engine._analyze_topic_chunks", return_value=([], [], None)),
+                patch("topic_engine._write_clip_review_checkpoint"),
+                patch("topic_engine._build_refinement_manifest", return_value={}),
+                patch("topic_engine._write_refinement_manifest_files"),
+                patch("topic_engine._upsert_unified_refinement_queue"),
+            ):
+                result = run_pipeline(
+                    str(flv_path),
+                    manual_timeline_path="__none__",
+                )
+
+            payload = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))
+            report = Path(result["md_path"]).read_text(encoding="utf-8")
+
+        self.assertFalse(prepare.call_args.kwargs["retry_incomplete_artifact"])
+        self.assertEqual(payload["model_policy"], {
+            "topic_analysis": LLM_ANALYSIS_MODEL,
+            "manual_timeline_review": LLM_MODEL,
+            "clip_candidate_review": LLM_MODEL,
+        })
+        self.assertIn(f"{LLM_ANALYSIS_MODEL}（整场话题）", report)
+        self.assertIn(f"{LLM_MODEL}（人工时间轴/切片复核）", report)
+
+    def test_fast_pipeline_mode_does_not_retry_partial_timeline_artifact(self):
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "完整版.flv"
+            timeline_path = Path(td) / "20260714.docx"
+            artifact_path = Path(td) / "完整版_优化时间轴.json"
+            flv_path.write_bytes(b"flv")
+            timeline_path.write_bytes(b"docx")
+            artifact_path.write_text(json.dumps({
+                "video_path": str(flv_path),
+                "source_path": str(timeline_path),
+                "optimization_version": MANUAL_TIMELINE_OPTIMIZATION_VERSION,
+                "raw_entry_count": 1,
+                "optimized_entry_count": 2,
+                "warning": "存在未验证候选",
+                "entries": [{
+                    "start": 10,
+                    "end": 80,
+                    "text": "已通过候选",
+                    "summary": ["音音说明第一件事"],
+                    "ai_enriched": True,
+                }, {
+                    "start": 100,
+                    "end": 180,
+                    "text": "待重试候选",
+                    "summary": [],
+                    "ai_enriched": False,
+                    "reference_only": True,
+                }],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            with (
+                patch("topic_engine.load_manual_timeline", return_value={
+                    "path": str(timeline_path),
+                    "entries": [{"start": 10, "text": "人工记录", "stars": 0}],
+                }),
+                patch(
+                    "topic_engine._retry_optimized_timeline_entries",
+                    side_effect=AssertionError("快速流水线不应重试部分产物"),
+                ) as retry,
+                patch(
+                    "topic_engine._optimize_manual_timeline",
+                    side_effect=AssertionError("已有检查点时不应全量重跑"),
+                ),
+            ):
+                prepared = _prepare_optimized_manual_timeline(
+                    str(flv_path),
+                    str(flv_path.with_suffix("")),
+                    srt_segments=[(0, 200, "音音说明两件事")],
+                    peaks=[],
+                    video_duration=600,
+                    manual_timeline_path=str(timeline_path),
+                    retry_incomplete_artifact=False,
+                )
+
+        retry.assert_not_called()
+        self.assertEqual(prepared["optimized_entry_count"], 2)
+        self.assertIn("1 个未验证候选仅作辅助参考", prepared["optimization_warning"])
+
+
 class PipelineProgressTests(unittest.TestCase):
     """完整分析流水线的阶段进度和批次日志。"""
 
@@ -5583,7 +5786,7 @@ class PipelineProgressTests(unittest.TestCase):
             }
 
         def fake_analyze(*_args, progress_callback=None, **_kwargs):
-            progress_callback("Step 4/5: DeepSeek V4 Pro 分块分析...", 25, 100)
+            progress_callback("Step 4/5: DeepSeek V4 Flash 分块分析...", 25, 100)
             return [], [], None
 
         with TemporaryDirectory() as td:
@@ -5626,7 +5829,7 @@ class PipelineProgressTests(unittest.TestCase):
         self.assertEqual(event_steps["Step 2/5: 弹幕密度分析..."], 15)
         self.assertEqual(event_steps["字幕校准人工时间轴完成 (2/2)"], 24)
         self.assertEqual(
-            event_steps["Step 4/5: DeepSeek V4 Pro 分块分析..."],
+            event_steps["Step 4/5: DeepSeek V4 Flash 分块分析..."],
             25,
         )
         self.assertNotIn(75, steps)

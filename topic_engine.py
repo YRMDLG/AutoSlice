@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 # ============================================================
 CHUNK_SEC = 600          # 每块 10 分钟：减少 API 调用，降低话题被硬切碎的概率
 LLM_MODEL = "deepseek-v4-pro"
+LLM_ANALYSIS_MODEL = "deepseek-v4-flash"
 LLM_MAX_TOKENS = 16000
 LLM_COMPACT_MAX_TOKENS = 12000
 LLM_FULL_TEXT_CHARS = 8000
@@ -2135,8 +2136,9 @@ def _llm_response_has_complete_json(content):
     return bool(content and _extract_json_payload(content) is not None)
 
 
-def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False):
-    base_url, token, model = load_api_config()
+def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False, model_override=None):
+    base_url, token, configured_model = load_api_config()
+    model = str(model_override or configured_model).strip()
     # 自动判断 API 格式：sk- 开头 = OpenAI 兼容，否则 = Anthropic
     if token.startswith("sk-"):
         # OpenAI 兼容格式 (opencode.ai 等)
@@ -2246,7 +2248,7 @@ def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
                           compact_max_tokens=LLM_COMPACT_MAX_TOKENS, attempts=None,
                           sleep_func=time.sleep, progress_callback=None,
                           progress_label="API", progress_step=0, require_json=False,
-                          retry_coordinator=None):
+                          retry_coordinator=None, model_override=None):
     """对临时性 LLM/API 错误做退避重试；连续失败后再抛出。"""
     total_attempts = attempts or (len(LLM_RETRY_DELAYS) + 1)
     last_error = None
@@ -2265,11 +2267,13 @@ def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
         active_tokens = compact_max_tokens if use_compact else max_tokens
 
         def request_once():
-            result = call_llm(
-                active_prompt,
-                max_tokens=active_tokens,
-                json_mode=require_json,
-            )
+            call_kwargs = {
+                "max_tokens": active_tokens,
+                "json_mode": require_json,
+            }
+            if model_override:
+                call_kwargs["model_override"] = model_override
+            result = call_llm(active_prompt, **call_kwargs)
             if require_json and _extract_json_payload(result) is None:
                 raise LLMStructuredOutputError(
                     "DeepSeek Pro 未返回完整 JSON，将改用紧凑提示重试"
@@ -3893,7 +3897,8 @@ def _load_optimized_timeline_artifact(
 
 def _prepare_optimized_manual_timeline(
         flv_path, video_base, srt_segments, peaks, video_duration,
-        manual_timeline_path, streamer_name="音音", progress_callback=None):
+        manual_timeline_path, streamer_name="音音", progress_callback=None,
+        retry_incomplete_artifact=True):
     """加载、过滤并优化人工时间轴，返回后续可直接使用的结构。"""
     manual_timeline = load_manual_timeline(
         flv_path,
@@ -3945,21 +3950,41 @@ def _prepare_optimized_manual_timeline(
             _optimized_entry_needs_retry(entry)
             for entry in reusable_artifact.get("entries") or []
         )
-        if progress_callback:
-            progress_callback(
-                f"复用 {len(reusable_artifact['entries']) - retry_count} 个已通过候选，"
-                f"仅重试 {retry_count} 个低权重候选...",
-                20,
-                100,
+        passed_count = len(reusable_artifact["entries"]) - retry_count
+        if retry_incomplete_artifact:
+            if progress_callback:
+                progress_callback(
+                    f"复用 {passed_count} 个已通过候选，"
+                    f"仅重试 {retry_count} 个低权重候选...",
+                    20,
+                    100,
+                )
+            optimized_entries, warning = _retry_optimized_timeline_entries(
+                reusable_artifact.get("entries") or [],
+                srt_segments=srt_segments,
+                peaks=peaks,
+                streamer_name=streamer_name,
+                progress_callback=progress_callback,
+                checkpoint_callback=write_checkpoint,
             )
-        optimized_entries, warning = _retry_optimized_timeline_entries(
-            reusable_artifact.get("entries") or [],
-            srt_segments=srt_segments,
-            peaks=peaks,
-            streamer_name=streamer_name,
-            progress_callback=progress_callback,
-            checkpoint_callback=write_checkpoint,
-        )
+        else:
+            optimized_entries = reusable_artifact.get("entries") or []
+            warning = reusable_artifact.get("optimization_warning")
+            if retry_count:
+                reuse_warning = (
+                    f"为缩短整场分析耗时，复用 {passed_count} 个已验证候选；"
+                    f"{retry_count} 个未验证候选仅作辅助参考"
+                )
+                warning = "；".join(
+                    item for item in (warning, reuse_warning) if item
+                )
+            if progress_callback:
+                progress_callback(
+                    f"复用人工时间轴检查点：{passed_count} 个已验证，"
+                    f"{retry_count} 个仅作参考",
+                    22,
+                    100,
+                )
     else:
         def save_fresh_checkpoint(processed_topics, remaining_topics, warnings):
             pending_topics = []
@@ -6463,7 +6488,8 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
     manual_entries = manual_timeline.get("entries") or []
     lines = [
         f"# {video_name} 话题分析报告",
-        f"> 自动生成 | 模型: {LLM_MODEL} | {peak_info}",
+        f"> 自动生成 | 模型: {LLM_ANALYSIS_MODEL}（整场话题） + "
+        f"{LLM_MODEL}（人工时间轴/切片复核） | {peak_info}",
         "> 时间基准：视频内时间/播放进度（不是现实钟点）；实际切片会自动向前后扩展保留上下文",
     ]
     if corrected_srt_path:
@@ -6557,7 +6583,7 @@ def _topic_analysis_prompt_fingerprint(prompt, compact_prompt):
     """提示、模型或输出上限变化时自动让对应分块缓存失效。"""
     payload = "\n".join((
         str(TOPIC_ANALYSIS_CHECKPOINT_VERSION),
-        LLM_MODEL,
+        LLM_ANALYSIS_MODEL,
         str(LLM_MAX_TOKENS),
         str(LLM_COMPACT_MAX_TOKENS),
         prompt,
@@ -6589,7 +6615,7 @@ def _write_topic_analysis_checkpoint(path, responses, chunk_count):
         return True
     payload = {
         "schema_version": TOPIC_ANALYSIS_CHECKPOINT_VERSION,
-        "model": LLM_MODEL,
+        "model": LLM_ANALYSIS_MODEL,
         "chunk_count": int(chunk_count),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "responses": responses,
@@ -6736,7 +6762,7 @@ def _analyze_topic_chunks(
         concurrency = min(_configured_llm_concurrency(), len(pending))
         if report_progress:
             report_progress(
-                f"Step 4/5: DeepSeek V4 Pro 分块分析 "
+                f"Step 4/5: DeepSeek V4 Flash 分块分析 "
                 f"({len(pending)} 块待处理，{concurrency} 路并行)...",
                 25,
                 100,
@@ -6757,6 +6783,7 @@ def _analyze_topic_chunks(
                 progress_label=f"块 {prepared['index'] + 1} API",
                 progress_step=prepared["pct"],
                 retry_coordinator=provider_retry_coordinator,
+                model_override=LLM_ANALYSIS_MODEL,
             )
 
         pending_iterator = iter(pending)
@@ -7333,6 +7360,7 @@ def run_pipeline(
             manual_timeline_path,
             streamer_name=streamer_display_name,
             progress_callback=progress_callback,
+            retry_incomplete_artifact=False,
         )
     raw_manual_entry_count = int(manual_timeline.get("raw_entry_count", 0))
     manual_entries = manual_timeline.get("entries") or []
@@ -7451,6 +7479,11 @@ def run_pipeline(
             "video": video_name,
             "streamer_name": streamer_name,
             "streamer_display_name": streamer_display_name,
+            "model_policy": {
+                "topic_analysis": LLM_ANALYSIS_MODEL,
+                "manual_timeline_review": LLM_MODEL,
+                "clip_candidate_review": LLM_MODEL,
+            },
             "source_srt_path": source_srt_path,
             "corrected_srt_path": corrected_srt_path,
             "task_manifest_json_path": task_manifest_json_path,
