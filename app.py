@@ -2,7 +2,7 @@
 AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 """
 
-import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, subprocess
+import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, secrets, subprocess
 from urllib.parse import urlsplit
 
 from flask import Flask, render_template, request, jsonify, Response, redirect
@@ -112,11 +112,38 @@ def _pipeline_completion_progress(result):
     return f"完成! {topic_count} 个话题, {result.get('slice_count', 0)} 个切片"
 
 
-def _subtitle_task_id(prefix, path):
+def _subtitle_task_id(prefix, path, nonce=None):
     normalized = os.path.normcase(os.path.abspath(path))
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:10]
     stem = os.path.splitext(os.path.basename(path))[0][:24]
-    return f"{prefix}_{stem}_{digest}"
+    run_nonce = str(nonce or secrets.token_hex(4))
+    return f"{prefix}_{stem}_{digest}_{run_nonce}"
+
+
+def _reserve_subtitle_review_task(srt_path, force):
+    """原子登记检查任务；同一源字幕同时只允许一个检查。"""
+    normalized = os.path.normcase(os.path.abspath(srt_path))
+    with task_lock:
+        for task_id, task in tasks.items():
+            if (
+                    task.get("task_type") == "subtitle_review"
+                    and task.get("status") in {"queued", "running"}
+                    and os.path.normcase(os.path.abspath(
+                        task.get("source_srt_path", ""))) == normalized):
+                return None, task_id
+
+        task_id = _subtitle_task_id("subtitle_review", srt_path)
+        tasks[task_id] = {
+            "status": "queued",
+            "progress": "字幕检查等待启动...",
+            "step": 0,
+            "total": 100,
+            "task_type": "subtitle_review",
+            "source_srt_path": os.path.abspath(srt_path),
+            "force": bool(force),
+            "created_at": time.time(),
+        }
+    return task_id, None
 
 
 def _validate_subtitle_path(srt_path):
@@ -516,16 +543,46 @@ def subtitle_review():
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    context_title = str(data.get("context_title") or os.path.basename(os.path.dirname(video_path)))
+    force = data.get("force", False)
+    if not isinstance(force, bool):
+        return jsonify({"error": "force 必须是布尔值"}), 400
+    context_title = str(
+        data.get("context_title") or os.path.basename(os.path.dirname(video_path))
+    ).strip()
+    if len(context_title) > 300:
+        return jsonify({"error": "视频标题过长"}), 400
     glossary = data.get("glossary")
     if glossary is not None and not isinstance(glossary, list):
         return jsonify({"error": "优先词表必须是数组"}), 400
-    task_id = _subtitle_task_id("subtitle_review", srt_path)
-    threading.Thread(
-        target=run_subtitle_review_task,
-        args=(task_id, srt_path, context_title, glossary, bool(data.get("force"))),
-        daemon=True,
-    ).start()
+    if glossary is not None:
+        if any(not isinstance(item, str) for item in glossary):
+            return jsonify({"error": "优先词表中的词条必须是字符串"}), 400
+        glossary = [item.strip() for item in glossary if item.strip()]
+        if len(glossary) > 100 or any(len(item) > 100 for item in glossary):
+            return jsonify({"error": "优先词表过长"}), 400
+
+    task_id, active_task_id = _reserve_subtitle_review_task(srt_path, force)
+    if active_task_id:
+        return jsonify({
+            "error": "该字幕正在检查，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
+    try:
+        threading.Thread(
+            target=run_subtitle_review_task,
+            args=(task_id, srt_path, context_title, glossary, force),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        update_task(
+            task_id,
+            status="error",
+            progress="字幕检查启动失败",
+            result=str(exc),
+            step=0,
+            total=100,
+        )
+        return jsonify({"error": f"字幕检查启动失败: {exc}"}), 500
     return jsonify({"task_id": task_id})
 
 

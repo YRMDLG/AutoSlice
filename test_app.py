@@ -69,6 +69,13 @@ class ImmediateThread:
         self.target(*self.args, **self.kwargs)
 
 
+class DeferredThread(ImmediateThread):
+    """保留 queued 状态，用于验证重复任务拦截。"""
+
+    def start(self):
+        pass
+
+
 class TopicPipelineApiTests(unittest.TestCase):
 
     def setUp(self):
@@ -306,6 +313,93 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         result = json.loads(app_module.tasks[task_id]["result"])
         self.assertEqual(result["default_corrections"][0]["corrected"], "娃衣")
         self.assertEqual(review.call_args.kwargs["context_title"], "【泽音】测试投稿")
+        self.assertEqual(app_module.tasks[task_id]["task_type"], "subtitle_review")
+        self.assertEqual(app_module.tasks[task_id]["source_srt_path"], str(srt.resolve()))
+        self.assertFalse(app_module.tasks[task_id]["force"])
+
+    def test_force_review_bypasses_cache_and_each_completed_run_has_unique_id(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            review_result = {"suggestions": []}
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "subtitle_workflow.suggest_subtitle_corrections",
+                    return_value=review_result,
+                ) as review,
+            ):
+                first = self.client.post(
+                    "/api/subtitles/review",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "force": True,
+                    },
+                )
+                second = self.client.post(
+                    "/api/subtitles/review",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "force": True,
+                    },
+                )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertNotEqual(first.get_json()["task_id"], second.get_json()["task_id"])
+        self.assertEqual(review.call_count, 2)
+        self.assertFalse(review.call_args.kwargs["use_cache"])
+
+    def test_duplicate_running_review_is_rejected(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            with patch.object(app_module.threading, "Thread", DeferredThread):
+                first = self.client.post(
+                    "/api/subtitles/review",
+                    json={"video_path": str(video), "srt_path": str(srt)},
+                )
+                duplicate = self.client.post(
+                    "/api/subtitles/review",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "force": True,
+                    },
+                )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(
+            duplicate.get_json()["task_id"],
+            first.get_json()["task_id"],
+        )
+        self.assertIn("正在检查", duplicate.get_json()["error"])
+
+    def test_review_rejects_non_boolean_force_and_invalid_glossary_items(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            invalid_force = self.client.post(
+                "/api/subtitles/review",
+                json={
+                    "video_path": str(video),
+                    "srt_path": str(srt),
+                    "force": "false",
+                },
+            )
+            invalid_glossary = self.client.post(
+                "/api/subtitles/review",
+                json={
+                    "video_path": str(video),
+                    "srt_path": str(srt),
+                    "glossary": ["音音", {"错误": "对象"}],
+                },
+            )
+
+        self.assertEqual(invalid_force.status_code, 400)
+        self.assertIn("force 必须是布尔值", invalid_force.get_json()["error"])
+        self.assertEqual(invalid_glossary.status_code, 400)
+        self.assertIn("词条必须是字符串", invalid_glossary.get_json()["error"])
 
     def test_preview_returns_jpeg_and_rejects_mismatched_directory(self):
         with TemporaryDirectory() as td:
