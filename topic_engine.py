@@ -38,6 +38,8 @@ MAX_INITIAL_FAILED_CHUNKS = 3
 LLM_DEFAULT_CONCURRENCY = 3
 LLM_MAX_CONCURRENCY = 4
 TOPIC_ANALYSIS_CHECKPOINT_VERSION = 1
+# 修改候选复核提示、标题证据或通过规则时必须递增，防止旧标题检查点被继续复用。
+CLIP_REVIEW_POLICY_VERSION = 2
 FUNASR_MODEL = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
 FUNASR_CHUNK_SEC = 120.0
@@ -8214,6 +8216,7 @@ def _write_clip_review_checkpoint(path, topics, **status):
         return None
     payload = {
         "schema_version": 1,
+        "review_policy_version": CLIP_REVIEW_POLICY_VERSION,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "topics": topics,
     }
@@ -8223,6 +8226,17 @@ def _write_clip_review_checkpoint(path, topics, **status):
         json.dump(payload, f, ensure_ascii=False, indent=2)
     os.replace(temp_path, path)
     return path
+
+
+def _clip_review_checkpoint_matches_policy(checkpoint):
+    """只有当前复核策略生成的检查点才能续跑或复用旧标题。"""
+    if not isinstance(checkpoint, dict):
+        return False
+    try:
+        version = int(checkpoint.get("review_policy_version"))
+    except (TypeError, ValueError):
+        return False
+    return version == CLIP_REVIEW_POLICY_VERSION
 
 
 def _clip_review_checkpoint_is_complete(checkpoint, topics):
@@ -8864,12 +8878,17 @@ def retry_clip_review_from_artifacts(
     )
     resume_review = False
     reuse_completed_review = False
+    checkpoint_policy_stale = False
     accepted_topics = baseline_topics
     if os.path.isfile(clip_review_checkpoint_path):
         try:
             with open(clip_review_checkpoint_path, encoding="utf-8") as f:
                 checkpoint = json.load(f)
-            checkpoint_topics = checkpoint.get("topics") if isinstance(checkpoint, dict) else None
+            if not _clip_review_checkpoint_matches_policy(checkpoint):
+                checkpoint_policy_stale = True
+                checkpoint_topics = None
+            else:
+                checkpoint_topics = checkpoint.get("topics")
             resume_stages = {"reviewing", "resuming", "completed_with_warning"}
             if isinstance(checkpoint_topics, list) and checkpoint_topics:
                 for topic in checkpoint_topics:
@@ -8936,6 +8955,8 @@ def retry_clip_review_from_artifacts(
             resume_note = f"，从检查点续跑 {pending_count} 项"
         elif reuse_completed_review:
             resume_note = "，复用已完成的独立字幕复核"
+        elif checkpoint_policy_stale:
+            resume_note = "，检测到旧版复核规则，使用当前规则重新复核"
         else:
             resume_note = ""
         progress_callback(

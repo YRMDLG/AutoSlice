@@ -16,7 +16,7 @@ from unittest.mock import Mock, mock_open, patch
 import requests
 
 from topic_engine import (
-    CHUNK_SEC, FUNASR_CHUNK_PRE_CONTEXT_SEC,
+    CHUNK_SEC, CLIP_REVIEW_POLICY_VERSION, FUNASR_CHUNK_PRE_CONTEXT_SEC,
     LLM_ANALYSIS_MODEL, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS,
     LLM_MAX_TOKENS, LLM_MODEL,
     MANUAL_TIMELINE_OPTIMIZATION_VERSION,
@@ -34,6 +34,7 @@ from topic_engine import (
     _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_context_requires_trigger,
     _clip_review_checkpoint_is_complete,
+    _clip_review_checkpoint_matches_policy,
     _clip_marks_from_topics,
     _dedupe_clip_marks, _expand_clip_marks_with_context,
     _dedupe_overlapping_funasr_segments,
@@ -6284,9 +6285,23 @@ class LatestArtifactCleanupTests(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
 
         self.assertEqual(payload["stage"], "completed")
+        self.assertEqual(
+            payload["review_policy_version"],
+            CLIP_REVIEW_POLICY_VERSION,
+        )
         self.assertEqual(payload["source"], "pipeline")
         self.assertEqual(payload["pending_count"], 0)
         self.assertEqual(payload["completed_at"], "2026-07-17T06:30:00")
+
+    def test_old_clip_review_policy_cannot_reuse_completed_titles(self):
+        self.assertTrue(_clip_review_checkpoint_matches_policy({
+            "review_policy_version": CLIP_REVIEW_POLICY_VERSION,
+        }))
+        self.assertFalse(_clip_review_checkpoint_matches_policy({}))
+        self.assertFalse(_clip_review_checkpoint_matches_policy({
+            "review_policy_version": CLIP_REVIEW_POLICY_VERSION - 1,
+        }))
+        self.assertFalse(_clip_review_checkpoint_matches_policy(None))
 
 
 class HybridModelRoutingTests(unittest.TestCase):
