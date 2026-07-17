@@ -6376,6 +6376,40 @@ class LLMRetryTests(unittest.TestCase):
         self.assertEqual(sleeps, [3, 8])
         self.assertEqual(len(progress), 2)
 
+    def test_recovered_coordinator_resets_budget_for_next_independent_outage(self):
+        coordinator = _LLMProviderRetryCoordinator(delays=(3, 8))
+        outcomes = iter([
+            make_http_error(503),
+            make_http_error(503),
+            "第一次恢复",
+            make_http_error(503),
+            make_http_error(503),
+            "第二次恢复",
+        ])
+        sleeps = []
+
+        def fake_call(*_args, **_kwargs):
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with patch("topic_engine.call_llm", side_effect=fake_call):
+            first = _call_llm_with_retry(
+                "第一次请求",
+                retry_coordinator=coordinator,
+                sleep_func=sleeps.append,
+            )
+            second = _call_llm_with_retry(
+                "第二次请求",
+                retry_coordinator=coordinator,
+                sleep_func=sleeps.append,
+            )
+
+        self.assertEqual(first, "第一次恢复")
+        self.assertEqual(second, "第二次恢复")
+        self.assertEqual(sleeps, [3, 8, 3, 8])
+
 
 if __name__ == "__main__":
     unittest.main()

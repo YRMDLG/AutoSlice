@@ -2186,6 +2186,8 @@ class _LLMProviderRetryCoordinator:
     def _mark_recovered(self):
         with self._state_lock:
             self._generation += 1
+            self._retry_index = 0
+            self._terminal_message = None
 
     def _terminal_error(self, error):
         status = _llm_http_status(error)
