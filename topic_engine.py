@@ -15,7 +15,7 @@ import math
 import bisect
 import difflib
 import os, re, json, time, zipfile, requests, threading, shutil
-from collections import defaultdict
+from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
@@ -50,6 +50,8 @@ FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
 )
 DANMAKU_WINDOW = 60
 DANMAKU_WINDOW_STEP = 15  # 每 15 秒采样一个 60 秒窗口，兼顾峰值定位和全场覆盖
+DANMAKU_MESSAGE_MAX_CHARS = 120
+DANMAKU_EVIDENCE_MAX_ITEMS = 6
 CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
 CLIP_DENSITY_PERCENTILE = 0.85  # 同时达到整场较高分位，避免把普通波动当爆点
 CLIP_LOCAL_PEAK_RADIUS_SEC = 150  # 只保留前后 2.5 分钟内最高的独立峰值
@@ -1817,11 +1819,148 @@ def _srt_time(s):
 class DanmakuDensitySeries(list):
     """等间隔弹幕密度窗口，并保留按整场时长计算的真实平均值。"""
 
-    def __init__(self, windows=(), average_density=0.0, message_count=0, duration=0.0):
+    def __init__(
+            self, windows=(), average_density=0.0, message_count=0,
+            duration=0.0, messages=()):
         super().__init__(windows)
         self.average_density = float(average_density)
         self.message_count = int(message_count)
         self.duration = float(duration)
+        cleaned_messages = []
+        for timestamp, text in messages or ():
+            value = _clean_ass_danmaku_text(text)
+            if not value:
+                continue
+            cleaned_messages.append((float(timestamp), value))
+        cleaned_messages.sort(key=lambda item: item[0])
+        self.messages = tuple(cleaned_messages)
+        self.message_timestamps = tuple(item[0] for item in cleaned_messages)
+
+
+_ASS_OVERRIDE_TAG_RE = re.compile(r"\{[^{}]*\}")
+_DANMAKU_BRACKET_EMOTE_RE = re.compile(r"(?:\[[^\[\]\r\n]{1,16}\])+$")
+_DANMAKU_GENERIC_REACTIONS = {
+    "?", "??", "???", "？", "？？", "？？？", "!", "!!", "!!!",
+    "！", "！！", "！！！", "疑问", "震惊", "爱你", "贴贴", "摸头",
+    "可爱", "好看", "打call", "哈哈", "哈哈哈", "哈哈哈哈", "哈哈哈哈哈",
+    "草", "笑", "哇", "啊", "我去", "卧槽",
+}
+
+
+def _clean_ass_danmaku_text(value):
+    """清理 ASS 样式指令和控制字符，但保留观众实际发送的文字。"""
+    text = _ASS_OVERRIDE_TAG_RE.sub("", str(value or ""))
+    text = text.replace(r"\N", " ").replace(r"\n", " ").replace(r"\h", " ")
+    text = html.unescape(text)
+    text = re.sub(r"[\x00-\x1f\x7f\u200b-\u200f\u2060\ufeff]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > DANMAKU_MESSAGE_MAX_CHARS:
+        text = text[:DANMAKU_MESSAGE_MAX_CHARS - 1].rstrip() + "…"
+    return text
+
+
+def _normalise_danmaku_message(value):
+    return re.sub(r"\s+", "", str(value or "")).casefold()
+
+
+def _is_generic_danmaku_reaction(value):
+    compact = _normalise_danmaku_message(value)
+    if not compact:
+        return True
+    if compact in _DANMAKU_GENERIC_REACTIONS:
+        return True
+    if _DANMAKU_BRACKET_EMOTE_RE.fullmatch(compact):
+        return True
+    if len(set(compact)) == 1:
+        return True
+    if re.fullmatch(r"[？?!！…~～哈啊嘿嗯哼草笑wW]+", compact):
+        return True
+    return False
+
+
+def _danmaku_peak_content_evidence(
+        series, peak_start, window_sec=DANMAKU_WINDOW,
+        max_items=DANMAKU_EVIDENCE_MAX_ITEMS):
+    """摘要峰值窗口的弹幕原文；旧密度列表没有原文时安全降级。"""
+    timestamps = tuple(getattr(series, "message_timestamps", ()) or ())
+    messages = tuple(getattr(series, "messages", ()) or ())
+    if not timestamps or not messages:
+        return None
+    start = float(peak_start)
+    end = start + float(window_sec)
+    left = bisect.bisect_left(timestamps, start)
+    right = bisect.bisect_left(timestamps, end)
+    window_messages = messages[left:right]
+    if not window_messages:
+        return None
+
+    display_by_key = {}
+    first_index = {}
+    normalised = []
+    for index, (_, text) in enumerate(window_messages):
+        key = _normalise_danmaku_message(text)
+        if not key:
+            continue
+        normalised.append(key)
+        display_by_key.setdefault(key, text)
+        first_index.setdefault(key, index)
+    if not normalised:
+        return None
+
+    counts = Counter(normalised)
+    ranked = sorted(
+        counts,
+        key=lambda key: (-counts[key], first_index[key]),
+    )
+    frequent_messages = [
+        {"text": display_by_key[key], "count": counts[key]}
+        for key in ranked[:max_items]
+    ]
+    representative_keys = [
+        key for key in counts
+        if len(key) >= 2 and not _is_generic_danmaku_reaction(key)
+    ]
+    representative_keys.sort(key=lambda key: (
+        -(counts[key] * (1.0 + min(len(key), 24) / 24.0)),
+        first_index[key],
+    ))
+    representative_messages = [
+        {"text": display_by_key[key], "count": counts[key]}
+        for key in representative_keys[:max_items]
+    ]
+    total = len(normalised)
+    return {
+        "window_start": int(start),
+        "window_end": int(end),
+        "message_count": total,
+        "unique_count": len(counts),
+        "unique_ratio": round(len(counts) / total, 3),
+        "repeat_ratio": round(max(counts.values()) / total, 3),
+        "frequent_messages": frequent_messages,
+        "representative_messages": representative_messages,
+    }
+
+
+def _format_danmaku_peak_content(evidence, max_items=4):
+    """生成可嵌入报告或提示的有上限摘要，不对弹幕动机做推断。"""
+    if not isinstance(evidence, dict):
+        return ""
+    selected = []
+    seen = set()
+    for key in ("representative_messages", "frequent_messages"):
+        for item in evidence.get(key) or []:
+            text = _clean_ass_danmaku_text(item.get("text", ""))
+            normalised = _normalise_danmaku_message(text)
+            if not text or normalised in seen:
+                continue
+            seen.add(normalised)
+            count = max(1, int(item.get("count", 1) or 1))
+            selected.append(f"“{text}”×{count}")
+            if len(selected) >= max_items:
+                break
+        if len(selected) >= max_items:
+            break
+    return "峰值弹幕原文：" + "、".join(selected) if selected else ""
 
 
 def _average_danmaku_density(windows):
@@ -1890,22 +2029,28 @@ def _high_energy_danmaku_peaks(peaks, avg_density=None):
 
 
 def analyze_danmaku(ass_path):
-    """按固定步长统计 60 秒滑动窗口，不丢弃低密度样本。"""
+    """按固定步长统计 60 秒滑动窗口，并保留可核对的弹幕原文。"""
     if not ass_path or not os.path.exists(ass_path):
         return DanmakuDensitySeries()
 
     timestamps = []
+    messages = []
     with open(ass_path, encoding="utf-8") as f:
         for line in f:
             if line.startswith("Dialogue:"):
-                parts = line.split(",", 3)
+                parts = line.rstrip("\r\n").split(",", 9)
                 if len(parts) < 2:
                     continue
                 try:
                     h, m, s = parts[1].strip().split(":")
-                    timestamps.append(int(h) * 3600 + int(m) * 60 + float(s))
+                    timestamp = int(h) * 3600 + int(m) * 60 + float(s)
                 except (TypeError, ValueError):
                     continue
+                timestamps.append(timestamp)
+                if len(parts) >= 10:
+                    text = _clean_ass_danmaku_text(parts[9])
+                    if text:
+                        messages.append((timestamp, text))
 
     if not timestamps:
         return DanmakuDensitySeries()
@@ -1924,6 +2069,7 @@ def analyze_danmaku(ass_path):
         average_density=average_density,
         message_count=len(timestamps),
         duration=duration,
+        messages=messages,
     )
 
 
