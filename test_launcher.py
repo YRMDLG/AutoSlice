@@ -106,11 +106,11 @@ class LauncherTests(unittest.TestCase):
     def test_autocover_contract_and_port_selection(self):
         self.assertTrue(launcher._is_compatible_autocover_service({
             "service": "autocover",
-            "api_version": 3,
+            "api_version": 4,
         }))
         self.assertFalse(launcher._is_compatible_autocover_service({
             "service": "autocover",
-            "api_version": 2,
+            "api_version": 3,
         }))
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
@@ -131,7 +131,7 @@ class LauncherTests(unittest.TestCase):
             preferred_port=5010,
             service_probe=Mock(return_value={
                 "service": "autocover",
-                "api_version": 3,
+                "api_version": 4,
             }),
             process_factory=process_factory,
         )
@@ -148,7 +148,7 @@ class LauncherTests(unittest.TestCase):
             "api_version": 1,
             "autocover_url": "http://127.0.0.1:5012",
         }
-        cover_payload = {"service": "autocover", "api_version": 3}
+        cover_payload = {"service": "autocover", "api_version": 4}
         slice_probe = Mock(return_value=slice_payload)
         cover_probe = Mock(return_value=cover_payload)
 
