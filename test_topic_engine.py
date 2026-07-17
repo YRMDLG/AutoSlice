@@ -32,6 +32,7 @@ from topic_engine import (
     _build_title_style_prompt,
     _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_context_requires_trigger,
+    _clip_review_checkpoint_is_complete,
     _clip_marks_from_topics,
     _dedupe_clip_marks, _expand_clip_marks_with_context,
     _dedupe_overlapping_funasr_segments,
@@ -59,6 +60,7 @@ from topic_engine import (
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _trim_funasr_tokens_to_core,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
+    _write_completed_clip_review_checkpoint,
     _validate_unmatched_manual_topics, _write_clip_srt,
     _write_funasr_checkpoint, _write_optimized_timeline_files,
     analyze_danmaku, call_llm, export_corrected_srt, load_api_config,
@@ -5557,6 +5559,149 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         )
 
         self.assertGreater(expanded[0]["start"], 150)
+
+
+class LatestArtifactCleanupTests(unittest.TestCase):
+    """回归 20260714 最新报告中发现的重叠和检查点问题。"""
+
+    def test_cleanup_removes_hourly_fallback_and_trims_reviewed_overlaps(self):
+        topics = [{
+            "start": 73,
+            "end": 673,
+            "title": "日常聊天互动",
+            "fallback": True,
+            "body": ["·本段字幕识别较碎，未形成稳定可切片主题"],
+        }, {
+            "start": 712,
+            "end": 780,
+            "title": "开场问候与感慨好久不见",
+            "body": ["·音音向观众问好，并说昨天很倒霉"],
+        }, {
+            "start": 1200,
+            "end": 1371,
+            "title": "音音吐槽华为闹钟设错差点误车",
+            "clip_review_validated": True,
+            "body": [
+                "·音音音华为闹钟将中午12点误设为半夜12点，导致睡过头",
+                "·匆忙赶高铁，只剩最后一张一等座票，十分钟后就没票了",
+            ],
+        }, {
+            "start": 1315,
+            "end": 1915,
+            "title": "闹钟定错半夜十二点赶高铁忘包",
+            "body": [
+                "·音音吐槽自己定闹钟时误将半夜十二点当作中午十二点，导致睡过头",
+                "·抢到最后一张高铁票，犹豫十分钟后就没票了",
+                "·下车时把包落在座位上，幸好被保洁提醒后找回",
+                "·高铁零食打不开，旁边乘客主动帮忙",
+            ],
+        }, {
+            "start": 11167,
+            "end": 11390,
+            "title": "看外卖差评吐槽冰沙和果卷",
+            "body": ["·音音看到顾客点冰沙却嫌放冰，吐槽商家被冤枉"],
+        }, {
+            "start": 11346,
+            "end": 11430,
+            "title": "模仿黑心商家",
+            "clip_review_validated": True,
+            "body": ["·音音听到好听声音后模仿黑心商家图文不符"],
+        }]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertNotIn("日常聊天互动", [topic["title"] for topic in cleaned])
+        alarm = next(topic for topic in cleaned if topic["start"] == 1200)
+        followup = next(topic for topic in cleaned if topic["end"] == 1915)
+        ice_review = next(topic for topic in cleaned if topic["title"] == "看外卖差评吐槽冰沙和果卷")
+        self.assertNotIn("音音音", "\n".join(alarm["body"]))
+        self.assertEqual(followup["start"], 1371)
+        self.assertIn("包落在座位", followup["title"])
+        self.assertNotIn("定闹钟", "\n".join(followup["body"]))
+        self.assertNotIn("最后一张高铁票", "\n".join(followup["body"]))
+        self.assertEqual(ice_review["end"], 11346)
+        for previous, following in zip(cleaned, cleaned[1:]):
+            self.assertLessEqual(previous["end"], following["start"])
+
+    def test_generic_viewer_title_uses_specific_manual_quote(self):
+        cleaned = _clean_topics_for_report([{
+            "start": 14630,
+            "end": 14738,
+            "title": "有观众留言比较一和女朋友的重要性",
+            "body": [
+                "·有观众留言比较音音和女朋友的重要性",
+                "●人工时间轴⭐：4:05:00 《音音是你们孩子的母亲啊》",
+            ],
+        }])
+
+        self.assertEqual(cleaned[0]["title"], "音音是你们孩子的母亲啊")
+
+    def test_report_terms_fix_self_heating_pack_and_unclear_order_phrase(self):
+        topics = _clean_topics_for_report([{
+            "start": 100,
+            "end": 180,
+            "title": "自热锅没反应",
+            "publish_title": "【泽音】自热锅发热刀十几分钟没反应",
+            "body": [
+                "·自热锅发热刀十几分钟没反应",
+                "·音音音觉得商家自己没放清楚没看清楚",
+            ],
+        }])
+        topics[0]["can_slice"] = True
+        topics[0]["slice_anchor"] = 130
+        topics[0]["slice_anchor_source"] = "弹幕峰值"
+        mark = _clip_marks_from_topics(topics)[0]
+
+        self.assertIn("发热包", "\n".join(topics[0]["body"]))
+        self.assertNotIn("音音音", "\n".join(topics[0]["body"]))
+        self.assertIn("没看清订单", "\n".join(topics[0]["body"]))
+        self.assertIn("发热包", mark["publish_title"])
+
+    def test_legacy_last_reviewing_batch_is_recognized_as_complete(self):
+        topics = [{
+            "clip_review_attempts": 1,
+            "clip_review_validated": True,
+        }, {
+            "clip_review_attempts": 1,
+            "clip_review_validated": False,
+        }]
+        checkpoint = {
+            "stage": "reviewing",
+            "pending_count": 0,
+            "batch_index": 9,
+            "total_batches": 9,
+        }
+
+        self.assertTrue(_clip_review_checkpoint_is_complete(checkpoint, topics))
+        self.assertFalse(_clip_review_checkpoint_is_complete(
+            dict(checkpoint, batch_index=8),
+            topics,
+        ))
+        self.assertFalse(_clip_review_checkpoint_is_complete(
+            dict(checkpoint, pending_count=1),
+            topics,
+        ))
+
+    def test_completed_checkpoint_writer_sets_terminal_stage(self):
+        with TemporaryDirectory() as td:
+            path = Path(td) / "clip_review_checkpoint.json"
+            _write_completed_clip_review_checkpoint(
+                str(path),
+                [{
+                    "can_slice": True,
+                    "clip_review_attempts": 1,
+                    "clip_review_validated": True,
+                    "clip_review_rejection": None,
+                }],
+                source="pipeline",
+                completed_at="2026-07-17T06:30:00",
+            )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["stage"], "completed")
+        self.assertEqual(payload["source"], "pipeline")
+        self.assertEqual(payload["pending_count"], 0)
+        self.assertEqual(payload["completed_at"], "2026-07-17T06:30:00")
 
 
 class HybridModelRoutingTests(unittest.TestCase):

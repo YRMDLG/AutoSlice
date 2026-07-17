@@ -2402,6 +2402,8 @@ def _is_generic_topic_title(title):
     compact = re.sub(r'\s+', '', str(title or ""))
     if compact in _GENERIC_TOPIC_TITLES:
         return True
+    if re.match(r'^(?:有|一位|某位)?观众(?:留言|提问|询问|分享|投稿|说)', compact):
+        return True
     return bool(re.fullmatch(
         r'(?:音音|音姐|麻麻|主播|她)?(?:正在|在)?'
         r'(?:外卖|美团|大众点评|游戏|直播)?'
@@ -2565,9 +2567,23 @@ def _strip_code_fence(response):
     return response.strip()
 
 
+def _normalise_obvious_report_terms(text):
+    """修正无需猜测语义的报告残留，不改写源字幕。"""
+    clean = re.sub(r'音{3,}', '音音', str(text or ""))
+    if "自热" in clean:
+        clean = clean.replace("发热刀", "发热包")
+    clean = re.sub(
+        r'商家自己没放清楚(?:没看清楚)?',
+        '商家自己没看清订单',
+        clean,
+    )
+    return clean
+
+
 def _clean_topic_title(raw_title):
     """清理标题里的切片标记和模型推理说明，保留可读标题。"""
-    title = raw_title.replace("✂️", "").replace("✂", "")
+    title = _normalise_obvious_report_terms(raw_title)
+    title = title.replace("✂️", "").replace("✂", "")
     title = _strip_title_meta(title)
     title = re.sub(r'\s+', ' ', title)
     return title.strip(' -—：:？?。；;，,') or "未命名片段"
@@ -2612,6 +2628,11 @@ def _specific_topic_phrase(text, max_chars=MAX_TOPIC_TITLE_CHARS):
     clean = _strip_body_prefix(text)
     clean = re.sub(
         r'^(?:音音|音姐|麻麻|主播|她)(?:正在|在)?[^，,。]{0,18}(?:中|时)?[，,]',
+        '',
+        clean,
+    )
+    clean = re.sub(
+        r'^(?:有|一位|某位)?观众(?:留言|提问|询问|分享|投稿|说)(?:称|说)?',
         '',
         clean,
     )
@@ -2886,8 +2907,7 @@ def _clean_body_content(line):
     clean = re.sub(r'^可以归纳出话题[:：]?', '', clean).strip()
     clean = re.sub(r'^要点\s*[:：]\s*', '', clean).strip()
     clean = re.sub(r'^这段(?:讨论|继续解释|继续)?', '', clean).strip()
-    clean = clean.replace("音音音音", "音音")
-    return clean
+    return _normalise_obvious_report_terms(clean)
 
 
 def _normalise_body_line(line):
@@ -2962,7 +2982,8 @@ def _fallback_publish_title(topic_title):
 def _normalise_publish_title(raw_title, topic_title):
     """清理投稿标题并统一账号前缀；不合格时回退到话题短标题。"""
     raw_text = "" if raw_title is None else str(raw_title)
-    title = raw_text.replace("**", "").replace("`", "")
+    title = _normalise_obvious_report_terms(raw_text)
+    title = title.replace("**", "").replace("`", "")
     title = re.sub(r'^\s*(?:publish_title|投稿标题(?:建议)?)\s*[：:]\s*', '', title, flags=re.IGNORECASE)
     title = re.sub(r'\s+', ' ', title).strip(' \t\r\n-—')
     title = _PUBLISH_TITLE_PREFIX_RE.sub('', title, count=1).strip()
@@ -5908,6 +5929,111 @@ def _reconcile_topic_manual_evidence(topic):
     return fixed
 
 
+def _report_fact_lines(topic):
+    """返回用于识别报告重复事件的正文事实，排除密度和人工证据标签。"""
+    facts = []
+    for line in topic.get("body") or []:
+        value = str(line)
+        if value.startswith((
+                "●人工时间轴", "·时间轴", "·弹幕依据：", "·切片核心：",
+                "·参考投稿标题",
+        )):
+            continue
+        clean = _strip_body_prefix(value)
+        if clean:
+            facts.append(clean)
+    return facts
+
+
+def _trim_report_topic_around_reviewed_topic(topic, reviewed_topic, trim_start):
+    """让普通报告话题避开已复核核心，并移除被核心重复覆盖的事实。"""
+    fixed = dict(topic)
+    if trim_start:
+        fixed["start"] = int(reviewed_topic["end"])
+    else:
+        fixed["end"] = int(reviewed_topic["start"])
+    if int(fixed["end"]) - int(fixed["start"]) < 30:
+        return None
+
+    reviewed_facts = _report_fact_lines(reviewed_topic)
+    body = []
+    removed_fact = False
+    for line in fixed.get("body") or []:
+        clean = _strip_body_prefix(str(line))
+        is_fact = clean and not str(line).startswith((
+            "●人工时间轴", "·时间轴", "·弹幕依据：", "·切片核心：",
+            "·参考投稿标题",
+        ))
+        if is_fact and any(
+                _manual_alignment_score(clean, reviewed) >= 0.20
+                for reviewed in reviewed_facts):
+            removed_fact = True
+            continue
+        body.append(line)
+    fixed["body"] = body
+    fixed["start_str"] = fmt_time(fixed["start"])
+    fixed["end_str"] = fmt_time(fixed["end"])
+
+    if removed_fact:
+        rebuilt_title = _derive_topic_title("", body)
+        if rebuilt_title:
+            fixed["title"] = rebuilt_title
+            fixed["publish_title"] = _fallback_publish_title(rebuilt_title)
+    fixed = _reconcile_topic_manual_evidence(fixed)
+    return fixed if _report_fact_lines(fixed) else None
+
+
+def _resolve_reviewed_report_overlaps(topics, max_overlap_sec=120):
+    """具体复核话题优先，修正相邻普通话题在报告中的局部重叠。"""
+    resolved = sorted(
+        [dict(topic) for topic in topics or []],
+        key=lambda item: (item.get("start", 0), item.get("end", 0)),
+    )
+    index = 0
+    while index + 1 < len(resolved):
+        current = resolved[index]
+        following = resolved[index + 1]
+        overlap = min(int(current["end"]), int(following["end"])) - max(
+            int(current["start"]), int(following["start"])
+        )
+        if overlap <= 0 or overlap > max_overlap_sec:
+            index += 1
+            continue
+        current_reviewed = current.get("clip_review_validated") is True
+        following_reviewed = following.get("clip_review_validated") is True
+        if current_reviewed == following_reviewed:
+            index += 1
+            continue
+
+        if current_reviewed:
+            trimmed = _trim_report_topic_around_reviewed_topic(
+                following,
+                current,
+                trim_start=True,
+            )
+            if trimmed is None:
+                resolved.pop(index + 1)
+            else:
+                resolved[index + 1] = trimmed
+                index += 1
+            continue
+
+        if int(current["end"]) <= int(following["end"]):
+            trimmed = _trim_report_topic_around_reviewed_topic(
+                current,
+                following,
+                trim_start=False,
+            )
+            if trimmed is None:
+                resolved.pop(index)
+            else:
+                resolved[index] = trimmed
+                index += 1
+            continue
+        index += 1
+    return resolved
+
+
 def _clean_topics_for_report(topics):
     """生成报告/切片前做最后一道清洗，防止坏标题或提示残留漏网。"""
     prepared = []
@@ -5942,6 +6068,19 @@ def _clean_topics_for_report(topics):
         if _is_duplicate_topic(fixed, cleaned):
             continue
         cleaned.append(fixed)
+    cleaned = _resolve_reviewed_report_overlaps(cleaned)
+    meaningful_hours = {
+        int(topic.get("start", 0)) // 3600
+        for topic in cleaned
+        if not topic.get("fallback")
+    }
+    cleaned = [
+        topic for topic in cleaned
+        if not (
+            topic.get("fallback")
+            and int(topic.get("start", 0)) // 3600 in meaningful_hours
+        )
+    ]
     return sorted(cleaned, key=lambda item: (item.get("start", 0), item.get("end", 0)))
 
 
@@ -7052,6 +7191,49 @@ def _write_clip_review_checkpoint(path, topics, **status):
     return path
 
 
+def _clip_review_checkpoint_is_complete(checkpoint, topics):
+    """兼容旧版最后一批已完成、但 stage 仍停在 reviewing 的检查点。"""
+    if not isinstance(checkpoint, dict) or not isinstance(topics, list):
+        return False
+    stage = checkpoint.get("stage")
+    legacy_final_batch = (
+        stage == "reviewing"
+        and int(checkpoint.get("pending_count", -1) or 0) == 0
+        and int(checkpoint.get("total_batches", 0) or 0) > 0
+        and int(checkpoint.get("batch_index", 0) or 0)
+        >= int(checkpoint.get("total_batches", 0) or 0)
+    )
+    if stage != "completed" and not legacy_final_batch:
+        return False
+    reviewed_topics = [
+        topic for topic in topics
+        if topic.get("clip_review_attempts") is not None
+    ]
+    return bool(reviewed_topics) and all(
+        topic.get("clip_review_validated") is not None
+        for topic in reviewed_topics
+    )
+
+
+def _write_completed_clip_review_checkpoint(
+        path, topics, warning=None, source="pipeline", completed_at=None):
+    """统一写入完整流水线和产物重建的最终复核状态。"""
+    return _write_clip_review_checkpoint(
+        path,
+        topics,
+        stage="completed" if not warning else "completed_with_warning",
+        source=source,
+        pending_count=sum(
+            1 for topic in topics or []
+            if (
+                topic.get("can_slice")
+                and topic.get("clip_review_rejection") == "等待独立字幕复核"
+            )
+        ),
+        completed_at=completed_at or datetime.now().isoformat(timespec="seconds"),
+    )
+
+
 def _review_peak_selected_topics(
         topics, srt_segments, peaks, streamer_name="音音", progress_callback=None,
         checkpoint_callback=None, resume=False):
@@ -7470,6 +7652,7 @@ def run_pipeline(
     md_path = base + "_话题分析.md"
     json_path = base + "_clip_marks.json"
     task_manifest_json_path, task_manifest_md_path = _refinement_manifest_paths(base)
+    clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(report)
@@ -7512,6 +7695,7 @@ def run_pipeline(
             },
             "api_precheck_warning": api_precheck_warning,
             "clip_review_warning": clip_review_warning,
+            "clip_review_completed_at": clip_review_completed_at,
             "failed_chunks": failed_chunks,
             "manual_timeline": _manual_timeline_summary(manual_timeline),
             "analysis_topics": analysis_topics,
@@ -7542,6 +7726,14 @@ def run_pipeline(
         unified_queue_warning = f"精调总清单更新失败: {e}"
         if progress_callback:
             progress_callback(unified_queue_warning, 99, 100)
+
+    _write_completed_clip_review_checkpoint(
+        clip_review_checkpoint_path,
+        accepted_topics,
+        warning=clip_review_warning,
+        source="pipeline",
+        completed_at=clip_review_completed_at,
+    )
 
     if progress_callback:
         progress_callback(
@@ -7640,11 +7832,7 @@ def retry_clip_review_from_artifacts(
                 checkpoint = json.load(f)
             checkpoint_topics = checkpoint.get("topics") if isinstance(checkpoint, dict) else None
             resume_stages = {"reviewing", "resuming", "completed_with_warning"}
-            if (
-                isinstance(checkpoint_topics, list)
-                and checkpoint_topics
-                and checkpoint.get("source") == "artifact_retry"
-            ):
+            if isinstance(checkpoint_topics, list) and checkpoint_topics:
                 for topic in checkpoint_topics:
                     if (
                         topic.get("clip_review_validated") is True
@@ -7662,19 +7850,13 @@ def retry_clip_review_from_artifacts(
                         and topic.get("clip_review_rejection") == "等待独立字幕复核"
                     )
                 ]
-                if pending_topics:
+                if pending_topics and checkpoint.get("stage") in resume_stages:
                     accepted_topics = _clean_topics_for_report(checkpoint_topics)
                     resume_review = True
-                elif checkpoint.get("stage") == "completed":
-                    reviewed_topics = [
-                        topic for topic in checkpoint_topics
-                        if topic.get("clip_review_attempts") is not None
-                    ]
-                    if reviewed_topics and all(
-                            topic.get("clip_review_validated") is not None
-                            for topic in reviewed_topics):
-                        accepted_topics = _clean_topics_for_report(checkpoint_topics)
-                        reuse_completed_review = True
+                elif _clip_review_checkpoint_is_complete(
+                        checkpoint, checkpoint_topics):
+                    accepted_topics = _clean_topics_for_report(checkpoint_topics)
+                    reuse_completed_review = True
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             resume_review = False
     if not accepted_topics:
@@ -7812,6 +7994,7 @@ def retry_clip_review_from_artifacts(
     )
     analysis_topics = _analysis_topics_snapshot(accepted_topics)
 
+    clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
     data.update({
         "video": video_name,
         "streamer_name": streamer_name,
@@ -7842,7 +8025,7 @@ def retry_clip_review_from_artifacts(
         "manual_timeline": _manual_timeline_summary(manual_timeline),
         "analysis_topics": analysis_topics,
         "clip_marks": clip_marks,
-        "clip_review_completed_at": datetime.now().isoformat(timespec="seconds"),
+        "clip_review_completed_at": clip_review_completed_at,
     })
 
     report_temp_path = report_path + ".tmp"
@@ -7881,15 +8064,12 @@ def retry_clip_review_from_artifacts(
         refinement_manifest["unified_queue_warning"] = f"精调总清单更新失败: {exc}"
         _write_refinement_manifest_files(refinement_manifest)
 
-    _write_clip_review_checkpoint(
+    _write_completed_clip_review_checkpoint(
         clip_review_checkpoint_path,
         accepted_topics,
-        stage="completed" if not clip_review_warning else "completed_with_warning",
+        warning=clip_review_warning,
         source="artifact_retry",
-        pending_count=sum(
-            1 for topic in accepted_topics
-            if topic.get("clip_review_rejection") and topic.get("can_slice")
-        ),
+        completed_at=clip_review_completed_at,
     )
     if progress_callback:
         progress_callback(
