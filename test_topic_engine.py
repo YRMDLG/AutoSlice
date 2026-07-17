@@ -50,7 +50,7 @@ from topic_engine import (
     _parse_elapsed_timeline_report_lines, _parse_generated_topic_report,
     _parse_manual_timeline_lines,
     _render_unified_refinement_queue_markdown, _resolve_funasr_device,
-    _resolve_funasr_model_source,
+    _replace_streamer_role, _resolve_funasr_model_source,
     _select_title_style_examples, _streamer_report_name,
     _enrich_manual_topics_in_batches, _enrich_manual_topics_with_llm,
     _optimized_entry_needs_retry, _retry_optimized_timeline_entries,
@@ -1865,6 +1865,47 @@ class TopicEngineParseTests(unittest.TestCase):
         prepare_source.assert_not_called()
         run.assert_not_called()
 
+    def test_slice_from_marks_renames_reusable_clip_when_only_title_changes(self):
+        mark = {"start": 10, "end": 90, "title": "新标题"}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"source-video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": [mark],
+            }, ensure_ascii=False), encoding="utf-8")
+            report_dir = root / "输出" / "测试录播_话题切片"
+            report_dir.mkdir(parents=True)
+            old_path = report_dir / "01_10s_旧标题.flv"
+            old_path.write_bytes(b"same-video-content")
+            source_mtime = flv_path.stat().st_mtime
+            os.utime(old_path, (source_mtime + 10, source_mtime + 10))
+            expected_path = report_dir / _topic_clip_filename(1, mark)
+            progress = []
+
+            with (
+                patch("topic_engine._probe_video_duration", return_value=80.03),
+                patch("topic_engine._prepare_seekable_slice_source") as prepare_source,
+                patch("subprocess.run") as run,
+            ):
+                count, _ = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                    progress_callback=lambda message, current, total: progress.append(message),
+                )
+            expected_bytes = expected_path.read_bytes()
+            old_exists = old_path.exists()
+
+        self.assertEqual(count, 1)
+        self.assertEqual(expected_bytes, b"same-video-content")
+        self.assertFalse(old_exists)
+        self.assertIn("其中 1 个仅更新标题", progress[0])
+        prepare_source.assert_not_called()
+        run.assert_not_called()
+
     def test_slice_from_marks_only_reencodes_changed_boundary_without_large_index(self):
         marks = [
             {"start": 10 + index * 100, "end": 90 + index * 100, "title": f"片段{index + 1}"}
@@ -1927,6 +1968,34 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(prepare_source.call_args.args[2], 1)
         self.assertFalse(any(str(part).endswith(".mkv") for part in ffmpeg_calls[0]))
         self.assertIn("已复用 4 个现有切片，仅重切 1 个", progress)
+
+    def test_prepare_seekable_source_uses_index_when_seek_cost_exceeds_span(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "长录播.flv"
+            flv_path.write_bytes(b"source")
+            report_dir = root / "输出"
+            report_dir.mkdir()
+
+            def fake_ffmpeg(args, **_kwargs):
+                Path(args[-1]).write_bytes(b"indexed")
+                return Mock(returncode=0)
+
+            with patch("subprocess.run", side_effect=fake_ffmpeg) as run:
+                source, temporary = _prepare_seekable_slice_source(
+                    str(flv_path),
+                    str(report_dir),
+                    2,
+                    subprocess,
+                    total_seek_sec=1200,
+                    source_span_sec=1000,
+                )
+
+            indexed_bytes = Path(source).read_bytes()
+
+        self.assertEqual(source, temporary)
+        self.assertEqual(indexed_bytes, b"indexed")
+        run.assert_called_once()
 
     def test_slice_from_marks_reencodes_clip_older_than_source(self):
         mark = {"start": 10, "end": 90, "title": "源文件更新测试"}
@@ -5636,12 +5705,34 @@ class LatestArtifactCleanupTests(unittest.TestCase):
 
         self.assertEqual(cleaned[0]["title"], "音音是你们孩子的母亲啊")
 
+    def test_streamer_alias_cleanup_does_not_corrupt_yinyin_because_phrase(self):
+        line = "·音音因华为闹钟将中午12点误设为半夜12点"
+
+        cleaned = _replace_streamer_role(line, "泽音Melody")
+
+        self.assertEqual(cleaned, line)
+        self.assertNotIn("音音音", cleaned)
+
+    def test_cleanup_rebuilds_title_unsupported_by_remaining_facts(self):
+        cleaned = _clean_topics_for_report([{
+            "start": 1371,
+            "end": 1915,
+            "title": "结果那天先去吃饭聊的很开心",
+            "body": [
+                "·下车时把包落在座位上，幸好被保洁提醒后找回",
+                "·高铁零食打不开，旁边乘客主动帮忙",
+                "●人工时间轴⭐：0:17:40 结果那天先去吃饭聊的很开心",
+            ],
+        }])
+
+        self.assertEqual(cleaned[0]["title"], "下车时把包落在座位上")
+
     def test_report_terms_fix_self_heating_pack_and_unclear_order_phrase(self):
         topics = _clean_topics_for_report([{
             "start": 100,
             "end": 180,
             "title": "自热锅没反应",
-            "publish_title": "【泽音】自热锅发热刀十几分钟没反应",
+            "publish_title": "【泽音】自热锅发热刀十几分钟没反应，商家自己没放清楚",
             "body": [
                 "·自热锅发热刀十几分钟没反应",
                 "·音音音觉得商家自己没放清楚没看清楚",
@@ -5655,6 +5746,8 @@ class LatestArtifactCleanupTests(unittest.TestCase):
         self.assertIn("发热包", "\n".join(topics[0]["body"]))
         self.assertNotIn("音音音", "\n".join(topics[0]["body"]))
         self.assertIn("没看清订单", "\n".join(topics[0]["body"]))
+        self.assertIn("发热包", topics[0]["publish_title"])
+        self.assertIn("没看清订单", topics[0]["publish_title"])
         self.assertIn("发热包", mark["publish_title"])
 
     def test_legacy_last_reviewing_batch_is_recognized_as_complete(self):

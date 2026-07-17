@@ -136,7 +136,6 @@ STREAMER_ASR_LITERAL_REPLACEMENTS = (
     ("莹莹", "音音"),
     ("盈盈", "音音"),
     ("应应", "音音"),
-    ("音因", "音音"),
     ("音乐生", "音悦生"),
     ("英悦生", "音悦生"),
     ("音悦声", "音悦生"),
@@ -260,6 +259,11 @@ def _normalise_streamer_terms(text, streamer_name="主播"):
         return clean
     for source, target in STREAMER_ASR_LITERAL_REPLACEMENTS:
         clean = clean.replace(source, target)
+    clean = re.sub(
+        r'(?<![音声])音因(?=(?:们|宝宝|晚上好|晚安|好[呀啊]?|来|在|都|才|说|看|见|发|给|喜欢|想|要|是|有|没|不|又|真|太|今天|昨天|明天|[，,。.!！?？：:\s]|$))',
+        '音音',
+        clean,
+    )
     clean = re.sub(
         r'音乐声(?=(?:们|宝宝|晚上好|晚安|好[呀啊]?|来|在|都|才|说|看|见|发|给|喜欢|想))',
         '音悦生',
@@ -5973,13 +5977,17 @@ def _trim_report_topic_around_reviewed_topic(topic, reviewed_topic, trim_start):
     fixed["body"] = body
     fixed["start_str"] = fmt_time(fixed["start"])
     fixed["end_str"] = fmt_time(fixed["end"])
+    fixed = _reconcile_topic_manual_evidence(fixed)
 
     if removed_fact:
-        rebuilt_title = _derive_topic_title("", body)
+        remaining_facts = _report_fact_lines(fixed)
+        rebuilt_title = _derive_topic_title(
+            "",
+            [f"·{fact}" for fact in remaining_facts],
+        )
         if rebuilt_title:
             fixed["title"] = rebuilt_title
             fixed["publish_title"] = _fallback_publish_title(rebuilt_title)
-    fixed = _reconcile_topic_manual_evidence(fixed)
     return fixed if _report_fact_lines(fixed) else None
 
 
@@ -6049,9 +6057,29 @@ def _clean_topics_for_report(topics):
         title = _derive_topic_title(topic.get("title", ""), body_lines)
         if not title:
             continue
+        fact_lines = _report_fact_lines({"body": body_lines})
+        title_rebuilt = False
+        if fact_lines and max(
+                _manual_alignment_score(title, fact) for fact in fact_lines) == 0:
+            rebuilt_title = _derive_topic_title(
+                "",
+                [f"·{fact}" for fact in fact_lines],
+            )
+            if rebuilt_title:
+                title = rebuilt_title
+                title_rebuilt = True
         fixed = dict(topic)
         fixed["title"] = title
         fixed["body"] = body_lines
+        publish_title = (
+            _fallback_publish_title(title)
+            if title_rebuilt
+            else _normalise_publish_title(fixed.get("publish_title"), title)
+        )
+        fixed["publish_title"] = _sanitize_transport_claims(
+            publish_title,
+            body_lines,
+        )
         prepared.append(fixed)
 
     # 具体 AI/字幕话题优先去重。十分钟兜底段最后处理，避免它先占住
@@ -8152,6 +8180,37 @@ def _is_reusable_topic_clip(output_path, source_path, expected_duration):
     )
 
 
+def _reuse_topic_clip_after_title_change(job, report_dir, source_path):
+    """编号、起点和时长未变时，仅改文件名复用已有视频。"""
+    expected_name = str(job["output_name"])
+    prefix = f'{int(job["index"]):02d}_{int(job["start"])}s_'.casefold()
+    try:
+        names = os.listdir(report_dir)
+    except OSError:
+        return False
+    candidates = []
+    for name in names:
+        if name.casefold() == expected_name.casefold():
+            continue
+        if not _GENERATED_TOPIC_ARTIFACT_RE.fullmatch(name):
+            continue
+        if not name.casefold().startswith(prefix) or not name.lower().endswith(".flv"):
+            continue
+        path = os.path.join(report_dir, name)
+        try:
+            modified_ns = os.stat(path).st_mtime_ns
+        except OSError:
+            continue
+        candidates.append((modified_ns, path))
+    for _modified_ns, candidate_path in sorted(candidates, reverse=True):
+        if not _is_reusable_topic_clip(
+                candidate_path, source_path, job["duration"]):
+            continue
+        os.replace(candidate_path, job["output_path"])
+        return True
+    return False
+
+
 def _preferred_slice_video_encoder_args():
     """优先使用本机 NVENC；无 NVIDIA 环境时回退到高质量软件编码。"""
     requested = os.environ.get("AUTOSLICE_VIDEO_ENCODER", "auto").strip().lower()
@@ -8213,9 +8272,19 @@ def _build_precise_slice_ffmpeg_command(
 
 
 def _prepare_seekable_slice_source(
-        flv_path, report_dir, mark_count, subprocess_module, progress_callback=None):
+        flv_path, report_dir, mark_count, subprocess_module, progress_callback=None,
+        total_seek_sec=None, source_span_sec=None):
     """多片段 FLV 先临时重封装为带索引的 MKV，避免每段线性扫描整场。"""
-    if mark_count < SLICE_INDEX_MIN_CLIPS or os.path.splitext(flv_path)[1].lower() != ".flv":
+    seek_cost_requires_index = (
+        mark_count >= 2
+        and total_seek_sec is not None
+        and source_span_sec is not None
+        and float(source_span_sec) > 0
+        and float(total_seek_sec) >= float(source_span_sec)
+    )
+    if (
+            (mark_count < SLICE_INDEX_MIN_CLIPS and not seek_cost_requires_index)
+            or os.path.splitext(flv_path)[1].lower() != ".flv"):
         return flv_path, None
     try:
         source_size = os.path.getsize(flv_path)
@@ -8302,10 +8371,14 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
 
     reusable_jobs = []
     pending_jobs = []
+    title_renamed_count = 0
     for job in slice_jobs:
         if _is_reusable_topic_clip(
                 job["output_path"], flv_path, job["duration"]):
             reusable_jobs.append(job)
+        elif _reuse_topic_clip_after_title_change(job, report_dir, flv_path):
+            reusable_jobs.append(job)
+            title_renamed_count += 1
         else:
             pending_jobs.append(job)
 
@@ -8322,14 +8395,23 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
                 len(marks),
             )
         if reusable_jobs and pending_jobs:
+            rename_note = (
+                f"，其中 {title_renamed_count} 个仅更新标题"
+                if title_renamed_count else ""
+            )
             progress_callback(
-                f"已复用 {len(reusable_jobs)} 个现有切片，仅重切 {len(pending_jobs)} 个",
+                f"已复用 {len(reusable_jobs)} 个现有切片{rename_note}，"
+                f"仅重切 {len(pending_jobs)} 个",
                 0,
                 len(marks),
             )
         elif reusable_jobs:
+            rename_note = (
+                f"，其中 {title_renamed_count} 个仅更新标题"
+                if title_renamed_count else ""
+            )
             progress_callback(
-                f"已复用 {len(reusable_jobs)} 个现有切片，无需重新编码",
+                f"已复用 {len(reusable_jobs)} 个现有切片{rename_note}，无需重新编码",
                 0,
                 len(marks),
             )
@@ -8426,12 +8508,22 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
 
     try:
         if pending_jobs:
+            total_seek_sec = sum(
+                max(0.0, job["start"] - SLICE_EXACT_SEEK_PREROLL_SEC)
+                for job in pending_jobs
+            )
+            source_span_sec = (
+                _srt_video_duration(subtitle_segments)
+                or max(job["end"] for job in slice_jobs)
+            )
             slice_source, temporary_seek_source = _prepare_seekable_slice_source(
                 flv_path,
                 report_dir,
                 len(pending_jobs),
                 sp,
                 progress_callback=progress_callback,
+                total_seek_sec=total_seek_sec,
+                source_span_sec=source_span_sec,
             )
         remaining_jobs = list(pending_jobs)
         can_probe_parallel_nvenc = (
