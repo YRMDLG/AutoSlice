@@ -2,7 +2,8 @@
 AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 """
 
-import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, secrets, subprocess
+import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, secrets, subprocess, re, traceback
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from flask import Flask, render_template, request, jsonify, Response, redirect
@@ -11,10 +12,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import process_video
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
 tasks = {}
 task_lock = threading.Lock()
 event_queues = []
+event_queue_lock = threading.Lock()
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_TL_DIR = os.path.join(PROJECT_DIR, "timelines")
@@ -22,6 +25,11 @@ os.makedirs(PROJECT_TL_DIR, exist_ok=True)
 DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1
+JSON_TIMELINE_UPLOAD_DIR = Path(r"F:\Videos\自动切片")
+MANUAL_TIMELINE_UPLOAD_DIR = Path(r"F:\切片时间轴")
+_ACTIVE_TASK_STATUSES = {"queued", "running"}
+_WINDOWS_PATH_RE = re.compile(r"(?i)(?<![\w])(?:[a-z]:\\)[^\r\n]+")
+_UPLOAD_INVALID_CHARS_RE = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
 
 
 def _configured_autocover_url(environ=None):
@@ -50,15 +58,19 @@ def _configured_autocover_url(environ=None):
 def broadcast(event_type, data):
     """向所有 SSE 订阅者推送事件"""
     msg = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    with event_queue_lock:
+        subscribers = tuple(event_queues)
     dead = []
-    for q in event_queues:
+    for q in subscribers:
         try:
             q.put_nowait(msg)
         except queue.Full:
             dead.append(q)
-    for q in dead:
-        if q in event_queues:
-            event_queues.remove(q)
+    if dead:
+        with event_queue_lock:
+            for q in dead:
+                if q in event_queues:
+                    event_queues.remove(q)
 
 
 def _console_print(message, stream=None):
@@ -118,6 +130,104 @@ def _subtitle_task_id(prefix, path, nonce=None):
     stem = os.path.splitext(os.path.basename(path))[0][:24]
     run_nonce = str(nonce or secrets.token_hex(4))
     return f"{prefix}_{stem}_{digest}_{run_nonce}"
+
+
+def _reserve_source_task(prefix, task_type, source_path, waiting_progress):
+    """原子登记同源后台任务，防止重复点击覆盖运行状态。"""
+    absolute_source = os.path.abspath(source_path)
+    normalized = os.path.normcase(absolute_source)
+    with task_lock:
+        for active_id, task in tasks.items():
+            if (
+                    task.get("task_type") == task_type
+                    and task.get("status") in _ACTIVE_TASK_STATUSES
+                    and os.path.normcase(os.path.abspath(
+                        task.get("source_path", ""))) == normalized):
+                return None, active_id
+
+        task_id = _subtitle_task_id(prefix, absolute_source)
+        tasks[task_id] = {
+            "status": "queued",
+            "progress": waiting_progress,
+            "step": 0,
+            "total": 100,
+            "task_type": task_type,
+            "source_path": absolute_source,
+            "created_at": time.time(),
+        }
+    return task_id, None
+
+
+def _safe_task_error(error):
+    """生成可发给前端的单行错误，不包含凭据、路径或堆栈。"""
+    message = " ".join(str(error).split())
+    message = re.sub(
+        r"(?i)\b(?:api[_ -]?key|token)\s*[:=]\s*[^\s,;]+",
+        "[已隐藏]",
+        message,
+    )
+    message = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer [已隐藏]", message)
+    message = re.sub(r"(?i)\bsk-[a-z0-9._-]{4,}", "[已隐藏]", message)
+    message = _WINDOWS_PATH_RE.sub("[本地路径已隐藏]", message)
+    if not message:
+        message = "后台处理失败"
+    return f"{type(error).__name__}: {message}"[:500]
+
+
+def _record_task_error(task_id, progress, error, *, total=100):
+    """堆栈仅写服务日志，SSE 和任务结果只保存脱敏摘要。"""
+    stack = "".join(traceback.format_tb(error.__traceback__))
+    app.logger.error("%s\n%s%s", progress, stack, _safe_task_error(error))
+    update_task(
+        task_id,
+        status="error",
+        progress=progress,
+        result=_safe_task_error(error),
+        step=0,
+        total=total,
+    )
+
+
+def _validated_upload_filename(raw_filename, allowed_suffixes):
+    filename = str(raw_filename or "")
+    if not filename or filename != filename.strip(" ."):
+        raise ValueError("文件名为空或格式不安全")
+    if filename in {".", ".."} or _UPLOAD_INVALID_CHARS_RE.search(filename):
+        raise ValueError("文件名不能包含路径或 Windows 非法字符")
+    suffix = Path(filename).suffix.casefold()
+    if suffix not in {item.casefold() for item in allowed_suffixes}:
+        expected = "、".join(sorted(allowed_suffixes))
+        raise ValueError(f"只允许上传 {expected} 文件")
+    return filename
+
+
+def _save_uploaded_file(field_name, target_dir, allowed_suffixes, *, validate_json=False):
+    file = request.files.get(field_name)
+    if file is None:
+        raise ValueError("无文件")
+    filename = _validated_upload_filename(file.filename, allowed_suffixes)
+    root = Path(target_dir).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    destination = (root / filename).resolve()
+    if destination.parent != root:
+        raise ValueError("上传文件必须保存在指定目录")
+    temporary = root / f".{filename}.{secrets.token_hex(6)}.upload"
+    try:
+        file.save(str(temporary))
+        if validate_json:
+            with temporary.open(encoding="utf-8-sig") as handle:
+                payload = json.load(handle)
+            if not isinstance(payload, (dict, list)):
+                raise ValueError("JSON 时间轴顶层必须是对象或数组")
+        os.replace(temporary, destination)
+    except json.JSONDecodeError as exc:
+        raise ValueError("JSON 时间轴内容无效") from exc
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return destination
 
 
 def _reserve_subtitle_review_task(srt_path, force):
@@ -222,15 +332,7 @@ def run_subtitle_review_task(
             total=100,
         )
     except Exception as exc:
-        import traceback
-        update_task(
-            task_id,
-            status="error",
-            progress="字幕检查失败",
-            result=f"{exc}\n{traceback.format_exc()}",
-            step=0,
-            total=100,
-        )
+        _record_task_error(task_id, "字幕检查失败", exc)
 
 
 def run_subtitle_render_task(
@@ -274,15 +376,7 @@ def run_subtitle_render_task(
             total=100,
         )
     except Exception as exc:
-        import traceback
-        update_task(
-            task_id,
-            status="error",
-            progress="字幕版视频压制失败",
-            result=f"{exc}\n{traceback.format_exc()}",
-            step=0,
-            total=100,
-        )
+        _record_task_error(task_id, "字幕版视频压制失败", exc)
 
 
 def run_timeline_optimization_task(
@@ -316,16 +410,8 @@ def run_timeline_optimization_task(
             step=100,
             total=100,
         )
-    except Exception as e:
-        import traceback
-        update_task(
-            task_id,
-            status="error",
-            progress="人工时间轴优化失败",
-            result=f"{e}\n{traceback.format_exc()}",
-            step=0,
-            total=100,
-        )
+    except Exception as exc:
+        _record_task_error(task_id, "人工时间轴优化失败", exc)
 
 
 def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path, timeline_json=None):
@@ -366,7 +452,8 @@ def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path,
 def sse_events():
     """SSE 实时事件流"""
     q = queue.Queue(maxsize=50)
-    event_queues.append(q)
+    with event_queue_lock:
+        event_queues.append(q)
 
     def generate():
         # 先发送当前所有任务状态
@@ -383,8 +470,9 @@ def sse_events():
         except GeneratorExit:
             pass
         finally:
-            if q in event_queues:
-                event_queues.remove(q)
+            with event_queue_lock:
+                if q in event_queues:
+                    event_queues.remove(q)
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -680,16 +768,16 @@ def list_json_timelines():
 @app.route("/api/upload-json-timeline", methods=["POST"])
 def upload_json_timeline():
     """上传 JSON 时间轴文件"""
-    if "file" not in request.files:
-        return jsonify({"error": "无文件"})
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "文件名为空"})
-    upload_dir = r"F:\Videos\自动切片"
-    os.makedirs(upload_dir, exist_ok=True)
-    save_path = os.path.join(upload_dir, file.filename)
-    file.save(save_path)
-    return jsonify({"path": save_path, "name": file.filename})
+    try:
+        save_path = _save_uploaded_file(
+            "file",
+            JSON_TIMELINE_UPLOAD_DIR,
+            {".json"},
+            validate_json=True,
+        )
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"path": str(save_path), "name": save_path.name})
 
 
 @app.route("/api/timelines", methods=["GET"])
@@ -703,16 +791,15 @@ def list_timelines():
 
 @app.route("/api/upload-timeline", methods=["POST"])
 def upload_timeline():
-    if "file" not in request.files:
-        return jsonify({"error": "无文件"})
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "文件名为空"})
-    upload_dir = r"F:\切片时间轴"
-    os.makedirs(upload_dir, exist_ok=True)
-    save_path = os.path.join(upload_dir, file.filename)
-    file.save(save_path)
-    return jsonify({"path": save_path, "name": file.filename})
+    try:
+        save_path = _save_uploaded_file(
+            "file",
+            MANUAL_TIMELINE_UPLOAD_DIR,
+            {".docx"},
+        )
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"path": str(save_path), "name": save_path.name})
 
 
 # ==================== 话题分析 ====================
@@ -749,7 +836,7 @@ def service_contract():
 @app.route("/api/start-pipeline", methods=["POST"])
 def start_pipeline():
     """启动完整话题分析流水线（v2）"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     flv_path = data.get("flv_path", "")
     ass_path = data.get("ass_path", "")
     output_dir = data.get("output_dir", r"F:\Videos\自动切片")
@@ -758,7 +845,7 @@ def start_pipeline():
     optimized_timeline_path = data.get("optimized_timeline_path", "")
 
     if not os.path.isfile(flv_path):
-        return jsonify({"error": "视频文件不存在"})
+        return jsonify({"error": "视频文件不存在"}), 400
     if manual_timeline_mode == "manual" and not os.path.isfile(manual_timeline_path):
         return jsonify({"error": "指定的辅助时间轴文件不存在"})
     if optimized_timeline_path and not os.path.isfile(optimized_timeline_path):
@@ -770,7 +857,17 @@ def start_pipeline():
         manual_timeline_path = None
         optimized_timeline_path = None
 
-    task_id = "pipeline_" + os.path.basename(flv_path).replace(".flv", "")[:35]
+    task_id, active_task_id = _reserve_source_task(
+        "pipeline",
+        "topic_pipeline",
+        flv_path,
+        "完整分析等待启动...",
+    )
+    if active_task_id:
+        return jsonify({
+            "error": "该录播正在进行完整分析，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
 
     def run():
         try:
@@ -801,12 +898,14 @@ def start_pipeline():
                         progress=_pipeline_completion_progress(result),
                         result=json.dumps(result, ensure_ascii=False),
                         step=100)
-        except Exception as e:
-            import traceback
-            update_task(task_id, status="error", progress="失败",
-                        result=f"{e}\n{traceback.format_exc()}", step=0)
+        except Exception as exc:
+            _record_task_error(task_id, "完整分析失败", exc)
 
-    threading.Thread(target=run, daemon=True).start()
+    try:
+        threading.Thread(target=run, daemon=True).start()
+    except Exception as exc:
+        _record_task_error(task_id, "完整分析启动失败", exc)
+        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
     return jsonify({"task_id": task_id})
 
 
@@ -822,24 +921,48 @@ def optimize_manual_timeline():
     if not os.path.isfile(manual_timeline_path):
         return jsonify({"error": "指定的人工时间轴 DOCX 不存在"}), 400
 
-    task_id = "timeline_opt_" + os.path.basename(flv_path).replace(".flv", "")[:35]
-    threading.Thread(
-        target=run_timeline_optimization_task,
-        args=(task_id, flv_path, manual_timeline_path, ass_path),
-        daemon=True,
-    ).start()
+    task_id, active_task_id = _reserve_source_task(
+        "timeline_opt",
+        "timeline_optimization",
+        flv_path,
+        "人工时间轴优化等待启动...",
+    )
+    if active_task_id:
+        return jsonify({
+            "error": "该录播正在优化人工时间轴，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
+    try:
+        threading.Thread(
+            target=run_timeline_optimization_task,
+            args=(task_id, flv_path, manual_timeline_path, ass_path),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        _record_task_error(task_id, "人工时间轴优化启动失败", exc)
+        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
     return jsonify({"task_id": task_id})
 
 
 @app.route("/api/analyze-topics", methods=["POST"])
 def analyze_topics():
     """启动话题分析任务"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     srt_path = data.get("srt_path", "")
     if not srt_path or not os.path.isfile(srt_path):
-        return jsonify({"error": "SRT 文件不存在"})
+        return jsonify({"error": "SRT 文件不存在"}), 400
 
-    task_id = "topic_" + os.path.basename(srt_path).replace(".srt", "")[:40]
+    task_id, active_task_id = _reserve_source_task(
+        "topic",
+        "topic_analysis",
+        srt_path,
+        "话题分析等待启动...",
+    )
+    if active_task_id:
+        return jsonify({
+            "error": "该字幕正在分析话题，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
 
     def run_analysis():
         try:
@@ -853,10 +976,14 @@ def analyze_topics():
                         progress=f"完成！{len(result['topics'])} 个话题",
                         result=json.dumps(result, ensure_ascii=False),
                         step=100)
-        except Exception as e:
-            update_task(task_id, status="error", progress="分析失败", result=str(e), step=0)
+        except Exception as exc:
+            _record_task_error(task_id, "话题分析失败", exc)
 
-    threading.Thread(target=run_analysis, daemon=True).start()
+    try:
+        threading.Thread(target=run_analysis, daemon=True).start()
+    except Exception as exc:
+        _record_task_error(task_id, "话题分析启动失败", exc)
+        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
     return jsonify({"task_id": task_id})
 
 

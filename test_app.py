@@ -261,6 +261,206 @@ class TopicPipelineApiTests(unittest.TestCase):
             str(timeline_path),
         )
 
+    def test_pipeline_ids_are_unique_and_duplicate_running_source_is_rejected(self):
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "同一场录播.flv"
+            flv_path.write_bytes(b"video")
+            pipeline_result = {
+                "report": "# 测试",
+                "topic_count": 1,
+                "clip_marks": [],
+                "json_path": str(Path(td) / "marks.json"),
+            }
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch("topic_engine.run_pipeline", return_value=pipeline_result),
+            ):
+                first = self.client.post(
+                    "/api/start-pipeline",
+                    json={"flv_path": str(flv_path)},
+                )
+                second = self.client.post(
+                    "/api/start-pipeline",
+                    json={"flv_path": str(flv_path)},
+                )
+
+            self.assertEqual(first.status_code, 200)
+            self.assertEqual(second.status_code, 200)
+            self.assertNotEqual(first.get_json()["task_id"], second.get_json()["task_id"])
+            self.assertEqual(
+                app_module.tasks[first.get_json()["task_id"]]["task_type"],
+                "topic_pipeline",
+            )
+
+            app_module.tasks.clear()
+            with patch.object(app_module.threading, "Thread", DeferredThread):
+                running = self.client.post(
+                    "/api/start-pipeline",
+                    json={"flv_path": str(flv_path)},
+                )
+                duplicate = self.client.post(
+                    "/api/start-pipeline",
+                    json={"flv_path": str(flv_path)},
+                )
+
+        self.assertEqual(running.status_code, 200)
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(
+            duplicate.get_json()["task_id"],
+            running.get_json()["task_id"],
+        )
+
+    def test_timeline_and_topic_ai_tasks_reject_same_source_while_queued(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            flv_path = root / "录播.flv"
+            timeline_path = root / "时间轴.docx"
+            srt_path = root / "录播.srt"
+            for path in (flv_path, timeline_path, srt_path):
+                path.write_bytes(b"test")
+
+            with patch.object(app_module.threading, "Thread", DeferredThread):
+                first_timeline = self.client.post(
+                    "/api/optimize-manual-timeline",
+                    json={
+                        "flv_path": str(flv_path),
+                        "manual_timeline_path": str(timeline_path),
+                    },
+                )
+                duplicate_timeline = self.client.post(
+                    "/api/optimize-manual-timeline",
+                    json={
+                        "flv_path": str(flv_path),
+                        "manual_timeline_path": str(timeline_path),
+                    },
+                )
+                first_topic = self.client.post(
+                    "/api/analyze-topics",
+                    json={"srt_path": str(srt_path)},
+                )
+                duplicate_topic = self.client.post(
+                    "/api/analyze-topics",
+                    json={"srt_path": str(srt_path)},
+                )
+
+        self.assertEqual(first_timeline.status_code, 200)
+        self.assertEqual(duplicate_timeline.status_code, 409)
+        self.assertEqual(first_topic.status_code, 200)
+        self.assertEqual(duplicate_topic.status_code, 409)
+        self.assertEqual(
+            duplicate_timeline.get_json()["task_id"],
+            first_timeline.get_json()["task_id"],
+        )
+        self.assertEqual(
+            duplicate_topic.get_json()["task_id"],
+            first_topic.get_json()["task_id"],
+        )
+
+    def test_pipeline_error_result_redacts_secrets_paths_and_traceback(self):
+        with TemporaryDirectory() as td:
+            flv_path = Path(td) / "录播.flv"
+            flv_path.write_bytes(b"video")
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "topic_engine.run_pipeline",
+                    side_effect=RuntimeError(
+                        "token=sk-private-value 位于 F:\\个人资料\\api_config.json"
+                    ),
+                ),
+                patch.object(app_module.app.logger, "error") as logger,
+            ):
+                response = self.client.post(
+                    "/api/start-pipeline",
+                    json={"flv_path": str(flv_path)},
+                )
+
+        task = app_module.tasks[response.get_json()["task_id"]]
+        self.assertEqual(task["status"], "error")
+        self.assertNotIn("sk-private-value", task["result"])
+        self.assertNotIn(r"F:\个人资料", task["result"])
+        self.assertNotIn("Traceback", task["result"])
+        self.assertIn("[已隐藏]", task["result"])
+        logger.assert_called_once()
+
+
+class WebTransportSafetyTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        app_module.tasks.clear()
+        if hasattr(app_module, "event_queue_lock"):
+            with app_module.event_queue_lock:
+                app_module.event_queues.clear()
+        else:
+            app_module.event_queues.clear()
+        self.client = app_module.app.test_client()
+
+    def tearDown(self):
+        if hasattr(app_module, "event_queue_lock"):
+            with app_module.event_queue_lock:
+                app_module.event_queues.clear()
+        else:
+            app_module.event_queues.clear()
+
+    def test_broadcast_uses_subscriber_snapshot_during_concurrent_registration(self):
+        late_queue = app_module.queue.Queue()
+
+        class RegisteringQueue:
+            def put_nowait(self, _message):
+                with app_module.event_queue_lock:
+                    app_module.event_queues.append(late_queue)
+
+        with app_module.event_queue_lock:
+            app_module.event_queues.append(RegisteringQueue())
+        app_module.broadcast("test", {"ok": True})
+
+        self.assertTrue(late_queue.empty())
+
+    def test_uploads_reject_path_traversal_and_wrong_extensions(self):
+        cases = [
+            ("/api/upload-json-timeline", "../secret.json", b"{}"),
+            ("/api/upload-json-timeline", "timeline.exe", b"{}"),
+            ("/api/upload-timeline", r"..\\secret.docx", b"docx"),
+            ("/api/upload-timeline", "timeline.json", b"{}"),
+        ]
+        for endpoint, filename, content in cases:
+            with self.subTest(endpoint=endpoint, filename=filename):
+                response = self.client.post(
+                    endpoint,
+                    data={"file": (io.BytesIO(content), filename)},
+                    content_type="multipart/form-data",
+                )
+                self.assertEqual(response.status_code, 400)
+
+    def test_valid_uploads_stay_inside_configured_directories(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            json_dir = root / "json"
+            docx_dir = root / "docx"
+            with (
+                patch.object(app_module, "JSON_TIMELINE_UPLOAD_DIR", json_dir),
+                patch.object(app_module, "MANUAL_TIMELINE_UPLOAD_DIR", docx_dir),
+            ):
+                json_response = self.client.post(
+                    "/api/upload-json-timeline",
+                    data={"file": (io.BytesIO(b'{"clip_marks": []}'), "时间轴.json")},
+                    content_type="multipart/form-data",
+                )
+                docx_response = self.client.post(
+                    "/api/upload-timeline",
+                    data={"file": (io.BytesIO(b"docx"), "20260717.docx")},
+                    content_type="multipart/form-data",
+                )
+
+            json_path = Path(json_response.get_json()["path"])
+            docx_path = Path(docx_response.get_json()["path"])
+
+        self.assertEqual(json_response.status_code, 200)
+        self.assertEqual(docx_response.status_code, 200)
+        self.assertEqual(json_path.parent, json_dir)
+        self.assertEqual(docx_path.parent, docx_dir)
+
 
 class SubtitleWorkflowApiTests(unittest.TestCase):
 
