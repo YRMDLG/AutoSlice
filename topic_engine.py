@@ -180,6 +180,11 @@ _TITLE_STYLE_TAG_KEYWORDS = {
     "唱歌": ("唱歌", "点歌", "演唱", "歌曲", "舞台"),
     "温情": ("晚安", "陪伴", "鼓励", "谢谢大家", "温柔", "感动"),
     "日常": ("出差", "下飞机", "打车", "外卖", "妈妈", "音妈", "线下", "日常"),
+    "新衣": ("新衣", "衣服", "造型", "黑丝", "丝袜", "袜子", "皮裙", "裤子", "发型", "头发", "蓝框", "光环"),
+    "AI": ("ai音", "ai", "人工智能", "紫色", "应援色", "女王音"),
+    "视觉细节": ("虾线", "鼓包", "划破", "破了", "挂钩", "反光", "中间", "蓝框", "双层", "纹身"),
+    "目标反差": ("目标", "万粉", "粉丝", "游戏高手", "做不到", "更难", "难度", "百大"),
+    "反差": ("反差", "居然", "却", "没想到", "不一样", "完全不同", "对不起", "不能"),
 }
 
 REFINEMENT_WORKFLOW_STEPS = (
@@ -2448,10 +2453,11 @@ def _select_title_style_examples(context_text, profile=None, limit=TITLE_STYLE_E
     for index, item in enumerate(examples):
         tags = set(item.get("tags") or [])
         score = len(active_tags & tags) * 10
-        if item.get("source") == "recent":
-            score += 2
-        elif item.get("source") == "high_play":
-            score += 1
+        score += {
+            "user_approved": 4,
+            "recent": 2,
+            "high_play": 1,
+        }.get(item.get("source"), 0)
         scored.append((-score, index, item))
     scored.sort(key=lambda row: (row[0], row[1]))
     return [item for _, _, item in scored[:limit]]
@@ -2475,6 +2481,26 @@ def _build_title_style_prompt(context_text="", compact=False):
     lines.extend(f"- 规则：{rule}" for rule in rules)
     lines.extend(f"- 样本：{item['title']}" for item in examples)
     return "\n".join(lines)
+
+
+TITLE_HOOK_PROMPT_GUIDE = """## 投稿标题生成优先级（必须按顺序执行）
+1. **先守格式**：最终投稿标题必须以“【泽音】”开头；正文使用音音、音姐或麻麻等账号习惯称呼；标题要像账号历史投稿一样是具体、口语化、可直接投稿的一句话，而不是报告小标题。
+2. **再还原内容**：不要只看当前话题摘要。先核对峰值前后原字幕、人工时间轴线索和峰值弹幕旁证，回答“峰值附近究竟发生了什么”“观众为什么在这里集中发言”。保留具体名词、原话、视觉细节、谐音/误会、观众联想和前后反差；它们比“介绍/解释/讨论/展示/设定”这类分类词更重要。
+3. **最后做钩子**：从已核实的事实中选一个最有记忆点的触发点，再接结果、反应、反差或一句原话。优先使用“具体事件 + 原话/反差”“观众联想 + 音音回应”“目标 + 现实落差”等结构；不要把一段有笑点的对话压扁成“音音解释某某”或“音音讨论某某”。
+
+内部生成标题前必须检查三件事（不要把检查过程输出）：
+- 峰值的直接触发事件是什么，前因和收尾是什么；
+- 弹幕里的具体词是否与字幕、人工记录或音音后续复述/回应相互印证；
+- 哪个细节最能让没看过片段的人产生“为什么”的好奇心。
+
+JSON 中的 `title_hook` 只填写一个简短的事实摘要和可核对的反差/联想，帮助程序审计标题是否抓到爆点；它不是思维过程，也不能写规则说明。
+
+硬性限制：
+- 禁止只复述“音音介绍/解释/展示/现场检查/讨论/设定目标/分享日常”等摘要式标题；若这些词出现，后面必须紧跟具体异常、原话或反差，不能以它们作为标题的主要信息。
+- 不能把弹幕数量写成“全场刷屏/观众齐呼”，也不能把单个问号当成事实。弹幕原文只作发现线索，未经字幕、人工记录或音音回应印证的内容不能写进标题。
+- 视觉细节、身体细节、谐音和观众联想只要有证据就要优先保留，不要为了“文雅”删成抽象类别；没有证据则不要脑补。
+- 通常控制在 25-75 个字符，使用 1-4 个自然的 emoji；可以使用引号保留真正有传播力的原话，但不要连续堆砌模板词或 emoji。
+- 只输出最终 JSON，不输出候选草稿、规则复述或思考过程。"""
 
 
 # ============================================================
@@ -2529,7 +2555,7 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 **关键要求：**
 - 只输出一个 JSON 对象，不要输出解释、草稿、分析过程、代码块或 Markdown
 - JSON 格式严格如下：
-{"topics":[{"start":"0:04:00","end":"0:08:00","title":"话题标题","publish_title":"【泽音】具体事件钩子👀结果或反差","can_slice":false,"points":["具体要点，写清楚事情经过","补充细节"]}]}
+{"topics":[{"start":"0:04:00","end":"0:08:00","title":"话题标题","publish_title":"【泽音】具体事件钩子👀结果或反差","title_hook":{"type":"反差","fact":"峰值附近的具体触发事件","contrast":"观众为何觉得意外或好笑"},"can_slice":false,"points":["具体要点，写清楚事情经过","补充细节"]}]}
 - 时间戳精确到秒，格式 `H:MM:SS`，例如 `0:04:00`
 - 标题 5-15 字，概括核心内容，可加合适 emoji
 - 每个话题都要给出 publish_title，供程序在弹幕筛选后直接用于投稿；它不影响 can_slice 判断
@@ -2542,6 +2568,8 @@ SYSTEM_PROMPT = """你是直播内容时间轴整理+切片决策助手。你只
 - 不要输出任何示例内容
 - 不要解释为什么切或不切，不要在 points 里写弹幕密度判断、格式说明、推理过程；切片只用 can_slice 表示
 - 不要写“我决定/现在写/标题可以/只能基于字幕/注意起始时间”等模型思考过程"""
+
+SYSTEM_PROMPT += "\n\n" + TITLE_HOOK_PROMPT_GUIDE
 
 
 class LLMResponseTruncatedError(RuntimeError):
@@ -2965,8 +2993,9 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name="主播")
             "每个话题都要给publish_title：固定以【泽音】开头，根据历史风格选择事件+原话、SC+回应、"
             "观看反应或短句头条等合适结构，不要每条都机械写‘结果/当场’；禁止空泛标题和编造。"
             "不要解释规则、不要写弹幕密度判断、不要写推理过程、不要写候选列表。"
+            + TITLE_HOOK_PROMPT_GUIDE + "\n"
             "只输出JSON对象：{\"topics\":[{\"start\":\"0:00:00\",\"end\":\"0:05:00\",\"title\":\"话题标题\","
-            "\"publish_title\":\"【泽音】具体事件钩子👀结果或反差\",\"can_slice\":false,\"points\":[\"具体要点\"]}]}。\n\n"
+            "\"publish_title\":\"【泽音】具体事件钩子👀结果或反差\",\"title_hook\":{\"type\":\"反差\",\"fact\":\"峰值触发\",\"contrast\":\"意外点\"},\"can_slice\":false,\"points\":[\"具体要点\"]}]}。\n\n"
         )
     else:
         prompt_head = SYSTEM_PROMPT
@@ -3608,6 +3637,35 @@ def _normalise_publish_title(raw_title, topic_title):
     return f"{PUBLISH_TITLE_PREFIX}{title}"
 
 
+def _normalise_title_hook(raw_hook):
+    """保存模型提炼的标题爆点摘要，供审计使用，不把推理过程写入报告。"""
+    if not isinstance(raw_hook, dict):
+        return None
+    hook_type = re.sub(r'\s+', ' ', str(
+        raw_hook.get("type", raw_hook.get("kind", ""))
+    )).strip()
+    fact = re.sub(r'\s+', ' ', str(
+        raw_hook.get("fact", raw_hook.get("peak_event", ""))
+    )).strip()
+    contrast = re.sub(r'\s+', ' ', str(
+        raw_hook.get("contrast", raw_hook.get("why_clickable", ""))
+    )).strip()
+    if not fact:
+        return None
+    if len(fact) > 120:
+        fact = fact[:119].rstrip() + "…"
+    if len(contrast) > 120:
+        contrast = contrast[:119].rstrip() + "…"
+    if len(hook_type) > 30:
+        hook_type = hook_type[:30]
+    result = {"fact": fact}
+    if hook_type:
+        result["type"] = hook_type
+    if contrast:
+        result["contrast"] = contrast
+    return result
+
+
 def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topics):
     """优先解析结构化 JSON 响应；不是 JSON 时返回 None，由旧 Markdown 解析兜底。"""
     payload = _extract_json_payload(response)
@@ -3658,6 +3716,9 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
             "can_slice": _json_can_slice(item.get("can_slice", False), raw_title),
             "body": body_lines,
         }
+        title_hook = _normalise_title_hook(item.get("title_hook"))
+        if title_hook:
+            topic["title_hook"] = title_hook
         if _is_duplicate_topic(topic, accepted_topics):
             continue
         accepted_topics.append(topic)
@@ -3679,12 +3740,26 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compac
             for line in (topic.get("body") or [])[:body_limit]
             if _strip_body_prefix(line)
         ]
+        subtitle_evidence = [
+            line for line in evidence if line.startswith("字幕核查：")
+        ]
+        manual_evidence = [
+            line for line in evidence
+            if line.startswith(("人工时间轴", "时间轴："))
+        ]
+        density_evidence = [
+            line for line in evidence if line.startswith("弹幕依据：")
+        ]
         candidates.append({
             "id": index,
             "start": fmt_time(topic["start"]),
             "end": fmt_time(topic["end"]),
             "current_title": topic.get("title", "未命名片段"),
             "evidence": evidence,
+            "subtitle_evidence": subtitle_evidence,
+            "manual_evidence": manual_evidence,
+            "density_evidence": density_evidence,
+            "reference_publish_title": topic.get("publish_title"),
         })
     title_style_prompt = _build_title_style_prompt(
         json.dumps(candidates, ensure_ascii=False),
@@ -3719,9 +3794,13 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name="音音", compac
         "弹幕依据只有密度，没有弹幕正文；除非字幕或人工记录明确写出，否则禁止编造‘观众刷屏、直呼、"
         "调侃、笑称、齐刷、赞叹’等具体反应。每项写2-5条有证据的具体points；"
         "禁止模型分析过程、规则说明、弹幕密度判断和空泛描述。"
+        + "\n\n"
+        + TITLE_HOOK_PROMPT_GUIDE
+        + "\n"
         "只输出JSON对象："
         "{\"topics\":[{\"id\":1,\"title\":\"5-15字具体短标题\","
         "\"publish_title\":\"【泽音】具体事件钩子👀结果或原话\","
+        "\"title_hook\":{\"type\":\"视觉细节/反差/原话\",\"fact\":\"峰值附近具体触发\",\"contrast\":\"可点击的意外点\"},"
         "\"focus_start\":\"0:03:40\",\"focus_end\":\"0:05:30\","
         "\"points\":[\"具体发生了什么\",\"音音如何回应\"]}]}。\n\n"
         "候选数据：\n"
@@ -3858,6 +3937,9 @@ def _enriched_manual_topic_from_item(topic, item):
         _normalise_publish_title(publish_title, title),
         evidence_lines,
     )
+    title_hook = _normalise_title_hook(item.get("title_hook"))
+    if title_hook:
+        enriched["title_hook"] = title_hook
     enriched["body"] = body
     enriched["ai_enriched"] = True
     enriched["postcheck_pending"] = False
@@ -6906,6 +6988,7 @@ def _clip_marks_from_topics(topics):
                 ),
                 topic.get("body") or [],
             ),
+            **({"title_hook": topic["title_hook"]} if topic.get("title_hook") else {}),
             "report_start": topic["start"],
             "report_end": topic["end"],
             "slice_anchor": topic.get("slice_anchor"),
@@ -7879,6 +7962,16 @@ def _build_clip_candidate_review_prompt(candidates, streamer_name="音音", comp
             for line in (candidate.get("body") or [])[:evidence_limit]
             if _strip_body_prefix(line)
         ]
+        subtitle_evidence = [
+            line for line in evidence if line.startswith("字幕核查：")
+        ]
+        manual_evidence = [
+            line for line in evidence
+            if line.startswith(("人工时间轴", "时间轴："))
+        ]
+        density_evidence = [
+            line for line in evidence if line.startswith("弹幕依据：")
+        ]
         payload.append({
             "id": index,
             "reference_start": fmt_time(candidate["start"]),
@@ -7887,6 +7980,9 @@ def _build_clip_candidate_review_prompt(candidates, streamer_name="音音", comp
             "provisional_title": candidate.get("title", "待核查高能片段"),
             "danmaku_evidence": _clip_candidate_danmaku_prompt_evidence(candidate),
             "evidence": evidence,
+            "subtitle_evidence": subtitle_evidence,
+            "manual_evidence": manual_evidence,
+            "density_evidence": density_evidence,
         })
     title_style_prompt = _build_title_style_prompt(
         json.dumps(payload, ensure_ascii=False),
@@ -7916,11 +8012,15 @@ def _build_clip_candidate_review_prompt(candidates, streamer_name="音音", comp
         "必须降低权重。只有问号刷屏不能通过；若字幕本身没有可独立成立的强事件则valid=false。"
         "问号恰逢真实强反转时，只能依据原字幕中的反转通过，不能把问号本身写成事实。"
         "禁止把有限样本扩写成观众齐刷、起哄、直呼等群体反应。"
+        + "\n\n"
+        + TITLE_HOOK_PROMPT_GUIDE
+        + "\n"
         "title写5-18字具体短标题；publish_title固定以【泽音】开头，只写证据能支持的钩子与原话。"
         "points写2-5条具体事实，不要规则说明或推理过程。"
         "只输出JSON对象："
         "{\"topics\":[{\"id\":1,\"valid\":true,\"title\":\"具体短标题\","
-        "\"publish_title\":\"【泽音】具体事件与原话\",\"focus_start\":\"0:01:00\","
+        "\"publish_title\":\"【泽音】具体事件与原话\","
+        "\"title_hook\":{\"type\":\"视觉细节/反差/原话\",\"fact\":\"峰值附近具体触发\",\"contrast\":\"可点击的意外点\"},\"focus_start\":\"0:01:00\","
         "\"focus_end\":\"0:03:00\",\"points\":[\"触发和前因\",\"音音的回应与收尾\"],"
         "\"reason\":\"\"}]}。valid=false时仍保留id，并在reason用一句话说明证据问题。\n\n"
         f"账号标题风格（只能学习语气，不得照抄事实）：\n{title_style_prompt or '无'}\n\n"
