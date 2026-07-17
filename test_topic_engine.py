@@ -22,7 +22,8 @@ from topic_engine import (
     MANUAL_TIMELINE_OPTIMIZATION_VERSION,
     TOPIC_MAX_CLIP_SEC, TOPIC_REVIEW_FOCUS_MAX_SEC,
     DanmakuDensitySeries,
-    LLMProviderUnavailableError, LLMResponseTruncatedError, LLMStructuredOutputError,
+    LLMProviderUnavailableError, LLMResponseFormatError,
+    LLMResponseTruncatedError, LLMStructuredOutputError,
     _LLMProviderRetryCoordinator,
     _align_manual_timeline_entries_to_srt, _analyze_topic_chunks,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
@@ -6109,6 +6110,178 @@ class PipelineProgressTests(unittest.TestCase):
             ],
         )
         self.assertEqual([step for _message, step, _total in events], [22, 22, 23, 24])
+
+
+class LLMApiContractTests(unittest.TestCase):
+    """API 配置、协议选择与 HTTP 200 响应结构校验。"""
+
+    @staticmethod
+    def _response(payload=None, json_error=None):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        if json_error is not None:
+            response.json.side_effect = json_error
+        else:
+            response.json.return_value = payload
+        return response
+
+    def test_load_api_config_normalises_fields_and_explicit_protocol(self):
+        config_payload = {
+            "base_url": " https://example.test/v1/ ",
+            "token": " secret-token ",
+            "model": " deepseek-v4-pro ",
+            "api_type": " OpenAI ",
+        }
+        opener = mock_open(read_data="{}")
+        with (
+            patch("topic_engine.os.path.exists", return_value=True),
+            patch("builtins.open", opener),
+            patch("topic_engine.json.load", return_value=config_payload),
+        ):
+            config = load_api_config()
+
+        self.assertEqual(tuple(config), (
+            "https://example.test/v1",
+            "secret-token",
+            "deepseek-v4-pro",
+        ))
+        self.assertEqual(config.api_type, "openai")
+        self.assertEqual(opener.call_args.kwargs["encoding"], "utf-8")
+
+    def test_load_api_config_rejects_missing_or_invalid_fields_without_token_leak(self):
+        invalid_payloads = [
+            ({"base_url": "", "token": "secret-value"}, "base_url"),
+            ({"base_url": "https://example.test", "token": ""}, "token"),
+            ({"base_url": "file:///tmp", "token": "secret-value"}, "HTTP"),
+            ({
+                "base_url": "https://example.test",
+                "token": "secret-value",
+                "api_type": "unknown",
+            }, "api_type"),
+        ]
+        for payload, expected_message in invalid_payloads:
+            with self.subTest(payload=payload):
+                with (
+                    patch("topic_engine.os.path.exists", return_value=True),
+                    patch("builtins.open", mock_open(read_data="{}")),
+                    patch("topic_engine.json.load", return_value=payload),
+                    self.assertRaisesRegex(ValueError, expected_message) as raised,
+                ):
+                    load_api_config()
+                self.assertNotIn("secret-value", str(raised.exception))
+
+    def test_sk_ant_token_uses_anthropic_messages_protocol(self):
+        response = self._response({
+            "content": [{"type": "text", "text": "完成"}],
+            "stop_reason": "end_turn",
+        })
+        with (
+            patch(
+                "topic_engine.load_api_config",
+                return_value=("https://example.test/v1", "sk-ant-test", "model"),
+            ),
+            patch("topic_engine.requests.post", return_value=response) as post,
+        ):
+            result = call_llm("测试")
+
+        self.assertEqual(result, "完成")
+        self.assertEqual(post.call_args.args[0], "https://example.test/v1/messages")
+        self.assertEqual(post.call_args.kwargs["headers"]["x-api-key"], "sk-ant-test")
+        self.assertNotIn("Authorization", post.call_args.kwargs["headers"])
+
+    def test_explicit_openai_protocol_overrides_legacy_token_inference(self):
+        config_payload = {
+            "base_url": "https://example.test/v1",
+            "token": "legacy-token",
+            "model": "model",
+            "api_type": "openai",
+        }
+        with (
+            patch("topic_engine.os.path.exists", return_value=True),
+            patch("builtins.open", mock_open(read_data="{}")),
+            patch("topic_engine.json.load", return_value=config_payload),
+        ):
+            config = load_api_config()
+        response = self._response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "完成"}}],
+        })
+        with (
+            patch("topic_engine.load_api_config", return_value=config),
+            patch("topic_engine.requests.post", return_value=response) as post,
+        ):
+            result = call_llm("测试")
+
+        self.assertEqual(result, "完成")
+        self.assertEqual(post.call_args.args[0], "https://example.test/v1/chat/completions")
+        self.assertEqual(
+            post.call_args.kwargs["headers"]["Authorization"],
+            "Bearer legacy-token",
+        )
+
+    def test_openai_malformed_success_responses_raise_safe_retryable_error(self):
+        malformed_payloads = [
+            [],
+            {},
+            {"choices": []},
+            {"choices": [None]},
+            {"choices": [{"message": []}]},
+            {"choices": [{"message": {"content": [{"type": "text"}]}}]},
+        ]
+        for payload in malformed_payloads:
+            with self.subTest(payload=payload):
+                with (
+                    patch(
+                        "topic_engine.load_api_config",
+                        return_value=("https://example.test/v1", "sk-test", "model"),
+                    ),
+                    patch("topic_engine.requests.post", return_value=self._response(payload)),
+                    self.assertRaises(LLMResponseFormatError) as raised,
+                ):
+                    call_llm("含个人信息的提示")
+                self.assertNotIn("含个人信息", str(raised.exception))
+                self.assertTrue(_is_retryable_llm_error(raised.exception))
+
+    def test_non_json_success_response_retries_without_leaking_body(self):
+        invalid = self._response(json_error=ValueError("secret response body"))
+        valid = self._response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "完成"}}],
+        })
+        sleeps = []
+        with (
+            patch(
+                "topic_engine.load_api_config",
+                return_value=("https://example.test/v1", "sk-test", "model"),
+            ),
+            patch("topic_engine.requests.post", side_effect=[invalid, valid]) as post,
+        ):
+            result = _call_llm_with_retry(
+                "测试",
+                attempts=2,
+                sleep_func=sleeps.append,
+            )
+
+        self.assertEqual(result, "完成")
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(sleeps, [3])
+
+    def test_anthropic_malformed_content_blocks_raise_safe_error(self):
+        malformed_payloads = [
+            {},
+            {"content": "正文"},
+            {"content": [None]},
+            {"content": [{"type": "text"}]},
+        ]
+        for payload in malformed_payloads:
+            with self.subTest(payload=payload):
+                with (
+                    patch(
+                        "topic_engine.load_api_config",
+                        return_value=("https://example.test", "sk-ant-test", "model"),
+                    ),
+                    patch("topic_engine.requests.post", return_value=self._response(payload)),
+                    self.assertRaises(LLMResponseFormatError),
+                ):
+                    call_llm("测试")
 
 
 class LLMRetryTests(unittest.TestCase):

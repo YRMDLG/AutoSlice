@@ -18,6 +18,7 @@ import os, re, json, time, zipfile, requests, threading, shutil
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 
 
 # ============================================================
@@ -1140,20 +1141,122 @@ def _topics_from_manual_timeline(
     return topics
 
 
+class _LLMApiConfig:
+    """兼容旧三元组解包，同时携带明确的 API 协议。"""
+
+    __slots__ = ("base_url", "token", "model", "api_type")
+
+    def __init__(self, base_url, token, model, api_type):
+        self.base_url = base_url
+        self.token = token
+        self.model = model
+        self.api_type = api_type
+
+    def __iter__(self):
+        return iter((self.base_url, self.token, self.model))
+
+    def __len__(self):
+        return 3
+
+    def __getitem__(self, index):
+        return (self.base_url, self.token, self.model)[index]
+
+
+def _infer_llm_api_type(base_url, token):
+    """只为旧配置推断协议；新配置应显式填写 api_type。"""
+    lower_token = token.casefold()
+    lower_url = base_url.casefold()
+    if lower_token.startswith("sk-ant-"):
+        return "anthropic"
+    if "anthropic" in lower_url:
+        return "anthropic"
+    if lower_token.startswith("sk-"):
+        return "openai"
+    if any(marker in lower_url for marker in ("openai", "opencode.ai", "/v1")):
+        return "openai"
+    return "anthropic"
+
+
+def _normalise_llm_api_config(payload, source, default_api_type=None):
+    if not isinstance(payload, dict):
+        raise ValueError(f"API 配置格式错误：{source} 顶层必须是 JSON 对象")
+
+    base_url = str(payload.get("base_url") or "").strip().rstrip("/")
+    token = str(payload.get("token") or "").strip()
+    model = str(payload.get("model") or LLM_MODEL).strip()
+    if not base_url:
+        raise ValueError(f"API 配置缺少 base_url：{source}")
+    try:
+        parsed = urlsplit(base_url)
+        valid_port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"API base_url 不是有效的 HTTP(S) 地址：{source}") from exc
+    if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or (valid_port is not None and not 1 <= valid_port <= 65535)):
+        raise ValueError(f"API base_url 必须是有效的 HTTP(S) 地址：{source}")
+    if not token:
+        raise ValueError(f"API 配置缺少 token：{source}")
+    if not model:
+        raise ValueError(f"API 配置缺少 model：{source}")
+
+    raw_api_type = payload.get("api_type", payload.get("protocol", default_api_type))
+    if raw_api_type is None or not str(raw_api_type).strip():
+        api_type = _infer_llm_api_type(base_url, token)
+    else:
+        aliases = {
+            "openai": "openai",
+            "openai-compatible": "openai",
+            "chat-completions": "openai",
+            "anthropic": "anthropic",
+            "anthropic-compatible": "anthropic",
+            "messages": "anthropic",
+        }
+        api_type = aliases.get(str(raw_api_type).strip().casefold())
+        if api_type is None:
+            raise ValueError(
+                f"API 配置 api_type 只支持 openai 或 anthropic：{source}"
+            )
+    return _LLMApiConfig(base_url, token, model, api_type)
+
+
+def _read_json_config(path):
+    try:
+        with open(path, encoding="utf-8") as file:
+            return json.load(file)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"无法读取 API 配置文件：{path}") from exc
+
+
 def load_api_config():
-    """读取 API 配置，优先用 AutoSlice 自己的，否则用 Claude 的"""
+    """读取并校验 API 配置，优先用 AutoSlice 自己的，否则用 Claude 的。"""
     # 1. 先试 AutoSlice 独立配置
     auto_cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_config.json")
     if os.path.exists(auto_cfg):
-        with open(auto_cfg) as f:
-            cfg = json.load(f)
-        return cfg["base_url"], cfg["token"], cfg.get("model", LLM_MODEL)
+        return _normalise_llm_api_config(
+            _read_json_config(auto_cfg),
+            auto_cfg,
+        )
 
     # 2. 回退到 Claude 配置
     cfg_path = os.path.expanduser(r"~\.claude\settings.json")
-    with open(cfg_path) as f:
-        cfg = json.load(f)
-    return cfg["env"]["ANTHROPIC_BASE_URL"], cfg["env"]["ANTHROPIC_AUTH_TOKEN"], LLM_MODEL
+    cfg = _read_json_config(cfg_path)
+    env = cfg.get("env") if isinstance(cfg, dict) else None
+    if not isinstance(env, dict):
+        raise ValueError(f"Claude API 配置缺少 env：{cfg_path}")
+    return _normalise_llm_api_config(
+        {
+            "base_url": env.get("ANTHROPIC_BASE_URL"),
+            "token": env.get("ANTHROPIC_AUTH_TOKEN"),
+            "model": LLM_MODEL,
+            "api_type": "anthropic",
+        },
+        cfg_path,
+        default_api_type="anthropic",
+    )
 
 
 # ============================================================
@@ -2054,6 +2157,10 @@ class LLMStructuredOutputError(RuntimeError):
     """LLM 返回了文本，但没有可解析的完整 JSON。"""
 
 
+class LLMResponseFormatError(RuntimeError):
+    """LLM 请求成功，但响应 JSON 不符合所选 API 协议。"""
+
+
 class LLMProviderUnavailableError(RuntimeError):
     """上游推理节点在共享探测后仍不可用。"""
 
@@ -2140,11 +2247,119 @@ def _llm_response_has_complete_json(content):
     return bool(content and _extract_json_payload(content) is not None)
 
 
+def _decode_llm_response_json(response, api_type):
+    try:
+        payload = response.json()
+    except (TypeError, ValueError) as exc:
+        raise LLMResponseFormatError(
+            f"{api_type} API 返回了非 JSON 响应（HTTP 200）"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise LLMResponseFormatError(
+            f"{api_type} API 响应顶层必须是 JSON 对象"
+        )
+    return payload
+
+
+def _openai_content_text(value, field_name):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, list):
+        raise LLMResponseFormatError(
+            f"OpenAI API 的 {field_name} 字段类型错误"
+        )
+    parts = []
+    for block in value:
+        if not isinstance(block, dict):
+            raise LLMResponseFormatError(
+                f"OpenAI API 的 {field_name} 内容块必须是对象"
+            )
+        block_type = block.get("type")
+        if block_type not in {"text", "output_text"}:
+            continue
+        text = block.get("text")
+        if not isinstance(text, str):
+            raise LLMResponseFormatError(
+                f"OpenAI API 的 {field_name} 文本块缺少 text"
+            )
+        parts.append(text)
+    return "\n".join(part for part in parts if part)
+
+
+def _parse_openai_response(data, model, max_tokens):
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise LLMResponseFormatError("OpenAI API 响应缺少非空 choices 数组")
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        raise LLMResponseFormatError("OpenAI API 的 choice 必须是对象")
+
+    message = choice.get("message", {})
+    if not isinstance(message, dict):
+        raise LLMResponseFormatError("OpenAI API 的 message 必须是对象")
+    content = _openai_content_text(message.get("content"), "message.content")
+    if not content:
+        reasoning_content = _openai_content_text(
+            message.get("reasoning_content"),
+            "message.reasoning_content",
+        )
+        if _llm_response_has_complete_json(reasoning_content):
+            content = reasoning_content
+    if not content:
+        content = _openai_content_text(choice.get("text"), "choice.text")
+
+    finish_reason = choice.get("finish_reason")
+    if finish_reason == "length" and not _llm_response_has_complete_json(content):
+        raise LLMResponseTruncatedError(
+            f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+        )
+    if not content:
+        raise LLMResponseFormatError("OpenAI API 响应没有可用文本内容")
+    return content
+
+
+def _parse_anthropic_response(data, model, max_tokens):
+    blocks = data.get("content")
+    if not isinstance(blocks, list) or not blocks:
+        if data.get("stop_reason") == "max_tokens":
+            raise LLMResponseTruncatedError(
+                f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+            )
+        raise LLMResponseFormatError("Anthropic API 响应缺少非空 content 数组")
+    parts = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            raise LLMResponseFormatError("Anthropic API 的 content 块必须是对象")
+        if block.get("type") != "text":
+            continue
+        text = block.get("text")
+        if not isinstance(text, str):
+            raise LLMResponseFormatError("Anthropic API 的文本块缺少 text")
+        parts.append(text)
+    content = "\n".join(part for part in parts if part)
+    if data.get("stop_reason") == "max_tokens" and not _llm_response_has_complete_json(content):
+        raise LLMResponseTruncatedError(
+            f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+        )
+    if not content:
+        raise LLMResponseFormatError("Anthropic API 响应没有可用文本内容")
+    return content
+
+
 def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False, model_override=None):
-    base_url, token, configured_model = load_api_config()
+    config = load_api_config()
+    base_url, token, configured_model = config
+    api_type = getattr(config, "api_type", None) or _infer_llm_api_type(
+        str(base_url),
+        str(token),
+    )
+    base_url = str(base_url).strip().rstrip("/")
     model = str(model_override or configured_model).strip()
-    # 自动判断 API 格式：sk- 开头 = OpenAI 兼容，否则 = Anthropic
-    if token.startswith("sk-"):
+    if not model:
+        raise ValueError("LLM model 不能为空")
+    if api_type == "openai":
         # OpenAI 兼容格式 (opencode.ai 等)
         request_payload = {
             "model": model,
@@ -2165,27 +2380,12 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False, model_override=
             proxies={"http": None, "https": None},
         )
         resp.raise_for_status()
-        data = resp.json()
-        # 兼容不同 OpenAI 响应格式
-        choice = data.get("choices", [{}])[0]
-        finish_reason = choice.get("finish_reason")
-        content = choice.get("message", {}).get("content", "")
-        if not content:
-            reasoning_content = choice.get("message", {}).get("reasoning_content", "")
-            # DeepSeek Pro 可能把主要 token 用在 reasoning_content。
-            # 只允许 reasoning_content 中的完整 JSON 进入后续结构化解析，禁止把普通推理文本当报告。
-            if _llm_response_has_complete_json(reasoning_content):
-                content = reasoning_content
-        if not content:
-            content = choice.get("text", "")
-        if finish_reason == "length" and not _llm_response_has_complete_json(content):
-            raise LLMResponseTruncatedError(
-                f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
-            )
-        if not content:
-            raise RuntimeError(f"API 返回格式不兼容: {json.dumps(data)[:300]}")
-        return content
-    else:
+        return _parse_openai_response(
+            _decode_llm_response_json(resp, "OpenAI"),
+            model,
+            max_tokens,
+        )
+    if api_type == "anthropic":
         # Anthropic 兼容格式
         resp = requests.post(
             f"{base_url}/messages",
@@ -2204,17 +2404,12 @@ def call_llm(prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False, model_override=
             proxies={"http": None, "https": None},
         )
         resp.raise_for_status()
-        data = resp.json()
-        content = ""
-        for block in data.get("content", []):
-            if block["type"] == "text":
-                content = block["text"]
-                break
-        if data.get("stop_reason") == "max_tokens" and not _llm_response_has_complete_json(content):
-            raise LLMResponseTruncatedError(
-                f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
-            )
-        return content
+        return _parse_anthropic_response(
+            _decode_llm_response_json(resp, "Anthropic"),
+            model,
+            max_tokens,
+        )
+    raise ValueError(f"不支持的 LLM API 协议：{api_type}")
 
 
 def _short_llm_error(error):
@@ -2238,7 +2433,11 @@ def _is_provider_service_unavailable(error):
 
 def _is_retryable_llm_error(error):
     """判断是否适合重试：服务端 5xx、限流 429、连接/超时。"""
-    if isinstance(error, (LLMResponseTruncatedError, LLMStructuredOutputError)):
+    if isinstance(error, (
+            LLMResponseFormatError,
+            LLMResponseTruncatedError,
+            LLMStructuredOutputError,
+    )):
         return True
     if isinstance(error, (requests.Timeout, requests.ConnectionError)):
         return True
