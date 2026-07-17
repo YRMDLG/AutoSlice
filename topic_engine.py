@@ -52,6 +52,8 @@ DANMAKU_WINDOW = 60
 DANMAKU_WINDOW_STEP = 15  # 每 15 秒采样一个 60 秒窗口，兼顾峰值定位和全场覆盖
 DANMAKU_MESSAGE_MAX_CHARS = 120
 DANMAKU_EVIDENCE_MAX_ITEMS = 6
+DANMAKU_LOCAL_BASELINE_RADIUS_SEC = 300
+DANMAKU_LOCAL_BASELINE_EXCLUSION_SEC = 90
 CLIP_DENSITY_RATIO = 1.20  # 话题切片至少需要达到全场平均的 1.2 倍
 CLIP_DENSITY_PERCENTILE = 0.85  # 同时达到整场较高分位，避免把普通波动当爆点
 CLIP_LOCAL_PEAK_RADIUS_SEC = 150  # 只保留前后 2.5 分钟内最高的独立峰值
@@ -1878,6 +1880,12 @@ def _is_generic_danmaku_reaction(value):
     return False
 
 
+def _is_question_only_danmaku(value):
+    """问号刷屏只表示困惑，不单独视为有内容的互动证据。"""
+    compact = _normalise_danmaku_message(value)
+    return bool(compact and re.fullmatch(r"[?？]+", compact))
+
+
 def _danmaku_peak_content_evidence(
         series, peak_start, window_sec=DANMAKU_WINDOW,
         max_items=DANMAKU_EVIDENCE_MAX_ITEMS):
@@ -1908,6 +1916,19 @@ def _danmaku_peak_content_evidence(
         return None
 
     counts = Counter(normalised)
+    generic_count = sum(
+        count for key, count in counts.items()
+        if _is_generic_danmaku_reaction(key)
+    )
+    question_count = sum(
+        count for key, count in counts.items()
+        if _is_question_only_danmaku(key)
+    )
+    informative_keys = [
+        key for key in counts
+        if len(key) >= 2 and not _is_generic_danmaku_reaction(key)
+    ]
+    informative_count = sum(counts[key] for key in informative_keys)
     ranked = sorted(
         counts,
         key=lambda key: (-counts[key], first_index[key]),
@@ -1916,10 +1937,7 @@ def _danmaku_peak_content_evidence(
         {"text": display_by_key[key], "count": counts[key]}
         for key in ranked[:max_items]
     ]
-    representative_keys = [
-        key for key in counts
-        if len(key) >= 2 and not _is_generic_danmaku_reaction(key)
-    ]
+    representative_keys = list(informative_keys)
     representative_keys.sort(key=lambda key: (
         -(counts[key] * (1.0 + min(len(key), 24) / 24.0)),
         first_index[key],
@@ -1936,6 +1954,13 @@ def _danmaku_peak_content_evidence(
         "unique_count": len(counts),
         "unique_ratio": round(len(counts) / total, 3),
         "repeat_ratio": round(max(counts.values()) / total, 3),
+        "generic_count": generic_count,
+        "generic_ratio": round(generic_count / total, 3),
+        "question_count": question_count,
+        "question_ratio": round(question_count / total, 3),
+        "informative_count": informative_count,
+        "informative_unique_count": len(informative_keys),
+        "informative_ratio": round(informative_count / total, 3),
         "frequent_messages": frequent_messages,
         "representative_messages": representative_messages,
     }
@@ -2026,6 +2051,109 @@ def _high_energy_danmaku_peaks(peaks, avg_density=None):
             continue
         selected.append((start, density))
     return sorted(selected, key=lambda item: item[0])
+
+
+def _median_number(values):
+    """计算中位数，避免为一个简单统计额外引入依赖。"""
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return 0.0
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
+
+
+def _danmaku_content_quality(evidence):
+    """把有效交流与无意义刷屏压缩为 0-1 内容质量分。"""
+    if not isinstance(evidence, dict):
+        return None
+    informative_ratio = float(evidence.get("informative_ratio", 0) or 0)
+    informative_unique = int(evidence.get("informative_unique_count", 0) or 0)
+    unique_ratio = float(evidence.get("unique_ratio", 0) or 0)
+    repeat_ratio = float(evidence.get("repeat_ratio", 0) or 0)
+    generic_ratio = float(evidence.get("generic_ratio", 0) or 0)
+    question_ratio = float(evidence.get("question_ratio", 0) or 0)
+    positive = (
+        informative_ratio * 0.50
+        + min(1.0, informative_unique / 8.0) * 0.20
+        + unique_ratio * 0.20
+        + (1.0 - repeat_ratio) * 0.10
+    )
+    penalty = question_ratio * 0.35 + max(0.0, generic_ratio - 0.50) * 0.40
+    return round(max(0.0, min(1.0, positive - penalty)), 4)
+
+
+def _danmaku_peak_features(peaks, peak_start, density, avg_density=None):
+    """计算峰值的全场强度、局部突增和弹幕内容信号。"""
+    avg_density = (
+        _average_danmaku_density(peaks)
+        if avg_density is None
+        else float(avg_density)
+    )
+    windows = [(int(start), float(value)) for start, value in peaks or []]
+    local_values = [
+        value for start, value in windows
+        if (
+            DANMAKU_LOCAL_BASELINE_EXCLUSION_SEC
+            < abs(start - int(peak_start))
+            <= DANMAKU_LOCAL_BASELINE_RADIUS_SEC
+        )
+    ]
+    if len(local_values) < 3:
+        local_values = [
+            value for start, value in windows
+            if start != int(peak_start)
+            and abs(start - int(peak_start)) <= DANMAKU_LOCAL_BASELINE_RADIUS_SEC
+        ]
+    local_baseline = _median_number(local_values) or avg_density or 1.0
+    global_ratio = float(density) / max(avg_density, 1.0)
+    local_surge_ratio = float(density) / max(local_baseline, 1.0)
+    percentile = (
+        sum(1 for _, value in windows if value <= float(density)) / len(windows)
+        if windows else 0.0
+    )
+    evidence = _danmaku_peak_content_evidence(peaks, peak_start)
+    content_quality = _danmaku_content_quality(evidence)
+
+    global_strength = min(1.0, global_ratio / 3.0)
+    local_strength = min(1.0, max(0.0, local_surge_ratio - 1.0) / 2.0)
+    score = 100.0 * (
+        global_strength * 0.30
+        + local_strength * 0.50
+        + percentile * 0.20
+    )
+    if content_quality is not None:
+        score *= 0.75 + content_quality * 0.50
+
+    interaction_signal = "无原文"
+    if evidence:
+        if (
+            float(evidence.get("question_ratio", 0) or 0) >= 0.60
+            or float(evidence.get("generic_ratio", 0) or 0) >= 0.80
+        ):
+            interaction_signal = "无意义刷屏偏高"
+        elif (
+            float(evidence.get("informative_ratio", 0) or 0) >= 0.35
+            and int(evidence.get("informative_unique_count", 0) or 0) >= 3
+        ):
+            interaction_signal = "具体互动明显"
+        else:
+            interaction_signal = "混合互动"
+    return {
+        "peak_start": int(peak_start),
+        "peak_center": int(peak_start + DANMAKU_WINDOW / 2),
+        "density": round(float(density), 3),
+        "global_average": round(float(avg_density), 3),
+        "global_ratio": round(global_ratio, 3),
+        "local_baseline": round(local_baseline, 3),
+        "local_surge_ratio": round(local_surge_ratio, 3),
+        "density_percentile": round(percentile, 4),
+        "content_quality": content_quality,
+        "selection_score": round(score, 4),
+        "interaction_signal": interaction_signal,
+        "content_evidence": evidence,
+    }
 
 
 def analyze_danmaku(ass_path):
@@ -6185,6 +6313,34 @@ def _topic_semantic_text(topic):
     return " ".join(parts)
 
 
+def _danmaku_topic_alignment(topic, evidence):
+    """衡量代表弹幕与话题事实是否一致，避免峰值挂到相邻话题。"""
+    if not isinstance(evidence, dict):
+        return 0.0
+    semantic_text = _topic_semantic_text(topic)
+    if not semantic_text:
+        return 0.0
+    messages = evidence.get("representative_messages") or []
+    scored = []
+    for item in messages:
+        text = _clean_ass_danmaku_text(item.get("text", ""))
+        if not text or _is_generic_danmaku_reaction(text):
+            continue
+        score = _manual_alignment_score(text, semantic_text)
+        if score <= 0:
+            continue
+        weight = 1.0 + math.log1p(max(1, int(item.get("count", 1) or 1)))
+        scored.append((score, weight))
+    if not scored:
+        return 0.0
+    scored.sort(key=lambda item: item[0], reverse=True)
+    strongest = scored[0][0]
+    weighted_average = sum(score * weight for score, weight in scored[:3]) / sum(
+        weight for _, weight in scored[:3]
+    )
+    return round(strongest * 0.70 + weighted_average * 0.30, 4)
+
+
 def _manual_entry_meaningfully_overlaps_topic(entry, topic):
     topic_start = int(topic.get("start", 0))
     topic_end = max(topic_start + 1, int(topic.get("end", topic_start + 1)))
@@ -6494,17 +6650,37 @@ def _apply_danmaku_slice_decisions(
     if not topics:
         return []
     high_energy_peaks = _high_energy_danmaku_peaks(peaks, avg_density)
+    peak_features = {
+        int(peak_start): _danmaku_peak_features(
+            peaks,
+            peak_start,
+            density,
+            avg_density=avg_density,
+        )
+        for peak_start, density in high_energy_peaks
+    }
     candidates = []
     for topic in topics:
         topic["can_slice"] = False
         for key in (
             "slice_start", "slice_end", "slice_anchor", "slice_anchor_source",
-            "slice_peak_density",
+            "slice_peak_density", "danmaku_peak_start", "danmaku_selection_score",
+            "danmaku_local_baseline", "danmaku_local_surge_ratio",
+            "danmaku_density_percentile", "danmaku_content_quality",
+            "danmaku_interaction_signal", "danmaku_topic_alignment",
+            "danmaku_content_evidence",
         ):
             topic.pop(key, None)
         _refresh_topic_danmaku_evidence(topic, high_energy_peaks)
         peak_candidates = _topic_peak_candidates(topic, high_energy_peaks)
-        best_peak = max(peak_candidates, key=lambda item: item[1]) if peak_candidates else None
+        best_peak = max(
+            peak_candidates,
+            key=lambda item: (
+                peak_features[int(item[0])]["selection_score"]
+                if peak_features[int(item[0])]["content_evidence"]
+                else float(item[1])
+            ),
+        ) if peak_candidates else None
         peak_density = float(best_peak[1]) if best_peak else 0.0
         topic["peak_density"] = peak_density
         topic["density_ratio"] = round(peak_density / avg_density, 2) if avg_density else 0
@@ -6515,19 +6691,49 @@ def _apply_danmaku_slice_decisions(
         if topic["end"] <= topic["start"]:
             continue
         peak_start, density = best_peak
+        features = peak_features[int(peak_start)]
+        alignment = _danmaku_topic_alignment(
+            topic,
+            features.get("content_evidence"),
+        )
         anchor = int(peak_start + DANMAKU_WINDOW / 2)
-        candidates.append((topic, int(peak_start), float(density), anchor))
+        topic["danmaku_peak_start"] = int(peak_start)
+        topic["danmaku_selection_score"] = features["selection_score"]
+        topic["danmaku_local_baseline"] = features["local_baseline"]
+        topic["danmaku_local_surge_ratio"] = features["local_surge_ratio"]
+        topic["danmaku_density_percentile"] = features["density_percentile"]
+        topic["danmaku_content_quality"] = features["content_quality"]
+        topic["danmaku_interaction_signal"] = features["interaction_signal"]
+        topic["danmaku_topic_alignment"] = alignment
+        topic["danmaku_content_evidence"] = features["content_evidence"]
+        ranking_score = (
+            features["selection_score"]
+            if features["content_evidence"]
+            else float(density)
+        )
+        candidates.append({
+            "topic": topic,
+            "peak_start": int(peak_start),
+            "density": float(density),
+            "anchor": anchor,
+            "ranking_score": ranking_score,
+            "alignment": alignment,
+        })
 
-    # 同一峰值可能落入两个重叠话题；优先 AI 已确认语义核心且范围更具体者。
+    # 不同峰值按局部突增和内容质量排序；同一峰值优先匹配弹幕原文的话题。
     candidates.sort(key=lambda row: (
-        -row[2],
-        -int(bool(row[0].get("ai_focus_validated"))),
-        row[0]["end"] - row[0]["start"],
-        row[0]["start"],
+        -row["ranking_score"],
+        -row["alignment"],
+        -int(bool(row["topic"].get("ai_focus_validated"))),
+        row["topic"]["end"] - row["topic"]["start"],
+        row["topic"]["start"],
     ))
     used_peak_starts = set()
     selected_per_hour = defaultdict(int)
-    for topic, peak_start, _, anchor in candidates:
+    for candidate in candidates:
+        topic = candidate["topic"]
+        peak_start = candidate["peak_start"]
+        anchor = candidate["anchor"]
         hour = max(0, int(anchor // 3600))
         if peak_start in used_peak_starts or selected_per_hour[hour] >= max_per_hour:
             continue

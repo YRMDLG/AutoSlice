@@ -146,6 +146,137 @@ class DanmakuContentEvidenceTests(unittest.TestCase):
         self.assertEqual(_format_danmaku_peak_content(None), "")
 
 
+class DanmakuPeakScoringTests(unittest.TestCase):
+    """峰值排序同时考虑局部突增、弹幕内容和话题语义。"""
+
+    @staticmethod
+    def _platform_and_spike_series(with_messages=True):
+        windows = [(start, 40) for start in range(0, 4501, 15)]
+        windows = [
+            (start, 140 if 0 <= start <= 600 else density)
+            for start, density in windows
+        ]
+        windows[20] = (300, 160)
+        spike_index = 1200 // 15
+        windows[spike_index] = (1200, 130)
+        messages = []
+        if with_messages:
+            messages.extend(
+                (301 + index, f"平台具体互动{index}") for index in range(20)
+            )
+            messages.extend(
+                (1201 + index, f"突增具体互动{index}") for index in range(20)
+            )
+        return DanmakuDensitySeries(
+            windows,
+            average_density=50,
+            duration=4560,
+            messages=messages,
+        )
+
+    def test_sharp_local_surge_outranks_higher_density_platform(self):
+        topics = [
+            {
+                "start": 300,
+                "end": 390,
+                "title": "平台持续热聊",
+                "body": ["·音音持续讨论平台话题"],
+            },
+            {
+                "start": 1200,
+                "end": 1290,
+                "title": "突然反转互动",
+                "body": ["·音音遇到突发反转并回应观众"],
+            },
+        ]
+        series = self._platform_and_spike_series(with_messages=True)
+
+        _apply_danmaku_slice_decisions(
+            topics,
+            series,
+            avg_density=50,
+            max_per_hour=1,
+        )
+
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertTrue(topics[1]["can_slice"])
+        self.assertGreater(
+            topics[1]["danmaku_local_surge_ratio"],
+            topics[0]["danmaku_local_surge_ratio"],
+        )
+        self.assertGreater(
+            topics[1]["danmaku_selection_score"],
+            topics[0]["danmaku_selection_score"],
+        )
+
+    def test_adjacent_topics_use_representative_message_alignment(self):
+        windows = [(start, 10) for start in range(0, 601, 15)]
+        windows[20] = (300, 150)
+        messages = (
+            [(301 + index * 0.1, "？") for index in range(20)]
+            + [(310 + index * 0.1, "玩腻啦") for index in range(5)]
+            + [(320 + index * 0.1, "你们果然看腻了吧") for index in range(3)]
+        )
+        series = DanmakuDensitySeries(
+            windows,
+            average_density=30,
+            duration=660,
+            messages=messages,
+        )
+        topics = [
+            {
+                "start": 250,
+                "end": 400,
+                "title": "庆祝新衣服走红毯",
+                "body": ["·音音吐槽你们果然就是看腻了吧玩腻了"],
+            },
+            {
+                "start": 300,
+                "end": 360,
+                "title": "解释2077布局伏笔",
+                "body": ["·音音解释自己早就在第五层布局"],
+                "ai_focus_validated": True,
+            },
+        ]
+
+        _apply_danmaku_slice_decisions(topics, series, avg_density=30)
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertFalse(topics[1]["can_slice"])
+        self.assertGreater(
+            topics[0]["danmaku_topic_alignment"],
+            topics[1]["danmaku_topic_alignment"],
+        )
+
+    def test_density_only_series_keeps_legacy_absolute_ranking(self):
+        topics = [
+            {
+                "start": 300,
+                "end": 390,
+                "title": "高密度平台",
+                "body": ["·音音持续互动"],
+            },
+            {
+                "start": 1200,
+                "end": 1290,
+                "title": "较低密度尖峰",
+                "body": ["·音音突然回应"],
+            },
+        ]
+        series = self._platform_and_spike_series(with_messages=False)
+
+        _apply_danmaku_slice_decisions(
+            topics,
+            series,
+            avg_density=50,
+            max_per_hour=1,
+        )
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertFalse(topics[1]["can_slice"])
+        self.assertIsNone(topics[0]["danmaku_content_evidence"])
+
+
 class TopicEngineParseTests(unittest.TestCase):
     """话题分析解析与去重的快速回归测试。"""
 
