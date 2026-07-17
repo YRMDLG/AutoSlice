@@ -240,6 +240,70 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertGreaterEqual(kwargs["max_tokens"], 12000)
         self.assertGreaterEqual(kwargs["compact_max_tokens"], 12000)
 
+    def test_default_parallel_batches_share_one_provider_retry_coordinator(self):
+        cue_blocks = []
+        for index in range(1, 36):
+            second = index - 1
+            cue_blocks.append(
+                f"{index}\n"
+                f"00:00:{second:02d},000 --> 00:00:{second:02d},900\n"
+                f"第{index}条字幕"
+            )
+        coordinator = object()
+        observed_coordinators = []
+
+        def fake_call(prompt, **kwargs):
+            observed_coordinators.append(kwargs.get("retry_coordinator"))
+            indices = json.loads(
+                prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            )
+            return json.dumps({
+                "reviewed_indices": indices,
+                "corrections": [],
+            }, ensure_ascii=False)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "并发字幕.srt"
+            source.write_text("\n\n".join(cue_blocks), encoding="utf-8")
+            with (
+                patch(
+                    "topic_engine._LLMProviderRetryCoordinator",
+                    return_value=coordinator,
+                ) as coordinator_factory,
+                patch("topic_engine._call_llm_with_retry", side_effect=fake_call) as call,
+            ):
+                result = suggest_subtitle_corrections(
+                    source,
+                    use_cache=False,
+                )
+
+        self.assertEqual(result["suggestions"], [])
+        self.assertEqual(coordinator_factory.call_count, 1)
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(observed_coordinators, [coordinator, coordinator])
+
+    def test_custom_review_runner_does_not_create_provider_coordinator(self):
+        def custom_runner(prompt, _compact_prompt):
+            indices = json.loads(
+                prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            )
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            with patch(
+                "topic_engine._LLMProviderRetryCoordinator",
+                side_effect=AssertionError("自定义 runner 不应创建内置协调器"),
+            ):
+                result = suggest_subtitle_corrections(
+                    source,
+                    llm_runner=custom_runner,
+                    use_cache=False,
+                )
+
+        self.assertEqual(result["suggestions"], [])
+
     def test_review_cache_invalidates_when_source_changes(self):
         calls = []
 

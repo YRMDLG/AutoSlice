@@ -400,19 +400,39 @@ def _review_prompt(cues, target_indices, context_title, glossary, compact=False)
     )
 
 
-def _default_llm_runner(prompt, compact_prompt):
+def _default_llm_runner(prompt, compact_prompt, retry_coordinator=None):
     from topic_engine import _call_llm_with_retry, _extract_json_payload
 
+    call_kwargs = {
+        "compact_prompt": compact_prompt,
+        "max_tokens": 12000,
+        "compact_max_tokens": 12000,
+        "attempts": 3,
+        "progress_label": "字幕 AI 校对",
+        "require_json": True,
+    }
+    if retry_coordinator is not None:
+        call_kwargs["retry_coordinator"] = retry_coordinator
     response = _call_llm_with_retry(
         prompt,
-        compact_prompt=compact_prompt,
-        max_tokens=12000,
-        compact_max_tokens=12000,
-        attempts=3,
-        progress_label="字幕 AI 校对",
-        require_json=True,
+        **call_kwargs,
     )
     return _extract_json_payload(response)
+
+
+def _build_default_llm_runner():
+    from topic_engine import _LLMProviderRetryCoordinator
+
+    retry_coordinator = _LLMProviderRetryCoordinator()
+
+    def run(prompt, compact_prompt):
+        return _default_llm_runner(
+            prompt,
+            compact_prompt,
+            retry_coordinator=retry_coordinator,
+        )
+
+    return run
 
 
 def _normalise_review_payload(payload):
@@ -561,7 +581,7 @@ def suggest_subtitle_corrections(
         except (OSError, ValueError, TypeError):
             pass
 
-    runner = llm_runner or _default_llm_runner
+    runner = llm_runner if llm_runner is not None else _build_default_llm_runner()
     suggestions_by_index = {}
     batch_specs = []
     for batch_number, target_start in enumerate(

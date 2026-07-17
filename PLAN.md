@@ -1341,19 +1341,19 @@
 | 完成时间 | 2026-07-17 |
 | 备注 | 4 项共享恢复测试通过。故障注入先复现同一 coordinator 第一次恢复后 `_retry_index` 未清零、第二次独立 503 立即耗尽的问题；恢复成功现在会递增 generation 并重置探测序号和终止状态。两轮独立故障均完整执行 3s、8s 探测，同一波三路并发仍只由一个请求探测。 |
 
-### Action 21.3: 字幕 AI 并发批次共享恢复 [待办]
+### Action 21.3: 字幕 AI 并发批次共享恢复 [已验证]
 
 | 字段 | 值 |
 |------|-----|
-| 状态 | 待办 |
+| 状态 | 已验证 |
 | 依赖 | Action 21.2 |
 | 描述 | 一次字幕检查的默认 AI runner 共享同一恢复协调器，避免两个并发批次分别等待和探测 503；自定义 runner 接口保持兼容。 |
 | 涉及文件 | `subtitle_workflow.py` `test_subtitle_workflow.py` `PLAN.md` |
 | 验证命令 | `python -B -m unittest test_subtitle_workflow.SubtitleParsingAndReviewTests -v` |
 | 验证预期 | 字幕校对测试全部通过，并证明默认并发批次共用一个协调器、自定义 runner 不受影响。 |
-| 重试次数 | 0/10 |
-| 完成时间 |  |
-| 备注 |  |
+| 重试次数 | 1/10 |
+| 完成时间 | 2026-07-17 |
+| 备注 | 18 项字幕解析与校对测试通过。故障注入先确认两个默认批次没有共享 coordinator；修复后一次 `suggest_subtitle_corrections` 只创建一个 `_LLMProviderRetryCoordinator` 并传给全部默认 runner 批次。直接调用 `_default_llm_runner` 仍兼容，自定义 runner 不创建内置协调器；缓存、源文件竞态、原子写和保守自动采用回归均通过。 |
 
 ### Action 21.4: Web AI 后台任务隔离与安全错误 [待办]
 
