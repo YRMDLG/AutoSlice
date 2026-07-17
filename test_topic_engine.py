@@ -138,6 +138,65 @@ class DanmakuContentEvidenceTests(unittest.TestCase):
         self.assertIn("玩腻啦", summary)
         self.assertNotIn("\n", summary)
 
+    def test_peak_evidence_keeps_diverse_title_cues_beyond_repeated_questions(self):
+        messages = []
+        timestamp = 100.0
+        for text, count in (
+            ("你是？", 22),
+            ("你是谁", 8),
+            ("你谁", 5),
+            ("沐霂说紫色的运气都不太好", 1),
+            ("哇！紫色头发", 1),
+            ("篮筐好看", 2),
+            ("我们还是聊一聊一百万粉丝的事吧", 1),
+        ):
+            for _ in range(count):
+                messages.append((timestamp, text))
+                timestamp += 0.1
+        density = DanmakuDensitySeries(
+            [(90, len(messages))],
+            average_density=20,
+            message_count=len(messages),
+            duration=180,
+            messages=messages,
+        )
+
+        evidence = _danmaku_peak_content_evidence(density, 90)
+        candidate = {
+            "start": 90,
+            "end": 180,
+            "slice_anchor": 120,
+            "danmaku_peak_start": 90,
+            "peak_density": len(messages),
+            "density_ratio": 2.0,
+            "danmaku_content_evidence": evidence,
+            "title": "AI音初登场",
+            "body": ["·字幕核查：0:01:40-0:02:10 音音说我是AI音，头发是应援色"],
+        }
+
+        goal_candidate = dict(candidate)
+        goal_candidate.update({
+            "title": "新目标定50万粉和游戏高手",
+            "body": ["·字幕核查：0:01:40-0:02:10 音音说目标是50万粉和游戏高手，观众觉得后者更难"],
+        })
+
+        prompt = _build_clip_candidate_review_prompt(
+            [candidate, goal_candidate],
+            streamer_name="音音",
+        )
+        payload = json.loads(prompt.rsplit("候选数据：\n", 1)[1])
+        cue_messages = payload[0]["danmaku_evidence"]["title_cue_messages"]
+        cue_text = " ".join(item["text"] for item in cue_messages)
+        color_cues = [item for item in cue_messages if item["cue"] == "颜色造型"]
+        goal_cues = payload[1]["danmaku_evidence"]["title_cue_messages"]
+
+        self.assertIn("紫色头发", cue_text)
+        self.assertIn("篮筐好看", cue_text)
+        self.assertTrue(any(item["text"] == "哇！紫色头发" for item in color_cues))
+        self.assertTrue(any("一百万粉丝" in item["text"] for item in goal_cues))
+        self.assertFalse(any(item["cue"] == "颜色造型" for item in goal_cues))
+        self.assertIn("title_cue_messages只是", prompt)
+
     def test_legacy_density_without_messages_has_no_content_evidence(self):
         density = DanmakuDensitySeries(
             [(0, 50)],
@@ -473,6 +532,8 @@ class TitleHookPromptTests(unittest.TestCase):
         self.assertEqual(payload[0]["density_evidence"], ["弹幕依据：1:10:30 附近峰值约 204 条/分钟"])
         self.assertIn("虾线", prompt)
         self.assertIn("不要把一段有笑点的对话压扁成", prompt)
+        self.assertIn("具体视觉称呼在同一峰值重复出现至少 2 次", prompt)
+        self.assertIn("弹幕称作/观众盯上", prompt)
 
 
 class TitleStyleEvidenceTests(unittest.TestCase):
