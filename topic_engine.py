@@ -2382,6 +2382,23 @@ def _danmaku_peak_features(peaks, peak_start, density, avg_density=None):
     }
 
 
+def _reviewed_danmaku_ranking_score(features):
+    """Terra 已确认内容成立后，兼顾局部突增和全场绝对热度。"""
+    selection_score = float(features.get("selection_score", 0) or 0)
+    percentile = float(features.get("density_percentile", 0) or 0)
+    global_ratio = float(features.get("global_ratio", 0) or 0)
+    content_quality = features.get("content_quality")
+    quality = 1.0 if content_quality is None else float(content_quality)
+    global_strength = min(1.0, max(0.0, global_ratio) / 3.0)
+    absolute_strength = 100.0 * (
+        percentile * 0.40
+        + global_strength * 0.30
+    )
+    # 复核后的事件已由字幕证明成立；内容质量仍用于压低问号和复读刷屏。
+    absolute_strength *= 0.75 + max(0.0, min(1.0, quality)) * 0.25
+    return round(selection_score * 0.30 + absolute_strength, 4)
+
+
 def analyze_danmaku(ass_path):
     """按固定步长统计 60 秒滑动窗口，并保留可核对的弹幕原文。"""
     if not ass_path or not os.path.exists(ass_path):
@@ -7058,11 +7075,12 @@ def _apply_danmaku_slice_decisions(
         topic["danmaku_interaction_signal"] = features["interaction_signal"]
         topic["danmaku_topic_alignment"] = alignment
         topic["danmaku_content_evidence"] = features["content_evidence"]
-        ranking_score = (
-            features["selection_score"]
-            if features["content_evidence"]
-            else float(density)
-        )
+        if not features["content_evidence"]:
+            ranking_score = float(density)
+        elif require_clip_review:
+            ranking_score = _reviewed_danmaku_ranking_score(features)
+        else:
+            ranking_score = features["selection_score"]
         candidates.append({
             "topic": topic,
             "peak_start": int(peak_start),

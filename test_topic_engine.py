@@ -293,6 +293,62 @@ class DanmakuPeakScoringTests(unittest.TestCase):
             topics[0]["danmaku_selection_score"],
         )
 
+    def test_reviewed_final_ranking_keeps_extreme_absolute_peak(self):
+        windows = [(start, 80) for start in range(0, 10801, 15)]
+        windows = [
+            (start, 240 if start <= 600 else density)
+            for start, density in windows
+        ]
+        windows[300 // 15] = (300, 290)
+        windows[1200 // 15] = (1200, 201)
+        messages = (
+            [(301 + index, f"战损丝袜具体互动{index}") for index in range(20)]
+            + [(1201 + index, f"紫发造型具体互动{index}") for index in range(20)]
+        )
+        series = DanmakuDensitySeries(
+            windows,
+            average_density=100,
+            duration=10860,
+            messages=messages,
+        )
+        base_topics = [
+            {
+                "start": 300,
+                "end": 390,
+                "title": "露露挠破音音丝袜",
+                "body": ["·音音展示战损丝袜并解释是露露挠破的"],
+                "clip_review_validated": True,
+            },
+            {
+                "start": 1200,
+                "end": 1290,
+                "title": "紫发造型互动",
+                "body": ["·音音继续讨论紫色发型"],
+                "clip_review_validated": True,
+            },
+        ]
+
+        first_pass_topics = [dict(topic) for topic in base_topics]
+        _apply_danmaku_slice_decisions(
+            first_pass_topics,
+            series,
+            avg_density=100,
+            max_per_hour=1,
+        )
+        self.assertFalse(first_pass_topics[0]["can_slice"])
+        self.assertTrue(first_pass_topics[1]["can_slice"])
+
+        reviewed_topics = [dict(topic) for topic in base_topics]
+        _apply_danmaku_slice_decisions(
+            reviewed_topics,
+            series,
+            avg_density=100,
+            max_per_hour=1,
+            require_clip_review=True,
+        )
+        self.assertTrue(reviewed_topics[0]["can_slice"])
+        self.assertFalse(reviewed_topics[1]["can_slice"])
+
     def test_adjacent_topics_use_representative_message_alignment(self):
         windows = [(start, 10) for start in range(0, 601, 15)]
         windows[20] = (300, 150)
