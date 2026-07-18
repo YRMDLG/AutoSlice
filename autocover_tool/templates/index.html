@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AutoCover 封面工作台</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" aria-label="AutoCover 封面工作台">
+      <span class="brand-mark" aria-hidden="true">AC</span>
+      <div>
+        <strong>AutoCover</strong>
+        <span>封面工作台</span>
+      </div>
+    </div>
+    <div class="workspace-summary" id="workspace-summary">尚未载入切片目录</div>
+    <div class="top-actions">
+      <button class="button secondary" id="open-workspace" type="button">目录</button>
+      <button class="button primary" id="batch-export" type="button" disabled>批量导出</button>
+    </div>
+  </header>
+
+  <main class="workbench" id="workbench" aria-busy="false">
+    <aside class="task-panel" aria-label="切片队列">
+      <div class="panel-heading">
+        <div>
+          <h1>切片队列</h1>
+          <span id="task-count">0 项</span>
+        </div>
+        <button class="icon-button" id="rescan" type="button" title="重新扫描目录" aria-label="重新扫描目录" disabled>↻</button>
+      </div>
+      <div class="task-list" id="task-list">
+        <div class="empty-list">尚未载入切片</div>
+      </div>
+    </aside>
+
+    <section class="preview-panel" aria-label="封面预览">
+      <div class="preview-toolbar">
+        <div class="ratio-switch" role="tablist" aria-label="封面比例">
+          <button class="ratio-button active" type="button" role="tab" aria-selected="true" data-ratio="4x3">首页 4:3</button>
+          <button class="ratio-button" type="button" role="tab" aria-selected="false" data-ratio="16x9">动态 16:9</button>
+        </div>
+        <label class="sync-ratio-toggle" title="同步两个比例的文字、贴图和画面焦点">
+          <input id="sync-ratios" type="checkbox" checked>
+          <span>双比例同步</span>
+        </label>
+        <span class="preview-state" id="preview-state">等待选择切片</span>
+      </div>
+
+      <div class="preview-stage">
+        <div class="cover-frame ratio-4x3" id="cover-frame">
+          <img id="cover-preview" alt="当前封面预览" hidden>
+          <div class="cover-overlay" id="cover-overlay" aria-label="可拖拽封面元素"></div>
+          <div class="preview-empty" id="preview-empty">选择目录后开始制作</div>
+          <div class="preview-loader" id="preview-loader" hidden>正在生成预览...</div>
+        </div>
+      </div>
+
+      <div class="candidate-section">
+        <div class="section-heading">
+          <div>
+            <h2>候选帧</h2>
+            <span id="candidate-summary">0 张</span>
+          </div>
+          <button class="button quiet" id="refresh-candidates" type="button" disabled>重新选帧</button>
+        </div>
+        <div class="candidate-strip" id="candidate-strip">
+          <div class="candidate-empty">暂无候选帧</div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="inspector" aria-label="封面设置">
+      <div class="inspector-heading">
+        <div>
+          <h2>封面设置</h2>
+          <span id="active-filename">未选择切片</span>
+        </div>
+        <button class="icon-button" id="reset-copy" type="button" title="恢复自动文案" aria-label="恢复自动文案" disabled>↺</button>
+      </div>
+
+      <fieldset class="control-section" id="editor-controls" disabled>
+        <label class="field full-field">
+          <span>投稿标题</span>
+          <textarea id="title-input" rows="3" maxlength="180"></textarea>
+        </label>
+
+        <div class="variant-section">
+          <div class="control-label">推荐排版</div>
+          <div class="layout-variants" id="layout-variants"></div>
+        </div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>构图模板</span>
+            <select id="template-select"></select>
+          </label>
+          <label class="field">
+            <span>配色方案</span>
+            <select id="palette-select"></select>
+          </label>
+        </div>
+
+        <div class="palette-preview" id="palette-preview" aria-label="当前配色"></div>
+
+        <div class="copy-editor">
+          <div class="control-label">封面大字</div>
+          <div id="copy-lines"></div>
+          <div class="common-color-panel">
+            <span class="control-label">文字颜色</span>
+            <div class="common-colors" id="common-colors" aria-label="常用标题颜色"></div>
+          </div>
+          <div class="common-color-panel">
+            <span class="control-label">描边颜色</span>
+            <div class="stroke-color-controls">
+              <div class="common-colors" id="common-stroke-colors" aria-label="常用描边颜色"></div>
+              <label class="hex-color-input compact-hex-color">
+                <span>#</span>
+                <input id="stroke-color-input" type="text" maxlength="7" spellcheck="false" aria-label="当前行描边十六进制颜色">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="sticker-editor">
+          <div class="sticker-heading">
+            <div class="control-label">表情贴图</div>
+            <button class="icon-button small-icon" id="refresh-stickers" type="button" title="刷新贴图库" aria-label="刷新贴图库">↻</button>
+          </div>
+          <div class="sticker-filters">
+            <select id="sticker-group" aria-label="贴图分组"></select>
+            <input id="sticker-search" type="search" placeholder="搜索表情" aria-label="搜索表情">
+          </div>
+          <div class="sticker-grid" id="sticker-grid"></div>
+        </div>
+
+        <div class="slider-grid">
+          <label class="slider-field">
+            <span>画面左右 <output id="focus-x-value">50%</output></span>
+            <input id="focus-x" type="range" min="0" max="100" value="50">
+          </label>
+          <label class="slider-field">
+            <span>画面上下 <output id="focus-y-value">50%</output></span>
+            <input id="focus-y" type="range" min="0" max="100" value="50">
+          </label>
+        </div>
+        <button class="button quiet reset-layout" id="reset-layout" type="button">重置元素位置</button>
+      </fieldset>
+
+      <div class="inspector-actions">
+        <button class="button secondary" id="refresh-preview" type="button" disabled>刷新预览</button>
+        <button class="button secondary" id="save-current" type="button" disabled>导出当前 4:3</button>
+        <button class="button primary grow" id="save-cover" type="button" disabled>保存双比例</button>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span class="status-dot" id="status-dot" aria-hidden="true"></span>
+    <span id="status-text">就绪</span>
+    <span class="status-detail" id="status-detail"></span>
+  </footer>
+
+  <dialog class="workspace-dialog" id="workspace-dialog">
+    <form method="dialog" id="workspace-form">
+      <div class="dialog-heading">
+        <h2>载入切片目录</h2>
+        <button class="icon-button" value="cancel" formmethod="dialog" type="submit" aria-label="关闭">×</button>
+      </div>
+      <label class="field full-field">
+        <span>切片目录</span>
+        <input id="root-path" name="root" type="text" required autocomplete="off" placeholder="选择切片目录">
+      </label>
+      <label class="field full-field">
+        <span>投稿标题 Markdown</span>
+        <input id="title-file" name="title_file" type="text" autocomplete="off" placeholder="可选">
+      </label>
+      <label class="field full-field">
+        <span>封面输出目录</span>
+        <input id="output-path" name="output_dir" type="text" autocomplete="off" placeholder="选择封面输出目录">
+      </label>
+      <p class="font-status" id="font-status" aria-live="polite">封面字体：正在检查</p>
+      <label class="check-field">
+        <input id="recursive-scan" name="recursive" type="checkbox" checked>
+        <span>包含子目录</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="button secondary" value="cancel" formmethod="dialog" type="submit">取消</button>
+        <button class="button primary" id="scan-submit" type="button">扫描</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

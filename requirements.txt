@@ -1,4 +1,5 @@
-flask>=3.0
+flask>=3.0,<4.0
 funasr
 python-docx
-requests>=2.31
+Pillow>=10.0,<13.0
+requests>=2.31,<3.0

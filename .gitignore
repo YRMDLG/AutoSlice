@@ -8,6 +8,8 @@ venv/
 
 # 本地凭据
 api_config.json
+title_style_profile.json
+environment.local.ps1
 .env
 .env.*
 !.env.example
@@ -15,8 +17,13 @@ api_config.json
 # 本地工作目录和发布计划
 recordings/
 output/
+submissions/
+covers/
+stickers/
 timelines/
 PLAN.md
+.codex-tmp-*/
+.test-tmp/
 
 # 视频、字幕、弹幕、音频和模型
 *.flv
@@ -28,6 +35,7 @@ PLAN.md
 *.srt
 *.ass
 *.xml
+*.docx
 *.pt
 *.onnx
 
@@ -36,3 +44,14 @@ PLAN.md
 *_topics.json
 *_话题分析.md
 *_asr_*.wav
+*_checkpoint.json
+*_优化时间轴.json
+*_精调任务.json
+*_精调任务.md
+
+# AutoCover 本地缓存、字体和导出结果
+autocover_tool/.cache/
+autocover_tool/local/
+autocover_tool/output/
+autocover_tool/covers/
+autocover_tool/screenshots/

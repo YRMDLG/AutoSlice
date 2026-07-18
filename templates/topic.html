@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>话题分析 - AutoSlice</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Microsoft YaHei',sans-serif;background:#1a1a2e;color:#eee;min-height:100vh}
+        .container{max-width:960px;margin:0 auto;padding:20px}
+        h1{text-align:center;margin:20px 0 5px;color:#e94560;font-size:1.8em}
+        .sub{text-align:center;color:#888;margin-bottom:10px}
+        .nav{display:flex;gap:10px;justify-content:center;margin-bottom:20px}
+        .nav a{color:#8af;text-decoration:none;padding:6px 16px;background:#0f3460;border-radius:6px}
+        .nav a:hover{background:#1a4a80}.nav a.active{background:#e94560;color:#fff}
+        .card{background:#16213e;border-radius:12px;padding:20px;margin-bottom:16px}
+        .card h2{font-size:1em;margin-bottom:12px;background:#e94560;display:inline-block;padding:4px 12px;border-radius:6px}
+        .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+        .row label{min-width:70px;font-weight:bold;color:#aaa;font-size:14px}
+        input[type="text"],select{flex:1;min-width:180px;padding:8px;border:1px solid #333;border-radius:8px;background:#0f3460;color:#eee;font-size:14px}
+        .btn{padding:8px 20px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;transition:.2s}
+        .btn-red{background:#e94560;color:#fff}.btn-red:hover{background:#c73652}
+        .btn-dark{background:#0f3460;color:#eee}.btn-dark:hover{background:#1a4a80}
+        .vlist{max-height:300px;overflow-y:auto}
+        .vitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #222;cursor:pointer}
+        .vitem:hover{background:#1a3050}.vitem.sel{background:#0f3460;border-left:3px solid #e94560}
+        .badge{font-size:10px;padding:2px 7px;border-radius:8px}.b-green{background:#1a4a40;color:#8f8}.b-gray{background:#333;color:#888}
+        .report{background:#0d1117;border-radius:8px;padding:20px;max-height:600px;overflow-y:auto;font-size:14px;line-height:1.8;white-space:pre-wrap}
+        .report h2{background:none;color:#e94560;display:block;font-size:1.1em;margin:16px 0 8px}
+        .task-item{padding:8px 0;border-bottom:1px solid #1a1a2e}
+        .task-bar{height:5px;background:#0f3460;border-radius:3px;margin:4px 0;overflow:hidden}
+        .task-fill{height:100%;background:#e94560;transition:width .3s}
+        .done .task-fill{background:#2ecc71}.error .task-fill{background:#e74c3c}
+        .flex-btns{display:flex;gap:10px;margin-top:12px}
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>Topic Analysis</h1>
+<p class="sub">LLM 录播话题分析</p>
+<div class="nav">
+    <a href="/">切片</a>
+    <a href="/topic" class="active">话题分析</a>
+</div>
+
+<div class="card">
+<h2>选择录播</h2>
+<div class="row">
+    <label>录播目录</label>
+    <input type="text" id="videoDir" value="{{ default_video_dir }}">
+    <button class="btn btn-dark" onclick="scan()">扫描</button>
+</div>
+<div class="vlist" id="vlist"><p style="color:#666">点击扫描加载有 SRT 字幕的视频...</p></div>
+<div class="flex-btns">
+    <button class="btn btn-red" onclick="analyze()">分析选中</button>
+</div>
+</div>
+
+<div class="card">
+<h2>分析报告</h2>
+<div id="taskArea"><p style="color:#666">选择视频开始分析</p></div>
+<div class="report" id="report" style="display:none"></div>
+<div class="flex-btns" id="sliceBtn" style="display:none">
+    <button class="btn btn-red" onclick="goSlice()">用此时间轴去切片 →</button>
+</div>
+</div>
+</div>
+
+<script>
+let selVideo = null;
+let selSrt = null;
+let lastResult = null;
+let sse = null;
+
+function connectSSE() {
+    if (sse) sse.close();
+    sse = new EventSource('/api/events');
+    sse.addEventListener('task_update', e => {
+        const d = JSON.parse(e.data);
+        if (!d.task_id || !d.task_id.startsWith('topic_')) return;
+        const pct = d.total > 0 ? Math.round(d.step/d.total*100) : 0;
+        const cls = d.status === 'done' ? 'done' : d.status === 'error' ? 'error' : '';
+        document.getElementById('taskArea').innerHTML = `
+            <div class="task-item ${cls}">
+                <strong>${d.task_id}</strong> [${d.status}]
+                ${d.status === 'running' ? `<div class="task-bar"><div class="task-fill" style="width:${pct}%"></div></div>` : ''}
+                <div style="color:#888;font-size:12px">${d.progress||''}</div>
+                ${d.result && d.status === 'done' ? '<div style="color:#2ecc71">分析完成</div>' : ''}
+                ${d.result && d.status === 'error' ? `<div style="color:#e74c3c">${d.result}</div>` : ''}
+            </div>`;
+        if (d.status === 'done' && d.result) {
+            try {
+                const r = JSON.parse(d.result);
+                lastResult = r;
+                document.getElementById('report').style.display = 'block';
+                document.getElementById('report').innerHTML = r.markdown.replace(/\n/g,'<br>').replace(/## /g,'<h2>').replace(/<br><h2>/g,'<h2>');
+                document.getElementById('sliceBtn').style.display = 'flex';
+            } catch(e) {}
+        }
+    });
+    sse.onerror = () => setTimeout(connectSSE, 3000);
+}
+
+async function scan() {
+    const r = await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({video_dir:document.getElementById('videoDir').value})});
+    const d = await r.json();
+    document.getElementById('vlist').innerHTML = d.videos
+        .filter(v => v.has_srt)
+        .map((v,i) => {
+            const srtPath = v.path.replace('.flv','.srt');
+            return `<div class="vitem" onclick="pick(this,'${v.path.replace(/\\/g,'\\\\')}','${srtPath.replace(/\\/g,'\\\\')}')">
+                <span>[${i}] ${v.name}</span>
+                <span class="badge b-green">SRT</span>
+            </div>`;
+        }).join('') || '<p style="color:#666">没有找到带 SRT 字幕的视频</p>';
+}
+
+function pick(el, videoPath, srtPath) {
+    document.querySelectorAll('.vitem').forEach(e=>e.classList.remove('sel'));
+    el.classList.add('sel');
+    selVideo = videoPath;
+    selSrt = srtPath;
+}
+
+async function analyze() {
+    if (!selSrt) { alert('请先选择有 SRT 的视频'); return; }
+    document.getElementById('report').style.display = 'none';
+    document.getElementById('sliceBtn').style.display = 'none';
+    await fetch('/api/analyze-topics',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({srt_path:selSrt})});
+}
+
+function goSlice() {
+    if (lastResult && lastResult.json_path) {
+        window.open('/?timeline_json=' + encodeURIComponent(lastResult.json_path), '_blank');
+    }
+}
+
+connectSSE();
+scan();
+</script>
+</body>
+</html>
