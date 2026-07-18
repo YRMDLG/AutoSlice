@@ -94,6 +94,24 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
             script,
         )
 
+    def test_review_queue_exposes_persistent_folder_and_name_sorting(self):
+        html, script = self._page_script()
+
+        self.assertIn('id="queueSort"', html)
+        for value in (
+                "folder_created_desc", "folder_created_asc",
+                "folder_modified_desc", "source_modified_desc",
+                "name_asc", "name_desc"):
+            self.assertIn(f'value="{value}"', html)
+        for marker in (
+                "autoslice.subtitle-queue-sort",
+                "function comparePairs(",
+                "function sortPairs(",
+                "const selectedId=selectedPair()?.id",
+                "state.pairs.findIndex(pair=>pair.id===selectedId)",
+        ):
+            self.assertIn(marker, script)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查页面脚本语法")
     def test_review_page_script_compiles(self):
         _, script = self._page_script()

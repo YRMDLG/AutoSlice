@@ -22,6 +22,8 @@ nav a:hover,nav a.active{background:var(--surface);color:#fff}
 .panel-head{padding:16px;border-bottom:1px solid var(--line)}
 .panel-head h1,.panel-head h2{margin:0;font-size:15px;line-height:1.3}
 .panel-head .sub{margin-top:4px;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.queue-head-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.queue-sort{width:158px;padding:6px 8px;font-size:12px}
 .directory-row{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:12px}
 input[type=text],input[type=number],textarea,select{width:100%;border:1px solid var(--line);background:#121318;color:var(--text);border-radius:5px;padding:8px 10px;outline:none}
 input:focus,textarea:focus,select:focus{border-color:var(--pink)}
@@ -102,7 +104,17 @@ input[type=color]{width:38px;height:36px;border:1px solid var(--line);background
 <main class="layout">
     <section class="panel queue-panel">
         <div class="panel-head">
-            <h1>投稿队列</h1>
+            <div class="queue-head-row">
+                <h1>投稿队列</h1>
+                <select id="queueSort" class="queue-sort" aria-label="投稿队列排序">
+                    <option value="folder_created_desc">文件夹：最新创建</option>
+                    <option value="folder_created_asc">文件夹：最早创建</option>
+                    <option value="folder_modified_desc">文件夹：最近修改</option>
+                    <option value="source_modified_desc">视频：最近修改</option>
+                    <option value="name_asc">名称：升序</option>
+                    <option value="name_desc">名称：降序</option>
+                </select>
+            </div>
             <div class="directory-row">
                 <input id="rootDir" type="text" value="F:\Videos\投稿" aria-label="投稿目录">
                 <button class="btn" id="scanButton" type="button">扫描</button>
@@ -185,13 +197,16 @@ input[type=color]{width:38px;height:36px;border:1px solid var(--line);background
 </main>
 
 <script>
-const state={pairs:[],selectedIndex:-1,sourceCues:[],edited:new Map(),suggestions:new Map(),aiApplied:new Set(),protectedEdits:new Set(),correctedPath:'',filter:'all',defaults:null,previewUrl:'',sse:null,sseReconnectTimer:null,taskEvents:new Map(),taskContexts:new Map(),selectionVersion:0,busy:false};
+const QUEUE_SORT_KEYS=new Set(['folder_created_desc','folder_created_asc','folder_modified_desc','source_modified_desc','name_asc','name_desc']);
+const storedQueueSort=localStorage.getItem('autoslice.subtitle-queue-sort');
+const state={pairs:[],selectedIndex:-1,queueSort:QUEUE_SORT_KEYS.has(storedQueueSort)?storedQueueSort:'folder_created_desc',sourceCues:[],edited:new Map(),suggestions:new Map(),aiApplied:new Set(),protectedEdits:new Set(),correctedPath:'',filter:'all',defaults:null,previewUrl:'',sse:null,sseReconnectTimer:null,taskEvents:new Map(),taskContexts:new Map(),selectionVersion:0,busy:false};
+const queueNameCollator=new Intl.Collator('zh-CN',{numeric:true,sensitivity:'base'});
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 async function jsonRequest(url,options={}){const response=await fetch(url,{headers:{'Content-Type':'application/json'},...options});const data=await response.json();if(!response.ok||data.error){const error=new Error(data.error||`请求失败 ${response.status}`);error.payload=data;error.status=response.status;throw error;}return data;}
 function selectedPair(){return state.selectedIndex>=0?state.pairs[state.selectedIndex]:null;}
 function setTask(message,type=''){const el=document.getElementById('taskStatus');el.textContent=message;el.className=`task-status ${type}`.trim();}
-function setBusy(busy){state.busy=Boolean(busy);['scanButton','reviewButton','forceReviewButton','saveButton','saveRightButton','previewButton','renderButton'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=state.busy||(!selectedPair()&&id!=='scanButton');});document.getElementById('rootDir').disabled=state.busy;document.querySelectorAll('.queue-item').forEach(el=>{el.disabled=state.busy;});}
+function setBusy(busy){state.busy=Boolean(busy);['scanButton','reviewButton','forceReviewButton','saveButton','saveRightButton','previewButton','renderButton'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=state.busy||(!selectedPair()&&id!=='scanButton');});document.getElementById('rootDir').disabled=state.busy;document.getElementById('queueSort').disabled=state.busy;document.querySelectorAll('.queue-item').forEach(el=>{el.disabled=state.busy;});}
 
 function styleValues(){return{font_name:'Noto Sans S Chinese Black',font_size:Number(document.getElementById('fontSize').value),font_color:document.getElementById('fontColor').value.replace('#',''),outline_color:document.getElementById('outlineColor').value.replace('#',''),outline_width:Number(document.getElementById('outlineWidth').value),x:Number(document.getElementById('positionX').value),y:Number(document.getElementById('positionY').value),shadow:0};}
 function exportValues(){return{width:1920,height:1080,bitrate_kbps:Number(document.getElementById('bitrate').value),rate_control:'vbr',codec:'h264',container:'mp4',fps:Number(document.getElementById('fps').value),color_space:'bt709',color_range:'tv',audio:'copy'};}
@@ -200,7 +215,10 @@ async function loadDefaults(){try{const data=await jsonRequest('/api/subtitles/d
 function applyDefaults(data){const style=data.style||{},exp=data.export||{};document.getElementById('fontSize').value=style.font_size??20;setColor('fontColor',style.font_color||'ffffff');setColor('outlineColor',style.outline_color||'d06e95');document.getElementById('outlineWidth').value=style.outline_width??100;document.getElementById('positionX').value=style.x??0;document.getElementById('positionY').value=style.y??-788;document.getElementById('bitrate').value=exp.bitrate_kbps??8000;document.getElementById('fps').value=exp.fps??60;}
 function setColor(id,value){const clean=String(value).replace('#','').toLowerCase();document.getElementById(id).value=clean;document.getElementById(`${id}Picker`).value=`#${clean}`;}
 
-async function scan(){setBusy(true);setTask('扫描投稿目录...');try{const data=await jsonRequest('/api/subtitles/scan',{method:'POST',body:JSON.stringify({root_dir:document.getElementById('rootDir').value})});state.pairs=data.pairs||[];state.selectedIndex=-1;clearEditor();renderQueue();setTask(`找到 ${data.count} 组投稿`,'done');}catch(error){setTask(error.message,'error');}finally{setBusy(false);}}
+function compareQueueTime(left,right,key,descending){const a=Number(left[key])||0;const b=Number(right[key])||0;if(a===b)return 0;if(!a)return 1;if(!b)return-1;return descending?b-a:a-b;}
+function comparePairs(left,right){let result=0;if(state.queueSort==='folder_created_desc'||state.queueSort==='folder_created_asc'){result=compareQueueTime(left,right,'folder_created_at',state.queueSort.endsWith('_desc'));if(!result)result=compareQueueTime(left,right,'source_created_at',state.queueSort.endsWith('_desc'));}else if(state.queueSort==='folder_modified_desc'){result=compareQueueTime(left,right,'folder_modified_at',true);}else if(state.queueSort==='source_modified_desc'){result=compareQueueTime(left,right,'source_modified_at',true);}else{result=queueNameCollator.compare(`${left.title}\n${left.video_name}`,`${right.title}\n${right.video_name}`);if(state.queueSort==='name_desc')result=-result;}return result||queueNameCollator.compare(left.directory,right.directory);}
+function sortPairs(){const selectedId=selectedPair()?.id||null;state.pairs.sort(comparePairs);state.selectedIndex=selectedId?state.pairs.findIndex(pair=>pair.id===selectedId):-1;}
+async function scan(){setBusy(true);setTask('扫描投稿目录...');try{const data=await jsonRequest('/api/subtitles/scan',{method:'POST',body:JSON.stringify({root_dir:document.getElementById('rootDir').value})});state.pairs=data.pairs||[];state.selectedIndex=-1;sortPairs();clearEditor();renderQueue();setTask(`找到 ${data.count} 组投稿`,'done');}catch(error){setTask(error.message,'error');}finally{setBusy(false);}}
 function renderQueue(){const queue=document.getElementById('queue');if(!state.pairs.length){queue.innerHTML='<div class="queue-empty">没有找到同目录 MP4 + SRT</div>';return;}queue.innerHTML=state.pairs.map((pair,index)=>`<button type="button" class="queue-item ${index===state.selectedIndex?'active':''}" data-index="${index}" ${state.busy?'disabled':''}><span class="queue-title">${esc(pair.title)}</span><span class="queue-meta"><span class="badge ${pair.subtitle_error?'warn':'ok'}">${pair.cue_count} 条字幕</span><span class="badge ${pair.has_corrected_srt?'ok':''}">${pair.has_corrected_srt?'已校对':'原字幕'}</span><span class="badge ${pair.has_output_video?'ok':''}">${pair.has_output_video?'已压制':'未压制'}</span></span></button>`).join('');queue.querySelectorAll('.queue-item').forEach(el=>el.addEventListener('click',()=>selectPair(Number(el.dataset.index))));}
 function clearEditor(){state.selectionVersion+=1;state.sourceCues=[];state.edited.clear();state.suggestions.clear();state.aiApplied.clear();state.protectedEdits.clear();state.correctedPath='';document.getElementById('editorTitle').textContent='请选择投稿';document.getElementById('editorPath').textContent='';document.getElementById('cueList').innerHTML='<div class="queue-empty">选择左侧投稿后加载字幕</div>';document.getElementById('artifactPath').textContent='尚未生成校对字幕';updateChangeCount();}
 
@@ -233,6 +251,8 @@ function connectSSE(){if(state.sseReconnectTimer){clearTimeout(state.sseReconnec
 function handleTask(data){if(!data.task_id?.startsWith('subtitle_'))return;rememberTaskEvent(data);const context=state.taskContexts.get(data.task_id);if(!context)return;const pair=selectedPair();if(!pair||pair.id!==context.pairId)return;setTask(data.progress||data.status,data.status==='error'?'error':data.status==='done'?'done':'');if(data.status==='done'){try{const result=data.result?JSON.parse(data.result):{};if(context.kind==='review')applyReview(result,context);if(context.kind==='render'){pair.has_output_video=true;renderQueue();setTask(`压制完成：${result.output_video_path}`,'done');}finishTask(data.task_id);}catch(error){setTask(error.message,'error');finishTask(data.task_id);}}else if(data.status==='error'){setTask(data.progress||'任务失败','error');finishTask(data.task_id);}}
 
 document.getElementById('scanButton').addEventListener('click',scan);
+document.getElementById('queueSort').value=state.queueSort;
+document.getElementById('queueSort').addEventListener('change',event=>{state.queueSort=QUEUE_SORT_KEYS.has(event.target.value)?event.target.value:'folder_created_desc';localStorage.setItem('autoslice.subtitle-queue-sort',state.queueSort);sortPairs();renderQueue();});
 document.getElementById('reviewButton').addEventListener('click',()=>startReview(false));
 document.getElementById('forceReviewButton').addEventListener('click',()=>startReview(true));
 document.getElementById('saveButton').addEventListener('click',saveClick);
