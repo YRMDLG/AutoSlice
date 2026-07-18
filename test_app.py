@@ -178,6 +178,7 @@ class TopicPipelineApiTests(unittest.TestCase):
             timeline_path = Path(td) / "20260714.docx"
             optimized_json = flv_path.with_name(flv_path.stem + "_优化时间轴.json")
             optimized_md = flv_path.with_name(flv_path.stem + "_优化时间轴.md")
+            output_dir = Path(td) / "自动切片"
             for path in (flv_path, ass_path, timeline_path):
                 path.write_bytes(b"test")
             expected = {
@@ -208,12 +209,17 @@ class TopicPipelineApiTests(unittest.TestCase):
                         "flv_path": str(flv_path),
                         "ass_path": str(ass_path),
                         "manual_timeline_path": str(timeline_path),
+                        "output_dir": str(output_dir),
                     },
                 )
 
         self.assertEqual(response.status_code, 200)
         task_id = response.get_json()["task_id"]
         optimize.assert_called_once()
+        self.assertEqual(
+            optimize.call_args.kwargs["output_dir"],
+            str(output_dir.resolve()),
+        )
         self.assertEqual(app_module.tasks[task_id]["status"], "done")
         task_result = json.loads(app_module.tasks[task_id]["result"])
         self.assertEqual(task_result["optimized_json_path"], str(optimized_json))
@@ -231,6 +237,7 @@ class TopicPipelineApiTests(unittest.TestCase):
                 "clip_marks": [],
                 "json_path": str(Path(td) / "clip_marks.json"),
             }
+            output_dir = Path(td) / "自动切片"
 
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
@@ -247,6 +254,7 @@ class TopicPipelineApiTests(unittest.TestCase):
                         "manual_timeline_mode": "manual",
                         "manual_timeline_path": str(timeline_path),
                         "optimized_timeline_path": str(optimized_path),
+                        "output_dir": str(output_dir),
                     },
                 )
 
@@ -260,6 +268,112 @@ class TopicPipelineApiTests(unittest.TestCase):
             run_pipeline.call_args.kwargs["manual_timeline_path"],
             str(timeline_path),
         )
+        self.assertEqual(
+            run_pipeline.call_args.kwargs["output_dir"],
+            str(output_dir.resolve()),
+        )
+
+    def test_open_result_directory_uses_only_completed_task_artifact(self):
+        with TemporaryDirectory() as td:
+            output_dir = Path(td) / "自动切片"
+            artifact_dir = output_dir / "录播_自动切片"
+            artifact_dir.mkdir(parents=True)
+            app_module.tasks["pipeline_ok"] = {
+                "status": "done",
+                "task_type": "topic_pipeline",
+                "output_dir": str(output_dir),
+                "result": json.dumps(
+                    {"artifact_dir": str(artifact_dir)}, ensure_ascii=False
+                ),
+            }
+            with patch.object(app_module.subprocess, "Popen") as popen:
+                response = self.client.post(
+                    "/api/open-result-directory",
+                    json={"task_id": "pipeline_ok"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["path"], str(artifact_dir.resolve()))
+        popen.assert_called_once_with(["explorer.exe", str(artifact_dir.resolve())])
+
+    def test_open_result_directory_rejects_arbitrary_and_outside_paths(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            output_dir = root / "自动切片"
+            outside_dir = root / "其他目录" / "伪造_自动切片"
+            output_dir.mkdir()
+            outside_dir.mkdir(parents=True)
+            app_module.tasks["pipeline_outside"] = {
+                "status": "done",
+                "task_type": "topic_pipeline",
+                "output_dir": str(output_dir),
+                "result": json.dumps({"artifact_dir": str(outside_dir)}),
+            }
+            with patch.object(app_module.subprocess, "Popen") as popen:
+                arbitrary = self.client.post(
+                    "/api/open-result-directory",
+                    json={"artifact_dir": str(outside_dir)},
+                )
+                outside = self.client.post(
+                    "/api/open-result-directory",
+                    json={"task_id": "pipeline_outside"},
+                )
+
+        self.assertEqual(arbitrary.status_code, 400)
+        self.assertEqual(outside.status_code, 403)
+        popen.assert_not_called()
+
+    def test_open_result_directory_rejects_missing_directory(self):
+        with TemporaryDirectory() as td:
+            output_dir = Path(td) / "自动切片"
+            output_dir.mkdir()
+            missing_dir = output_dir / "录播_自动切片"
+            app_module.tasks["pipeline_missing"] = {
+                "status": "done",
+                "task_type": "topic_pipeline",
+                "output_dir": str(output_dir),
+                "result": json.dumps({"artifact_dir": str(missing_dir)}),
+            }
+            with patch.object(app_module.subprocess, "Popen") as popen:
+                response = self.client.post(
+                    "/api/open-result-directory",
+                    json={"task_id": "pipeline_missing"},
+                )
+
+        self.assertEqual(response.status_code, 404)
+        popen.assert_not_called()
+
+    def test_topic_v2_page_exposes_artifact_paths_and_safe_open_action(self):
+        response = self.client.get("/topic-v2")
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("打开结果目录", html)
+        self.assertIn("/api/open-result-directory", html)
+        self.assertIn("result.overview_path", html)
+        self.assertIn("result.artifact_dir", html)
+        self.assertGreaterEqual(
+            html.count("output_dir:document.getElementById('outputDir').value"),
+            2,
+        )
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查页面脚本语法")
+    def test_topic_v2_page_script_compiles(self):
+        response = self.client.get("/topic-v2")
+        scripts = re.findall(
+            r"<script>(.*?)</script>", response.get_data(as_text=True), flags=re.S
+        )
+        self.assertTrue(scripts)
+        result = subprocess.run(
+            ["node", "-e", "new Function(require('fs').readFileSync(0,'utf8'))"],
+            input=scripts[-1],
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_pipeline_ids_are_unique_and_duplicate_running_source_is_rejected(self):
         with TemporaryDirectory() as td:

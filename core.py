@@ -395,6 +395,27 @@ def parse_timeline_docx(docx_path):
     return fixed
 
 
+def parse_timeline_json(json_path):
+    """
+    解析话题分析生成的 JSON 时间轴文件。
+    支持 clip_marks (topic_engine) 和 topics (topic_analyzer) 两种格式。
+    返回与 parse_timeline_docx 相同格式的 [(seconds, desc, stars), ...]
+    """
+    if not json_path or not os.path.exists(json_path):
+        return []
+    with open(json_path, encoding="utf-8") as f:
+        data = json.load(f)
+    timestamps = []
+    # 兼容两种格式
+    items = data.get("clip_marks") or data.get("topics") or []
+    for t in items:
+        start = t.get("start", 0)
+        title = t.get("title", "")
+        desc = title
+        timestamps.append((start, desc, 1))
+    return timestamps
+
+
 def timeline_to_periods(timestamps, video_duration, expand_before=90, expand_after=90):
     """将时间轴时间戳转换为切片时间段"""
     periods = []
@@ -470,7 +491,7 @@ def is_file_locked(filepath):
 
 
 def process_video(flv_path, ass_path, output_dir, mode="danmaku",
-                  timeline_path=None, progress_callback=None):
+                  timeline_path=None, timeline_json=None, progress_callback=None):
     """
     处理单个视频。
     """
@@ -588,34 +609,43 @@ def process_video(flv_path, ass_path, output_dir, mode="danmaku",
             progress("无达标爆点")
             return 0, video_output_dir
 
-    elif mode == "timeline" and timeline_path and os.path.exists(timeline_path):
-        tl_raw = parse_timeline_docx(timeline_path)
+    elif mode == "timeline":
+        tl_raw = None
+        is_json = False
+        if timeline_json and os.path.exists(timeline_json):
+            tl_raw = parse_timeline_json(timeline_json)
+            is_json = True
+        elif timeline_path and os.path.exists(timeline_path):
+            tl_raw = parse_timeline_docx(timeline_path)
         if tl_raw:
-            # 从视频文件名提取开播时间，用于时间换算
-            # 文件名示例: 泽音Melody-2026年06月12日20点01分.flv
-            stream_start_s = _extract_stream_start(video_name)
-            if stream_start_s is not None:
-                tl_converted = []
-                skipped_before = skipped_after = 0
-                for s, desc, stars in tl_raw:
-                    video_s = s - stream_start_s
-                    if video_s < 0:
-                        video_s += 86400  # 跨午夜
-                    # 过滤：超出视频范围的不切
-                    if video_duration > 0:
+            # JSON 时间轴：时间是视频内秒数，直接使用
+            # docx 时间轴：时间是绝对时钟，需换算
+            if not is_json:
+                stream_start_s = _extract_stream_start(video_name)
+                if stream_start_s is not None:
+                    tl_converted = []
+                    skipped_before = skipped_after = 0
+                    for s, desc, stars in tl_raw:
+                        video_s = s - stream_start_s
                         if video_s < 0:
-                            skipped_before += 1
-                            continue
-                        if video_s > video_duration + 300:  # 允许 5 分钟余量
-                            skipped_after += 1
-                            continue
-                    tl_converted.append((video_s, desc, stars))
-                tl_raw = tl_converted
-                msg = f"时间轴 {len(tl_raw)} 条（已换算开播时间）"
-                if skipped_before: msg += f"，跳过 {skipped_before} 条在录播开始前"
-                if skipped_after: msg += f"，跳过 {skipped_after} 条在录播结束后"
+                            video_s += 86400
+                        if video_duration > 0:
+                            if video_s < 0:
+                                skipped_before += 1
+                                continue
+                            if video_s > video_duration + 300:
+                                skipped_after += 1
+                                continue
+                        tl_converted.append((video_s, desc, stars))
+                    tl_raw = tl_converted
+                    msg = f"时间轴 {len(tl_raw)} 条（已换算开播时间）"
+                    if skipped_before: msg += f"，跳过 {skipped_before} 条在录播开始前"
+                    if skipped_after: msg += f"，跳过 {skipped_after} 条在录播结束后"
+                    if progress_callback:
+                        progress_callback(msg, 15, 100)
+            else:
                 if progress_callback:
-                    progress_callback(msg, 15, 100)
+                    progress_callback(f"JSON 时间轴 {len(tl_raw)} 条（视频内时间，直接使用）", 15, 100)
             # 时间轴模式：每条独立。±90s 起步，SRT 只扩不缩
             tl_sorted = sorted(tl_raw, key=lambda x: x[0])
             expanded = []
