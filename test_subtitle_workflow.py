@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from subtitle_workflow import (
+    DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_STYLE,
     DEFAULT_VIDEO_EXPORT,
     EXACT_SUBTITLE_FONT,
@@ -68,6 +69,39 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             path.write_bytes(SAMPLE_SRT.encode("gb18030"))
             cues = parse_srt_document(path)
         self.assertEqual(cues[0].text, "音音晚上好")
+
+    def test_default_glossary_contains_requested_names_and_reaches_prompt(self):
+        requested_terms = {
+            "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音",
+            "音姐", "音妈", "露露", "四禧丸子", "沐霂", "又一", "梨安",
+            "恬豆", "七海", "小孩梓", "阿梓", "柚恩", "露早", "EOE", "篮筐",
+        }
+        prompts = []
+
+        def runner(prompt, _compact_prompt):
+            prompts.append(prompt)
+            indices = json.loads(
+                prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            )
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "专名字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            result = suggest_subtitle_corrections(
+                source,
+                llm_runner=runner,
+                use_cache=False,
+            )
+
+        self.assertTrue(requested_terms.issubset(DEFAULT_SUBTITLE_GLOSSARY))
+        self.assertEqual(
+            len(DEFAULT_SUBTITLE_GLOSSARY),
+            len(set(DEFAULT_SUBTITLE_GLOSSARY)),
+        )
+        self.assertTrue(requested_terms.issubset(result["glossary"]))
+        for term in requested_terms:
+            self.assertIn(term, prompts[0])
 
     def test_invalid_or_reverse_timeline_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
