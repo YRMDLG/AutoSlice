@@ -33,6 +33,7 @@ AUTOSLICE_API_VERSION = 1
 JSON_TIMELINE_UPLOAD_DIR = OUTPUT_DIR
 MANUAL_TIMELINE_UPLOAD_DIR = TIMELINE_DIR
 _ACTIVE_TASK_STATUSES = {"queued", "running"}
+_OPENABLE_RESULT_TASK_TYPES = {"topic_pipeline", "timeline_optimization"}
 _WINDOWS_PATH_RE = re.compile(r"(?i)(?<![\w])(?:[a-z]:\\)[^\r\n]+")
 _UPLOAD_INVALID_CHARS_RE = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
 
@@ -161,6 +162,54 @@ def _reserve_source_task(prefix, task_type, source_path, waiting_progress):
             "created_at": time.time(),
         }
     return task_id, None
+
+
+def _set_task_output_dir(task_id, output_dir):
+    """记录任务实际输出根目录，供完成后安全打开整理包。"""
+    absolute_output_dir = os.path.abspath(output_dir)
+    with task_lock:
+        if task_id in tasks:
+            tasks[task_id]["output_dir"] = absolute_output_dir
+    return absolute_output_dir
+
+
+def _completed_task_artifact_dir(task_id):
+    """解析并校验已完成任务的整理包目录，拒绝任意路径打开。"""
+    with task_lock:
+        task = dict(tasks.get(task_id) or {})
+    if not task:
+        raise KeyError("任务不存在或服务已重启")
+    if task.get("status") != "done":
+        raise RuntimeError("任务尚未完成，不能打开结果目录")
+    if task.get("task_type") not in _OPENABLE_RESULT_TASK_TYPES:
+        raise PermissionError("该任务没有可打开的自动切片整理包")
+
+    result = task.get("result")
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("任务结果不是有效 JSON") from exc
+    if not isinstance(result, dict) or not result.get("artifact_dir"):
+        raise ValueError("任务结果中没有整理包路径")
+
+    output_dir = task.get("output_dir")
+    if not output_dir:
+        raise PermissionError("任务没有记录输出目录，不能安全打开")
+    output_root = Path(output_dir).expanduser().resolve(strict=True)
+    artifact_dir = Path(result["artifact_dir"]).expanduser().resolve(strict=True)
+    if not artifact_dir.is_dir():
+        raise FileNotFoundError("整理包目录不存在")
+    try:
+        relative_path = artifact_dir.relative_to(output_root)
+    except ValueError as exc:
+        raise PermissionError("整理包路径超出任务输出目录") from exc
+    if (
+            relative_path == Path(".")
+            or len(relative_path.parts) != 1
+            or not artifact_dir.name.endswith("_自动切片")):
+        raise PermissionError("任务结果不是有效的自动切片整理包")
+    return artifact_dir
 
 
 def _safe_task_error(error):
@@ -385,7 +434,7 @@ def run_subtitle_render_task(
 
 
 def run_timeline_optimization_task(
-        task_id, flv_path, manual_timeline_path, ass_path=None):
+        task_id, flv_path, manual_timeline_path, ass_path=None, output_dir=None):
     """后台仅优化人工时间轴，不启动话题分析和切片。"""
     update_task(task_id, status="running", progress="准备校准人工时间轴...", step=0, total=100)
 
@@ -406,6 +455,7 @@ def run_timeline_optimization_task(
             manual_timeline_path,
             ass_path=ass_path if ass_path and os.path.isfile(ass_path) else None,
             progress_callback=callback,
+            output_dir=output_dir,
         )
         update_task(
             task_id,
@@ -580,6 +630,32 @@ def slice_all():
 def list_tasks():
     with task_lock:
         return jsonify(dict(tasks))
+
+
+@app.route("/api/open-result-directory", methods=["POST"])
+def open_result_directory():
+    """打开已完成任务的整理包；请求方不能直接指定本机路径。"""
+    data = request.get_json(silent=True) or {}
+    task_id = str(data.get("task_id") or "").strip()
+    if not task_id:
+        return jsonify({"error": "缺少任务 ID"}), 400
+    try:
+        artifact_dir = _completed_task_artifact_dir(task_id)
+    except KeyError as exc:
+        return jsonify({"error": str(exc).strip("'")}), 404
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 403
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        subprocess.Popen(["explorer.exe", str(artifact_dir)])
+    except OSError as exc:
+        return jsonify({"error": f"无法打开结果目录: {exc}"}), 500
+    return jsonify({"path": str(artifact_dir)})
 
 
 # ==================== 字幕校对与压制 ====================
@@ -844,7 +920,9 @@ def start_pipeline():
     data = request.get_json(silent=True) or {}
     flv_path = data.get("flv_path", "")
     ass_path = data.get("ass_path", "")
-    output_dir = data.get("output_dir") or str(OUTPUT_DIR)
+    output_dir = os.path.abspath(
+        data.get("output_dir") or str(OUTPUT_DIR)
+    )
     manual_timeline_mode = data.get("manual_timeline_mode", "none")
     manual_timeline_path = data.get("manual_timeline_path", "")
     optimized_timeline_path = data.get("optimized_timeline_path", "")
@@ -873,6 +951,7 @@ def start_pipeline():
             "error": "该录播正在进行完整分析，请等待当前任务完成",
             "task_id": active_task_id,
         }), 409
+    _set_task_output_dir(task_id, output_dir)
 
     def run():
         try:
@@ -887,6 +966,7 @@ def start_pipeline():
                 progress_callback=cb,
                 manual_timeline_path=manual_timeline_path,
                 optimized_timeline_path=optimized_timeline_path,
+                output_dir=output_dir,
             )
 
             # 用新的独立切片功能，不依赖现有切片模式
@@ -921,6 +1001,9 @@ def optimize_manual_timeline():
     flv_path = data.get("flv_path", "")
     ass_path = data.get("ass_path", "")
     manual_timeline_path = data.get("manual_timeline_path", "")
+    output_dir = os.path.abspath(
+        data.get("output_dir") or str(OUTPUT_DIR)
+    )
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
     if not os.path.isfile(manual_timeline_path):
@@ -937,10 +1020,11 @@ def optimize_manual_timeline():
             "error": "该录播正在优化人工时间轴，请等待当前任务完成",
             "task_id": active_task_id,
         }), 409
+    _set_task_output_dir(task_id, output_dir)
     try:
         threading.Thread(
             target=run_timeline_optimization_task,
-            args=(task_id, flv_path, manual_timeline_path, ass_path),
+            args=(task_id, flv_path, manual_timeline_path, ass_path, output_dir),
             daemon=True,
         ).start()
     except Exception as exc:

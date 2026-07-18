@@ -50,6 +50,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .report .slice-tag{background:var(--green);color:#000;font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:700}
 .flex-btns{display:flex;gap:10px;margin-top:16px}
 .artifact-path{margin-top:8px;padding:10px 12px;background:#0d0d1a;border:1px solid #333;border-radius:8px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.artifact-result{margin-top:14px;padding:14px;background:#0d0d1a;border:1px solid #333;border-radius:8px}
+.artifact-result .artifact-path{margin:0 0 12px;border:0;padding:0;background:transparent;white-space:pre-line}
 </style>
 </head>
 <body>
@@ -104,15 +106,53 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <div class="card">
         <h2><span class="icon">进度</span></h2>
         <div class="progress-box" id="progressBox"><p style="color:var(--muted);padding:16px">等待任务...</p></div>
+        <div class="artifact-result" id="resultArtifact" style="display:none">
+            <div class="artifact-path" id="resultPaths"></div>
+            <button class="btn btn-secondary" id="openResultButton" type="button" onclick="openResultDirectory()">打开结果目录</button>
+        </div>
         <div class="report" id="report" style="display:none"></div>
     </div>
 </div>
 
 <script>
-let selVideo=null,selAss=null,sse=null,optimizedTimeline=null;
+let selVideo=null,selAss=null,sse=null,optimizedTimeline=null,resultTaskId=null;
 
 function esc(s){
     return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderReport(markdown){
+    const sliceTag='<span class="slice-tag">已切片</span>';
+    return String(markdown||'').split(/\r?\n/).map(raw=>{
+        const line=esc(raw).replace(/✂️/g,sliceTag);
+        if(raw.startsWith('# '))return `<h1>${line.slice(2)}</h1>`;
+        if(raw.startsWith('## '))return `<h2>${line.slice(3)}</h2>`;
+        return line?`<div>${line}</div>`:'<br>';
+    }).join('');
+}
+
+function clearResultArtifact(){
+    resultTaskId=null;
+    document.getElementById('resultArtifact').style.display='none';
+    document.getElementById('resultPaths').textContent='';
+}
+
+function renderResultArtifact(taskId,result){
+    if(!result||!result.artifact_dir){clearResultArtifact();return}
+    resultTaskId=taskId;
+    const lines=[`整理包: ${result.artifact_dir}`];
+    if(result.overview_path)lines.push(`首先打开: ${result.overview_path}`);
+    if(result.slice_dir)lines.push(`实际切片: ${result.slice_dir}`);
+    document.getElementById('resultPaths').textContent=lines.join('\n');
+    document.getElementById('resultArtifact').style.display='block';
+}
+
+async function openResultDirectory(){
+    if(!resultTaskId){alert('当前没有可打开的结果目录');return}
+    const response=await fetch('/api/open-result-directory',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({task_id:resultTaskId})});
+    const result=await response.json();
+    if(!response.ok||result.error)alert(result.error||'结果目录打开失败');
 }
 
 function connectSSE(){
@@ -123,13 +163,15 @@ function connectSSE(){
         const isPipeline=d.task_id&&d.task_id.startsWith('pipeline_');
         const isTimelineOptimization=d.task_id&&d.task_id.startsWith('timeline_opt_');
         if(!isPipeline&&!isTimelineOptimization)return;
-        const pct=d.total>0?Math.round(d.step/d.total*100):0;
+        const pct=d.total>0?Math.max(0,Math.min(100,Math.round(d.step/d.total*100))):0;
         const cls=d.status==='done'?'done':d.status==='error'?'error':'';
+        const statusClass=d.status==='running'?'running':d.status==='done'?'done':'error';
+        const statusText=d.status==='running'?'进行中':d.status==='done'?'完成':'失败';
         document.getElementById('progressBox').innerHTML=`
             <div class="progress-item ${cls}">
-                <div class="name"><span>${d.task_id}</span><span class="status status-${d.status==='running'?'running':d.status==='done'?'done':'error'}">${d.status==='running'?'进行中':d.status==='done'?'完成':'失败'}</span></div>
+                <div class="name"><span>${esc(d.task_id)}</span><span class="status status-${statusClass}">${statusText}</span></div>
                 ${d.status==='running'?`<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>`:''}
-                <div class="progress-msg">${d.progress||''}</div>
+                <div class="progress-msg">${esc(d.progress||'')}</div>
             </div>`;
         if(d.status==='done'&&d.result){
             try{
@@ -142,12 +184,12 @@ function connectSSE(){
                         mdPath:r.optimized_md_path
                     };
                     renderOptimizedTimeline();
+                    renderResultArtifact(d.task_id,r);
                 }else{
+                    renderResultArtifact(d.task_id,r);
                     const el=document.getElementById('report');
                     el.style.display='block';
-                    el.innerHTML=(r.report||'').replace(/\n/g,'<br>')
-                        .replace(/✂️/g,'<span class="slice-tag">已切片</span>')
-                        .replace(/## \[/g,'<h2>[');
+                    el.innerHTML=renderReport(r.report||'');
                 }
             }catch(ex){}
         }
@@ -159,12 +201,29 @@ async function scan(){
     const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({video_dir:document.getElementById('videoDir').value})});
     const d=await r.json();
-    document.getElementById('vlist').innerHTML=d.videos.map((v,i)=>`
-        <div class="vitem" onclick="pick(this,'${v.path.replace(/\\/g,'\\\\')}','${v.has_ass}')">
-            <span>${v.name}</span>
-            <span class="badge ${v.has_ass?'badge-blue':'badge-gray'}">${v.has_ass?'ASS弹幕':'无弹幕'}</span>
-            <span class="badge ${v.has_srt?'badge-green':'badge-gray'}">${v.has_srt?'SRT字幕':'无字幕'}</span>
-        </div>`).join('')||'<p style="color:var(--muted);padding:16px">没有找到视频</p>';
+    const list=document.getElementById('vlist');
+    list.replaceChildren();
+    (d.videos||[]).forEach(v=>{
+        const item=document.createElement('div');
+        item.className='vitem';
+        item.addEventListener('click',()=>pick(item,v.path,v.has_ass));
+        const name=document.createElement('span');
+        name.textContent=v.name;
+        const ass=document.createElement('span');
+        ass.className=`badge ${v.has_ass?'badge-blue':'badge-gray'}`;
+        ass.textContent=v.has_ass?'ASS弹幕':'无弹幕';
+        const srt=document.createElement('span');
+        srt.className=`badge ${v.has_srt?'badge-green':'badge-gray'}`;
+        srt.textContent=v.has_srt?'SRT字幕':'无字幕';
+        item.append(name,ass,srt);
+        list.appendChild(item);
+    });
+    if(!list.children.length){
+        const empty=document.createElement('p');
+        empty.style.cssText='color:var(--muted);padding:16px';
+        empty.textContent=d.error||'没有找到视频';
+        list.appendChild(empty);
+    }
 }
 
 async function loadTimelines(){
@@ -186,8 +245,9 @@ function pick(el,path,hasAss){
     document.querySelectorAll('.vitem').forEach(e=>e.classList.remove('sel'));
     el.classList.add('sel');
     selVideo=path;
-    selAss=hasAss==='true'?path.replace('.flv','.ass'):'';
+    selAss=hasAss?path.replace(/\.flv$/i,'.ass'):'';
     clearOptimizedTimeline();
+    clearResultArtifact();
 }
 
 function onTimelineSelection(path){
@@ -215,9 +275,11 @@ async function optimizeTimeline(){
     const timelinePath=document.getElementById('timelinePath').value;
     if(mode!=='manual'||!timelinePath){alert('请先手动选择人工时间轴 DOCX');return}
     clearOptimizedTimeline();
+    clearResultArtifact();
     document.getElementById('progressBox').innerHTML='<p style="color:var(--muted);padding:16px">启动时间轴优化...</p>';
     const response=await fetch('/api/optimize-manual-timeline',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({flv_path:selVideo,ass_path:selAss,manual_timeline_path:timelinePath})});
+        body:JSON.stringify({flv_path:selVideo,ass_path:selAss,manual_timeline_path:timelinePath,
+            output_dir:document.getElementById('outputDir').value})});
     const result=await response.json();
     if(!response.ok||result.error)alert(result.error||'时间轴优化启动失败');
 }
@@ -232,8 +294,9 @@ async function startPipeline(){
         &&optimizedTimeline.sourcePath===timelinePath
         ?optimizedTimeline.jsonPath:'';
     document.getElementById('report').style.display='none';
+    clearResultArtifact();
     document.getElementById('progressBox').innerHTML='<p style="color:var(--muted);padding:16px">启动中...</p>';
-    await fetch('/api/start-pipeline',{method:'POST',headers:{'Content-Type':'application/json'},
+    const response=await fetch('/api/start-pipeline',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
             flv_path:selVideo,
             ass_path:selAss,
@@ -242,6 +305,8 @@ async function startPipeline(){
             manual_timeline_path:timelinePath,
             optimized_timeline_path:optimizedPath
         })});
+    const result=await response.json();
+    if(!response.ok||result.error)alert(result.error||'完整分析启动失败');
 }
 
 connectSSE();scan();loadTimelines();toggleTimelineMode();

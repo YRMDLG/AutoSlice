@@ -160,6 +160,10 @@ DEFAULT_REFINEMENT_QUEUE_DIR = os.environ.get(
     "AUTOSLICE_REFINEMENT_QUEUE_DIR",
     str(OUTPUT_DIR),
 )
+ARTIFACT_LAYOUT_VERSION = 1
+ARTIFACT_BUNDLE_SUFFIX = "_自动切片"
+ARTIFACT_DATA_DIRNAME = "数据"
+ARTIFACT_QUEUE_DIRNAME = "_总清单"
 UNIFIED_REFINEMENT_QUEUE_JSON = "精调任务总清单.json"
 UNIFIED_REFINEMENT_QUEUE_MD = "精调任务总清单.md"
 _UNIFIED_REFINEMENT_QUEUE_LOCK = threading.Lock()
@@ -429,12 +433,15 @@ def _load_repaired_srt_segments(srt_path):
     return sorted(segments, key=lambda item: (item[0], item[1]))
 
 
-def export_corrected_srt(source_srt_path):
-    """在源字幕旁生成可导入剪映的校对版，不覆盖原始 SRT。"""
+def export_corrected_srt(source_srt_path, output_path=None):
+    """生成可导入剪映的校对版，不覆盖原始 SRT。"""
     segments = _load_repaired_srt_segments(source_srt_path)
     if not segments:
         return None
-    output_path = os.path.splitext(source_srt_path)[0] + "_校对字幕.srt"
+    output_path = os.path.abspath(
+        output_path or os.path.splitext(source_srt_path)[0] + "_校对字幕.srt"
+    )
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         for index, (start_s, end_s, text) in enumerate(segments, 1):
             f.write(
@@ -1448,8 +1455,11 @@ def _is_close_number(value, expected):
         return False
 
 
-def _prepare_funasr_checkpoint(video_path, duration, chunk_count):
-    checkpoint_path = _funasr_checkpoint_path(video_path)
+def _prepare_funasr_checkpoint(
+        video_path, duration, chunk_count, checkpoint_path=None):
+    checkpoint_path = os.path.abspath(
+        checkpoint_path or _funasr_checkpoint_path(video_path)
+    )
     source_fingerprint = _funasr_source_fingerprint(video_path, duration)
     payload = {
         "version": FUNASR_CHECKPOINT_VERSION,
@@ -1499,6 +1509,7 @@ def _prepare_funasr_checkpoint(video_path, duration, chunk_count):
 
 
 def _write_funasr_checkpoint(path, payload):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     temp_path = path + ".tmp"
     try:
         with open(temp_path, "w", encoding="utf-8") as handle:
@@ -1582,7 +1593,7 @@ def _trim_funasr_tokens_to_core(text, timestamps, input_start, core_start, core_
     return " ".join(selected_tokens), selected_timestamps, True
 
 
-def ensure_srt(video_path, progress_callback=None):
+def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
     """确保 SRT 存在；分块检查点可恢复，全部成功后才原子写入正式字幕。"""
     import subprocess as sp
     import uuid
@@ -1605,6 +1616,7 @@ def ensure_srt(video_path, progress_callback=None):
         video_path,
         duration,
         chunk_count,
+        checkpoint_path=checkpoint_path,
     )
     missing_indices = [
         index for index in range(chunk_count)
@@ -4657,14 +4669,24 @@ def _optimize_manual_timeline(
     return _optimized_manual_entries_from_topics(topics), warning
 
 
-def _optimized_timeline_paths(video_base):
+def _optimized_timeline_paths(video_base, artifact_layout=None):
+    if artifact_layout:
+        return (
+            artifact_layout["optimized_timeline_json_path"],
+            artifact_layout["optimized_timeline_md_path"],
+        )
     return video_base + "_优化时间轴.json", video_base + "_优化时间轴.md"
 
 
 def _write_optimized_timeline_files(
-        video_base, source_path, raw_entries, optimized_entries, warning=None):
+        video_base, source_path, raw_entries, optimized_entries, warning=None,
+        artifact_layout=None):
     """保存可审阅的优化时间轴，便于判断人工参考如何被字幕校准。"""
-    json_path, md_path = _optimized_timeline_paths(video_base)
+    json_path, md_path = _optimized_timeline_paths(
+        video_base, artifact_layout=artifact_layout
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(json_path)), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(md_path)), exist_ok=True)
     payload = {
         "video_path": video_base + ".flv",
         "source_path": source_path,
@@ -4770,7 +4792,7 @@ def _load_optimized_timeline_artifact(
 def _prepare_optimized_manual_timeline(
         flv_path, video_base, srt_segments, peaks, video_duration,
         manual_timeline_path, streamer_name="音音", progress_callback=None,
-        retry_incomplete_artifact=True):
+        retry_incomplete_artifact=True, artifact_layout=None):
     """加载、过滤并优化人工时间轴，返回后续可直接使用的结构。"""
     manual_timeline = load_manual_timeline(
         flv_path,
@@ -4784,7 +4806,13 @@ def _prepare_optimized_manual_timeline(
     if not raw_entries:
         return manual_timeline
 
-    optimized_json_path, optimized_md_path = _optimized_timeline_paths(video_base)
+    optimized_json_path, optimized_md_path = _optimized_timeline_paths(
+        video_base, artifact_layout=artifact_layout
+    )
+    if artifact_layout:
+        legacy_json_path, legacy_md_path = _optimized_timeline_paths(video_base)
+        _seed_artifact_from_legacy(optimized_json_path, legacy_json_path)
+        _seed_artifact_from_legacy(optimized_md_path, legacy_md_path)
 
     def write_checkpoint(entries, warning):
         _write_optimized_timeline_files(
@@ -4793,6 +4821,7 @@ def _prepare_optimized_manual_timeline(
             raw_entries,
             entries,
             warning=warning,
+            artifact_layout=artifact_layout,
         )
 
     reusable_artifact = None
@@ -4887,6 +4916,7 @@ def _prepare_optimized_manual_timeline(
         raw_entries,
         optimized_entries,
         warning=warning,
+        artifact_layout=artifact_layout,
     )
     manual_timeline["entries"] = optimized_entries
     manual_timeline["optimized_entry_count"] = len(optimized_entries)
@@ -4897,19 +4927,40 @@ def _prepare_optimized_manual_timeline(
 
 
 def optimize_manual_timeline_for_video(
-        flv_path, manual_timeline_path, ass_path=None, progress_callback=None):
+        flv_path, manual_timeline_path, ass_path=None, progress_callback=None,
+        output_dir=None, artifact_dir=None):
     """仅优化人工时间轴，不启动整场话题分析或自动切片。"""
     if not os.path.isfile(flv_path):
         raise FileNotFoundError(f"录播文件不存在: {flv_path}")
     if not manual_timeline_path or not os.path.isfile(manual_timeline_path):
         raise FileNotFoundError(f"人工时间轴文件不存在: {manual_timeline_path or '未选择'}")
 
+    if output_dir is None and artifact_dir is None:
+        output_dir = os.path.dirname(os.path.abspath(flv_path))
+    artifact_layout = _artifact_bundle_layout(
+        flv_path,
+        output_dir=output_dir,
+        artifact_dir=artifact_dir,
+    )
+    os.makedirs(artifact_layout["data_dir"], exist_ok=True)
+    _seed_artifact_from_legacy(
+        artifact_layout["asr_checkpoint_path"],
+        _funasr_checkpoint_path(flv_path),
+    )
+
     if progress_callback:
         progress_callback("检查完整版字幕...", 0, 100)
-    source_srt_path = ensure_srt(flv_path, progress_callback)
+    source_srt_path = ensure_srt(
+        flv_path,
+        progress_callback,
+        checkpoint_path=artifact_layout["asr_checkpoint_path"],
+    )
     if not source_srt_path:
         raise RuntimeError("无法生成 SRT 字幕")
-    corrected_srt_path = export_corrected_srt(source_srt_path)
+    corrected_srt_path = export_corrected_srt(
+        source_srt_path,
+        output_path=artifact_layout["corrected_srt_path"],
+    )
     srt_path = corrected_srt_path or source_srt_path
     srt_segments = parse_srt_text(srt_path)
     if not srt_segments:
@@ -4934,6 +4985,7 @@ def optimize_manual_timeline_for_video(
         manual_timeline_path,
         streamer_name=streamer_name,
         progress_callback=progress_callback,
+        artifact_layout=artifact_layout,
     )
     if not manual_timeline.get("raw_entry_count"):
         raise ValueError("所选人工时间轴没有落在当前完整版录播范围内的记录")
@@ -4944,6 +4996,11 @@ def optimize_manual_timeline_for_video(
             100,
             100,
         )
+    organized = organize_existing_artifacts(
+        flv_path,
+        output_dir=output_dir,
+        artifact_dir=artifact_layout["artifact_dir"],
+    )
     return {
         "video_path": flv_path,
         "source_srt_path": source_srt_path,
@@ -4953,6 +5010,8 @@ def optimize_manual_timeline_for_video(
         "optimized_md_path": manual_timeline.get("optimized_md_path"),
         "warning": manual_timeline.get("optimization_warning"),
         "manual_timeline": _manual_timeline_summary(manual_timeline),
+        "artifact_dir": artifact_layout["artifact_dir"],
+        "overview_path": organized["overview_path"],
     }
 
 
@@ -7229,8 +7288,15 @@ def _write_clip_srt(srt_segments, clip_start, clip_end, output_path):
 
 def _resolve_clip_subtitle_source(flv_path, data):
     """优先使用流水线校对字幕，兼容旧 JSON 回退到同名 SRT。"""
+    layout = None
+    if isinstance(data, dict) and data.get("artifact_dir"):
+        layout = _artifact_bundle_layout(
+            flv_path,
+            artifact_dir=data.get("artifact_dir"),
+        )
     candidates = [
         data.get("corrected_srt_path"),
+        layout["corrected_srt_path"] if layout else None,
         flv_path[:-4] + "_校对字幕.srt",
         data.get("srt_path"),
         flv_path[:-4] + ".srt",
@@ -7263,6 +7329,403 @@ def _publish_title_report_lines(clip_marks):
             "",
         ])
     return lines
+
+
+def _artifact_bundle_stem(video_path):
+    """从录播文件名生成稳定且适合 Windows 目录的整理包名称。"""
+    stem = os.path.splitext(os.path.basename(str(video_path or "")))[0]
+    stem = re.sub(r'[\x00-\x1f<>:"/\\|?*]', '', stem)
+    stem = re.sub(r'\s+', ' ', stem).strip(' .')
+    return (stem[:180].rstrip(' .') or "录播")
+
+
+def _artifact_bundle_layout(video_path, output_dir=None, artifact_dir=None):
+    """返回单场录播的规范产物路径；本函数只计算路径，不创建文件。"""
+    source_video_path = os.path.abspath(str(video_path))
+    video_stem = _artifact_bundle_stem(source_video_path)
+    if artifact_dir:
+        artifact_dir = os.path.abspath(artifact_dir)
+        output_root = os.path.dirname(artifact_dir)
+    else:
+        output_root = os.path.abspath(output_dir or DEFAULT_REFINEMENT_QUEUE_DIR)
+        artifact_dir = os.path.join(
+            output_root, video_stem + ARTIFACT_BUNDLE_SUFFIX
+        )
+    data_dir = os.path.join(artifact_dir, ARTIFACT_DATA_DIRNAME)
+    queue_dir = os.path.join(output_root, ARTIFACT_QUEUE_DIRNAME)
+    return {
+        "layout_version": ARTIFACT_LAYOUT_VERSION,
+        "source_video_path": source_video_path,
+        "video_stem": video_stem,
+        "output_root": output_root,
+        "artifact_dir": artifact_dir,
+        "data_dir": data_dir,
+        "overview_path": os.path.join(artifact_dir, "00_概览.md"),
+        "report_path": os.path.join(artifact_dir, "01_话题分析.md"),
+        "task_manifest_md_path": os.path.join(artifact_dir, "02_精调任务.md"),
+        "optimized_timeline_md_path": os.path.join(artifact_dir, "03_优化时间轴.md"),
+        "slice_pointer_path": os.path.join(artifact_dir, "切片路径.txt"),
+        "clip_marks_path": os.path.join(data_dir, "clip_marks.json"),
+        "task_manifest_json_path": os.path.join(data_dir, "精调任务.json"),
+        "optimized_timeline_json_path": os.path.join(data_dir, "优化时间轴.json"),
+        "asr_checkpoint_path": os.path.join(data_dir, "asr_checkpoint.json"),
+        "topic_analysis_checkpoint_path": os.path.join(
+            data_dir, "topic_analysis_checkpoint.json"
+        ),
+        "clip_review_checkpoint_path": os.path.join(
+            data_dir, "clip_review_checkpoint.json"
+        ),
+        "corrected_srt_path": os.path.join(data_dir, "校对字幕.srt"),
+        "slice_dir": os.path.join(output_root, video_stem + "_话题切片"),
+        "unified_queue_dir": queue_dir,
+        "unified_queue_json_path": os.path.join(
+            queue_dir, UNIFIED_REFINEMENT_QUEUE_JSON
+        ),
+        "unified_queue_md_path": os.path.join(queue_dir, UNIFIED_REFINEMENT_QUEUE_MD),
+    }
+
+
+def _write_artifact_text(path, content):
+    """原子写入整理包文本，失败时不破坏上一个完整版本。"""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    temp_path = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}"
+    try:
+        with open(temp_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(str(content))
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    return path
+
+
+def _write_artifact_json(path, payload):
+    return _write_artifact_text(
+        path,
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
+def _copy_artifact_file(source_path, destination_path):
+    """把旧产物安全复制到整理包；绝不删除或移动源文件。"""
+    if not source_path or not os.path.isfile(source_path):
+        return None
+    source_path = os.path.abspath(source_path)
+    destination_path = os.path.abspath(destination_path)
+    if os.path.normcase(source_path) == os.path.normcase(destination_path):
+        return destination_path
+    os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+    temp_path = (
+        f"{destination_path}.tmp-{os.getpid()}-{threading.get_ident()}"
+    )
+    try:
+        shutil.copy2(source_path, temp_path)
+        os.replace(temp_path, destination_path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    return destination_path
+
+
+def _load_artifact_json(path):
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, ValueError, TypeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _first_existing_artifact_path(*paths):
+    for path in paths:
+        if path and os.path.isfile(path):
+            return os.path.abspath(path)
+    return None
+
+
+def _seed_artifact_from_legacy(canonical_path, *legacy_paths):
+    """规范产物缺失时复制旧检查点；已有规范文件始终优先。"""
+    if canonical_path and os.path.isfile(canonical_path):
+        return os.path.abspath(canonical_path)
+    source_path = _first_existing_artifact_path(*legacy_paths)
+    return _copy_artifact_file(source_path, canonical_path) if source_path else None
+
+
+def _markdown_relative_artifact_link(target_path, base_dir, label=None):
+    """生成整理包 Markdown 使用的相对链接，避免重复显示本机绝对路径。"""
+    relative_path = os.path.relpath(target_path, base_dir).replace(os.sep, "/")
+    if not relative_path.startswith("."):
+        relative_path = "./" + relative_path
+    return f"[{label or os.path.basename(target_path)}]({relative_path})"
+
+
+def _rewrite_organized_report_links(layout):
+    """只更新旧报告头部的产物入口，保留完整话题正文不变。"""
+    report_path = layout["report_path"]
+    if not os.path.isfile(report_path):
+        return None
+    targets = {
+        "> 剪映校对字幕:": layout["corrected_srt_path"],
+        "> 精调总清单:": layout["unified_queue_md_path"],
+        "> 字幕优化时间轴:": layout["optimized_timeline_md_path"],
+    }
+    with open(report_path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    rewritten = []
+    for line in lines:
+        replacement = None
+        for prefix, target_path in targets.items():
+            if line.startswith(prefix) and os.path.isfile(target_path):
+                replacement = (
+                    f"{prefix} "
+                    f"{_markdown_relative_artifact_link(target_path, layout['artifact_dir'])}"
+                )
+                break
+        rewritten.append(replacement if replacement is not None else line)
+    _write_artifact_text(report_path, "\n".join(rewritten).rstrip() + "\n")
+    return report_path
+
+
+def _render_artifact_overview(layout, clip_data=None, manifest=None, slice_dir=None):
+    """渲染面向日常剪辑的短概览，不复制完整话题正文。"""
+    clip_data = clip_data if isinstance(clip_data, dict) else {}
+    manifest = manifest if isinstance(manifest, dict) else {}
+    marks = _dedupe_clip_marks(clip_data.get("clip_marks") or [])
+    slice_dir = os.path.abspath(
+        slice_dir or manifest.get("slice_output_dir") or layout["slice_dir"]
+    )
+    tasks_by_filename = {
+        task.get("clip_filename"): task
+        for task in manifest.get("tasks") or []
+        if isinstance(task, dict) and task.get("clip_filename")
+    }
+    lines = [
+        f"# {os.path.basename(layout['source_video_path'])} 自动切片概览",
+        "",
+        f"> 自动生成 | 最终切片 {len(marks)} 个 | "
+        f"更新时间: {datetime.now().isoformat(timespec='seconds')}",
+        "",
+        "## 入口",
+        "",
+        f"- 源录播: `{layout['source_video_path']}`",
+        f"- 实际切片目录: `{slice_dir}`",
+    ]
+    readable_files = (
+        ("完整话题分析", layout["report_path"], "01_话题分析.md"),
+        ("精调任务清单", layout["task_manifest_md_path"], "02_精调任务.md"),
+        ("字幕校准后的人工时间轴", layout["optimized_timeline_md_path"], "03_优化时间轴.md"),
+    )
+    for label, path, relative_name in readable_files:
+        if os.path.isfile(path):
+            lines.append(f"- {label}: [{relative_name}](./{relative_name})")
+    lines.extend(["", "## 最终切片", ""])
+    if not marks:
+        lines.extend(["本次没有最终可切片段。", ""])
+        return "\n".join(lines)
+    for index, mark in enumerate(marks, 1):
+        filename = _topic_clip_filename(index, mark)
+        task = tasks_by_filename.get(filename) or {}
+        clip_path = task.get("slice_path") or os.path.join(slice_dir, filename)
+        title = str(mark.get("title") or f"片段{index}").strip()
+        publish_title = _normalise_publish_title(
+            mark.get("publish_title") or task.get("publish_title"),
+            title,
+        )
+        start = float(mark.get("start", 0) or 0)
+        end = float(mark.get("end", start) or start)
+        lines.extend([
+            f"### {index:02d} {title}",
+            "",
+            f"- 视频内时间: {_format_report_time(start)}－{_format_report_time(end)}"
+            f"（{max(0, int(round(end - start)))} 秒）",
+            f"- 投稿标题: {publish_title}",
+            f"- 切片文件: `{os.path.abspath(clip_path)}`",
+            "",
+        ])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def organize_existing_artifacts(
+        flv_path, output_dir=None, json_path=None, report_path=None,
+        slice_dir=None, artifact_dir=None):
+    """把旧版散落的小型产物复制进整理包，并改写整理包内部引用。"""
+    flv_path = os.path.abspath(flv_path)
+    if not os.path.isfile(flv_path):
+        raise FileNotFoundError(f"录播文件不存在: {flv_path}")
+    layout = _artifact_bundle_layout(
+        flv_path, output_dir=output_dir, artifact_dir=artifact_dir
+    )
+    os.makedirs(layout["data_dir"], exist_ok=True)
+    legacy_base = os.path.splitext(flv_path)[0]
+    legacy_clip_json_path = _first_existing_artifact_path(
+        json_path,
+        layout["clip_marks_path"],
+        legacy_base + "_clip_marks.json",
+    )
+    legacy_clip_data = _load_artifact_json(legacy_clip_json_path)
+    legacy_manual = legacy_clip_data.get("manual_timeline")
+    legacy_manual = legacy_manual if isinstance(legacy_manual, dict) else {}
+    source_paths = {
+        "report_path": _first_existing_artifact_path(
+            report_path, layout["report_path"], legacy_base + "_话题分析.md"
+        ),
+        "task_manifest_md_path": _first_existing_artifact_path(
+            legacy_clip_data.get("task_manifest_md_path"),
+            layout["task_manifest_md_path"],
+            legacy_base + "_精调任务.md",
+        ),
+        "optimized_timeline_md_path": _first_existing_artifact_path(
+            legacy_manual.get("optimized_md_path"),
+            layout["optimized_timeline_md_path"],
+            legacy_base + "_优化时间轴.md",
+        ),
+        "clip_marks_path": legacy_clip_json_path,
+        "task_manifest_json_path": _first_existing_artifact_path(
+            legacy_clip_data.get("task_manifest_json_path"),
+            layout["task_manifest_json_path"],
+            legacy_base + "_精调任务.json",
+        ),
+        "optimized_timeline_json_path": _first_existing_artifact_path(
+            legacy_manual.get("optimized_json_path"),
+            layout["optimized_timeline_json_path"],
+            legacy_base + "_优化时间轴.json",
+        ),
+        "asr_checkpoint_path": _first_existing_artifact_path(
+            layout["asr_checkpoint_path"], legacy_base + "_asr_checkpoint.json"
+        ),
+        "topic_analysis_checkpoint_path": _first_existing_artifact_path(
+            legacy_clip_data.get("topic_analysis_checkpoint_path"),
+            layout["topic_analysis_checkpoint_path"],
+            legacy_base + "_topic_analysis_checkpoint.json",
+        ),
+        "clip_review_checkpoint_path": _first_existing_artifact_path(
+            legacy_clip_data.get("clip_review_checkpoint_path"),
+            layout["clip_review_checkpoint_path"],
+            legacy_base + "_clip_review_checkpoint.json",
+        ),
+        "corrected_srt_path": _first_existing_artifact_path(
+            legacy_clip_data.get("corrected_srt_path"),
+            layout["corrected_srt_path"],
+            legacy_base + "_校对字幕.srt",
+        ),
+    }
+    copied_files = []
+    for key, source_path in source_paths.items():
+        copied = _copy_artifact_file(source_path, layout[key])
+        if copied:
+            copied_files.append(copied)
+
+    clip_data = _load_artifact_json(layout["clip_marks_path"])
+    manifest = _load_artifact_json(layout["task_manifest_json_path"])
+    actual_slice_dir = os.path.abspath(
+        slice_dir or manifest.get("slice_output_dir") or layout["slice_dir"]
+    )
+    if manifest:
+        manifest.update({
+            "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
+            "artifact_dir": layout["artifact_dir"],
+            "overview_path": layout["overview_path"],
+            "analysis_report_path": (
+                layout["report_path"] if os.path.isfile(layout["report_path"]) else None
+            ),
+            "clip_marks_path": layout["clip_marks_path"],
+            "manifest_json_path": layout["task_manifest_json_path"],
+            "manifest_md_path": layout["task_manifest_md_path"],
+            "corrected_srt_path": (
+                layout["corrected_srt_path"]
+                if os.path.isfile(layout["corrected_srt_path"])
+                else manifest.get("corrected_srt_path")
+            ),
+            "slice_output_dir": actual_slice_dir,
+            "unified_queue_json_path": layout["unified_queue_json_path"],
+            "unified_queue_md_path": layout["unified_queue_md_path"],
+        })
+        for task in manifest.get("tasks") or []:
+            if not isinstance(task, dict) or not task.get("clip_filename"):
+                continue
+            candidate = os.path.abspath(os.path.join(
+                actual_slice_dir, task["clip_filename"]
+            ))
+            subtitle = os.path.splitext(candidate)[0] + ".srt"
+            if os.path.isfile(candidate):
+                task["slice_path"] = candidate
+            if os.path.isfile(subtitle):
+                task["subtitle_path"] = subtitle
+        try:
+            _upsert_unified_refinement_queue(
+                manifest,
+                queue_json_path=layout["unified_queue_json_path"],
+                queue_md_path=layout["unified_queue_md_path"],
+            )
+            manifest["unified_queue_warning"] = None
+        except (OSError, ValueError, TypeError) as exc:
+            manifest["unified_queue_warning"] = f"精调总清单更新失败: {exc}"
+        _write_artifact_json(layout["task_manifest_json_path"], manifest)
+        _write_artifact_text(
+            layout["task_manifest_md_path"],
+            _render_refinement_manifest_markdown(manifest),
+        )
+
+    if clip_data:
+        clip_data.update({
+            "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
+            "artifact_dir": layout["artifact_dir"],
+            "overview_path": layout["overview_path"],
+            "analysis_report_path": (
+                layout["report_path"] if os.path.isfile(layout["report_path"]) else None
+            ),
+            "task_manifest_json_path": layout["task_manifest_json_path"],
+            "task_manifest_md_path": layout["task_manifest_md_path"],
+            "unified_queue_json_path": layout["unified_queue_json_path"],
+            "unified_queue_md_path": layout["unified_queue_md_path"],
+            "clip_review_checkpoint_path": layout["clip_review_checkpoint_path"],
+            "topic_analysis_checkpoint_path": layout["topic_analysis_checkpoint_path"],
+            "corrected_srt_path": (
+                layout["corrected_srt_path"]
+                if os.path.isfile(layout["corrected_srt_path"])
+                else clip_data.get("corrected_srt_path")
+            ),
+        })
+        manual_timeline = clip_data.get("manual_timeline")
+        if isinstance(manual_timeline, dict):
+            if os.path.isfile(layout["optimized_timeline_json_path"]):
+                manual_timeline["optimized_json_path"] = layout[
+                    "optimized_timeline_json_path"
+                ]
+            if os.path.isfile(layout["optimized_timeline_md_path"]):
+                manual_timeline["optimized_md_path"] = layout[
+                    "optimized_timeline_md_path"
+                ]
+        _write_artifact_json(layout["clip_marks_path"], clip_data)
+
+    _rewrite_organized_report_links(layout)
+
+    overview = _render_artifact_overview(
+        layout,
+        clip_data=clip_data,
+        manifest=manifest,
+        slice_dir=actual_slice_dir,
+    )
+    _write_artifact_text(layout["overview_path"], overview)
+    _write_artifact_text(
+        layout["slice_pointer_path"],
+        actual_slice_dir + "\n",
+    )
+    copied_files.extend([layout["overview_path"], layout["slice_pointer_path"]])
+    return {
+        **layout,
+        "slice_dir": actual_slice_dir,
+        "clip_count": len(_dedupe_clip_marks(clip_data.get("clip_marks") or [])),
+        "copied_files": sorted(set(copied_files)),
+    }
 
 
 def _refinement_manifest_paths(base_path):
@@ -7360,7 +7823,10 @@ def _render_refinement_manifest_markdown(manifest):
 
 
 def _unified_refinement_queue_paths(queue_dir=None):
-    root = os.path.abspath(queue_dir or DEFAULT_REFINEMENT_QUEUE_DIR)
+    root = os.path.abspath(
+        queue_dir
+        or os.path.join(DEFAULT_REFINEMENT_QUEUE_DIR, ARTIFACT_QUEUE_DIRNAME)
+    )
     return (
         os.path.join(root, UNIFIED_REFINEMENT_QUEUE_JSON),
         os.path.join(root, UNIFIED_REFINEMENT_QUEUE_MD),
@@ -7525,6 +7991,8 @@ def _write_refinement_manifest_files(manifest):
     """同步写入 JSON 和 Markdown 两种任务清单。"""
     json_path = manifest["manifest_json_path"]
     md_path = manifest["manifest_md_path"]
+    os.makedirs(os.path.dirname(os.path.abspath(json_path)), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(md_path)), exist_ok=True)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
     with open(md_path, "w", encoding="utf-8") as f:
@@ -7582,7 +8050,11 @@ def _update_refinement_manifest_after_slice(manifest_json_path, report_dir, mark
     return True
 
 
-def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, api_warning=None, streamer_name="主播", group_by_hour=False, manual_timeline=None, clip_marks=None, corrected_srt_path=None, unified_queue_md_path=None):
+def _build_timeline_report(
+        video_name, peak_info, topics, failed_chunks=None, api_warning=None,
+        streamer_name="主播", group_by_hour=False, manual_timeline=None,
+        clip_marks=None, corrected_srt_path=None, unified_queue_md_path=None,
+        report_dir=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     manual_timeline = manual_timeline or {}
     manual_entries = manual_timeline.get("entries") or []
@@ -7593,9 +8065,27 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
         "> 时间基准：视频内时间/播放进度（不是现实钟点）；实际切片会自动向前后扩展保留上下文",
     ]
     if corrected_srt_path:
-        lines.append(f"> 剪映校对字幕: {os.path.basename(corrected_srt_path)}")
+        if report_dir:
+            lines.append(
+                "> 剪映校对字幕: "
+                + _markdown_relative_artifact_link(
+                    corrected_srt_path,
+                    report_dir,
+                )
+            )
+        else:
+            lines.append(f"> 剪映校对字幕: {os.path.basename(corrected_srt_path)}")
     if unified_queue_md_path:
-        lines.append(f"> 精调总清单: {unified_queue_md_path}")
+        if report_dir:
+            queue_link = os.path.relpath(
+                unified_queue_md_path, report_dir
+            ).replace(os.sep, "/")
+            lines.append(
+                f"> 精调总清单: [{os.path.basename(unified_queue_md_path)}]"
+                f"({queue_link})"
+            )
+        else:
+            lines.append(f"> 精调总清单: {unified_queue_md_path}")
     if manual_timeline.get("path"):
         star_count = sum(1 for item in manual_entries if item.get("stars", 0) > 0)
         source_count = manual_timeline.get("source_entry_count", len(manual_entries))
@@ -7614,7 +8104,17 @@ def _build_timeline_report(video_name, peak_info, topics, failed_chunks=None, ap
             f"{count_label}, ⭐重点 {star_count} 条"
         )
         if manual_timeline.get("optimized_md_path"):
-            lines.append(f"> 字幕优化时间轴: {manual_timeline['optimized_md_path']}")
+            optimized_md_path = manual_timeline["optimized_md_path"]
+            if report_dir:
+                optimized_link = os.path.relpath(
+                    optimized_md_path, report_dir
+                ).replace(os.sep, "/")
+                lines.append(
+                    f"> 字幕优化时间轴: [{os.path.basename(optimized_md_path)}]"
+                    f"({optimized_link})"
+                )
+            else:
+                lines.append(f"> 字幕优化时间轴: {optimized_md_path}")
     lines.extend(["---", "", "## 逐话题时间轴", ""])
 
     groups = _group_topics_for_parts(topics)
@@ -8663,7 +9163,7 @@ def _validate_unmatched_manual_topics(
 
 def run_pipeline(
         flv_path, ass_path=None, progress_callback=None, manual_timeline_path=None,
-        optimized_timeline_path=None):
+        optimized_timeline_path=None, output_dir=None, artifact_dir=None):
     """
     完整流水线：SRT → 弹幕 → LLM分析 → 报告 + 切片标记
 
@@ -8675,11 +9175,26 @@ def run_pipeline(
     }
     """
     progress_callback = _monotonic_progress_callback(progress_callback)
+    flv_path = os.path.abspath(flv_path)
     video_name = os.path.basename(flv_path)
-    base = flv_path[:-4]
+    base = os.path.splitext(flv_path)[0]
+    if output_dir is None and artifact_dir is None:
+        output_dir = os.path.dirname(flv_path)
+    artifact_layout = _artifact_bundle_layout(
+        flv_path,
+        output_dir=output_dir,
+        artifact_dir=artifact_dir,
+    )
+    os.makedirs(artifact_layout["data_dir"], exist_ok=True)
+    os.makedirs(artifact_layout["unified_queue_dir"], exist_ok=True)
     streamer_name = _infer_streamer_name(flv_path)
     streamer_display_name = _streamer_report_name(streamer_name)
-    unified_queue_json_path, unified_queue_md_path = _unified_refinement_queue_paths()
+    unified_queue_json_path = artifact_layout["unified_queue_json_path"]
+    unified_queue_md_path = artifact_layout["unified_queue_md_path"]
+    _seed_artifact_from_legacy(
+        artifact_layout["asr_checkpoint_path"],
+        _funasr_checkpoint_path(flv_path),
+    )
 
     # Step 1: 确保 SRT 存在
     if progress_callback:
@@ -8687,10 +9202,14 @@ def run_pipeline(
     source_srt_path = ensure_srt(
         flv_path,
         _scaled_progress_callback(progress_callback, 0, 14),
+        checkpoint_path=artifact_layout["asr_checkpoint_path"],
     )
     if not source_srt_path:
         raise RuntimeError("无法生成 SRT 字幕")
-    corrected_srt_path = export_corrected_srt(source_srt_path)
+    corrected_srt_path = export_corrected_srt(
+        source_srt_path,
+        output_path=artifact_layout["corrected_srt_path"],
+    )
     srt_path = corrected_srt_path or source_srt_path
     if corrected_srt_path and progress_callback:
         progress_callback(
@@ -8722,8 +9241,18 @@ def run_pipeline(
     srt_duration = max((end for _, end, _ in segs), default=None)
     video_duration = _probe_video_duration(flv_path) or srt_duration
     if optimized_timeline_path:
+        selected_optimized_path = os.path.abspath(optimized_timeline_path)
+        _copy_artifact_file(
+            selected_optimized_path,
+            artifact_layout["optimized_timeline_json_path"],
+        )
+        selected_optimized_md_path = os.path.splitext(selected_optimized_path)[0] + ".md"
+        _copy_artifact_file(
+            selected_optimized_md_path,
+            artifact_layout["optimized_timeline_md_path"],
+        )
         manual_timeline = _load_optimized_timeline_artifact(
-            optimized_timeline_path,
+            artifact_layout["optimized_timeline_json_path"],
             flv_path,
             manual_timeline_path=(
                 manual_timeline_path
@@ -8742,6 +9271,7 @@ def run_pipeline(
             streamer_name=streamer_display_name,
             progress_callback=progress_callback,
             retry_incomplete_artifact=False,
+            artifact_layout=artifact_layout,
         )
     raw_manual_entry_count = int(manual_timeline.get("raw_entry_count", 0))
     manual_entries = manual_timeline.get("entries") or []
@@ -8757,7 +9287,13 @@ def run_pipeline(
                 24, 100,
             )
     # Step 4: 首轮只分析字幕和弹幕，避免人工措辞锚定标题与语义边界。
-    topic_analysis_checkpoint_path = base + "_topic_analysis_checkpoint.json"
+    topic_analysis_checkpoint_path = artifact_layout[
+        "topic_analysis_checkpoint_path"
+    ]
+    _seed_artifact_from_legacy(
+        topic_analysis_checkpoint_path,
+        base + "_topic_analysis_checkpoint.json",
+    )
     accepted_topics, failed_chunks, api_precheck_warning = _analyze_topic_chunks(
         chunks,
         streamer_display_name,
@@ -8783,7 +9319,11 @@ def run_pipeline(
         )
     accepted_topics = _clean_topics_for_report(accepted_topics)
     analysis_topics = _analysis_topics_snapshot(accepted_topics)
-    clip_review_checkpoint_path = base + "_clip_review_checkpoint.json"
+    clip_review_checkpoint_path = artifact_layout["clip_review_checkpoint_path"]
+    _seed_artifact_from_legacy(
+        clip_review_checkpoint_path,
+        base + "_clip_review_checkpoint.json",
+    )
     _write_clip_review_checkpoint(
         clip_review_checkpoint_path,
         analysis_topics,
@@ -8843,22 +9383,27 @@ def run_pipeline(
         clip_marks=clip_marks,
         corrected_srt_path=corrected_srt_path,
         unified_queue_md_path=unified_queue_md_path,
+        report_dir=artifact_layout["artifact_dir"],
     )
 
     # 保存
-    md_path = base + "_话题分析.md"
-    json_path = base + "_clip_marks.json"
-    task_manifest_json_path, task_manifest_md_path = _refinement_manifest_paths(base)
+    md_path = artifact_layout["report_path"]
+    json_path = artifact_layout["clip_marks_path"]
+    task_manifest_json_path = artifact_layout["task_manifest_json_path"]
+    task_manifest_md_path = artifact_layout["task_manifest_md_path"]
     clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
 
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(report)
-
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({
+    _write_artifact_text(md_path, report)
+    _write_artifact_json(
+        json_path,
+        {
             "video": video_name,
             "streamer_name": streamer_name,
             "streamer_display_name": streamer_display_name,
+            "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
+            "artifact_dir": artifact_layout["artifact_dir"],
+            "overview_path": artifact_layout["overview_path"],
+            "analysis_report_path": md_path,
             "model_policy": {
                 "topic_analysis": LLM_ANALYSIS_MODEL,
                 "manual_timeline_review": LLM_MODEL,
@@ -8899,7 +9444,8 @@ def run_pipeline(
             "manual_timeline": _manual_timeline_summary(manual_timeline),
             "analysis_topics": analysis_topics,
             "clip_marks": clip_marks,
-        }, f, ensure_ascii=False, indent=2)
+        },
+    )
 
     refinement_manifest = _build_refinement_manifest(
         flv_path,
@@ -8913,6 +9459,9 @@ def run_pipeline(
     )
     refinement_manifest["unified_queue_json_path"] = unified_queue_json_path
     refinement_manifest["unified_queue_md_path"] = unified_queue_md_path
+    refinement_manifest["artifact_layout_version"] = ARTIFACT_LAYOUT_VERSION
+    refinement_manifest["artifact_dir"] = artifact_layout["artifact_dir"]
+    refinement_manifest["overview_path"] = artifact_layout["overview_path"]
     _write_refinement_manifest_files(refinement_manifest)
     unified_queue_warning = None
     try:
@@ -8934,9 +9483,18 @@ def run_pipeline(
         completed_at=clip_review_completed_at,
     )
 
+    organized = organize_existing_artifacts(
+        flv_path,
+        output_dir=artifact_layout["output_root"],
+        json_path=json_path,
+        report_path=md_path,
+        slice_dir=artifact_layout["slice_dir"],
+        artifact_dir=artifact_layout["artifact_dir"],
+    )
+
     if progress_callback:
         progress_callback(
-            f"完成! {len(clip_marks)} 个可切片段 → {json_path}",
+            f"完成! {len(clip_marks)} 个可切片段 → {organized['overview_path']}",
             100, 100
         )
 
@@ -8951,10 +9509,14 @@ def run_pipeline(
         "corrected_srt_path": corrected_srt_path,
         "task_manifest_json_path": task_manifest_json_path,
         "task_manifest_md_path": task_manifest_md_path,
+        "artifact_dir": artifact_layout["artifact_dir"],
+        "overview_path": organized["overview_path"],
+        "slice_dir": artifact_layout["slice_dir"],
         "unified_queue_json_path": unified_queue_json_path,
         "unified_queue_md_path": unified_queue_md_path,
         "unified_queue_warning": unified_queue_warning,
         "topic_analysis_checkpoint_path": topic_analysis_checkpoint_path,
+        "clip_review_checkpoint_path": clip_review_checkpoint_path,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
         "manual_timeline": _manual_timeline_summary(manual_timeline),
@@ -8998,11 +9560,30 @@ def _warning_without_previous_clip_review(data):
 
 def retry_clip_review_from_artifacts(
         flv_path, ass_path=None, json_path=None, report_path=None,
-        progress_callback=None):
+        progress_callback=None, output_dir=None, artifact_dir=None):
     """复用已有逐话题报告，只重做弹幕候选筛选、字幕复核和最终产物。"""
+    flv_path = os.path.abspath(flv_path)
     base, _ = os.path.splitext(flv_path)
-    json_path = json_path or base + "_clip_marks.json"
-    report_path = report_path or base + "_话题分析.md"
+    if output_dir is None and artifact_dir is None:
+        output_dir = os.path.dirname(flv_path)
+    artifact_layout = _artifact_bundle_layout(
+        flv_path,
+        output_dir=output_dir,
+        artifact_dir=artifact_dir,
+    )
+    os.makedirs(artifact_layout["data_dir"], exist_ok=True)
+    if json_path is None and not os.path.isfile(artifact_layout["clip_marks_path"]):
+        legacy_json_path = base + "_clip_marks.json"
+        if os.path.isfile(legacy_json_path):
+            organize_existing_artifacts(
+                flv_path,
+                output_dir=artifact_layout["output_root"],
+                json_path=legacy_json_path,
+                report_path=base + "_话题分析.md",
+                artifact_dir=artifact_layout["artifact_dir"],
+            )
+    json_path = json_path or artifact_layout["clip_marks_path"]
+    report_path = report_path or artifact_layout["report_path"]
     if not os.path.isfile(json_path):
         raise FileNotFoundError(f"切片标记 JSON 不存在: {json_path}")
     with open(json_path, encoding="utf-8") as f:
@@ -9020,7 +9601,11 @@ def retry_clip_review_from_artifacts(
 
     clip_review_checkpoint_path = (
         data.get("clip_review_checkpoint_path")
-        or base + "_clip_review_checkpoint.json"
+        or artifact_layout["clip_review_checkpoint_path"]
+    )
+    _seed_artifact_from_legacy(
+        clip_review_checkpoint_path,
+        base + "_clip_review_checkpoint.json",
     )
     resume_review = False
     reuse_completed_review = False
@@ -9177,7 +9762,8 @@ def retry_clip_review_from_artifacts(
     unified_queue_json_path = data.get("unified_queue_json_path")
     unified_queue_md_path = data.get("unified_queue_md_path")
     if not unified_queue_json_path or not unified_queue_md_path:
-        unified_queue_json_path, unified_queue_md_path = _unified_refinement_queue_paths()
+        unified_queue_json_path = artifact_layout["unified_queue_json_path"]
+        unified_queue_md_path = artifact_layout["unified_queue_md_path"]
     video_name = os.path.basename(flv_path)
     streamer_name = data.get("streamer_name") or _infer_streamer_name(flv_path)
     streamer_display_name = (
@@ -9195,6 +9781,7 @@ def retry_clip_review_from_artifacts(
         clip_marks=clip_marks,
         corrected_srt_path=corrected_srt_path,
         unified_queue_md_path=unified_queue_md_path,
+        report_dir=artifact_layout["artifact_dir"],
     )
     analysis_topics = _analysis_topics_snapshot(accepted_topics)
 
@@ -9203,6 +9790,10 @@ def retry_clip_review_from_artifacts(
         "video": video_name,
         "streamer_name": streamer_name,
         "streamer_display_name": streamer_display_name,
+        "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
+        "artifact_dir": artifact_layout["artifact_dir"],
+        "overview_path": artifact_layout["overview_path"],
+        "analysis_report_path": report_path,
         "source_srt_path": source_srt_path,
         "corrected_srt_path": corrected_srt_path,
         "unified_queue_json_path": unified_queue_json_path,
@@ -9234,19 +9825,14 @@ def retry_clip_review_from_artifacts(
         "clip_review_completed_at": clip_review_completed_at,
     })
 
-    report_temp_path = report_path + ".tmp"
-    json_temp_path = json_path + ".tmp"
-    with open(report_temp_path, "w", encoding="utf-8") as f:
-        f.write(report)
-    with open(json_temp_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(report_temp_path, report_path)
-    os.replace(json_temp_path, json_path)
+    _write_artifact_text(report_path, report)
+    _write_artifact_json(json_path, data)
 
     task_manifest_json_path = data.get("task_manifest_json_path")
     task_manifest_md_path = data.get("task_manifest_md_path")
     if not task_manifest_json_path or not task_manifest_md_path:
-        task_manifest_json_path, task_manifest_md_path = _refinement_manifest_paths(base)
+        task_manifest_json_path = artifact_layout["task_manifest_json_path"]
+        task_manifest_md_path = artifact_layout["task_manifest_md_path"]
     refinement_manifest = _build_refinement_manifest(
         flv_path,
         source_srt_path,
@@ -9259,6 +9845,9 @@ def retry_clip_review_from_artifacts(
     )
     refinement_manifest["unified_queue_json_path"] = unified_queue_json_path
     refinement_manifest["unified_queue_md_path"] = unified_queue_md_path
+    refinement_manifest["artifact_layout_version"] = ARTIFACT_LAYOUT_VERSION
+    refinement_manifest["artifact_dir"] = artifact_layout["artifact_dir"]
+    refinement_manifest["overview_path"] = artifact_layout["overview_path"]
     _write_refinement_manifest_files(refinement_manifest)
     try:
         _upsert_unified_refinement_queue(
@@ -9277,6 +9866,14 @@ def retry_clip_review_from_artifacts(
         source="artifact_retry",
         completed_at=clip_review_completed_at,
     )
+    organized = organize_existing_artifacts(
+        flv_path,
+        output_dir=artifact_layout["output_root"],
+        json_path=json_path,
+        report_path=report_path,
+        slice_dir=artifact_layout["slice_dir"],
+        artifact_dir=artifact_layout["artifact_dir"],
+    )
     if progress_callback:
         progress_callback(
             f"候选复核完成：{len(clip_marks)} 个可切片段 → {json_path}",
@@ -9289,6 +9886,8 @@ def retry_clip_review_from_artifacts(
         "clip_marks": clip_marks,
         "json_path": json_path,
         "md_path": report_path,
+        "artifact_dir": artifact_layout["artifact_dir"],
+        "overview_path": organized["overview_path"],
         "srt_path": srt_path,
         "failed_chunks": data.get("failed_chunks") or [],
         "api_precheck_warning": api_warning,
@@ -9767,8 +10366,21 @@ def slice_from_marks(flv_path, json_path, output_dir, progress_callback=None):
         marks,
     )
 
+    organized = organize_existing_artifacts(
+        flv_path,
+        output_dir=output_dir,
+        json_path=json_path,
+        report_path=data.get("analysis_report_path"),
+        slice_dir=report_dir,
+        artifact_dir=data.get("artifact_dir"),
+    )
+
     if progress_callback:
-        progress_callback(f"完成! {count} 个片段 → {report_dir}", len(marks), len(marks))
+        progress_callback(
+            f"完成! {count} 个片段 → {report_dir}；概览 {organized['overview_path']}",
+            len(marks),
+            len(marks),
+        )
 
     return count, report_dir
 

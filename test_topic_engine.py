@@ -28,6 +28,7 @@ from topic_engine import (
     _LLMProviderRetryCoordinator,
     _align_manual_timeline_entries_to_srt, _analyze_topic_chunks,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
+    _artifact_bundle_layout,
     _build_chunk_prompt, _build_clip_candidate_review_prompt,
     _build_precise_slice_ffmpeg_command,
     _build_manual_topic_enrichment_prompt, _build_refinement_manifest,
@@ -71,6 +72,7 @@ from topic_engine import (
     _write_funasr_checkpoint, _write_optimized_timeline_files,
     analyze_danmaku, call_llm, export_corrected_srt, load_api_config,
     load_manual_timeline, optimize_manual_timeline_for_video,
+    organize_existing_artifacts,
     parse_srt_segments, parse_srt_text, run_pipeline, slice_from_marks,
     ensure_srt,
 )
@@ -823,6 +825,484 @@ class TitleStyleEvidenceTests(unittest.TestCase):
         self.assertEqual(hook["type"], "视觉细节")
         self.assertIn("虾线", hook["fact"])
         self.assertNotIn("internal_reasoning", hook)
+
+
+class ArtifactBundleTests(unittest.TestCase):
+    """单场整理包只集中可读产物和运行数据，不破坏旧文件。"""
+
+    def test_layout_uses_safe_distinct_bundle_names_for_recording_parts(self):
+        with TemporaryDirectory() as td:
+            output_dir = Path(td) / "输出"
+            first = _artifact_bundle_layout(
+                str(Path(td) / "生日答谢:第一段?.flv"),
+                str(output_dir),
+            )
+            second = _artifact_bundle_layout(
+                str(Path(td) / "生日答谢-15点48分51秒-001.flv"),
+                str(output_dir),
+            )
+
+        self.assertEqual(Path(first["artifact_dir"]).parent, output_dir)
+        self.assertEqual(Path(first["artifact_dir"]).name, "生日答谢第一段_自动切片")
+        self.assertNotEqual(first["artifact_dir"], second["artifact_dir"])
+        self.assertEqual(Path(first["data_dir"]).name, "数据")
+        self.assertEqual(Path(first["unified_queue_dir"]).name, "_总清单")
+        self.assertTrue(first["slice_dir"].endswith("生日答谢第一段_话题切片"))
+
+    def test_organizer_copies_rewrites_and_is_idempotent(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            source_dir = root / "录播"
+            output_dir = root / "输出"
+            source_dir.mkdir()
+            flv_path = source_dir / "生日答谢-14点00分47秒-001.flv"
+            flv_path.write_bytes(b"source-video")
+            base = flv_path.with_suffix("")
+            slice_dir = output_dir / (flv_path.stem + "_话题切片")
+            slice_dir.mkdir(parents=True)
+            mark = {
+                "start": 800,
+                "end": 950,
+                "title": "AI音能24小时代播吗",
+                "publish_title": "【泽音】AI音困到想睡觉，观众问能24小时代播吗",
+            }
+            clip_filename = _topic_clip_filename(1, mark)
+            clip_path = slice_dir / clip_filename
+            subtitle_path = clip_path.with_suffix(".srt")
+            clip_path.write_bytes(b"existing-clip")
+            subtitle_path.write_text("片段字幕", encoding="utf-8")
+
+            legacy_report = Path(str(base) + "_话题分析.md")
+            legacy_manifest_md = Path(str(base) + "_精调任务.md")
+            legacy_timeline_md = Path(str(base) + "_优化时间轴.md")
+            legacy_clip_json = Path(str(base) + "_clip_marks.json")
+            legacy_manifest_json = Path(str(base) + "_精调任务.json")
+            legacy_timeline_json = Path(str(base) + "_优化时间轴.json")
+            legacy_asr_checkpoint = Path(str(base) + "_asr_checkpoint.json")
+            legacy_topic_checkpoint = Path(str(base) + "_topic_analysis_checkpoint.json")
+            legacy_review_checkpoint = Path(str(base) + "_clip_review_checkpoint.json")
+            legacy_corrected_srt = Path(str(base) + "_校对字幕.srt")
+            legacy_report.write_text(
+                "# 完整话题报告\n"
+                f"> 剪映校对字幕: {legacy_corrected_srt}\n"
+                f"> 精调总清单: {output_dir / '精调任务总清单.md'}\n"
+                f"> 字幕优化时间轴: {legacy_timeline_md}\n"
+                "---\n\n完整话题正文保持不变。\n",
+                encoding="utf-8",
+            )
+            legacy_manifest_md.write_text("# 旧精调任务\n", encoding="utf-8")
+            legacy_timeline_md.write_text("# 旧优化时间轴\n", encoding="utf-8")
+            legacy_timeline_json.write_text(
+                json.dumps({"video_path": str(flv_path), "entries": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            legacy_asr_checkpoint.write_text('{"chunks": {}}', encoding="utf-8")
+            legacy_topic_checkpoint.write_text('{"responses": {}}', encoding="utf-8")
+            legacy_review_checkpoint.write_text('{"topics": []}', encoding="utf-8")
+            legacy_corrected_srt.write_text("校对字幕", encoding="utf-8")
+            legacy_manifest = {
+                "source_video_path": str(flv_path),
+                "analysis_report_path": str(legacy_report),
+                "clip_marks_path": str(legacy_clip_json),
+                "manifest_json_path": str(legacy_manifest_json),
+                "manifest_md_path": str(legacy_manifest_md),
+                "corrected_srt_path": str(legacy_corrected_srt),
+                "slice_output_dir": str(slice_dir),
+                "tasks": [{
+                    "clip_filename": clip_filename,
+                    "publish_title": mark["publish_title"],
+                    "slice_path": None,
+                    "subtitle_path": None,
+                }],
+            }
+            legacy_manifest_json.write_text(
+                json.dumps(legacy_manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            legacy_clip_json.write_text(json.dumps({
+                "video": flv_path.name,
+                "corrected_srt_path": str(legacy_corrected_srt),
+                "task_manifest_json_path": str(legacy_manifest_json),
+                "task_manifest_md_path": str(legacy_manifest_md),
+                "topic_analysis_checkpoint_path": str(legacy_topic_checkpoint),
+                "clip_review_checkpoint_path": str(legacy_review_checkpoint),
+                "manual_timeline": {
+                    "optimized_json_path": str(legacy_timeline_json),
+                    "optimized_md_path": str(legacy_timeline_md),
+                },
+                "clip_marks": [mark],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            first = organize_existing_artifacts(
+                str(flv_path),
+                output_dir=str(output_dir),
+                json_path=str(legacy_clip_json),
+                slice_dir=str(slice_dir),
+            )
+            files_after_first = sorted(
+                str(path.relative_to(first["artifact_dir"]))
+                for path in Path(first["artifact_dir"]).rglob("*")
+                if path.is_file()
+            )
+            canonical_clip = json.loads(
+                Path(first["clip_marks_path"]).read_text(encoding="utf-8")
+            )
+            canonical_manifest = json.loads(
+                Path(first["task_manifest_json_path"]).read_text(encoding="utf-8")
+            )
+            overview = Path(first["overview_path"]).read_text(encoding="utf-8")
+            pointer = Path(first["slice_pointer_path"]).read_text(encoding="utf-8")
+            organized_report = Path(first["report_path"]).read_text(encoding="utf-8")
+            organized_manifest_md = Path(first["task_manifest_md_path"]).read_text(
+                encoding="utf-8"
+            )
+            unified_queue_files_exist = (
+                Path(first["unified_queue_json_path"]).is_file(),
+                Path(first["unified_queue_md_path"]).is_file(),
+            )
+
+            second = organize_existing_artifacts(
+                str(flv_path),
+                output_dir=str(output_dir),
+                json_path=str(legacy_clip_json),
+                slice_dir=str(slice_dir),
+            )
+            files_after_second = sorted(
+                str(path.relative_to(second["artifact_dir"]))
+                for path in Path(second["artifact_dir"]).rglob("*")
+                if path.is_file()
+            )
+
+            legacy_preserved = []
+            for path, expected in {
+                legacy_report: (
+                    "# 完整话题报告\n"
+                    f"> 剪映校对字幕: {legacy_corrected_srt}\n"
+                    f"> 精调总清单: {output_dir / '精调任务总清单.md'}\n"
+                    f"> 字幕优化时间轴: {legacy_timeline_md}\n"
+                    "---\n\n完整话题正文保持不变。\n"
+                ),
+                legacy_manifest_md: "# 旧精调任务\n",
+                legacy_corrected_srt: "校对字幕",
+            }.items():
+                legacy_preserved.append((
+                    path.is_file(),
+                    path.read_text(encoding="utf-8"),
+                    expected,
+                ))
+            source_bytes_after = flv_path.read_bytes()
+            clip_bytes_after = clip_path.read_bytes()
+
+        self.assertEqual(first["clip_count"], 1)
+        self.assertEqual(first["artifact_dir"], second["artifact_dir"])
+        self.assertEqual(files_after_first, files_after_second)
+        self.assertIn("00_概览.md", files_after_first)
+        self.assertIn("01_话题分析.md", files_after_first)
+        self.assertIn("02_精调任务.md", files_after_first)
+        self.assertIn("03_优化时间轴.md", files_after_first)
+        self.assertIn(os.path.join("数据", "clip_marks.json"), files_after_first)
+        self.assertEqual(unified_queue_files_exist, (True, True))
+        self.assertEqual(canonical_clip["artifact_dir"], first["artifact_dir"])
+        self.assertEqual(
+            canonical_clip["task_manifest_json_path"],
+            first["task_manifest_json_path"],
+        )
+        self.assertEqual(
+            canonical_clip["manual_timeline"]["optimized_json_path"],
+            first["optimized_timeline_json_path"],
+        )
+        self.assertEqual(canonical_manifest["slice_output_dir"], str(slice_dir.resolve()))
+        self.assertEqual(canonical_manifest["tasks"][0]["slice_path"], str(clip_path.resolve()))
+        self.assertEqual(
+            canonical_manifest["tasks"][0]["subtitle_path"],
+            str(subtitle_path.resolve()),
+        )
+        self.assertEqual(overview.count("### 01"), 1)
+        self.assertIn("AI音能24小时代播吗", overview)
+        self.assertIn(mark["publish_title"], overview)
+        self.assertEqual(pointer.strip(), str(slice_dir.resolve()))
+        self.assertIn("[校对字幕.srt](./数据/校对字幕.srt)", organized_report)
+        self.assertIn(
+            "[精调任务总清单.md](../_总清单/精调任务总清单.md)",
+            organized_report,
+        )
+        self.assertIn("[03_优化时间轴.md](./03_优化时间轴.md)", organized_report)
+        self.assertIn("完整话题正文保持不变。", organized_report)
+        self.assertNotIn(str(legacy_corrected_srt), organized_manifest_md)
+        self.assertIn(first["corrected_srt_path"], organized_manifest_md)
+        for exists, content, expected in legacy_preserved:
+            self.assertTrue(exists)
+            self.assertEqual(content, expected)
+        self.assertEqual(source_bytes_after, b"source-video")
+        self.assertEqual(clip_bytes_after, b"existing-clip")
+
+    def test_organizer_without_analysis_creates_readable_empty_entry(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            flv_path = root / "尚未分析.flv"
+            flv_path.write_bytes(b"video")
+
+            result = organize_existing_artifacts(
+                str(flv_path),
+                output_dir=str(root / "输出"),
+            )
+            overview = Path(result["overview_path"]).read_text(encoding="utf-8")
+
+        self.assertEqual(result["clip_count"], 0)
+        self.assertIn("本次没有最终可切片段", overview)
+        self.assertTrue(result["slice_pointer_path"].endswith("切片路径.txt"))
+
+
+class ArtifactPipelineTests(unittest.TestCase):
+    """完整分析和独立时间轴优化应直接使用规范整理包。"""
+
+    @staticmethod
+    def _export_to_requested_path(source_path, output_path=None):
+        target = Path(output_path or str(Path(source_path).with_name(
+            Path(source_path).stem + "_校对字幕.srt"
+        )))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(Path(source_path).read_text(encoding="utf-8"), encoding="utf-8")
+        return str(target)
+
+    def test_run_pipeline_writes_bundle_and_reuses_legacy_checkpoints(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            source_dir = root / "录播"
+            output_dir = root / "输出"
+            source_dir.mkdir()
+            flv_path = source_dir / "泽音生日答谢-14点00分47秒-001.flv"
+            srt_path = flv_path.with_suffix(".srt")
+            flv_path.write_bytes(b"video")
+            srt_path.write_text(
+                "1\n00:00:01,000 --> 00:00:05,000\n音音测试字幕\n",
+                encoding="utf-8",
+            )
+            legacy_asr = flv_path.with_name(flv_path.stem + "_asr_checkpoint.json")
+            legacy_topic = flv_path.with_name(
+                flv_path.stem + "_topic_analysis_checkpoint.json"
+            )
+            legacy_asr.write_text('{"legacy_asr": true}', encoding="utf-8")
+            legacy_topic.write_text('{"legacy_topic": true}', encoding="utf-8")
+            seen = {}
+
+            def fake_ensure(_video_path, _progress=None, checkpoint_path=None):
+                seen["asr_checkpoint_path"] = checkpoint_path
+                seen["asr_checkpoint"] = json.loads(
+                    Path(checkpoint_path).read_text(encoding="utf-8")
+                )
+                return str(srt_path)
+
+            def fake_analyze(_chunks, _name, progress_callback=None, checkpoint_path=None):
+                seen["topic_checkpoint_path"] = checkpoint_path
+                seen["topic_checkpoint"] = json.loads(
+                    Path(checkpoint_path).read_text(encoding="utf-8")
+                )
+                return [], [], None
+
+            prepared = {
+                "path": None,
+                "entries": [],
+                "raw_entry_count": 0,
+                "optimization_warning": None,
+            }
+            with (
+                patch("topic_engine.ensure_srt", side_effect=fake_ensure),
+                patch(
+                    "topic_engine.export_corrected_srt",
+                    side_effect=self._export_to_requested_path,
+                ),
+                patch("topic_engine.analyze_danmaku", return_value=DanmakuDensitySeries()),
+                patch("topic_engine._probe_video_duration", return_value=5),
+                patch("topic_engine._prepare_optimized_manual_timeline", return_value=prepared),
+                patch("topic_engine._analyze_topic_chunks", side_effect=fake_analyze),
+            ):
+                result = run_pipeline(
+                    str(flv_path),
+                    manual_timeline_path="__none__",
+                    output_dir=str(output_dir),
+                )
+
+            layout = _artifact_bundle_layout(str(flv_path), str(output_dir))
+            payload = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))
+            manifest = json.loads(
+                Path(result["task_manifest_json_path"]).read_text(encoding="utf-8")
+            )
+            report = Path(result["md_path"]).read_text(encoding="utf-8")
+            overview = Path(result["overview_path"]).read_text(encoding="utf-8")
+
+            source_files = {path.name for path in source_dir.iterdir()}
+
+        self.assertEqual(result["artifact_dir"], layout["artifact_dir"])
+        self.assertEqual(result["json_path"], layout["clip_marks_path"])
+        self.assertEqual(result["md_path"], layout["report_path"])
+        self.assertEqual(result["corrected_srt_path"], layout["corrected_srt_path"])
+        self.assertEqual(seen["asr_checkpoint"], {"legacy_asr": True})
+        self.assertEqual(seen["topic_checkpoint"], {"legacy_topic": True})
+        self.assertEqual(seen["asr_checkpoint_path"], layout["asr_checkpoint_path"])
+        self.assertEqual(
+            seen["topic_checkpoint_path"], layout["topic_analysis_checkpoint_path"]
+        )
+        self.assertEqual(payload["artifact_dir"], layout["artifact_dir"])
+        self.assertEqual(payload["overview_path"], layout["overview_path"])
+        self.assertEqual(manifest["manifest_json_path"], layout["task_manifest_json_path"])
+        self.assertEqual(
+            manifest["unified_queue_md_path"], layout["unified_queue_md_path"]
+        )
+        self.assertIn("../_总清单/精调任务总清单.md", report)
+        self.assertIn("本次没有最终可切片段", overview)
+        self.assertNotIn(flv_path.stem + "_话题分析.md", source_files)
+        self.assertNotIn(flv_path.stem + "_clip_marks.json", source_files)
+        self.assertTrue(srt_path.name in source_files)
+        self.assertTrue(legacy_asr.name in source_files)
+        self.assertTrue(legacy_topic.name in source_files)
+
+    def test_manual_timeline_optimization_writes_bundle_paths(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            output_dir = root / "输出"
+            flv_path = root / "完整版.flv"
+            srt_path = flv_path.with_suffix(".srt")
+            timeline_path = root / "20260718.docx"
+            flv_path.write_bytes(b"video")
+            timeline_path.write_bytes(b"docx")
+            srt_path.write_text(
+                "1\n00:00:01,000 --> 00:00:05,000\n音音说明生日答谢\n",
+                encoding="utf-8",
+            )
+
+            def fake_prepare(
+                    video_path, video_base, srt_segments, peaks, video_duration,
+                    manual_timeline_path, artifact_layout=None, **_kwargs):
+                json_path, md_path = _write_optimized_timeline_files(
+                    video_base,
+                    manual_timeline_path,
+                    [{"start": 1, "text": "生日答谢", "stars": 1}],
+                    [{
+                        "start": 1,
+                        "end": 5,
+                        "text": "生日答谢",
+                        "summary": ["音音说明生日答谢"],
+                        "stars": 1,
+                    }],
+                    artifact_layout=artifact_layout,
+                )
+                return {
+                    "path": manual_timeline_path,
+                    "entries": [],
+                    "raw_entry_count": 1,
+                    "optimized_entry_count": 1,
+                    "optimized_json_path": json_path,
+                    "optimized_md_path": md_path,
+                    "optimization_warning": None,
+                }
+
+            with (
+                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
+                patch(
+                    "topic_engine.export_corrected_srt",
+                    side_effect=self._export_to_requested_path,
+                ),
+                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音说明生日答谢")]),
+                patch("topic_engine._probe_video_duration", return_value=5),
+                patch("topic_engine._prepare_optimized_manual_timeline", side_effect=fake_prepare),
+            ):
+                result = optimize_manual_timeline_for_video(
+                    str(flv_path),
+                    str(timeline_path),
+                    output_dir=str(output_dir),
+                )
+
+            layout = _artifact_bundle_layout(str(flv_path), str(output_dir))
+            overview = Path(result["overview_path"]).read_text(encoding="utf-8")
+
+        self.assertEqual(result["artifact_dir"], layout["artifact_dir"])
+        self.assertEqual(result["optimized_json_path"], layout["optimized_timeline_json_path"])
+        self.assertEqual(result["optimized_md_path"], layout["optimized_timeline_md_path"])
+        self.assertEqual(result["corrected_srt_path"], layout["corrected_srt_path"])
+        self.assertIn("03_优化时间轴.md", overview)
+
+
+class RefinementManifestTests(unittest.TestCase):
+    """自动切片保持旧视频目录，同时回写整理包清单与概览。"""
+
+    def test_slice_updates_bundle_manifest_overview_and_global_queue(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            output_dir = root / "输出"
+            flv_path = root / "测试录播.flv"
+            source_srt = flv_path.with_suffix(".srt")
+            flv_path.write_bytes(b"video")
+            source_srt.write_text(
+                "1\n00:00:10,000 --> 00:00:20,000\n音音完整回应\n",
+                encoding="utf-8",
+            )
+            layout = _artifact_bundle_layout(str(flv_path), str(output_dir))
+            Path(layout["data_dir"]).mkdir(parents=True)
+            mark = {
+                "start": 10,
+                "end": 90,
+                "title": "完整互动",
+                "publish_title": "【泽音】音音遇到意外后完整回应",
+            }
+            manifest = _build_refinement_manifest(
+                str(flv_path),
+                str(source_srt),
+                str(source_srt),
+                layout["report_path"],
+                layout["clip_marks_path"],
+                [mark],
+                layout["task_manifest_json_path"],
+                layout["task_manifest_md_path"],
+            )
+            manifest.update({
+                "artifact_dir": layout["artifact_dir"],
+                "overview_path": layout["overview_path"],
+                "unified_queue_json_path": layout["unified_queue_json_path"],
+                "unified_queue_md_path": layout["unified_queue_md_path"],
+            })
+            _write_refinement_manifest_files(manifest)
+            Path(layout["report_path"]).write_text("# 报告\n", encoding="utf-8")
+            Path(layout["clip_marks_path"]).write_text(json.dumps({
+                "expanded_with_context": True,
+                "artifact_dir": layout["artifact_dir"],
+                "analysis_report_path": layout["report_path"],
+                "task_manifest_json_path": layout["task_manifest_json_path"],
+                "task_manifest_md_path": layout["task_manifest_md_path"],
+                "corrected_srt_path": str(source_srt),
+                "clip_marks": [mark],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            def fake_ffmpeg(args, **_kwargs):
+                Path(args[-1]).write_bytes(b"clip")
+                return Mock(returncode=0, stdout="")
+
+            with (
+                patch("topic_engine._probe_video_duration", return_value=80),
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                count, slice_dir = slice_from_marks(
+                    str(flv_path),
+                    layout["clip_marks_path"],
+                    str(output_dir),
+                )
+
+            saved_manifest = json.loads(
+                Path(layout["task_manifest_json_path"]).read_text(encoding="utf-8")
+            )
+            overview = Path(layout["overview_path"]).read_text(encoding="utf-8")
+            queue = json.loads(
+                Path(layout["unified_queue_json_path"]).read_text(encoding="utf-8")
+            )
+
+        expected_slice_dir = str(output_dir / "测试录播_话题切片")
+        self.assertEqual(count, 1)
+        self.assertEqual(slice_dir, expected_slice_dir)
+        self.assertEqual(saved_manifest["slice_output_dir"], expected_slice_dir)
+        self.assertEqual(saved_manifest["status"], "待精调")
+        self.assertIn("完整互动", overview)
+        self.assertIn(expected_slice_dir, overview)
+        self.assertEqual(queue["ready_count"], 1)
 
 
 class TopicEngineParseTests(unittest.TestCase):
@@ -2270,6 +2750,7 @@ class TopicEngineParseTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             flv_path = Path(tmp) / "泽音Melody-2026年07月14日20点00分.flv"
             srt_path = flv_path.with_suffix(".srt")
+            flv_path.write_bytes(b"flv")
             srt_path.write_text(
                 "1\n00:00:01,000 --> 00:00:04,000\n英英开场聊天\n",
                 encoding="utf-8",
@@ -2317,14 +2798,15 @@ class TopicEngineParseTests(unittest.TestCase):
             analysis_chunks,
             "音音",
             progress_callback=None,
-            checkpoint_path=str(flv_path.with_name(flv_path.stem + "_topic_analysis_checkpoint.json")),
+            checkpoint_path=result["topic_analysis_checkpoint_path"],
         )
         self.assertIn("## 逐话题时间轴", result["report"])
-        self.assertTrue(result["corrected_srt_path"].endswith("_校对字幕.srt"))
+        self.assertEqual(Path(result["corrected_srt_path"]).name, "校对字幕.srt")
+        self.assertEqual(Path(result["corrected_srt_path"]).parent.name, "数据")
         self.assertEqual(result["srt_path"], result["corrected_srt_path"])
         self.assertIn("剪映校对字幕", result["report"])
-        self.assertTrue(result["task_manifest_json_path"].endswith("_精调任务.json"))
-        self.assertTrue(result["task_manifest_md_path"].endswith("_精调任务.md"))
+        self.assertEqual(Path(result["task_manifest_json_path"]).name, "精调任务.json")
+        self.assertEqual(Path(result["task_manifest_md_path"]).name, "02_精调任务.md")
         self.assertEqual(unified_queue["recording_count"], 1)
         self.assertIn("精调任务总清单", unified_markdown)
         self.assertIn("精调总清单", result["report"])
@@ -6796,7 +7278,7 @@ class PipelineProgressTests(unittest.TestCase):
         def progress(message, step, total):
             events.append((message, step, total))
 
-        def fake_ensure_srt(_path, progress_callback):
+        def fake_ensure_srt(_path, progress_callback, checkpoint_path=None):
             progress_callback("加载 FunASR 模型(cuda:0)...", 10, 100)
             progress_callback("转录完成 (10 条)", 90, 100)
             return str(srt_path)
