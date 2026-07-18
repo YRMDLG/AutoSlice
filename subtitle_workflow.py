@@ -252,8 +252,19 @@ def _is_generated_stem(stem):
     )
 
 
+def _path_timestamps(path):
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return 0.0, 0.0
+    created_at = getattr(stat, "st_birthtime", stat.st_ctime)
+    return float(created_at), float(stat.st_mtime)
+
+
 def _pair_result(video_path, srt_path):
     directory = video_path.parent
+    folder_created_at, folder_modified_at = _path_timestamps(directory)
+    source_created_at, source_modified_at = _path_timestamps(video_path)
     corrected_srt = _corrected_srt_path(srt_path)
     output_video = video_path.with_name(f"{video_path.stem}_字幕版.mp4")
     pair_key = "\n".join(
@@ -269,6 +280,10 @@ def _pair_result(video_path, srt_path):
         "id": hashlib.sha256(pair_key.encode("utf-8")).hexdigest()[:16],
         "title": directory.name,
         "directory": str(directory),
+        "folder_created_at": folder_created_at,
+        "folder_modified_at": folder_modified_at,
+        "source_created_at": source_created_at,
+        "source_modified_at": source_modified_at,
         "video_name": video_path.name,
         "video_path": str(video_path),
         "srt_name": srt_path.name,

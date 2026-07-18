@@ -161,6 +161,11 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertEqual(pairs[0]["title"], "投稿标题")
         self.assertEqual(pairs[0]["cue_count"], 3)
         self.assertTrue(pairs[0]["video_path"].endswith("7月16日 (1).mp4"))
+        for field in (
+                "folder_created_at", "folder_modified_at",
+                "source_created_at", "source_modified_at"):
+            self.assertIsInstance(pairs[0][field], float)
+            self.assertGreater(pairs[0][field], 0)
 
     def test_review_retries_incomplete_batch_filters_rewrite_and_caches(self):
         calls = []
