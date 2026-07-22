@@ -304,7 +304,7 @@ def _start_autocover(
 def main():
     os.chdir(PROJECT_DIR)
     print("=" * 50)
-    print("  AutoSlice - 泽音Melody 智能切片")
+    print("  AutoSlice - 智能切片")
     print("=" * 50)
 
     try:

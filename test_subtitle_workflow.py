@@ -75,6 +75,8 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音",
             "音姐", "音妈", "露露", "四禧丸子", "沐霂", "又一", "梨安",
             "恬豆", "七海", "小孩梓", "阿梓", "柚恩", "露早", "EOE", "篮筐",
+            "小沐标", "酥酥又", "向心梨", "恬豆包", "柚恩蜜", "gogo队",
+            "小星星", "星瞳", "宣小纸", "真纸棒", "脆鲨",
         }
         prompts = []
 
@@ -100,6 +102,7 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             len(set(DEFAULT_SUBTITLE_GLOSSARY)),
         )
         self.assertTrue(requested_terms.issubset(result["glossary"]))
+        self.assertTrue(prompts[0].startswith("你是直播切片的字幕校对员。"))
         for term in requested_terms:
             self.assertIn(term, prompts[0])
 

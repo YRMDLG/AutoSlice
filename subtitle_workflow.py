@@ -50,6 +50,17 @@ DEFAULT_SUBTITLE_GLOSSARY = (
     "娃衣",
     "雷欧奥特曼",
     "bangumi",
+    "小沐标",
+    "酥酥又",
+    "向心梨",
+    "恬豆包",
+    "柚恩蜜",
+    "gogo队",
+    "小星星",
+    "星瞳",
+    "宣小纸",
+    "真纸棒",
+    "脆鲨",
 )
 
 _TIME_LINE_RE = re.compile(
@@ -418,7 +429,7 @@ def _review_prompt(cues, target_indices, context_title, glossary, compact=False)
             "不能仅凭标题或词表替换语义成立的常用词；original 必须与输入完全一致。"
         )
     return (
-        "你是泽音Melody直播切片的字幕校对员。"
+        "你是直播切片的字幕校对员。"
         f"视频标题：{context_title or '未提供'}\n"
         f"优先词表：{'、'.join(glossary)}\n"
         f"待检查序号：{json.dumps(target_indices, ensure_ascii=False)}\n"
