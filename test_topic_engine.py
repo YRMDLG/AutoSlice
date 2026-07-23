@@ -15,6 +15,7 @@ from unittest.mock import Mock, mock_open, patch
 
 import requests
 
+from streamer_profiles import streamer_profile_context
 from topic_engine import (
     CHUNK_SEC, CLIP_MIN_INTEREST_SCORE, CLIP_REVIEW_POLICY_VERSION,
     FUNASR_CHUNK_PRE_CONTEXT_SEC,
@@ -61,7 +62,7 @@ from topic_engine import (
     _enrich_manual_topics_in_batches, _enrich_manual_topics_with_llm,
     _optimized_entry_needs_retry, _retry_optimized_timeline_entries,
     _review_peak_selected_topics, _sanitize_transport_claims,
-    _normalise_title_hook,
+    _normalise_publish_title, _normalise_title_hook,
     _prepare_seekable_slice_source,
     _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
@@ -794,6 +795,33 @@ class TitleHookPromptTests(unittest.TestCase):
         self.assertIn("不要把一段有笑点的对话压扁成", prompt)
         self.assertIn("具体视觉称呼在同一峰值重复出现至少 2 次", prompt)
         self.assertIn("弹幕称作/观众盯上", prompt)
+
+    def test_auto_profile_replaces_old_title_prefix_with_filename_streamer(self):
+        with streamer_profile_context(
+                "auto",
+                r"recordings\七海Nana7mi-2026-07-22 20_00-歌杂.flv"):
+            title = _normalise_publish_title(
+                "【泽音】看到离谱游戏画面当场绷不住了🤣",
+                "离谱游戏画面",
+            )
+            prompt, _, _ = _build_chunk_prompt(
+                {
+                    "start": 0,
+                    "end": 600,
+                    "text": "[0:00:01] 今天聊游戏",
+                    "danmaku_info": "无弹幕",
+                },
+                0,
+                1,
+                streamer_name="七海Nana7mi",
+            )
+
+        self.assertEqual(
+            title,
+            "【七海Nana7mi】看到离谱游戏画面当场绷不住了🤣",
+        )
+        self.assertIn("【七海Nana7mi】", prompt)
+        self.assertNotIn("【泽音】", prompt)
 
 
 class TitleStyleEvidenceTests(unittest.TestCase):
