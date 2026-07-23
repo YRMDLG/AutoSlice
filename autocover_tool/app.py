@@ -10,11 +10,12 @@ import secrets
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, after_this_request, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
 
-if __package__:
+if __package__ == "autocover_tool":
     from .autocover import API_VERSION, SERVICE_ID
     from .autocover.fonts import get_default_font_status
     from .autocover.renderer import (
@@ -60,6 +61,9 @@ MAX_COPY_LINE_LENGTH = 120
 MAX_EXPORT_TASKS = 100
 MAX_TASK_ID_LENGTH = 128
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+DEPRECATION_WARNING = '299 AutoCover "Deprecated compatibility endpoint"'
+LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 class ApiError(Exception):
@@ -71,6 +75,16 @@ class ApiError(Exception):
         self.status_code = status_code
 
 
+def _mark_deprecated_endpoint() -> None:
+    """为保留兼容性的旧接口添加弃用响应头。"""
+
+    @after_this_request
+    def add_deprecation_headers(response):
+        response.headers["Deprecation"] = "true"
+        response.headers["Warning"] = DEPRECATION_WARNING
+        return response
+
+
 def _json_body() -> dict[str, Any]:
     payload = request.get_json(silent=True)
     if payload is None:
@@ -78,6 +92,30 @@ def _json_body() -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ApiError("请求内容必须是 JSON 对象")
     return payload
+
+
+def _request_hostname() -> str:
+    try:
+        return (urlsplit(f"//{request.host}").hostname or "").casefold()
+    except ValueError:
+        return ""
+
+
+def _origin_is_local() -> bool:
+    origin = request.headers.get("Origin")
+    if not origin:
+        referer = request.headers.get("Referer")
+        if not referer:
+            return True
+        origin = referer
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"http", "https"}
+        and (parsed.hostname or "").casefold() in LOCAL_HOSTS
+    )
 
 
 def _workspace(app: Flask) -> CoverWorkspace:
@@ -186,6 +224,13 @@ def _text_transforms(layout: dict[str, Any]) -> list[TextTransform] | None:
             x=_number_value(item, "x", minimum=0.0, maximum=1.0),
             y=_number_value(item, "y", minimum=0.0, maximum=1.0),
             scale=_number_value(item, "scale", minimum=0.45, maximum=2.0, default=1.0),
+            font_size=(
+                None
+                if item.get("font_size") is None
+                else round(
+                    _number_value(item, "font_size", minimum=24.0, maximum=320.0)
+                )
+            ),
         )
         for item in value
     ]
@@ -312,7 +357,9 @@ def _render_task_result(
 ) -> RenderResult:
     if canvas_key not in CANVAS_SPECS:
         raise ApiError(f"不支持的封面比例：{canvas_key}")
-    candidate = workspace.selected_candidate(task.id)
+    if not task.candidates:
+        raise ValueError("该任务尚未生成候选帧")
+    candidate = task.candidates[task.selected_index]
     render_options = (
         options
         if options is not None
@@ -363,6 +410,7 @@ def _save_task(
     task: CoverTask,
     payload: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    task = workspace.task_snapshot(task.id)
     canvases = payload.get("canvases", ["4x3", "16x9"])
     if not isinstance(canvases, list) or not canvases:
         raise ApiError("canvases 必须是非空数组")
@@ -432,6 +480,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     sticker_library = StickerLibrary(app.config["STICKER_DIR"])
     sticker_library.scan()
     app.extensions["sticker_library"] = sticker_library
+
+    @app.before_request
+    def enforce_local_request_boundary():
+        if not app.config.get("ENFORCE_LOCAL_REQUESTS", True):
+            return None
+        if _request_hostname() not in LOCAL_HOSTS:
+            return jsonify({"ok": False, "error": "拒绝不受信任的 Host"}), 403
+        if request.method in WRITE_METHODS and not _origin_is_local():
+            return jsonify({"ok": False, "error": "拒绝跨站写请求"}), 403
+        return None
 
     @app.errorhandler(ApiError)
     def handle_api_error(error: ApiError):
@@ -508,6 +566,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             {
                 "ok": True,
                 "assets": [asset.to_dict() for asset in library.list_assets()],
+                "summary": library.summary(),
             }
         )
 
@@ -548,11 +607,13 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.get("/api/tasks")
     def list_tasks():
+        _mark_deprecated_endpoint()
         workspace = _workspace(app)
         return jsonify({"ok": True, "tasks": workspace.all_payloads()})
 
     @app.patch("/api/tasks/<task_id>")
     def update_task(task_id: str):
+        _mark_deprecated_endpoint()
         workspace = _workspace(app)
         _apply_task_edits(workspace, task_id, _json_body())
         return jsonify({"ok": True, "task": workspace.task_payload(task_id)})
@@ -589,7 +650,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def preview(task_id: str):
         workspace = _workspace(app)
         payload = _json_body()
-        task = _apply_task_edits(workspace, task_id, payload)
+        _apply_task_edits(workspace, task_id, payload)
+        task = workspace.task_snapshot(task_id)
         canvas_key = payload.get("canvas_key", "4x3")
         if not isinstance(canvas_key, str):
             raise ApiError("canvas_key 必须是字符串")
@@ -606,18 +668,27 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             payload,
             include_background=True,
         )
+        workspace.cleanup_preview_cache(
+            task.id,
+            preserve_paths=(
+                output,
+                output.with_name(f"{output.stem}-background.jpg"),
+            ),
+        )
         return jsonify({"ok": True, "preview": result, "task": workspace.task_payload(task_id)})
 
     @app.post("/api/tasks/<task_id>/save")
     def save(task_id: str):
         workspace = _workspace(app)
         payload = _json_body()
-        task = _apply_task_edits(workspace, task_id, payload)
+        _apply_task_edits(workspace, task_id, payload)
+        task = workspace.task_snapshot(task_id)
         outputs = _save_task(app, workspace, task, payload)
         return jsonify({"ok": True, "outputs": outputs})
 
     @app.post("/api/export")
     def export_all():
+        _mark_deprecated_endpoint()
         workspace = _workspace(app)
         payload = _json_body()
         task_ids = payload.get("task_ids")

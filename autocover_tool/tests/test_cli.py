@@ -30,9 +30,19 @@ class CliTests(unittest.TestCase):
         parser = build_parser()
 
         serve = parser.parse_args(["serve", "--port", "5020", "--no-browser"])
-        batch = parser.parse_args(["batch", "input", "--canvas", "4x3"])
+        batch = parser.parse_args(["batch", r"X:\fixtures\Videos", "--canvas", "4x3"])
         self.assertEqual((serve.command, serve.port), ("serve", 5020))
         self.assertEqual((batch.command, batch.canvas), ("batch", "4x3"))
+
+    def test_product_copy_is_not_bound_to_one_streamer(self) -> None:
+        parser = build_parser()
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(parser.description, "AutoCover B 站切片封面工作台")
+        self.assertNotIn("面向泽音 Melody", readme)
+        self.assertIn("通用的 B 站切片封面工作台", readme)
 
     def test_find_available_port_skips_an_occupied_port(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
@@ -50,7 +60,7 @@ class CliTests(unittest.TestCase):
                 {"service": SERVICE_ID, "api_version": API_VERSION}
             )
         )
-        self.assertFalse(_is_compatible_service({"default_output_dir": "covers"}))
+        self.assertFalse(_is_compatible_service({"default_output_dir": r"X:\fixtures\Videos\封面"}))
         self.assertFalse(
             _is_compatible_service(
                 {"service": SERVICE_ID, "api_version": API_VERSION - 1}

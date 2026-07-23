@@ -300,28 +300,32 @@ def active_streamer_profile() -> StreamerProfile | None:
 
 
 def current_streamer_profile() -> StreamerProfile:
-    """返回当前任务配置；独立旧辅助调用默认保持泽音兼容行为。"""
+    """返回当前任务配置；没有任务上下文时使用通用默认配置。"""
 
     active = active_streamer_profile()
     if active is not None:
         return active
     profiles, default_profile_id = load_streamer_profiles()
-    return profiles.get(LEGACY_PROFILE_ID, profiles[default_profile_id])
+    return profiles[default_profile_id]
 
 
 @contextmanager
 def streamer_profile_context(
-        profile_id: str | None = AUTO_PROFILE_ID,
+        profile_id: str | StreamerProfile | None = AUTO_PROFILE_ID,
         video_path: str | os.PathLike[str] | None = None,
         *,
         config_path: str | os.PathLike[str] | None = None,
 ) -> Iterator[StreamerProfile]:
     """在当前线程/异步上下文内激活主播配置，并在退出时可靠恢复。"""
 
-    profile = resolve_streamer_profile(
-        profile_id,
-        video_path,
-        config_path=config_path,
+    profile = (
+        profile_id
+        if isinstance(profile_id, StreamerProfile)
+        else resolve_streamer_profile(
+            profile_id,
+            video_path,
+            config_path=config_path,
+        )
     )
     token = _ACTIVE_PROFILE.set(profile)
     try:

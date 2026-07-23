@@ -4,123 +4,134 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>字幕校对与压制 · AutoSlice</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
 <style>
-:root{--bg:#111216;--panel:#191b21;--surface:#22252d;--line:#323640;--text:#f0f1f4;--muted:#9ba1ad;--pink:#d06e95;--pink-deep:#a94f75;--green:#55c889;--red:#ef6b73;--amber:#e5b95c}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.5;letter-spacing:0}
-button,input,textarea,select{font:inherit;letter-spacing:0}
-button{cursor:pointer}
-.topbar{height:52px;padding:0 20px;border-bottom:1px solid var(--line);background:#16171c;display:flex;align-items:center;gap:24px}
-.logo{font-weight:800;color:var(--pink);font-size:18px;flex:0 0 auto}
-nav{display:flex;gap:4px;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
-nav::-webkit-scrollbar{display:none}
-nav a{color:var(--muted);text-decoration:none;padding:7px 12px;border-radius:5px;font-size:13px}
-nav a:hover,nav a.active{background:var(--surface);color:#fff}
-.layout{display:grid;grid-template-columns:minmax(280px,340px) minmax(500px,1fr) minmax(320px,390px);height:calc(100vh - 52px);min-height:650px}
-.panel{min-width:0;overflow:hidden;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
-.panel:last-child{border-right:0}
-.panel-head{padding:16px;border-bottom:1px solid var(--line)}
-.panel-head h1,.panel-head h2{margin:0;font-size:15px;line-height:1.3}
-.panel-head .sub{margin-top:4px;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.directory-row{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:12px}
-input[type=text],input[type=number],textarea,select{width:100%;border:1px solid var(--line);background:#121318;color:var(--text);border-radius:5px;padding:8px 10px;outline:none}
-input:focus,textarea:focus,select:focus{border-color:var(--pink)}
-.btn{border:1px solid transparent;border-radius:5px;padding:8px 13px;color:#fff;background:var(--surface);font-weight:650;white-space:nowrap}
-.btn:hover{border-color:#555b68}
-.btn-primary{background:var(--pink-deep)}
-.btn-primary:hover{background:var(--pink)}
-.btn-danger{background:#673239}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.queue{overflow:auto;flex:1}
-.queue-empty{padding:24px 16px;color:var(--muted);font-size:13px;text-align:center}
-.queue-item{width:100%;text-align:left;background:transparent;color:var(--text);border:0;border-bottom:1px solid #292c34;padding:13px 15px;display:block}
-.queue-item:hover{background:#20232a}
-.queue-item.active{background:#29232a;border-left:3px solid var(--pink);padding-left:12px}
-.queue-title{font-size:13px;font-weight:650;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.queue-meta{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
-.badge{font-size:10px;padding:2px 6px;border:1px solid var(--line);border-radius:3px;color:var(--muted)}
-.badge.ok{border-color:#34684b;color:var(--green)}
-.badge.warn{border-color:#745f32;color:var(--amber)}
-.editor-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.editor-actions{display:flex;gap:8px;flex-shrink:0}
-.filterbar{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;background:#17191e}
-.segments{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;flex-shrink:0}
-.segments button{border:0;border-right:1px solid var(--line);background:#17191e;color:var(--muted);padding:6px 10px;font-size:12px}
+body{overflow:hidden}
+.subtitle-layout{height:calc(100vh - var(--topbar-height));min-height:690px;display:grid;grid-template-columns:minmax(270px,310px) minmax(650px,1fr) minmax(330px,370px);overflow-x:auto;overflow-y:hidden}
+.subtitle-panel{min-width:0;overflow:hidden;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line)}
+.subtitle-panel:last-child{border-right:0}
+.subtitle-panel-head{min-height:64px;padding:13px 14px;border-bottom:1px solid var(--line)}
+.subtitle-panel-head h1{margin:0;font-size:22px;line-height:1.2}
+.subtitle-panel-head h2{margin:0;font-size:16px;line-height:1.3}
+.subtitle-panel-head .sub{margin-top:5px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.queue-head-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.queue-head-row .queue-count{color:var(--muted);font-size:11px;white-space:nowrap}
+.queue-tools{display:grid;gap:8px;margin-top:11px}
+.queue-sort{padding:7px 9px;font-size:13px}
+.directory-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}
+.queue{overflow:auto;flex:1;background:var(--surface-input)}
+.queue-empty{padding:26px 16px;color:var(--muted);font-size:13px;text-align:center}
+.queue-item{width:100%;padding:12px 13px;display:block;border:0;border-bottom:1px solid #262b28;background:transparent;color:var(--text);text-align:left;cursor:pointer}
+.queue-item:hover{background:var(--surface-hover)}
+.queue-item.active{padding-left:10px;background:#1d3029;box-shadow:inset 3px 0 var(--accent)}
+.queue-title{font-size:13px;font-weight:680;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.queue-meta{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
+.queue-meta .badge.ok{border-color:#37694f;color:#8ee0b3}
+.queue-meta .badge.warn{border-color:#6e5a32;color:#f2d89e}
+.editor-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.editor-actions{display:flex;gap:7px;flex-shrink:0}
+.filterbar{min-height:46px;padding:8px 13px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);background:#141715}
+.segments{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.segments button{min-height:29px;padding:5px 11px;border:0;border-right:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;font-size:13px}
 .segments button:last-child{border-right:0}
-.segments button.active{background:var(--surface);color:#fff}
-.change-count{font-size:12px;color:var(--muted)}
-.cue-list{overflow:auto;flex:1;padding-bottom:90px}
-.cue-row{display:grid;grid-template-columns:26px 88px minmax(0,1fr);gap:9px;padding:11px 14px;border-bottom:1px solid #292c34;align-items:start}
-.cue-row.changed{background:#251f25}
-.cue-row.suggested{box-shadow:inset 3px 0 var(--pink)}
-.cue-check{margin-top:9px;accent-color:var(--pink);width:16px;height:16px}
-.cue-time{font-size:11px;color:var(--muted);padding-top:9px;font-variant-numeric:tabular-nums}
-.cue-content{min-width:0}
-.cue-original{font-size:12px;color:#aeb3bd;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:5px}
-.cue-edit{min-height:42px;resize:vertical;line-height:1.45;padding:7px 9px}
-.cue-reason{margin-top:5px;font-size:11px;color:var(--pink);overflow-wrap:anywhere}
-.cue-reason .confidence{color:var(--amber);margin-left:7px}
-.editor-footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid var(--line);background:rgba(25,27,33,.97);padding:11px 14px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.segments button:hover{color:var(--text);background:var(--surface-hover)}
+.segments button.active{background:var(--surface-raised);color:var(--text)}
+.change-count{color:var(--muted);font-size:13px}
+.task-status{min-height:38px;padding:9px 13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);background:var(--info-bg);color:#b7d9ed;font-size:13px;overflow-wrap:anywhere}
+.task-status::before{content:"";width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--info)}
+.task-status.error{background:var(--danger-bg);color:#ffc1bd}.task-status.error::before{background:var(--danger)}
+.task-status.done{background:var(--success-bg);color:#b9ebce}.task-status.done::before{background:var(--success)}
+.cue-list{overflow:auto;flex:1;padding-bottom:66px;background:#111412}
+.cue-row{display:grid;grid-template-columns:24px 88px minmax(0,1fr);gap:10px;padding:11px 13px;border-bottom:1px solid #262b28;align-items:start}
+.cue-row:hover{background:#151916}
+.cue-row.changed{background:#1b2a24}
+.cue-row.suggested{box-shadow:inset 3px 0 var(--accent)}
+.cue-check{width:16px;height:16px;margin-top:24px;accent-color:var(--accent)}
+.cue-time{padding-top:21px;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.cue-content{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.cue-column{min-width:0}
+.cue-label{display:block;margin-bottom:5px;color:var(--muted);font-size:11px;font-weight:750}
+.cue-original{min-height:44px;padding:7px 9px;border:1px solid transparent;color:#aeb8b2;font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.cue-edit{min-height:44px;padding:7px 9px;overflow:hidden;resize:vertical;font-size:13px;line-height:1.5}
+.cue-reason{margin-top:5px;color:#93dec0;font-size:11px;overflow-wrap:anywhere}
+.cue-reason .confidence{margin-left:7px;color:var(--warning)}
 .editor-panel{position:relative}
-.artifact{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.right-scroll{overflow:auto;flex:1;padding:14px}
-.preview{width:100%;aspect-ratio:16/9;background:#090a0c;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.editor-footer{position:absolute;left:0;right:0;bottom:0;min-height:58px;padding:10px 13px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);background:rgba(20,23,21,.98)}
+.artifact{min-width:0;overflow:hidden;color:var(--muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.settings-head{padding-bottom:0}
+.settings-tabs{display:grid;grid-template-columns:1fr 1fr;margin-top:11px;border:1px solid var(--line);border-radius:5px 5px 0 0;overflow:hidden}
+.settings-tabs button{padding:7px 8px;border:0;border-right:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;font-size:12px;font-weight:700}
+.settings-tabs button:last-child{border-right:0}
+.settings-tabs button.active{background:var(--surface-raised);color:var(--text)}
+.right-scroll{overflow:auto;flex:1;padding:13px}
+.settings-view[hidden]{display:none}
+.preview{width:100%;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--line);border-radius:5px;background:#080a09}
 .preview img{width:100%;height:100%;object-fit:contain;display:none}
-.preview-placeholder{font-size:12px;color:var(--muted)}
-.preview-controls{display:grid;grid-template-columns:1fr 72px auto;gap:8px;align-items:center;margin-top:9px}
-input[type=range]{accent-color:var(--pink);min-width:0}
+.preview-placeholder{color:var(--muted);font-size:13px}
+.preview-controls{display:grid;grid-template-columns:1fr 70px auto;gap:7px;align-items:center;margin-top:8px}
+input[type=range]{min-width:0;accent-color:var(--accent)}
 .section{padding:15px 0;border-bottom:1px solid var(--line)}
 .section:last-child{border-bottom:0}
-.section-title{font-size:12px;font-weight:750;margin-bottom:11px;color:#d9dce2}
-.field{display:grid;grid-template-columns:104px minmax(0,1fr);gap:10px;align-items:center;margin-bottom:9px}
-.field:last-child{margin-bottom:0}
-.field label{font-size:12px;color:var(--muted)}
-.readonly{font-size:12px;color:var(--text);background:#14161b;border:1px solid var(--line);padding:8px 9px;border-radius:5px;overflow-wrap:anywhere}
+.section-title{margin-bottom:10px;color:var(--text);font-size:13px;font-weight:750}
+.field{display:grid;grid-template-columns:104px minmax(0,1fr);gap:9px;align-items:center;margin-bottom:9px}
+.field:last-child{margin-bottom:0}.field label{color:var(--text-secondary);font-size:13px}
+.readonly{padding:8px 9px;border:1px solid var(--line);border-radius:5px;background:var(--surface-input);color:var(--text);font-size:13px;overflow-wrap:anywhere}
 .color-field{display:grid;grid-template-columns:1fr 38px;gap:6px}
-input[type=color]{width:38px;height:36px;border:1px solid var(--line);background:#121318;border-radius:5px;padding:3px}
-.font-status{margin-top:8px;font-size:11px;color:var(--muted)}
-.font-status.ok{color:var(--green)}
-.output-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
-.task-status{margin-top:10px;padding:9px 10px;border:1px solid var(--line);background:#14161b;border-radius:5px;font-size:12px;color:var(--muted);min-height:38px;overflow-wrap:anywhere}
-.task-status.error{border-color:#713940;color:var(--red)}
-.task-status.done{border-color:#34684b;color:var(--green)}
-@media(max-width:1180px){.layout{grid-template-columns:300px minmax(480px,1fr)}.settings-panel{position:fixed;right:0;top:52px;bottom:0;width:min(390px,92vw);z-index:5;box-shadow:-10px 0 30px #0008;display:none}.settings-panel.open{display:flex}.settings-toggle{display:inline-flex!important}}
-@media(max-width:800px){.layout{display:block;height:auto;min-height:calc(100vh - 52px)}.queue-panel{height:300px}.editor-panel{height:calc(100vh - 52px)}.cue-row{grid-template-columns:24px 72px minmax(0,1fr)}nav a{padding:7px 8px}.topbar{padding:0 10px;gap:10px}}
-.settings-toggle{display:none}
+input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line);border-radius:5px;background:var(--surface-input)}
+.font-status{margin-top:7px;color:var(--muted);font-size:11px}.font-status.ok{color:var(--success)}
+.settings-actions{padding:11px 13px;border-top:1px solid var(--line);background:#141715}
+.settings-actions .button{width:100%}
+@media(max-width:1220px){.subtitle-layout{grid-template-columns:240px minmax(560px,1fr) 310px}}
 </style>
 </head>
 <body>
 <header class="topbar">
-    <div class="logo">AutoSlice</div>
-    <nav>
-        <a href="/">弹幕切片</a>
-        <a href="/topic-v2">话题分析+切片</a>
-        <a href="/subtitle-workflow" class="active">字幕校对+压制</a>
+    <a class="brand" href="/" aria-label="AutoSlice 首页">
+        <span class="brand-mark" aria-hidden="true">AS</span>
+        <span class="brand-copy"><strong>AutoSlice</strong><span>直播切片工作台</span></span>
+    </a>
+    <nav class="topnav" aria-label="主要功能">
+        <a href="/">智能分析</a>
+        <a href="/direct-slice">高级重切</a>
+        <a href="/subtitle-workflow" class="active" aria-current="page">字幕校对</a>
         <a href="/autocover" target="_blank" rel="noopener">自动封面</a>
     </nav>
 </header>
-<main class="layout">
-    <section class="panel queue-panel">
-        <div class="panel-head">
-            <h1>投稿队列</h1>
-            <div class="directory-row">
-                <input id="rootDir" type="text" value="{{ default_submission_dir }}" aria-label="投稿目录">
-                <button class="btn" id="scanButton" type="button">扫描</button>
+<main class="subtitle-layout">
+    <section class="subtitle-panel queue-panel">
+        <div class="subtitle-panel-head">
+            <div class="queue-head-row">
+                <h1>投稿队列</h1>
+                <span class="queue-count" id="queueCount">0 组投稿</span>
+            </div>
+            <div class="queue-tools">
+                <select id="queueSort" class="queue-sort" aria-label="投稿队列排序">
+                    <option value="folder_created_desc">文件夹：最新创建</option>
+                    <option value="folder_created_asc">文件夹：最早创建</option>
+                    <option value="folder_modified_desc">文件夹：最近修改</option>
+                    <option value="source_modified_desc">视频：最近修改</option>
+                    <option value="name_asc">名称：升序</option>
+                    <option value="name_desc">名称：降序</option>
+                </select>
+                <div class="directory-row">
+                    <input id="rootDir" type="text" aria-label="投稿目录" autocomplete="off" placeholder="投稿目录">
+                    <button class="button" id="scanButton" type="button">扫描</button>
+                </div>
             </div>
         </div>
         <div id="queue" class="queue"><div class="queue-empty">等待扫描</div></div>
     </section>
 
-    <section class="panel editor-panel">
-        <div class="panel-head editor-head">
+    <section class="subtitle-panel editor-panel">
+        <div class="subtitle-panel-head editor-head">
             <div style="min-width:0">
                 <h2 id="editorTitle">请选择投稿</h2>
                 <div id="editorPath" class="sub"></div>
             </div>
             <div class="editor-actions">
-                <button class="btn settings-toggle" type="button" id="settingsToggle">样式</button>
-                <button class="btn" type="button" id="reviewButton" disabled>AI 检查</button>
-                <button class="btn" type="button" id="forceReviewButton" disabled>重新检查</button>
+                <button class="button" type="button" id="reviewButton" disabled>AI 检查</button>
+                <button class="button quiet" type="button" id="forceReviewButton" title="忽略已有缓存并重新调用 AI" disabled>强制重新检查</button>
             </div>
         </div>
         <div class="filterbar">
@@ -131,85 +142,95 @@ input[type=color]{width:38px;height:36px;border:1px solid var(--line);background
             </div>
             <div id="changeCount" class="change-count">0 条修改</div>
         </div>
+        <div id="taskStatus" class="task-status" role="status" aria-live="polite">等待选择投稿</div>
         <div id="cueList" class="cue-list"><div class="queue-empty">选择左侧投稿后加载字幕</div></div>
         <div class="editor-footer">
             <div id="artifactPath" class="artifact">尚未生成校对字幕</div>
-            <button class="btn btn-primary" id="saveButton" type="button" disabled>保存校对字幕</button>
+            <button class="button primary" id="saveButton" type="button" disabled>保存校对字幕</button>
         </div>
     </section>
 
-    <aside class="panel settings-panel" id="settingsPanel">
-        <div class="panel-head">
-            <h2>样式与压制</h2>
+    <aside class="subtitle-panel settings-panel" id="settingsPanel">
+        <div class="subtitle-panel-head settings-head">
+            <h2>字幕样式与导出</h2>
             <div id="fontStatus" class="font-status">检查字体中...</div>
+            <div class="settings-tabs" role="tablist" aria-label="字幕设置">
+                <button type="button" class="active" data-settings-tab="style" role="tab" aria-selected="true">样式预览</button>
+                <button type="button" data-settings-tab="export" role="tab" aria-selected="false">导出参数</button>
+            </div>
         </div>
         <div class="right-scroll">
-            <div class="preview" id="previewBox">
-                <img id="previewImage" alt="字幕样式预览">
-                <div id="previewPlaceholder" class="preview-placeholder">选择投稿后生成预览</div>
+            <div class="settings-view" data-settings-view="style">
+                <div class="preview" id="previewBox">
+                    <img id="previewImage" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="字幕样式预览">
+                    <div id="previewPlaceholder" class="preview-placeholder">选择投稿后生成预览</div>
+                </div>
+                <div class="preview-controls">
+                    <input id="previewRange" type="range" min="0" max="1" step="0.1" value="0" aria-label="预览时间">
+                    <input id="previewTime" type="number" min="0" step="0.1" value="0" aria-label="预览秒数">
+                    <button class="button" id="previewButton" type="button" disabled>更新预览</button>
+                </div>
+                <div class="section">
+                    <div class="section-title">字幕样式</div>
+                    <div class="field"><label>字体</label><div class="readonly" id="fontName">Noto Sans S Chinese Black</div></div>
+                    <div class="field"><label for="fontSize">剪映字号</label><input id="fontSize" type="number" min="1" max="30" step="0.1" value="20"></div>
+                    <div class="field"><label for="fontColor">字体颜色</label><div class="color-field"><input id="fontColor" type="text" value="ffffff"><input id="fontColorPicker" type="color" value="#ffffff" aria-label="字体颜色选择"></div></div>
+                    <div class="field"><label for="outlineColor">描边颜色</label><div class="color-field"><input id="outlineColor" type="text" value="d06e95"><input id="outlineColorPicker" type="color" value="#d06e95" aria-label="描边颜色选择"></div></div>
+                    <div class="field"><label for="outlineWidth">描边粗细</label><input id="outlineWidth" type="number" min="0" max="100" step="1" value="100"></div>
+                    <div class="field"><label for="positionX">位置 X</label><input id="positionX" type="number" min="-1000" max="1000" step="1" value="0"></div>
+                    <div class="field"><label for="positionY">位置 Y</label><input id="positionY" type="number" min="-1000" max="1000" step="1" value="-788"></div>
+                </div>
             </div>
-            <div class="preview-controls">
-                <input id="previewRange" type="range" min="0" max="1" step="0.1" value="0" aria-label="预览时间">
-                <input id="previewTime" type="number" min="0" step="0.1" value="0" aria-label="预览秒数">
-                <button class="btn" id="previewButton" type="button" disabled>预览</button>
+            <div class="settings-view" data-settings-view="export" hidden>
+                <div class="section">
+                    <div class="section-title">视频导出</div>
+                    <div class="field"><label>分辨率</label><div class="readonly">1920 × 1080</div></div>
+                    <div class="field"><label for="bitrate">VBR 码率</label><input id="bitrate" type="number" min="500" max="100000" step="100" value="8000"></div>
+                    <div class="field"><label for="fps">帧率</label><input id="fps" type="number" min="1" max="240" step="1" value="60"></div>
+                    <div class="field"><label>编码 / 格式</label><div class="readonly">H.264 / MP4</div></div>
+                    <div class="field"><label>色彩空间</label><div class="readonly">Rec.709 SDR</div></div>
+                    <div class="field"><label>音频</label><div class="readonly">复制原视频音频</div></div>
+                </div>
             </div>
-
-            <div class="section">
-                <div class="section-title">字幕样式</div>
-                <div class="field"><label>字体</label><div class="readonly" id="fontName">Noto Sans S Chinese Black</div></div>
-                <div class="field"><label for="fontSize">剪映字号</label><input id="fontSize" type="number" min="1" max="30" step="0.1" value="20"></div>
-                <div class="field"><label for="fontColor">字体颜色</label><div class="color-field"><input id="fontColor" type="text" value="ffffff"><input id="fontColorPicker" type="color" value="#ffffff" aria-label="字体颜色选择"></div></div>
-                <div class="field"><label for="outlineColor">描边颜色</label><div class="color-field"><input id="outlineColor" type="text" value="d06e95"><input id="outlineColorPicker" type="color" value="#d06e95" aria-label="描边颜色选择"></div></div>
-                <div class="field"><label for="outlineWidth">描边粗细</label><input id="outlineWidth" type="number" min="0" max="100" step="1" value="100"></div>
-                <div class="field"><label for="positionX">位置 X</label><input id="positionX" type="number" min="-1000" max="1000" step="1" value="0"></div>
-                <div class="field"><label for="positionY">位置 Y</label><input id="positionY" type="number" min="-1000" max="1000" step="1" value="-788"></div>
-            </div>
-
-            <div class="section">
-                <div class="section-title">视频导出</div>
-                <div class="field"><label>分辨率</label><div class="readonly">1920 × 1080</div></div>
-                <div class="field"><label for="bitrate">VBR 码率</label><input id="bitrate" type="number" min="500" max="100000" step="100" value="8000"></div>
-                <div class="field"><label for="fps">帧率</label><input id="fps" type="number" min="1" max="240" step="1" value="60"></div>
-                <div class="field"><label>编码 / 格式</label><div class="readonly">H.264 / MP4</div></div>
-                <div class="field"><label>色彩空间</label><div class="readonly">Rec.709 SDR</div></div>
-                <div class="field"><label>音频</label><div class="readonly">复制原视频音频</div></div>
-            </div>
-
-            <div class="output-actions">
-                <button class="btn" id="saveRightButton" type="button" disabled>保存字幕</button>
-                <button class="btn btn-primary" id="renderButton" type="button" disabled>开始压制</button>
-            </div>
-            <div id="taskStatus" class="task-status">等待任务</div>
         </div>
+        <div class="settings-actions"><button class="button primary" id="renderButton" type="button" disabled>保存并开始压制</button></div>
     </aside>
 </main>
 
 <script>
-const state={pairs:[],selectedIndex:-1,sourceCues:[],edited:new Map(),suggestions:new Map(),aiApplied:new Set(),protectedEdits:new Set(),correctedPath:'',filter:'all',defaults:null,previewUrl:'',sse:null,sseReconnectTimer:null,taskEvents:new Map(),taskContexts:new Map(),selectionVersion:0,busy:false};
+const QUEUE_SORT_KEYS=new Set(['folder_created_desc','folder_created_asc','folder_modified_desc','source_modified_desc','name_asc','name_desc']);
+const storedQueueSort=localStorage.getItem('autoslice.subtitle-queue-sort');
+const SUBTITLE_ROOT_STORAGE_KEY='autoslice.subtitle-root-dir';
+const state={pairs:[],selectedIndex:-1,queueSort:QUEUE_SORT_KEYS.has(storedQueueSort)?storedQueueSort:'folder_created_desc',sourceCues:[],edited:new Map(),suggestions:new Map(),aiApplied:new Set(),protectedEdits:new Set(),correctedPath:'',filter:'all',defaults:null,previewUrl:'',sse:null,sseReconnectTimer:null,taskEvents:new Map(),taskContexts:new Map(),selectionVersion:0,busy:false};
+const queueNameCollator=new Intl.Collator('zh-CN',{numeric:true,sensitivity:'base'});
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 async function jsonRequest(url,options={}){const response=await fetch(url,{headers:{'Content-Type':'application/json'},...options});const data=await response.json();if(!response.ok||data.error){const error=new Error(data.error||`请求失败 ${response.status}`);error.payload=data;error.status=response.status;throw error;}return data;}
 function selectedPair(){return state.selectedIndex>=0?state.pairs[state.selectedIndex]:null;}
 function setTask(message,type=''){const el=document.getElementById('taskStatus');el.textContent=message;el.className=`task-status ${type}`.trim();}
-function setBusy(busy){state.busy=Boolean(busy);['scanButton','reviewButton','forceReviewButton','saveButton','saveRightButton','previewButton','renderButton'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=state.busy||(!selectedPair()&&id!=='scanButton');});document.getElementById('rootDir').disabled=state.busy;document.querySelectorAll('.queue-item').forEach(el=>{el.disabled=state.busy;});}
+function setBusy(busy){state.busy=Boolean(busy);['scanButton','reviewButton','forceReviewButton','saveButton','previewButton','renderButton'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=state.busy||(!selectedPair()&&id!=='scanButton');});document.getElementById('rootDir').disabled=state.busy;document.getElementById('queueSort').disabled=state.busy;document.querySelectorAll('.queue-item').forEach(el=>{el.disabled=state.busy;});}
 
 function styleValues(){return{font_name:'Noto Sans S Chinese Black',font_size:Number(document.getElementById('fontSize').value),font_color:document.getElementById('fontColor').value.replace('#',''),outline_color:document.getElementById('outlineColor').value.replace('#',''),outline_width:Number(document.getElementById('outlineWidth').value),x:Number(document.getElementById('positionX').value),y:Number(document.getElementById('positionY').value),shadow:0};}
 function exportValues(){return{width:1920,height:1080,bitrate_kbps:Number(document.getElementById('bitrate').value),rate_control:'vbr',codec:'h264',container:'mp4',fps:Number(document.getElementById('fps').value),color_space:'bt709',color_range:'tv',audio:'copy'};}
 
 async function loadDefaults(){try{const data=await jsonRequest('/api/subtitles/defaults');state.defaults=data;const font=data.font||{};const el=document.getElementById('fontStatus');el.textContent=font.available?`${font.requested} → ${font.resolved}`:`字体不可用：${font.resolved||'未解析'}`;el.className=`font-status ${font.available?'ok':''}`;applyDefaults(data);}catch(error){setTask(error.message,'error');}}
-function applyDefaults(data){const style=data.style||{},exp=data.export||{};document.getElementById('fontSize').value=style.font_size??20;setColor('fontColor',style.font_color||'ffffff');setColor('outlineColor',style.outline_color||'d06e95');document.getElementById('outlineWidth').value=style.outline_width??100;document.getElementById('positionX').value=style.x??0;document.getElementById('positionY').value=style.y??-788;document.getElementById('bitrate').value=exp.bitrate_kbps??8000;document.getElementById('fps').value=exp.fps??60;}
+function applyDefaults(data){const style=data.style||{},exp=data.export||{};let remembered='';try{remembered=localStorage.getItem(SUBTITLE_ROOT_STORAGE_KEY)||''}catch(error){}document.getElementById('rootDir').value=remembered||data.submission_dir||'submissions';document.getElementById('fontSize').value=style.font_size??20;setColor('fontColor',style.font_color||'ffffff');setColor('outlineColor',style.outline_color||'d06e95');document.getElementById('outlineWidth').value=style.outline_width??100;document.getElementById('positionX').value=style.x??0;document.getElementById('positionY').value=style.y??-788;document.getElementById('bitrate').value=exp.bitrate_kbps??8000;document.getElementById('fps').value=exp.fps??60;}
 function setColor(id,value){const clean=String(value).replace('#','').toLowerCase();document.getElementById(id).value=clean;document.getElementById(`${id}Picker`).value=`#${clean}`;}
 
-async function scan(){setBusy(true);setTask('扫描投稿目录...');try{const data=await jsonRequest('/api/subtitles/scan',{method:'POST',body:JSON.stringify({root_dir:document.getElementById('rootDir').value})});state.pairs=data.pairs||[];state.selectedIndex=-1;clearEditor();renderQueue();setTask(`找到 ${data.count} 组投稿`,'done');}catch(error){setTask(error.message,'error');}finally{setBusy(false);}}
-function renderQueue(){const queue=document.getElementById('queue');if(!state.pairs.length){queue.innerHTML='<div class="queue-empty">没有找到同目录 MP4 + SRT</div>';return;}queue.innerHTML=state.pairs.map((pair,index)=>`<button type="button" class="queue-item ${index===state.selectedIndex?'active':''}" data-index="${index}" ${state.busy?'disabled':''}><span class="queue-title">${esc(pair.title)}</span><span class="queue-meta"><span class="badge ${pair.subtitle_error?'warn':'ok'}">${pair.cue_count} 条字幕</span><span class="badge ${pair.has_corrected_srt?'ok':''}">${pair.has_corrected_srt?'已校对':'原字幕'}</span><span class="badge ${pair.has_output_video?'ok':''}">${pair.has_output_video?'已压制':'未压制'}</span></span></button>`).join('');queue.querySelectorAll('.queue-item').forEach(el=>el.addEventListener('click',()=>selectPair(Number(el.dataset.index))));}
-function clearEditor(){state.selectionVersion+=1;state.sourceCues=[];state.edited.clear();state.suggestions.clear();state.aiApplied.clear();state.protectedEdits.clear();state.correctedPath='';document.getElementById('editorTitle').textContent='请选择投稿';document.getElementById('editorPath').textContent='';document.getElementById('cueList').innerHTML='<div class="queue-empty">选择左侧投稿后加载字幕</div>';document.getElementById('artifactPath').textContent='尚未生成校对字幕';updateChangeCount();}
+function compareQueueTime(left,right,key,descending){const a=Number(left[key])||0;const b=Number(right[key])||0;if(a===b)return 0;if(!a)return 1;if(!b)return-1;return descending?b-a:a-b;}
+function comparePairs(left,right){let result=0;if(state.queueSort==='folder_created_desc'||state.queueSort==='folder_created_asc'){result=compareQueueTime(left,right,'folder_created_at',state.queueSort.endsWith('_desc'));if(!result)result=compareQueueTime(left,right,'source_created_at',state.queueSort.endsWith('_desc'));}else if(state.queueSort==='folder_modified_desc'){result=compareQueueTime(left,right,'folder_modified_at',true);}else if(state.queueSort==='source_modified_desc'){result=compareQueueTime(left,right,'source_modified_at',true);}else{result=queueNameCollator.compare(`${left.title}\n${left.video_name}`,`${right.title}\n${right.video_name}`);if(state.queueSort==='name_desc')result=-result;}return result||queueNameCollator.compare(left.directory,right.directory);}
+function sortPairs(){const selectedId=selectedPair()?.id||null;state.pairs.sort(comparePairs);state.selectedIndex=selectedId?state.pairs.findIndex(pair=>pair.id===selectedId):-1;}
+async function scan(){setBusy(true);setTask('扫描投稿目录...');const root=document.getElementById('rootDir').value;try{localStorage.setItem(SUBTITLE_ROOT_STORAGE_KEY,root)}catch(error){}try{const data=await jsonRequest('/api/subtitles/scan',{method:'POST',body:JSON.stringify({root_dir:root})});state.pairs=data.pairs||[];state.selectedIndex=-1;sortPairs();clearEditor();renderQueue();setTask(`找到 ${data.count} 组投稿`,'done');}catch(error){setTask(`扫描失败：${error.message}`,'error');}finally{setBusy(false);}}
+function renderQueue(){const queue=document.getElementById('queue');document.getElementById('queueCount').textContent=`${state.pairs.length} 组投稿`;if(!state.pairs.length){queue.innerHTML='<div class="queue-empty">没有找到同目录 MP4 + SRT</div>';return;}queue.innerHTML=state.pairs.map((pair,index)=>`<button type="button" class="queue-item ${index===state.selectedIndex?'active':''}" data-index="${index}" title="${esc(`${pair.title}\n${pair.srt_path||pair.directory||''}`)}" ${state.busy?'disabled':''}><span class="queue-title">${esc(pair.title)}</span><span class="queue-meta"><span class="badge ${pair.subtitle_error?'warn':'ok'}">${pair.cue_count} 条字幕</span><span class="badge ${pair.has_corrected_srt?'ok':''}">${pair.has_corrected_srt?'已校对':'原字幕'}</span><span class="badge ${pair.has_output_video?'ok':''}">${pair.has_output_video?'已压制':'未压制'}</span></span></button>`).join('');queue.querySelectorAll('.queue-item').forEach(el=>el.addEventListener('click',()=>selectPair(Number(el.dataset.index))));}
+function clearEditor(){state.selectionVersion+=1;state.sourceCues=[];state.edited.clear();state.suggestions.clear();state.aiApplied.clear();state.protectedEdits.clear();state.correctedPath='';document.getElementById('editorTitle').textContent='请选择投稿';document.getElementById('editorTitle').removeAttribute('title');document.getElementById('editorPath').textContent='';document.getElementById('editorPath').removeAttribute('title');document.getElementById('cueList').innerHTML='<div class="queue-empty">选择左侧投稿后加载字幕</div>';document.getElementById('artifactPath').textContent='尚未生成校对字幕';setTask('等待选择投稿');updateChangeCount();}
 
 function correctedTimelineMatches(source,corrected){return source.length===corrected.length&&source.every((cue,index)=>{const other=corrected[index];return other&&Number(cue.index)===Number(other.index)&&cue.start===other.start&&cue.end===other.end&&String(cue.settings||'')===String(other.settings||'');});}
-async function selectPair(index){if(state.busy)return;const selection=++state.selectionVersion;state.selectedIndex=index;state.suggestions.clear();state.aiApplied.clear();state.protectedEdits.clear();state.correctedPath='';renderQueue();const pair=selectedPair();if(!pair)return;const pairId=pair.id;document.getElementById('editorTitle').textContent=pair.title;document.getElementById('editorPath').textContent=pair.srt_path;setBusy(true);setTask('加载字幕...');try{const source=await jsonRequest('/api/subtitles/cues',{method:'POST',body:JSON.stringify({srt_path:pair.srt_path})});if(selection!==state.selectionVersion||selectedPair()?.id!==pairId)return;state.sourceCues=source.cues||[];state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));if(pair.has_corrected_srt){const corrected=await jsonRequest('/api/subtitles/cues',{method:'POST',body:JSON.stringify({srt_path:pair.corrected_srt_path})});if(selection!==state.selectionVersion||selectedPair()?.id!==pairId)return;const correctedCues=corrected.cues||[];if(!correctedTimelineMatches(state.sourceCues,correctedCues))throw new Error('已有校对字幕与当前源字幕时间轴不一致，请重新保存校对字幕');for(const cue of correctedCues){state.edited.set(cue.index,cue.text);if(cue.text!==sourceText(cue.index))state.protectedEdits.add(cue.index);}state.correctedPath=pair.corrected_srt_path;}const maxTime=state.sourceCues.reduce((max,cue)=>Math.max(max,Number(cue.end_seconds)||0),1);const first=state.sourceCues[0];const preview=first?(Number(first.start_seconds)+Number(first.end_seconds))/2:0;document.getElementById('previewRange').max=maxTime.toFixed(1);document.getElementById('previewRange').value=preview.toFixed(1);document.getElementById('previewTime').value=preview.toFixed(1);renderCues();updateArtifact();setTask('字幕已加载','done');}catch(error){if(selection===state.selectionVersion)setTask(error.message,'error');}finally{if(selection===state.selectionVersion)setBusy(false);}}
+async function selectPair(index){if(state.busy)return;const selection=++state.selectionVersion;state.selectedIndex=index;state.suggestions.clear();state.aiApplied.clear();state.protectedEdits.clear();state.correctedPath='';renderQueue();const pair=selectedPair();if(!pair)return;const pairId=pair.id;document.getElementById('editorTitle').textContent=pair.title;document.getElementById('editorTitle').title=pair.title;document.getElementById('editorPath').textContent=pair.srt_path;document.getElementById('editorPath').title=pair.srt_path;setBusy(true);setTask('加载字幕...');try{const source=await jsonRequest('/api/subtitles/cues',{method:'POST',body:JSON.stringify({srt_path:pair.srt_path})});if(selection!==state.selectionVersion||selectedPair()?.id!==pairId)return;state.sourceCues=source.cues||[];state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));if(pair.has_corrected_srt){const corrected=await jsonRequest('/api/subtitles/cues',{method:'POST',body:JSON.stringify({srt_path:pair.corrected_srt_path})});if(selection!==state.selectionVersion||selectedPair()?.id!==pairId)return;const correctedCues=corrected.cues||[];if(!correctedTimelineMatches(state.sourceCues,correctedCues))throw new Error('已有校对字幕与当前源字幕时间轴不一致，请重新保存校对字幕');for(const cue of correctedCues){state.edited.set(cue.index,cue.text);if(cue.text!==sourceText(cue.index))state.protectedEdits.add(cue.index);}state.correctedPath=pair.corrected_srt_path;}const maxTime=state.sourceCues.reduce((max,cue)=>Math.max(max,Number(cue.end_seconds)||0),1);const first=state.sourceCues[0];const preview=first?(Number(first.start_seconds)+Number(first.end_seconds))/2:0;document.getElementById('previewRange').max=maxTime.toFixed(1);document.getElementById('previewRange').value=preview.toFixed(1);document.getElementById('previewTime').value=preview.toFixed(1);renderCues();updateArtifact();setTask(`字幕已加载，共 ${state.sourceCues.length} 条`,'done');}catch(error){if(selection===state.selectionVersion)setTask(error.message,'error');}finally{if(selection===state.selectionVersion)setBusy(false);}}
 
 function cueChanged(cue){return (state.edited.get(cue.index)??cue.text)!==cue.text;}
 function visibleCue(cue){if(state.filter==='suggested')return state.suggestions.has(cue.index);if(state.filter==='changed')return cueChanged(cue);return true;}
-function renderCues(){const list=document.getElementById('cueList');const cues=state.sourceCues.filter(visibleCue);if(!cues.length){list.innerHTML='<div class="queue-empty">当前筛选没有字幕</div>';updateChangeCount();return;}list.innerHTML=cues.map(cue=>{const suggestion=state.suggestions.get(cue.index);const edited=state.edited.get(cue.index)??cue.text;const changed=edited!==cue.text;return `<div class="cue-row ${changed?'changed':''} ${suggestion?'suggested':''}" data-index="${cue.index}"><input class="cue-check" type="checkbox" ${changed?'checked':''} aria-label="采用第 ${cue.index} 条修改"><div class="cue-time">${esc(cue.start)}<br>${esc(cue.end)}</div><div class="cue-content"><div class="cue-original">${esc(cue.text)}</div><textarea class="cue-edit" rows="${edited.includes('\n')?2:1}">${esc(edited)}</textarea>${suggestion?`<div class="cue-reason">${esc(suggestion.reason)}<span class="confidence">${Math.round(Number(suggestion.confidence)*100)}%</span></div>`:''}</div></div>`;}).join('');list.querySelectorAll('.cue-row').forEach(row=>{const index=Number(row.dataset.index);const textarea=row.querySelector('.cue-edit');const checkbox=row.querySelector('.cue-check');textarea.addEventListener('input',()=>{state.protectedEdits.add(index);state.aiApplied.delete(index);state.edited.set(index,textarea.value);checkbox.checked=textarea.value!==sourceText(index);row.classList.toggle('changed',checkbox.checked);updateChangeCount();});checkbox.addEventListener('change',()=>{state.protectedEdits.add(index);state.aiApplied.delete(index);const suggestion=state.suggestions.get(index);const value=checkbox.checked?(suggestion?.corrected??textarea.value):sourceText(index);state.edited.set(index,value);textarea.value=value;row.classList.toggle('changed',value!==sourceText(index));updateChangeCount();});});updateChangeCount();}
+function resizeCueTextarea(textarea){textarea.style.height='auto';textarea.style.height=`${Math.max(44,textarea.scrollHeight+2)}px`;}
+function renderCues(){const list=document.getElementById('cueList');const cues=state.sourceCues.filter(visibleCue);if(!cues.length){list.innerHTML='<div class="queue-empty">当前筛选没有字幕</div>';updateChangeCount();return;}list.innerHTML=cues.map(cue=>{const suggestion=state.suggestions.get(cue.index);const edited=state.edited.get(cue.index)??cue.text;const changed=edited!==cue.text;return `<div class="cue-row ${changed?'changed':''} ${suggestion?'suggested':''}" data-index="${cue.index}"><input class="cue-check" type="checkbox" ${changed?'checked':''} aria-label="采用第 ${cue.index} 条修改"><div class="cue-time">${esc(cue.start)}<br>${esc(cue.end)}</div><div class="cue-content"><div class="cue-column"><span class="cue-label">识别原文</span><div class="cue-original">${esc(cue.text)}</div></div><div class="cue-column"><span class="cue-label">校对后</span><textarea class="cue-edit" rows="1">${esc(edited)}</textarea>${suggestion?`<div class="cue-reason">${esc(suggestion.reason)}<span class="confidence">${Math.round(Number(suggestion.confidence)*100)}%</span></div>`:''}</div></div></div>`;}).join('');list.querySelectorAll('.cue-row').forEach(row=>{const index=Number(row.dataset.index);const textarea=row.querySelector('.cue-edit');const checkbox=row.querySelector('.cue-check');resizeCueTextarea(textarea);textarea.addEventListener('input',()=>{resizeCueTextarea(textarea);state.protectedEdits.add(index);state.aiApplied.delete(index);state.edited.set(index,textarea.value);checkbox.checked=textarea.value!==sourceText(index);row.classList.toggle('changed',checkbox.checked);updateChangeCount();});checkbox.addEventListener('change',()=>{state.protectedEdits.add(index);state.aiApplied.delete(index);const suggestion=state.suggestions.get(index);const value=checkbox.checked?(suggestion?.corrected??textarea.value):sourceText(index);state.edited.set(index,value);textarea.value=value;resizeCueTextarea(textarea);row.classList.toggle('changed',value!==sourceText(index));updateChangeCount();});});updateChangeCount();}
 function sourceText(index){return state.sourceCues.find(cue=>cue.index===index)?.text??'';}
 function updateChangeCount(){const count=state.sourceCues.filter(cue=>cueChanged(cue)).length;document.getElementById('changeCount').textContent=`${count} 条修改`;}
 function corrections(){return state.sourceCues.filter(cue=>cueChanged(cue)).map(cue=>({index:cue.index,original:cue.text,corrected:state.edited.get(cue.index)}));}
@@ -233,19 +254,21 @@ function connectSSE(){if(state.sseReconnectTimer){clearTimeout(state.sseReconnec
 function handleTask(data){if(!data.task_id?.startsWith('subtitle_'))return;rememberTaskEvent(data);const context=state.taskContexts.get(data.task_id);if(!context)return;const pair=selectedPair();if(!pair||pair.id!==context.pairId)return;setTask(data.progress||data.status,data.status==='error'?'error':data.status==='done'?'done':'');if(data.status==='done'){try{const result=data.result?JSON.parse(data.result):{};if(context.kind==='review')applyReview(result,context);if(context.kind==='render'){pair.has_output_video=true;renderQueue();setTask(`压制完成：${result.output_video_path}`,'done');}finishTask(data.task_id);}catch(error){setTask(error.message,'error');finishTask(data.task_id);}}else if(data.status==='error'){setTask(data.progress||'任务失败','error');finishTask(data.task_id);}}
 
 document.getElementById('scanButton').addEventListener('click',scan);
+document.getElementById('queueSort').value=state.queueSort;
+document.getElementById('queueSort').addEventListener('change',event=>{state.queueSort=QUEUE_SORT_KEYS.has(event.target.value)?event.target.value:'folder_created_desc';localStorage.setItem('autoslice.subtitle-queue-sort',state.queueSort);sortPairs();renderQueue();});
 document.getElementById('reviewButton').addEventListener('click',()=>startReview(false));
 document.getElementById('forceReviewButton').addEventListener('click',()=>startReview(true));
 document.getElementById('saveButton').addEventListener('click',saveClick);
-document.getElementById('saveRightButton').addEventListener('click',saveClick);
 document.getElementById('previewButton').addEventListener('click',preview);
 document.getElementById('renderButton').addEventListener('click',renderVideo);
-document.getElementById('settingsToggle').addEventListener('click',()=>document.getElementById('settingsPanel').classList.toggle('open'));
+document.querySelectorAll('[data-settings-tab]').forEach(button=>button.addEventListener('click',()=>{const tab=button.dataset.settingsTab;document.querySelectorAll('[data-settings-tab]').forEach(item=>{const active=item===button;item.classList.toggle('active',active);item.setAttribute('aria-selected',String(active));});document.querySelectorAll('[data-settings-view]').forEach(view=>{view.hidden=view.dataset.settingsView!==tab;});}));
 document.getElementById('cueFilters').querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>{state.filter=button.dataset.filter;document.querySelectorAll('#cueFilters button').forEach(item=>item.classList.toggle('active',item===button));renderCues();}));
 document.getElementById('previewRange').addEventListener('input',event=>document.getElementById('previewTime').value=event.target.value);
 document.getElementById('previewTime').addEventListener('input',event=>document.getElementById('previewRange').value=event.target.value);
 [['fontColor','fontColorPicker'],['outlineColor','outlineColorPicker']].forEach(([textId,pickerId])=>{document.getElementById(textId).addEventListener('input',event=>{if(/^[0-9a-fA-F]{6}$/.test(event.target.value))document.getElementById(pickerId).value=`#${event.target.value}`;});document.getElementById(pickerId).addEventListener('input',event=>document.getElementById(textId).value=event.target.value.slice(1));});
 
-loadDefaults();connectSSE();scan();
+async function boot(){await loadDefaults();connectSSE();await scan();}
+boot();
 </script>
 </body>
 </html>

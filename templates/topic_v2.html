@@ -1,124 +1,184 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>话题分析+切片 · AutoSlice</title>
-<style>
-:root{--bg:#0f0f1a;--card:#1a1a2e;--accent:#e94560;--blue:#0f3460;--text:#e0e0e0;--muted:#888;--green:#2ecc71;--red:#e74c3c}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
-.topbar{background:var(--card);border-bottom:1px solid #222;padding:12px 24px;display:flex;align-items:center;gap:24px}
-.topbar .logo{font-size:1.2em;font-weight:700;color:var(--accent);flex:0 0 auto}
-.topbar nav{display:flex;gap:4px;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
-.topbar nav::-webkit-scrollbar{display:none}
-.topbar nav a{color:var(--muted);text-decoration:none;padding:6px 14px;border-radius:6px;font-size:14px;transition:.2s}
-.topbar nav a:hover,.topbar nav a.active{color:#fff;background:var(--blue)}
-.main{max-width:1000px;margin:0 auto;padding:24px 20px}
-h2{font-size:1.1em;color:var(--accent);margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid var(--accent);display:flex;align-items:center;gap:8px}
-h2 .icon{font-size:1.2em}
-.card{background:var(--card);border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid #222}
-.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-.row label{min-width:80px;font-weight:600;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
-input[type="text"],select{flex:1;min-width:200px;padding:10px 14px;border:1px solid #333;border-radius:8px;background:#0d0d1a;color:#fff;font-size:14px;transition:border .2s}
-input:focus,select:focus{outline:none;border-color:var(--accent)}
-.btn{padding:10px 22px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
-.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#c73652;transform:translateY(-1px)}
-.btn-secondary{background:var(--blue);color:#fff}.btn-secondary:hover{background:#1a4a80}
-.vlist{max-height:320px;overflow-y:auto;border-radius:8px}
-.vitem{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #1a1a2e;cursor:pointer;transition:background .15s;font-size:14px}
-.vitem:hover{background:#1a2540}
-.vitem.sel{background:var(--blue);border-left:3px solid var(--accent)}
-.badge{font-size:10px;padding:3px 8px;border-radius:10px;font-weight:600}
-.badge-green{background:#1a4a30;color:var(--green)}
-.badge-blue{background:var(--blue);color:#8af}
-.badge-gray{background:#2a2a3a;color:var(--muted)}
-.progress-box{border-radius:8px;overflow:hidden}
-.progress-item{padding:14px 16px;background:#0d0d1a;border-bottom:1px solid #1a1a2e}
-.progress-item .name{font-size:13px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between}
-.progress-item .status{font-size:11px;padding:2px 8px;border-radius:4px}
-.status-running{background:var(--blue);color:#8af}
-.status-done{background:#1a4a30;color:var(--green)}
-.status-error{background:#3a1a1a;color:var(--red)}
-.progress-bar{height:4px;background:#1a1a2e;border-radius:2px;margin:6px 0;overflow:hidden}
-.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
-.done .progress-fill{background:var(--green)}
-.error .progress-fill{background:var(--red)}
-.progress-msg{font-size:12px;color:var(--muted)}
-.report{background:#0d0d1a;border-radius:12px;padding:28px;max-height:600px;overflow-y:auto;font-size:14px;line-height:1.9;border:1px solid #222;margin-top:16px;font-family:'Segoe UI','Microsoft YaHei',serif}
-.report h1{font-size:1.4em;color:var(--accent);margin-bottom:16px}
-.report h2{font-size:1.05em;color:#ff8a80;margin:20px 0 8px;border:none;padding:0;display:block}
-.report .slice-tag{background:var(--green);color:#000;font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:700}
-.flex-btns{display:flex;gap:10px;margin-top:16px}
-.artifact-path{margin-top:8px;padding:10px 12px;background:#0d0d1a;border:1px solid #333;border-radius:8px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
-.artifact-result{margin-top:14px;padding:14px;background:#0d0d1a;border:1px solid #333;border-radius:8px}
-.artifact-result .artifact-path{margin:0 0 12px;border:0;padding:0;background:transparent;white-space:pre-line}
-</style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>智能分析与切片 · AutoSlice</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
 </head>
 <body>
-<div class="topbar">
-    <div class="logo">AutoSlice</div>
-    <nav>
-        <a href="/">弹幕切片</a>
-        <a href="/topic-v2" class="active">话题分析+切片</a>
-        <a href="/subtitle-workflow">字幕校对+压制</a>
+<header class="topbar">
+    <a class="brand" href="/" aria-label="AutoSlice 首页">
+        <span class="brand-mark" aria-hidden="true">AS</span>
+        <span class="brand-copy"><strong>AutoSlice</strong><span>直播切片工作台</span></span>
+    </a>
+    <nav class="topnav" aria-label="主要功能">
+        <a href="/" class="active" aria-current="page">智能分析</a>
+        <a href="/direct-slice">高级重切</a>
+        <a href="/subtitle-workflow">字幕校对</a>
         <a href="/autocover" target="_blank" rel="noopener">自动封面</a>
     </nav>
-</div>
+</header>
 
-<div class="main">
-    <div class="card">
-        <h2><span class="icon">选择录播</span></h2>
-        <div class="row">
-            <label>录播目录</label>
-            <input type="text" id="videoDir" value="{{ default_video_dir }}">
-            <button class="btn btn-secondary" onclick="scan()">扫描</button>
+<main class="page-shell">
+    <div class="page-heading">
+        <div>
+            <h1>智能分析与切片</h1>
+            <p>生成逐话题报告，并从高能候选中保留完整上下文。</p>
         </div>
-        <div class="row" style="margin-top:-4px">
-            <label></label>
-            <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick='setDir({{ default_video_dir | tojson }})'>项目默认目录</button>
-        </div>
-        <div class="row">
-            <label>输出目录</label>
-            <input type="text" id="outputDir" value="{{ default_output_dir }}">
-        </div>
-        <div class="row">
-            <label>辅助时间轴</label>
-            <select id="timelineMode" onchange="toggleTimelineMode()">
-                <option value="none" selected>不使用时间轴</option>
-                <option value="manual">手动选择 docx</option>
-                <option value="auto">自动匹配日期 docx</option>
-            </select>
-            <button class="btn btn-secondary" style="font-size:12px;padding:6px 10px" onclick="loadTimelines()">刷新</button>
-        </div>
-        <div class="row" id="timelineManualRow" style="display:none">
-            <label>docx 文件</label>
-            <select id="timelineSelect" onchange="onTimelineSelection(this.value)"></select>
-            <input type="text" id="timelinePath" oninput="clearOptimizedTimeline()" placeholder="也可直接粘贴时间轴 DOCX 的完整路径">
-        </div>
-        <div id="timelineArtifact" class="artifact-path" style="display:none"></div>
-        <div class="vlist" id="vlist"><p style="color:var(--muted);padding:16px">点击扫描加载视频...</p></div>
-        <div class="flex-btns">
-            <button class="btn btn-secondary" onclick="optimizeTimeline()">仅优化时间轴</button>
-            <button class="btn btn-primary" onclick="startPipeline()">开始分析+切片</button>
-        </div>
+        <div class="workflow-trail">选择录播　→　配置分析　→　生成结果</div>
     </div>
 
-    <div class="card">
-        <h2><span class="icon">进度</span></h2>
-        <div class="progress-box" id="progressBox"><p style="color:var(--muted);padding:16px">等待任务...</p></div>
-        <div class="artifact-result" id="resultArtifact" style="display:none">
-            <div class="artifact-path" id="resultPaths"></div>
-            <button class="btn btn-secondary" id="openResultButton" type="button" onclick="openResultDirectory()">打开结果目录</button>
-        </div>
-        <div class="report" id="report" style="display:none"></div>
+    <div id="pageNotice" class="notice" role="status" aria-live="polite">正在扫描录播目录...</div>
+
+    <div class="workspace-grid">
+        <section class="panel" aria-labelledby="workflowTitle">
+            <div class="panel-header">
+                <h2 id="workflowTitle">新建分析任务</h2>
+                <span class="meta" id="selectionState">未选择录播</span>
+            </div>
+
+            <div class="step-block">
+                <div class="step-heading">
+                    <span class="step-index">1</span>
+                    <strong>工作目录</strong>
+                    <span>自动记住本机设置</span>
+                </div>
+                <div class="field-row">
+                    <label for="videoDir">录播目录</label>
+                    <div class="field-control">
+                        <input type="text" id="videoDir" autocomplete="off">
+                        <button class="button" id="scanButton" type="button" onclick="scan()">扫描录播</button>
+                    </div>
+                </div>
+                <div class="field-row">
+                    <label for="outputDir">输出目录</label>
+                    <input type="text" id="outputDir" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="step-block">
+                <div class="step-heading">
+                    <span class="step-index">2</span>
+                    <strong>选择录播</strong>
+                    <span id="videoCount">0 个可用文件</span>
+                </div>
+                <div class="video-list" id="vlist" aria-label="录播列表">
+                    <div class="empty-state">正在读取目录...</div>
+                </div>
+                <div class="selected-summary" id="selectedSummary" hidden>
+                    <span class="summary-label">当前录播</span>
+                    <span class="summary-title" id="selectedName"></span>
+                    <span class="summary-path" id="selectedPath"></span>
+                </div>
+            </div>
+
+            <div class="step-block">
+                <div class="step-heading">
+                    <span class="step-index">3</span>
+                    <strong>分析设置</strong>
+                    <span>默认设置适合日常任务</span>
+                </div>
+                <div class="field-row">
+                    <label for="streamerProfile">主播配置</label>
+                    <select id="streamerProfile" onchange="onStreamerProfileChange()">
+                        <option value="auto">自动识别</option>
+                    </select>
+                </div>
+                <div class="field-row">
+                    <label for="timelineMode">辅助时间轴</label>
+                    <div class="field-control">
+                        <select id="timelineMode" onchange="toggleTimelineMode()">
+                            <option value="none" selected>不使用时间轴</option>
+                            <option value="manual">手动选择 DOCX</option>
+                            <option value="auto">自动匹配日期 DOCX</option>
+                        </select>
+                        <button class="button small" id="refreshTimelineButton" type="button" onclick="loadTimelines()">刷新列表</button>
+                    </div>
+                </div>
+                <div class="field-row" id="timelineManualRow" hidden>
+                    <label for="timelineSelect">时间轴文件</label>
+                    <div class="field-control">
+                        <select id="timelineSelect" onchange="onTimelineSelection(this.value)">
+                            <option value="">选择 DOCX</option>
+                        </select>
+                        <input type="text" id="timelinePath" oninput="clearOptimizedTimeline();updateActions()" placeholder="也可粘贴人工时间轴 DOCX 路径">
+                    </div>
+                </div>
+                <div id="timelineArtifact" class="artifact-path" hidden></div>
+            </div>
+
+            <div class="action-bar">
+                <details class="more-actions" id="moreActions">
+                    <summary class="button">更多操作</summary>
+                    <div class="more-menu">
+                        <button class="button quiet" id="optimizeButton" type="button" onclick="optimizeTimeline()" disabled>仅优化时间轴</button>
+                        <button class="button quiet" id="retryButton" type="button" onclick="retryClipReview()" disabled>仅重新复核候选</button>
+                    </div>
+                </details>
+                <button class="button primary" id="startButton" type="button" onclick="startPipeline()" disabled>开始分析+切片</button>
+            </div>
+        </section>
+
+        <section class="panel activity-panel" aria-labelledby="activityTitle">
+            <div class="panel-header">
+                <h2 id="activityTitle">任务与结果</h2>
+                <span class="meta" id="activityState">等待启动</span>
+            </div>
+            <div class="activity-scroll">
+                <div class="progress-list" id="progressBox">
+                    <div class="empty-state">任务启动后，这里会持续显示分析和切片进度。</div>
+                </div>
+                <div class="artifact-result" id="resultArtifact" hidden>
+                    <div class="artifact-path" id="resultPaths"></div>
+                    <button class="button" id="openResultButton" type="button" onclick="openResultDirectory()">打开结果目录</button>
+                </div>
+                <div class="report" id="report" hidden></div>
+            </div>
+        </section>
     </div>
-</div>
+</main>
 
 <script>
-let selVideo=null,selAss=null,sse=null,optimizedTimeline=null,resultTaskId=null;
+let selVideo=null,selAss=null,sse=null,optimizedTimeline=null,resultTaskId=null,scanBusy=false,taskBusy=false;
+const STREAMER_PROFILE_STORAGE_KEY='autoslice.streamer-profile';
+const DEFAULT_VIDEO_DIR={{ default_video_dir|tojson }};
+const DEFAULT_OUTPUT_DIR={{ default_output_dir|tojson }};
+const VIDEO_DIR_STORAGE_KEY='autoslice.video-dir';
+const OUTPUT_DIR_STORAGE_KEY='autoslice.output-dir';
 
-function esc(s){
-    return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function byId(id){return document.getElementById(id)}
+function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}
+
+function setNotice(message,kind=''){
+    const notice=byId('pageNotice');
+    notice.textContent=message;
+    notice.className=`notice ${kind}`.trim();
+}
+
+async function jsonRequest(url,options={}){
+    const response=await fetch(url,{headers:{'Content-Type':'application/json'},...options});
+    const result=await response.json().catch(()=>({error:`服务返回了无效数据 (${response.status})`}));
+    if(!response.ok||result.error)throw new Error(result.error||`请求失败 (${response.status})`);
+    return result;
+}
+
+function restoreWorkspacePaths(){
+    try{
+        byId('videoDir').value=localStorage.getItem(VIDEO_DIR_STORAGE_KEY)||DEFAULT_VIDEO_DIR;
+        byId('outputDir').value=localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)||DEFAULT_OUTPUT_DIR;
+    }catch(error){
+        byId('videoDir').value=DEFAULT_VIDEO_DIR;
+        byId('outputDir').value=DEFAULT_OUTPUT_DIR;
+    }
+}
+
+function rememberWorkspacePaths(){
+    try{
+        localStorage.setItem(VIDEO_DIR_STORAGE_KEY,byId('videoDir').value);
+        localStorage.setItem(OUTPUT_DIR_STORAGE_KEY,byId('outputDir').value);
+    }catch(error){}
 }
 
 function renderReport(markdown){
@@ -131,185 +191,244 @@ function renderReport(markdown){
     }).join('');
 }
 
+function updateActions(){
+    const manualReady=byId('timelineMode').value==='manual'&&Boolean(byId('timelinePath').value.trim());
+    byId('startButton').disabled=!selVideo||taskBusy;
+    byId('retryButton').disabled=!selVideo||taskBusy;
+    byId('optimizeButton').disabled=!selVideo||!manualReady||taskBusy;
+    byId('scanButton').disabled=scanBusy||taskBusy;
+}
+
 function clearResultArtifact(){
     resultTaskId=null;
-    document.getElementById('resultArtifact').style.display='none';
-    document.getElementById('resultPaths').textContent='';
+    byId('resultArtifact').hidden=true;
+    byId('resultPaths').textContent='';
 }
 
 function renderResultArtifact(taskId,result){
     if(!result||!result.artifact_dir){clearResultArtifact();return}
     resultTaskId=taskId;
-    const lines=[`整理包: ${result.artifact_dir}`];
-    if(result.overview_path)lines.push(`首先打开: ${result.overview_path}`);
-    if(result.slice_dir)lines.push(`实际切片: ${result.slice_dir}`);
-    document.getElementById('resultPaths').textContent=lines.join('\n');
-    document.getElementById('resultArtifact').style.display='block';
+    const lines=[`整理包：${result.artifact_dir}`];
+    if(result.overview_path)lines.push(`优先查看：${result.overview_path}`);
+    if(result.slice_dir)lines.push(`实际切片：${result.slice_dir}`);
+    byId('resultPaths').textContent=lines.join('\n');
+    byId('resultPaths').title=lines.join('\n');
+    byId('resultArtifact').hidden=false;
 }
 
 async function openResultDirectory(){
-    if(!resultTaskId){alert('当前没有可打开的结果目录');return}
-    const response=await fetch('/api/open-result-directory',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({task_id:resultTaskId})});
-    const result=await response.json();
-    if(!response.ok||result.error)alert(result.error||'结果目录打开失败');
+    if(!resultTaskId){setNotice('当前没有可打开的结果目录','warning');return}
+    try{
+        await jsonRequest('/api/open-result-directory',{method:'POST',body:JSON.stringify({task_id:resultTaskId})});
+        setNotice('已在资源管理器中打开结果目录','success');
+    }catch(error){setNotice(`结果目录打开失败：${error.message}`,'error')}
+}
+
+function taskTypeLabel(taskId){
+    if(taskId?.startsWith('timeline_opt_'))return '人工时间轴优化';
+    if(taskId?.startsWith('clip_review_'))return '候选片段复核';
+    return '智能分析与切片';
+}
+
+function renderTaskProgress(data){
+    const percent=data.total>0?Math.max(0,Math.min(100,Math.round(data.step/data.total*100))):0;
+    const status=data.status==='done'?'done':data.status==='error'?'error':'running';
+    const statusText=status==='done'?'完成':status==='error'?'失败':'进行中';
+    byId('progressBox').innerHTML=`
+        <div class="progress-item ${status}">
+            <div class="progress-heading">
+                <span class="progress-name" title="${esc(data.task_id)}">${esc(taskTypeLabel(data.task_id))}</span>
+                <span class="status-chip ${status}">${statusText}</span>
+            </div>
+            ${status==='running'?`<div class="progress-track"><div class="progress-fill" style="transform:scaleX(${percent/100})"></div></div>`:''}
+            <div class="progress-message">${esc(data.progress||'等待任务状态...')}</div>
+        </div>`;
+    byId('activityState').textContent=status==='running'?`${percent}% · 正在处理`:statusText;
+    taskBusy=status==='running';
+    updateActions();
 }
 
 function connectSSE(){
     if(sse)sse.close();
     sse=new EventSource('/api/events');
-    sse.addEventListener('task_update',e=>{
-        const d=JSON.parse(e.data);
-        const isPipeline=d.task_id&&d.task_id.startsWith('pipeline_');
-        const isTimelineOptimization=d.task_id&&d.task_id.startsWith('timeline_opt_');
-        if(!isPipeline&&!isTimelineOptimization)return;
-        const pct=d.total>0?Math.max(0,Math.min(100,Math.round(d.step/d.total*100))):0;
-        const cls=d.status==='done'?'done':d.status==='error'?'error':'';
-        const statusClass=d.status==='running'?'running':d.status==='done'?'done':'error';
-        const statusText=d.status==='running'?'进行中':d.status==='done'?'完成':'失败';
-        document.getElementById('progressBox').innerHTML=`
-            <div class="progress-item ${cls}">
-                <div class="name"><span>${esc(d.task_id)}</span><span class="status status-${statusClass}">${statusText}</span></div>
-                ${d.status==='running'?`<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>`:''}
-                <div class="progress-msg">${esc(d.progress||'')}</div>
-            </div>`;
-        if(d.status==='done'&&d.result){
+    sse.addEventListener('task_update',event=>{
+        const data=JSON.parse(event.data);
+        const relevant=data.task_id&&(data.task_id.startsWith('pipeline_')||data.task_id.startsWith('timeline_opt_')||data.task_id.startsWith('clip_review_'));
+        if(!relevant)return;
+        renderTaskProgress(data);
+        if(data.status==='error')setNotice(data.progress||'任务执行失败','error');
+        if(data.status==='done'&&data.result){
             try{
-                const r=JSON.parse(d.result);
-                if(isTimelineOptimization){
-                    optimizedTimeline={
-                        videoPath:r.video_path,
-                        sourcePath:(r.manual_timeline||{}).path,
-                        jsonPath:r.optimized_json_path,
-                        mdPath:r.optimized_md_path
-                    };
+                const result=JSON.parse(data.result);
+                if(data.task_id.startsWith('timeline_opt_')){
+                    optimizedTimeline={videoPath:result.video_path,sourcePath:(result.manual_timeline||{}).path,jsonPath:result.optimized_json_path,mdPath:result.optimized_md_path,profileId:result.streamer_profile_id};
                     renderOptimizedTimeline();
-                    renderResultArtifact(d.task_id,r);
                 }else{
-                    renderResultArtifact(d.task_id,r);
-                    const el=document.getElementById('report');
-                    el.style.display='block';
-                    el.innerHTML=renderReport(r.report||'');
+                    const report=byId('report');
+                    report.hidden=!result.report;
+                    report.innerHTML=renderReport(result.report||'');
                 }
-            }catch(ex){}
+                renderResultArtifact(data.task_id,result);
+                setNotice(`${taskTypeLabel(data.task_id)}已完成`,'success');
+            }catch(error){setNotice('任务完成，但结果数据无法读取','error')}
         }
     });
-    sse.onerror=()=>setTimeout(connectSSE,3000);
+    sse.onerror=()=>{byId('activityState').textContent='连接恢复中';setTimeout(connectSSE,3000)};
 }
 
-async function scan(){
-    const r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({video_dir:document.getElementById('videoDir').value})});
-    const d=await r.json();
-    const list=document.getElementById('vlist');
+function renderVideoList(videos){
+    const list=byId('vlist');
     list.replaceChildren();
-    (d.videos||[]).forEach(v=>{
-        const item=document.createElement('div');
-        item.className='vitem';
-        item.addEventListener('click',()=>pick(item,v.path,v.has_ass));
+    videos.forEach(video=>{
+        const item=document.createElement('button');
+        item.type='button';
+        item.className='video-item';
+        item.title=video.path;
+        item.addEventListener('click',()=>pick(item,video));
         const name=document.createElement('span');
-        name.textContent=v.name;
+        name.className='video-name';
+        name.textContent=video.name;
         const ass=document.createElement('span');
-        ass.className=`badge ${v.has_ass?'badge-blue':'badge-gray'}`;
-        ass.textContent=v.has_ass?'ASS弹幕':'无弹幕';
+        ass.className=`badge ${video.has_ass?'info':''}`;
+        ass.textContent=video.has_ass?'有弹幕':'无弹幕';
         const srt=document.createElement('span');
-        srt.className=`badge ${v.has_srt?'badge-green':'badge-gray'}`;
-        srt.textContent=v.has_srt?'SRT字幕':'无字幕';
+        srt.className=`badge ${video.has_srt?'success':''}`;
+        srt.textContent=video.has_srt?'有字幕':'无字幕';
         item.append(name,ass,srt);
         list.appendChild(item);
     });
-    if(!list.children.length){
-        const empty=document.createElement('p');
-        empty.style.cssText='color:var(--muted);padding:16px';
-        empty.textContent=d.error||'没有找到视频';
-        list.appendChild(empty);
-    }
+    if(!videos.length)list.innerHTML='<div class="empty-state">目录中没有可分析的录播文件。</div>';
+}
+
+async function scan(){
+    rememberWorkspacePaths();
+    scanBusy=true;
+    updateActions();
+    setNotice('正在扫描录播目录...');
+    byId('vlist').innerHTML='<div class="empty-state">正在读取视频、字幕和弹幕文件...</div>';
+    try{
+        const result=await jsonRequest('/api/scan',{method:'POST',body:JSON.stringify({video_dir:byId('videoDir').value})});
+        const videos=result.videos||[];
+        renderVideoList(videos);
+        byId('videoCount').textContent=`${videos.length} 个可用文件`;
+        setNotice(videos.length?`扫描完成，找到 ${videos.length} 个录播文件`:'扫描完成，但目录中没有找到录播','success');
+    }catch(error){
+        renderVideoList([]);
+        byId('videoCount').textContent='0 个可用文件';
+        setNotice(`扫描失败：${error.message}`,'error');
+    }finally{scanBusy=false;updateActions()}
 }
 
 async function loadTimelines(){
-    const r=await fetch('/api/timelines');
-    const d=await r.json();
-    const files=d.files||[];
-    document.getElementById('timelineSelect').innerHTML='<option value="">-- 选择 docx --</option>'+files.map(f=>`<option value="${esc(f.path)}">${esc(f.name)}</option>`).join('');
+    try{
+        const result=await jsonRequest('/api/timelines');
+        const select=byId('timelineSelect');
+        select.replaceChildren(new Option('选择 DOCX',''));
+        (result.files||[]).forEach(file=>select.add(new Option(file.name,file.path)));
+        if(byId('timelineMode').value==='manual')setNotice(`已载入 ${(result.files||[]).length} 个人工时间轴`,'success');
+    }catch(error){setNotice(`时间轴列表加载失败：${error.message}`,'error')}
 }
+
+async function loadStreamerProfiles(){
+    const select=byId('streamerProfile');
+    try{
+        const result=await jsonRequest('/api/streamer-profiles');
+        const remembered=localStorage.getItem(STREAMER_PROFILE_STORAGE_KEY)||'auto';
+        select.replaceChildren();
+        (result.profiles||[]).forEach(profile=>select.add(new Option(profile.label,profile.id)));
+        select.value=[...select.options].some(option=>option.value===remembered)?remembered:'auto';
+    }catch(error){select.replaceChildren(new Option('自动识别','auto'))}
+}
+
+function selectedStreamerProfile(){return byId('streamerProfile').value||'auto'}
+function onStreamerProfileChange(){try{localStorage.setItem(STREAMER_PROFILE_STORAGE_KEY,selectedStreamerProfile())}catch(error){}clearOptimizedTimeline()}
 
 function toggleTimelineMode(){
-    const mode=document.getElementById('timelineMode').value;
-    document.getElementById('timelineManualRow').style.display=mode==='manual'?'flex':'none';
+    const mode=byId('timelineMode').value;
+    byId('timelineManualRow').hidden=mode!=='manual';
     if(mode!=='manual')clearOptimizedTimeline();
     if(mode==='manual')loadTimelines();
+    updateActions();
 }
 
-function setDir(p){document.getElementById('videoDir').value=p;scan();}
-function pick(el,path,hasAss){
-    document.querySelectorAll('.vitem').forEach(e=>e.classList.remove('sel'));
-    el.classList.add('sel');
-    selVideo=path;
-    selAss=hasAss?path.replace(/\.flv$/i,'.ass'):'';
+function pick(element,video){
+    document.querySelectorAll('.video-item').forEach(item=>item.classList.remove('selected'));
+    element.classList.add('selected');
+    selVideo=video.path;
+    selAss=video.has_ass?video.path.replace(/\.flv$/i,'.ass'):'';
+    byId('selectedName').textContent=video.name;
+    byId('selectedName').title=video.name;
+    byId('selectedPath').textContent=video.path;
+    byId('selectedPath').title=video.path;
+    byId('selectedSummary').hidden=false;
+    byId('selectionState').textContent=video.name;
+    byId('selectionState').title=video.path;
     clearOptimizedTimeline();
     clearResultArtifact();
+    byId('report').hidden=true;
+    setNotice(`已选择：${video.name}`,'success');
+    updateActions();
 }
 
-function onTimelineSelection(path){
-    document.getElementById('timelinePath').value=path;
-    clearOptimizedTimeline();
-}
-
-function clearOptimizedTimeline(){
-    optimizedTimeline=null;
-    const el=document.getElementById('timelineArtifact');
-    el.style.display='none';
-    el.textContent='';
-}
-
+function onTimelineSelection(path){byId('timelinePath').value=path;clearOptimizedTimeline();updateActions()}
+function clearOptimizedTimeline(){optimizedTimeline=null;byId('timelineArtifact').hidden=true;byId('timelineArtifact').textContent=''}
 function renderOptimizedTimeline(){
-    const el=document.getElementById('timelineArtifact');
-    if(!optimizedTimeline||!optimizedTimeline.jsonPath){clearOptimizedTimeline();return}
-    el.style.display='block';
-    el.textContent=`优化 JSON: ${optimizedTimeline.jsonPath} | 审阅 MD: ${optimizedTimeline.mdPath||''}`;
+    if(!optimizedTimeline?.jsonPath){clearOptimizedTimeline();return}
+    const text=`优化 JSON：${optimizedTimeline.jsonPath}\n审阅文档：${optimizedTimeline.mdPath||'未生成'}`;
+    byId('timelineArtifact').textContent=text;
+    byId('timelineArtifact').title=text;
+    byId('timelineArtifact').hidden=false;
+}
+
+async function runAction({url,body,starting,failure}){
+    taskBusy=true;
+    updateActions();
+    byId('progressBox').innerHTML=`<div class="empty-state">${esc(starting)}</div>`;
+    byId('activityState').textContent='正在启动';
+    setNotice(starting);
+    try{
+        await jsonRequest(url,{method:'POST',body:JSON.stringify(body)});
+        setNotice('任务已启动，可在右侧查看实时进度','success');
+    }catch(error){
+        taskBusy=false;
+        updateActions();
+        byId('activityState').textContent='启动失败';
+        setNotice(`${failure}：${error.message}`,'error');
+    }
 }
 
 async function optimizeTimeline(){
-    if(!selVideo){alert('请先选择视频');return}
-    const mode=document.getElementById('timelineMode').value;
-    const timelinePath=document.getElementById('timelinePath').value;
-    if(mode!=='manual'||!timelinePath){alert('请先手动选择人工时间轴 DOCX');return}
-    clearOptimizedTimeline();
-    clearResultArtifact();
-    document.getElementById('progressBox').innerHTML='<p style="color:var(--muted);padding:16px">启动时间轴优化...</p>';
-    const response=await fetch('/api/optimize-manual-timeline',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({flv_path:selVideo,ass_path:selAss,manual_timeline_path:timelinePath,
-            output_dir:document.getElementById('outputDir').value})});
-    const result=await response.json();
-    if(!response.ok||result.error)alert(result.error||'时间轴优化启动失败');
+    if(!selVideo){setNotice('请先从列表选择录播','warning');return}
+    rememberWorkspacePaths();
+    const timelinePath=byId('timelinePath').value.trim();
+    if(byId('timelineMode').value!=='manual'||!timelinePath){setNotice('仅优化时间轴需要手动选择 DOCX 文件','warning');return}
+    clearOptimizedTimeline();clearResultArtifact();
+    await runAction({url:'/api/optimize-manual-timeline',starting:'正在启动人工时间轴优化...',failure:'时间轴优化启动失败',body:{flv_path:selVideo,ass_path:selAss,manual_timeline_path:timelinePath,output_dir:document.getElementById('outputDir').value,streamer_profile_id:selectedStreamerProfile()}});
 }
 
 async function startPipeline(){
-    if(!selVideo){alert('请先选择视频');return}
-    const mode=document.getElementById('timelineMode').value;
-    const timelinePath=document.getElementById('timelinePath').value;
-    if(mode==='manual'&&!timelinePath){alert('请选择或填写辅助时间轴 docx');return}
-    const optimizedPath=optimizedTimeline
-        &&optimizedTimeline.videoPath===selVideo
-        &&optimizedTimeline.sourcePath===timelinePath
-        ?optimizedTimeline.jsonPath:'';
-    document.getElementById('report').style.display='none';
-    clearResultArtifact();
-    document.getElementById('progressBox').innerHTML='<p style="color:var(--muted);padding:16px">启动中...</p>';
-    const response=await fetch('/api/start-pipeline',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-            flv_path:selVideo,
-            ass_path:selAss,
-            output_dir:document.getElementById('outputDir').value,
-            manual_timeline_mode:mode,
-            manual_timeline_path:timelinePath,
-            optimized_timeline_path:optimizedPath
-        })});
-    const result=await response.json();
-    if(!response.ok||result.error)alert(result.error||'完整分析启动失败');
+    if(!selVideo){setNotice('请先从列表选择录播','warning');return}
+    rememberWorkspacePaths();
+    const mode=byId('timelineMode').value;
+    const timelinePath=byId('timelinePath').value.trim();
+    if(mode==='manual'&&!timelinePath){setNotice('请选择或填写辅助时间轴 DOCX','warning');return}
+    const optimizedPath=optimizedTimeline&&optimizedTimeline.videoPath===selVideo&&optimizedTimeline.sourcePath===timelinePath&&optimizedTimeline.profileId===selectedStreamerProfile()?optimizedTimeline.jsonPath:'';
+    byId('report').hidden=true;clearResultArtifact();
+    await runAction({url:'/api/start-pipeline',starting:'正在启动完整分析与切片...',failure:'完整分析启动失败',body:{flv_path:selVideo,ass_path:selAss,output_dir:document.getElementById('outputDir').value,manual_timeline_mode:mode,manual_timeline_path:timelinePath,optimized_timeline_path:optimizedPath,streamer_profile_id:selectedStreamerProfile()}});
 }
 
-connectSSE();scan();loadTimelines();toggleTimelineMode();
+async function retryClipReview(){
+    if(!selVideo){setNotice('请先从列表选择录播','warning');return}
+    rememberWorkspacePaths();
+    byId('report').hidden=true;clearResultArtifact();
+    await runAction({url:'/api/retry-clip-review',starting:'正在启动候选片段复核...',failure:'候选复核启动失败',body:{flv_path:selVideo,ass_path:selAss,output_dir:document.getElementById('outputDir').value,streamer_profile_id:selectedStreamerProfile()}});
+}
+
+restoreWorkspacePaths();
+connectSSE();
+loadStreamerProfiles();
+toggleTimelineMode();
+scan();
 </script>
 </body>
 </html>

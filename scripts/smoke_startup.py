@@ -69,7 +69,7 @@ def _wait_for_services(process: subprocess.Popen[str], timeout: float = 45.0) ->
             and autoslice.get("api_version") == 1
             and autocover
             and autocover.get("service") == "autocover"
-            and autocover.get("api_version") == 4
+            and autocover.get("api_version") == 5
         ):
             return
         time.sleep(0.2)

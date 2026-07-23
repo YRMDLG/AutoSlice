@@ -35,12 +35,31 @@ class StickerLibraryTests(unittest.TestCase):
     def test_scans_only_valid_expression_pack_images(self) -> None:
         assets = self.library.scan()
 
-        self.assertEqual([asset.name for asset in assets], ["害羞", "震惊"])
-        self.assertEqual({asset.group for asset in assets}, {"沐霂表情包", "表情包"})
+        self.assertEqual({asset.name for asset in assets}, {"害羞", "震惊"})
+        self.assertEqual({asset.group for asset in assets}, {"沐霂表情包", "常用"})
         self.assertEqual({(asset.width, asset.height) for asset in assets}, {(160, 120), (240, 180)})
         payload = assets[0].to_dict()
         self.assertNotIn(str(self.root), str(payload))
         self.assertNotIn("path", payload)
+
+        summary = self.library.summary()
+        self.assertTrue(summary["available"])
+        self.assertEqual(summary["asset_count"], 2)
+        self.assertEqual(summary["group_count"], 2)
+        self.assertEqual(summary["invalid_count"], 1)
+        self.assertNotIn(str(self.root), str(summary))
+
+    def test_expression_root_groups_assets_by_streamer_directory(self) -> None:
+        streamer_dir = self.root / "表情包" / "泽音melody" / "开心"
+        streamer_dir.mkdir(parents=True)
+        Image.new("RGBA", (180, 180), (255, 255, 255, 128)).save(streamer_dir / "音音.png")
+
+        library = StickerLibrary(self.root / "表情包")
+        assets = library.scan()
+
+        self.assertEqual({asset.name for asset in assets}, {"震惊", "音音"})
+        self.assertEqual({asset.group for asset in assets}, {"常用", "泽音melody"})
+        self.assertEqual(library.summary()["group_count"], 2)
 
     def test_asset_ids_are_stable_and_resolve_registered_files(self) -> None:
         first = self.library.scan()
@@ -65,6 +84,7 @@ class StickerLibraryTests(unittest.TestCase):
 
         self.assertEqual(library.scan(), [])
         self.assertEqual(library.list_assets(), [])
+        self.assertFalse(library.summary()["available"])
 
 
 if __name__ == "__main__":

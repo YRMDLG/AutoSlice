@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
@@ -40,10 +42,30 @@ class StickerLibrary:
         self.root = Path(root).expanduser().resolve()
         self._assets: dict[str, StickerAsset] = {}
         self._paths: dict[str, Path] = {}
+        self._root_available = False
+        self._invalid_count = 0
 
-    @staticmethod
-    def _is_expression_pack(relative_path: Path) -> bool:
+    def _is_expression_pack(self, relative_path: Path) -> bool:
+        """兼容“表情包/主播”和旧版“主播表情包”两种目录结构。"""
+
+        if "表情包" in self.root.name:
+            return True
         return any("表情包" in part for part in relative_path.parts[:-1])
+
+    def _group_name(self, relative_path: Path) -> str:
+        """返回前端使用的主播分组，不暴露本机绝对路径。"""
+
+        directories = relative_path.parts[:-1]
+        if "表情包" in self.root.name:
+            return directories[0].strip() if directories else "未分组"
+
+        for index, part in enumerate(directories):
+            if "表情包" not in part:
+                continue
+            if part == "表情包" and index + 1 < len(directories):
+                return directories[index + 1].strip() or "未分组"
+            return part.strip() or "未分组"
+        return "未分组"
 
     @staticmethod
     def _asset_id(relative_path: Path) -> str:
@@ -55,7 +77,9 @@ class StickerLibrary:
 
         assets: dict[str, StickerAsset] = {}
         paths: dict[str, Path] = {}
-        if not self.root.is_dir():
+        self._root_available = self.root.is_dir()
+        self._invalid_count = 0
+        if not self._root_available:
             self._assets = assets
             self._paths = paths
             return []
@@ -76,19 +100,17 @@ class StickerLibrary:
                 with Image.open(resolved) as image:
                     width, height = image.size
             except (OSError, UnidentifiedImageError):
+                self._invalid_count += 1
                 continue
             if width <= 0 or height <= 0:
+                self._invalid_count += 1
                 continue
 
             asset_id = self._asset_id(relative_path)
-            group = next(
-                (part for part in relative_path.parts[:-1] if "表情包" in part),
-                relative_path.parent.name,
-            )
             asset = StickerAsset(
                 id=asset_id,
                 name=resolved.stem,
-                group=group,
+                group=self._group_name(relative_path),
                 relative_path=relative_path.as_posix(),
                 width=width,
                 height=height,
@@ -107,6 +129,22 @@ class StickerLibrary:
             self._assets.values(),
             key=lambda asset: (asset.group.casefold(), asset.name.casefold(), asset.id),
         )
+
+    def summary(self) -> dict[str, Any]:
+        """返回不包含根目录路径的扫描摘要。"""
+
+        group_counts = Counter(asset.group for asset in self._assets.values())
+        groups = [
+            {"name": name, "count": count}
+            for name, count in sorted(group_counts.items(), key=lambda item: item[0].casefold())
+        ]
+        return {
+            "available": self._root_available,
+            "asset_count": len(self._assets),
+            "group_count": len(groups),
+            "invalid_count": self._invalid_count,
+            "groups": groups,
+        }
 
     def get(self, asset_id: str) -> StickerAsset:
         """按不透明 ID 获取素材元数据。"""

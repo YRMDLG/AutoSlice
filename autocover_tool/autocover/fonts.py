@@ -145,3 +145,34 @@ def resolve_font_path(custom_path: str | Path | None = None) -> str | None:
 
     selected = get_default_font_status().render_path
     return str(selected) if selected is not None else None
+
+
+def resolve_font_stack(custom_path: str | Path | None = None) -> tuple[str | None, ...]:
+    """返回主字体和系统中文回退字体，按实际渲染优先级排列。"""
+
+    primary = resolve_font_path(custom_path)
+    resolved: list[str | None] = []
+    seen: set[str] = set()
+
+    def append(path: str | Path | None) -> None:
+        if path is None:
+            if not resolved:
+                resolved.append(None)
+            return
+        candidate = _expanded_path(path)
+        key = str(candidate).casefold()
+        if key in seen or not candidate.is_file():
+            return
+        try:
+            _font_family(candidate)
+        except OSError:
+            return
+        seen.add(key)
+        resolved.append(str(candidate))
+
+    append(primary)
+    for candidate in _system_font_candidates():
+        append(candidate)
+    if not resolved:
+        resolved.append(None)
+    return tuple(resolved)

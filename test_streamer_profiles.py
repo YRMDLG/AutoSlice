@@ -19,11 +19,11 @@ class StreamerProfileTests(unittest.TestCase):
     def test_auto_matching_and_public_payload_are_generic_by_default(self):
         zeyin = resolve_streamer_profile(
             "auto",
-            r"recordings\1947277414-泽音Melody\直播.flv",
+            r"X:\fixtures\录播\1947277414-泽音Melody\直播.flv",
         )
         generic = resolve_streamer_profile(
             "auto",
-            r"recordings\另一位主播\直播.flv",
+            r"X:\fixtures\录播\另一位主播\直播.flv",
         )
 
         self.assertEqual(zeyin.id, "zeyin")
@@ -38,9 +38,9 @@ class StreamerProfileTests(unittest.TestCase):
 
     def test_auto_profile_uses_streamer_name_before_filename_date(self):
         paths = (
-            r"recordings\泽音-2026-07-22 19_58-周三歌杂.flv",
-            r"recordings\泽音_2026年07月22日19点58分.flv",
-            r"recordings\泽音_20260722_1958.flv",
+            r"X:\fixtures\录播\泽音-2026-07-22 19_58-周三歌杂.flv",
+            r"X:\fixtures\录播\泽音_2026年07月22日19点58分.flv",
+            r"X:\fixtures\录播\泽音_20260722_1958.flv",
         )
 
         for path in paths:
@@ -54,7 +54,7 @@ class StreamerProfileTests(unittest.TestCase):
     def test_unknown_streamer_gets_task_profile_from_filename(self):
         profile = resolve_streamer_profile(
             "auto",
-            r"recordings\七海Nana7mi-2026-07-22 20_00-歌杂.flv",
+            r"X:\fixtures\录播\七海Nana7mi-2026-07-22 20_00-歌杂.flv",
         )
 
         self.assertEqual(profile.id, "generic")
@@ -67,7 +67,7 @@ class StreamerProfileTests(unittest.TestCase):
         profile = resolve_streamer_profile(
             "auto",
             (
-                r"recordings\1947277414-泽音Melody"
+                r"X:\fixtures\录播\1947277414-泽音Melody"
                 r"\吃会石然后节奏天国-2026年07月05号-20点03分18秒-001.flv"
             ),
         )
@@ -77,12 +77,13 @@ class StreamerProfileTests(unittest.TestCase):
 
     def test_filename_without_date_keeps_generic_profile(self):
         self.assertIsNone(infer_streamer_name_from_filename("周三歌杂.flv"))
-        profile = resolve_streamer_profile("auto", r"recordings\周三歌杂.flv")
+        profile = resolve_streamer_profile("auto", r"X:\fixtures\录播\周三歌杂.flv")
         self.assertEqual(profile.id, "generic")
         self.assertEqual(profile.title_prefix, "")
 
     def test_context_is_nested_and_thread_isolated(self):
         self.assertIsNone(active_streamer_profile())
+        self.assertEqual(current_streamer_profile().id, "generic")
         with streamer_profile_context("generic"):
             self.assertEqual(current_streamer_profile().id, "generic")
             with streamer_profile_context("zeyin"):
@@ -97,6 +98,18 @@ class StreamerProfileTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(selected, ("generic", "zeyin")))
         self.assertEqual(results, ["generic", "zeyin"])
+
+    def test_context_accepts_frozen_profile_snapshot(self):
+        profile = resolve_streamer_profile(
+            "auto",
+            r"X:\fixtures\录播\七海Nana7mi-2026-07-22 20_00-歌杂.flv",
+        )
+
+        with streamer_profile_context(profile):
+            active = current_streamer_profile()
+
+        self.assertIs(active, profile)
+        self.assertEqual(active.canonical_name, "七海Nana7mi")
 
     def test_invalid_config_has_clear_error(self):
         with TemporaryDirectory() as td:

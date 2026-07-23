@@ -46,6 +46,8 @@ ALLOWED_SYNTHETIC_PATH_PREFIXES = (
     "c:\\runtime",
     "c:\\python310",
     "c:\\windows",
+    "c:\\program files",
+    "c:\\program files (x86)",
 )
 SECRET_PATTERNS = (
     ("私钥", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")),

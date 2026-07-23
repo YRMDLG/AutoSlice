@@ -11,7 +11,15 @@ from flask import Flask, render_template, request, jsonify, Response, redirect
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import process_video
 from runtime_config import (
-    OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR, template_defaults,
+    OUTPUT_DIR,
+    SUBMISSION_DIR,
+    TIMELINE_DIR,
+    VIDEO_DIR,
+)
+from streamer_profiles import (
+    public_streamer_profiles,
+    resolve_streamer_profile,
+    streamer_profile_context,
 )
 
 app = Flask(__name__)
@@ -27,15 +35,45 @@ PROJECT_TL_DIR = os.path.join(PROJECT_DIR, "timelines")
 os.makedirs(PROJECT_TL_DIR, exist_ok=True)
 for _runtime_dir in (VIDEO_DIR, OUTPUT_DIR, TIMELINE_DIR, SUBMISSION_DIR):
     _runtime_dir.mkdir(parents=True, exist_ok=True)
+
+DEFAULT_VIDEO_DIR = str(VIDEO_DIR)
+DEFAULT_OUTPUT_DIR = str(OUTPUT_DIR)
+DEFAULT_TIMELINE_DIR = str(TIMELINE_DIR)
+DEFAULT_SUBMISSION_DIR = str(SUBMISSION_DIR)
 DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1
-JSON_TIMELINE_UPLOAD_DIR = OUTPUT_DIR
-MANUAL_TIMELINE_UPLOAD_DIR = TIMELINE_DIR
+JSON_TIMELINE_UPLOAD_DIR = Path(DEFAULT_OUTPUT_DIR)
+MANUAL_TIMELINE_UPLOAD_DIR = Path(DEFAULT_TIMELINE_DIR)
 _ACTIVE_TASK_STATUSES = {"queued", "running"}
-_OPENABLE_RESULT_TASK_TYPES = {"topic_pipeline", "timeline_optimization"}
+_TASK_HISTORY_LIMIT = 200
+_TASK_HISTORY_TTL_SEC = 24 * 60 * 60
+_OPENABLE_RESULT_TASK_TYPES = {
+    "topic_pipeline",
+    "timeline_optimization",
+    "clip_review_retry",
+}
 _WINDOWS_PATH_RE = re.compile(r"(?i)(?<![\w])(?:[a-z]:\\)[^\r\n]+")
 _UPLOAD_INVALID_CHARS_RE = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_LAN_PATH_FIELDS = {
+    "artifact_dir",
+    "ass_path",
+    "flv_path",
+    "json_path",
+    "manual_timeline_path",
+    "optimized_timeline_path",
+    "output_dir",
+    "output_path",
+    "report_path",
+    "root_dir",
+    "srt_path",
+    "timeline_path",
+    "video_dir",
+    "video_path",
+}
+_LAN_COOKIE_NAME = "autoslice_lan_token"
 
 
 def _configured_autocover_url(environ=None):
@@ -61,6 +99,163 @@ def _configured_autocover_url(environ=None):
     return candidate
 
 
+def _env_flag(name, environ=None):
+    env = environ if environ is not None else os.environ
+    return str(env.get(name, "")).strip().casefold() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _split_env_values(name, environ=None):
+    env = environ if environ is not None else os.environ
+    raw = str(env.get(name, "")).strip()
+    if not raw:
+        return ()
+    return tuple(
+        item.strip()
+        for item in re.split(r"[;,]", raw)
+        if item.strip()
+    )
+
+
+def _request_hostname():
+    try:
+        return (urlsplit(f"//{request.host}").hostname or "").casefold()
+    except ValueError:
+        return ""
+
+
+def _trusted_request_hosts(environ=None):
+    hosts = set(_LOCAL_HOSTS)
+    if _env_flag("AUTOSLICE_LAN_MODE", environ):
+        hosts.update(
+            host.casefold()
+            for host in _split_env_values("AUTOSLICE_LAN_HOSTS", environ)
+        )
+    return hosts
+
+
+def _request_origin_is_trusted():
+    origin = request.headers.get("Origin")
+    if not origin:
+        referer = request.headers.get("Referer")
+        if not referer:
+            return True
+        origin = referer
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    origin_host = (parsed.hostname or "").casefold()
+    if origin_host == _request_hostname():
+        return True
+    if not _env_flag("AUTOSLICE_LAN_MODE"):
+        return origin_host in _LOCAL_HOSTS
+    allowed_origins = {
+        value.rstrip("/").casefold()
+        for value in _split_env_values("AUTOSLICE_LAN_ORIGINS")
+    }
+    return origin.rstrip("/").casefold() in allowed_origins
+
+
+def _lan_token():
+    return str(os.environ.get("AUTOSLICE_LAN_TOKEN", "")).strip()
+
+
+def _lan_request_is_authenticated():
+    token = _lan_token()
+    if len(token) < 24:
+        return False
+    presented = (
+        request.headers.get("X-AutoSlice-Token")
+        or request.cookies.get(_LAN_COOKIE_NAME)
+        or request.args.get("token")
+        or ""
+    )
+    return secrets.compare_digest(str(presented), token)
+
+
+def _lan_allowed_roots():
+    roots = {
+        PROJECT_DIR,
+        PROJECT_TL_DIR,
+        DEFAULT_VIDEO_DIR,
+        DEFAULT_OUTPUT_DIR,
+        DEFAULT_TIMELINE_DIR,
+        DEFAULT_SUBMISSION_DIR,
+    }
+    roots.update(_split_env_values("AUTOSLICE_ALLOWED_ROOTS"))
+    return tuple(
+        Path(root).expanduser().resolve(strict=False)
+        for root in roots
+        if str(root).strip()
+    )
+
+
+def _path_within(path, roots):
+    try:
+        candidate = Path(path).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    for root in roots:
+        try:
+            candidate.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _lan_payload_paths_are_allowed():
+    if not request.is_json:
+        return True
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return True
+    roots = _lan_allowed_roots()
+    for key, value in payload.items():
+        if key not in _LAN_PATH_FIELDS or value in (None, ""):
+            continue
+        if not isinstance(value, str) or not _path_within(value, roots):
+            return False
+    return True
+
+
+@app.before_request
+def enforce_local_request_boundary():
+    """阻止 DNS rebinding、跨站写请求和未授权的局域网访问。"""
+
+    if _request_hostname() not in _trusted_request_hosts():
+        return jsonify({"error": "拒绝不受信任的 Host"}), 403
+    if request.method in _WRITE_METHODS and not _request_origin_is_trusted():
+        return jsonify({"error": "拒绝跨站写请求"}), 403
+    if not _env_flag("AUTOSLICE_LAN_MODE"):
+        return None
+    if not _lan_request_is_authenticated():
+        return jsonify({"error": "局域网模式需要有效访问令牌"}), 401
+    if not _lan_payload_paths_are_allowed():
+        return jsonify({"error": "请求路径不在局域网允许目录内"}), 403
+    return None
+
+
+@app.after_request
+def persist_lan_session(response):
+    if (
+            _env_flag("AUTOSLICE_LAN_MODE")
+            and request.args.get("token")
+            and _lan_request_is_authenticated()):
+        response.set_cookie(
+            _LAN_COOKIE_NAME,
+            _lan_token(),
+            httponly=True,
+            samesite="Strict",
+            max_age=12 * 60 * 60,
+        )
+    return response
+
+
 def broadcast(event_type, data):
     """向所有 SSE 订阅者推送事件"""
     msg = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
@@ -77,6 +272,43 @@ def broadcast(event_type, data):
             for q in dead:
                 if q in event_queues:
                     event_queues.remove(q)
+
+
+def _task_history_timestamp(task):
+    for key in ("completed_at", "updated_at", "created_at"):
+        try:
+            value = float(task.get(key, 0))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0.0
+
+
+def _prune_tasks_locked(now=None):
+    """清理过期已完成任务；活动任务永不因历史上限被移除。"""
+    now = time.time() if now is None else float(now)
+    inactive = [
+        (task_id, task)
+        for task_id, task in tasks.items()
+        if task.get("status") not in _ACTIVE_TASK_STATUSES
+    ]
+    for task_id, task in inactive:
+        timestamp = _task_history_timestamp(task)
+        if timestamp and now - timestamp > _TASK_HISTORY_TTL_SEC:
+            tasks.pop(task_id, None)
+
+    retained = [
+        (task_id, task)
+        for task_id, task in tasks.items()
+        if task.get("status") not in _ACTIVE_TASK_STATUSES
+    ]
+    retained.sort(
+        key=lambda item: _task_history_timestamp(item[1]),
+        reverse=True,
+    )
+    for task_id, _ in retained[_TASK_HISTORY_LIMIT:]:
+        tasks.pop(task_id, None)
 
 
 def _console_print(message, stream=None):
@@ -104,10 +336,16 @@ def _console_print(message, stream=None):
 
 def update_task(task_id, **kwargs):
     """更新任务状态并广播 + 控制台输出"""
+    now = time.time()
+    kwargs.setdefault("updated_at", now)
+    if kwargs.get("status") in {"done", "error", "cancelled"}:
+        kwargs.setdefault("completed_at", now)
     with task_lock:
+        _prune_tasks_locked(now)
         if task_id not in tasks:
             tasks[task_id] = {}
         tasks[task_id].update(kwargs)
+        _prune_tasks_locked(now)
 
     # 控制台同步输出（不用 \r，直接打印）
     status = kwargs.get("status", "")
@@ -138,30 +376,111 @@ def _subtitle_task_id(prefix, path, nonce=None):
     return f"{prefix}_{stem}_{digest}_{run_nonce}"
 
 
-def _reserve_source_task(prefix, task_type, source_path, waiting_progress):
-    """原子登记同源后台任务，防止重复点击覆盖运行状态。"""
-    absolute_source = os.path.abspath(source_path)
-    normalized = os.path.normcase(absolute_source)
+def _normalized_task_paths(paths):
+    """把任务资源路径规范化并去重，供并发冲突判定使用。"""
+    result = []
+    seen = set()
+    for path in paths or ():
+        if not path:
+            continue
+        absolute = os.path.abspath(os.fspath(path))
+        normalized = os.path.normcase(absolute)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(absolute)
+    return tuple(result)
+
+
+def _task_resource_set(task, key, *legacy_keys):
+    raw_values = task.get(key) or ()
+    values = (
+        [raw_values]
+        if isinstance(raw_values, (str, os.PathLike))
+        else list(raw_values)
+    )
+    values.extend(task.get(name) for name in legacy_keys)
+    return {
+        os.path.normcase(os.path.abspath(value))
+        for value in values
+        if value
+    }
+
+
+def _reserve_task(
+        prefix, task_type, waiting_progress, *, source_paths=(),
+        output_paths=(), conflict_types=None, metadata=None):
+    """原子预约后台任务；同源冲突或输出路径冲突均返回已有任务。"""
+    absolute_sources = _normalized_task_paths(source_paths)
+    absolute_outputs = _normalized_task_paths(output_paths)
+    normalized_sources = {
+        os.path.normcase(path) for path in absolute_sources
+    }
+    normalized_outputs = {
+        os.path.normcase(path) for path in absolute_outputs
+    }
+    active_types = set(conflict_types or (task_type,))
+    primary_path = (
+        absolute_sources[0]
+        if absolute_sources
+        else absolute_outputs[0] if absolute_outputs else task_type
+    )
+
     with task_lock:
+        _prune_tasks_locked()
         for active_id, task in tasks.items():
-            if (
-                    task.get("task_type") == task_type
-                    and task.get("status") in _ACTIVE_TASK_STATUSES
-                    and os.path.normcase(os.path.abspath(
-                        task.get("source_path", ""))) == normalized):
+            if task.get("status") not in _ACTIVE_TASK_STATUSES:
+                continue
+            existing_sources = _task_resource_set(
+                task,
+                "source_paths",
+                "source_path",
+                "source_srt_path",
+            )
+            existing_outputs = _task_resource_set(
+                task,
+                "output_paths",
+                "output_path",
+            )
+            same_source = (
+                task.get("task_type") in active_types
+                and bool(normalized_sources & existing_sources)
+            )
+            same_output = bool(normalized_outputs & existing_outputs)
+            if same_source or same_output:
                 return None, active_id
 
-        task_id = _subtitle_task_id(prefix, absolute_source)
-        tasks[task_id] = {
+        task_id = _subtitle_task_id(prefix, primary_path)
+        task = {
             "status": "queued",
             "progress": waiting_progress,
             "step": 0,
             "total": 100,
             "task_type": task_type,
-            "source_path": absolute_source,
+            "source_paths": list(absolute_sources),
+            "output_paths": list(absolute_outputs),
             "created_at": time.time(),
         }
+        if absolute_sources:
+            task["source_path"] = absolute_sources[0]
+        task.update(metadata or {})
+        tasks[task_id] = task
     return task_id, None
+
+
+def _reserve_source_task(
+        prefix, task_type, source_path, waiting_progress, conflict_types=None,
+        output_paths=(), metadata=None):
+    """兼容单源任务调用，实际统一走资源预约器。"""
+    return _reserve_task(
+        prefix,
+        task_type,
+        waiting_progress,
+        source_paths=(source_path,),
+        output_paths=output_paths,
+        conflict_types=conflict_types,
+        metadata=metadata,
+    )
 
 
 def _set_task_output_dir(task_id, output_dir):
@@ -171,6 +490,22 @@ def _set_task_output_dir(task_id, output_dir):
         if task_id in tasks:
             tasks[task_id]["output_dir"] = absolute_output_dir
     return absolute_output_dir
+
+
+def _request_streamer_profile(data, video_path):
+    """在请求线程解析并冻结主播配置，避免后台线程上下文丢失。"""
+    profile_id = str(
+        (data or {}).get("streamer_profile_id") or "auto"
+    ).strip().casefold()
+    return resolve_streamer_profile(profile_id, video_path)
+
+
+def _topic_task_output_paths(flv_path, output_dir):
+    base_name = os.path.splitext(os.path.basename(flv_path))[0]
+    return (
+        os.path.join(output_dir, base_name + "_自动切片"),
+        os.path.join(output_dir, base_name + "_话题切片"),
+    )
 
 
 def _completed_task_artifact_dir(task_id):
@@ -286,28 +621,16 @@ def _save_uploaded_file(field_name, target_dir, allowed_suffixes, *, validate_js
 
 def _reserve_subtitle_review_task(srt_path, force):
     """原子登记检查任务；同一源字幕同时只允许一个检查。"""
-    normalized = os.path.normcase(os.path.abspath(srt_path))
-    with task_lock:
-        for task_id, task in tasks.items():
-            if (
-                    task.get("task_type") == "subtitle_review"
-                    and task.get("status") in {"queued", "running"}
-                    and os.path.normcase(os.path.abspath(
-                        task.get("source_srt_path", ""))) == normalized):
-                return None, task_id
-
-        task_id = _subtitle_task_id("subtitle_review", srt_path)
-        tasks[task_id] = {
-            "status": "queued",
-            "progress": "字幕检查等待启动...",
-            "step": 0,
-            "total": 100,
-            "task_type": "subtitle_review",
+    return _reserve_task(
+        "subtitle_review",
+        "subtitle_review",
+        "字幕检查等待启动...",
+        source_paths=(srt_path,),
+        metadata={
             "source_srt_path": os.path.abspath(srt_path),
             "force": bool(force),
-            "created_at": time.time(),
-        }
-    return task_id, None
+        },
+    )
 
 
 def _validate_subtitle_path(srt_path):
@@ -434,7 +757,8 @@ def run_subtitle_render_task(
 
 
 def run_timeline_optimization_task(
-        task_id, flv_path, manual_timeline_path, ass_path=None, output_dir=None):
+        task_id, flv_path, manual_timeline_path, ass_path=None, output_dir=None,
+        streamer_profile="auto"):
     """后台仅优化人工时间轴，不启动话题分析和切片。"""
     update_task(task_id, status="running", progress="准备校准人工时间轴...", step=0, total=100)
 
@@ -456,6 +780,7 @@ def run_timeline_optimization_task(
             ass_path=ass_path if ass_path and os.path.isfile(ass_path) else None,
             progress_callback=callback,
             output_dir=output_dir,
+            streamer_profile_id=streamer_profile,
         )
         update_task(
             task_id,
@@ -469,7 +794,63 @@ def run_timeline_optimization_task(
         _record_task_error(task_id, "人工时间轴优化失败", exc)
 
 
-def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path, timeline_json=None):
+def run_clip_review_retry_task(
+        task_id, flv_path, ass_path=None, output_dir=None,
+        streamer_profile="auto"):
+    """复用现有话题产物，只重做候选复核并刷新实际切片。"""
+    update_task(
+        task_id,
+        status="running",
+        progress="准备复用现有话题报告...",
+        step=0,
+        total=100,
+    )
+
+    def callback(msg, step, total):
+        update_task(
+            task_id,
+            status="running",
+            progress=msg,
+            step=step,
+            total=total,
+        )
+
+    try:
+        from topic_engine import retry_clip_review_from_artifacts, slice_from_marks
+
+        result = retry_clip_review_from_artifacts(
+            flv_path,
+            ass_path=ass_path if ass_path and os.path.isfile(ass_path) else None,
+            progress_callback=callback,
+            output_dir=output_dir,
+            streamer_profile_id=streamer_profile,
+        )
+        clip_marks = result.get("clip_marks") or []
+        if clip_marks:
+            count, out_dir = slice_from_marks(
+                flv_path,
+                result["json_path"],
+                output_dir,
+                progress_callback=callback,
+                streamer_profile_id=streamer_profile,
+            )
+            result["slice_count"] = count
+            result["slice_dir"] = out_dir
+        update_task(
+            task_id,
+            status="done",
+            progress=_pipeline_completion_progress(result),
+            result=json.dumps(result, ensure_ascii=False),
+            step=100,
+            total=100,
+        )
+    except Exception as exc:
+        _record_task_error(task_id, "候选复核失败", exc)
+
+
+def run_slice_task(
+        task_id, flv_path, ass_path, output_dir, mode, timeline_path,
+        timeline_json=None, streamer_profile="auto"):
     """后台切片任务"""
     if timeline_path and os.path.isfile(timeline_path):
         import shutil
@@ -487,11 +868,22 @@ def run_slice_task(task_id, flv_path, ass_path, output_dir, mode, timeline_path,
         update_task(task_id, status="running", progress=msg, step=step, total=total)
 
     try:
-        count, out_dir = process_video(
-            flv_path, ass_path, output_dir,
-            mode=mode, timeline_path=timeline_path, timeline_json=timeline_json,
-            progress_callback=callback
-        )
+        with streamer_profile_context(streamer_profile, flv_path):
+            if timeline_json:
+                from topic_engine import slice_from_marks
+                count, out_dir = slice_from_marks(
+                    flv_path,
+                    timeline_json,
+                    output_dir,
+                    progress_callback=callback,
+                    streamer_profile_id=streamer_profile,
+                )
+            else:
+                count, out_dir = process_video(
+                    flv_path, ass_path, output_dir,
+                    mode=mode, timeline_path=timeline_path,
+                    progress_callback=callback
+                )
         update_task(task_id, status="done",
                     progress=f"完成！{count} 个片段",
                     result=f"共切出 {count} 个片段 → {out_dir}", step=100)
@@ -513,10 +905,14 @@ def sse_events():
     def generate():
         # 先发送当前所有任务状态
         with task_lock:
+            _prune_tasks_locked()
             current = dict(tasks)
         yield f"event: init\ndata: {json.dumps(current, ensure_ascii=False)}\n\n"
         try:
             while True:
+                with event_queue_lock:
+                    if q not in event_queues:
+                        break
                 try:
                     msg = q.get(timeout=15)
                     yield msg
@@ -537,7 +933,20 @@ def sse_events():
 
 @app.route("/")
 def index():
-    return render_template("index.html", **template_defaults())
+    return render_template(
+        "topic_v2.html",
+        default_video_dir=DEFAULT_VIDEO_DIR,
+        default_output_dir=DEFAULT_OUTPUT_DIR,
+    )
+
+
+@app.route("/direct-slice")
+def direct_slice_page():
+    return render_template(
+        "index.html",
+        default_video_dir=DEFAULT_VIDEO_DIR,
+        default_output_dir=DEFAULT_OUTPUT_DIR,
+    )
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -562,18 +971,22 @@ def scan():
 
 @app.route("/api/slice", methods=["POST"])
 def slice_start():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     flv_path = data.get("flv_path", "")
-    output_dir = data.get("output_dir") or str(OUTPUT_DIR)
+    output_dir = os.path.abspath(data.get("output_dir") or DEFAULT_OUTPUT_DIR)
     mode = data.get("mode", "danmaku")
     timeline_path = data.get("timeline_path", "")
 
     if not os.path.isfile(flv_path):
-        return jsonify({"error": "视频文件不存在"})
+        return jsonify({"error": "视频文件不存在"}), 400
+    try:
+        streamer_profile = _request_streamer_profile(data, flv_path)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     ass_path = flv_path[:-4] + ".ass"
     if mode == "danmaku" and not os.path.isfile(ass_path):
-        return jsonify({"error": "缺少对应的 .ass 弹幕文件"})
+        return jsonify({"error": "缺少对应的 .ass 弹幕文件"}), 400
 
     # 时间轴/混合模式：自动复制到项目文件夹
     if timeline_path and os.path.isfile(timeline_path):
@@ -585,51 +998,56 @@ def slice_start():
 
     timeline_json = data.get("timeline_json", "")
     if mode == "timeline-json":
+        if not os.path.isfile(timeline_json):
+            return jsonify({"error": "JSON 标记文件不存在"}), 400
         mode = "timeline"
         timeline_path = ""
-    task_id = os.path.basename(flv_path).replace(".flv", "")[:50]
-    threading.Thread(target=run_slice_task,
-                     args=(task_id, flv_path, ass_path, output_dir, mode, timeline_path, timeline_json),
-                     daemon=True).start()
+    base_name = os.path.splitext(os.path.basename(flv_path))[0]
+    direct_output = os.path.join(
+        output_dir,
+        base_name + "_话题切片" if timeline_json else base_name,
+    )
+    task_id, active_task_id = _reserve_source_task(
+        "direct_slice",
+        "direct_slice",
+        flv_path,
+        "高级重新切片等待启动...",
+        conflict_types={
+            "direct_slice",
+            "topic_pipeline",
+            "clip_review_retry",
+        },
+        output_paths=(direct_output,),
+        metadata={
+            "streamer_profile_id": streamer_profile.id,
+            "mode": mode,
+        },
+    )
+    if active_task_id:
+        return jsonify({
+            "error": "该录播或输出目录正在切片，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
+    _set_task_output_dir(task_id, output_dir)
+    try:
+        threading.Thread(
+            target=run_slice_task,
+            args=(
+                task_id,
+                flv_path,
+                ass_path,
+                output_dir,
+                mode,
+                timeline_path,
+                timeline_json,
+                streamer_profile,
+            ),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        _record_task_error(task_id, "高级重新切片启动失败", exc)
+        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
     return jsonify({"task_id": task_id})
-
-
-@app.route("/api/slice-all", methods=["POST"])
-def slice_all():
-    data = request.get_json()
-    video_dir = data.get("video_dir", "")
-    output_dir = data.get("output_dir") or str(OUTPUT_DIR)
-    mode = data.get("mode", "danmaku")
-    timeline_path = data.get("timeline_path", "")
-    timeline_json = data.get("timeline_json", "")
-    if mode == "timeline-json":
-        mode = "timeline"
-        timeline_path = ""
-
-    if not os.path.isdir(video_dir):
-        return jsonify({"error": "目录不存在"})
-
-    task_ids = []
-    for f in sorted(glob_mod.glob(os.path.join(video_dir, "*.flv"))):
-        name = os.path.basename(f)
-        if name.startswith("[正在录制]") or name.startswith("[录制中]"):
-            continue
-        ass_path = f[:-4] + ".ass"
-        if mode != "timeline" and not os.path.isfile(ass_path):
-            continue
-        task_id = name.replace(".flv", "")[:50]
-        threading.Thread(target=run_slice_task,
-                         args=(task_id, f, ass_path, output_dir, mode, timeline_path, timeline_json),
-                         daemon=True).start()
-        task_ids.append(task_id)
-
-    return jsonify({"task_ids": task_ids, "count": len(task_ids)})
-
-
-@app.route("/api/tasks")
-def list_tasks():
-    with task_lock:
-        return jsonify(dict(tasks))
 
 
 @app.route("/api/open-result-directory", methods=["POST"])
@@ -669,7 +1087,7 @@ def subtitle_defaults():
     )
 
     return jsonify({
-        "submission_dir": str(SUBMISSION_DIR),
+        "submission_dir": DEFAULT_SUBMISSION_DIR,
         "style": DEFAULT_SUBTITLE_STYLE,
         "export": DEFAULT_VIDEO_EXPORT,
         "font": verify_exact_subtitle_font(),
@@ -681,7 +1099,7 @@ def subtitle_scan():
     from subtitle_workflow import scan_submission_pairs
 
     data = request.get_json(silent=True) or {}
-    root_dir = data.get("root_dir") or str(SUBMISSION_DIR)
+    root_dir = data.get("root_dir") or DEFAULT_SUBMISSION_DIR
     try:
         pairs = scan_submission_pairs(root_dir)
     except (OSError, ValueError) as exc:
@@ -816,26 +1234,48 @@ def subtitle_render():
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    task_id = _subtitle_task_id("subtitle_render", video_path)
-    threading.Thread(
-        target=run_subtitle_render_task,
-        args=(
-            task_id,
-            video_path,
-            srt_path,
-            data.get("style"),
-            data.get("export"),
-            output_path,
-        ),
-        daemon=True,
-    ).start()
+    output_path = output_path or (
+        os.path.splitext(video_path)[0] + "_字幕版.mp4"
+    )
+    task_id, active_task_id = _reserve_task(
+        "subtitle_render",
+        "subtitle_render",
+        "字幕版视频等待压制...",
+        source_paths=(video_path, srt_path),
+        output_paths=(output_path,),
+        metadata={
+            "source_srt_path": srt_path,
+            "output_path": output_path,
+        },
+    )
+    if active_task_id:
+        return jsonify({
+            "error": "该视频正在压制字幕，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
+    try:
+        threading.Thread(
+            target=run_subtitle_render_task,
+            args=(
+                task_id,
+                video_path,
+                srt_path,
+                data.get("style"),
+                data.get("export"),
+                output_path,
+            ),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        _record_task_error(task_id, "字幕版视频压制启动失败", exc)
+        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
     return jsonify({"task_id": task_id})
 
 
 @app.route("/api/list-json-timelines", methods=["GET"])
 def list_json_timelines():
     """列出可用的 JSON 时间轴文件"""
-    search_dirs = [str(VIDEO_DIR), str(OUTPUT_DIR)]
+    search_dirs = [DEFAULT_VIDEO_DIR, DEFAULT_OUTPUT_DIR]
     files = []
     for d in search_dirs:
         if os.path.isdir(d):
@@ -863,7 +1303,7 @@ def upload_json_timeline():
 
 @app.route("/api/timelines", methods=["GET"])
 def list_timelines():
-    timeline_dir = str(TIMELINE_DIR)
+    timeline_dir = DEFAULT_TIMELINE_DIR
     if not os.path.isdir(timeline_dir):
         return jsonify({"files": []})
     files = sorted(glob_mod.glob(os.path.join(timeline_dir, "*.docx")), reverse=True)
@@ -885,19 +1325,18 @@ def upload_timeline():
 
 # ==================== 话题分析 ====================
 
-@app.route("/topic")
-def topic_page():
-    return render_template("topic.html", **template_defaults())
-
-
 @app.route("/topic-v2")
 def topic_v2_page():
-    return render_template("topic_v2.html", **template_defaults())
+    return render_template(
+        "topic_v2.html",
+        default_video_dir=DEFAULT_VIDEO_DIR,
+        default_output_dir=DEFAULT_OUTPUT_DIR,
+    )
 
 
 @app.route("/subtitle-workflow")
 def subtitle_workflow_page():
-    return render_template("subtitle_workflow.html", **template_defaults())
+    return render_template("subtitle_workflow.html")
 
 
 @app.route("/autocover")
@@ -914,6 +1353,15 @@ def service_contract():
     })
 
 
+@app.route("/api/streamer-profiles")
+def streamer_profiles_contract():
+    """返回前端可选择的公开主播配置，不暴露路径和 ASR 内部规则。"""
+    try:
+        return jsonify({"profiles": public_streamer_profiles()})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/start-pipeline", methods=["POST"])
 def start_pipeline():
     """启动完整话题分析流水线（v2）"""
@@ -921,7 +1369,7 @@ def start_pipeline():
     flv_path = data.get("flv_path", "")
     ass_path = data.get("ass_path", "")
     output_dir = os.path.abspath(
-        data.get("output_dir") or str(OUTPUT_DIR)
+        data.get("output_dir") or DEFAULT_OUTPUT_DIR
     )
     manual_timeline_mode = data.get("manual_timeline_mode", "none")
     manual_timeline_path = data.get("manual_timeline_path", "")
@@ -929,6 +1377,10 @@ def start_pipeline():
 
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
+    try:
+        streamer_profile = _request_streamer_profile(data, flv_path)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     if manual_timeline_mode == "manual" and not os.path.isfile(manual_timeline_path):
         return jsonify({"error": "指定的辅助时间轴文件不存在"})
     if optimized_timeline_path and not os.path.isfile(optimized_timeline_path):
@@ -945,6 +1397,9 @@ def start_pipeline():
         "topic_pipeline",
         flv_path,
         "完整分析等待启动...",
+        conflict_types={"topic_pipeline", "clip_review_retry", "direct_slice"},
+        output_paths=_topic_task_output_paths(flv_path, output_dir),
+        metadata={"streamer_profile_id": streamer_profile.id},
     )
     if active_task_id:
         return jsonify({
@@ -967,6 +1422,7 @@ def start_pipeline():
                 manual_timeline_path=manual_timeline_path,
                 optimized_timeline_path=optimized_timeline_path,
                 output_dir=output_dir,
+                streamer_profile_id=streamer_profile,
             )
 
             # 用新的独立切片功能，不依赖现有切片模式
@@ -974,7 +1430,8 @@ def start_pipeline():
             if clip_marks:
                 count, out_dir = slice_from_marks(
                     flv_path, result["json_path"], output_dir,
-                    progress_callback=cb
+                    progress_callback=cb,
+                    streamer_profile_id=streamer_profile,
                 )
                 result["slice_count"] = count
                 result["slice_dir"] = out_dir
@@ -994,6 +1451,49 @@ def start_pipeline():
     return jsonify({"task_id": task_id})
 
 
+@app.route("/api/retry-clip-review", methods=["POST"])
+def retry_clip_review():
+    """复用已有逐话题产物，仅重新复核高能候选并刷新切片。"""
+    data = request.get_json(silent=True) or {}
+    flv_path = data.get("flv_path", "")
+    ass_path = data.get("ass_path", "")
+    output_dir = os.path.abspath(
+        data.get("output_dir") or DEFAULT_OUTPUT_DIR
+    )
+    if not os.path.isfile(flv_path):
+        return jsonify({"error": "视频文件不存在"}), 400
+    try:
+        streamer_profile = _request_streamer_profile(data, flv_path)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    task_id, active_task_id = _reserve_source_task(
+        "clip_review",
+        "clip_review_retry",
+        flv_path,
+        "候选复核等待启动...",
+        conflict_types={"topic_pipeline", "clip_review_retry", "direct_slice"},
+        output_paths=_topic_task_output_paths(flv_path, output_dir),
+        metadata={"streamer_profile_id": streamer_profile.id},
+    )
+    if active_task_id:
+        return jsonify({
+            "error": "该录播正在分析或复核，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
+    _set_task_output_dir(task_id, output_dir)
+    try:
+        threading.Thread(
+            target=run_clip_review_retry_task,
+            args=(task_id, flv_path, ass_path, output_dir, streamer_profile),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        _record_task_error(task_id, "候选复核启动失败", exc)
+        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
+    return jsonify({"task_id": task_id})
+
+
 @app.route("/api/optimize-manual-timeline", methods=["POST"])
 def optimize_manual_timeline():
     """启动独立人工时间轴优化任务。"""
@@ -1002,18 +1502,24 @@ def optimize_manual_timeline():
     ass_path = data.get("ass_path", "")
     manual_timeline_path = data.get("manual_timeline_path", "")
     output_dir = os.path.abspath(
-        data.get("output_dir") or str(OUTPUT_DIR)
+        data.get("output_dir") or DEFAULT_OUTPUT_DIR
     )
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
     if not os.path.isfile(manual_timeline_path):
         return jsonify({"error": "指定的人工时间轴 DOCX 不存在"}), 400
+    try:
+        streamer_profile = _request_streamer_profile(data, flv_path)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     task_id, active_task_id = _reserve_source_task(
         "timeline_opt",
         "timeline_optimization",
         flv_path,
         "人工时间轴优化等待启动...",
+        output_paths=(_topic_task_output_paths(flv_path, output_dir)[0],),
+        metadata={"streamer_profile_id": streamer_profile.id},
     )
     if active_task_id:
         return jsonify({
@@ -1024,54 +1530,18 @@ def optimize_manual_timeline():
     try:
         threading.Thread(
             target=run_timeline_optimization_task,
-            args=(task_id, flv_path, manual_timeline_path, ass_path, output_dir),
+            args=(
+                task_id,
+                flv_path,
+                manual_timeline_path,
+                ass_path,
+                output_dir,
+                streamer_profile,
+            ),
             daemon=True,
         ).start()
     except Exception as exc:
         _record_task_error(task_id, "人工时间轴优化启动失败", exc)
-        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
-    return jsonify({"task_id": task_id})
-
-
-@app.route("/api/analyze-topics", methods=["POST"])
-def analyze_topics():
-    """启动话题分析任务"""
-    data = request.get_json(silent=True) or {}
-    srt_path = data.get("srt_path", "")
-    if not srt_path or not os.path.isfile(srt_path):
-        return jsonify({"error": "SRT 文件不存在"}), 400
-
-    task_id, active_task_id = _reserve_source_task(
-        "topic",
-        "topic_analysis",
-        srt_path,
-        "话题分析等待启动...",
-    )
-    if active_task_id:
-        return jsonify({
-            "error": "该字幕正在分析话题，请等待当前任务完成",
-            "task_id": active_task_id,
-        }), 409
-
-    def run_analysis():
-        try:
-            from topic_analyzer import analyze_srt
-
-            def cb(msg, step, total):
-                update_task(task_id, status="running", progress=msg, step=step, total=total)
-
-            result = analyze_srt(srt_path, progress_callback=cb)
-            update_task(task_id, status="done",
-                        progress=f"完成！{len(result['topics'])} 个话题",
-                        result=json.dumps(result, ensure_ascii=False),
-                        step=100)
-        except Exception as exc:
-            _record_task_error(task_id, "话题分析失败", exc)
-
-    try:
-        threading.Thread(target=run_analysis, daemon=True).start()
-    except Exception as exc:
-        _record_task_error(task_id, "话题分析启动失败", exc)
         return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
     return jsonify({"task_id": task_id})
 

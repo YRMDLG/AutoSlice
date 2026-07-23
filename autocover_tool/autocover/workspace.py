@@ -6,7 +6,9 @@ import hashlib
 import os
 import secrets
 import threading
-from dataclasses import dataclass, field
+import time
+from collections import OrderedDict
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,9 @@ DEFAULT_OUTPUT_DIR = Path(
 DEFAULT_IGNORED_DIRECTORY_NAMES = frozenset(
     name.casefold() for name in ("视频素材", "封面", "封面输出")
 )
+MEDIA_TOKEN_TTL_SEC = 12 * 60 * 60
+MEDIA_TOKEN_LIMIT = 2048
+PREVIEW_HISTORY_PER_TASK = 6
 
 
 def _is_ignored_video(path: Path, root: Path) -> bool:
@@ -35,6 +40,15 @@ def _is_ignored_video(path: Path, root: Path) -> bool:
         part.casefold() in DEFAULT_IGNORED_DIRECTORY_NAMES
         for part in relative.parts[:-1]
     )
+
+
+def _path_timestamps(path: Path) -> tuple[float, float]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return 0.0, 0.0
+    created_at = getattr(stat, "st_birthtime", stat.st_ctime)
+    return float(created_at), float(stat.st_mtime)
 
 
 @dataclass(slots=True)
@@ -48,6 +62,10 @@ class CoverTask:
     title: str
     template_key: str
     palette_key: str
+    folder_created_at: float
+    folder_modified_at: float
+    source_created_at: float
+    source_modified_at: float
     status: str = "pending"
     candidates: tuple[FrameCandidate, ...] = ()
     selected_index: int = 0
@@ -78,7 +96,7 @@ class CoverWorkspace:
         self.recursive = recursive
         self._title_map = load_title_map(self.title_file)
         self._tasks: dict[str, CoverTask] = {}
-        self._media_tokens: dict[str, Path] = {}
+        self._media_tokens: OrderedDict[str, tuple[Path, float]] = OrderedDict()
         self._token_secret = secrets.token_bytes(32)
         self._lock = threading.RLock()
 
@@ -96,10 +114,31 @@ class CoverWorkspace:
                 self._token_secret + str(source).casefold().encode("utf-8")
             ).hexdigest()
             token = digest[:32]
-            self._media_tokens[token] = source
+            now = time.time()
+            self._prune_media_tokens_locked(now)
+            self._media_tokens[token] = (source, now)
+            self._media_tokens.move_to_end(token)
+            self._prune_media_tokens_locked(now)
             return token
 
-    def _output_paths_for(self, relative_path: Path) -> dict[str, str]:
+    def _prune_media_tokens_locked(self, now: float | None = None) -> None:
+        now = time.time() if now is None else float(now)
+        expired = [
+            token
+            for token, (_, accessed_at) in self._media_tokens.items()
+            if now - accessed_at > MEDIA_TOKEN_TTL_SEC
+        ]
+        for token in expired:
+            self._media_tokens.pop(token, None)
+        while len(self._media_tokens) > MEDIA_TOKEN_LIMIT:
+            self._media_tokens.popitem(last=False)
+
+    def _output_paths_for(
+        self,
+        relative_path: Path,
+        *,
+        include_source_suffix: bool = False,
+    ) -> dict[str, str]:
         output_relative = relative_path
         if self.output_dir == DEFAULT_OUTPUT_DIR.resolve():
             source_path = (self.root / relative_path).resolve()
@@ -109,6 +148,9 @@ class CoverWorkspace:
                 output_relative = Path(self.root.name) / relative_path
         target_dir = self.output_dir / output_relative.parent
         stem = relative_path.stem
+        if include_source_suffix:
+            suffix = relative_path.suffix.lstrip(".").casefold() or "video"
+            stem = f"{stem}-{suffix}"
         return {
             "4x3": str((target_dir / f"{stem}-4x3.jpg").resolve()),
             "16x9": str((target_dir / f"{stem}-16x9.jpg").resolve()),
@@ -130,18 +172,34 @@ class CoverWorkspace:
             ),
             key=lambda path: path.relative_to(self.root).as_posix().casefold(),
         )
+        relative_paths = {
+            video_path: video_path.relative_to(self.root)
+            for video_path in videos
+        }
+        provisional_outputs = {
+            relative_path: self._output_paths_for(relative_path)
+            for relative_path in relative_paths.values()
+        }
+        output_counts: dict[str, int] = {}
+        for outputs in provisional_outputs.values():
+            collision_key = str(Path(outputs["4x3"])).casefold()
+            output_counts[collision_key] = output_counts.get(collision_key, 0) + 1
 
         tasks: dict[str, CoverTask] = {}
-        media_tokens: dict[str, Path] = {}
+        media_tokens: OrderedDict[str, tuple[Path, float]] = OrderedDict()
         with self._lock:
             previous_tokens = self._media_tokens
             self._media_tokens = media_tokens
             try:
                 for video_path in videos:
-                    relative_path = video_path.relative_to(self.root)
+                    relative_path = relative_paths[video_path]
                     task_id = self._task_id(relative_path)
                     title = match_title(video_path.name, self._title_map)
                     recommendation = recommend_visual_style(title)
+                    folder_created_at, folder_modified_at = _path_timestamps(
+                        video_path.parent
+                    )
+                    source_created_at, source_modified_at = _path_timestamps(video_path)
                     previous = self._tasks.get(task_id)
                     task = CoverTask(
                         id=task_id,
@@ -151,7 +209,22 @@ class CoverWorkspace:
                         title=title,
                         template_key=recommendation.template_key,
                         palette_key=recommendation.palette_key,
-                        output_paths=self._output_paths_for(relative_path),
+                        folder_created_at=folder_created_at,
+                        folder_modified_at=folder_modified_at,
+                        source_created_at=source_created_at,
+                        source_modified_at=source_modified_at,
+                        output_paths=(
+                            self._output_paths_for(
+                                relative_path,
+                                include_source_suffix=True,
+                            )
+                            if output_counts[
+                                str(Path(
+                                    provisional_outputs[relative_path]["4x3"]
+                                )).casefold()
+                            ] > 1
+                            else provisional_outputs[relative_path]
+                        ),
                     )
                     if previous is not None and previous.video_path == task.video_path:
                         task.status = previous.status
@@ -189,6 +262,17 @@ class CoverWorkspace:
             except KeyError as exc:
                 raise KeyError(f"封面任务不存在：{task_id}") from exc
 
+    def task_snapshot(self, task_id: str) -> CoverTask:
+        """返回与后续编辑隔离的任务快照，供一次预览或导出完整使用。"""
+
+        with self._lock:
+            task = self.get_task(task_id)
+            return replace(
+                task,
+                candidates=tuple(task.candidates),
+                output_paths=dict(task.output_paths),
+            )
+
     def remove_task(self, task_id: str) -> CoverTask:
         """从当前工作区队列移除任务，不修改对应源视频。"""
 
@@ -210,17 +294,22 @@ class CoverWorkspace:
 
         with self._lock:
             task = self.get_task(task_id)
+            cleaned_title = task.title
             if title is not None:
                 cleaned_title = title.strip()
                 if not cleaned_title:
                     raise ValueError("投稿标题不能为空")
-                task.title = cleaned_title
+            cleaned_template_key = task.template_key
             if template_key is not None:
                 get_template(template_key)
-                task.template_key = template_key
+                cleaned_template_key = template_key
+            cleaned_palette_key = task.palette_key
             if palette_key is not None:
                 get_palette(palette_key)
-                task.palette_key = palette_key
+                cleaned_palette_key = palette_key
+            task.title = cleaned_title
+            task.template_key = cleaned_template_key
+            task.palette_key = cleaned_palette_key
             return task
 
     def generate_candidates(
@@ -297,11 +386,17 @@ class CoverWorkspace:
         """将不透明媒体令牌解析为已登记文件，拒绝任意路径。"""
 
         with self._lock:
+            now = time.time()
+            self._prune_media_tokens_locked(now)
             try:
-                path = self._media_tokens[token]
+                path, _ = self._media_tokens[token]
             except KeyError as exc:
                 raise KeyError("媒体令牌无效或已过期") from exc
+            self._media_tokens[token] = (path, now)
+            self._media_tokens.move_to_end(token)
         if not path.is_file():
+            with self._lock:
+                self._media_tokens.pop(token, None)
             raise FileNotFoundError(f"媒体文件已不存在：{path}")
         return path
 
@@ -310,6 +405,57 @@ class CoverWorkspace:
 
         with self._lock:
             return self._register_media(path)
+
+    def cleanup_preview_cache(
+        self,
+        task_id: str,
+        *,
+        keep: int = PREVIEW_HISTORY_PER_TASK,
+        preserve_paths: tuple[str | Path, ...] = (),
+    ) -> list[Path]:
+        """只保留任务最近若干份预览，同时撤销已删除文件的媒体令牌。"""
+
+        if keep < 1:
+            raise ValueError("预览保留数量必须至少为 1")
+        preview_dir = (self.cache_dir / "previews" / task_id).resolve()
+        if not preview_dir.is_dir():
+            return []
+        preserve = {
+            Path(path).expanduser().resolve()
+            for path in preserve_paths
+            if path
+        }
+        covers = sorted(
+            (
+                path.resolve()
+                for path in preview_dir.glob("*.jpg")
+                if not path.name.endswith("-background.jpg")
+            ),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        retained = set(covers[:keep]) | preserve
+        removed = []
+        for cover in covers:
+            if cover in retained:
+                continue
+            related = (
+                cover,
+                cover.with_name(f"{cover.stem}-background.jpg"),
+            )
+            for path in related:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    continue
+                removed.append(path)
+        if removed:
+            removed_set = {path.resolve() for path in removed}
+            with self._lock:
+                for token, (path, _) in tuple(self._media_tokens.items()):
+                    if path in removed_set:
+                        self._media_tokens.pop(token, None)
+        return removed
 
     def task_payload(self, task_id: str) -> dict[str, Any]:
         """生成不包含本地绝对媒体路径的 API 数据。"""
@@ -334,6 +480,10 @@ class CoverWorkspace:
                 "filename": task.filename,
                 "relative_path": task.relative_path,
                 "title": task.title,
+                "folder_created_at": task.folder_created_at,
+                "folder_modified_at": task.folder_modified_at,
+                "source_created_at": task.source_created_at,
+                "source_modified_at": task.source_modified_at,
                 "template_key": task.template_key,
                 "palette_key": task.palette_key,
                 "status": task.status,

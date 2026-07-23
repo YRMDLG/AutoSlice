@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 import unittest
@@ -12,7 +13,12 @@ from unittest.mock import patch
 from PIL import Image
 
 from autocover.video import FrameCandidate, FrameMetrics
-from autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR, CoverWorkspace
+from autocover.workspace import (
+    DEFAULT_INPUT_DIR,
+    DEFAULT_OUTPUT_DIR,
+    MEDIA_TOKEN_TTL_SEC,
+    CoverWorkspace,
+)
 
 
 def _candidate(path: Path, timestamp: float, score: float) -> FrameCandidate:
@@ -62,6 +68,13 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(tasks[1].title, "线下秘密")
         self.assertEqual(tasks[1].relative_path, "第二组/02_30.0s_线下秘密.FLV")
         self.assertNotEqual(tasks[0].id, tasks[1].id)
+        for task in tasks:
+            for field in (
+                "folder_created_at", "folder_modified_at",
+                "source_created_at", "source_modified_at",
+            ):
+                self.assertIsInstance(getattr(task, field), float)
+                self.assertGreater(getattr(task, field), 0)
 
     def test_output_paths_preserve_relative_directory(self) -> None:
         nested_task = self.workspace.scan()[1]
@@ -70,10 +83,29 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(Path(nested_task.output_paths["4x3"]).name, "02_30.0s_线下秘密-4x3.jpg")
         self.assertEqual(Path(nested_task.output_paths["16x9"]).name, "02_30.0s_线下秘密-16x9.jpg")
 
+    def test_same_stem_different_extensions_get_distinct_output_names(self) -> None:
+        collision_dir = self.clips / "同名"
+        collision_dir.mkdir()
+        (collision_dir / "same.mp4").write_bytes(b"mp4")
+        (collision_dir / "same.mkv").write_bytes(b"mkv")
+
+        tasks = [
+            task
+            for task in self.workspace.scan()
+            if task.relative_path.startswith("同名/")
+        ]
+
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual(
+            {Path(task.output_paths["4x3"]).name for task in tasks},
+            {"same-mp4-4x3.jpg", "same-mkv-4x3.jpg"},
+        )
+
     def test_default_output_directory_and_explicit_override(self) -> None:
         default_workspace = CoverWorkspace(self.clips, cache_dir=self.root / "默认缓存")
 
-        self.assertTrue(DEFAULT_INPUT_DIR.is_absolute())
+        self.assertEqual(DEFAULT_INPUT_DIR, (Path.cwd() / "input").resolve())
+        self.assertEqual(DEFAULT_OUTPUT_DIR, (Path.cwd() / "covers").resolve())
         self.assertEqual(default_workspace.output_dir, DEFAULT_OUTPUT_DIR.resolve())
         self.assertEqual(self.workspace.output_dir, (self.root / "输出").resolve())
 
@@ -139,6 +171,65 @@ class WorkspaceTests(unittest.TestCase):
             self.workspace.resolve_media("../../Windows/system.ini")
         with self.assertRaisesRegex(ValueError, "不是该任务"):
             self.workspace.select_candidate(second.id, token)
+
+    def test_media_tokens_expire_and_use_lru_limit(self) -> None:
+        files = []
+        for index in range(3):
+            path = self.root / f"media-{index}.jpg"
+            Image.new("RGB", (32, 32), "#d884ad").save(path)
+            files.append(path)
+
+        with patch("autocover.workspace.time.time", return_value=100.0):
+            expiring_token = self.workspace.media_token(files[0])
+        with (
+            patch(
+                "autocover.workspace.time.time",
+                return_value=100.0 + MEDIA_TOKEN_TTL_SEC + 1,
+            ),
+            self.assertRaisesRegex(KeyError, "已过期"),
+        ):
+            self.workspace.resolve_media(expiring_token)
+
+        with (
+            patch("autocover.workspace.MEDIA_TOKEN_LIMIT", 2),
+            patch(
+                "autocover.workspace.time.time",
+                side_effect=(200.0, 201.0, 202.0),
+            ),
+        ):
+            oldest = self.workspace.media_token(files[0])
+            self.workspace.media_token(files[1])
+            self.workspace.media_token(files[2])
+        with (
+            patch("autocover.workspace.time.time", return_value=203.0),
+            self.assertRaisesRegex(KeyError, "已过期"),
+        ):
+            self.workspace.resolve_media(oldest)
+
+    def test_preview_cache_keeps_only_recent_versions(self) -> None:
+        task = self.workspace.scan()[0]
+        preview_dir = self.workspace.cache_dir / "previews" / task.id
+        preview_dir.mkdir(parents=True)
+        for index in range(5):
+            cover = preview_dir / f"4x3-{index}.jpg"
+            background = preview_dir / f"4x3-{index}-background.jpg"
+            cover.write_bytes(b"cover")
+            background.write_bytes(b"background")
+            os.utime(cover, (100 + index, 100 + index))
+            os.utime(background, (100 + index, 100 + index))
+
+        removed = self.workspace.cleanup_preview_cache(task.id, keep=2)
+
+        self.assertEqual(
+            {path.name for path in preview_dir.glob("*.jpg")},
+            {
+                "4x3-3.jpg",
+                "4x3-3-background.jpg",
+                "4x3-4.jpg",
+                "4x3-4-background.jpg",
+            },
+        )
+        self.assertEqual(len(removed), 6)
 
     def test_candidate_failure_is_recorded_on_task(self) -> None:
         task = self.workspace.scan()[0]
@@ -283,6 +374,24 @@ class WorkspaceTests(unittest.TestCase):
             self.workspace.update_task(task.id, title="  ")
         with self.assertRaisesRegex(ValueError, "不支持的封面模板"):
             self.workspace.update_task(task.id, template_key="unknown")
+
+    def test_update_task_validates_every_field_before_committing(self) -> None:
+        task = self.workspace.scan()[0]
+        original = (task.title, task.template_key, task.palette_key)
+
+        with self.assertRaisesRegex(ValueError, "不支持的调色板"):
+            self.workspace.update_task(
+                task.id,
+                title="不应留下的新标题",
+                template_key="headline",
+                palette_key="unknown",
+            )
+
+        current = self.workspace.get_task(task.id)
+        self.assertEqual(
+            (current.title, current.template_key, current.palette_key),
+            original,
+        )
 
 
 if __name__ == "__main__":

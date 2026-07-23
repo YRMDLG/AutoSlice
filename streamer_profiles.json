@@ -34,7 +34,7 @@
         ["感谢音乐声", "感谢音悦生"],
         ["见音乐声", "见音悦生"]
       ],
-      "title_style_profile": null
+      "title_style_profile": "title_style_profile.example.json"
     }
   ]
 }

@@ -21,10 +21,28 @@ SUBTITLE_REVIEW_CONTEXT_CUES = 3
 SUBTITLE_REVIEW_CONCURRENCY = 2
 
 DEFAULT_SUBTITLE_GLOSSARY = (
+    "朱鹮",
+    "猪獾",
     "泽音Melody",
+    "泽音melody",
+    "泽音",
     "音音",
     "音姐",
+    "音妈",
     "麻麻",
+    "露露",
+    "四禧丸子",
+    "沐霂",
+    "又一",
+    "梨安",
+    "恬豆",
+    "七海",
+    "小孩梓",
+    "阿梓",
+    "柚恩",
+    "露早",
+    "EOE",
+    "篮筐",
     "音悦生",
     "提督",
     "舰长",
@@ -32,6 +50,17 @@ DEFAULT_SUBTITLE_GLOSSARY = (
     "娃衣",
     "雷欧奥特曼",
     "bangumi",
+    "小沐标",
+    "酥酥又",
+    "向心梨",
+    "恬豆包",
+    "柚恩蜜",
+    "gogo队",
+    "小星星",
+    "星瞳",
+    "宣小纸",
+    "真纸棒",
+    "脆鲨",
 )
 
 _TIME_LINE_RE = re.compile(
@@ -234,8 +263,19 @@ def _is_generated_stem(stem):
     )
 
 
+def _path_timestamps(path):
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return 0.0, 0.0
+    created_at = getattr(stat, "st_birthtime", stat.st_ctime)
+    return float(created_at), float(stat.st_mtime)
+
+
 def _pair_result(video_path, srt_path):
     directory = video_path.parent
+    folder_created_at, folder_modified_at = _path_timestamps(directory)
+    source_created_at, source_modified_at = _path_timestamps(video_path)
     corrected_srt = _corrected_srt_path(srt_path)
     output_video = video_path.with_name(f"{video_path.stem}_字幕版.mp4")
     pair_key = "\n".join(
@@ -251,6 +291,10 @@ def _pair_result(video_path, srt_path):
         "id": hashlib.sha256(pair_key.encode("utf-8")).hexdigest()[:16],
         "title": directory.name,
         "directory": str(directory),
+        "folder_created_at": folder_created_at,
+        "folder_modified_at": folder_modified_at,
+        "source_created_at": source_created_at,
+        "source_modified_at": source_modified_at,
         "video_name": video_path.name,
         "video_path": str(video_path),
         "srt_name": srt_path.name,
@@ -385,7 +429,7 @@ def _review_prompt(cues, target_indices, context_title, glossary, compact=False)
             "不能仅凭标题或词表替换语义成立的常用词；original 必须与输入完全一致。"
         )
     return (
-        "你是泽音Melody直播切片的字幕校对员。"
+        "你是直播切片的字幕校对员。"
         f"视频标题：{context_title or '未提供'}\n"
         f"优先词表：{'、'.join(glossary)}\n"
         f"待检查序号：{json.dumps(target_indices, ensure_ascii=False)}\n"

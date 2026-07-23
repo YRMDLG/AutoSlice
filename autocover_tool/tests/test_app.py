@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -72,12 +74,37 @@ class AppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("root", response.get_json()["error"])
 
+    def test_request_boundary_rejects_untrusted_host_and_origin(self) -> None:
+        untrusted_host = self.client.get(
+            "/api/options",
+            headers={"Host": "attacker.example"},
+        )
+        cross_site = self.client.post(
+            "/api/workspace/scan",
+            json={"root": str(self.clips)},
+            headers={"Origin": "https://attacker.example"},
+        )
+        local = self.client.get(
+            "/api/options",
+            headers={"Host": "127.0.0.1:5010"},
+        )
+
+        self.assertEqual(untrusted_host.status_code, 403)
+        self.assertEqual(cross_site.status_code, 403)
+        self.assertEqual(local.status_code, 200)
+
     def test_scan_lists_tasks_and_options(self) -> None:
         tasks = self._scan()
         options = self.client.get("/api/options").get_json()
 
         self.assertEqual(len(tasks), 2)
         self.assertEqual(tasks[0]["status"], "pending")
+        for field in (
+            "folder_created_at", "folder_modified_at",
+            "source_created_at", "source_modified_at",
+        ):
+            self.assertIsInstance(tasks[0][field], float)
+            self.assertGreater(tasks[0][field], 0)
         self.assertEqual(options["service"], SERVICE_ID)
         self.assertEqual(options["api_version"], API_VERSION)
         self.assertGreaterEqual(len(options["templates"]), 9)
@@ -86,6 +113,26 @@ class AppTests(unittest.TestCase):
         self.assertEqual(options["default_output_dir"], str(DEFAULT_OUTPUT_DIR.resolve()))
         self.assertEqual(options["default_font"]["label"], "濑户体")
         self.assertNotIn("font_path", options["default_font"])
+
+    def test_compatibility_endpoints_include_deprecation_headers(self) -> None:
+        task = self._scan()[0]
+        responses = (
+            self.client.get("/api/tasks"),
+            self.client.patch(
+                f"/api/tasks/{task['id']}",
+                json={"title": "通用账号标题"},
+            ),
+            self.client.post("/api/export", json={"task_ids": []}),
+        )
+
+        for response in responses:
+            with self.subTest(path=response.request.path):
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Deprecation"], "true")
+                self.assertEqual(
+                    response.headers["Warning"],
+                    '299 AutoCover "Deprecated compatibility endpoint"',
+                )
 
     def test_default_font_endpoint_matches_font_status(self) -> None:
         options = self.client.get("/api/options").get_json()
@@ -108,11 +155,39 @@ class AppTests(unittest.TestCase):
             self.assertIn('id="cover-overlay"', page_content)
             self.assertIn('id="layout-variants"', page_content)
             self.assertIn('id="sticker-grid"', page_content)
+            self.assertIn('id="sticker-library-summary"', page_content)
+            self.assertIn('id="sticker-result-count"', page_content)
             self.assertIn('id="reset-layout"', page_content)
             self.assertIn('id="save-current"', page_content)
             self.assertIn('id="font-status"', page_content)
-            self.assertIn('placeholder="选择切片目录"', page_content)
-            self.assertIn("选择封面输出目录", page_content)
+            self.assertIn('id="task-sort"', page_content)
+            self.assertIn('id="add-copy-line"', page_content)
+            self.assertIn("添加一行手动文案", page_content)
+            self.assertNotIn('data-inspector-tab="style"', page_content)
+            self.assertIn('id="ratio-tab-4x3"', page_content)
+            self.assertIn('aria-controls="cover-canvas-panel"', page_content)
+            self.assertIn(
+                'id="cover-canvas-panel" role="tabpanel" aria-labelledby="ratio-tab-4x3"',
+                page_content,
+            )
+            self.assertIn('id="inspector-tab-copy"', page_content)
+            self.assertIn(
+                'id="inspector-panel-copy" role="tabpanel" '
+                'aria-labelledby="inspector-tab-copy"',
+                page_content,
+            )
+            copy_panel = page_content.split('data-inspector-view="copy"', 1)[1].split(
+                'data-inspector-view="sticker"', 1
+            )[0]
+            self.assertIn('id="copy-lines"', copy_panel)
+            self.assertIn('id="template-select"', copy_panel)
+            self.assertIn('id="palette-select"', copy_panel)
+            self.assertIn('id="common-colors"', copy_panel)
+            self.assertIn('id="common-stroke-colors"', copy_panel)
+            self.assertIn('value="folder_created_desc"', page_content)
+            self.assertIn('value="name_desc"', page_content)
+            self.assertIn('placeholder="input"', page_content)
+            self.assertIn('placeholder="covers"', page_content)
         with self.client.get("/static/app.js") as script:
             self.assertEqual(script.status_code, 200)
             script_content = script.get_data(as_text=True)
@@ -121,12 +196,19 @@ class AppTests(unittest.TestCase):
             self.assertIn("/api/stickers", script_content)
             self.assertIn("background_media_token", script_content)
             self.assertIn("default_output_dir", script_content)
-            self.assertIn('const EXPECTED_API_VERSION = 4', script_content)
+            self.assertIn('const EXPECTED_API_VERSION = 5', script_content)
             self.assertIn('id="common-stroke-colors"', page_content)
             self.assertIn('id="stroke-color-input"', page_content)
             self.assertIn("line_stroke_colors", script_content)
             self.assertIn("COMMON_STROKE_COLORS", script_content)
             self.assertIn('data-remove-task-id', script_content)
+            self.assertIn("autocover.task-sort", script_content)
+            self.assertIn("function compareTasks(", script_content)
+            self.assertIn("function filterStickerAssets(", script_content)
+            self.assertIn("function sortTasks(", script_content)
+            self.assertIn("function appendManualCopyLine(", script_content)
+            self.assertIn("function removeManualCopyLine(", script_content)
+            self.assertIn('data-remove-copy-line', script_content)
             self.assertIn('method: "DELETE"', script_content)
             self.assertIn('return saveCover([state.ratio])', script_content)
             self.assertIn("default_input_dir", script_content)
@@ -135,18 +217,219 @@ class AppTests(unittest.TestCase):
             self.assertIn("预览初始化失败", script_content)
             self.assertIn('elements["cover-overlay"].getBoundingClientRect()', script_content)
             self.assertIn("renderedWidth = renderedHeight * previewRatio", script_content)
+            self.assertIn("function refreshInteractionState(", script_content)
+            self.assertIn('elements["cover-overlay"].inert = busy', script_content)
+            self.assertIn("function handleEditableElementKeydown(", script_content)
+            self.assertIn("function bindRovingTablist(", script_content)
         with self.client.get("/static/styles.css") as stylesheet:
             self.assertEqual(stylesheet.status_code, 200)
             css = stylesheet.get_data(as_text=True)
-            self.assertIn("@media (max-width: 720px)", css)
+            self.assertIn("@media (max-width: 760px)", css)
             self.assertIn("[hidden]", css)
             self.assertIn("overflow-x: hidden", css)
             self.assertIn(".editable-element", css)
             self.assertIn(".sticker-grid", css)
             self.assertIn(".sticker-element.selected", css)
             self.assertIn('font-family: "AutoCover Seto"', css)
-            self.assertIn('url("/api/fonts/default")', css)
+            self.assertIn('url("/api/fonts/default?glyph-revision=1")', css)
             self.assertIn(".stroke-color-controls", css)
+            self.assertIn(".task-sort-bar", css)
+            self.assertIn(".copy-editor-heading", css)
+            self.assertIn(".copy-line-remove", css)
+            self.assertIn(".sticker-library-summary", css)
+            self.assertIn(".text-style-editor", css)
+            self.assertIn("clamp(410px, 24vw, 500px)", css)
+            self.assertIn("minmax(480px, 1fr)", css)
+            self.assertIn("overflow-x: auto", css)
+            self.assertNotIn("min-width: 1040px", css)
+            self.assertIn("container-type: size", css)
+            self.assertIn("repeat(3, 1fr)", css)
+            self.assertIn("calc(177.777cqh - 64px)", css)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证画布键盘操作")
+    def test_keyboard_transform_moves_and_resizes_editable_elements(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const textModel = {x:0.5, y:0.5, font_size:100};
+if (applyKeyboardTransform(textModel, "text", "ArrowLeft", false) !== "move") {
+  throw new Error("文字方向键未识别为移动");
+}
+if (Math.abs(textModel.x - 0.495) > 0.000001) throw new Error("文字小步移动错误");
+applyKeyboardTransform(textModel, "text", "ArrowDown", true);
+if (Math.abs(textModel.y - 0.52) > 0.000001) throw new Error("文字大步移动错误");
+if (applyKeyboardTransform(textModel, "text", "+", false) !== "resize") {
+  throw new Error("文字加号未识别为缩放");
+}
+if (textModel.font_size !== 104) throw new Error("文字缩放步长错误");
+const stickerModel = {x:0.99, y:0.01, width:0.18};
+applyKeyboardTransform(stickerModel, "sticker", "ArrowRight", true);
+if (stickerModel.x !== 1) throw new Error("贴图移动未限制到画布内");
+applyKeyboardTransform(stickerModel, "sticker", "-", false);
+if (Math.abs(stickerModel.width - 0.17) > 0.000001) throw new Error("贴图缩放错误");
+if (applyKeyboardTransform(stickerModel, "sticker", "Enter", false) !== null) {
+  throw new Error("无关按键不应修改画布元素");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证队列排序行为")
+    def test_queue_sorting_orders_tasks_and_keeps_active_task(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+state.tasks = [
+  {id:"a", relative_path:"10_片段.mp4", folder_created_at:100, source_created_at:100},
+  {id:"b", relative_path:"2_片段.mp4", folder_created_at:200, source_created_at:50},
+  {id:"c", relative_path:"11_片段.mp4", folder_created_at:200, source_created_at:80},
+  {id:"d", relative_path:"缺失时间.mp4", folder_created_at:0, source_created_at:0},
+];
+state.activeTaskId = "b";
+state.queueSort = "folder_created_desc";
+sortTasks();
+if (state.tasks.map((item) => item.id).join(",") !== "c,b,a,d") {
+  throw new Error("最新创建排序错误");
+}
+state.queueSort = "name_asc";
+sortTasks();
+if (state.tasks.slice(0, 3).map((item) => item.id).join(",") !== "b,a,c") {
+  throw new Error("名称自然排序错误");
+}
+if (activeTask()?.id !== "b") throw new Error("排序后当前任务发生变化");
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证贴图库筛选行为")
+    def test_sticker_filter_matches_streamer_name_and_relative_path(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const stickerProbeAssets = [
+  {id:"1", name:"开心", group:"泽音melody", relative_path:"泽音melody/日常/开心.png"},
+  {id:"2", name:"震惊", group:"星瞳", relative_path:"星瞳/游戏/震惊.png"},
+];
+if (filterStickerAssets(stickerProbeAssets, "泽音melody", "").length !== 1) {
+  throw new Error("主播分组筛选错误");
+}
+if (filterStickerAssets(stickerProbeAssets, "", "星瞳")[0]?.id !== "2") {
+  throw new Error("主播名称搜索错误");
+}
+if (filterStickerAssets(stickerProbeAssets, "", "游戏")[0]?.id !== "2") {
+  throw new Error("相对路径搜索错误");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证手动文字行行为")
+    def test_manual_copy_lines_keep_colors_strokes_and_layouts_in_sync(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+state.options = {palettes:[{
+  key:"test", emphasis_color:"#ff0000", emphasis_stroke_color:"#ffffff",
+  neutral_color:"#eeeeee", neutral_stroke_color:"#111111", stroke_color:"#111111",
+}]};
+const task = {id:"manual", title:"测试", template_key:"headline", palette_key:"test"};
+state.tasks = [task];
+state.activeTaskId = task.id;
+const settings = defaultSettings(task);
+settings.copy_lines = ["第一行", "第二行"];
+settings.line_colors = ["#aaaaaa", "#bbbbbb"];
+settings.line_stroke_colors = ["#111111", "#222222"];
+settings.layouts["4x3"].text = [
+  {x:0.10, y:0.20, scale:1, font_size:100},
+  {x:0.30, y:0.40, scale:1, font_size:80},
+];
+settings.layouts["16x9"].text = [
+  {x:0.12, y:0.22, scale:1, font_size:100},
+  {x:0.32, y:0.42, scale:1, font_size:80},
+];
+state.settings.set(task.id, settings);
+if (appendManualCopyLine(settings) !== 2) throw new Error("首次新增文字行失败");
+const oldLayout = JSON.stringify(settings.layouts["4x3"].text);
+if (JSON.stringify(settings.layouts["16x9"].text) !== JSON.stringify([
+  {x:0.12, y:0.22, scale:1, font_size:100},
+  {x:0.32, y:0.42, scale:1, font_size:80},
+])) throw new Error("新增空行改变了旧布局");
+if (!updateManualCopyLine(settings, 2, "新增内容")) throw new Error("新增文字内容失败");
+if (settings.layouts["4x3"].text.length !== 3) throw new Error("新增可见行未建立布局");
+if (settings.layouts["4x3"].text[0].x !== 0.10
+    || settings.layouts["4x3"].text[0].font_size !== 100) {
+  throw new Error("新增文字破坏了旧行位置或字号");
+}
+const largeLineSettings = defaultSettings(task);
+largeLineSettings.copy_lines = ["朱鹮"];
+largeLineSettings.layouts["4x3"].text = [
+  {x:0.30, y:0.55, scale:1, font_size:240},
+];
+appendManualCopyLine(largeLineSettings);
+updateManualCopyLine(largeLineSettings, 1, "音音");
+const largeTransforms = largeLineSettings.layouts["4x3"].text;
+if (largeTransforms[0].y !== 0.55 || largeTransforms[0].font_size !== 240) {
+  throw new Error("新增大字行改变了旧文字布局");
+}
+if (largeTransforms[1].y + 0.25 >= largeTransforms[0].y) {
+  throw new Error("新增大字行与旧文字发生重叠");
+}
+if (!updateManualCopyLine(settings, 2, "")) throw new Error("清空文字内容失败");
+if (JSON.stringify(settings.layouts["4x3"].text) !== oldLayout) {
+  throw new Error("清空新增文字没有恢复旧布局");
+}
+for (let index = 0; index < 5; index += 1) {
+  if (appendManualCopyLine(settings) < 0) throw new Error("未达到八行就拒绝添加");
+}
+if (settings.copy_lines.length !== 8) throw new Error("未添加到八行");
+if (settings.line_colors.length !== 8 || settings.line_stroke_colors.length !== 8) {
+  throw new Error("颜色或描边数组未同步扩展");
+}
+if (appendManualCopyLine(settings) !== -1) throw new Error("第九行未被拒绝");
+if (!removeManualCopyLine(settings, 3)) throw new Error("删除文字行失败");
+if (settings.copy_lines.length !== 7 || settings.line_colors.length !== 7
+    || settings.line_stroke_colors.length !== 7) {
+  throw new Error("删除后文字、颜色与描边数量不一致");
+}
+if (settings.layouts["4x3"].text.length !== 2) throw new Error("删除空行改变了文字布局");
+if (!updateManualCopyLine(settings, 2, "再次加入")) throw new Error("重新加入文字失败");
+if (!removeManualCopyLine(settings, 2)) throw new Error("删除可见文字行失败");
+if (settings.layouts["4x3"].text.length !== 2) throw new Error("删除文字行后旧布局错误");
+while (settings.copy_lines) removeManualCopyLine(settings, 0);
+if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
+  throw new Error("删除全部文字后样式数组未清空");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_layout_variants_follow_the_submitted_title(self) -> None:
         response = self.client.post(
@@ -177,9 +460,14 @@ class AppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         assets = response.get_json()["assets"]
+        summary = response.get_json()["summary"]
         self.assertEqual(len(assets), 1)
         self.assertEqual(assets[0]["name"], "震惊")
+        self.assertEqual(summary["asset_count"], 1)
+        self.assertEqual(summary["group_count"], 1)
+        self.assertTrue(summary["available"])
         self.assertNotIn(str(self.root), str(assets[0]))
+        self.assertNotIn(str(self.root), str(summary))
         with self.client.get(f"/api/stickers/{assets[0]['id']}/image") as image_response:
             self.assertEqual(image_response.status_code, 200)
             self.assertEqual(image_response.mimetype, "image/png")
@@ -241,7 +529,9 @@ class AppTests(unittest.TestCase):
                 "line_stroke_colors": ["#ffffff"],
                 "layouts": {
                     "4x3": {
-                        "text": [{"x": 0.20, "y": 0.30, "scale": 0.8}],
+                        "text": [
+                            {"x": 0.20, "y": 0.30, "scale": 0.8, "font_size": 104}
+                        ],
                         "stickers": [
                             {
                                 "asset_id": asset_id,
@@ -259,6 +549,7 @@ class AppTests(unittest.TestCase):
         preview = response.get_json()["preview"]
         self.assertAlmostEqual(preview["placements"][0]["box"][0], 1440 * 0.20, delta=2)
         self.assertAlmostEqual(preview["placements"][0]["box"][1], 1080 * 0.30, delta=2)
+        self.assertEqual(preview["placements"][0]["font_size"], 104)
         self.assertEqual(preview["placements"][0]["stroke_color"], "#ffffff")
         self.assertAlmostEqual(preview["stickers"][0]["box"][0], 1440 * 0.70, delta=2)
         self.assertIn("background_media_token", preview)
@@ -317,6 +608,36 @@ class AppTests(unittest.TestCase):
         self.assertEqual({item["canvas_key"] for item in outputs}, {"4x3", "16x9"})
         self.assertTrue((self.output / "01_司机回头-4x3.jpg").is_file())
         self.assertTrue((self.output / "01_司机回头-16x9.jpg").is_file())
+
+    def test_dual_ratio_save_uses_one_immutable_task_snapshot(self) -> None:
+        task = self._ready_task()
+        workspace = self.app.extensions["cover_workspace"]
+        seen_titles: list[str] = []
+
+        def mutate_after_first_render(*args, **kwargs):
+            seen_titles.append(args[1])
+            if len(seen_titles) == 1:
+                workspace.update_task(task["id"], title="并发修改后的标题")
+            return actual_render_cover(*args, **kwargs)
+
+        with patch("app.render_cover", side_effect=mutate_after_first_render):
+            response = self.client.post(
+                f"/api/tasks/{task['id']}/save",
+                json={
+                    "title": "本次导出的固定标题",
+                    "canvases": ["4x3", "16x9"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            seen_titles,
+            ["本次导出的固定标题", "本次导出的固定标题"],
+        )
+        self.assertEqual(
+            workspace.get_task(task["id"]).title,
+            "并发修改后的标题",
+        )
 
     def test_save_validates_both_ratios_before_replacing_existing_outputs(self) -> None:
         task = self._ready_task()
@@ -435,6 +756,31 @@ class AppTests(unittest.TestCase):
                 "copy_lines": ["标题"],
                 "layouts": {
                     "4x3": {"text": [{"x": 0.2, "y": 0.2, "scale": float("nan")}]}
+                },
+            },
+            {
+                "copy_lines": ["标题"],
+                "layouts": {
+                    "4x3": {
+                        "text": [
+                            {"x": 0.2, "y": 0.2, "scale": 1.0, "font_size": 321}
+                        ]
+                    }
+                },
+            },
+            {
+                "copy_lines": ["标题"],
+                "layouts": {
+                    "4x3": {
+                        "text": [
+                            {
+                                "x": 0.2,
+                                "y": 0.2,
+                                "scale": 1.0,
+                                "font_size": float("inf"),
+                            }
+                        ]
+                    }
                 },
             },
         )

@@ -9,14 +9,22 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw, ImageFont
 
+from autocover.emoji import (
+    get_chromium_path,
+    get_emoji_font_path,
+    render_emoji_image,
+)
 from autocover.renderer import (
     StickerOverlay,
     TextTransform,
     compose_background,
+    draw_cover_text,
     render_cover,
     resolve_font_path,
 )
-from autocover.style import HOME_4_3, TEMPLATES, get_template
+from autocover.fonts import LOCAL_FONT_PATH
+from autocover.style import HOME_4_3, TEMPLATES, get_canvas_spec, get_palette, get_template
+from autocover.titles import CoverLine
 
 
 class RendererTests(unittest.TestCase):
@@ -279,6 +287,32 @@ class RendererTests(unittest.TestCase):
                 line_stroke_colors=["#111111"],
             )
 
+    def test_manual_copy_supports_eight_lines_beyond_template_suggestion(self) -> None:
+        lines = [f"手动第{index}行" for index in range(1, 9)]
+        result = render_cover(
+            self.frame_path,
+            "测试",
+            self.root / "eight-lines.jpg",
+            template_key="headline",
+            copy_lines=lines,
+        )
+
+        self.assertEqual([item.text for item in result.placements], lines)
+        for placement in result.placements:
+            left, top, right, bottom = placement.box
+            self.assertGreaterEqual(left, 0)
+            self.assertGreaterEqual(top, 0)
+            self.assertLessEqual(right, HOME_4_3.width)
+            self.assertLessEqual(bottom, HOME_4_3.height)
+        with self.assertRaisesRegex(ValueError, "最多支持 8 行"):
+            render_cover(
+                self.frame_path,
+                "测试",
+                self.root / "nine-lines.jpg",
+                template_key="headline",
+                copy_lines=lines + ["第九行"],
+            )
+
     def test_manual_text_transform_moves_and_resizes_a_line(self) -> None:
         automatic = render_cover(
             self.frame_path,
@@ -305,6 +339,39 @@ class RendererTests(unittest.TestCase):
         self.assertGreater(placement.stroke_width, 0)
         self.assertLessEqual(placement.box[2], manual.width)
         self.assertLessEqual(placement.box[3], manual.height)
+
+    def test_manual_text_transform_keeps_absolute_size_after_copy_changes(self) -> None:
+        transform = TextTransform(x=0.20, y=0.30, scale=1.0, font_size=116)
+        before = render_cover(
+            self.frame_path,
+            "测试",
+            self.root / "absolute-size-before.jpg",
+            canvas_key="4x3",
+            template_key="headline",
+            copy_lines=["朱鹮"],
+            text_transforms=[transform],
+        )
+        after = render_cover(
+            self.frame_path,
+            "测试",
+            self.root / "absolute-size-after.jpg",
+            canvas_key="4x3",
+            template_key="headline",
+            copy_lines=["朱鹮新增"],
+            text_transforms=[transform],
+        )
+
+        self.assertEqual(before.placements[0].font_size, 116)
+        self.assertEqual(after.placements[0].font_size, 116)
+        self.assertEqual(before.placements[0].box[:2], after.placements[0].box[:2])
+        with self.assertRaisesRegex(ValueError, "实际字号"):
+            render_cover(
+                self.frame_path,
+                "测试",
+                self.root / "invalid-absolute-size.jpg",
+                copy_lines=["标题"],
+                text_transforms=[TextTransform(0.2, 0.3, font_size=321)],
+            )
 
     def test_sticker_overlay_and_background_only_preview_are_created(self) -> None:
         sticker_path = self.root / "sticker.png"
@@ -473,6 +540,111 @@ class RendererTests(unittest.TestCase):
         if font_path is not None:
             font = ImageFont.truetype(font_path, size=48)
             self.assertGreater(font.getlength("音音封面"), 0)
+
+    def test_missing_seto_glyph_is_drawn_with_a_fallback_font(self) -> None:
+        if not LOCAL_FONT_PATH.is_file():
+            self.skipTest("本机尚未配置 B 站濑户体")
+
+        canvas = get_canvas_spec("16x9")
+        image = Image.new("RGB", (canvas.width, canvas.height), "#ffffff")
+        placements = draw_cover_text(
+            image,
+            [CoverLine("朱鹮", "emphasis")],
+            canvas,
+            get_template("headline"),
+            get_palette("latest_yellow"),
+            font_path=str(LOCAL_FONT_PATH),
+            line_colors=["#ff204f"],
+            line_stroke_colors=["#ffffff"],
+        )
+
+        placement = placements[0]
+        primary = ImageFont.truetype(str(LOCAL_FONT_PATH), size=placement.font_size)
+        glyph_start = placement.box[0] + round(primary.getlength("朱"))
+        right_half = image.crop(
+            (
+                min(placement.box[2] - 1, glyph_start + placement.stroke_width * 2),
+                placement.box[1],
+                placement.box[2],
+                placement.box[3],
+            )
+        )
+        pixels = right_half.load()
+        red_pixels = sum(
+            1
+            for y in range(right_half.height)
+            for x in range(right_half.width)
+            if pixels[x, y][0] > 200 and pixels[x, y][1] < 90 and pixels[x, y][2] < 130
+        )
+
+        self.assertGreater(red_pixels, 100, "“鹮”字没有使用系统字体补全")
+
+    def test_windows_emoji_layer_is_colored_and_transparent(self) -> None:
+        if get_emoji_font_path() is None or get_chromium_path() is None:
+            self.skipTest("当前系统没有 Windows Emoji 字体或 Chromium")
+
+        render_emoji_image.cache_clear()
+        emoji = render_emoji_image("\U0001f494\U0001f496", 160)
+
+        self.assertIsNotNone(emoji)
+        assert emoji is not None
+        pixels = list(
+            emoji.get_flattened_data()
+            if hasattr(emoji, "get_flattened_data")
+            else emoji.getdata()
+        )
+        red_pixels = sum(
+            1
+            for red, green, blue, alpha in pixels
+            if alpha > 128 and red > 170 and green < 100 and blue < 100
+        )
+        yellow_pixels = sum(
+            1
+            for red, green, blue, alpha in pixels
+            if alpha > 128 and red > 180 and green > 140 and blue < 100
+        )
+        transparent_pixels = sum(1 for *_, alpha in pixels if alpha == 0)
+
+        self.assertGreater(red_pixels, 1_000, "Emoji 没有保留 Windows 彩色红色字形")
+        self.assertGreater(yellow_pixels, 100, "Emoji 没有保留 Windows 彩色高光")
+        self.assertGreater(transparent_pixels, 100, "Emoji 图层背景不是透明的")
+
+    def test_chinese_and_windows_emoji_can_be_rendered_on_the_same_line(self) -> None:
+        if get_emoji_font_path() is None or get_chromium_path() is None:
+            self.skipTest("当前系统没有 Windows Emoji 字体或 Chromium")
+
+        result = render_cover(
+            self.frame_path,
+            "测试",
+            self.root / "mixed-chinese-emoji.jpg",
+            canvas_key="16x9",
+            template_key="headline",
+            copy_lines=["朱鹮\U0001f494\U0001f496"],
+            line_colors=["#d06e95"],
+            line_stroke_colors=["#ffffff"],
+            text_transforms=[TextTransform(0.15, 0.30, 1.0)],
+        )
+
+        with Image.open(result.output_path) as image:
+            crop = image.crop(result.placements[0].box).convert("RGB")
+            pixels = list(
+                crop.get_flattened_data()
+                if hasattr(crop, "get_flattened_data")
+                else crop.getdata()
+            )
+        red_pixels = sum(
+            1
+            for red, green, blue in pixels
+            if red > 170 and green < 100 and blue < 100
+        )
+        yellow_pixels = sum(
+            1
+            for red, green, blue in pixels
+            if red > 180 and green > 140 and blue < 100
+        )
+
+        self.assertGreater(red_pixels, 1_000, "导出的封面没有彩色 Emoji")
+        self.assertGreater(yellow_pixels, 100, "导出的 Emoji 颜色不完整")
 
 
 if __name__ == "__main__":

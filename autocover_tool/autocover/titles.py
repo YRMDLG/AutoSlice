@@ -9,7 +9,9 @@ from pathlib import Path
 
 from .style import MELODY_STYLE, VisualStyleRecommendation, get_template
 
-TITLE_PREFIX_RE = re.compile(r"^\s*[【\[]\s*泽音(?:Melody)?\s*[】\]]\s*", re.IGNORECASE)
+TITLE_PREFIX_RE = re.compile(
+    r"^\s*(?:【[^【】\r\n]{1,32}】|\[[^\[\]\r\n]{1,32}\])\s*"
+)
 ORIGINAL_FILE_RE = re.compile(r"原文件\s*[：:]\s*`([^`]+)`")
 BOLD_TITLE_RE = re.compile(r"(?m)^\*\*(.+?)\*\*\s*$")
 VIDEO_PREFIX_RE = re.compile(r"^\d{1,3}_\d+(?:\.\d+)?s_", re.IGNORECASE)

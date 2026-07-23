@@ -17,7 +17,10 @@ import urllib.parse
 import urllib.request
 
 from runtime_config import (
-    AUTOCOVER_DIR, AUTOCOVER_INPUT_DIR, COVER_OUTPUT_DIR, STICKER_DIR,
+    AUTOCOVER_DIR,
+    AUTOCOVER_INPUT_DIR,
+    COVER_OUTPUT_DIR,
+    STICKER_DIR,
 )
 
 
@@ -27,7 +30,7 @@ REQUIRED_IMPORTS = ("flask", "funasr", "docx")
 AUTOCOVER_PROJECT_DIR = AUTOCOVER_DIR
 AUTOCOVER_PREFERRED_PORT = 5010
 AUTOCOVER_SERVICE_ID = "autocover"
-AUTOCOVER_API_VERSION = 4
+AUTOCOVER_API_VERSION = 5
 AUTOCOVER_START_TIMEOUT = 20.0
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1
@@ -263,6 +266,26 @@ def _stop_autocover(process):
         process.wait(timeout=5)
 
 
+def _autoslice_bind_host(environ=None):
+    """默认只监听本机；显式局域网模式必须配置足够长的访问令牌。"""
+
+    env = environ if environ is not None else os.environ
+    lan_mode = str(env.get("AUTOSLICE_LAN_MODE", "")).strip().casefold()
+    if lan_mode not in {"1", "true", "yes", "on"}:
+        return "127.0.0.1"
+    token = str(env.get("AUTOSLICE_LAN_TOKEN", "")).strip()
+    if len(token) < 24:
+        raise RuntimeError(
+            "局域网模式要求 AUTOSLICE_LAN_TOKEN 至少 24 个字符"
+        )
+    hosts = str(env.get("AUTOSLICE_LAN_HOSTS", "")).strip()
+    if not hosts:
+        raise RuntimeError(
+            "局域网模式要求 AUTOSLICE_LAN_HOSTS 配置允许访问的主机名或 IP"
+        )
+    return "0.0.0.0"
+
+
 def _start_autocover(
         environ=None, project_dir=None, preferred_port=AUTOCOVER_PREFERRED_PORT,
         service_probe=None, port_finder=None, dependency_setup=None,
@@ -311,7 +334,7 @@ def _start_autocover(
 def main():
     os.chdir(PROJECT_DIR)
     print("=" * 50)
-    print("  AutoSlice - 泽音Melody 智能切片")
+    print("  AutoSlice - 智能切片")
     print("=" * 50)
 
     try:
@@ -362,7 +385,12 @@ def main():
         device = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
         print(f"AutoSlice Web 已启动: http://localhost:5002（FunASR: {device}）")
         print("控制台将实时显示所有任务进度")
-        app.run(host="0.0.0.0", port=5002, debug=False, threaded=True)
+        app.run(
+            host=_autoslice_bind_host(),
+            port=5002,
+            debug=False,
+            threaded=True,
+        )
     finally:
         _stop_autocover(cover_process)
     return 0

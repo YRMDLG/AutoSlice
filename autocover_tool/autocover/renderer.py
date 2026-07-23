@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import secrets
 import threading
+import unicodedata
 from dataclasses import asdict, dataclass, replace
+from functools import lru_cache
+from math import ceil, floor, isfinite
 from pathlib import Path
 from typing import Sequence
 
 from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageStat
 
-from .fonts import resolve_font_path
+from .emoji import get_emoji_font_path, is_emoji_character, render_emoji_image
+from .fonts import resolve_font_path, resolve_font_stack
 from .style import (
     MELODY_STYLE,
     CanvasSpec,
@@ -41,6 +45,7 @@ INDEPENDENT_TEXT_TEMPLATES = {
     "reaction",
     "gameplay",
 }
+MAX_CUSTOM_COPY_LINES = 8
 
 _OUTPUT_TRANSACTION_LOCK = threading.RLock()
 
@@ -65,11 +70,32 @@ class TextPlacement:
 
 @dataclass(frozen=True, slots=True)
 class TextTransform:
-    """一行文字相对画布的手动位置和字号缩放。"""
+    """一行文字相对画布的手动位置和字号。"""
 
     x: float
     y: float
     scale: float = 1.0
+    font_size: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _FontRun:
+    """一段由同一字体绘制的连续文字。"""
+
+    text: str
+    font: ImageFont.ImageFont
+    offset_x: float = 0.0
+    emoji: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _TextFontLayout:
+    """一行文字的主字体与缺字回退布局。"""
+
+    runs: tuple[_FontRun, ...]
+    mixed: bool = False
+    origin_x: float = 0.0
+    baseline_y: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +171,187 @@ def _load_font(size: int, font_path: str | None) -> ImageFont.ImageFont:
         return ImageFont.truetype("DejaVuSans-Bold.ttf", size=size)
     except OSError:
         return ImageFont.load_default(size=size)
+
+
+def _glyph_signature(font: ImageFont.ImageFont, character: str) -> tuple[object, ...]:
+    mask = font.getmask(character, mode="L")
+    return mask.size, mask.getbbox(), bytes(mask)
+
+
+@lru_cache(maxsize=8192)
+def _font_supports_character(font_path: str | None, character: str) -> bool:
+    """判断字体是否真的包含字形，避免把 .notdef 缺字符号当作正文。"""
+
+    if character.isspace() or unicodedata.category(character) in {"Cc", "Cf"}:
+        return True
+    if unicodedata.combining(character):
+        return True
+    font = _load_font(64, font_path)
+    candidate = _glyph_signature(font, character)
+    if candidate[1] is None:
+        return False
+    return candidate != _glyph_signature(font, "\uffff")
+
+
+@lru_cache(maxsize=8192)
+def _font_path_for_character(
+    font_paths: tuple[str | None, ...],
+    character: str,
+) -> str | None:
+    if is_emoji_character(character):
+        for font_path in font_paths:
+            if font_path and Path(font_path).name.casefold() == "seguiemj.ttf":
+                return font_path
+    for font_path in font_paths:
+        if font_path and Path(font_path).name.casefold() == "seguiemj.ttf":
+            continue
+        if _font_supports_character(font_path, character):
+            return font_path
+    return font_paths[0]
+
+
+def _font_run_specs(
+    text: str,
+    font_paths: tuple[str | None, ...],
+) -> list[tuple[str | None, str, bool]]:
+    specs: list[tuple[str | None, str, bool]] = []
+    for character in text:
+        font_path = _font_path_for_character(font_paths, character)
+        emoji = bool(font_path and Path(font_path).name.casefold() == "seguiemj.ttf")
+        if specs and specs[-1][0] == font_path and specs[-1][2] == emoji:
+            previous_path, previous_text, _ = specs[-1]
+            specs[-1] = previous_path, previous_text + character, emoji
+        else:
+            specs.append((font_path, character, emoji))
+    return specs
+
+
+def _measure_font_layout(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font_size: int,
+    stroke_width: int,
+    font_paths: tuple[str | None, ...],
+) -> tuple[_TextFontLayout, int, int]:
+    specs = _font_run_specs(text, font_paths)
+    fonts: dict[str | None, ImageFont.ImageFont] = {}
+
+    def load(path: str | None) -> ImageFont.ImageFont:
+        if path not in fonts:
+            fonts[path] = _load_font(font_size, path)
+        return fonts[path]
+
+    if len(specs) == 1 and not specs[0][2]:
+        font_path, run_text, _ = specs[0]
+        font = load(font_path)
+        box = draw.textbbox((0, 0), run_text, font=font, stroke_width=stroke_width)
+        return (
+            _TextFontLayout((_FontRun(run_text, font),)),
+            box[2] - box[0],
+            box[3] - box[1],
+        )
+
+    runs: list[_FontRun] = []
+    cursor = 0.0
+    bounds: list[tuple[float, float, float, float]] = []
+    for font_path, run_text, emoji in specs:
+        font = load(font_path)
+        box = draw.textbbox(
+            (cursor, 0),
+            run_text,
+            font=font,
+            stroke_width=stroke_width,
+            anchor="ls",
+        )
+        bounds.append(tuple(float(value) for value in box))
+        runs.append(_FontRun(run_text, font, cursor, emoji))
+        cursor += float(draw.textlength(run_text, font=font))
+
+    left = floor(min(box[0] for box in bounds))
+    top = floor(min(box[1] for box in bounds))
+    right = ceil(max(box[2] for box in bounds))
+    bottom = ceil(max(box[3] for box in bounds))
+    return (
+        _TextFontLayout(tuple(runs), mixed=True, origin_x=-left, baseline_y=-top),
+        right - left,
+        bottom - top,
+    )
+
+
+def _draw_emoji_run(
+    image: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    position: tuple[float, float],
+    layout: _TextFontLayout,
+    run: _FontRun,
+) -> bool:
+    size = max(16, int(getattr(run.font, "size", 64)))
+    emoji = render_emoji_image(run.text, size)
+    if emoji is None:
+        return False
+
+    x, y = position
+    expected = draw.textbbox((0, 0), run.text, font=run.font, anchor="ls")
+    expected_width = max(1, expected[2] - expected[0])
+    expected_height = max(1, expected[3] - expected[1])
+    scale = min(expected_width / max(1, emoji.width), expected_height / max(1, emoji.height))
+    target_size = (
+        max(1, round(emoji.width * scale)),
+        max(1, round(emoji.height * scale)),
+    )
+    if target_size != emoji.size:
+        emoji = emoji.resize(target_size, Image.Resampling.LANCZOS)
+    target_x = round(x + layout.origin_x + run.offset_x + expected[0])
+    target_y = round(y + layout.baseline_y + expected[1])
+    target_x += max(0, (expected_width - emoji.width) // 2)
+    target_y += max(0, (expected_height - emoji.height) // 2)
+    image.paste(emoji, (target_x, target_y), emoji)
+    return True
+
+
+def _draw_text_layout(
+    image: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    position: tuple[float, float],
+    layout: _TextFontLayout,
+    *,
+    fill: tuple[int, int, int],
+    stroke_width: int,
+    stroke_fill: tuple[int, int, int],
+    draw_emoji: bool = True,
+) -> None:
+    if not layout.mixed:
+        run = layout.runs[0]
+        if run.emoji:
+            if draw_emoji and _draw_emoji_run(image, draw, position, layout, run):
+                return
+            if not draw_emoji:
+                return
+        draw.text(
+            position,
+            run.text,
+            font=run.font,
+            fill=fill,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+        )
+        return
+
+    x, y = position
+    for run in layout.runs:
+        if run.emoji:
+            if draw_emoji:
+                _draw_emoji_run(image, draw, position, layout, run)
+            continue
+        draw.text(
+            (x + layout.origin_x + run.offset_x, y + layout.baseline_y),
+            run.text,
+            font=run.font,
+            fill=fill,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+            anchor="ls",
+        )
 
 
 def _focus_from_template(template: CoverTemplate) -> float:
@@ -353,48 +560,61 @@ def _measure_text(
     draw: ImageDraw.ImageDraw,
     line: CoverLine,
     base_size: int,
-    font_path: str | None,
-) -> tuple[ImageFont.ImageFont, int, int, int, int]:
+    font_paths: tuple[str | None, ...],
+) -> tuple[_TextFontLayout, int, int, int, int]:
     font_size = max(24, int(base_size * _role_scale(line.role)))
-    return _measure_text_at_size(draw, line, font_size, font_path)
+    return _measure_text_at_size(draw, line, font_size, font_paths)
 
 
 def _measure_text_at_size(
     draw: ImageDraw.ImageDraw,
     line: CoverLine,
     font_size: int,
-    font_path: str | None,
-) -> tuple[ImageFont.ImageFont, int, int, int, int]:
+    font_paths: tuple[str | None, ...],
+) -> tuple[_TextFontLayout, int, int, int, int]:
     """使用指定的实际字号测量一行文字。"""
 
     font_size = max(24, min(320, int(font_size)))
-    font = _load_font(font_size, font_path)
     stroke_width = max(3, font_size // 16)
-    box = draw.textbbox((0, 0), line.text, font=font, stroke_width=stroke_width)
-    width = box[2] - box[0]
-    height = box[3] - box[1]
-    return font, font_size, stroke_width, width, height
+    layout, width, height = _measure_font_layout(
+        draw,
+        line.text,
+        font_size,
+        stroke_width,
+        font_paths,
+    )
+    return layout, font_size, stroke_width, width, height
 
 
 def _manual_measurement(
     draw: ImageDraw.ImageDraw,
     line: CoverLine,
-    automatic: tuple[ImageFont.ImageFont, int, int, int, int],
+    automatic: tuple[_TextFontLayout, int, int, int, int],
     transform: TextTransform,
     canvas: CanvasSpec,
-    font_path: str | None,
-) -> tuple[ImageFont.ImageFont, int, int, int, int]:
-    """按用户缩放值重算字号，并在必要时缩小到画布内。"""
+    font_paths: tuple[str | None, ...],
+) -> tuple[_TextFontLayout, int, int, int, int]:
+    """按用户保存的实际字号重算，并在必要时缩小到画布内。"""
 
     if not 0.45 <= transform.scale <= 2.0:
         raise ValueError("文字缩放必须在 0.45 到 2.0 之间")
-    desired_size = max(24, round(automatic[1] * transform.scale))
-    measured = _measure_text_at_size(draw, line, desired_size, font_path)
+    if transform.font_size is None:
+        desired_size = max(24, round(automatic[1] * transform.scale))
+    else:
+        if (
+            isinstance(transform.font_size, bool)
+            or not isinstance(transform.font_size, (int, float))
+            or not isfinite(float(transform.font_size))
+            or not 24 <= float(transform.font_size) <= 320
+        ):
+            raise ValueError("文字实际字号必须在 24 到 320 之间")
+        desired_size = round(float(transform.font_size))
+    measured = _measure_text_at_size(draw, line, desired_size, font_paths)
     maximum_width = canvas.width - 16
     maximum_height = canvas.height - 16
     while (measured[3] > maximum_width or measured[4] > maximum_height) and desired_size > 24:
         desired_size = max(24, desired_size - 2)
-        measured = _measure_text_at_size(draw, line, desired_size, font_path)
+        measured = _measure_text_at_size(draw, line, desired_size, font_paths)
     return measured
 
 
@@ -402,20 +622,20 @@ def _fit_text(
     draw: ImageDraw.ImageDraw,
     lines: Sequence[CoverLine],
     area: tuple[int, int, int, int],
-    font_path: str | None,
-) -> tuple[int, list[tuple[ImageFont.ImageFont, int, int, int, int]], int]:
+    font_paths: tuple[str | None, ...],
+) -> tuple[int, list[tuple[_TextFontLayout, int, int, int, int]], int]:
     left, top, right, bottom = area
     max_width = right - left
     max_height = bottom - top
     maximum = min(190, int(max_height / max(1.0, len(lines) * 0.82)))
     minimum = 42
     for base_size in range(maximum, minimum - 1, -4):
-        measured = [_measure_text(draw, line, base_size, font_path) for line in lines]
+        measured = [_measure_text(draw, line, base_size, font_paths) for line in lines]
         gap = max(10, base_size // 7)
         total_height = sum(item[4] for item in measured) + gap * (len(lines) - 1)
         if max((item[3] for item in measured), default=0) <= max_width and total_height <= max_height:
             return base_size, measured, gap
-    measured = [_measure_text(draw, line, minimum, font_path) for line in lines]
+    measured = [_measure_text(draw, line, minimum, font_paths) for line in lines]
     return minimum, measured, max(8, minimum // 7)
 
 
@@ -423,8 +643,8 @@ def _fit_independent_text(
     draw: ImageDraw.ImageDraw,
     lines: Sequence[CoverLine],
     area: tuple[int, int, int, int],
-    font_path: str | None,
-) -> tuple[int, list[tuple[ImageFont.ImageFont, int, int, int, int]], int]:
+    font_paths: tuple[str | None, ...],
+) -> tuple[int, list[tuple[_TextFontLayout, int, int, int, int]], int]:
     """让高冲击模板的每句独立放大，同时确保总高度不溢出。"""
 
     max_width = area[2] - area[0]
@@ -433,7 +653,7 @@ def _fit_independent_text(
     for line in lines:
         selected_size = 42
         for base_size in range(190, 41, -4):
-            candidate = _measure_text(draw, line, base_size, font_path)
+            candidate = _measure_text(draw, line, base_size, font_paths)
             if candidate[3] <= max_width:
                 selected_size = base_size
                 break
@@ -441,7 +661,7 @@ def _fit_independent_text(
 
     while True:
         measured = [
-            _measure_text(draw, line, base_size, font_path)
+            _measure_text(draw, line, base_size, font_paths)
             for line, base_size in zip(lines, base_sizes)
         ]
         gap = max(10, min(base_sizes, default=70) // 8)
@@ -453,7 +673,7 @@ def _fit_independent_text(
 
 def _stack_positions(
     area: tuple[int, int, int, int],
-    measured: Sequence[tuple[ImageFont.ImageFont, int, int, int, int]],
+    measured: Sequence[tuple[_TextFontLayout, int, int, int, int]],
     gap: int,
     *,
     horizontal: str,
@@ -484,7 +704,7 @@ def _stack_positions(
 
 def _edge_positions(
     area: tuple[int, int, int, int],
-    measured: Sequence[tuple[ImageFont.ImageFont, int, int, int, int]],
+    measured: Sequence[tuple[_TextFontLayout, int, int, int, int]],
     gap: int,
     *,
     horizontal: str,
@@ -515,7 +735,7 @@ def _edge_positions(
 
 def _portrait_latest_positions(
     area: tuple[int, int, int, int],
-    measured: Sequence[tuple[ImageFont.ImageFont, int, int, int, int]],
+    measured: Sequence[tuple[_TextFontLayout, int, int, int, int]],
 ) -> list[tuple[int, int]]:
     """复现近期竖版人物封面的比例独立文字锚点。"""
 
@@ -549,7 +769,7 @@ def _portrait_latest_positions(
 def _positions_for_template(
     template: CoverTemplate,
     area: tuple[int, int, int, int],
-    measured: Sequence[tuple[ImageFont.ImageFont, int, int, int, int]],
+    measured: Sequence[tuple[_TextFontLayout, int, int, int, int]],
     gap: int,
 ) -> list[tuple[int, int]]:
     horizontal = "center" if template.text_anchor == "center" else template.text_anchor
@@ -572,7 +792,7 @@ def _positions_for_template(
 
 def _manual_position(
     transform: TextTransform,
-    measured: tuple[ImageFont.ImageFont, int, int, int, int],
+    measured: tuple[_TextFontLayout, int, int, int, int],
     canvas: CanvasSpec,
 ) -> tuple[int, int]:
     """把归一化坐标换算为画布坐标，并保证文字边界不被截断。"""
@@ -662,18 +882,21 @@ def draw_cover_text(
     if text_transforms is not None and len(text_transforms) != len(lines):
         raise ValueError("文字布局数量必须与封面文案行数一致")
 
-    resolved_font = resolve_font_path(font_path)
+    font_paths = resolve_font_stack(font_path)
+    emoji_font_path = get_emoji_font_path()
+    if emoji_font_path and emoji_font_path not in font_paths:
+        font_paths = (*font_paths, emoji_font_path)
     draw = ImageDraw.Draw(image)
     area = _text_area(canvas, template)
     if template.key in INDEPENDENT_TEXT_TEMPLATES:
-        _, measured, gap = _fit_independent_text(draw, lines, area, resolved_font)
+        _, measured, gap = _fit_independent_text(draw, lines, area, font_paths)
     else:
-        _, measured, gap = _fit_text(draw, lines, area, resolved_font)
+        _, measured, gap = _fit_text(draw, lines, area, font_paths)
     if text_transforms is None:
         positions = _positions_for_template(template, area, measured, gap)
     else:
         measured = [
-            _manual_measurement(draw, line, automatic, transform, canvas, resolved_font)
+            _manual_measurement(draw, line, automatic, transform, canvas, font_paths)
             for line, automatic, transform in zip(lines, measured, text_transforms)
         ]
         positions = [
@@ -682,7 +905,7 @@ def draw_cover_text(
         ]
     placements = []
     for index, (line, measured_line, position) in enumerate(zip(lines, measured, positions)):
-        font, font_size, stroke_width, width, height = measured_line
+        font_layout, font_size, stroke_width, width, height = measured_line
         x, y = position
         color = line_colors[index] if line_colors is not None else palette.color_for_role(line.role)
         stroke_color = (
@@ -691,18 +914,21 @@ def draw_cover_text(
             else palette.stroke_for_role(line.role)
         )
         shadow_offset = max(2, font_size // (34 if stroke_color == "#111111" else 24))
-        draw.text(
+        _draw_text_layout(
+            image,
+            draw,
             (x + shadow_offset, y + shadow_offset),
-            line.text,
-            font=font,
+            font_layout,
             fill=_rgb(palette.shadow_color),
             stroke_width=stroke_width + 1,
             stroke_fill=_rgb(palette.shadow_color),
+            draw_emoji=False,
         )
-        draw.text(
+        _draw_text_layout(
+            image,
+            draw,
             (x, y),
-            line.text,
-            font=font,
+            font_layout,
             fill=_rgb(color),
             stroke_width=stroke_width,
             stroke_fill=_rgb(stroke_color),
@@ -862,8 +1088,8 @@ def render_cover(
         cleaned = [str(line).strip() for line in copy_lines if str(line).strip()]
         if not cleaned:
             raise ValueError("自定义封面文案不能为空")
-        if len(cleaned) > template.max_lines:
-            raise ValueError(f"{template.label} 最多支持 {template.max_lines} 行文案")
+        if len(cleaned) > MAX_CUSTOM_COPY_LINES:
+            raise ValueError(f"手动文案最多支持 {MAX_CUSTOM_COPY_LINES} 行")
         if len(cleaned) == 1:
             roles = ["emphasis"]
         else:

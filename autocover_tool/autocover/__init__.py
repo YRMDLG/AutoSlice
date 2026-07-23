@@ -2,4 +2,4 @@
 
 __version__ = "0.1.0"
 SERVICE_ID = "autocover"
-API_VERSION = 4
+API_VERSION = 5

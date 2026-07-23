@@ -1,80 +1,205 @@
 <!DOCTYPE html>
-<html lang="zh-CN"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>弹幕切片 · AutoSlice</title>
-<style>
-:root{--bg:#0f0f1a;--card:#1a1a2e;--accent:#e94560;--blue:#0f3460;--text:#e0e0e0;--muted:#888;--green:#2ecc71;--red:#e74c3c}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
-.topbar{background:var(--card);border-bottom:1px solid #222;padding:12px 24px;display:flex;align-items:center;gap:24px}
-.topbar .logo{font-size:1.2em;font-weight:700;color:var(--accent);flex:0 0 auto}
-.topbar nav{display:flex;gap:4px;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
-.topbar nav::-webkit-scrollbar{display:none}
-.topbar nav a{color:var(--muted);text-decoration:none;padding:6px 14px;border-radius:6px;font-size:14px;transition:.2s}
-.topbar nav a:hover,.topbar nav a.active{color:#fff;background:var(--blue)}
-.main{max-width:1000px;margin:0 auto;padding:24px 20px}
-.card{background:var(--card);border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid #222}
-.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-.row label{min-width:72px;font-weight:600;color:var(--muted);font-size:13px;letter-spacing:.5px}
-input[type="text"],select{flex:1;min-width:160px;padding:10px 14px;border:1px solid #333;border-radius:8px;background:#0d0d1a;color:#fff;font-size:14px;transition:border .2s}
-input:focus,select:focus{outline:none;border-color:var(--accent)}
-input[type="file"]{flex:1;min-width:160px;font-size:13px}
-.btn{padding:10px 22px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
-.btn-red{background:var(--accent);color:#fff}.btn-red:hover{background:#c73652;transform:translateY(-1px)}
-.btn-dark{background:var(--blue);color:#fff}.btn-dark:hover{background:#1a4a80}
-.btn-sm{font-size:12px;padding:5px 10px}
-.vlist{max-height:300px;overflow-y:auto;border-radius:8px}
-.vitem{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #1a1a2e;cursor:pointer;font-size:14px}
-.vitem:hover{background:#1a2540}.vitem.sel{background:var(--blue);border-left:3px solid var(--accent)}
-.badge{font-size:10px;padding:3px 8px;border-radius:10px;font-weight:600}.b-green{background:#1a4a30;color:var(--green)}.b-blue{background:var(--blue);color:#8af}.b-gray{background:#2a2a3a;color:var(--muted)}
-.pbox{border-radius:8px;overflow:hidden}
-.pitem{padding:14px 16px;background:#0d0d1a;border-bottom:1px solid #1a1a2e}
-.pitem .name{font-size:13px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between}
-.st{font-size:11px;padding:2px 8px;border-radius:4px}.st-run{background:var(--blue);color:#8af}.st-done{background:#1a4a30;color:var(--green)}.st-err{background:#3a1a1a;color:var(--red)}
-.pbar{height:4px;background:#1a1a2e;border-radius:2px;margin:6px 0;overflow:hidden}
-.pfill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
-.done .pfill{background:var(--green)}.error .pfill{background:var(--red)}
-.pmsg{font-size:12px;color:var(--muted)}
-.flex-btns{display:flex;gap:10px;margin-top:16px}
-</style></head><body>
-<div class="topbar"><div class="logo">AutoSlice</div><nav><a href="/" class="active">弹幕切片</a><a href="/topic-v2">话题分析+切片</a><a href="/subtitle-workflow">字幕校对+压制</a><a href="/autocover" target="_blank" rel="noopener">自动封面</a></nav></div>
-<div class="main">
-<div class="card">
-    <div class="row"><label>录播目录</label><input type="text" id="vd"><button class="btn btn-dark" onclick="scan()">扫描</button></div>
-    <div class="row" style="margin-top:-4px"><label></label>
-        <button class="btn btn-dark btn-sm" onclick='setDir({{ default_video_dir | tojson }})'>项目默认目录</button>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>高级重新切片 · AutoSlice</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <a class="brand" href="/" aria-label="AutoSlice 首页">
+        <span class="brand-mark" aria-hidden="true">AS</span>
+        <span class="brand-copy"><strong>AutoSlice</strong><span>直播切片工作台</span></span>
+    </a>
+    <nav class="topnav" aria-label="主要功能">
+        <a href="/">智能分析</a>
+        <a href="/direct-slice" class="active" aria-current="page">高级重切</a>
+        <a href="/subtitle-workflow">字幕校对</a>
+        <a href="/autocover" target="_blank" rel="noopener">自动封面</a>
+    </nav>
+</header>
+
+<main class="page-shell">
+    <div class="page-heading">
+        <div>
+            <h1>高级重新切片</h1>
+            <p>复用已有 JSON 标记，或用人工时间轴重新生成视频片段。</p>
+        </div>
+        <div class="workflow-trail">选择录播　→　指定标记　→　重新切片</div>
     </div>
-    <div class="row"><label>输出目录</label><input type="text" id="od" value="{{ default_output_dir }}"></div>
-    <div class="row"><label>模式</label><select id="mode" onchange="toggleTL()">
-        <option value="danmaku">弹幕密度自动切</option>
-        <option value="hybrid">混合模式 (时间轴+密度)</option>
-        <option value="timeline">时间轴文件切 (docx)</option>
-        <option value="timeline-json">时间轴 JSON (AI报告)</option>
-    </select></div>
-    <div class="row" id="tlr" style="display:none"><label>时间轴</label>
-        <select id="tls" onchange="onTLSelect()" style="flex:1;min-width:160px"><option value="">-- 选择 --</option></select>
-        <span style="color:var(--muted)">或</span>
-        <input type="file" id="tlu" accept=".docx,.json" onchange="onTLUpload()" style="flex:1;min-width:160px">
-        <input type="hidden" id="tlp"><input type="hidden" id="tlj">
+
+    <div id="pageNotice" class="notice" role="status" aria-live="polite">正在扫描录播目录...</div>
+
+    <div class="workspace-grid">
+        <section class="panel" aria-labelledby="resliceTitle">
+            <div class="panel-header">
+                <h2 id="resliceTitle">重新切片任务</h2>
+                <span class="meta" id="selectionState">未选择录播</span>
+            </div>
+            <div class="step-block">
+                <div class="step-heading"><span class="step-index">1</span><strong>工作目录</strong><span>与智能分析共用</span></div>
+                <div class="field-row">
+                    <label for="vd">录播目录</label>
+                    <div class="field-control"><input type="text" id="vd" autocomplete="off"><button class="button" id="scanButton" type="button" onclick="scan()">扫描录播</button></div>
+                </div>
+                <div class="field-row"><label for="od">输出目录</label><input type="text" id="od" autocomplete="off"></div>
+            </div>
+            <div class="step-block">
+                <div class="step-heading"><span class="step-index">2</span><strong>选择录播</strong><span id="videoCount">0 个可用文件</span></div>
+                <div class="video-list" id="vlist"><div class="empty-state">正在读取目录...</div></div>
+                <div class="selected-summary" id="selectedSummary" hidden>
+                    <span class="summary-label">当前录播</span><span class="summary-title" id="selectedName"></span><span class="summary-path" id="selectedPath"></span>
+                </div>
+            </div>
+            <div class="step-block">
+                <div class="step-heading"><span class="step-index">3</span><strong>切片依据</strong><span id="modeHint">推荐复用分析结果</span></div>
+                <div class="field-row">
+                    <label for="mode">切片模式</label>
+                    <select id="mode" onchange="toggleTimeline()">
+                        <option value="timeline-json" selected>JSON 标记重新切片</option>
+                        <option value="timeline">人工时间轴 DOCX 重切</option>
+                        <option value="danmaku">弹幕密度直切（旧版）</option>
+                        <option value="hybrid">时间轴 + 密度（旧版）</option>
+                    </select>
+                </div>
+                <div class="field-row" id="timelineRow">
+                    <label for="timelineSelect">标记文件</label>
+                    <div class="field-control">
+                        <select id="timelineSelect" onchange="onTimelineSelect()"><option value="">选择 JSON</option></select>
+                        <label class="file-picker" for="timelineUpload" title="从本机选择文件">
+                            <input type="file" id="timelineUpload" accept=".json" onchange="onTimelineUpload()">
+                            <span id="uploadLabel">或从本机上传</span>
+                        </label>
+                        <input type="hidden" id="timelinePath"><input type="hidden" id="timelineJson">
+                    </div>
+                </div>
+            </div>
+            <div class="action-bar">
+                <button class="button primary" id="sliceButton" type="button" onclick="sliceSelected()" disabled>重新切片选中视频</button>
+            </div>
+        </section>
+
+        <section class="panel activity-panel" aria-labelledby="tasksTitle">
+            <div class="panel-header"><h2 id="tasksTitle">切片任务</h2><span class="meta" id="activityState">等待启动</span></div>
+            <div class="activity-scroll"><div class="progress-list" id="tasks"><div class="empty-state">任务启动后，这里会显示实时进度。</div></div></div>
+        </section>
     </div>
-    <div class="vlist" id="vlist"><p style="color:var(--muted);padding:16px">点击扫描加载...</p></div>
-    <div class="flex-btns"><button class="btn btn-red" onclick="sliceSel()">切片选中</button><button class="btn btn-red" onclick="sliceAll()">全部切片</button></div>
-</div>
-<div class="card"><div class="pbox" id="tasks"><p style="color:var(--muted);padding:16px">暂无任务</p></div></div>
-</div>
+</main>
+
 <script>
-let sel=null,tasks={},sse=null;document.getElementById('vd').value={{ default_video_dir | tojson }};
-function setDir(p){document.getElementById('vd').value=p;scan();}
-function toggleTL(){var m=document.getElementById('mode').value;document.getElementById('tlr').style.display=(m==='timeline'||m==='hybrid'||m==='timeline-json')?'flex':'none';if(m==='timeline'||m==='hybrid')loadTL();if(m==='timeline-json')loadJTL();}
-function connectSSE(){if(sse)sse.close();sse=new EventSource('/api/events');sse.addEventListener('init',e=>{tasks=JSON.parse(e.data);renderT();});sse.addEventListener('task_update',e=>{var d=JSON.parse(e.data);tasks[d.task_id]=d;renderT();});sse.onerror=()=>setTimeout(connectSSE,3000);}
-function renderT(){var ids=Object.keys(tasks),el=document.getElementById('tasks');if(!ids.length){el.innerHTML='<p style=color:var(--muted);padding:16px>暂无任务</p>';return}var o={running:0,pending:1,done:2,error:3};ids.sort((a,b)=>(o[tasks[a].status]||9)-(o[tasks[b].status]||9));el.innerHTML=ids.map(function(id){var t=tasks[id],pct=t.total>0?Math.round(t.step/t.total*100):0,cls=t.status==='done'?'done':t.status==='error'?'error':'',sl=t.status==='running'?'进行中':t.status==='done'?'完成':t.status==='error'?'失败':'等待';return'<div class="pitem '+cls+'"><div class=name><span>'+id+'</span><span class="st st-'+(t.status==='running'?'run':t.status==='done'?'done':'err')+'">'+sl+'</span></div>'+(t.status==='running'?'<div class=pbar><div class=pfill style=width:'+pct+'%></div></div>':'')+'<div class=pmsg>'+(t.progress||'')+' '+(t.result||'')+'</div></div>'}).join('');}
-async function scan(){var r=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_dir:document.getElementById('vd').value})});var d=await r.json();document.getElementById('vlist').innerHTML=d.videos.map(function(v,i){return'<div class=vitem onclick=pick(this,\''+v.path.replace(/\\/g,'\\\\')+'\')><span>'+v.name+'</span><span class="badge '+(v.has_ass?'b-blue':'b-gray')+'">'+(v.has_ass?'弹幕':'无弹幕')+'</span><span class="badge '+(v.has_srt?'b-green':'b-gray')+'">'+(v.has_srt?'字幕':'无字幕')+'</span></div>'}).join('');}
-function pick(el,p){document.querySelectorAll('.vitem').forEach(function(e){e.classList.remove('sel')});el.classList.add('sel');sel=p;}
-async function sliceSel(){if(!sel){alert('请先选择视频');return}var m=document.getElementById('mode').value,b={flv_path:sel,output_dir:document.getElementById('od').value,mode:m};if(m==='timeline-json')b.timeline_json=document.getElementById('tlp').value;else b.timeline_path=document.getElementById('tlp').value;await fetch('/api/slice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});}
-async function sliceAll(){var m=document.getElementById('mode').value,b={video_dir:document.getElementById('vd').value,output_dir:document.getElementById('od').value,mode:m};if(m==='timeline-json')b.timeline_json=document.getElementById('tlp').value;else b.timeline_path=document.getElementById('tlp').value;await fetch('/api/slice-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});}
-async function loadTL(){var r=await fetch('/api/timelines');var d=await r.json();document.getElementById('tls').innerHTML='<option value=>-- docx --</option>'+d.files.map(function(f){return'<option value='+f.path+'>'+f.name+'</option>'}).join('');document.getElementById('tlu').accept='.docx';}
-async function loadJTL(){var r=await fetch('/api/list-json-timelines');var d=await r.json();document.getElementById('tls').innerHTML='<option value=>-- JSON --</option>'+d.files.map(function(f){return'<option value='+f.path+'>'+f.name+'</option>'}).join('');document.getElementById('tlu').accept='.json';}
-function onTLSelect(){document.getElementById('tlp').value=document.getElementById('tls').value;document.getElementById('tlu').value='';}
-function onTLUpload(){var file=document.getElementById('tlu').files[0];if(!file)return;var fd=new FormData();fd.append('file',file);var m=document.getElementById('mode').value,url=m==='timeline-json'?'/api/upload-json-timeline':'/api/upload-timeline';fetch(url,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){if(d.path){document.getElementById('tlp').value=d.path;document.getElementById('tls').value='';m==='timeline-json'?loadJTL():loadTL();}});}
-connectSSE();scan();toggleTL();
-</script></body></html>
+let selectedVideo=null,tasks={},sse=null,scanBusy=false,taskBusy=false;
+const DEFAULT_VIDEO_DIR={{ default_video_dir|tojson }},DEFAULT_OUTPUT_DIR={{ default_output_dir|tojson }};
+const VIDEO_DIR_STORAGE_KEY='autoslice.video-dir',OUTPUT_DIR_STORAGE_KEY='autoslice.output-dir';
+function byId(id){return document.getElementById(id)}
+function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}
+function setNotice(message,kind=''){const el=byId('pageNotice');el.textContent=message;el.className=`notice ${kind}`.trim()}
+function restoreWorkspacePaths(){try{byId('vd').value=localStorage.getItem(VIDEO_DIR_STORAGE_KEY)||DEFAULT_VIDEO_DIR;byId('od').value=localStorage.getItem(OUTPUT_DIR_STORAGE_KEY)||DEFAULT_OUTPUT_DIR}catch(error){byId('vd').value=DEFAULT_VIDEO_DIR;byId('od').value=DEFAULT_OUTPUT_DIR}}
+function rememberWorkspacePaths(){try{localStorage.setItem(VIDEO_DIR_STORAGE_KEY,byId('vd').value);localStorage.setItem(OUTPUT_DIR_STORAGE_KEY,byId('od').value)}catch(error){}}
+async function jsonRequest(url,options={}){const response=await fetch(url,{headers:{'Content-Type':'application/json'},...options});const result=await response.json().catch(()=>({error:`服务返回了无效数据 (${response.status})`}));if(!response.ok||result.error)throw new Error(result.error||`请求失败 (${response.status})`);return result}
+
+function modeNeedsTimeline(){return ['timeline-json','timeline','hybrid'].includes(byId('mode').value)}
+function updateActions(){byId('sliceButton').disabled=!selectedVideo||taskBusy||(modeNeedsTimeline()&&!byId('timelinePath').value);byId('scanButton').disabled=scanBusy||taskBusy}
+
+function toggleTimeline(){
+    const mode=byId('mode').value;
+    byId('timelineRow').hidden=!modeNeedsTimeline();
+    byId('timelinePath').value='';
+    byId('timelineSelect').value='';
+    byId('timelineUpload').value='';
+    byId('uploadLabel').textContent='或从本机上传';
+    const hints={
+        'timeline-json':'使用智能分析生成的 clip_marks.json',
+        timeline:'按人工 DOCX 时间段重新切片',
+        danmaku:'旧版模式，仅按弹幕密度计算',
+        hybrid:'旧版模式，组合人工时间轴与密度'
+    };
+    byId('modeHint').textContent=hints[mode]||'';
+    if(mode==='timeline-json')loadJsonTimelines();
+    if(mode==='timeline'||mode==='hybrid')loadDocxTimelines();
+    updateActions();
+}
+
+function connectSSE(){
+    if(sse)sse.close();
+    sse=new EventSource('/api/events');
+    sse.addEventListener('init',event=>{tasks=JSON.parse(event.data);renderTasks()});
+    sse.addEventListener('task_update',event=>{const data=JSON.parse(event.data);tasks[data.task_id]=data;renderTasks();if(data.status==='error')setNotice(data.progress||'切片任务失败','error');if(data.status==='done')setNotice('重新切片完成','success')});
+    sse.onerror=()=>{byId('activityState').textContent='连接恢复中';setTimeout(connectSSE,3000)};
+}
+
+function summarizeTaskResult(result){
+    if(!result)return '';
+    try{const parsed=typeof result==='string'?JSON.parse(result):result;return parsed.slice_dir?`输出：${parsed.slice_dir}`:parsed.output_dir?`输出：${parsed.output_dir}`:''}catch(error){return String(result).slice(0,180)}
+}
+
+function renderTasks(){
+    const ids=Object.keys(tasks);
+    const list=byId('tasks');
+    if(!ids.length){list.innerHTML='<div class="empty-state">任务启动后，这里会显示实时进度。</div>';byId('activityState').textContent='等待启动';return}
+    const order={running:0,pending:1,queued:1,done:2,error:3};
+    ids.sort((left,right)=>(order[tasks[left].status]??9)-(order[tasks[right].status]??9));
+    list.innerHTML=ids.map(id=>{
+        const task=tasks[id];
+        const percent=task.total>0?Math.max(0,Math.min(100,Math.round(task.step/task.total*100))):0;
+        const status=task.status==='done'?'done':task.status==='error'?'error':'running';
+        const label=status==='done'?'完成':status==='error'?'失败':'进行中';
+        const detail=[task.progress||'',summarizeTaskResult(task.result)].filter(Boolean).join(' · ');
+        return `<div class="progress-item ${status}"><div class="progress-heading"><span class="progress-name" title="${esc(id)}">${esc(id)}</span><span class="status-chip ${status}">${label}</span></div>${status==='running'?`<div class="progress-track"><div class="progress-fill" style="transform:scaleX(${percent/100})"></div></div>`:''}<div class="progress-message">${esc(detail)}</div></div>`;
+    }).join('');
+    const active=ids.map(id=>tasks[id]).find(task=>task.status==='running'||task.status==='pending'||task.status==='queued');
+    taskBusy=Boolean(active);
+    byId('activityState').textContent=active?'正在切片':`${ids.length} 个任务`;
+    updateActions();
+}
+
+function renderVideos(videos){
+    const list=byId('vlist');list.replaceChildren();
+    videos.forEach(video=>{
+        const item=document.createElement('button');item.type='button';item.className='video-item';item.title=video.path;
+        item.addEventListener('click',()=>pick(item,video));
+        const name=document.createElement('span');name.className='video-name';name.textContent=video.name;
+        const ass=document.createElement('span');ass.className=`badge ${video.has_ass?'info':''}`;ass.textContent=video.has_ass?'有弹幕':'无弹幕';
+        const srt=document.createElement('span');srt.className=`badge ${video.has_srt?'success':''}`;srt.textContent=video.has_srt?'有字幕':'无字幕';
+        item.append(name,ass,srt);list.appendChild(item);
+    });
+    if(!videos.length)list.innerHTML='<div class="empty-state">目录中没有找到录播文件。</div>';
+}
+
+async function scan(){
+    rememberWorkspacePaths();scanBusy=true;updateActions();setNotice('正在扫描录播目录...');byId('vlist').innerHTML='<div class="empty-state">正在读取文件...</div>';
+    try{const result=await jsonRequest('/api/scan',{method:'POST',body:JSON.stringify({video_dir:byId('vd').value})});const videos=result.videos||[];renderVideos(videos);byId('videoCount').textContent=`${videos.length} 个可用文件`;setNotice(videos.length?`扫描完成，找到 ${videos.length} 个录播文件`:'扫描完成，但目录中没有找到录播','success')}catch(error){renderVideos([]);byId('videoCount').textContent='0 个可用文件';setNotice(`扫描失败：${error.message}`,'error')}finally{scanBusy=false;updateActions()}
+}
+
+function pick(element,video){document.querySelectorAll('.video-item').forEach(item=>item.classList.remove('selected'));element.classList.add('selected');selectedVideo=video.path;byId('selectedName').textContent=video.name;byId('selectedName').title=video.name;byId('selectedPath').textContent=video.path;byId('selectedPath').title=video.path;byId('selectedSummary').hidden=false;byId('selectionState').textContent=video.name;byId('selectionState').title=video.path;setNotice(`已选择：${video.name}`,'success');updateActions()}
+
+async function sliceSelected(){
+    if(!selectedVideo){setNotice('请先从列表选择录播','warning');return}
+    const mode=byId('mode').value;
+    if(modeNeedsTimeline()&&!byId('timelinePath').value){setNotice('请先选择或上传切片标记文件','warning');return}
+    rememberWorkspacePaths();taskBusy=true;updateActions();setNotice('正在启动重新切片...');
+    const body={flv_path:selectedVideo,output_dir:byId('od').value,mode};
+    if(mode==='timeline-json')body.timeline_json=byId('timelinePath').value;else body.timeline_path=byId('timelinePath').value;
+    try{await jsonRequest('/api/slice',{method:'POST',body:JSON.stringify(body)});setNotice('切片任务已启动，可在右侧查看进度','success')}catch(error){taskBusy=false;updateActions();setNotice(`切片启动失败：${error.message}`,'error')}
+}
+
+async function populateTimelines(url,placeholder,accept){
+    try{const result=await jsonRequest(url);const select=byId('timelineSelect');select.replaceChildren(new Option(placeholder,''));(result.files||[]).forEach(file=>select.add(new Option(file.name,file.path)));byId('timelineUpload').accept=accept}catch(error){setNotice(`标记文件列表加载失败：${error.message}`,'error')}
+}
+function loadDocxTimelines(){return populateTimelines('/api/timelines','选择 DOCX','.docx')}
+function loadJsonTimelines(){return populateTimelines('/api/list-json-timelines','选择 JSON','.json')}
+function onTimelineSelect(){byId('timelinePath').value=byId('timelineSelect').value;byId('timelineUpload').value='';byId('uploadLabel').textContent=byId('timelineSelect').selectedOptions[0]?.textContent||'或从本机上传';updateActions()}
+
+async function onTimelineUpload(){
+    const file=byId('timelineUpload').files[0];if(!file)return;
+    byId('uploadLabel').textContent=file.name;
+    const form=new FormData();form.append('file',file);
+    const mode=byId('mode').value;const url=mode==='timeline-json'?'/api/upload-json-timeline':'/api/upload-timeline';
+    try{const response=await fetch(url,{method:'POST',body:form});const result=await response.json();if(!response.ok||result.error)throw new Error(result.error||`上传失败 (${response.status})`);byId('timelinePath').value=result.path;byId('timelineSelect').value='';setNotice(`已载入标记文件：${file.name}`,'success');updateActions();mode==='timeline-json'?loadJsonTimelines():loadDocxTimelines()}catch(error){byId('timelinePath').value='';setNotice(`标记文件上传失败：${error.message}`,'error');updateActions()}
+}
+
+restoreWorkspacePaths();connectSSE();toggleTimeline();scan();
+</script>
+</body>
+</html>

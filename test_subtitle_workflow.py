@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from subtitle_workflow import (
+    DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_STYLE,
     DEFAULT_VIDEO_EXPORT,
     EXACT_SUBTITLE_FONT,
@@ -69,6 +70,42 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             cues = parse_srt_document(path)
         self.assertEqual(cues[0].text, "音音晚上好")
 
+    def test_default_glossary_contains_requested_names_and_reaches_prompt(self):
+        requested_terms = {
+            "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音",
+            "音姐", "音妈", "露露", "四禧丸子", "沐霂", "又一", "梨安",
+            "恬豆", "七海", "小孩梓", "阿梓", "柚恩", "露早", "EOE", "篮筐",
+            "小沐标", "酥酥又", "向心梨", "恬豆包", "柚恩蜜", "gogo队",
+            "小星星", "星瞳", "宣小纸", "真纸棒", "脆鲨",
+        }
+        prompts = []
+
+        def runner(prompt, _compact_prompt):
+            prompts.append(prompt)
+            indices = json.loads(
+                prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            )
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "专名字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            result = suggest_subtitle_corrections(
+                source,
+                llm_runner=runner,
+                use_cache=False,
+            )
+
+        self.assertTrue(requested_terms.issubset(DEFAULT_SUBTITLE_GLOSSARY))
+        self.assertEqual(
+            len(DEFAULT_SUBTITLE_GLOSSARY),
+            len(set(DEFAULT_SUBTITLE_GLOSSARY)),
+        )
+        self.assertTrue(requested_terms.issubset(result["glossary"]))
+        self.assertTrue(prompts[0].startswith("你是直播切片的字幕校对员。"))
+        for term in requested_terms:
+            self.assertIn(term, prompts[0])
+
     def test_invalid_or_reverse_timeline_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "字幕.srt"
@@ -127,6 +164,11 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertEqual(pairs[0]["title"], "投稿标题")
         self.assertEqual(pairs[0]["cue_count"], 3)
         self.assertTrue(pairs[0]["video_path"].endswith("7月16日 (1).mp4"))
+        for field in (
+                "folder_created_at", "folder_modified_at",
+                "source_created_at", "source_modified_at"):
+            self.assertIsInstance(pairs[0][field], float)
+            self.assertGreater(pairs[0][field], 0)
 
     def test_review_retries_incomplete_batch_filters_rewrite_and_caches(self):
         calls = []

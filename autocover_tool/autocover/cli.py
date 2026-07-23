@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="autocover",
-        description="AutoCover 泽音切片封面工作台",
+        description="AutoCover B 站切片封面工作台",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -120,10 +120,9 @@ def run_server(port: int, *, open_browser: bool = True) -> int:
         print(f"端口 {port} 上的服务版本过旧或不兼容，将尝试后续端口")
 
     selected_port = find_available_port(port)
-    try:
-        from ..app import create_app
-    except ImportError:
-        # 兼容在 autocover_tool 目录执行 `python -m autocover.cli`。
+    if __package__ and __package__.startswith("autocover_tool."):
+        from autocover_tool.app import create_app
+    else:
         from app import create_app
 
     url = f"http://127.0.0.1:{selected_port}"

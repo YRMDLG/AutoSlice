@@ -78,6 +78,9 @@ class CoverCopyTests(unittest.TestCase):
     def test_strip_title_prefix_supports_account_variants(self) -> None:
         self.assertEqual(strip_title_prefix("【泽音】测试标题"), "测试标题")
         self.assertEqual(strip_title_prefix("[泽音Melody] 测试标题"), "测试标题")
+        self.assertEqual(strip_title_prefix("【其他主播】测试标题"), "测试标题")
+        self.assertEqual(strip_title_prefix("[AnotherChannel] 测试标题"), "测试标题")
+        self.assertEqual(strip_title_prefix("【账号】标题里的【重点】"), "标题里的【重点】")
 
     def test_create_cover_lines_keeps_hook_and_quote(self) -> None:
         title = "【泽音】想看虐文却收到三篇“全员去世”😰“虐不是让你把人写死啊！”最后只能翻自己网盘🤣"
