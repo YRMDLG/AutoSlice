@@ -281,6 +281,76 @@ if (applyKeyboardTransform(stickerModel, "sticker", "Enter", false) !== null) {
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required to verify preview loading")
+    def test_preview_refresh_keeps_existing_cover_and_delays_first_loader(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const classList = { add(){}, remove(){}, toggle(){}, contains(){ return false; } };
+Object.assign(elements, {
+  "cover-preview": {hidden: false, src: "old.jpg"},
+  "preview-loader": {hidden: true},
+  "preview-state": {textContent: "old"},
+  "preview-empty": {hidden: true, textContent: ""},
+  "cover-overlay": {classList, replaceChildren(){}, removeAttribute(){}},
+  "status-text": {textContent: ""},
+  "status-detail": {textContent: "", title: ""},
+  "status-dot": {classList},
+});
+state.preview = {media_token: "old-token", width: 1440, height: 1080};
+state.activeTaskId = "task-1";
+state.ratio = "4x3";
+const task = {id: "task-1", candidates: [{}]};
+activeTask = () => task;
+previewPayload = () => ({});
+setStatus = () => {};
+
+async function runProbe() {
+  let rejectRequest;
+  api = () => new Promise((resolve, reject) => { rejectRequest = reject; });
+  const pending = refreshPreview();
+  if (!elements["preview-loader"].hidden) {
+    throw new Error("existing preview displayed the loader");
+  }
+  rejectRequest(new Error("simulated preview failure"));
+  await pending.then(
+    () => { throw new Error("failed preview request unexpectedly resolved"); },
+    () => {},
+  );
+  if (!elements["preview-loader"].hidden) throw new Error("loader stayed visible after failure");
+  if (elements["cover-preview"].hidden) throw new Error("existing preview was cleared after failure");
+  const stateText = elements["preview-state"].textContent;
+  if (!stateText.startsWith("1440") || !stateText.includes("1080")) {
+    throw new Error("previous preview dimensions were not restored");
+  }
+
+  state.preview = null;
+  elements["cover-preview"].hidden = true;
+  elements["preview-loader"].hidden = true;
+  state.previewRequestId += 1;
+  beginPreviewLoading(state.previewRequestId);
+  if (!elements["preview-loader"].hidden) throw new Error("first loader appeared immediately");
+  await new Promise((resolve) => setTimeout(resolve, PREVIEW_LOADER_DELAY_MS + 30));
+  if (elements["preview-loader"].hidden) throw new Error("slow first request never showed loader");
+  finishPreviewLoading(state.previewRequestId);
+  if (!elements["preview-loader"].hidden) throw new Error("finished loader stayed visible");
+}
+
+runProbe().catch((error) => {
+  console.error(error.stack || error.message);
+  process.exitCode = 1;
+});
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){},setTimeout,clearTimeout};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证队列排序行为")
     def test_queue_sorting_orders_tasks_and_keeps_active_task(self) -> None:
         with self.client.get("/static/app.js") as response:

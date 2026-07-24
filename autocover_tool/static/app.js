@@ -9,6 +9,8 @@ const COMMON_LINE_COLORS = Object.freeze([
 ]);
 const COMMON_STROKE_COLORS = Object.freeze(["#111111", "#ffffff"]);
 const MAX_MANUAL_COPY_LINES = 8;
+// 已经有可用预览时不再用整块遮罩打断编辑；首次生成时延迟显示，避免一闪而过。
+const PREVIEW_LOADER_DELAY_MS = 220;
 const QUEUE_SORT_KEYS = new Set([
   "folder_created_desc", "folder_created_asc", "folder_modified_desc",
   "source_modified_desc", "name_asc", "name_desc",
@@ -23,6 +25,7 @@ const state = {
   settings: new Map(),
   workspaceConfig: null,
   previewTimer: null,
+  previewLoaderTimer: null,
   recommendTimer: null,
   busyCount: 0,
   stickerAssets: [],
@@ -1505,6 +1508,40 @@ function showSettledPreview(preview = state.preview) {
   elements["cover-overlay"].classList.add("preview-settled");
 }
 
+function previewHasContent() {
+  return Boolean(
+    state.preview?.media_token
+    && elements["cover-preview"]
+    && !elements["cover-preview"].hidden
+  );
+}
+
+function beginPreviewLoading(requestId) {
+  window.clearTimeout(state.previewLoaderTimer);
+  state.previewLoaderTimer = null;
+
+  // 编辑已有封面时保留当前画面，不再显示覆盖整个画布的“正在生成预览”。
+  if (previewHasContent()) {
+    elements["preview-loader"].hidden = true;
+    return;
+  }
+
+  // 首次生成也延迟一点显示，快速完成的请求不会造成闪屏。
+  state.previewLoaderTimer = window.setTimeout(() => {
+    state.previewLoaderTimer = null;
+    if (requestId !== state.previewRequestId || previewHasContent()) return;
+    elements["preview-loader"].hidden = false;
+    elements["preview-state"].textContent = "正在渲染";
+  }, PREVIEW_LOADER_DELAY_MS);
+}
+
+function finishPreviewLoading(requestId) {
+  if (requestId !== state.previewRequestId) return;
+  window.clearTimeout(state.previewLoaderTimer);
+  state.previewLoaderTimer = null;
+  elements["preview-loader"].hidden = true;
+}
+
 async function refreshPreview() {
   const task = activeTask();
   if (!task || !task.candidates.length) {
@@ -1513,8 +1550,9 @@ async function refreshPreview() {
   const taskId = task.id;
   const ratio = state.ratio;
   const requestId = ++state.previewRequestId;
-  elements["preview-loader"].hidden = false;
-  elements["preview-state"].textContent = "正在渲染";
+  const hadPreview = previewHasContent();
+  const previousPreview = state.preview;
+  beginPreviewLoading(requestId);
   try {
     const payload = await api(`/api/tasks/${task.id}/preview`, {
       method: "POST",
@@ -1546,17 +1584,23 @@ async function refreshPreview() {
     setStatus("预览已更新", task.filename);
   } catch (error) {
     if (requestId !== state.previewRequestId) return;
-    clearPreview("预览生成失败");
+    // 已经有预览时保留旧画面，避免一次网络/渲染失败把正在编辑的封面清空。
+    if (!hadPreview) {
+      clearPreview("预览生成失败");
+    } else if (previousPreview?.width && previousPreview?.height) {
+      elements["preview-state"].textContent = `${previousPreview.width} × ${previousPreview.height}`;
+    }
     setStatus("预览失败", error.message, "error");
     throw error;
   } finally {
-    if (requestId === state.previewRequestId) {
-      elements["preview-loader"].hidden = true;
-    }
+    finishPreviewLoading(requestId);
   }
 }
 
 function clearPreview(message) {
+  window.clearTimeout(state.previewLoaderTimer);
+  state.previewLoaderTimer = null;
+  elements["preview-loader"].hidden = true;
   state.preview = null;
   state.selectedElement = null;
   elements["cover-preview"].hidden = true;
