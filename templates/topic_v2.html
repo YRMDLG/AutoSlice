@@ -15,7 +15,7 @@
     </a>
     <nav class="topnav" aria-label="主要功能">
         <a href="/" class="active" aria-current="page">智能分析</a>
-        <a href="/direct-slice">高级重切</a>
+        {% if legacy_direct_slice_enabled %}<a href="/direct-slice">高级重切</a>{% endif %}
         <a href="/subtitle-workflow">字幕校对</a>
         <a href="/autocover" target="_blank" rel="noopener">自动封面</a>
     </nav>

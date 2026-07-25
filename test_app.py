@@ -17,6 +17,13 @@ class AutoCoverIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         app_module.app.config.update(TESTING=True)
+        self.legacy_flag = patch.dict(
+            os.environ,
+            {app_module.LEGACY_DIRECT_SLICE_ENV: ""},
+            clear=False,
+        )
+        self.legacy_flag.start()
+        self.addCleanup(self.legacy_flag.stop)
         self.client = app_module.app.test_client()
 
     def test_autocover_redirect_uses_only_configured_local_service(self):
@@ -101,22 +108,36 @@ class AutoCoverIntegrationTests(unittest.TestCase):
         self.assertEqual(allowed.status_code, 200)
 
     def test_all_primary_pages_link_to_autocover(self):
-        for path in ("/", "/topic-v2", "/direct-slice", "/subtitle-workflow"):
+        for path in ("/", "/topic-v2", "/subtitle-workflow"):
             response = self.client.get(path)
             html = response.get_data(as_text=True)
             self.assertEqual(response.status_code, 200)
             self.assertIn('href="/autocover"', html)
             self.assertIn("自动封面", html)
 
-    def test_new_pipeline_is_home_and_direct_slice_is_advanced(self):
+    def test_legacy_direct_slice_is_hidden_until_explicitly_enabled(self):
         home = self.client.get("/").get_data(as_text=True)
-        advanced = self.client.get("/direct-slice").get_data(as_text=True)
+        subtitle = self.client.get("/subtitle-workflow").get_data(as_text=True)
 
-        self.assertIn("开始分析+切片", home)
-        self.assertNotIn("全部切片", home)
-        self.assertIn("JSON 标记重新切片", advanced)
-        self.assertNotIn("全部切片", advanced)
+        self.assertIn('id="startButton"', home)
+        self.assertNotIn('href="/direct-slice"', home)
+        self.assertNotIn('href="/direct-slice"', subtitle)
+        self.assertEqual(self.client.get("/direct-slice").status_code, 404)
+        self.assertEqual(self.client.post("/api/slice", json={}).status_code, 404)
         self.assertEqual(self.client.post("/api/slice-all", json={}).status_code, 404)
+
+        with patch.dict(
+                os.environ,
+                {app_module.LEGACY_DIRECT_SLICE_ENV: "1"},
+                clear=False):
+            advanced = self.client.get("/direct-slice")
+            enabled_home = self.client.get("/").get_data(as_text=True)
+            enabled_api = self.client.post("/api/slice", json={})
+
+        self.assertEqual(advanced.status_code, 200)
+        self.assertIn("JSON", advanced.get_data(as_text=True))
+        self.assertIn('href="/direct-slice"', enabled_home)
+        self.assertEqual(enabled_api.status_code, 400)
 
     def test_service_contract_reports_actual_autocover_url(self):
         with patch.dict(
@@ -143,7 +164,7 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(configured, Path(r"X:\fixtures\Recordings").resolve())
-        for path in ("/", "/topic-v2", "/direct-slice"):
+        for path in ("/", "/topic-v2"):
             html = self.client.get(path).get_data(as_text=True)
             self.assertNotIn("1947277414", html)
             self.assertNotIn("DanmakuRender-5", html)
@@ -257,6 +278,13 @@ class TopicPipelineApiTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config.update(TESTING=True)
         app_module.tasks.clear()
+        self.legacy_flag = patch.dict(
+            os.environ,
+            {app_module.LEGACY_DIRECT_SLICE_ENV: "1"},
+            clear=False,
+        )
+        self.legacy_flag.start()
+        self.addCleanup(self.legacy_flag.stop)
         self.client = app_module.app.test_client()
 
     def test_update_task_does_not_fail_when_gbk_console_cannot_encode_emoji(self):

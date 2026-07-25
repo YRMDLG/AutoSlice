@@ -6,7 +6,7 @@ import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, secrets
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import Flask, render_template, request, jsonify, Response, redirect
+from flask import Flask, render_template, request, jsonify, Response, redirect, abort
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import process_video
@@ -43,6 +43,7 @@ DEFAULT_SUBMISSION_DIR = str(SUBMISSION_DIR)
 DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1
+LEGACY_DIRECT_SLICE_ENV = "AUTOSLICE_ENABLE_LEGACY_DIRECT_SLICE"
 JSON_TIMELINE_UPLOAD_DIR = Path(DEFAULT_OUTPUT_DIR)
 MANUAL_TIMELINE_UPLOAD_DIR = Path(DEFAULT_TIMELINE_DIR)
 _ACTIVE_TASK_STATUSES = {"queued", "running"}
@@ -103,6 +104,18 @@ def _env_flag(name, environ=None):
     env = environ if environ is not None else os.environ
     return str(env.get(name, "")).strip().casefold() in {
         "1", "true", "yes", "on",
+    }
+
+
+def _legacy_direct_slice_enabled(environ=None):
+    """旧版直切默认关闭，仅在明确设置环境变量时开放。"""
+    return _env_flag(LEGACY_DIRECT_SLICE_ENV, environ)
+
+
+@app.context_processor
+def _template_feature_flags():
+    return {
+        "legacy_direct_slice_enabled": _legacy_direct_slice_enabled(),
     }
 
 
@@ -942,6 +955,8 @@ def index():
 
 @app.route("/direct-slice")
 def direct_slice_page():
+    if not _legacy_direct_slice_enabled():
+        abort(404)
     return render_template(
         "index.html",
         default_video_dir=DEFAULT_VIDEO_DIR,
@@ -971,6 +986,8 @@ def scan():
 
 @app.route("/api/slice", methods=["POST"])
 def slice_start():
+    if not _legacy_direct_slice_enabled():
+        return jsonify({"error": "旧版高级重新切片功能未启用"}), 404
     data = request.get_json(silent=True) or {}
     flv_path = data.get("flv_path", "")
     output_dir = os.path.abspath(data.get("output_dir") or DEFAULT_OUTPUT_DIR)

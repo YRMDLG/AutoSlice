@@ -14,6 +14,9 @@ $env:AUTOCOVER_INPUT_DIR = Join-Path $PSScriptRoot "output"
 $env:AUTOCOVER_OUTPUT_DIR = Join-Path $PSScriptRoot "covers"
 $env:AUTOCOVER_STICKER_DIR = Join-Path $PSScriptRoot "stickers"
 
+# 旧版高级重新切片默认关闭。只有需要兼容历史 JSON/DOCX 直切操作时才启用。
+# $env:AUTOSLICE_ENABLE_LEGACY_DIRECT_SLICE = "1"
+
 # CPU 最兼容；确认 CUDA 运行时可用后可改为 cuda:0 或 auto。
 $env:AUTOSLICE_FUNASR_DEVICE = "cpu"
 
