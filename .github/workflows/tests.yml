@@ -42,6 +42,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "flask>=3.0,<4.0" "requests>=2.31,<3.0" "Pillow>=10.0,<13.0" python-docx
 
+      - name: Install FFmpeg
+        shell: pwsh
+        run: choco install ffmpeg --yes --no-progress
+
       - name: Run unified test suite
         shell: pwsh
         run: python -B -m unittest discover -q

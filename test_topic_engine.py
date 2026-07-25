@@ -1063,16 +1063,22 @@ class ArtifactBundleTests(unittest.TestCase):
             canonical_clip["manual_timeline"]["optimized_json_path"],
             first["optimized_timeline_json_path"],
         )
-        self.assertEqual(canonical_manifest["slice_output_dir"], str(slice_dir.resolve()))
-        self.assertEqual(canonical_manifest["tasks"][0]["slice_path"], str(clip_path.resolve()))
         self.assertEqual(
-            canonical_manifest["tasks"][0]["subtitle_path"],
-            str(subtitle_path.resolve()),
+            Path(canonical_manifest["slice_output_dir"]).resolve(),
+            slice_dir.resolve(),
+        )
+        self.assertEqual(
+            Path(canonical_manifest["tasks"][0]["slice_path"]).resolve(),
+            clip_path.resolve(),
+        )
+        self.assertEqual(
+            Path(canonical_manifest["tasks"][0]["subtitle_path"]).resolve(),
+            subtitle_path.resolve(),
         )
         self.assertEqual(overview.count("### 01"), 1)
         self.assertIn("AI音能24小时代播吗", overview)
         self.assertIn(mark["publish_title"], overview)
-        self.assertEqual(pointer.strip(), str(slice_dir.resolve()))
+        self.assertEqual(Path(pointer.strip()).resolve(), slice_dir.resolve())
         self.assertIn("[校对字幕.srt](./数据/校对字幕.srt)", organized_report)
         self.assertIn(
             "[精调任务总清单.md](../_总清单/精调任务总清单.md)",
@@ -1409,9 +1415,12 @@ class TopicEngineParseTests(unittest.TestCase):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
 
     def test_funasr_device_auto_uses_cuda_only_when_torch_reports_available(self):
-        with patch("torch.cuda.is_available", return_value=True):
+        fake_torch = ModuleType("torch")
+        fake_torch.cuda = Mock()
+        with patch.dict(sys.modules, {"torch": fake_torch}):
+            fake_torch.cuda.is_available.return_value = True
             self.assertEqual(_resolve_funasr_device("auto"), "cuda:0")
-        with patch("torch.cuda.is_available", return_value=False):
+            fake_torch.cuda.is_available.return_value = False
             self.assertEqual(_resolve_funasr_device("auto"), "cpu")
         self.assertEqual(_resolve_funasr_device("cuda"), "cuda:0")
         self.assertEqual(_resolve_funasr_device("cpu"), "cpu")

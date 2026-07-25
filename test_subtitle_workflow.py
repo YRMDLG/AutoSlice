@@ -591,7 +591,16 @@ class SubtitleRenderingTests(unittest.TestCase):
 
     def test_exact_font_resolves_to_noto_sans_hans_black(self):
         verify_exact_subtitle_font.cache_clear()
-        result = verify_exact_subtitle_font()
+        try:
+            with patch("subtitle_workflow.subprocess.run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stderr = (
+                    "fontselect: (Noto Sans S Chinese Black, 400, 0) "
+                    "-> NotoSansHans-Black, 0, NotoSansHans-Black"
+                )
+                result = verify_exact_subtitle_font()
+        finally:
+            verify_exact_subtitle_font.cache_clear()
         self.assertTrue(result["available"], result)
         self.assertEqual(result["requested"], EXACT_SUBTITLE_FONT)
         self.assertEqual(result["resolved"], EXACT_SUBTITLE_FONT_RESOLVED)
@@ -632,18 +641,28 @@ class SubtitleRenderingTests(unittest.TestCase):
                 "fps": 30,
                 "bitrate_kbps": 1200,
             }
-            jpeg, selected_time = render_subtitle_preview(
-                video,
-                srt,
-                export_settings=fast_export,
-            )
-            result = burn_subtitles(
-                video,
-                srt,
-                output_path=output,
-                encoder="libx264",
-                export_settings=fast_export,
-            )
+            font_probe = {
+                "available": True,
+                "requested": EXACT_SUBTITLE_FONT,
+                "resolved": EXACT_SUBTITLE_FONT_RESOLVED,
+                "expected_resolved": EXACT_SUBTITLE_FONT_RESOLVED,
+            }
+            with patch(
+                "subtitle_workflow._ensure_exact_subtitle_font",
+                return_value=font_probe,
+            ):
+                jpeg, selected_time = render_subtitle_preview(
+                    video,
+                    srt,
+                    export_settings=fast_export,
+                )
+                result = burn_subtitles(
+                    video,
+                    srt,
+                    output_path=output,
+                    encoder="libx264",
+                    export_settings=fast_export,
+                )
             decode = subprocess.run(
                 [
                     "ffmpeg", "-hide_banner", "-loglevel", "error", "-xerror",
