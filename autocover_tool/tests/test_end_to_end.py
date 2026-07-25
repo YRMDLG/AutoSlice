@@ -11,7 +11,10 @@ from pathlib import Path
 
 from PIL import Image
 
-from app import create_app
+if __package__ and __package__.startswith("autocover_tool."):
+    from ..app import create_app
+else:
+    from app import create_app
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "需要 ffmpeg/ffprobe")

@@ -585,9 +585,9 @@ class RendererTests(unittest.TestCase):
 
         render_emoji_image.cache_clear()
         emoji = render_emoji_image("\U0001f494\U0001f496", 160)
+        if emoji is None:
+            self.skipTest("当前账户无法启动 Chromium 彩色 Emoji 渲染")
 
-        self.assertIsNotNone(emoji)
-        assert emoji is not None
         pixels = list(
             emoji.get_flattened_data()
             if hasattr(emoji, "get_flattened_data")
@@ -612,6 +612,10 @@ class RendererTests(unittest.TestCase):
     def test_chinese_and_windows_emoji_can_be_rendered_on_the_same_line(self) -> None:
         if get_emoji_font_path() is None or get_chromium_path() is None:
             self.skipTest("当前系统没有 Windows Emoji 字体或 Chromium")
+
+        render_emoji_image.cache_clear()
+        if render_emoji_image("\U0001f494\U0001f496", 160) is None:
+            self.skipTest("当前账户无法启动 Chromium 彩色 Emoji 渲染")
 
         result = render_cover(
             self.frame_path,

@@ -11,11 +11,24 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from app import ApiError, _number_value, _render_options, create_app
-from autocover import API_VERSION, SERVICE_ID
-from autocover.renderer import render_cover as actual_render_cover
-from autocover.video import FrameCandidate, FrameMetrics
-from autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
+if __package__ and __package__.startswith("autocover_tool."):
+    from ..app import ApiError, _number_value, _render_options, create_app
+    from ..autocover import API_VERSION, SERVICE_ID
+    from ..autocover.renderer import render_cover as actual_render_cover
+    from ..autocover.video import FrameCandidate, FrameMetrics
+    from ..autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
+
+    APP_MODULE = "autocover_tool.app"
+    WORKSPACE_MODULE = "autocover_tool.autocover.workspace"
+else:
+    from app import ApiError, _number_value, _render_options, create_app
+    from autocover import API_VERSION, SERVICE_ID
+    from autocover.renderer import render_cover as actual_render_cover
+    from autocover.video import FrameCandidate, FrameMetrics
+    from autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
+
+    APP_MODULE = "app"
+    WORKSPACE_MODULE = "autocover.workspace"
 
 
 class AppTests(unittest.TestCase):
@@ -63,7 +76,10 @@ class AppTests(unittest.TestCase):
 
     def _ready_task(self) -> dict[str, object]:
         task = self._scan()[0]
-        with patch("autocover.workspace.extract_candidate_frames", return_value=[self.candidate]):
+        with patch(
+            f"{WORKSPACE_MODULE}.extract_candidate_frames",
+            return_value=[self.candidate],
+        ):
             response = self.client.post(f"/api/tasks/{task['id']}/candidates", json={"count": 4})
         self.assertEqual(response.status_code, 200)
         return response.get_json()["task"]
@@ -690,7 +706,10 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                 workspace.update_task(task["id"], title="并发修改后的标题")
             return actual_render_cover(*args, **kwargs)
 
-        with patch("app.render_cover", side_effect=mutate_after_first_render):
+        with patch(
+            f"{APP_MODULE}.render_cover",
+            side_effect=mutate_after_first_render,
+        ):
             response = self.client.post(
                 f"/api/tasks/{task['id']}/save",
                 json={
@@ -746,7 +765,7 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                 raise RuntimeError(f"第二比例失败：{self.root}")
             return actual_render_cover(*args, **kwargs)
 
-        with patch("app.render_cover", side_effect=fail_wide_render):
+        with patch(f"{APP_MODULE}.render_cover", side_effect=fail_wide_render):
             response = self.client.post(f"/api/tasks/{task['id']}/save", json={})
 
         self.assertEqual(response.status_code, 500)
@@ -758,7 +777,10 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
 
     def test_batch_export_and_validation(self) -> None:
         tasks = self._scan()
-        with patch("autocover.workspace.extract_candidate_frames", return_value=[self.candidate]):
+        with patch(
+            f"{WORKSPACE_MODULE}.extract_candidate_frames",
+            return_value=[self.candidate],
+        ):
             for task in tasks:
                 self.client.post(f"/api/tasks/{task['id']}/candidates", json={})
 
