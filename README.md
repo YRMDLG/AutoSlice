@@ -22,6 +22,7 @@ AutoSlice 是一个在本机运行的录播分析与后期辅助工具，面向�
 - [配置说明](docs/配置说明.md)
 - [日常工作流](docs/日常工作流.md)
 - [故障排查](docs/故障排查.md)
+- [开发与发布](docs/开发与发布.md)
 - [AutoCover 说明](autocover_tool/README.md)
 
 ## 快速开始
