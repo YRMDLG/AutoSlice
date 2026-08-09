@@ -44,7 +44,15 @@ jobs:
 
       - name: Install FFmpeg
         shell: pwsh
-        run: choco install ffmpeg --yes --no-progress
+        run: |
+          choco install ffmpeg --yes --no-progress
+          $ffmpeg = Get-ChildItem "$env:ChocolateyInstall\lib" -Filter ffmpeg.exe -Recurse |
+            Select-Object -First 1
+          if (-not $ffmpeg) {
+            throw "FFmpeg installation completed but ffmpeg.exe was not found"
+          }
+          $ffmpeg.DirectoryName | Add-Content -Path $env:GITHUB_PATH
+          & $ffmpeg.FullName -version
 
       - name: Run unified test suite
         shell: pwsh

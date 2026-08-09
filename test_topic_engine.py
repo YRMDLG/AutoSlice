@@ -1149,6 +1149,22 @@ class ArtifactBundleTests(unittest.TestCase):
             organized_manifest_md = Path(first["task_manifest_md_path"]).read_text(
                 encoding="utf-8"
             )
+            actual_slice_dir = Path(canonical_manifest["slice_output_dir"])
+            manifest_slice_dir_matches = (
+                actual_slice_dir.name == slice_dir.name
+                and actual_slice_dir.parent.samefile(slice_dir.parent)
+            )
+            pointer_path = Path(pointer.strip())
+            pointer_slice_dir_matches = (
+                pointer_path.name == slice_dir.name
+                and pointer_path.parent.samefile(slice_dir.parent)
+            )
+            manifest_task_paths_match = (
+                Path(canonical_manifest["tasks"][0]["slice_path"]).samefile(clip_path)
+                and Path(canonical_manifest["tasks"][0]["subtitle_path"]).samefile(
+                    subtitle_path
+                )
+            )
             unified_queue_files_exist = (
                 Path(first["unified_queue_json_path"]).is_file(),
                 Path(first["unified_queue_md_path"]).is_file(),
@@ -1204,16 +1220,12 @@ class ArtifactBundleTests(unittest.TestCase):
             canonical_clip["manual_timeline"]["optimized_json_path"],
             first["optimized_timeline_json_path"],
         )
-        self.assertEqual(canonical_manifest["slice_output_dir"], str(slice_dir.resolve()))
-        self.assertEqual(canonical_manifest["tasks"][0]["slice_path"], str(clip_path.resolve()))
-        self.assertEqual(
-            canonical_manifest["tasks"][0]["subtitle_path"],
-            str(subtitle_path.resolve()),
-        )
+        self.assertTrue(manifest_slice_dir_matches)
+        self.assertTrue(manifest_task_paths_match)
         self.assertEqual(overview.count("### 01"), 1)
         self.assertIn("AI音能24小时代播吗", overview)
         self.assertIn(mark["publish_title"], overview)
-        self.assertEqual(pointer.strip(), str(slice_dir.resolve()))
+        self.assertTrue(pointer_slice_dir_matches)
         self.assertIn("[校对字幕.srt](./数据/校对字幕.srt)", organized_report)
         self.assertIn(
             "[精调任务总清单.md](../_总清单/精调任务总清单.md)",
@@ -1550,9 +1562,12 @@ class TopicEngineParseTests(unittest.TestCase):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
 
     def test_funasr_device_auto_uses_cuda_only_when_torch_reports_available(self):
-        with patch("torch.cuda.is_available", return_value=True):
+        fake_torch = ModuleType("torch")
+        fake_torch.cuda = Mock()
+        with patch.dict(sys.modules, {"torch": fake_torch}):
+            fake_torch.cuda.is_available.return_value = True
             self.assertEqual(_resolve_funasr_device("auto"), "cuda:0")
-        with patch("torch.cuda.is_available", return_value=False):
+            fake_torch.cuda.is_available.return_value = False
             self.assertEqual(_resolve_funasr_device("auto"), "cpu")
         self.assertEqual(_resolve_funasr_device("cuda"), "cuda:0")
         self.assertEqual(_resolve_funasr_device("cpu"), "cpu")

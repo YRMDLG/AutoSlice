@@ -12,6 +12,23 @@ from unittest.mock import patch
 import app as app_module
 
 
+def assert_same_path(testcase, actual, expected):
+    """Windows 可能为同一临时路径返回 8.3 短路径，不能做字符串比较。"""
+
+    actual_path = Path(actual)
+    expected_path = Path(expected)
+    if actual_path.exists() and expected_path.exists():
+        testcase.assertTrue(
+            actual_path.samefile(expected_path),
+            f"路径不一致: {actual_path} != {expected_path}",
+        )
+        return
+    testcase.assertEqual(
+        os.path.normcase(os.path.normpath(str(actual_path))),
+        os.path.normcase(os.path.normpath(str(expected_path))),
+    )
+
+
 class AutoCoverIntegrationTests(unittest.TestCase):
 
     def setUp(self):
@@ -368,7 +385,8 @@ class TopicPipelineApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         task_id = response.get_json()["task_id"]
         optimize.assert_called_once()
-        self.assertEqual(
+        assert_same_path(
+            self,
             optimize.call_args.kwargs["output_dir"],
             str(output_dir.resolve()),
         )
@@ -425,7 +443,8 @@ class TopicPipelineApiTests(unittest.TestCase):
             run_pipeline.call_args.kwargs["manual_timeline_path"],
             str(timeline_path),
         )
-        self.assertEqual(
+        assert_same_path(
+            self,
             run_pipeline.call_args.kwargs["output_dir"],
             str(output_dir.resolve()),
         )
@@ -479,7 +498,8 @@ class TopicPipelineApiTests(unittest.TestCase):
             retry.assert_called_once()
             self.assertEqual(retry.call_args.args, (str(flv_path),))
             self.assertEqual(retry.call_args.kwargs["ass_path"], str(ass_path))
-            self.assertEqual(
+            assert_same_path(
+                self,
                 retry.call_args.kwargs["output_dir"],
                 str(output_dir.resolve()),
             )
@@ -1040,8 +1060,8 @@ class WebTransportSafetyTests(unittest.TestCase):
 
         self.assertEqual(json_response.status_code, 200)
         self.assertEqual(docx_response.status_code, 200)
-        self.assertEqual(json_path.parent, json_dir)
-        self.assertEqual(docx_path.parent, docx_dir)
+        assert_same_path(self, json_path.parent, json_dir)
+        assert_same_path(self, docx_path.parent, docx_dir)
 
 
 class SubtitleWorkflowApiTests(unittest.TestCase):
@@ -1148,7 +1168,11 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertEqual(result["default_corrections"][0]["corrected"], "娃衣")
         self.assertEqual(review.call_args.kwargs["context_title"], "【泽音】测试投稿")
         self.assertEqual(app_module.tasks[task_id]["task_type"], "subtitle_review")
-        self.assertEqual(app_module.tasks[task_id]["source_srt_path"], str(srt.resolve()))
+        assert_same_path(
+            self,
+            app_module.tasks[task_id]["source_srt_path"],
+            str(srt.resolve()),
+        )
         self.assertFalse(app_module.tasks[task_id]["force"])
 
     def test_force_review_bypasses_cache_and_each_completed_run_has_unique_id(self):
