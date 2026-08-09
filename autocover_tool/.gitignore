@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+.cache/
+output/
+screenshots/
+local/fonts/*.ttf
+local/fonts/*.otf
+local/fonts/*.ttc
+PLAN.md
+.DS_Store
+Thumbs.db
