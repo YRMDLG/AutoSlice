@@ -2,6 +2,7 @@
 
 const EXPECTED_SERVICE_ID = "autocover";
 const EXPECTED_API_VERSION = 5;
+const CENTER_SNAP_THRESHOLD_PX = 8;
 const LEGACY_DEFAULT_INPUT_DIR = "output";
 const COMMON_LINE_COLORS = Object.freeze([
   "#ffe34d", "#ffffff", "#f04444", "#d06e95",
@@ -1191,6 +1192,8 @@ function previewPayload(task, includeCanvas = true) {
           y: sticker.y,
           width: sticker.width,
           rotation: sticker.rotation || 0,
+          center_x: Boolean(sticker.center_x),
+          center_y: Boolean(sticker.center_y),
         })),
       },
     ])),
@@ -1216,6 +1219,39 @@ function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function snapElementToCanvasCenter(
+  candidateX,
+  candidateY,
+  elementWidth,
+  elementHeight,
+  frameWidth,
+  frameHeight,
+  threshold = CENTER_SNAP_THRESHOLD_PX,
+) {
+  const safeFrameWidth = Math.max(1, frameWidth);
+  const safeFrameHeight = Math.max(1, frameHeight);
+  const centeredX = (safeFrameWidth - elementWidth) / (2 * safeFrameWidth);
+  const centeredY = (safeFrameHeight - elementHeight) / (2 * safeFrameHeight);
+  const centerXDistance = Math.abs((candidateX - centeredX) * safeFrameWidth);
+  const centerYDistance = Math.abs((candidateY - centeredY) * safeFrameHeight);
+  const snapX = centerXDistance <= threshold;
+  const snapY = centerYDistance <= threshold;
+  return {
+    x: snapX ? centeredX : candidateX,
+    y: snapY ? centeredY : candidateY,
+    snapX,
+    snapY,
+  };
+}
+
+function setAlignmentGuides(showVertical, showHorizontal) {
+  const overlay = elements["cover-overlay"];
+  overlay.querySelector('[data-alignment-guide="vertical"]')
+    ?.classList.toggle("visible", showVertical);
+  overlay.querySelector('[data-alignment-guide="horizontal"]')
+    ?.classList.toggle("visible", showHorizontal);
+}
+
 function selectEditableElement(type, index, uid = null) {
   state.selectedElement = { type, index, uid };
   elements["cover-overlay"].querySelectorAll(".editable-element").forEach((node) => {
@@ -1230,10 +1266,19 @@ function applyKeyboardTransform(model, type, key, largeStep = false) {
   const resizeStep = type === "text"
     ? (largeStep ? 12 : 4)
     : (largeStep ? 0.03 : 0.01);
-  if (key === "ArrowLeft") model.x = clamp(model.x - moveStep, 0, 1);
-  else if (key === "ArrowRight") model.x = clamp(model.x + moveStep, 0, 1);
-  else if (key === "ArrowUp") model.y = clamp(model.y - moveStep, 0, 1);
-  else if (key === "ArrowDown") model.y = clamp(model.y + moveStep, 0, 1);
+  if (key === "ArrowLeft") {
+    model.x = clamp(model.x - moveStep, 0, 1);
+    model.center_x = false;
+  } else if (key === "ArrowRight") {
+    model.x = clamp(model.x + moveStep, 0, 1);
+    model.center_x = false;
+  } else if (key === "ArrowUp") {
+    model.y = clamp(model.y - moveStep, 0, 1);
+    model.center_y = false;
+  } else if (key === "ArrowDown") {
+    model.y = clamp(model.y + moveStep, 0, 1);
+    model.center_y = false;
+  }
   else if (key === "+" || key === "=") {
     if (type === "text") model.font_size = clamp(model.font_size + resizeStep, 24, 320);
     else model.width = clamp(model.width + resizeStep, 0.03, 0.80);
@@ -1400,15 +1445,29 @@ function beginElementInteraction(event, type, index, mode) {
     fontSize: model.font_size || state.preview.placements[index]?.font_size || 96,
     size: Math.max(36, nodeRect.width, nodeRect.height),
   };
+  if (mode === "resize") {
+    node.style.transformOrigin = `${model.center_x ? "center" : "left"} ${model.center_y ? "center" : "top"}`;
+  }
 
   const move = (moveEvent) => {
     const deltaX = moveEvent.clientX - start.pointerX;
     const deltaY = moveEvent.clientY - start.pointerY;
     if (mode === "move") {
-      model.x = clamp(start.x + deltaX / frameRect.width, 0, 1);
-      model.y = clamp(start.y + deltaY / frameRect.height, 0, 1);
+      const snapped = snapElementToCanvasCenter(
+        clamp(start.x + deltaX / frameRect.width, 0, 1),
+        clamp(start.y + deltaY / frameRect.height, 0, 1),
+        nodeRect.width,
+        nodeRect.height,
+        frameRect.width,
+        frameRect.height,
+      );
+      model.x = snapped.x;
+      model.y = snapped.y;
+      model.center_x = snapped.snapX;
+      model.center_y = snapped.snapY;
       node.style.left = `${model.x * 100}%`;
       node.style.top = `${model.y * 100}%`;
+      setAlignmentGuides(snapped.snapX, snapped.snapY);
     } else {
       const ratio = clamp(1 + (deltaX + deltaY) / (2 * start.size), 0.35, 2.5);
       if (type === "text") {
@@ -1419,6 +1478,7 @@ function beginElementInteraction(event, type, index, mode) {
         model.width = clamp(start.width * ratio, 0.03, 0.80);
         node.style.transform = `scale(${model.width / start.width})`;
       }
+      setAlignmentGuides(Boolean(model.center_x), Boolean(model.center_y));
     }
     syncElementTransform(settings, type, index, model);
   };
@@ -1427,6 +1487,8 @@ function beginElementInteraction(event, type, index, mode) {
     window.removeEventListener("pointerup", finish);
     window.removeEventListener("pointercancel", finish);
     node.style.transform = "";
+    node.style.transformOrigin = "";
+    setAlignmentGuides(false, false);
     refreshPreview().catch((error) => console.error("更新元素位置失败", error));
   };
   window.addEventListener("pointermove", move);
@@ -1460,7 +1522,11 @@ function renderCoverOverlay(preview) {
       </div>
     `;
   }).join("");
-  elements["cover-overlay"].innerHTML = stickerNodes + textNodes;
+  const guideNodes = `
+    <span class="alignment-guide vertical" data-alignment-guide="vertical" aria-hidden="true"></span>
+    <span class="alignment-guide horizontal" data-alignment-guide="horizontal" aria-hidden="true"></span>
+  `;
+  elements["cover-overlay"].innerHTML = guideNodes + stickerNodes + textNodes;
   syncOverlayScale();
 
   elements["cover-overlay"].querySelectorAll(".editable-element").forEach((node) => {

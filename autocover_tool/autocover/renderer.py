@@ -76,6 +76,8 @@ class TextTransform:
     y: float
     scale: float = 1.0
     font_size: int | None = None
+    center_x: bool = False
+    center_y: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +110,8 @@ class StickerOverlay:
     y: float
     width: float
     rotation: float = 0.0
+    center_x: bool = False
+    center_y: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -803,8 +807,16 @@ def _manual_position(
     maximum_x = max(0, canvas.width - width - 8)
     maximum_y = max(0, canvas.height - height - 8)
     return (
-        min(maximum_x, max(0, round(transform.x * canvas.width))),
-        min(maximum_y, max(0, round(transform.y * canvas.height))),
+        (
+            max(0, (canvas.width - width) // 2)
+            if transform.center_x
+            else min(maximum_x, max(0, round(transform.x * canvas.width)))
+        ),
+        (
+            max(0, (canvas.height - height) // 2)
+            if transform.center_y
+            else min(maximum_y, max(0, round(transform.y * canvas.height)))
+        ),
     )
 
 
@@ -842,8 +854,16 @@ def draw_stickers(
 
         maximum_x = max(0, canvas.width - overlay.width)
         maximum_y = max(0, canvas.height - overlay.height)
-        x = min(maximum_x, max(0, round(sticker.x * canvas.width)))
-        y = min(maximum_y, max(0, round(sticker.y * canvas.height)))
+        x = (
+            max(0, (canvas.width - overlay.width) // 2)
+            if sticker.center_x
+            else min(maximum_x, max(0, round(sticker.x * canvas.width)))
+        )
+        y = (
+            max(0, (canvas.height - overlay.height) // 2)
+            if sticker.center_y
+            else min(maximum_y, max(0, round(sticker.y * canvas.height)))
+        )
         image.paste(overlay, (x, y), overlay)
         placements.append(
             StickerPlacement(

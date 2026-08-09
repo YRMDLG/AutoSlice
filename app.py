@@ -10,17 +10,12 @@ from flask import Flask, render_template, request, jsonify, Response, redirect, 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import process_video
-from runtime_config import (
-    OUTPUT_DIR,
-    SUBMISSION_DIR,
-    TIMELINE_DIR,
-    VIDEO_DIR,
-)
 from streamer_profiles import (
     public_streamer_profiles,
     resolve_streamer_profile,
     streamer_profile_context,
 )
+from runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
@@ -33,13 +28,30 @@ event_queue_lock = threading.Lock()
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_TL_DIR = os.path.join(PROJECT_DIR, "timelines")
 os.makedirs(PROJECT_TL_DIR, exist_ok=True)
-for _runtime_dir in (VIDEO_DIR, OUTPUT_DIR, TIMELINE_DIR, SUBMISSION_DIR):
-    _runtime_dir.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_VIDEO_DIR = str(VIDEO_DIR)
-DEFAULT_OUTPUT_DIR = str(OUTPUT_DIR)
-DEFAULT_TIMELINE_DIR = str(TIMELINE_DIR)
-DEFAULT_SUBMISSION_DIR = str(SUBMISSION_DIR)
+
+def _configured_directory(env_name, fallback):
+    """读取可移植的本机目录默认值，支持环境变量和波浪号。"""
+    raw_value = os.environ.get(env_name) or str(fallback)
+    return os.path.abspath(os.path.expandvars(os.path.expanduser(raw_value)))
+
+
+DEFAULT_VIDEO_DIR = _configured_directory(
+    "AUTOSLICE_VIDEO_DIR",
+    VIDEO_DIR,
+)
+DEFAULT_OUTPUT_DIR = _configured_directory(
+    "AUTOSLICE_OUTPUT_DIR",
+    OUTPUT_DIR,
+)
+DEFAULT_TIMELINE_DIR = _configured_directory(
+    "AUTOSLICE_TIMELINE_DIR",
+    TIMELINE_DIR,
+)
+DEFAULT_SUBMISSION_DIR = _configured_directory(
+    "AUTOSLICE_SUBMISSION_DIR",
+    SUBMISSION_DIR,
+)
 DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1

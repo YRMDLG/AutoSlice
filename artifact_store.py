@@ -76,6 +76,10 @@ def artifact_bundle_layout(
             data_dir,
             "clip_review_checkpoint.json",
         ),
+        "candidate_review_audit_path": os.path.join(
+            data_dir,
+            "候选复核明细.json",
+        ),
         "corrected_srt_path": os.path.join(data_dir, "校对字幕.srt"),
         "slice_dir": os.path.join(output_root, video_stem + "_话题切片"),
         "unified_queue_dir": queue_dir,

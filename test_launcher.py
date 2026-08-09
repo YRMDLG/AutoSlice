@@ -33,11 +33,11 @@ class LauncherTests(unittest.TestCase):
         )
 
     def test_gpu_runtime_path_stays_outside_repository(self):
-        runtime = launcher._gpu_runtime_python(r"X:\runtime\AppData\Local")
+        runtime = launcher._gpu_runtime_python(r"C:\runtime\测试\AppData\Local")
 
         self.assertEqual(
             runtime,
-            Path(r"X:\runtime\AppData\Local\AutoSlice\gpu-py310-cu130\Scripts\python.exe"),
+            Path(r"C:\runtime\测试\AppData\Local\AutoSlice\gpu-py310-cu130\Scripts\python.exe"),
         )
 
     def test_gpu_runtime_health_check_requires_file_and_cuda_probe(self):

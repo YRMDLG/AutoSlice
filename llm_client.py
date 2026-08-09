@@ -2,21 +2,88 @@
 
 import json
 import os
+import threading
 from urllib.parse import urlsplit
 
 import requests
 
 
+_REASONING_EFFORT_VALUES = {"minimal", "low", "medium", "high", "xhigh"}
+_REASONING_EFFORT_ALIASES = {"max": "xhigh"}
+_DEFAULT_REASONING_EFFORT = "xhigh"
+_UNSUPPORTED_REASONING_EFFORT_KEYS = set()
+_REASONING_EFFORT_LOCK = threading.Lock()
+
+
+def normalise_reasoning_effort(value, *, default=None):
+    """校验可选推理强度；max 是 API 最高档 xhigh 的易读别名。"""
+    selected = default if value is None else value
+    if selected is None:
+        return None
+    effort = str(selected).strip().casefold()
+    if effort in {"", "none", "off", "default", "false"}:
+        return None
+    effort = _REASONING_EFFORT_ALIASES.get(effort, effort)
+    if effort not in _REASONING_EFFORT_VALUES:
+        raise ValueError(
+            "reasoning effort 只支持 minimal、low、medium、high、xhigh、max 或 none"
+        )
+    return effort
+
+
+def reset_reasoning_effort_capability_cache():
+    """清空进程内兼容性记录，主要供配置切换和测试使用。"""
+    with _REASONING_EFFORT_LOCK:
+        _UNSUPPORTED_REASONING_EFFORT_KEYS.clear()
+
+
+def _reasoning_effort_capability_key(base_url, model):
+    return str(base_url).casefold(), str(model).casefold()
+
+
+def _reasoning_effort_is_disabled(key):
+    with _REASONING_EFFORT_LOCK:
+        return key in _UNSUPPORTED_REASONING_EFFORT_KEYS
+
+
+def _disable_reasoning_effort(key):
+    with _REASONING_EFFORT_LOCK:
+        _UNSUPPORTED_REASONING_EFFORT_KEYS.add(key)
+
+
+def _response_rejects_reasoning_effort(response):
+    """只在服务端明确指出该字段不受支持时降级，避免吞掉其他 4xx。"""
+    if getattr(response, "status_code", None) not in {400, 422}:
+        return False
+    try:
+        text = str(response.text or "").casefold()
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return "reasoning_effort" in text or "reasoning effort" in text
+
+
 class LLMApiConfig:
     """Keep legacy tuple unpacking while carrying the selected API protocol."""
 
-    __slots__ = ("base_url", "token", "model", "api_type")
+    __slots__ = (
+        "base_url", "token", "model", "api_type",
+        "analysis_reasoning_effort", "review_reasoning_effort",
+    )
 
-    def __init__(self, base_url, token, model, api_type):
+    def __init__(
+            self, base_url, token, model, api_type,
+            analysis_reasoning_effort=_DEFAULT_REASONING_EFFORT,
+            review_reasoning_effort=_DEFAULT_REASONING_EFFORT):
         self.base_url = base_url
         self.token = token
         self.model = model
         self.api_type = api_type
+        self.analysis_reasoning_effort = normalise_reasoning_effort(
+            analysis_reasoning_effort,
+        )
+        self.review_reasoning_effort = normalise_reasoning_effort(
+            review_reasoning_effort,
+        )
 
     def __iter__(self):
         return iter((self.base_url, self.token, self.model))
@@ -90,7 +157,24 @@ def normalise_api_config(
             raise ValueError(
                 f"API 配置 api_type 只支持 openai 或 anthropic：{source}"
             )
-    return LLMApiConfig(base_url, token, model, api_type)
+    analysis_reasoning_effort = normalise_reasoning_effort(
+        payload["analysis_reasoning_effort"]
+        if "analysis_reasoning_effort" in payload
+        else _DEFAULT_REASONING_EFFORT,
+    )
+    review_reasoning_effort = normalise_reasoning_effort(
+        payload["review_reasoning_effort"]
+        if "review_reasoning_effort" in payload
+        else _DEFAULT_REASONING_EFFORT,
+    )
+    return LLMApiConfig(
+        base_url,
+        token,
+        model,
+        api_type,
+        analysis_reasoning_effort=analysis_reasoning_effort,
+        review_reasoning_effort=review_reasoning_effort,
+    )
 
 
 def read_json_config(path, *, json_loader=json.load):
@@ -112,6 +196,8 @@ def load_api_config(
         "AUTOSLICE_API_TYPE",
     )
     env_model = str(environ.get("AUTOSLICE_LLM_MODEL") or "").strip()
+    env_analysis_effort = environ.get("AUTOSLICE_ANALYSIS_REASONING_EFFORT")
+    env_review_effort = environ.get("AUTOSLICE_REVIEW_REASONING_EFFORT")
     if any(key in environ for key in env_keys):
         return normalise_api_config(
             {
@@ -119,6 +205,16 @@ def load_api_config(
                 "token": environ.get("AUTOSLICE_API_TOKEN"),
                 "model": env_model or default_model,
                 "api_type": environ.get("AUTOSLICE_API_TYPE"),
+                "analysis_reasoning_effort": (
+                    env_analysis_effort
+                    if "AUTOSLICE_ANALYSIS_REASONING_EFFORT" in environ
+                    else _DEFAULT_REASONING_EFFORT
+                ),
+                "review_reasoning_effort": (
+                    env_review_effort
+                    if "AUTOSLICE_REVIEW_REASONING_EFFORT" in environ
+                    else _DEFAULT_REASONING_EFFORT
+                ),
             },
             "环境变量 AUTOSLICE_API_*",
             default_model=default_model,
@@ -130,6 +226,13 @@ def load_api_config(
         if env_model and isinstance(payload, dict):
             payload = dict(payload)
             payload["model"] = env_model
+        if isinstance(payload, dict):
+            if "AUTOSLICE_ANALYSIS_REASONING_EFFORT" in environ:
+                payload = dict(payload)
+                payload["analysis_reasoning_effort"] = env_analysis_effort
+            if "AUTOSLICE_REVIEW_REASONING_EFFORT" in environ:
+                payload = dict(payload)
+                payload["review_reasoning_effort"] = env_review_effort
         return normalise_api_config(
             payload,
             auto_cfg,
@@ -146,7 +249,7 @@ def load_api_config(
 def call_compatible_api(
         prompt, *, max_tokens, json_mode, model_override, request_timeout,
         load_config, decode_response, parse_openai, parse_anthropic,
-        request_post=requests.post):
+        request_post=requests.post, reasoning_stage=None):
     """Send one request and delegate provider response parsing to the facade."""
     config = load_config()
     base_url, token, configured_model = config
@@ -158,6 +261,13 @@ def call_compatible_api(
     model = str(model_override or configured_model).strip()
     if not model:
         raise ValueError("LLM model 不能为空")
+    if reasoning_stage not in {None, "analysis", "review"}:
+        raise ValueError("reasoning_stage 只支持 analysis 或 review")
+    reasoning_effort = (
+        getattr(config, f"{reasoning_stage}_reasoning_effort", None)
+        if reasoning_stage
+        else None
+    )
 
     if api_type == "openai":
         request_payload = {
@@ -166,18 +276,36 @@ def call_compatible_api(
             "max_tokens": max_tokens,
             "temperature": 0.3,
         }
+        capability_key = _reasoning_effort_capability_key(base_url, model)
+        send_reasoning_effort = bool(
+            reasoning_effort
+            and not _reasoning_effort_is_disabled(capability_key)
+        )
+        if send_reasoning_effort:
+            request_payload["reasoning_effort"] = reasoning_effort
         if json_mode:
             request_payload["response_format"] = {"type": "json_object"}
-        response = request_post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json=request_payload,
-            timeout=request_timeout,
-            proxies={"http": None, "https": None},
-        )
+        request_url = f"{base_url}/chat/completions"
+        request_headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        def post_openai(payload):
+            return request_post(
+                request_url,
+                headers=request_headers,
+                json=dict(payload),
+                timeout=request_timeout,
+                proxies={"http": None, "https": None},
+            )
+
+        response = post_openai(request_payload)
+        if send_reasoning_effort and _response_rejects_reasoning_effort(response):
+            _disable_reasoning_effort(capability_key)
+            fallback_payload = dict(request_payload)
+            fallback_payload.pop("reasoning_effort", None)
+            response = post_openai(fallback_payload)
         response.raise_for_status()
         return parse_openai(
             decode_response(response, "OpenAI"),

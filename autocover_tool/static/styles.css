@@ -594,6 +594,38 @@ h2 {
   pointer-events: none;
 }
 
+.alignment-guide {
+  position: absolute;
+  z-index: 8;
+  display: block;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background: #42d7ff;
+  transition: opacity 60ms ease-out;
+}
+
+.alignment-guide.visible {
+  opacity: 0.92;
+  visibility: visible;
+}
+
+.alignment-guide.vertical {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.alignment-guide.horizontal {
+  right: 0;
+  left: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
 .editable-element {
   position: absolute;
   pointer-events: auto;

@@ -236,6 +236,9 @@ class AppTests(unittest.TestCase):
             self.assertIn("function refreshInteractionState(", script_content)
             self.assertIn('elements["cover-overlay"].inert = busy', script_content)
             self.assertIn("function handleEditableElementKeydown(", script_content)
+            self.assertIn("function snapElementToCanvasCenter(", script_content)
+            self.assertIn('data-alignment-guide="vertical"', script_content)
+            self.assertIn('data-alignment-guide="horizontal"', script_content)
             self.assertIn("function bindRovingTablist(", script_content)
         with self.client.get("/static/styles.css") as stylesheet:
             self.assertEqual(stylesheet.status_code, 200)
@@ -244,6 +247,7 @@ class AppTests(unittest.TestCase):
             self.assertIn("[hidden]", css)
             self.assertIn("overflow-x: hidden", css)
             self.assertIn(".editable-element", css)
+            self.assertIn(".alignment-guide.visible", css)
             self.assertIn(".sticker-grid", css)
             self.assertIn(".sticker-element.selected", css)
             self.assertIn('font-family: "AutoCover Seto"', css)
@@ -272,8 +276,10 @@ if (applyKeyboardTransform(textModel, "text", "ArrowLeft", false) !== "move") {
   throw new Error("文字方向键未识别为移动");
 }
 if (Math.abs(textModel.x - 0.495) > 0.000001) throw new Error("文字小步移动错误");
+if (textModel.center_x !== false) throw new Error("方向键移动后仍保留横向居中锚点");
 applyKeyboardTransform(textModel, "text", "ArrowDown", true);
 if (Math.abs(textModel.y - 0.52) > 0.000001) throw new Error("文字大步移动错误");
+if (textModel.center_y !== false) throw new Error("方向键移动后仍保留纵向居中锚点");
 if (applyKeyboardTransform(textModel, "text", "+", false) !== "resize") {
   throw new Error("文字加号未识别为缩放");
 }
@@ -285,6 +291,69 @@ applyKeyboardTransform(stickerModel, "sticker", "-", false);
 if (Math.abs(stickerModel.width - 0.17) > 0.000001) throw new Error("贴图缩放错误");
 if (applyKeyboardTransform(stickerModel, "sticker", "Enter", false) !== null) {
   throw new Error("无关按键不应修改画布元素");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证中心磁吸计算")
+    def test_center_snap_uses_visual_bounds_and_independent_axes(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const both = snapElementToCanvasCenter(0.39, 0.45, 100, 40, 400, 300);
+if (!both.snapX || !both.snapY) throw new Error("接近中心时没有双轴吸附");
+if (Math.abs(both.x - 0.375) > 0.000001) throw new Error("横向吸附没有按元素宽度居中");
+if (Math.abs(both.y - (130 / 300)) > 0.000001) throw new Error("纵向吸附没有按元素高度居中");
+const horizontalOnly = snapElementToCanvasCenter(0.43, 0.45, 100, 40, 400, 300);
+if (horizontalOnly.snapX || !horizontalOnly.snapY) throw new Error("横纵轴没有独立吸附");
+if (horizontalOnly.x !== 0.43) throw new Error("离开阈值后仍被横向吸附");
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证贴图居中锚点请求")
+    def test_preview_payload_preserves_sticker_center_anchors(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const payloadTask = {
+  id: "center-anchor-task",
+  title: "居中锚点",
+  template_key: "headline",
+  palette_key: "order_all_yellow",
+};
+state.tasks = [payloadTask];
+state.activeTaskId = payloadTask.id;
+state.ratio = "4x3";
+const payloadSettings = defaultSettings(payloadTask);
+payloadSettings.layouts["4x3"].stickers = [{
+  asset_id: "sticker-1",
+  x: 0.4,
+  y: 0.4,
+  width: 0.2,
+  rotation: 0,
+  center_x: true,
+  center_y: true,
+}];
+state.settings.set(payloadTask.id, payloadSettings);
+const serializedSticker = previewPayload(payloadTask, false).layouts["4x3"].stickers[0];
+if (serializedSticker.center_x !== true || serializedSticker.center_y !== true) {
+  throw new Error("贴图居中锚点没有随预览请求发送");
 }
 """
         result = subprocess.run(
@@ -616,7 +685,13 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                 "layouts": {
                     "4x3": {
                         "text": [
-                            {"x": 0.20, "y": 0.30, "scale": 0.8, "font_size": 104}
+                            {
+                                "x": 0.20,
+                                "y": 0.30,
+                                "scale": 0.8,
+                                "font_size": 104,
+                                "center_x": True,
+                            }
                         ],
                         "stickers": [
                             {
@@ -624,6 +699,7 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                                 "x": 0.70,
                                 "y": 0.25,
                                 "width": 0.12,
+                                "center_y": True,
                             }
                         ],
                     }
@@ -633,11 +709,14 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
 
         self.assertEqual(response.status_code, 200)
         preview = response.get_json()["preview"]
-        self.assertAlmostEqual(preview["placements"][0]["box"][0], 1440 * 0.20, delta=2)
+        text_box = preview["placements"][0]["box"]
+        self.assertAlmostEqual((text_box[0] + text_box[2]) / 2, 1440 / 2, delta=2)
         self.assertAlmostEqual(preview["placements"][0]["box"][1], 1080 * 0.30, delta=2)
         self.assertEqual(preview["placements"][0]["font_size"], 104)
         self.assertEqual(preview["placements"][0]["stroke_color"], "#ffffff")
         self.assertAlmostEqual(preview["stickers"][0]["box"][0], 1440 * 0.70, delta=2)
+        sticker_box = preview["stickers"][0]["box"]
+        self.assertAlmostEqual((sticker_box[1] + sticker_box[3]) / 2, 1080 / 2, delta=2)
         self.assertIn("background_media_token", preview)
         with self.client.get(f"/api/media/{preview['background_media_token']}") as base:
             self.assertEqual(base.status_code, 200)

@@ -211,6 +211,18 @@ def _canvas_layout(payload: dict[str, Any], canvas_key: str) -> dict[str, Any]:
     return layout
 
 
+def _boolean_value(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    default: bool = False,
+) -> bool:
+    value = payload.get(key, default)
+    if not isinstance(value, bool):
+        raise ApiError(f"{key} 必须是布尔值")
+    return value
+
+
 def _text_transforms(layout: dict[str, Any]) -> list[TextTransform] | None:
     value = layout.get("text")
     if value is None:
@@ -231,6 +243,8 @@ def _text_transforms(layout: dict[str, Any]) -> list[TextTransform] | None:
                     _number_value(item, "font_size", minimum=24.0, maximum=320.0)
                 )
             ),
+            center_x=_boolean_value(item, "center_x"),
+            center_y=_boolean_value(item, "center_y"),
         )
         for item in value
     ]
@@ -266,6 +280,8 @@ def _sticker_overlays(
                     maximum=180.0,
                     default=0.0,
                 ),
+                center_x=_boolean_value(item, "center_x"),
+                center_y=_boolean_value(item, "center_y"),
             )
         )
     return overlays

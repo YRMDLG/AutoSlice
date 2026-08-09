@@ -10,7 +10,6 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import app as app_module
-from runtime_config import configured_path
 
 
 class AutoCoverIntegrationTests(unittest.TestCase):
@@ -158,12 +157,12 @@ class AutoCoverIntegrationTests(unittest.TestCase):
                 os.environ,
                 {"AUTOSLICE_VIDEO_DIR": r"X:\fixtures\Recordings"},
                 clear=False):
-            configured = configured_path(
+            configured = app_module._configured_directory(
                 "AUTOSLICE_VIDEO_DIR",
-                r"X:\runtime\Fallback",
+                r"X:\fixtures\Fallback",
             )
 
-        self.assertEqual(configured, Path(r"X:\fixtures\Recordings").resolve())
+        self.assertEqual(configured, r"X:\fixtures\Recordings")
         for path in ("/", "/topic-v2"):
             html = self.client.get(path).get_data(as_text=True)
             self.assertNotIn("1947277414", html)
@@ -370,8 +369,8 @@ class TopicPipelineApiTests(unittest.TestCase):
         task_id = response.get_json()["task_id"]
         optimize.assert_called_once()
         self.assertEqual(
-            Path(optimize.call_args.kwargs["output_dir"]).resolve(),
-            output_dir.resolve(),
+            optimize.call_args.kwargs["output_dir"],
+            str(output_dir.resolve()),
         )
         self.assertEqual(
             optimize.call_args.kwargs["streamer_profile_id"].id,
@@ -427,8 +426,8 @@ class TopicPipelineApiTests(unittest.TestCase):
             str(timeline_path),
         )
         self.assertEqual(
-            Path(run_pipeline.call_args.kwargs["output_dir"]).resolve(),
-            output_dir.resolve(),
+            run_pipeline.call_args.kwargs["output_dir"],
+            str(output_dir.resolve()),
         )
         self.assertEqual(
             run_pipeline.call_args.kwargs["streamer_profile_id"].id,
@@ -481,8 +480,8 @@ class TopicPipelineApiTests(unittest.TestCase):
             self.assertEqual(retry.call_args.args, (str(flv_path),))
             self.assertEqual(retry.call_args.kwargs["ass_path"], str(ass_path))
             self.assertEqual(
-                Path(retry.call_args.kwargs["output_dir"]).resolve(),
-                output_dir.resolve(),
+                retry.call_args.kwargs["output_dir"],
+                str(output_dir.resolve()),
             )
             self.assertEqual(
                 retry.call_args.kwargs["streamer_profile_id"].id,
@@ -896,7 +895,7 @@ class TopicPipelineApiTests(unittest.TestCase):
                 patch(
                     "topic_engine.run_pipeline",
                     side_effect=RuntimeError(
-                        r"token=sk-private-value 位于 X:\fixtures\个人资料\api_config.json"
+                        "token=sk-private-value 位于 X:\fixtures\\个人资料\\api_config.json"
                     ),
                 ),
                 patch.object(app_module.app.logger, "error") as logger,
@@ -1041,8 +1040,8 @@ class WebTransportSafetyTests(unittest.TestCase):
 
         self.assertEqual(json_response.status_code, 200)
         self.assertEqual(docx_response.status_code, 200)
-        self.assertEqual(json_path.parent.resolve(), json_dir.resolve())
-        self.assertEqual(docx_path.parent.resolve(), docx_dir.resolve())
+        self.assertEqual(json_path.parent, json_dir)
+        self.assertEqual(docx_path.parent, docx_dir)
 
 
 class SubtitleWorkflowApiTests(unittest.TestCase):
@@ -1149,10 +1148,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertEqual(result["default_corrections"][0]["corrected"], "娃衣")
         self.assertEqual(review.call_args.kwargs["context_title"], "【泽音】测试投稿")
         self.assertEqual(app_module.tasks[task_id]["task_type"], "subtitle_review")
-        self.assertEqual(
-            Path(app_module.tasks[task_id]["source_srt_path"]).resolve(),
-            srt.resolve(),
-        )
+        self.assertEqual(app_module.tasks[task_id]["source_srt_path"], str(srt.resolve()))
         self.assertFalse(app_module.tasks[task_id]["force"])
 
     def test_force_review_bypasses_cache_and_each_completed_run_has_unique_id(self):
