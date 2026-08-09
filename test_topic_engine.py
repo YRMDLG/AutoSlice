@@ -15,6 +15,11 @@ from unittest.mock import Mock, mock_open, patch
 
 import requests
 
+from llm_client import (
+    LLMApiConfig,
+    reset_reasoning_effort_capability_cache,
+)
+from streamer_profiles import streamer_profile_context
 from topic_engine import (
     CHUNK_SEC, CLIP_MIN_INTEREST_SCORE, CLIP_REVIEW_POLICY_VERSION,
     FUNASR_CHUNK_PRE_CONTEXT_SEC,
@@ -30,8 +35,10 @@ from topic_engine import (
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _artifact_bundle_layout,
     _build_chunk_prompt, _build_clip_candidate_review_prompt,
+    _build_final_title_generation_prompt, _build_final_title_judge_prompt,
     _build_precise_slice_ffmpeg_command,
     _build_manual_topic_enrichment_prompt, _build_refinement_manifest,
+    _build_clip_candidate_review_audit,
     _build_title_style_prompt,
     _build_timeline_report, _call_llm_with_retry,
     _clean_topics_for_report, _cleanup_stale_topic_clips, _clip_context_requires_trigger,
@@ -58,11 +65,13 @@ from topic_engine import (
     _render_unified_refinement_queue_markdown, _resolve_funasr_device,
     _replace_streamer_role, _resolve_funasr_model_source,
     _select_title_style_examples, _streamer_report_name,
+    _enriched_manual_topic_from_item,
     _enrich_manual_topics_in_batches, _enrich_manual_topics_with_llm,
     _optimized_entry_needs_retry, _retry_optimized_timeline_entries,
     _review_peak_selected_topics, _sanitize_transport_claims,
-    _normalise_title_hook,
-    _prepare_seekable_slice_source,
+    _review_selected_publish_titles,
+    _normalise_asr_text, _normalise_publish_title, _normalise_title_hook,
+    _prepare_seekable_slice_source, _reuse_topic_clip_after_title_change,
     _segments_from_funasr_result, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _trim_funasr_tokens_to_core,
@@ -756,6 +765,8 @@ class TitleHookPromptTests(unittest.TestCase):
         self.assertLess(prompt.index("再还原内容"), prompt.index("最后做钩子"))
         self.assertIn("观众为什么在这里集中发言", prompt)
         self.assertIn("视觉细节、谐音/误会", prompt)
+        self.assertIn("只写引子、操作或条件", prompt)
+        self.assertIn("诱饵/条件 + 具体结果/代价", prompt)
         self.assertIn('"title_hook"', prompt)
 
     def test_clip_prompt_keeps_subtitle_and_danmaku_evidence_separate(self):
@@ -795,10 +806,191 @@ class TitleHookPromptTests(unittest.TestCase):
         self.assertIn("具体视觉称呼在同一峰值重复出现至少 2 次", prompt)
         self.assertIn("弹幕称作/观众盯上", prompt)
 
+    def test_clip_prompt_keeps_stronger_grounded_reference_titles(self):
+        prompt = _build_clip_candidate_review_prompt([{
+            "start": 610,
+            "end": 960,
+            "slice_anchor": 750,
+            "title": "免费游戏坑朋友",
+            "publish_title": "【泽音】假装3A游戏送朋友，还要人先叫爸爸😂",
+            "body": [
+                "·字幕核查：朋友激活后游戏库会出现《完蛋我被男同学包围了》",
+                "·字幕核查：音音说朋友看到最近玩过记录时会天塌了",
+            ],
+            "manual_timeline": [{
+                "publish_title": "把《完蛋我被男同学包围了》送朋友，最近玩过一栏直接让人天塌了",
+            }],
+        }], streamer_name="音音")
+
+        payload = json.loads(prompt.rsplit("候选数据：\n", 1)[1])
+        self.assertEqual(payload[0]["reference_publish_titles"], [
+            "【泽音】假装3A游戏送朋友，还要人先叫爸爸😂",
+            "把《完蛋我被男同学包围了》送朋友，最近玩过一栏直接让人天塌了",
+        ])
+        self.assertIn("新标题不得退化成只写前半段操作的摘要", prompt)
+
+    @streamer_profile_context("zeyin")
+    def test_final_title_prompts_separate_generation_from_independent_judging(self):
+        topics = [{
+            "start": 715,
+            "end": 893,
+            "title": "免费游戏坑朋友",
+            "publish_title": "【泽音】假装3A游戏送朋友，还要人先叫爸爸😂",
+            "title_hook": {
+                "fact": "骗朋友叫爸爸后送出免费游戏",
+                "contrast": "激活后《完蛋我被男同学包围了》污染Steam游戏库",
+            },
+            "core_subtitle_evidence": [
+                "字幕核查：朋友激活后游戏会排在最近玩过第一位",
+                "字幕核查：音音说朋友看到后天都塌了",
+            ],
+            "body": ["·弹幕依据：0:12:00 附近峰值约123条/分钟"],
+        }]
+
+        generation = _build_final_title_generation_prompt(topics, streamer_name="音音")
+        candidates = {1: [
+            "【泽音】坏东西音姐想污染朋友Steam库🤣骗他叫爸爸再送男同游戏",
+            "【泽音】朋友叫完爸爸收到神秘CDK，激活后游戏库天塌了🤣",
+        ]}
+        judging = _build_final_title_judge_prompt(
+            topics,
+            candidates,
+            streamer_name="音音",
+        )
+
+        self.assertIn("生成3个真正不同角度", generation)
+        self.assertIn("具体诱因和真正后果", generation)
+        self.assertIn("独立的B站切片标题终审", judging)
+        self.assertIn("是否像当前账号真实投稿，而不是AI摘要", judging)
+        self.assertIn("朋友叫完爸爸收到神秘CDK", judging)
+
+    @streamer_profile_context("zeyin")
+    def test_final_title_review_uses_generator_then_independent_judge(self):
+        topic = {
+            "start": 715,
+            "end": 893,
+            "title": "免费游戏坑朋友",
+            "publish_title": "【泽音】假装3A游戏送朋友，还要人先叫爸爸😂",
+            "can_slice": True,
+            "clip_review_validated": True,
+            "body": [
+                "·音音设想骗朋友叫爸爸再送游戏CDK",
+                "·朋友激活后游戏会排到最近玩过第一位",
+            ],
+            "core_subtitle_evidence": [
+                "字幕核查：游戏名是《完蛋我被男同学包围了》",
+            ],
+        }
+        generated = json.dumps({"topics": [{
+            "id": 1,
+            "candidates": [
+                {"title": "【泽音】骗朋友叫爸爸再送男同游戏🤣", "hook": "条件和游戏名"},
+                {"title": "【泽音】朋友激活CDK后游戏库天塌了🤣", "hook": "结果前置"},
+                {"title": "【泽音】男同游戏排进最近玩过，朋友游戏库被污染🤣", "hook": "社死结果"},
+            ],
+        }]}, ensure_ascii=False)
+        judged = json.dumps({"topics": [{
+            "id": 1,
+            "publish_title": (
+                "【泽音】坏东西音姐骗朋友叫爸爸🤣再送《完蛋我被男同学包围了》污染Steam库"
+            ),
+            "reason": "同时保留叫爸爸的诱因、作品名和污染游戏库的后果",
+        }]}, ensure_ascii=False)
+
+        with patch(
+                "topic_engine._call_llm_with_retry",
+                side_effect=[generated, judged],
+        ) as call:
+            warning = _review_selected_publish_titles([topic], streamer_name="音音")
+
+        self.assertIsNone(warning)
+        self.assertEqual(call.call_count, 2)
+        self.assertTrue(all(
+            current.kwargs["reasoning_stage"] == "review"
+            for current in call.call_args_list
+        ))
+        self.assertEqual(
+            topic["publish_title"],
+            "【泽音】坏东西音姐骗朋友叫爸爸🤣再送《完蛋我被男同学包围了》污染Steam库",
+        )
+        self.assertTrue(topic["title_review_validated"])
+        self.assertEqual(topic["publish_title_source"], "ai_title_judge")
+        self.assertGreaterEqual(len(topic["title_review_candidates"]), 3)
+
+    @streamer_profile_context("zeyin")
+    def test_final_title_review_skips_human_locked_title(self):
+        topic = {
+            "start": 715,
+            "end": 893,
+            "title": "免费游戏坑朋友",
+            "publish_title": "【泽音】人工确认后的标题",
+            "publish_title_locked": True,
+            "can_slice": True,
+            "clip_review_validated": True,
+        }
+
+        with patch("topic_engine._call_llm_with_retry") as call:
+            warning = _review_selected_publish_titles([topic], streamer_name="音音")
+
+        self.assertIsNone(warning)
+        call.assert_not_called()
+        self.assertEqual(topic["publish_title"], "【泽音】人工确认后的标题")
+        self.assertEqual(topic["title_review_reason"], "人工复审标题已锁定")
+
+    def test_streamer_profiles_isolate_prompts_titles_and_asr_in_parallel(self):
+        chunk = {
+            "start": 0,
+            "end": 600,
+            "text": "[0:00:01] 今天聊出门遇到大雨",
+            "danmaku_info": "无弹幕",
+        }
+
+        def render(profile_id):
+            with streamer_profile_context(profile_id, "测试录播.flv"):
+                prompt, _, _ = _build_chunk_prompt(chunk, 0, 1)
+                title = _normalise_publish_title(
+                    "【泽音】刚出门就遇到大雨",
+                    "出门遇到大雨",
+                )
+                asr_text = _normalise_asr_text("英英晚上好", streamer_name=(
+                    "音音" if profile_id == "zeyin" else "主播"
+                ))
+                return prompt, title, asr_text
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            generic, zeyin = list(executor.map(render, ("generic", "zeyin")))
+
+        generic_prompt, generic_title, generic_asr = generic
+        zeyin_prompt, zeyin_title, zeyin_asr = zeyin
+        self.assertNotRegex(generic_prompt, r"泽音|音音|音姐|麻麻")
+        self.assertNotIn("已审阅账号 2654 条投稿", generic_prompt)
+        self.assertIn("不要添加账号专属方括号前缀", generic_prompt)
+        self.assertEqual(generic_title, "刚出门就遇到大雨")
+        self.assertEqual(generic_asr, "英英晚上好")
+        self.assertIn("固定以“【泽音】”开头", zeyin_prompt)
+        self.assertIn("音姐、麻麻、音音", zeyin_prompt)
+        self.assertTrue(zeyin_title.startswith("【泽音】"))
+        self.assertEqual(zeyin_asr, "音音晚上好")
+
+    def test_auto_profile_replaces_old_title_prefix_with_filename_streamer(self):
+        with streamer_profile_context(
+                "auto",
+                r"F:\录播\七海Nana7mi-2026-07-22 20_00-歌杂.flv"):
+            title = _normalise_publish_title(
+                "【泽音】看到离谱游戏画面当场绷不住了🤣",
+                "离谱游戏画面",
+            )
+
+        self.assertEqual(
+            title,
+            "【七海Nana7mi】看到离谱游戏画面当场绷不住了🤣",
+        )
+
 
 class TitleStyleEvidenceTests(unittest.TestCase):
     """用户确认的标题样本应按语义被优先选入提示，而非随机占位。"""
 
+    @streamer_profile_context("zeyin")
     def test_user_approved_visual_and_goal_samples_are_selected(self):
         visual = _select_title_style_examples(
             "AI音 新衣服 紫色 蓝框 虾线 裤子鼓包",
@@ -813,6 +1005,15 @@ class TitleStyleEvidenceTests(unittest.TestCase):
             limit=2,
         )
         self.assertTrue(any("50W粉" in item["title"] for item in goal))
+
+        prank = _select_title_style_examples(
+            "把CDK送朋友整蛊，激活后污染Steam游戏库，朋友天塌了",
+            limit=2,
+        )
+        self.assertTrue(any(
+            "污染朋友Steam库" in item["title"]
+            for item in prank
+        ))
 
     def test_title_hook_is_normalised_to_audit_fields(self):
         hook = _normalise_title_hook({
@@ -849,6 +1050,7 @@ class ArtifactBundleTests(unittest.TestCase):
         self.assertEqual(Path(first["unified_queue_dir"]).name, "_总清单")
         self.assertTrue(first["slice_dir"].endswith("生日答谢第一段_话题切片"))
 
+    @streamer_profile_context("zeyin")
     def test_organizer_copies_rewrites_and_is_idempotent(self):
         with TemporaryDirectory() as td:
             root = Path(td)
@@ -1071,7 +1273,7 @@ class ArtifactPipelineTests(unittest.TestCase):
             source_dir = root / "录播"
             output_dir = root / "输出"
             source_dir.mkdir()
-            flv_path = source_dir / "泽音生日答谢-14点00分47秒-001.flv"
+            flv_path = source_dir / "泽音Melody生日答谢-14点00分47秒-001.flv"
             srt_path = flv_path.with_suffix(".srt")
             flv_path.write_bytes(b"video")
             srt_path.write_text(
@@ -1145,6 +1347,8 @@ class ArtifactPipelineTests(unittest.TestCase):
         )
         self.assertEqual(payload["artifact_dir"], layout["artifact_dir"])
         self.assertEqual(payload["overview_path"], layout["overview_path"])
+        self.assertEqual(payload["streamer_profile_id"], "zeyin")
+        self.assertEqual(result["streamer_profile_id"], "zeyin")
         self.assertEqual(manifest["manifest_json_path"], layout["task_manifest_json_path"])
         self.assertEqual(
             manifest["unified_queue_md_path"], layout["unified_queue_md_path"]
@@ -1215,11 +1419,16 @@ class ArtifactPipelineTests(unittest.TestCase):
 
             layout = _artifact_bundle_layout(str(flv_path), str(output_dir))
             overview = Path(result["overview_path"]).read_text(encoding="utf-8")
+            optimized_payload = json.loads(
+                Path(result["optimized_json_path"]).read_text(encoding="utf-8")
+            )
 
         self.assertEqual(result["artifact_dir"], layout["artifact_dir"])
         self.assertEqual(result["optimized_json_path"], layout["optimized_timeline_json_path"])
         self.assertEqual(result["optimized_md_path"], layout["optimized_timeline_md_path"])
         self.assertEqual(result["corrected_srt_path"], layout["corrected_srt_path"])
+        self.assertEqual(result["streamer_profile_id"], "generic")
+        self.assertEqual(optimized_payload["streamer_profile_id"], "generic")
         self.assertIn("03_优化时间轴.md", overview)
 
 
@@ -1677,6 +1886,10 @@ class TopicEngineParseTests(unittest.TestCase):
             formal_srt_exists = (root / "recording.srt").exists()
 
         self.assertEqual(list(checkpoint["chunks"]), ["0"])
+        self.assertEqual(checkpoint["status"], "failed")
+        self.assertEqual(checkpoint["completed_chunk_count"], 1)
+        self.assertEqual(checkpoint["last_failure"]["chunk_index"], 1)
+        self.assertIn("连续失败", checkpoint["last_failure"]["message"])
         self.assertFalse(formal_srt_exists)
         self.assertEqual(leftovers, [])
         self.assertEqual(model.calls, 3)
@@ -1685,6 +1898,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertTrue(LLM_MODEL)
 
         with (
+            patch.dict(os.environ, {}, clear=True),
             patch("topic_engine.os.path.exists", return_value=True),
             patch("builtins.open", mock_open(read_data="{}")),
             patch("topic_engine.json.load", return_value={"base_url": "https://example.test", "token": "token"}),
@@ -1692,9 +1906,12 @@ class TopicEngineParseTests(unittest.TestCase):
             self.assertEqual(load_api_config()[2], LLM_MODEL)
 
         with (
+            patch.dict(os.environ, {
+                "AUTOSLICE_API_BASE_URL": "https://example.test/v1",
+                "AUTOSLICE_API_TOKEN": "token",
+                "AUTOSLICE_API_TYPE": "openai",
+            }, clear=True),
             patch("topic_engine.os.path.exists", return_value=False),
-            patch("builtins.open", mock_open(read_data="{}")),
-            patch("topic_engine.json.load", return_value={"env": {"ANTHROPIC_BASE_URL": "https://example.test", "ANTHROPIC_AUTH_TOKEN": "token"}}),
         ):
             self.assertEqual(load_api_config()[2], LLM_MODEL)
 
@@ -1739,6 +1956,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertNotIn("输出内容要严格按照格式", report)
         self.assertEqual(marks, [{"start": 6530, "end": 6723, "title": "疑惑汽车广告奇怪产品"}])
 
+    @streamer_profile_context("zeyin")
     def test_json_publish_title_is_preserved_in_final_clip_mark(self):
         topics = []
         response = """
@@ -1761,6 +1979,7 @@ class TopicEngineParseTests(unittest.TestCase):
         )
         self.assertEqual(marks[0]["publish_title"], topics[0]["publish_title"])
 
+    @streamer_profile_context("zeyin")
     def test_invalid_or_missing_publish_title_uses_safe_fallback(self):
         topics = []
         response = """
@@ -1782,6 +2001,37 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(marks[0]["publish_title"], "【泽音】赌石失败绝赞悲鸣")
         self.assertEqual(marks[1]["publish_title"], "【泽音】新衣剪影猜测")
         self.assertNotIn("points", " ".join(mark["publish_title"] for mark in marks))
+
+    @streamer_profile_context("zeyin")
+    def test_human_reviewed_publish_title_is_not_overwritten_by_clip_review(self):
+        topic = {
+            "start": 610,
+            "end": 960,
+            "title": "免费游戏坑朋友",
+            "publish_title": (
+                "【泽音】坏东西音姐想出污染朋友Steam库的损招🤣"
+                "骗他叫爸爸，再送《完蛋我被男同学包围了》"
+            ),
+            "publish_title_locked": True,
+            "publish_title_source": "human_review",
+            "body": ["·字幕核查：朋友激活后游戏会排到最近玩过第一位"],
+        }
+        item = {
+            "title": "想骗朋友叫爸爸",
+            "publish_title": "【泽音】音音想骗朋友叫爸爸，最近玩过直接排第一",
+            "focus_start": "0:11:55",
+            "focus_end": "0:14:53",
+            "points": [
+                "音音设想先骗朋友叫爸爸，再送出游戏CDK",
+                "朋友激活后会在最近玩过第一位看到这款游戏",
+            ],
+        }
+
+        enriched = _enriched_manual_topic_from_item(topic, item)
+
+        self.assertEqual(enriched["publish_title"], topic["publish_title"])
+        self.assertTrue(enriched["publish_title_locked"])
+        self.assertEqual(enriched["publish_title_source"], "human_review")
 
     def test_strict_json_mode_ignores_markdown_reasoning(self):
         topics = []
@@ -2017,6 +2267,29 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual(fixed["end"], 338)
         self.assertLessEqual(fixed["end"] - fixed["start"], TOPIC_MAX_CLIP_SEC)
+
+    def test_final_boundary_never_rewinds_before_validated_topic_end(self):
+        fixed = _fit_final_clip_to_safe_srt_boundaries(
+            {
+                "start": 7209,
+                "end": 7409,
+                "topic_start": 7236,
+                "topic_end": 7408,
+                "required_context_end": 7414,
+                "hard_context_end": 7409,
+                "title": "满嘴梗把音音带跑",
+            },
+            [
+                (7395.25, 7399.93, "个梗都要挂在别人不能这样"),
+                (7399.93, 7408.75, "要分清场合但是大家"),
+                (7408.75, 7413.13, "下一条字幕紧接着开始"),
+            ],
+        )
+
+        self.assertEqual(fixed["end"], 7409)
+        self.assertGreaterEqual(fixed["end"], fixed["topic_end"])
+        self.assertEqual(fixed["hard_context_end"], 7409)
+        self.assertTrue(fixed["end_boundary_kept_to_avoid_core_loss"])
 
     def test_duration_cap_rewinds_to_continuous_tail_start(self):
         fixed = _fit_final_clip_to_safe_srt_boundaries(
@@ -2598,6 +2871,74 @@ class TopicEngineParseTests(unittest.TestCase):
 
         self.assertEqual(expanded[0]["end"], 15419)
 
+    def test_boundary_evidence_does_not_extend_into_next_game_on_generic_words(self):
+        marks = [{
+            "start": 15346,
+            "end": 15461,
+            "title": "按7减速却撇功劳",
+            "publish_title": (
+                "【泽音】玩了半天才知道按7能开“弱智模式”🤣"
+                "音音：之前怎么没人告诉我！"
+            ),
+            "boundary_evidence": [
+                "音音发现按7会让游戏速度变慢，此前没人告诉她",
+                "被夸真厉害后反复说跟我有什么关系",
+            ],
+            "semantic_focus_validated": True,
+            "reference_start": 15343,
+            "reference_end": 15509,
+        }]
+        srt_segments = [
+            (15442.63, 15446.73, "跟我有什么关系啊，我请问了跟我有啥关系"),
+            (15449.61, 15452.49, "但是这个按技能减速之前没人告诉我"),
+            (15459.57, 15461.91, "看点傻开心的视频"),
+            (15474.57, 15479.01, "一千亿奖金挑战天才作者"),
+            (15482.95, 15495.39, "这个游戏为什么关了，找不同只要测试眼力"),
+            (15517.35, 15522.75, "这个是不是关系不太好，到底点哪一个"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=15600,
+        )
+
+        self.assertEqual(expanded[0]["end"], 15474)
+        self.assertLessEqual(expanded[0].get("required_context_end", 15461), 15462)
+
+    def test_boundary_evidence_splits_continuous_chain_at_reviewed_topic_end(self):
+        marks = [{
+            "start": 2761,
+            "end": 2938,
+            "title": "紫光灯验美金开出帝皇采耳",
+            "boundary_evidence": [
+                "拿紫光灯检查白色美金水印",
+                "认出帝皇、四个太监和采耳",
+            ],
+            "semantic_focus_validated": True,
+            "reference_start": 2716,
+            "reference_end": 3089,
+        }]
+        srt_segments = [
+            (2907.71, 2908.53, "真的是采耳"),
+            (2911.07, 2913.37, "这是什么粉丝礼物开箱"),
+            (2914.47, 2937.65, "开箱帝皇啊还是有跟我一样爱学习"),
+            (2938.11, 2938.81, "的宝子啊"),
+            (2941.45, 2942.47, "什么书啊"),
+            (2957.61, 2963.61, "我吓一跳这是四级英语真题详解"),
+            (2964.39, 2973.29, "现在四级这么难啊"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=3200,
+        )
+
+        self.assertEqual(expanded[0]["hard_context_end"], 2941)
+        self.assertLessEqual(expanded[0]["end"], 2941)
+        self.assertLessEqual(expanded[0].get("required_context_end", 2938), 2939)
+
     def test_context_overlap_split_moves_off_a_subtitle_sentence(self):
         marks = [
             {"start": 100, "end": 160, "title": "前一个话题"},
@@ -2819,6 +3160,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertIn("㉑[03:20", report)
         self.assertNotIn("21.[03:20", report)
 
+    @streamer_profile_context("zeyin")
     def test_publish_title_section_only_lists_final_clips_and_matches_output_filename(self):
         topics = [
             {
@@ -2861,6 +3203,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertNotIn("这条不应进入投稿标题区", title_section)
         self.assertEqual(expected_filename, "01_65s_回答离谱SC：为什么会这样.flv")
 
+    @streamer_profile_context("zeyin")
     def test_refinement_manifest_matches_final_clip_names_and_workflow(self):
         clip_marks = [{
             "start": 65,
@@ -3136,6 +3479,81 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertIn("其中 1 个仅更新标题", progress[0])
         prepare_source.assert_not_called()
         run.assert_not_called()
+
+    def test_title_only_reuse_falls_back_when_old_clip_is_locked(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_path = root / "录播.flv"
+            source_path.write_bytes(b"source")
+            report_dir = root / "录播_话题切片"
+            report_dir.mkdir()
+            old_path = report_dir / "01_10s_旧标题.flv"
+            old_path.write_bytes(b"old")
+            job = {
+                "index": 1,
+                "start": 10,
+                "duration": 80,
+                "output_name": "01_10s_新标题.flv",
+                "output_path": str(report_dir / "01_10s_新标题.flv"),
+            }
+
+            with (
+                patch("topic_engine._is_reusable_topic_clip", return_value=True),
+                patch("topic_engine.os.replace", side_effect=PermissionError("占用")),
+                patch("topic_engine.shutil.copy2", side_effect=PermissionError("禁止读取")),
+            ):
+                reused = _reuse_topic_clip_after_title_change(
+                    job,
+                    str(report_dir),
+                    str(source_path),
+                )
+
+        self.assertFalse(reused)
+
+    def test_reuse_copies_locked_clip_when_candidate_number_changes(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_path = root / "录播.flv"
+            source_path.write_bytes(b"source")
+            report_dir = root / "录播_话题切片"
+            report_dir.mkdir()
+            old_path = report_dir / "08_15346s_旧标题.flv"
+            old_path.write_bytes(b"same-video-content")
+            output_path = report_dir / "12_15346s_新标题.flv"
+            job = {
+                "index": 12,
+                "start": 15346,
+                "duration": 128,
+                "output_name": output_path.name,
+                "output_path": str(output_path),
+            }
+
+            with (
+                patch("topic_engine._is_reusable_topic_clip", return_value=True),
+                patch("topic_engine.os.replace", side_effect=PermissionError("占用")),
+            ):
+                reused = _reuse_topic_clip_after_title_change(
+                    job,
+                    str(report_dir),
+                    str(source_path),
+                )
+            copied_bytes = output_path.read_bytes()
+            old_still_exists = old_path.exists()
+
+        self.assertTrue(reused)
+        self.assertEqual(copied_bytes, b"same-video-content")
+        self.assertTrue(old_still_exists)
+
+    def test_stale_cleanup_skips_locked_generated_file(self):
+        with TemporaryDirectory() as tmp:
+            stale_path = Path(tmp) / "01_10s_旧标题.flv"
+            stale_path.write_bytes(b"locked")
+            with patch("topic_engine.os.remove", side_effect=PermissionError("占用")):
+                removed = _cleanup_stale_topic_clips(tmp)
+            still_exists = stale_path.exists()
+
+        self.assertEqual(removed, 0)
+        self.assertTrue(still_exists)
 
     def test_slice_from_marks_only_reencodes_changed_boundary_without_large_index(self):
         marks = [
@@ -3623,7 +4041,17 @@ class TopicEngineParseTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+            patch(
+                "topic_engine.load_api_config",
+                return_value=LLMApiConfig(
+                    "https://example.test",
+                    "token",
+                    "gpt-5.6-terra",
+                    "openai",
+                    analysis_reasoning_effort="xhigh",
+                    review_reasoning_effort="xhigh",
+                ),
+            ),
             patch("topic_engine._call_llm_with_retry", side_effect=fake_call) as call,
         ):
             topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
@@ -3751,7 +4179,7 @@ class TopicEngineParseTests(unittest.TestCase):
         )
         self.assertEqual(len(checkpoint["responses"]), 2)
 
-    def test_analyze_topic_chunks_stops_after_first_parallel_wave_when_api_is_down(self):
+    def test_analyze_topic_chunks_uses_one_probe_before_confirmed_provider_outage(self):
         chunks = [
             {
                 "start": index * 600,
@@ -3764,13 +4192,26 @@ class TopicEngineParseTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
-            patch("topic_engine._call_llm_with_retry", side_effect=make_http_error(500)) as call,
-            self.assertRaisesRegex(RuntimeError, "连续 3 个分块失败"),
+            patch(
+                "topic_engine.load_api_config",
+                return_value=LLMApiConfig(
+                    "https://example.test",
+                    "token",
+                    "gpt-5.6-terra",
+                    "openai",
+                    analysis_reasoning_effort="xhigh",
+                    review_reasoning_effort="xhigh",
+                ),
+            ),
+            patch(
+                "topic_engine._call_llm_with_retry",
+                side_effect=LLMProviderUnavailableError("上游推理服务暂不可用"),
+            ) as call,
+            self.assertRaisesRegex(RuntimeError, "上游推理服务持续不可用"),
         ):
             _analyze_topic_chunks(chunks, "音音")
 
-        self.assertEqual(call.call_count, 3)
+        self.assertEqual(call.call_count, 1)
 
     def test_analyze_topic_chunks_keeps_previous_checkpoint_when_atomic_replace_fails(self):
         chunks = [{
@@ -4106,6 +4547,116 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
         self.assertFalse(topics[0]["can_slice"])
         self.assertEqual(_clip_marks_from_topics(topics), [])
+
+    def test_high_star_manual_evidence_only_adds_review_candidate(self):
+        topics = [{
+            "start": 500,
+            "end": 620,
+            "title": "红白改金曲后的反问",
+            "manual_stars": 5,
+            "body": [
+                "·音音解释红白活动后来改成金曲",
+                "●人工时间轴⭐⭐⭐⭐⭐：8:50 被问骄傲后澄清自己说的是输了",
+            ],
+            "manual_timeline": [{
+                "start": 530,
+                "end": 590,
+                "stars": 5,
+                "text": "红白改金曲后的反问",
+                "original_entries": [{
+                    "start": 550,
+                    "stars": 5,
+                    "text": "骄傲上了？不是输了吗",
+                }],
+            }],
+        }]
+
+        _apply_danmaku_slice_decisions(topics, peaks=[], avg_density=80)
+
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertTrue(topics[0]["clip_review_candidate"])
+        self.assertEqual(topics[0]["clip_candidate_sources"], ["人工高星时间轴"])
+        self.assertEqual(_clip_marks_from_topics(topics), [])
+
+        topics[0].update({
+            "clip_review_validated": True,
+            "clip_interest_score": 81,
+            "clip_interest_reason": "完整解释活动由来并以反问收尾",
+        })
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[],
+            avg_density=80,
+            require_clip_review=True,
+        )
+        marks = _clip_marks_from_topics(topics)
+        audit = _build_clip_candidate_review_audit(topics)
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["slice_anchor_source"], "人工高星时间轴")
+        self.assertEqual(len(marks), 1)
+        self.assertEqual(audit["approved_count"], 1)
+        self.assertEqual(audit["candidates"][0]["status"], "已通过并生成切片")
+
+    def test_reviewed_semantic_focus_survives_peak_outside_revised_range(self):
+        topics = [{
+            "start": 100,
+            "end": 175,
+            "title": "前十六目标改冲神级",
+            "body": [
+                "·音音从第23名冲到第7名后说计划有变",
+                "·她把目标从前十六改成进入神级",
+            ],
+            "clip_candidate_sources": ["弹幕峰值"],
+            "clip_review_validated": True,
+            "clip_interest_score": 76,
+            "clip_interest_reason": "排名变化和改口目标构成完整反差",
+        }]
+
+        # 原始峰值位于 Terra 收缩后的语义核心之前，不能因此把已通过项抹掉。
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[(15, 160)],
+            avg_density=50,
+            require_clip_review=True,
+        )
+        marks = _clip_marks_from_topics(topics)
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["slice_anchor_source"], "语义复核")
+        self.assertEqual((marks[0]["start"], marks[0]["end"]), (100, 175))
+
+    def test_high_star_original_line_survives_summary_wording_change(self):
+        topics = [{
+            "start": 15229,
+            "end": 15358,
+            "title": "冬季活动为何改成金曲",
+            "body": [
+                "·音音解释最开始活动叫红白，双方实力差距太大后改成金曲。",
+                "·对话中有人接到输了，音音澄清自己说的是实力差距。",
+            ],
+            "manual_timeline": [{
+                "start": 15290,
+                "end": 15358,
+                "text": "红白改金曲乌龙",
+                "summary": [
+                    "音音回顾红白因双方实力差距太大改成金曲。",
+                    "被问是不是骄傲后，她澄清自己说的是输了。",
+                ],
+                "stars": 6,
+                "source": "optimized_manual_timeline",
+                "original_entries": [
+                    {"start": 15260, "text": "最开始红白后来改成金曲", "stars": 0},
+                    {"start": 15340, "text": "骄傲上了？不是输了吗", "stars": 6},
+                ],
+            }],
+        }]
+
+        cleaned = _clean_topics_for_report(topics)
+
+        self.assertEqual(cleaned[0]["manual_stars"], 6)
+        evidence = "\n".join(cleaned[0]["body"])
+        self.assertIn("骄傲上了", evidence)
 
     def test_peak_candidates_require_independent_subtitle_review_before_final_slice(self):
         topics = [
@@ -5129,6 +5680,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertEqual(entry["stars"], 0)
         self.assertNotIn("男生仿妆", "\n".join(entry["evidence"]))
 
+    @streamer_profile_context("zeyin")
     def test_prepare_manual_timeline_resumes_only_failed_artifact_entries(self):
         with TemporaryDirectory() as td:
             flv_path = Path(td) / "完整版.flv"
@@ -5338,6 +5890,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertEqual(batch_sizes, [3, 1])
         self.assertTrue(all(topic["ai_enriched"] for topic in topics))
 
+    @streamer_profile_context("zeyin")
     def test_manual_topics_are_enriched_by_one_batched_llm_request(self):
         topics = [{
             "start": 1200,
@@ -5442,6 +5995,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         prompt = mocked_call.call_args.args[0]
         self.assertIn("同一个id输出为两项", prompt)
 
+    @streamer_profile_context("zeyin")
     def test_manual_ai_placeholder_output_is_rejected(self):
         topics = [{
             "start": 100,
@@ -6055,6 +6609,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertEqual(cleaned[0]["manual_timeline"], [])
         self.assertNotIn("人工时间轴", "\n".join(cleaned[0]["body"]))
 
+    @streamer_profile_context("zeyin")
     def test_final_cleanup_rebuilds_generic_title_from_specific_body(self):
         topics = [{
             "start": 9586,
@@ -6539,6 +7094,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertGreater(segs[0][1] - segs[0][0], 20)
         self.assertIn("3:55:00－3:55:", chunks[0]["text"])
 
+    @streamer_profile_context("zeyin")
     def test_repair_old_funasr_full_text_per_token_srt_and_export_corrected_copy(self):
         tokens = list("英英晚上好音乐生只有见音乐声的时候一起看新衣剪影猜细节吧")
         full_text = " ".join(tokens)
@@ -6592,6 +7148,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             [(1.0, 4.0, "今天正常开播"), (5.0, 8.0, "继续和观众聊天")],
         )
 
+    @streamer_profile_context("zeyin")
     def test_healthy_srt_only_repairs_unambiguous_fan_name_context(self):
         content = """1
 00:00:01,000 --> 00:00:03,000
@@ -6644,6 +7201,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertIn("●弹幕要求直播读文", report)
         self.assertNotIn("密度达119", report)
 
+    @streamer_profile_context("zeyin")
     def test_report_replaces_generic_streamer_role_with_fan_nickname(self):
         topics = []
         response = """
@@ -6665,6 +7223,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertNotIn("泽音Melody", report)
         self.assertNotIn("主播", report)
 
+    @streamer_profile_context("zeyin")
     def test_report_normalises_fan_name_misrecognition_from_ai_points(self):
         report = _build_timeline_report(
             "测试.flv",
@@ -6688,9 +7247,11 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         self.assertEqual(_infer_streamer_name(path), "泽音Melody")
         self.assertEqual(_infer_streamer_name(direct_recording), "泽音Melody")
-        self.assertEqual(_streamer_report_name("泽音Melody"), "音音")
+        with streamer_profile_context("zeyin"):
+            self.assertEqual(_streamer_report_name("泽音Melody"), "音音")
         self.assertEqual(_infer_streamer_name(r"F:\Videos\测试.flv"), "主播")
 
+    @streamer_profile_context("zeyin")
     def test_chunk_prompt_requests_full_timeline_and_fan_aliases(self):
         prompt, _, _ = _build_chunk_prompt(
             {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
@@ -6770,6 +7331,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertIn("已审阅账号 100 条投稿", style_prompt)
         self.assertNotIn("直播回放", style_prompt)
 
+    @streamer_profile_context("zeyin")
     def test_manual_enrichment_prompt_uses_relevant_historical_title_style(self):
         prompt = _build_manual_topic_enrichment_prompt([{
             "start": 120,
@@ -6883,6 +7445,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 class LatestArtifactCleanupTests(unittest.TestCase):
     """回归 20260714 最新报告中发现的重叠和检查点问题。"""
 
+    @streamer_profile_context("zeyin")
     def test_cleanup_removes_hourly_fallback_and_trims_reviewed_overlaps(self):
         topics = [{
             "start": 73,
@@ -6977,6 +7540,7 @@ class LatestArtifactCleanupTests(unittest.TestCase):
 
         self.assertEqual(cleaned[0]["title"], "下车时把包落在座位上")
 
+    @streamer_profile_context("zeyin")
     def test_report_terms_fix_self_heating_pack_and_unclear_order_phrase(self):
         topics = _clean_topics_for_report([{
             "start": 100,
@@ -7050,6 +7614,7 @@ class LatestArtifactCleanupTests(unittest.TestCase):
         self.assertEqual(payload["pending_count"], 0)
         self.assertEqual(payload["completed_at"], "2026-07-17T06:30:00")
 
+    @streamer_profile_context("zeyin")
     def test_old_clip_review_policy_cannot_reuse_completed_titles(self):
         self.assertTrue(_clip_review_checkpoint_matches_policy({
             "review_policy_version": CLIP_REVIEW_POLICY_VERSION,
@@ -7095,6 +7660,7 @@ class HybridModelRoutingTests(unittest.TestCase):
             checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
 
         self.assertEqual(call.call_args.kwargs["model_override"], LLM_ANALYSIS_MODEL)
+        self.assertEqual(call.call_args.kwargs["reasoning_stage"], "analysis")
         self.assertEqual(checkpoint["model"], LLM_ANALYSIS_MODEL)
         self.assertTrue(any(f"{LLM_ANALYSIS_MODEL} 分块分析" in item for item in progress))
         self.assertFalse(any(f"{LLM_MODEL} 分块分析" in item for item in progress))
@@ -7153,6 +7719,8 @@ class HybridModelRoutingTests(unittest.TestCase):
 
         self.assertNotIn("model_override", manual_call.call_args.kwargs)
         self.assertNotIn("model_override", review_call.call_args.kwargs)
+        self.assertEqual(manual_call.call_args.kwargs["reasoning_stage"], "review")
+        self.assertEqual(review_call.call_args.kwargs["reasoning_stage"], "review")
         self.assertTrue(clip_topics[0]["clip_review_validated"])
 
     def test_pipeline_reuses_partial_timeline_and_writes_hybrid_policy(self):
@@ -7205,6 +7773,7 @@ class HybridModelRoutingTests(unittest.TestCase):
         self.assertIn(f"{LLM_ANALYSIS_MODEL}（整场话题）", report)
         self.assertIn(f"{LLM_MODEL}（人工时间轴/切片复核）", report)
 
+    @streamer_profile_context("zeyin")
     def test_fast_pipeline_mode_does_not_retry_partial_timeline_artifact(self):
         with TemporaryDirectory() as td:
             flv_path = Path(td) / "完整版.flv"
@@ -7398,6 +7967,7 @@ class LLMApiContractTests(unittest.TestCase):
         }
         opener = mock_open(read_data="{}")
         with (
+            patch.dict(os.environ, {}, clear=True),
             patch("topic_engine.os.path.exists", return_value=True),
             patch("builtins.open", opener),
             patch("topic_engine.json.load", return_value=config_payload),
@@ -7410,7 +7980,92 @@ class LLMApiContractTests(unittest.TestCase):
             "deepseek-v4-pro",
         ))
         self.assertEqual(config.api_type, "openai")
+        self.assertEqual(config.analysis_reasoning_effort, "xhigh")
+        self.assertEqual(config.review_reasoning_effort, "xhigh")
         self.assertEqual(opener.call_args.kwargs["encoding"], "utf-8")
+
+    def test_max_reasoning_effort_alias_uses_api_xhigh_value(self):
+        config = LLMApiConfig(
+            "https://example.test/v1",
+            "sk-test",
+            "gpt-5.6-terra",
+            "openai",
+            analysis_reasoning_effort="max",
+            review_reasoning_effort="max",
+        )
+
+        self.assertEqual(config.analysis_reasoning_effort, "xhigh")
+        self.assertEqual(config.review_reasoning_effort, "xhigh")
+
+    def test_review_reasoning_effort_is_high_but_analysis_keeps_default(self):
+        config = LLMApiConfig(
+            "https://example.test/v1",
+            "sk-test",
+            "gpt-5.6-terra",
+            "openai",
+            analysis_reasoning_effort=None,
+            review_reasoning_effort="high",
+        )
+        responses = [
+            self._response({
+                "choices": [{"finish_reason": "stop", "message": {"content": "复核"}}],
+            }),
+            self._response({
+                "choices": [{"finish_reason": "stop", "message": {"content": "分析"}}],
+            }),
+        ]
+        with (
+            patch("topic_engine.load_api_config", return_value=config),
+            patch("topic_engine.requests.post", side_effect=responses) as post,
+        ):
+            self.assertEqual(call_llm("复核", reasoning_stage="review"), "复核")
+            self.assertEqual(call_llm("分析", reasoning_stage="analysis"), "分析")
+
+        self.assertEqual(post.call_args_list[0].kwargs["json"]["reasoning_effort"], "high")
+        self.assertNotIn("reasoning_effort", post.call_args_list[1].kwargs["json"])
+
+    def test_review_reasoning_effort_can_be_explicitly_disabled(self):
+        config = LLMApiConfig(
+            "https://example.test/v1",
+            "sk-test",
+            "gpt-5.6-terra",
+            "openai",
+            review_reasoning_effort="none",
+        )
+        self.assertIsNone(config.review_reasoning_effort)
+
+    def test_unsupported_reasoning_effort_falls_back_once_and_is_cached(self):
+        config = LLMApiConfig(
+            "https://example.test/v1",
+            "sk-test",
+            "gpt-5.6-terra",
+            "openai",
+            review_reasoning_effort="high",
+        )
+        rejected = self._response({"error": "unsupported"})
+        rejected.status_code = 400
+        rejected.text = "Unknown parameter: reasoning_effort"
+        valid = self._response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "完成"}}],
+        })
+        reset_reasoning_effort_capability_cache()
+        try:
+            with (
+                patch("topic_engine.load_api_config", return_value=config),
+                patch(
+                    "topic_engine.requests.post",
+                    side_effect=[rejected, valid, valid],
+                ) as post,
+            ):
+                self.assertEqual(call_llm("第一次", reasoning_stage="review"), "完成")
+                self.assertEqual(call_llm("第二次", reasoning_stage="review"), "完成")
+        finally:
+            reset_reasoning_effort_capability_cache()
+
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(post.call_args_list[0].kwargs["json"]["reasoning_effort"], "high")
+        self.assertNotIn("reasoning_effort", post.call_args_list[1].kwargs["json"])
+        self.assertNotIn("reasoning_effort", post.call_args_list[2].kwargs["json"])
 
     def test_load_api_config_rejects_missing_or_invalid_fields_without_token_leak(self):
         invalid_payloads = [
@@ -7426,6 +8081,7 @@ class LLMApiContractTests(unittest.TestCase):
         for payload, expected_message in invalid_payloads:
             with self.subTest(payload=payload):
                 with (
+                    patch.dict(os.environ, {}, clear=True),
                     patch("topic_engine.os.path.exists", return_value=True),
                     patch("builtins.open", mock_open(read_data="{}")),
                     patch("topic_engine.json.load", return_value=payload),
@@ -7433,6 +8089,84 @@ class LLMApiContractTests(unittest.TestCase):
                 ):
                     load_api_config()
                 self.assertNotIn("secret-value", str(raised.exception))
+
+    def test_load_api_config_prefers_explicit_environment(self):
+        env = {
+            "AUTOSLICE_API_BASE_URL": " https://environment.test/v1/ ",
+            "AUTOSLICE_API_TOKEN": " environment-token ",
+            "AUTOSLICE_API_TYPE": "openai",
+            "AUTOSLICE_LLM_MODEL": "environment-model",
+        }
+        opener = mock_open(read_data="{}")
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("topic_engine.os.path.exists") as exists,
+            patch("builtins.open", opener),
+        ):
+            config = load_api_config()
+
+        self.assertEqual(tuple(config), (
+            "https://environment.test/v1",
+            "environment-token",
+            "environment-model",
+        ))
+        self.assertEqual(config.api_type, "openai")
+        exists.assert_not_called()
+        opener.assert_not_called()
+
+    def test_load_api_config_environment_model_overrides_project_model(self):
+        payload = {
+            "base_url": "https://project.test/v1",
+            "token": "project-token",
+            "model": "project-model",
+            "api_type": "openai",
+        }
+        with (
+            patch.dict(
+                os.environ,
+                {"AUTOSLICE_LLM_MODEL": "environment-model"},
+                clear=True,
+            ),
+            patch("topic_engine.os.path.exists", return_value=True),
+            patch("builtins.open", mock_open(read_data="{}")),
+            patch("topic_engine.json.load", return_value=payload),
+        ):
+            config = load_api_config()
+
+        self.assertEqual(config[2], "environment-model")
+
+    def test_load_api_config_rejects_partial_environment_without_file_fallback(self):
+        opener = mock_open(read_data="{}")
+        with (
+            patch.dict(
+                os.environ,
+                {"AUTOSLICE_API_TOKEN": "secret-value"},
+                clear=True,
+            ),
+            patch("topic_engine.os.path.exists") as exists,
+            patch("builtins.open", opener),
+            self.assertRaisesRegex(ValueError, "base_url") as raised,
+        ):
+            load_api_config()
+
+        self.assertNotIn("secret-value", str(raised.exception))
+        exists.assert_not_called()
+        opener.assert_not_called()
+
+    def test_load_api_config_without_explicit_config_never_reads_claude(self):
+        opener = mock_open(read_data="{}")
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("topic_engine.os.path.exists", return_value=False),
+            patch("topic_engine.os.path.expanduser") as expanduser,
+            patch("builtins.open", opener),
+            self.assertRaisesRegex(ValueError, "未配置 LLM API") as raised,
+        ):
+            load_api_config()
+
+        self.assertNotIn(".claude", str(raised.exception).casefold())
+        expanduser.assert_not_called()
+        opener.assert_not_called()
 
     def test_sk_ant_token_uses_anthropic_messages_protocol(self):
         response = self._response({

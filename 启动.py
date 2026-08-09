@@ -259,6 +259,26 @@ def _stop_autocover(process):
         process.wait(timeout=5)
 
 
+def _autoslice_bind_host(environ=None):
+    """默认只监听本机；显式局域网模式必须配置足够长的访问令牌。"""
+
+    env = environ if environ is not None else os.environ
+    lan_mode = str(env.get("AUTOSLICE_LAN_MODE", "")).strip().casefold()
+    if lan_mode not in {"1", "true", "yes", "on"}:
+        return "127.0.0.1"
+    token = str(env.get("AUTOSLICE_LAN_TOKEN", "")).strip()
+    if len(token) < 24:
+        raise RuntimeError(
+            "局域网模式要求 AUTOSLICE_LAN_TOKEN 至少 24 个字符"
+        )
+    hosts = str(env.get("AUTOSLICE_LAN_HOSTS", "")).strip()
+    if not hosts:
+        raise RuntimeError(
+            "局域网模式要求 AUTOSLICE_LAN_HOSTS 配置允许访问的主机名或 IP"
+        )
+    return "0.0.0.0"
+
+
 def _start_autocover(
         environ=None, project_dir=None, preferred_port=AUTOCOVER_PREFERRED_PORT,
         service_probe=None, port_finder=None, dependency_setup=None,
@@ -283,6 +303,9 @@ def _start_autocover(
     factory = process_factory or subprocess.Popen
     child_env = dict(env)
     child_env["PYTHONUTF8"] = "1"
+    child_env.setdefault("AUTOCOVER_INPUT_DIR", r"F:\Videos")
+    child_env.setdefault("AUTOCOVER_OUTPUT_DIR", r"F:\Videos\封面")
+    child_env.setdefault("AUTOCOVER_STICKER_DIR", r"F:\Videos\视频素材\表情包")
     process = factory(
         [
             str(python_executable), "-m", "autocover.cli", "serve",
@@ -355,7 +378,12 @@ def main():
         device = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
         print(f"AutoSlice Web 已启动: http://localhost:5002（FunASR: {device}）")
         print("控制台将实时显示所有任务进度")
-        app.run(host="0.0.0.0", port=5002, debug=False, threaded=True)
+        app.run(
+            host=_autoslice_bind_host(),
+            port=5002,
+            debug=False,
+            threaded=True,
+        )
     finally:
         _stop_autocover(cover_process)
     return 0

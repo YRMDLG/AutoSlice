@@ -44,135 +44,14 @@ def seconds_to_srt_time(seconds):
 # ============================================================
 
 def generate_srt(video_path, progress_callback=None):
-    """用 FunASR 生成 SRT 字幕，返回 srt_path 或 None"""
-    srt_path = video_path[:-4] + ".srt"
-    if os.path.exists(srt_path) and os.path.getsize(srt_path) > 0:
-        if progress_callback:
-            progress_callback("SRT 字幕已存在", 100, 100)
-        return srt_path
-
+    """兼容旧入口，统一使用可续跑且原子写入的新 FunASR 流程。"""
     try:
-        from funasr import AutoModel
-    except ImportError:
+        from topic_engine import ensure_srt
+
+        return ensure_srt(video_path, progress_callback=progress_callback)
+    except Exception as exc:
         if progress_callback:
-            progress_callback("FunASR 未安装: pip install funasr", 0, 1)
-        return None
-
-    import uuid
-    wav_path = video_path[:-4] + f"_audio_{uuid.uuid4().hex[:8]}.wav"
-    if progress_callback:
-        progress_callback("提取音频...", 10, 100)
-
-    try:
-        subprocess.run([
-            "ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-            "-ar", "16000", "-ac", "1", "-y", wav_path
-        ], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace")
-    except subprocess.CalledProcessError:
-        if progress_callback:
-            progress_callback("音频提取失败", 0, 1)
-        return None
-
-    try:
-        if progress_callback:
-            progress_callback("加载 FunASR 模型(从缓存加载约30秒)...", 20, 100)
-            # 每 5 秒更新一次，让进度条看起来在动
-            import time as _time, threading as _th
-            def _heartbeat():
-                for i in range(1, 6):
-                    _time.sleep(5)
-                    if progress_callback:
-                        progress_callback(f"加载模型中...({i*5}s)", 20 + i, 100)
-            _hb = _th.Thread(target=_heartbeat, daemon=True)
-            _hb.start()
-
-        os.environ.setdefault("MODELSCOPE_LOCAL_ONLY", "1")
-        model = AutoModel(
-            model="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
-            device="cpu", disable_update=True
-        )
-
-        # 获取时长
-        try:
-            probe = subprocess.run([
-                "ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", wav_path
-            ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            info = json.loads(probe.stdout.decode("utf-8", errors="replace"))
-            total_duration = float(info.get("format", {}).get("duration", 0))
-        except:
-            total_duration = os.path.getsize(wav_path) / (16000 * 2)
-
-        # 分段处理
-        chunk_duration = 120.0
-        all_segments = []
-
-        if total_duration <= chunk_duration:
-            chunks = [(0, wav_path)]
-        else:
-            if progress_callback:
-                progress_callback(f"分段处理（总 {total_duration/60:.0f} 分钟）...", 25, 100)
-            chunks = []
-            for start_t in range(0, int(total_duration), int(chunk_duration)):
-                chunk_path = video_path[:-4] + f"_chunk_{start_t}.wav"
-                subprocess.run([
-                    "ffmpeg", "-y", "-ss", str(start_t), "-i", wav_path,
-                    "-t", str(chunk_duration), "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1", chunk_path
-                ], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                   encoding="utf-8", errors="replace")
-                chunks.append((start_t, chunk_path))
-
-        total_chunks = len(chunks)
-        for i, (offset, chunk_file) in enumerate(chunks):
-            if progress_callback:
-                pct = 25 + int((i / total_chunks) * 70)  # 25% → 95%
-                progress_callback(f"识别中 ({i+1}/{total_chunks})...", pct, 100)
-            try:
-                result = model.generate(input=chunk_file, batch_size_s=60)
-                if result:
-                    for item in result:
-                        text = item.get("text", "").strip()
-                        timestamps = item.get("timestamp", [])
-                        if text and timestamps:
-                            for ts in timestamps:
-                                if len(ts) == 2:
-                                    seg_start = offset + (ts[0] / 1000.0 if ts[0] is not None else 0)
-                                    seg_end = offset + (ts[1] / 1000.0 if ts[1] is not None else 0)
-                                    all_segments.append((seg_start, seg_end, text))
-                if chunk_file != wav_path:
-                    os.remove(chunk_file)
-            except:
-                if chunk_file != wav_path and os.path.exists(chunk_file):
-                    os.remove(chunk_file)
-
-        if not all_segments:
-            os.remove(wav_path)
-            if progress_callback:
-                progress_callback("未识别到文字", 0, 1)
-            return None
-
-        if progress_callback:
-            progress_callback(f"写入 SRT ({len(all_segments)} 条)...", 97, 100)
-
-        with open(srt_path, "w", encoding="utf-8") as f:
-            idx = 1
-            for seg_start, seg_end, text in all_segments:
-                if len(text) < 2 and text not in ["嗯", "啊", "哦"]:
-                    continue
-                f.write(f"{idx}\n{seconds_to_srt_time(seg_start)} --> "
-                        f"{seconds_to_srt_time(seg_end)}\n{text}\n\n")
-                idx += 1
-
-        os.remove(wav_path)
-        if progress_callback:
-            progress_callback(f"字幕完成 ({len(all_segments)} 条)", 100, 100)
-        return srt_path
-
-    except Exception as e:
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
-        if progress_callback:
-            progress_callback(f"识别失败: {e}", 0, 1)
+            progress_callback(f"识别失败: {exc}", 0, 1)
         return None
 
 
@@ -399,31 +278,39 @@ def parse_timeline_json(json_path):
     """
     解析话题分析生成的 JSON 时间轴文件。
     支持 clip_marks (topic_engine) 和 topics (topic_analyzer) 两种格式。
-    返回与 parse_timeline_docx 相同格式的 [(seconds, desc, stars), ...]
+    返回保留显式起止范围的标准标记字典。
     """
     if not json_path or not os.path.exists(json_path):
         return []
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
-    timestamps = []
-    # 兼容两种格式
+    marks = []
     items = data.get("clip_marks") or data.get("topics") or []
-    for t in items:
-        start = t.get("start", 0)
-        title = t.get("title", "")
-        desc = title
-        timestamps.append((start, desc, 1))
-    return timestamps
-
-
-def timeline_to_periods(timestamps, video_duration, expand_before=90, expand_after=90):
-    """将时间轴时间戳转换为切片时间段"""
-    periods = []
-    for s, desc, stars in timestamps:
-        start = max(0, s - expand_before)
-        end = min(video_duration or 99999, s + expand_after)
-        periods.append((start, end))
-    return periods
+    default_time_basis = data.get("time_basis", "video_elapsed_seconds")
+    for item in items:
+        try:
+            start = float(item.get("start", item.get("topic_start")))
+            end = float(item.get("end", item.get("topic_end")))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        topic_start = item.get("topic_start", start)
+        topic_end = item.get("topic_end", end)
+        try:
+            topic_start = float(topic_start)
+            topic_end = float(topic_end)
+        except (TypeError, ValueError):
+            topic_start, topic_end = start, end
+        marks.append({
+            "start": start,
+            "end": end,
+            "topic_start": topic_start,
+            "topic_end": topic_end,
+            "title": str(item.get("title") or "未命名片段").strip(),
+            "time_basis": item.get("time_basis", default_time_basis),
+        })
+    return marks
 
 
 # ============================================================
@@ -646,21 +533,28 @@ def process_video(flv_path, ass_path, output_dir, mode="danmaku",
             else:
                 if progress_callback:
                     progress_callback(f"JSON 时间轴 {len(tl_raw)} 条（视频内时间，直接使用）", 15, 100)
-            # 时间轴模式：每条独立。±90s 起步，SRT 只扩不缩
-            tl_sorted = sorted(tl_raw, key=lambda x: x[0])
             expanded = []
-            for ts, desc, stars in tl_sorted:
-                start = max(0, ts - 150)
-                end = min(video_duration or 99999, ts + 150)
-                if srt_segments:
-                    ctx_start, ctx_end = find_context_boundaries(
-                        srt_segments, start, end,
-                        gap_threshold=CONTEXT_GAP, max_expand=MAX_EXPAND
-                    )
-                    # 只扩不缩：标记时刻绝对不能丢
-                    start = min(start, ctx_start)
-                    end = max(end, ctx_end)
-                expanded.append((start, end, desc))
+            if is_json:
+                for mark in sorted(tl_raw, key=lambda item: item["start"]):
+                    start = max(0, float(mark["start"]))
+                    end = min(video_duration or 99999, float(mark["end"]))
+                    if end > start:
+                        expanded.append((start, end, mark["title"]))
+            else:
+                # DOCX 只提供一个钟点，保留旧版前后文扩展行为。
+                tl_sorted = sorted(tl_raw, key=lambda x: x[0])
+                for ts, desc, stars in tl_sorted:
+                    start = max(0, ts - 150)
+                    end = min(video_duration or 99999, ts + 150)
+                    if srt_segments:
+                        ctx_start, ctx_end = find_context_boundaries(
+                            srt_segments, start, end,
+                            gap_threshold=CONTEXT_GAP, max_expand=MAX_EXPAND
+                        )
+                        # 只扩不缩：标记时刻绝对不能丢
+                        start = min(start, ctx_start)
+                        end = max(end, ctx_end)
+                    expanded.append((start, end, desc))
         else:
             progress("时间轴解析失败")
             return 0, video_output_dir

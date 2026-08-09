@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 timelines/
 api_config.json
+.test-tmp/
+.codex-tmp-*/
+.codex/
+video-topic-analyzer/
+项目总结.*
+对话总结.md

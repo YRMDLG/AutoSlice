@@ -14,6 +14,24 @@ SPEC.loader.exec_module(launcher)
 
 
 class LauncherTests(unittest.TestCase):
+    def test_autoslice_binds_loopback_unless_secured_lan_mode_is_explicit(self):
+        self.assertEqual(launcher._autoslice_bind_host({}), "127.0.0.1")
+        with self.assertRaisesRegex(RuntimeError, "LAN_TOKEN"):
+            launcher._autoslice_bind_host({"AUTOSLICE_LAN_MODE": "1"})
+        with self.assertRaisesRegex(RuntimeError, "LAN_HOSTS"):
+            launcher._autoslice_bind_host({
+                "AUTOSLICE_LAN_MODE": "1",
+                "AUTOSLICE_LAN_TOKEN": "x" * 24,
+            })
+        self.assertEqual(
+            launcher._autoslice_bind_host({
+                "AUTOSLICE_LAN_MODE": "1",
+                "AUTOSLICE_LAN_TOKEN": "x" * 24,
+                "AUTOSLICE_LAN_HOSTS": "192.168.1.20",
+            }),
+            "0.0.0.0",
+        )
+
     def test_gpu_runtime_path_stays_outside_repository(self):
         runtime = launcher._gpu_runtime_python(r"C:\Users\测试\AppData\Local")
 
