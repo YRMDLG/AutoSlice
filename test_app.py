@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -23,10 +24,29 @@ def assert_same_path(testcase, actual, expected):
             f"路径不一致: {actual_path} != {expected_path}",
         )
         return
+    if os.name == "nt":
+        actual_suffix = _temporary_path_suffix(actual_path)
+        expected_suffix = _temporary_path_suffix(expected_path)
+        if actual_suffix is not None and expected_suffix is not None:
+            testcase.assertEqual(actual_suffix, expected_suffix)
+            return
     testcase.assertEqual(
         os.path.normcase(os.path.normpath(str(actual_path))),
         os.path.normcase(os.path.normpath(str(expected_path))),
     )
+
+
+def _temporary_path_suffix(path):
+    """提取临时目录后的部分，兼容 Windows 的用户目录 8.3 短路径。"""
+
+    path_parts = tuple(part.casefold() for part in Path(path).parts)
+    temp_parts = tuple(part.casefold() for part in Path(tempfile.gettempdir()).parts)
+    for marker_size in range(min(3, len(temp_parts)), 0, -1):
+        marker = temp_parts[-marker_size:]
+        for index in range(len(path_parts) - marker_size + 1):
+            if path_parts[index:index + marker_size] == marker:
+                return path_parts[index + marker_size:]
+    return None
 
 
 class AutoCoverIntegrationTests(unittest.TestCase):
