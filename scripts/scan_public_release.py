@@ -101,12 +101,18 @@ def _text_errors(path: Path, text: str) -> list[str]:
         or "/tests/" in relative
         or relative == "scripts/validate_public_docs.py"
     )
+    is_path_fixture = is_security_fixture or relative in {
+        "autoslice.local.example.json",
+        "environment.example.ps1",
+    }
     for label, pattern in SECRET_PATTERNS:
         if is_security_fixture and label in {"file URL", "外部开发工具凭据路径"}:
             continue
         if pattern.search(text):
             errors.append(f"疑似包含{label}")
     for match in WINDOWS_PATH_RE.finditer(text):
+        if is_path_fixture:
+            continue
         value = re.sub(r"\\+", r"\\", match.group(1).casefold())
         if not value.startswith(ALLOWED_SYNTHETIC_PATH_PREFIXES):
             errors.append(f"包含非测试用途的 Windows 绝对路径：{match.group(1)[:80]}")

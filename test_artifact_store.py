@@ -61,8 +61,8 @@ class ArtifactStoreTests(unittest.TestCase):
 
             self.assertEqual(text_path.read_text(encoding="utf-8"), "第二版\n")
             self.assertEqual(load_artifact_json(json_path), {"标题": "测试"})
-            self.assertEqual(copied, str(copied_path.resolve()))
-            self.assertEqual(seeded, str(seeded_path.resolve()))
+            self.assertTrue(Path(copied).samefile(copied_path))
+            self.assertTrue(Path(seeded).samefile(seeded_path))
             self.assertEqual(
                 json.loads(copied_path.read_text(encoding="utf-8")),
                 {"ok": True},

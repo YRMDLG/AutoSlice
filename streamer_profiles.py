@@ -116,6 +116,12 @@ def _replacement_pairs(payload: dict[str, object]) -> tuple[tuple[str, str], ...
 
 
 def _title_style_path(config_path: Path, payload: dict[str, object]) -> Path | None:
+    configured = str(os.environ.get("AUTOSLICE_TITLE_STYLE_PROFILE", "")).strip()
+    if configured:
+        resolved = Path(configured).expanduser().resolve()
+        if not resolved.is_file():
+            raise ValueError("AUTOSLICE_TITLE_STYLE_PROFILE 指向的标题样本文件不存在")
+        return resolved
     value = payload.get("title_style_profile")
     if value in (None, ""):
         return None
@@ -131,6 +137,10 @@ def _title_style_path(config_path: Path, payload: dict[str, object]) -> Path | N
         raise ValueError("主播配置 title_style_profile 不能超出配置目录") from exc
     if not resolved.is_file():
         raise ValueError(f"主播标题样本文件不存在: {relative}")
+    if resolved.name == "title_style_profile.example.json":
+        private_profile = resolved.with_name("title_style_profile.json")
+        if private_profile.is_file():
+            return private_profile
     return resolved
 
 

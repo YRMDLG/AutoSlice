@@ -12,6 +12,13 @@
 - **字幕校对与压制**：扫描精剪成片；缺少 SRT 时先用 FunASR 自动识别，再确认 AI 错字建议并生成硬字幕 MP4
 - **自动封面联动**：同一个启动脚本管理 AutoCover，并从 AutoSlice 顶部导航直接进入封面工作台
 
+## 完整工作流
+
+`录播 → 字幕/弹幕分析 → 话题报告 → 自动切片 → 字幕校对与压制 → 自动封面 → 投稿`
+
+AutoSlice 负责前四步和字幕工作台，AutoCover 负责成片封面。人工时间轴只作为分析线索，
+实际切点仍由字幕上下文、弹幕互动和最终复核共同决定；程序不会按每小时固定数量凑切片。
+
 ## 快速开始
 
 ```powershell
@@ -28,7 +35,7 @@ python 启动.py
 http://localhost:5002
 ```
 
-`启动.py` 会同时启动 AutoSlice（默认 5002）和相邻目录中的 AutoCover
+`启动.py` 会同时启动 AutoSlice（默认 5002）和仓库内的 AutoCover
 （默认 5010）。AutoCover 已运行时会直接复用；端口冲突时会自动顺延，
 顶部“自动封面”入口始终跳转到本次实际地址。按 `Ctrl+C` 会同时停止本次
 启动的两个服务，不会关闭原本已经独立运行的 AutoCover。
@@ -37,6 +44,18 @@ http://localhost:5002
 回退所需的 VAD 和标点模型；只需成功执行一次，之后会优先使用本地缓存和字幕热词。下载失败时
 原有 Paraformer 缓存仍可回退使用。GPU 安装脚本只写入
 `%LOCALAPPDATA%\AutoSlice`，不会替换系统 Python 的 CPU PyTorch。
+
+所有公开默认目录都位于仓库内。需要继续使用自己已有的录播、投稿、封面或贴图库时，
+复制 `autoslice.local.example.json` 为本机的 `autoslice.local.json`，再填入自己的目录。
+该文件已被 Git 忽略，且显式设置的同名环境变量优先于它：
+
+```powershell
+Copy-Item autoslice.local.example.json autoslice.local.json
+notepad autoslice.local.json
+```
+
+更多 API、模型、目录和局域网配置请见 [配置说明](docs/配置说明.md)，日常操作步骤请见
+[日常工作流](docs/日常工作流.md)，常见问题请见 [故障排查](docs/故障排查.md)。
 
 ## 字幕校对与压制
 
@@ -150,6 +169,6 @@ ffmpeg（系统安装）
 - [FunASR](https://github.com/modelscope/FunASR) — 语音识别引擎
 - [auto-slice-video](https://github.com/timerring/auto-slice-video) — 弹幕密度分析
 
-## License
+## License (MIT License)
 
 MIT

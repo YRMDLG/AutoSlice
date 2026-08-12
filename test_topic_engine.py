@@ -1218,16 +1218,29 @@ class ArtifactBundleTests(unittest.TestCase):
             canonical_clip["manual_timeline"]["optimized_json_path"],
             first["optimized_timeline_json_path"],
         )
-        self.assertEqual(canonical_manifest["slice_output_dir"], str(slice_dir.resolve()))
-        self.assertEqual(canonical_manifest["tasks"][0]["slice_path"], str(clip_path.resolve()))
+        actual_slice_dir = Path(canonical_manifest["slice_output_dir"])
+        self.assertEqual(actual_slice_dir.name, slice_dir.name)
         self.assertEqual(
-            canonical_manifest["tasks"][0]["subtitle_path"],
-            str(subtitle_path.resolve()),
+            os.path.normcase(os.path.abspath(actual_slice_dir.parent)),
+            os.path.normcase(os.path.abspath(slice_dir.parent)),
+        )
+        self.assertEqual(
+            os.path.normcase(os.path.abspath(canonical_manifest["tasks"][0]["slice_path"])),
+            os.path.normcase(os.path.abspath(clip_path)),
+        )
+        self.assertEqual(
+            os.path.normcase(os.path.abspath(canonical_manifest["tasks"][0]["subtitle_path"])),
+            os.path.normcase(os.path.abspath(subtitle_path)),
         )
         self.assertEqual(overview.count("### 01"), 1)
         self.assertIn("AI音能24小时代播吗", overview)
         self.assertIn(mark["publish_title"], overview)
-        self.assertEqual(pointer.strip(), str(slice_dir.resolve()))
+        pointer_path = Path(pointer.strip())
+        self.assertEqual(pointer_path.name, slice_dir.name)
+        self.assertEqual(
+            os.path.normcase(os.path.abspath(pointer_path.parent)),
+            os.path.normcase(os.path.abspath(slice_dir.parent)),
+        )
         self.assertIn("[校对字幕.srt](./数据/校对字幕.srt)", organized_report)
         self.assertIn(
             "[精调任务总清单.md](../_总清单/精调任务总清单.md)",

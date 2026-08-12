@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,6 +12,42 @@ from unittest.mock import patch
 
 import app as app_module
 from subtitle_workflow import parse_srt_document
+
+
+def assert_same_path(testcase, actual, expected):
+    """Windows 可能为同一临时路径返回 8.3 短路径，不能做字符串比较。"""
+
+    actual_path = Path(actual)
+    expected_path = Path(expected)
+    if actual_path.exists() and expected_path.exists():
+        testcase.assertTrue(
+            actual_path.samefile(expected_path),
+            f"路径不一致: {actual_path} != {expected_path}",
+        )
+        return
+    if os.name == "nt":
+        actual_suffix = _temporary_path_suffix(actual_path)
+        expected_suffix = _temporary_path_suffix(expected_path)
+        if actual_suffix is not None and expected_suffix is not None:
+            testcase.assertEqual(actual_suffix, expected_suffix)
+            return
+    testcase.assertEqual(
+        os.path.normcase(os.path.normpath(str(actual_path))),
+        os.path.normcase(os.path.normpath(str(expected_path))),
+    )
+
+
+def _temporary_path_suffix(path):
+    """提取临时目录后的部分，兼容 Windows 的用户目录 8.3 短路径。"""
+
+    path_parts = tuple(part.casefold() for part in Path(path).parts)
+    temp_parts = tuple(part.casefold() for part in Path(tempfile.gettempdir()).parts)
+    for marker_size in range(min(3, len(temp_parts)), 0, -1):
+        marker = temp_parts[-marker_size:]
+        for index in range(len(path_parts) - marker_size + 1):
+            if path_parts[index:index + marker_size] == marker:
+                return path_parts[index + marker_size:]
+    return None
 
 
 class AutoCoverIntegrationTests(unittest.TestCase):
@@ -463,7 +500,8 @@ class TopicPipelineApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         task_id = response.get_json()["task_id"]
         optimize.assert_called_once()
-        self.assertEqual(
+        assert_same_path(
+            self,
             optimize.call_args.kwargs["output_dir"],
             str(output_dir.resolve()),
         )
@@ -520,7 +558,8 @@ class TopicPipelineApiTests(unittest.TestCase):
             run_pipeline.call_args.kwargs["manual_timeline_path"],
             str(timeline_path),
         )
-        self.assertEqual(
+        assert_same_path(
+            self,
             run_pipeline.call_args.kwargs["output_dir"],
             str(output_dir.resolve()),
         )
@@ -574,7 +613,8 @@ class TopicPipelineApiTests(unittest.TestCase):
             retry.assert_called_once()
             self.assertEqual(retry.call_args.args, (str(flv_path),))
             self.assertEqual(retry.call_args.kwargs["ass_path"], str(ass_path))
-            self.assertEqual(
+            assert_same_path(
+                self,
                 retry.call_args.kwargs["output_dir"],
                 str(output_dir.resolve()),
             )
@@ -1135,8 +1175,8 @@ class WebTransportSafetyTests(unittest.TestCase):
 
         self.assertEqual(json_response.status_code, 200)
         self.assertEqual(docx_response.status_code, 200)
-        self.assertEqual(json_path.parent, json_dir)
-        self.assertEqual(docx_path.parent, docx_dir)
+        assert_same_path(self, json_path.parent, json_dir)
+        assert_same_path(self, docx_path.parent, docx_dir)
 
 
 class SubtitleWorkflowApiTests(unittest.TestCase):
@@ -1485,7 +1525,11 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertEqual(result["default_corrections"][0]["corrected"], "娃衣")
         self.assertEqual(review.call_args.kwargs["context_title"], "【泽音】测试投稿")
         self.assertEqual(app_module.tasks[task_id]["task_type"], "subtitle_review")
-        self.assertEqual(app_module.tasks[task_id]["source_srt_path"], str(srt.resolve()))
+        assert_same_path(
+            self,
+            app_module.tasks[task_id]["source_srt_path"],
+            str(srt.resolve()),
+        )
         self.assertFalse(app_module.tasks[task_id]["force"])
 
     def test_reference_title_runs_in_background_with_corrected_subtitle(self):

@@ -15,6 +15,7 @@ from streamer_profiles import (
     resolve_streamer_profile,
     streamer_profile_context,
 )
+from runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
@@ -25,8 +26,6 @@ event_queues = []
 event_queue_lock = threading.Lock()
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_TL_DIR = os.path.join(PROJECT_DIR, "timelines")
-os.makedirs(PROJECT_TL_DIR, exist_ok=True)
 
 
 def _configured_directory(env_name, fallback):
@@ -37,20 +36,27 @@ def _configured_directory(env_name, fallback):
 
 DEFAULT_VIDEO_DIR = _configured_directory(
     "AUTOSLICE_VIDEO_DIR",
-    Path(PROJECT_DIR) / "recordings",
+    VIDEO_DIR,
 )
 DEFAULT_OUTPUT_DIR = _configured_directory(
     "AUTOSLICE_OUTPUT_DIR",
-    Path(PROJECT_DIR) / "output",
+    OUTPUT_DIR,
 )
 DEFAULT_TIMELINE_DIR = _configured_directory(
     "AUTOSLICE_TIMELINE_DIR",
-    Path(PROJECT_DIR) / "timelines",
+    TIMELINE_DIR,
 )
 DEFAULT_SUBMISSION_DIR = _configured_directory(
     "AUTOSLICE_SUBMISSION_DIR",
-    Path(PROJECT_DIR) / "submissions",
+    SUBMISSION_DIR,
 )
+PROJECT_TL_DIR = DEFAULT_TIMELINE_DIR
+for _runtime_dir in (
+        DEFAULT_VIDEO_DIR,
+        DEFAULT_OUTPUT_DIR,
+        DEFAULT_TIMELINE_DIR,
+        DEFAULT_SUBMISSION_DIR):
+    os.makedirs(_runtime_dir, exist_ok=True)
 DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1

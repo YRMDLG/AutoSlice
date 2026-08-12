@@ -18,12 +18,20 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from runtime_config import (
+    AUTOCOVER_DIR,
+    AUTOCOVER_INPUT_DIR,
+    COVER_OUTPUT_DIR,
+    STICKER_DIR,
+    apply_local_environment,
+)
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
 GPU_RUNTIME_RELATIVE_PATH = Path("AutoSlice") / "gpu-py310-cu130" / "Scripts" / "python.exe"
 REQUIRED_IMPORTS = ("flask", "funasr", "soxr", "docx")
 MINIMUM_PACKAGE_VERSIONS = {"funasr": "1.4.1"}
-AUTOCOVER_PROJECT_DIR = PROJECT_DIR / "autocover_tool"
+AUTOCOVER_PROJECT_DIR = AUTOCOVER_DIR
 AUTOCOVER_PREFERRED_PORT = 5010
 AUTOCOVER_SERVICE_ID = "autocover"
 AUTOCOVER_API_VERSION = 6
@@ -330,9 +338,9 @@ def _start_autocover(
     factory = process_factory or subprocess.Popen
     child_env = dict(env)
     child_env["PYTHONUTF8"] = "1"
-    child_env.setdefault("AUTOCOVER_INPUT_DIR", str(PROJECT_DIR / "output"))
-    child_env.setdefault("AUTOCOVER_OUTPUT_DIR", str(PROJECT_DIR / "covers"))
-    child_env.setdefault("AUTOCOVER_STICKER_DIR", str(PROJECT_DIR / "stickers"))
+    child_env.setdefault("AUTOCOVER_INPUT_DIR", str(AUTOCOVER_INPUT_DIR))
+    child_env.setdefault("AUTOCOVER_OUTPUT_DIR", str(COVER_OUTPUT_DIR))
+    child_env.setdefault("AUTOCOVER_STICKER_DIR", str(STICKER_DIR))
     process = factory(
         [
             str(python_executable), "-m", "autocover.cli", "serve",
@@ -352,6 +360,7 @@ def _start_autocover(
 
 
 def main():
+    apply_local_environment()
     os.chdir(PROJECT_DIR)
     print("=" * 50)
     print("  AutoSlice - 智能切片")

@@ -53,6 +53,7 @@ from streamer_profiles import (
     resolve_streamer_profile,
     streamer_profile_context,
 )
+from runtime_config import OUTPUT_DIR, TIMELINE_DIR
 
 
 # ============================================================
@@ -194,10 +195,7 @@ SUBTITLE_MAX_DURATION_SEC = 7.0
 SUBTITLE_PAUSE_BREAK_SEC = 0.65
 TOPIC_MIN_REPORT_SEC = 60       # 正文较多但模型给出几秒时，报告至少扩到 1 分钟
 TOPIC_MAX_REPAIRED_REPORT_SEC = 180
-MANUAL_TIMELINE_DIR = os.environ.get(
-    "AUTOSLICE_TIMELINE_DIR",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "timelines"),
-)
+MANUAL_TIMELINE_DIR = str(TIMELINE_DIR)
 MANUAL_TIMELINE_CHUNK_MARGIN_SEC = 180
 MANUAL_TIMELINE_TOPIC_PRE_SEC = 30
 MANUAL_TIMELINE_TOPIC_POST_SEC = 150
@@ -228,10 +226,7 @@ TITLE_STYLE_PROFILE_PATH = str(
 TITLE_STYLE_EXAMPLE_LIMIT = 8
 DEFAULT_REFINEMENT_QUEUE_DIR = os.environ.get(
     "AUTOSLICE_REFINEMENT_QUEUE_DIR",
-    os.environ.get(
-        "AUTOSLICE_OUTPUT_DIR",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"),
-    ),
+    str(OUTPUT_DIR),
 )
 _UNIFIED_REFINEMENT_QUEUE_LOCK = threading.Lock()
 _LEADING_ACCOUNT_PREFIX_RE = re.compile(
@@ -3175,7 +3170,7 @@ def _load_title_style_profile(profile_path=None):
 
 
 def _select_title_style_examples(context_text, profile=None, limit=TITLE_STYLE_EXAMPLE_LIMIT):
-    """按当前话题语义选择少量同类真实标题，避免把全部历史标题塞进提示词。"""
+    """按当前话题语义选择少量同类标题样本，避免把全部历史标题塞进提示词。"""
     profile = profile or _load_title_style_profile()
     examples = profile.get("examples") or []
     if not examples or limit <= 0:
@@ -3211,9 +3206,18 @@ def _build_title_style_prompt(context_text="", compact=False):
         return ""
     source = profile.get("source") or {}
     reviewed_count = source.get("reviewed_submission_count")
-    basis = f"已审阅账号 {reviewed_count} 条投稿后归纳" if reviewed_count else "由账号历史投稿归纳"
+    is_template = bool(source.get("template"))
+    if is_template:
+        basis = "由公开通用标题模板归纳"
+        sample_label = "标题结构模板"
+    elif reviewed_count:
+        basis = f"已审阅账号 {reviewed_count} 条投稿后归纳"
+        sample_label = "同类真实标题"
+    else:
+        basis = "由账号历史投稿归纳"
+        sample_label = "同类标题样本"
     lines = [
-        f"{basis}。下面只给少量同类真实标题用于学习语气和结构，禁止照抄旧事件：",
+        f"{basis}。下面只给少量{sample_label}用于学习语气和结构，禁止照抄旧事件：",
     ]
     lines.extend(f"- 规则：{rule}" for rule in rules)
     lines.extend(f"- 样本：{item['title']}" for item in examples)
