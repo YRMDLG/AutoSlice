@@ -1,7 +1,8 @@
 "use strict";
 
 const EXPECTED_SERVICE_ID = "autocover";
-const EXPECTED_API_VERSION = 5;
+const EXPECTED_API_VERSION = 6;
+const CENTER_SNAP_THRESHOLD_PX = 8;
 const LEGACY_DEFAULT_INPUT_DIR = "output";
 const COMMON_LINE_COLORS = Object.freeze([
   "#ffe34d", "#ffffff", "#f04444", "#d06e95",
@@ -33,6 +34,7 @@ const state = {
   selectedElement: null,
   preview: null,
   previewRequestId: 0,
+  timelineRequestId: 0,
   overlayObserver: null,
   activeColorLine: 0,
   syncRatios: true,
@@ -53,9 +55,10 @@ function cacheElements() {
     "refresh-candidates", "active-filename", "reset-copy", "editor-controls",
     "title-input", "layout-variants", "template-select", "palette-select", "palette-preview", "copy-lines", "add-copy-line",
     "common-colors", "common-stroke-colors", "stroke-color-input", "sync-ratios",
-    "cover-overlay", "refresh-stickers", "sticker-group", "sticker-search", "sticker-grid",
+    "cover-overlay", "refresh-stickers", "upload-sticker", "upload-sticker-file", "sticker-group", "sticker-search", "sticker-grid",
     "sticker-library-summary", "sticker-result-count",
-    "focus-x", "focus-y", "focus-x-value", "focus-y-value", "refresh-preview",
+    "focus-x", "focus-y", "focus-x-value", "focus-y-value", "background-scale", "background-scale-value",
+    "frame-timeline", "timeline-range", "timeline-current", "timeline-duration", "timeline-status", "refresh-preview",
     "reset-layout", "save-current", "save-cover", "status-dot", "status-text", "status-detail", "workspace-dialog",
     "workspace-form", "root-path", "title-file", "output-path", "recursive-scan",
     "font-status", "workspace-error", "scan-submit",
@@ -65,8 +68,12 @@ function cacheElements() {
 }
 
 async function api(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(options.headers || {}),
+    },
     ...options,
   });
   const payload = await response.json().catch(() => ({ error: "服务返回了无效数据" }));
@@ -137,6 +144,8 @@ function refreshInteractionState() {
   elements["add-copy-line"].disabled = !editable
     || (taskSettings(activeTask()).copy_lines?.length || 0) >= MAX_MANUAL_COPY_LINES;
   elements["refresh-candidates"].disabled = !editable;
+  elements["timeline-range"].disabled = !editable || !Number(activeTask()?.video_duration);
+  elements["background-scale"].disabled = !editable;
   elements["sync-ratios"].disabled = !editable;
   elements["batch-export"].disabled = busy || state.tasks.length === 0;
   elements.rescan.disabled = busy || !state.workspaceConfig;
@@ -144,6 +153,7 @@ function refreshInteractionState() {
   elements["open-workspace"].disabled = busy;
   elements["scan-submit"].disabled = busy;
   elements["refresh-stickers"].disabled = busy;
+  elements["upload-sticker"].disabled = !editable;
   document.querySelectorAll("[data-ratio]").forEach((button) => {
     button.disabled = !editable;
   });
@@ -225,8 +235,8 @@ function defaultSettings(task) {
     auto_style: true,
     variants: [],
     layouts: {
-      "4x3": { text: null, stickers: [], focus_x: 0.5, focus_y: 0.5 },
-      "16x9": { text: null, stickers: [], focus_x: 0.5, focus_y: 0.5 },
+      "4x3": { text: null, stickers: [], focus_x: 0.5, focus_y: 0.5, background_scale: 1 },
+      "16x9": { text: null, stickers: [], focus_x: 0.5, focus_y: 0.5, background_scale: 1 },
     },
   };
 }
@@ -240,11 +250,14 @@ function taskSettings(task) {
 
 function ratioLayout(settings, ratio = state.ratio) {
   if (!settings.layouts[ratio]) {
-    settings.layouts[ratio] = { text: null, stickers: [], focus_x: 0.5, focus_y: 0.5 };
+    settings.layouts[ratio] = {
+      text: null, stickers: [], focus_x: 0.5, focus_y: 0.5, background_scale: 1,
+    };
   }
   const layout = settings.layouts[ratio];
   if (!Number.isFinite(layout.focus_x)) layout.focus_x = 0.5;
   if (!Number.isFinite(layout.focus_y)) layout.focus_y = 0.5;
+  if (!Number.isFinite(layout.background_scale)) layout.background_scale = 1;
   return layout;
 }
 
@@ -260,6 +273,7 @@ function synchronizeCurrentLayout(settings) {
   target.stickers = source.stickers.map((sticker) => ({ ...sticker }));
   target.focus_x = source.focus_x;
   target.focus_y = source.focus_y;
+  target.background_scale = source.background_scale;
 }
 
 function syncElementTransform(settings, type, index, model) {
@@ -560,6 +574,33 @@ function formatTimestamp(seconds) {
   return `${minutes}:${String(remain).padStart(2, "0")}`;
 }
 
+function formatTimelineTimestamp(seconds) {
+  const safe = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const remain = (safe % 60).toFixed(1).padStart(4, "0");
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${remain}`
+    : `${minutes}:${remain}`;
+}
+
+function renderTimeline(task) {
+  const duration = Math.max(0, Number(task?.video_duration) || 0);
+  const selected = clamp(
+    Number(task?.selected_timestamp) || 0,
+    0,
+    duration || 1,
+  );
+  elements["timeline-range"].max = duration ? duration.toFixed(3) : "1";
+  elements["timeline-range"].value = selected.toFixed(3);
+  elements["timeline-current"].textContent = formatTimelineTimestamp(selected);
+  elements["timeline-duration"].textContent = formatTimelineTimestamp(duration);
+  elements["timeline-status"].textContent = duration
+    ? "拖动后松开即可提取这一帧"
+    : "正在读取视频时长…";
+  refreshInteractionState();
+}
+
 function renderCandidates(task) {
   const candidates = task?.candidates || [];
   elements["candidate-summary"].textContent = `${candidates.length} 张`;
@@ -578,6 +619,48 @@ function renderCandidates(task) {
     button.addEventListener("click", () => selectCandidate(button.dataset.mediaToken));
   });
   refreshInteractionState();
+}
+
+async function ensureTimeline(task) {
+  if (!task) return;
+  if (Number(task.video_duration) > 0) {
+    renderTimeline(task);
+    return;
+  }
+  const requestId = ++state.timelineRequestId;
+  renderTimeline(task);
+  try {
+    const payload = await api(`/api/tasks/${task.id}/video-metadata`);
+    if (requestId !== state.timelineRequestId || state.activeTaskId !== task.id) return;
+    replaceTask(payload.task);
+    renderTimeline(payload.task);
+  } catch (error) {
+    if (requestId !== state.timelineRequestId || state.activeTaskId !== task.id) return;
+    elements["timeline-status"].textContent = "视频时间轴读取失败";
+    setStatus("时间轴载入失败", error.message, "error");
+  }
+}
+
+async function selectTimelineTimestamp(timestamp) {
+  const task = activeTask();
+  if (!task || isBusy() || !Number(task.video_duration)) return;
+  const value = clamp(Number(timestamp) || 0, 0, Number(task.video_duration));
+  setBusy(true, `正在提取 ${formatTimelineTimestamp(value)} 的画面...`);
+  try {
+    const payload = await api(`/api/tasks/${task.id}/select-timestamp`, {
+      method: "POST",
+      body: JSON.stringify({ timestamp: value }),
+    });
+    replaceTask(payload.task);
+    renderCandidates(payload.task);
+    renderTimeline(payload.task);
+    await refreshPreview();
+  } catch (error) {
+    renderTimeline(activeTask());
+    setStatus("精确选帧失败", error.message, "error");
+  } finally {
+    setBusy(false);
+  }
 }
 
 function renderPalette() {
@@ -667,6 +750,32 @@ async function loadStickers(refresh = false) {
     ? `${state.stickerSummary.group_count} 位主播 · ${state.stickerSummary.asset_count} 张${invalidSuffix}`
     : "未找到表情包目录";
   renderStickerLibrary();
+}
+
+async function importLocalSticker(file) {
+  const task = activeTask();
+  if (!task || !file || isBusy()) return;
+  const form = new FormData();
+  form.append("file", file, file.name);
+  let importedAssetId = null;
+  setBusy(true, `正在导入 ${file.name}...`);
+  try {
+    const payload = await api("/api/stickers/import", {
+      method: "POST",
+      body: form,
+    });
+    state.stickerAssets = payload.assets || [];
+    state.stickerSummary = payload.summary || null;
+    await loadStickers();
+    importedAssetId = payload.asset.id;
+    setStatus("本地图片已加入封面", file.name);
+  } catch (error) {
+    setStatus("图片导入失败", error.message, "error");
+  } finally {
+    elements["upload-sticker-file"].value = "";
+    setBusy(false);
+  }
+  if (importedAssetId) addSticker(importedAssetId);
 }
 
 function stickerUid() {
@@ -1003,6 +1112,7 @@ function renderInspector(task) {
   elements["palette-select"].value = settings.palette_key;
   elements["focus-x"].value = Math.round(layout.focus_x * 100);
   elements["focus-y"].value = Math.round(layout.focus_y * 100);
+  elements["background-scale"].value = Math.round(layout.background_scale * 100);
   updateFocusLabels();
   renderLayoutVariants(settings);
   renderPalette();
@@ -1012,6 +1122,7 @@ function renderInspector(task) {
 function updateFocusLabels() {
   elements["focus-x-value"].textContent = `${elements["focus-x"].value}%`;
   elements["focus-y-value"].textContent = `${elements["focus-y"].value}%`;
+  elements["background-scale-value"].textContent = `${elements["background-scale"].value}%`;
 }
 
 async function scanWorkspace(config, { preserveDialog = false } = {}) {
@@ -1048,6 +1159,7 @@ async function scanWorkspace(config, { preserveDialog = false } = {}) {
   renderTaskList();
   renderInspector(activeTask());
   renderCandidates(activeTask());
+  renderTimeline(activeTask());
   if (!preserveDialog && elements["workspace-dialog"].open) {
     elements["workspace-dialog"].close();
   }
@@ -1067,6 +1179,7 @@ async function scanWorkspace(config, { preserveDialog = false } = {}) {
 
 async function ensureCandidates(task, force = false) {
   if (task.candidates.length && !force) {
+    await ensureTimeline(task);
     await refreshPreview();
     return;
   }
@@ -1079,6 +1192,7 @@ async function ensureCandidates(task, force = false) {
     replaceTask(payload.task);
     renderTaskList();
     renderCandidates(payload.task);
+    await ensureTimeline(payload.task);
     await refreshPreview();
   } catch (error) {
     const failed = { ...task, status: "error", error: error.message };
@@ -1102,6 +1216,7 @@ async function selectTask(taskId) {
   renderTaskList();
   renderInspector(activeTask());
   renderCandidates(activeTask());
+  renderTimeline(activeTask());
   clearPreview("正在载入切片");
   try {
     const settings = taskSettings(activeTask());
@@ -1136,6 +1251,7 @@ async function removeTaskFromQueue(taskId) {
       } else {
         renderInspector(null);
         renderCandidates(null);
+        renderTimeline(null);
         clearPreview("当前队列已清空");
       }
     } else {
@@ -1162,6 +1278,7 @@ async function selectCandidate(token) {
     });
     replaceTask(payload.task);
     renderCandidates(payload.task);
+    renderTimeline(payload.task);
     await refreshPreview();
   } catch (error) {
     setStatus("切换失败", error.message, "error");
@@ -1184,6 +1301,7 @@ function previewPayload(task, includeCanvas = true) {
       {
         focus_x: layout.focus_x,
         focus_y: layout.focus_y,
+        background_scale: layout.background_scale,
         text: layout.text?.length === activeLineIndices.length ? layout.text : null,
         stickers: layout.stickers.map((sticker) => ({
           asset_id: sticker.asset_id,
@@ -1191,6 +1309,8 @@ function previewPayload(task, includeCanvas = true) {
           y: sticker.y,
           width: sticker.width,
           rotation: sticker.rotation || 0,
+          center_x: Boolean(sticker.center_x),
+          center_y: Boolean(sticker.center_y),
         })),
       },
     ])),
@@ -1216,6 +1336,39 @@ function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function snapElementToCanvasCenter(
+  candidateX,
+  candidateY,
+  elementWidth,
+  elementHeight,
+  frameWidth,
+  frameHeight,
+  threshold = CENTER_SNAP_THRESHOLD_PX,
+) {
+  const safeFrameWidth = Math.max(1, frameWidth);
+  const safeFrameHeight = Math.max(1, frameHeight);
+  const centeredX = (safeFrameWidth - elementWidth) / (2 * safeFrameWidth);
+  const centeredY = (safeFrameHeight - elementHeight) / (2 * safeFrameHeight);
+  const centerXDistance = Math.abs((candidateX - centeredX) * safeFrameWidth);
+  const centerYDistance = Math.abs((candidateY - centeredY) * safeFrameHeight);
+  const snapX = centerXDistance <= threshold;
+  const snapY = centerYDistance <= threshold;
+  return {
+    x: snapX ? centeredX : candidateX,
+    y: snapY ? centeredY : candidateY,
+    snapX,
+    snapY,
+  };
+}
+
+function setAlignmentGuides(showVertical, showHorizontal) {
+  const overlay = elements["cover-overlay"];
+  overlay.querySelector('[data-alignment-guide="vertical"]')
+    ?.classList.toggle("visible", showVertical);
+  overlay.querySelector('[data-alignment-guide="horizontal"]')
+    ?.classList.toggle("visible", showHorizontal);
+}
+
 function selectEditableElement(type, index, uid = null) {
   state.selectedElement = { type, index, uid };
   elements["cover-overlay"].querySelectorAll(".editable-element").forEach((node) => {
@@ -1230,10 +1383,19 @@ function applyKeyboardTransform(model, type, key, largeStep = false) {
   const resizeStep = type === "text"
     ? (largeStep ? 12 : 4)
     : (largeStep ? 0.03 : 0.01);
-  if (key === "ArrowLeft") model.x = clamp(model.x - moveStep, 0, 1);
-  else if (key === "ArrowRight") model.x = clamp(model.x + moveStep, 0, 1);
-  else if (key === "ArrowUp") model.y = clamp(model.y - moveStep, 0, 1);
-  else if (key === "ArrowDown") model.y = clamp(model.y + moveStep, 0, 1);
+  if (key === "ArrowLeft") {
+    model.x = clamp(model.x - moveStep, 0, 1);
+    model.center_x = false;
+  } else if (key === "ArrowRight") {
+    model.x = clamp(model.x + moveStep, 0, 1);
+    model.center_x = false;
+  } else if (key === "ArrowUp") {
+    model.y = clamp(model.y - moveStep, 0, 1);
+    model.center_y = false;
+  } else if (key === "ArrowDown") {
+    model.y = clamp(model.y + moveStep, 0, 1);
+    model.center_y = false;
+  }
   else if (key === "+" || key === "=") {
     if (type === "text") model.font_size = clamp(model.font_size + resizeStep, 24, 320);
     else model.width = clamp(model.width + resizeStep, 0.03, 0.80);
@@ -1400,15 +1562,29 @@ function beginElementInteraction(event, type, index, mode) {
     fontSize: model.font_size || state.preview.placements[index]?.font_size || 96,
     size: Math.max(36, nodeRect.width, nodeRect.height),
   };
+  if (mode === "resize") {
+    node.style.transformOrigin = `${model.center_x ? "center" : "left"} ${model.center_y ? "center" : "top"}`;
+  }
 
   const move = (moveEvent) => {
     const deltaX = moveEvent.clientX - start.pointerX;
     const deltaY = moveEvent.clientY - start.pointerY;
     if (mode === "move") {
-      model.x = clamp(start.x + deltaX / frameRect.width, 0, 1);
-      model.y = clamp(start.y + deltaY / frameRect.height, 0, 1);
+      const snapped = snapElementToCanvasCenter(
+        clamp(start.x + deltaX / frameRect.width, 0, 1),
+        clamp(start.y + deltaY / frameRect.height, 0, 1),
+        nodeRect.width,
+        nodeRect.height,
+        frameRect.width,
+        frameRect.height,
+      );
+      model.x = snapped.x;
+      model.y = snapped.y;
+      model.center_x = snapped.snapX;
+      model.center_y = snapped.snapY;
       node.style.left = `${model.x * 100}%`;
       node.style.top = `${model.y * 100}%`;
+      setAlignmentGuides(snapped.snapX, snapped.snapY);
     } else {
       const ratio = clamp(1 + (deltaX + deltaY) / (2 * start.size), 0.35, 2.5);
       if (type === "text") {
@@ -1419,6 +1595,7 @@ function beginElementInteraction(event, type, index, mode) {
         model.width = clamp(start.width * ratio, 0.03, 0.80);
         node.style.transform = `scale(${model.width / start.width})`;
       }
+      setAlignmentGuides(Boolean(model.center_x), Boolean(model.center_y));
     }
     syncElementTransform(settings, type, index, model);
   };
@@ -1427,6 +1604,8 @@ function beginElementInteraction(event, type, index, mode) {
     window.removeEventListener("pointerup", finish);
     window.removeEventListener("pointercancel", finish);
     node.style.transform = "";
+    node.style.transformOrigin = "";
+    setAlignmentGuides(false, false);
     refreshPreview().catch((error) => console.error("更新元素位置失败", error));
   };
   window.addEventListener("pointermove", move);
@@ -1460,7 +1639,11 @@ function renderCoverOverlay(preview) {
       </div>
     `;
   }).join("");
-  elements["cover-overlay"].innerHTML = stickerNodes + textNodes;
+  const guideNodes = `
+    <span class="alignment-guide vertical" data-alignment-guide="vertical" aria-hidden="true"></span>
+    <span class="alignment-guide horizontal" data-alignment-guide="horizontal" aria-hidden="true"></span>
+  `;
+  elements["cover-overlay"].innerHTML = guideNodes + stickerNodes + textNodes;
   syncOverlayScale();
 
   elements["cover-overlay"].querySelectorAll(".editable-element").forEach((node) => {
@@ -1772,6 +1955,13 @@ function bindEditor() {
   });
   elements["sticker-group"].addEventListener("change", renderStickerLibrary);
   elements["sticker-search"].addEventListener("input", renderStickerLibrary);
+  elements["upload-sticker"].addEventListener("click", () => {
+    elements["upload-sticker-file"].click();
+  });
+  elements["upload-sticker-file"].addEventListener("change", () => {
+    const [file] = elements["upload-sticker-file"].files || [];
+    if (file) importLocalSticker(file).catch(() => {});
+  });
   elements["refresh-stickers"].addEventListener("click", async () => {
     elements["refresh-stickers"].disabled = true;
     try {
@@ -1802,6 +1992,18 @@ function bindEditor() {
       updateFocusLabels();
       schedulePreview();
     });
+  });
+  elements["background-scale"].addEventListener("input", () => {
+    const task = activeTask();
+    if (!task) return;
+    const settings = taskSettings(task);
+    const layout = ratioLayout(settings);
+    layout.background_scale = Number(elements["background-scale"].value) / 100;
+    if (state.syncRatios) {
+      ratioLayout(settings, otherRatio()).background_scale = layout.background_scale;
+    }
+    updateFocusLabels();
+    schedulePreview();
   });
 }
 
@@ -1889,6 +2091,13 @@ function bindEvents() {
     };
     scanWorkspace(config).catch(() => {});
   });
+  elements["timeline-range"].addEventListener("input", (event) => {
+    elements["timeline-current"].textContent = formatTimelineTimestamp(event.target.value);
+    elements["timeline-status"].textContent = "松开滑块选取这一帧";
+  });
+  elements["timeline-range"].addEventListener("change", (event) => {
+    selectTimelineTimestamp(event.target.value).catch(() => {});
+  });
   document.querySelectorAll("[data-ratio]").forEach((button) => {
     button.addEventListener("click", () => activateRatioTab(button));
   });
@@ -1933,6 +2142,7 @@ function bindEvents() {
       layout.text = null;
       layout.focus_x = 0.5;
       layout.focus_y = 0.5;
+      layout.background_scale = 1;
       layout.stickers = layout.stickers.map((sticker, index) => ({
         ...sticker,
         ...defaultStickerTransform(index),

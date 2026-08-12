@@ -76,6 +76,8 @@ class TextTransform:
     y: float
     scale: float = 1.0
     font_size: int | None = None
+    center_x: bool = False
+    center_y: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +110,8 @@ class StickerOverlay:
     y: float
     width: float
     rotation: float = 0.0
+    center_x: bool = False
+    center_y: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,6 +476,7 @@ def compose_background(
     *,
     focus_x: float | None = None,
     focus_y: float = 0.5,
+    background_scale: float = 1.0,
 ) -> Image.Image:
     """按模板独立适配画布，避免把 16:9 成品机械裁成 4:3。"""
 
@@ -480,6 +485,8 @@ def compose_background(
     effective_focus_x = _focus_from_template(template) if focus_x is None else focus_x
     effective_focus_x = max(0.0, min(1.0, effective_focus_x))
     focus_y = max(0.0, min(1.0, focus_y))
+    if not 1.0 <= float(background_scale) <= 2.5:
+        raise ValueError("背景缩放必须在 1.0 到 2.5 之间")
 
     source_ratio = source.width / source.height
     target_ratio = canvas.aspect_ratio
@@ -517,6 +524,14 @@ def compose_background(
         background = ImageEnhance.Brightness(background).enhance(1.08)
     elif template.background_mode != "portrait_latest" and MELODY_STYLE.background_dim > 0:
         background = ImageEnhance.Brightness(background).enhance(1.0 - MELODY_STYLE.background_dim)
+    if background_scale > 1.0:
+        crop_width = max(1, round(canvas.width / background_scale))
+        crop_height = max(1, round(canvas.height / background_scale))
+        left = max(0, (canvas.width - crop_width) // 2)
+        top = max(0, (canvas.height - crop_height) // 2)
+        zoomed = background.crop((left, top, left + crop_width, top + crop_height))
+        background.close()
+        background = zoomed.resize(target_size, Image.Resampling.LANCZOS)
     return background
 
 
@@ -803,8 +818,16 @@ def _manual_position(
     maximum_x = max(0, canvas.width - width - 8)
     maximum_y = max(0, canvas.height - height - 8)
     return (
-        min(maximum_x, max(0, round(transform.x * canvas.width))),
-        min(maximum_y, max(0, round(transform.y * canvas.height))),
+        (
+            max(0, (canvas.width - width) // 2)
+            if transform.center_x
+            else min(maximum_x, max(0, round(transform.x * canvas.width)))
+        ),
+        (
+            max(0, (canvas.height - height) // 2)
+            if transform.center_y
+            else min(maximum_y, max(0, round(transform.y * canvas.height)))
+        ),
     )
 
 
@@ -842,8 +865,16 @@ def draw_stickers(
 
         maximum_x = max(0, canvas.width - overlay.width)
         maximum_y = max(0, canvas.height - overlay.height)
-        x = min(maximum_x, max(0, round(sticker.x * canvas.width)))
-        y = min(maximum_y, max(0, round(sticker.y * canvas.height)))
+        x = (
+            max(0, (canvas.width - overlay.width) // 2)
+            if sticker.center_x
+            else min(maximum_x, max(0, round(sticker.x * canvas.width)))
+        )
+        y = (
+            max(0, (canvas.height - overlay.height) // 2)
+            if sticker.center_y
+            else min(maximum_y, max(0, round(sticker.y * canvas.height)))
+        )
         image.paste(overlay, (x, y), overlay)
         placements.append(
             StickerPlacement(
@@ -1062,6 +1093,7 @@ def render_cover(
     font_path: str | Path | None = None,
     focus_x: float | None = None,
     focus_y: float = 0.5,
+    background_scale: float = 1.0,
     background_output_path: str | Path | None = None,
     quality: int = 92,
     max_bytes: int = 5_000_000,
@@ -1116,6 +1148,7 @@ def render_cover(
             layout_template,
             focus_x=focus_x,
             focus_y=focus_y,
+            background_scale=background_scale,
         )
     output = _jpeg_output_path(output_path)
     base_output = (

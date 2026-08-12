@@ -26,12 +26,13 @@ from topic_engine import (
     LLM_ANALYSIS_MODEL, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS,
     LLM_MAX_TOKENS, LLM_MODEL,
     MANUAL_TIMELINE_OPTIMIZATION_VERSION,
-    TOPIC_MAX_CLIP_SEC, TOPIC_REVIEW_FOCUS_MAX_SEC,
+    TOPIC_MAX_CLIP_SEC, TOPIC_REVIEW_FOCUS_MAX_SEC, SUBTITLE_MAX_CHARS,
     DanmakuDensitySeries,
     LLMProviderUnavailableError, LLMResponseFormatError,
     LLMResponseTruncatedError, LLMStructuredOutputError,
     _LLMProviderRetryCoordinator,
     _align_manual_timeline_entries_to_srt, _analyze_topic_chunks,
+    _align_funasr_tokens,
     _apply_danmaku_slice_decisions, _attach_manual_timeline_to_chunks,
     _artifact_bundle_layout,
     _build_chunk_prompt, _build_clip_candidate_review_prompt,
@@ -51,6 +52,7 @@ from topic_engine import (
     _extract_video_start_datetime, _filter_manual_timeline_entries, _find_manual_timeline_doc,
     _filter_unsupported_ai_points, _fit_final_clip_to_safe_srt_boundaries,
     _funasr_chunk_fingerprint, _funasr_checkpoint_path,
+    _funasr_generate_kwargs, _funasr_hotwords,
     _funasr_source_fingerprint,
     _danmaku_peak_content_evidence, _format_danmaku_peak_content,
     _high_energy_danmaku_peaks, _infer_streamer_name, _is_retryable_llm_error,
@@ -62,7 +64,8 @@ from topic_engine import (
     _prepare_optimized_manual_timeline,
     _parse_elapsed_timeline_report_lines, _parse_generated_topic_report,
     _parse_manual_timeline_lines,
-    _render_unified_refinement_queue_markdown, _resolve_funasr_device,
+    _render_unified_refinement_queue_markdown, _render_refinement_manifest_markdown,
+    _resolve_funasr_device,
     _replace_streamer_role, _resolve_funasr_model_source,
     _select_title_style_examples, _streamer_report_name,
     _enriched_manual_topic_from_item,
@@ -70,14 +73,16 @@ from topic_engine import (
     _optimized_entry_needs_retry, _retry_optimized_timeline_entries,
     _review_peak_selected_topics, _sanitize_transport_claims,
     _review_selected_publish_titles,
-    _normalise_asr_text, _normalise_publish_title, _normalise_title_hook,
+    _normalise_asr_text, _normalise_funasr_result,
+    _normalise_publish_title, _normalise_title_hook,
+    _detect_stream_outro_clip, _outro_topic_from_mark,
     _prepare_seekable_slice_source, _reuse_topic_clip_after_title_change,
-    _segments_from_funasr_result, _topic_clip_filename,
+    _segments_from_funasr_result, _split_timed_subtitle_segment, _topic_clip_filename,
     _topics_from_manual_timeline, _try_enrich_manual_topics, chunk_srt,
     _trim_funasr_tokens_to_core,
     _upsert_unified_refinement_queue, _write_refinement_manifest_files,
     _write_completed_clip_review_checkpoint,
-    _validate_unmatched_manual_topics, _write_clip_srt,
+    _validate_unmatched_manual_topics,
     _write_funasr_checkpoint, _write_optimized_timeline_files,
     analyze_danmaku, call_llm, export_corrected_srt, load_api_config,
     load_manual_timeline, optimize_manual_timeline_for_video,
@@ -975,7 +980,7 @@ class TitleHookPromptTests(unittest.TestCase):
     def test_auto_profile_replaces_old_title_prefix_with_filename_streamer(self):
         with streamer_profile_context(
                 "auto",
-                r"F:\录播\七海Nana7mi-2026-07-22 20_00-歌杂.flv"):
+                r"X:\fixtures\七海Nana7mi-2026-07-22 20_00-歌杂.flv"):
             title = _normalise_publish_title(
                 "【泽音】看到离谱游戏画面当场绷不住了🤣",
                 "离谱游戏画面",
@@ -1558,6 +1563,270 @@ class TopicEngineParseTests(unittest.TestCase):
             with patch("topic_engine._funasr_model_cache_candidates", return_value=[str(model_dir)]):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
 
+    def test_funasr_model_loader_attaches_cached_vad_and_punctuation_models(self):
+        calls = []
+
+        class LoadedModel:
+            pass
+
+        def fake_auto_model(**kwargs):
+            calls.append(kwargs)
+            return LoadedModel()
+
+        with (
+            patch("topic_engine._resolve_funasr_model_source", return_value="asr-cache"),
+            patch(
+                "topic_engine._resolve_funasr_aux_model_source",
+                side_effect=("vad-cache", "punc-cache"),
+            ),
+        ):
+            model = _load_funasr_model(fake_auto_model, device="cpu")
+
+        self.assertEqual(calls[0]["model"], "asr-cache")
+        self.assertEqual(calls[0]["vad_model"], "vad-cache")
+        self.assertEqual(calls[0]["punc_model"], "punc-cache")
+        self.assertEqual(calls[0]["vad_kwargs"]["max_single_segment_time"], 60000)
+        self.assertTrue(calls[0]["disable_pbar"])
+        self.assertEqual(model._autoslice_punc_source, "punc-cache")
+
+    def test_funasr_nano_loader_uses_30_second_vad_without_whole_model_fp16(self):
+        calls = []
+
+        class LoadedModel:
+            pass
+
+        def fake_auto_model(**kwargs):
+            calls.append(kwargs)
+            return LoadedModel()
+
+        with (
+            patch(
+                "topic_engine._resolve_funasr_model_source",
+                return_value="C:/models/Fun-ASR-Nano-2512",
+            ),
+            patch(
+                "topic_engine._resolve_funasr_aux_model_source",
+                return_value="vad-cache",
+            ),
+        ):
+            _load_funasr_model(fake_auto_model, device="cuda:0")
+
+        self.assertEqual(calls[0]["vad_model"], "vad-cache")
+        self.assertEqual(calls[0]["vad_kwargs"]["max_single_segment_time"], 30000)
+        self.assertNotIn("punc_model", calls[0])
+        self.assertNotIn("fp16", calls[0])
+
+    def test_funasr_punctuation_is_aligned_without_losing_token_timestamps(self):
+        timestamps = [[index * 100, (index + 1) * 100] for index in range(4)]
+
+        tokens, aligned = _align_funasr_tokens(
+            "只有SC吗？",
+            timestamps,
+            raw_text="只 有 SC 吗",
+        )
+
+        self.assertTrue(aligned)
+        self.assertEqual(tokens, ["只", "有", "SC", "吗？"])
+
+    def test_funasr_punctuation_keeps_short_subtitle_segments(self):
+        raw_text = "今 天 天 气 很 好 我 们 出 门"
+        punctuated = "今天天气很好。我们出门！"
+        timestamps = [[index * 500, (index + 1) * 500] for index in range(10)]
+
+        segments = _segments_from_funasr_result(
+            punctuated,
+            timestamps,
+            raw_text=raw_text,
+        )
+
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0][2], "今天天气很好")
+        self.assertEqual(segments[1][2], "我们出门")
+
+    def test_funasr_unaligned_long_result_is_split_into_readable_subtitles(self):
+        source_text = "这是时间戳没有正确对齐时也必须拆开的超长字幕内容" * 3
+        segments = _segments_from_funasr_result(
+            source_text,
+            [[0, 6000], [6000, 12000]],
+        )
+
+        self.assertGreater(len(segments), 1)
+        self.assertEqual(segments[0][0], 0.0)
+        self.assertEqual(segments[-1][1], 12.0)
+        self.assertEqual(
+            "".join(segment[2] for segment in segments),
+            source_text,
+        )
+        self.assertTrue(all(
+            len(re.sub(r"\s+", "", segment[2])) <= SUBTITLE_MAX_CHARS
+            for segment in segments
+        ))
+        self.assertTrue(all(
+            later[0] >= earlier[1]
+            for earlier, later in zip(segments, segments[1:])
+        ))
+
+    def test_funasr_aligned_long_result_obeys_working_subtitle_limit(self):
+        source_text = "这是正常对齐时间戳也必须拆成短字幕的内容" * 3
+        timestamps = [
+            [index * 120, (index + 1) * 120]
+            for index in range(len(source_text))
+        ]
+
+        segments = _segments_from_funasr_result(source_text, timestamps)
+
+        self.assertGreater(len(segments), 1)
+        self.assertEqual("".join(segment[2] for segment in segments), source_text)
+        self.assertTrue(all(
+            len(re.sub(r"\s+", "", segment[2])) <= SUBTITLE_MAX_CHARS
+            for segment in segments
+        ))
+        self.assertTrue(all(
+            later[0] >= earlier[1]
+            for earlier, later in zip(segments, segments[1:])
+        ))
+
+    def test_funasr_keeps_one_or_two_character_clause_tail_with_previous_subtitle(self):
+        source_text = "我我这几天头已经越来越大了，还要我怎么样"
+        timestamps = [
+            [index * 300, (index + 1) * 300]
+            for index in range(len(source_text))
+        ]
+
+        segments = _segments_from_funasr_result(source_text, timestamps)
+        texts = [segment[2] for segment in segments]
+
+        self.assertTrue(any("越来越大了" in text for text in texts))
+        self.assertFalse(any(text.startswith("大了 ") for text in texts))
+        self.assertTrue(all(
+            len(re.sub(r"\s+", "", text)) <= SUBTITLE_MAX_CHARS
+            for text in texts
+        ))
+
+    def test_split_long_subtitle_in_very_short_valid_interval_stays_ordered(self):
+        source_text = "极短时间内也不能让字幕超出屏幕范围" * 5
+
+        segments = _split_timed_subtitle_segment(10.0, 10.05, source_text)
+
+        self.assertGreater(len(segments), 1)
+        self.assertEqual(segments[0][0], 10.0)
+        self.assertEqual(segments[-1][1], 10.05)
+        self.assertEqual("".join(segment[2] for segment in segments), source_text)
+        self.assertTrue(all(
+            10.0 <= start < end <= 10.05
+            for start, end, _text in segments
+        ))
+        self.assertTrue(all(
+            later[0] >= earlier[1]
+            for earlier, later in zip(segments, segments[1:])
+        ))
+
+    def test_funasr_final_subtitle_replaces_commas_and_removes_other_punctuation(self):
+        text = _normalise_asr_text(
+            "只有三条SC，昨天没看到啊。真的没事吗？“不要怕！”"
+        )
+
+        self.assertEqual(text, "只有三条SC 昨天没看到啊真的没事吗不要怕")
+
+    def test_funasr_hotwords_are_only_sent_to_contextual_model(self):
+        class ContextualParaformer:
+            pass
+
+        class PlainParaformer:
+            pass
+
+        contextual = Mock(model=ContextualParaformer())
+        plain = Mock(model=PlainParaformer())
+
+        self.assertEqual(
+            _funasr_generate_kwargs(contextual, hotwords="音音 SC")["hotword"],
+            "音音 SC",
+        )
+        self.assertNotIn("hotword", _funasr_generate_kwargs(plain, hotwords="音音 SC"))
+        self.assertTrue(_funasr_hotwords(streamer_name="泽音Melody"))
+
+    def test_funasr_nano_uses_official_precision_and_chinese_prompt(self):
+        class FunASRNano:
+            pass
+
+        model = Mock(model=FunASRNano())
+        kwargs = _funasr_generate_kwargs(model, hotwords="音音 SC")
+
+        self.assertEqual(kwargs["hotwords"], ["音音", "SC"])
+        self.assertEqual(kwargs["language"], "中文")
+        self.assertTrue(kwargs["itn"])
+        self.assertNotIn("fp16", kwargs)
+        self.assertNotIn("llm_dtype", kwargs)
+
+    def test_funasr_nano_normalises_llm_timestamps_to_milliseconds(self):
+        result = _normalise_funasr_result([{
+            "text": "开放时间。",
+            "timestamps": [
+                {"token": "开", "start_time": 0.1, "end_time": 0.2},
+                {"token": " ", "start_time": 0.2, "end_time": 0.25},
+                {"token": "放", "start_time": 0.2, "end_time": 0.3},
+                {"token": "时", "start_time": 0.3, "end_time": 0.4},
+                {"token": "间", "start_time": 0.4, "end_time": 0.5},
+            ],
+            "ctc_text": "开饭时间",
+            "ctc_timestamps": [],
+        }])
+
+        self.assertEqual(result[0]["text"], "开放时间。")
+        self.assertEqual(result[0]["raw_text"], "开 放 时 间")
+        self.assertEqual(result[0]["timestamp"], [
+            [100.0, 200.0],
+            [200.0, 300.0],
+            [300.0, 400.0],
+            [400.0, 500.0],
+        ])
+
+    def test_funasr_nano_falls_back_to_ctc_when_llm_text_is_placeholder(self):
+        result = _normalise_funasr_result([{
+            "text": "!!!!!!!!",
+            "timestamps": [
+                {"token": "!!!!!!!!", "start_time": 0.1, "end_time": 0.2},
+            ],
+            "ctc_text": "只有SC",
+            "ctc_timestamps": [
+                {"token": "只", "start_time": 0.1, "end_time": 0.2},
+                {"token": "有", "start_time": 0.2, "end_time": 0.3},
+                {"token": "SC", "start_time": 0.3, "end_time": 0.5},
+            ],
+        }])
+
+        self.assertEqual(result[0]["text"], "只有SC")
+        self.assertEqual(result[0]["raw_text"], "只 有 SC")
+        self.assertEqual(result[0]["timestamp"][-1], [300.0, 500.0])
+
+    def test_funasr_punctuation_is_kept_when_nano_text_has_small_corrections(self):
+        timestamps = [[index * 100, (index + 1) * 100] for index in range(8)]
+        tokens, aligned = _align_funasr_tokens(
+            "只有SC，昨天没看到。",
+            timestamps,
+            raw_text="只 有 s 昨 天 没 看 到",
+        )
+
+        self.assertTrue(aligned)
+        self.assertTrue(any("，" in token for token in tokens))
+        self.assertTrue(any("。" in token for token in tokens))
+
+    def test_funasr_segments_remove_punctuation_and_merge_short_tail(self):
+        segments = _segments_from_funasr_result(
+            "上 一 句 。 下 一 句 很 长 的 电 感 。",
+            [
+                [0, 300], [300, 600], [600, 900],
+                [1800, 1860],
+                [1900, 2200], [2200, 2500], [2500, 2800],
+                [2800, 3100], [3100, 3400], [3400, 3700],
+                [3700, 4000], [4000, 4300], [4300, 4420],
+                [4450, 4570], [4570, 4630],
+            ],
+        )
+
+        self.assertFalse(any("。" in segment[2] for segment in segments))
+        self.assertFalse(any(segment[1] - segment[0] < 0.5 for segment in segments[1:]))
+
     def test_funasr_device_auto_uses_cuda_only_when_torch_reports_available(self):
         with patch("torch.cuda.is_available", return_value=True):
             self.assertEqual(_resolve_funasr_device("auto"), "cuda:0")
@@ -1605,10 +1874,15 @@ class TopicEngineParseTests(unittest.TestCase):
             video_path = Path(tmp) / "recording.flv"
             video_path.write_bytes(b"source")
             duration = 240.0
+            hotwords = _funasr_hotwords(
+                str(video_path),
+                streamer_name=_infer_streamer_name(str(video_path)),
+            )
             checkpoint_path, payload = _prepare_funasr_checkpoint(
                 str(video_path),
                 duration,
                 2,
+                hotwords=hotwords,
             )
             for index, text_value in enumerate(("测试", "继续")):
                 start = index * 120.0
@@ -2102,6 +2376,99 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], TOPIC_MAX_CLIP_SEC)
         self.assertEqual(expanded[0]["time_basis"], "video_elapsed_seconds")
         self.assertTrue(expanded[0]["context_expanded"])
+
+    @streamer_profile_context("zeyin")
+    def test_stream_outro_uses_first_tail_trigger_and_actual_video_end(self):
+        segments = [
+            (900.2, 902.0, "今天就直播"),
+            (902.1, 905.0, "到这里了谢谢大家"),
+            (930.0, 932.0, "今天就直播到这里"),
+        ]
+
+        mark = _detect_stream_outro_clip(segments, 1000.2)
+
+        self.assertIsNotNone(mark)
+        self.assertEqual(mark["start"], 900)
+        self.assertEqual(mark["end"], 1001)
+        self.assertEqual(mark["title"], "晚安小音音")
+        self.assertEqual(mark["publish_title"], "【泽音】晚安小音音")
+        self.assertEqual(mark["clip_type"], "stream_outro")
+        self.assertTrue(mark["preserve_to_video_end"])
+        self.assertEqual(mark["outro_trigger"], "今天就直播到这里")
+
+    @streamer_profile_context("zeyin")
+    def test_stream_outro_requires_explicit_tail_trigger(self):
+        self.assertIsNone(_detect_stream_outro_clip(
+            [(950, 955, "大家晚安明天见")],
+            1000,
+        ))
+        self.assertIsNone(_detect_stream_outro_clip(
+            [(500, 505, "今天就直播到这里")],
+            2000,
+        ))
+        self.assertIsNone(_detect_stream_outro_clip(
+            [(950, 955, "今天就直播到这里")],
+            None,
+        ))
+
+    @streamer_profile_context("zeyin")
+    def test_stream_outro_is_not_capped_and_replaces_overlapping_regular_clip(self):
+        outro = _detect_stream_outro_clip(
+            [(600, 604, "今天的直播就到这里")],
+            1200,
+        )
+        marks = [
+            {"start": 100, "end": 220, "title": "前半段正常话题"},
+            {"start": 560, "end": 700, "title": "普通尾部候选"},
+            outro,
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=[],
+            video_duration=1200,
+        )
+
+        self.assertEqual([item["title"] for item in expanded], [
+            "前半段正常话题",
+            "晚安小音音",
+        ])
+        outro_mark = expanded[-1]
+        self.assertEqual((outro_mark["start"], outro_mark["end"]), (600, 1200))
+        self.assertGreater(outro_mark["end"] - outro_mark["start"], TOPIC_MAX_CLIP_SEC)
+        self.assertTrue(outro_mark["preserve_to_video_end"])
+
+    @streamer_profile_context("zeyin")
+    def test_stream_outro_is_rendered_in_report_and_refinement_manifest(self):
+        mark = _detect_stream_outro_clip(
+            [(900, 905, "那今天就先下了大家晚安")],
+            1000,
+        )
+        topic = _outro_topic_from_mark(mark)
+        report = _build_timeline_report(
+            "泽音测试.flv",
+            "无弹幕数据",
+            [topic],
+            streamer_name="音音",
+            clip_marks=[mark],
+        )
+        manifest = _build_refinement_manifest(
+            "泽音测试.flv",
+            None,
+            None,
+            "报告.md",
+            "标记.json",
+            [mark],
+            "任务.json",
+            "任务.md",
+        )
+        manifest_markdown = _render_refinement_manifest_markdown(manifest)
+
+        self.assertIn("检测到收播开始语", report)
+        self.assertIn("晚安小音音", report)
+        self.assertEqual(manifest["tasks"][0]["clip_type"], "stream_outro")
+        self.assertEqual(manifest["tasks"][0]["outro_trigger"], "那今天就先下了")
+        self.assertIn("系列收播片: 晚安小音音", manifest_markdown)
 
     def test_natural_boundary_extends_end_until_continuous_dialogue_pauses(self):
         marks = [{"start": 100, "end": 120, "title": "连续回答观众问题"}]
@@ -3045,22 +3412,6 @@ class TopicEngineParseTests(unittest.TestCase):
             self.assertTrue(all(not path.exists() for path in generated))
             self.assertTrue(all(path.exists() for path in preserved))
 
-    def test_write_clip_srt_crops_and_rebases_timestamps(self):
-        segments = [
-            (8, 12, "跨过切片开头"),
-            (13, 17.5, "音音开始回答"),
-            (19, 22, "跨过切片结尾"),
-            (25, 28, "切片外字幕"),
-        ]
-        with TemporaryDirectory() as td:
-            output_path = Path(td) / "片段.srt"
-            count = _write_clip_srt(segments, 10, 20, str(output_path))
-            parsed = parse_srt_segments(str(output_path))
-
-        self.assertEqual(count, 3)
-        self.assertEqual([(start, end) for start, end, _ in parsed], [(0, 2), (3, 7.5), (9, 10)])
-        self.assertEqual([text for _, _, text in parsed], ["跨过切片开头", "音音开始回答", "跨过切片结尾"])
-
     def test_pipeline_completion_progress_uses_topic_count_not_clip_count(self):
         from app import _pipeline_completion_progress
 
@@ -3359,23 +3710,20 @@ class TopicEngineParseTests(unittest.TestCase):
             expected_path = str(Path(report_dir) / _topic_clip_filename(1, clip_marks[0]))
             expected_subtitle_path = str(Path(expected_path).with_suffix(".srt"))
             subtitle_exists = Path(expected_subtitle_path).is_file()
-            clip_subtitles = parse_srt_segments(expected_subtitle_path)
 
         self.assertEqual(count, 1)
         self.assertEqual(updated["status"], "待精调")
         self.assertEqual(updated["tasks"][0]["status"], "待精调")
         self.assertEqual(updated["tasks"][0]["slice_path"], expected_path)
-        self.assertEqual(updated["tasks"][0]["subtitle_path"], expected_subtitle_path)
-        self.assertTrue(subtitle_exists)
-        self.assertEqual((clip_subtitles[0][0], clip_subtitles[0][1]), (0, 2))
-        self.assertEqual((clip_subtitles[1][0], clip_subtitles[1][1]), (5, 10))
+        self.assertIsNone(updated["tasks"][0]["subtitle_path"])
+        self.assertFalse(subtitle_exists)
         self.assertIn(expected_path, markdown)
-        self.assertIn(expected_subtitle_path, markdown)
+        self.assertNotIn(expected_subtitle_path, markdown)
         self.assertEqual(unified_queue["ready_count"], 1)
         self.assertEqual(unified_queue["waiting_slice_count"], 0)
-        self.assertEqual(unified_queue["recordings"][0]["tasks"][0]["subtitle_path"], expected_subtitle_path)
+        self.assertIsNone(unified_queue["recordings"][0]["tasks"][0]["subtitle_path"])
         self.assertIn(expected_path, unified_markdown)
-        self.assertIn(expected_subtitle_path, unified_markdown)
+        self.assertNotIn(expected_subtitle_path, unified_markdown)
         self.assertEqual(len(ffmpeg_calls), 1)
         self.assertEqual(ffmpeg_calls[0].count("-ss"), 2)
         input_index = ffmpeg_calls[0].index("-i")
@@ -3383,7 +3731,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertGreater(ffmpeg_calls[0].index("-ss", input_index), input_index)
         self.assertNotIn(["-c", "copy"], [ffmpeg_calls[0][i:i + 2] for i in range(len(ffmpeg_calls[0]) - 1)])
 
-    def test_slice_from_marks_reuses_valid_clips_and_only_rebuilds_subtitles(self):
+    def test_slice_from_marks_reuses_valid_clips_and_removes_old_auto_subtitles(self):
         mark = {"start": 10, "end": 90, "title": "开场聊天"}
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3423,7 +3771,7 @@ class TopicEngineParseTests(unittest.TestCase):
                     progress_callback=lambda message, current, total: progress.append(message),
                 )
 
-            rebuilt_subtitles = parse_srt_segments(str(subtitle_path))
+            subtitle_exists = subtitle_path.exists()
             output_bytes = output_path.read_bytes()
             stale_exists = stale_path.exists()
             manual_exists = manual_path.exists()
@@ -3433,7 +3781,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(output_bytes, b"validated-existing-clip")
         self.assertFalse(stale_exists)
         self.assertTrue(manual_exists)
-        self.assertEqual(rebuilt_subtitles, [(2, 8, "音音开始聊天")])
+        self.assertFalse(subtitle_exists)
         self.assertIn("已复用 1 个现有切片，无需重新编码", progress)
         probe.assert_called_once_with(str(output_path))
         prepare_source.assert_not_called()
@@ -5228,7 +5576,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertIn("黑心商家", entries[1]["text"])
 
     def test_video_start_datetime_accepts_ri_and_missing_seconds(self):
-        video_path = r"F:\录播上传\泽音Melody-2026年07月12日22点35分.flv"
+        video_path = r"X:\fixtures\泽音Melody-2026年07月12日22点35分.flv"
 
         video_start = _extract_video_start_datetime(video_path)
 
@@ -5244,7 +5592,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             timeline_path.write_bytes(b"fake docx body")
 
             found = _find_manual_timeline_doc(
-                r"F:\录播上传\泽音Melody-2026年07月12日22点35分.flv",
+                r"X:\fixtures\泽音Melody-2026年07月12日22点35分.flv",
                 timeline_dir=tmp,
             )
 
@@ -5318,7 +5666,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertEqual([item["text"] for item in filtered], ["当前分段开头", "当前分段后段"])
 
     def test_load_manual_timeline_can_be_disabled_or_specified(self):
-        video_path = r"F:\001\1947277414-泽音Melody\2026年\07月\08号\2026年07月08号-20点09分46秒开播\变色龙躲猫猫-2026年07月08号-20点10分53秒-001.flv"
+        video_path = r"X:\fixtures\泽音Melody\2026年07月08号\变色龙躲猫猫-2026年07月08号-20点10分53秒-001.flv"
         disabled = load_manual_timeline(video_path, manual_timeline_path="__none__")
 
         self.assertEqual(disabled["entries"], [])
@@ -5337,7 +5685,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
     def test_manual_timeline_summary_is_json_serializable(self):
         summary = _manual_timeline_summary({
-            "path": r"F:\切片时间轴\20260709.docx",
+            "path": r"X:\fixtures\timelines\20260709.docx",
             "video_start": datetime(2026, 7, 9, 20, 0, 47),
             "entries": [
                 {"start": 60, "stars": 0, "text": "普通记录"},
@@ -5377,7 +5725,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             topics,
             streamer_name="音音",
             group_by_hour=True,
-            manual_timeline={"path": r"F:\切片时间轴\20260708.docx", "entries": entries},
+            manual_timeline={"path": r"X:\fixtures\timelines\20260708.docx", "entries": entries},
         )
 
         self.assertNotIn("人工时间轴参考", prompt)
@@ -7242,14 +7590,14 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertNotIn("音乐声们", report)
 
     def test_infer_streamer_name_from_recording_path(self):
-        path = r"F:\001\1947277414-泽音Melody\2026年\07月\05号\测试.flv"
-        direct_recording = r"F:\录播上传\DanmakuRender-5\直播回放\泽音Melody-2026年07月12日22点35分.flv"
+        path = r"X:\fixtures\泽音Melody\2026年07月05号\测试.flv"
+        direct_recording = r"X:\fixtures\recordings\泽音Melody-2026年07月12日22点35分.flv"
 
         self.assertEqual(_infer_streamer_name(path), "泽音Melody")
         self.assertEqual(_infer_streamer_name(direct_recording), "泽音Melody")
         with streamer_profile_context("zeyin"):
             self.assertEqual(_streamer_report_name("泽音Melody"), "音音")
-        self.assertEqual(_infer_streamer_name(r"F:\Videos\测试.flv"), "主播")
+        self.assertEqual(_infer_streamer_name(r"X:\fixtures\测试.flv"), "主播")
 
     @streamer_profile_context("zeyin")
     def test_chunk_prompt_requests_full_timeline_and_fan_aliases(self):

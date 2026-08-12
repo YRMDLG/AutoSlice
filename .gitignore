@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 timelines/
 api_config.json
+AGENTS.md
+test_engine.py
 .test-tmp/
 .codex-tmp-*/
 .codex/

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from autocover.video import FrameCandidate, FrameMetrics
+from autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
 from autocover.workspace import (
     DEFAULT_INPUT_DIR,
     DEFAULT_OUTPUT_DIR,
@@ -259,6 +259,37 @@ class WorkspaceTests(unittest.TestCase):
         rescanned = self.workspace.scan()[0]
         self.assertEqual(rescanned.status, "ready")
         self.assertEqual(rescanned.selected_index, 1)
+
+    def test_exact_timestamp_selection_becomes_current_frame(self) -> None:
+        task = self.workspace.scan()[0]
+        frame = _candidate(self.root / "精确选帧.jpg", 18.25, 75.0)
+        metadata = VideoMetadata(task.video_path, 60.0, 1920, 1080, 30.0)
+        with (
+            patch("autocover.workspace.probe_video", return_value=metadata),
+            patch(
+                "autocover.workspace.extract_frame_at_timestamp",
+                return_value=(frame, metadata),
+            ),
+        ):
+            selected = self.workspace.select_timestamp(task.id, 18.25)
+
+        payload = self.workspace.task_payload(task.id)
+        self.assertEqual(selected.custom_candidate, frame)
+        self.assertEqual(self.workspace.selected_candidate(task.id), frame)
+        self.assertEqual(payload["video_duration"], 60.0)
+        self.assertEqual(payload["selected_timestamp"], 18.25)
+        self.assertTrue(payload["selected_frame_token"])
+
+    def test_video_metadata_is_probed_once_and_cached(self) -> None:
+        task = self.workspace.scan()[0]
+        metadata = VideoMetadata(task.video_path, 90.0, 1280, 720, 30.0)
+        with patch("autocover.workspace.probe_video", return_value=metadata) as probe:
+            first = self.workspace.video_metadata(task.id)
+            second = self.workspace.video_metadata(task.id)
+
+        self.assertEqual(first.duration, 90.0)
+        self.assertEqual(second.duration, 90.0)
+        self.assertEqual(probe.call_count, 1)
 
     def test_duplicate_candidate_generation_is_rejected_while_extracting(self) -> None:
         task = self.workspace.scan()[0]

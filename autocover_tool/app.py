@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import secrets
 from dataclasses import replace
@@ -60,6 +61,7 @@ MAX_COPY_LINES = 8
 MAX_COPY_LINE_LENGTH = 120
 MAX_EXPORT_TASKS = 100
 MAX_TASK_ID_LENGTH = 128
+MAX_STICKER_UPLOAD_BYTES = 16_000_000
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 DEPRECATION_WARNING = '299 AutoCover "Deprecated compatibility endpoint"'
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -211,6 +213,18 @@ def _canvas_layout(payload: dict[str, Any], canvas_key: str) -> dict[str, Any]:
     return layout
 
 
+def _boolean_value(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    default: bool = False,
+) -> bool:
+    value = payload.get(key, default)
+    if not isinstance(value, bool):
+        raise ApiError(f"{key} 必须是布尔值")
+    return value
+
+
 def _text_transforms(layout: dict[str, Any]) -> list[TextTransform] | None:
     value = layout.get("text")
     if value is None:
@@ -231,6 +245,8 @@ def _text_transforms(layout: dict[str, Any]) -> list[TextTransform] | None:
                     _number_value(item, "font_size", minimum=24.0, maximum=320.0)
                 )
             ),
+            center_x=_boolean_value(item, "center_x"),
+            center_y=_boolean_value(item, "center_y"),
         )
         for item in value
     ]
@@ -266,6 +282,8 @@ def _sticker_overlays(
                     maximum=180.0,
                     default=0.0,
                 ),
+                center_x=_boolean_value(item, "center_x"),
+                center_y=_boolean_value(item, "center_y"),
             )
         )
     return overlays
@@ -313,6 +331,13 @@ def _render_options(
         "line_stroke_colors": line_stroke_colors,
         "focus_x": _focus_value(layout, "focus_x", fallback_focus_x),
         "focus_y": _focus_value(layout, "focus_y", fallback_focus_y),
+        "background_scale": _number_value(
+            layout,
+            "background_scale",
+            minimum=1.0,
+            maximum=2.5,
+            default=1.0,
+        ),
         "text_transforms": _text_transforms(layout),
         "stickers": _sticker_overlays(layout, library),
     }
@@ -357,9 +382,9 @@ def _render_task_result(
 ) -> RenderResult:
     if canvas_key not in CANVAS_SPECS:
         raise ApiError(f"不支持的封面比例：{canvas_key}")
-    if not task.candidates:
+    if not task.candidates and task.custom_candidate is None:
         raise ValueError("该任务尚未生成候选帧")
-    candidate = task.candidates[task.selected_index]
+    candidate = task.custom_candidate or task.candidates[task.selected_index]
     render_options = (
         options
         if options is not None
@@ -471,13 +496,21 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_mapping(
         JSON_AS_ASCII=False,
-        MAX_CONTENT_LENGTH=1_000_000,
+        MAX_CONTENT_LENGTH=MAX_STICKER_UPLOAD_BYTES,
         STICKER_DIR=str(DEFAULT_STICKER_ROOT),
+        IMPORTED_STICKER_DIR=os.environ.get("AUTOCOVER_USER_ASSET_DIR"),
+        AUTOSLICE_BASE_URL=os.environ.get(
+            "AUTOSLICE_URL",
+            "http://127.0.0.1:5002",
+        ),
     )
     if test_config:
         app.config.update(test_config)
     app.extensions["cover_workspace"] = None
-    sticker_library = StickerLibrary(app.config["STICKER_DIR"])
+    sticker_library = StickerLibrary(
+        app.config["STICKER_DIR"],
+        import_root=app.config.get("IMPORTED_STICKER_DIR"),
+    )
     sticker_library.scan()
     app.extensions["sticker_library"] = sticker_library
 
@@ -570,13 +603,40 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             }
         )
 
+    @app.post("/api/stickers/import")
+    def import_sticker():
+        uploaded = request.files.get("file")
+        if uploaded is None or not uploaded.filename:
+            raise ApiError("请选择要导入的图片")
+        raw = uploaded.stream.read(MAX_STICKER_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_STICKER_UPLOAD_BYTES:
+            raise ApiError("导入图片不能超过 16 MB", 413)
+        asset = _sticker_library(app).import_image(uploaded.filename, raw)
+        library = _sticker_library(app)
+        return jsonify({
+            "ok": True,
+            "asset": asset.to_dict(),
+            "assets": [item.to_dict() for item in library.list_assets()],
+            "summary": library.summary(),
+        })
+
     @app.get("/api/stickers/<asset_id>/image")
     def sticker_image(asset_id: str):
         return send_file(_sticker_library(app).resolve(asset_id), conditional=True, max_age=3600)
 
     @app.get("/")
     def index():
-        return render_template("index.html")
+        base_url = str(app.config.get("AUTOSLICE_BASE_URL") or "").rstrip("/")
+        try:
+            parsed = urlsplit(base_url)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or (parsed.hostname or "").casefold() not in LOCAL_HOSTS
+            ):
+                raise ValueError
+        except ValueError:
+            base_url = "http://127.0.0.1:5002"
+        return render_template("index.html", autoslice_base_url=base_url)
 
     @app.post("/api/workspace/scan")
     def scan_workspace():
@@ -644,6 +704,29 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         if not isinstance(token, str) or not token:
             raise ApiError("media_token 不能为空")
         workspace.select_candidate(task_id, token)
+        return jsonify({"ok": True, "task": workspace.task_payload(task_id)})
+
+    @app.get("/api/tasks/<task_id>/video-metadata")
+    def video_metadata(task_id: str):
+        workspace = _workspace(app)
+        metadata = workspace.video_metadata(task_id)
+        return jsonify({
+            "ok": True,
+            "metadata": metadata.to_dict(),
+            "task": workspace.task_payload(task_id),
+        })
+
+    @app.post("/api/tasks/<task_id>/select-timestamp")
+    def select_timestamp(task_id: str):
+        workspace = _workspace(app)
+        payload = _json_body()
+        timestamp = _number_value(
+            payload,
+            "timestamp",
+            minimum=0.0,
+            maximum=7 * 24 * 60 * 60,
+        )
+        workspace.select_timestamp(task_id, timestamp)
         return jsonify({"ok": True, "task": workspace.task_payload(task_id)})
 
     @app.post("/api/tasks/<task_id>/preview")

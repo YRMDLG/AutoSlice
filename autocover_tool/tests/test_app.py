@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import shutil
 import subprocess
 import tempfile
@@ -15,7 +16,7 @@ if __package__ and __package__.startswith("autocover_tool."):
     from ..app import ApiError, _number_value, _render_options, create_app
     from ..autocover import API_VERSION, SERVICE_ID
     from ..autocover.renderer import render_cover as actual_render_cover
-    from ..autocover.video import FrameCandidate, FrameMetrics
+    from ..autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
     from ..autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
 
     APP_MODULE = "autocover_tool.app"
@@ -24,7 +25,7 @@ else:
     from app import ApiError, _number_value, _render_options, create_app
     from autocover import API_VERSION, SERVICE_ID
     from autocover.renderer import render_cover as actual_render_cover
-    from autocover.video import FrameCandidate, FrameMetrics
+    from autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
     from autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
 
     APP_MODULE = "app"
@@ -56,7 +57,11 @@ class AppTests(unittest.TestCase):
             score=88.0,
             metrics=FrameMetrics(0.5, 1.0, 0.6, 0.7, 0.4, 0.0),
         )
-        self.app = create_app({"TESTING": True, "STICKER_DIR": str(self.sticker_root)})
+        self.app = create_app({
+            "TESTING": True,
+            "STICKER_DIR": str(self.sticker_root),
+            "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
+        })
         self.client = self.app.test_client()
 
     def tearDown(self) -> None:
@@ -167,6 +172,10 @@ class AppTests(unittest.TestCase):
             self.assertIn("AutoCover", page_content)
             self.assertIn('rel="icon" href="data:,"', page_content)
             self.assertIn('id="candidate-strip"', page_content)
+            self.assertIn('id="timeline-range"', page_content)
+            self.assertIn('id="background-scale"', page_content)
+            self.assertIn('id="upload-sticker"', page_content)
+            self.assertNotIn("direct-slice", page_content)
             self.assertIn('id="palette-select"', page_content)
             self.assertIn('id="cover-overlay"', page_content)
             self.assertIn('id="layout-variants"', page_content)
@@ -212,7 +221,7 @@ class AppTests(unittest.TestCase):
             self.assertIn("/api/stickers", script_content)
             self.assertIn("background_media_token", script_content)
             self.assertIn("default_output_dir", script_content)
-            self.assertIn('const EXPECTED_API_VERSION = 5', script_content)
+            self.assertIn('const EXPECTED_API_VERSION = 6', script_content)
             self.assertIn('id="common-stroke-colors"', page_content)
             self.assertIn('id="stroke-color-input"', page_content)
             self.assertIn("line_stroke_colors", script_content)
@@ -236,6 +245,9 @@ class AppTests(unittest.TestCase):
             self.assertIn("function refreshInteractionState(", script_content)
             self.assertIn('elements["cover-overlay"].inert = busy', script_content)
             self.assertIn("function handleEditableElementKeydown(", script_content)
+            self.assertIn("function snapElementToCanvasCenter(", script_content)
+            self.assertIn('data-alignment-guide="vertical"', script_content)
+            self.assertIn('data-alignment-guide="horizontal"', script_content)
             self.assertIn("function bindRovingTablist(", script_content)
         with self.client.get("/static/styles.css") as stylesheet:
             self.assertEqual(stylesheet.status_code, 200)
@@ -244,6 +256,7 @@ class AppTests(unittest.TestCase):
             self.assertIn("[hidden]", css)
             self.assertIn("overflow-x: hidden", css)
             self.assertIn(".editable-element", css)
+            self.assertIn(".alignment-guide.visible", css)
             self.assertIn(".sticker-grid", css)
             self.assertIn(".sticker-element.selected", css)
             self.assertIn('font-family: "AutoCover Seto"', css)
@@ -272,8 +285,10 @@ if (applyKeyboardTransform(textModel, "text", "ArrowLeft", false) !== "move") {
   throw new Error("文字方向键未识别为移动");
 }
 if (Math.abs(textModel.x - 0.495) > 0.000001) throw new Error("文字小步移动错误");
+if (textModel.center_x !== false) throw new Error("方向键移动后仍保留横向居中锚点");
 applyKeyboardTransform(textModel, "text", "ArrowDown", true);
 if (Math.abs(textModel.y - 0.52) > 0.000001) throw new Error("文字大步移动错误");
+if (textModel.center_y !== false) throw new Error("方向键移动后仍保留纵向居中锚点");
 if (applyKeyboardTransform(textModel, "text", "+", false) !== "resize") {
   throw new Error("文字加号未识别为缩放");
 }
@@ -285,6 +300,69 @@ applyKeyboardTransform(stickerModel, "sticker", "-", false);
 if (Math.abs(stickerModel.width - 0.17) > 0.000001) throw new Error("贴图缩放错误");
 if (applyKeyboardTransform(stickerModel, "sticker", "Enter", false) !== null) {
   throw new Error("无关按键不应修改画布元素");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证中心磁吸计算")
+    def test_center_snap_uses_visual_bounds_and_independent_axes(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const both = snapElementToCanvasCenter(0.39, 0.45, 100, 40, 400, 300);
+if (!both.snapX || !both.snapY) throw new Error("接近中心时没有双轴吸附");
+if (Math.abs(both.x - 0.375) > 0.000001) throw new Error("横向吸附没有按元素宽度居中");
+if (Math.abs(both.y - (130 / 300)) > 0.000001) throw new Error("纵向吸附没有按元素高度居中");
+const horizontalOnly = snapElementToCanvasCenter(0.43, 0.45, 100, 40, 400, 300);
+if (horizontalOnly.snapX || !horizontalOnly.snapY) throw new Error("横纵轴没有独立吸附");
+if (horizontalOnly.x !== 0.43) throw new Error("离开阈值后仍被横向吸附");
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证贴图居中锚点请求")
+    def test_preview_payload_preserves_sticker_center_anchors(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const payloadTask = {
+  id: "center-anchor-task",
+  title: "居中锚点",
+  template_key: "headline",
+  palette_key: "order_all_yellow",
+};
+state.tasks = [payloadTask];
+state.activeTaskId = payloadTask.id;
+state.ratio = "4x3";
+const payloadSettings = defaultSettings(payloadTask);
+payloadSettings.layouts["4x3"].stickers = [{
+  asset_id: "sticker-1",
+  x: 0.4,
+  y: 0.4,
+  width: 0.2,
+  rotation: 0,
+  center_x: true,
+  center_y: true,
+}];
+state.settings.set(payloadTask.id, payloadSettings);
+const serializedSticker = previewPayload(payloadTask, false).layouts["4x3"].stickers[0];
+if (serializedSticker.center_x !== true || serializedSticker.center_y !== true) {
+  throw new Error("贴图居中锚点没有随预览请求发送");
 }
 """
         result = subprocess.run(
@@ -559,6 +637,36 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
             self.assertEqual(image_response.mimetype, "image/png")
         self.assertEqual(self.client.get("/api/stickers/not-found/image").status_code, 404)
 
+    def test_imported_local_image_is_registered_without_exposing_path(self) -> None:
+        image_bytes = io.BytesIO()
+        Image.new("RGBA", (120, 80), (10, 220, 120, 180)).save(
+            image_bytes,
+            format="PNG",
+        )
+        response = self.client.post(
+            "/api/stickers/import",
+            data={"file": (io.BytesIO(image_bytes.getvalue()), "本地装饰.png")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["asset"]["group"], "我的导入")
+        self.assertIn("本地装饰", payload["asset"]["name"])
+        self.assertNotIn(str(self.root), str(payload))
+        with self.client.get(
+            f"/api/stickers/{payload['asset']['id']}/image"
+        ) as imported:
+            self.assertEqual(imported.status_code, 200)
+            self.assertEqual(imported.mimetype, "image/png")
+
+        invalid = self.client.post(
+            "/api/stickers/import",
+            data={"file": (io.BytesIO(b"not-image"), "伪装.png")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(invalid.status_code, 400)
+
     def test_candidate_endpoint_and_media_token(self) -> None:
         task = self._ready_task()
         candidate = task["candidates"][0]
@@ -567,6 +675,49 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
             self.assertEqual(media.status_code, 200)
             self.assertEqual(media.mimetype, "image/jpeg")
         self.assertNotIn(str(self.root), str(task))
+
+    def test_video_timeline_metadata_and_exact_frame_endpoints(self) -> None:
+        task = self._ready_task()
+        metadata = VideoMetadata(
+            str(self.clips / task["filename"]),
+            72.5,
+            1920,
+            1080,
+            30.0,
+        )
+        exact_frame = FrameCandidate(
+            path=str(self.frame),
+            timestamp=21.4,
+            score=81.0,
+            metrics=self.candidate.metrics,
+        )
+        with patch(f"{WORKSPACE_MODULE}.probe_video", return_value=metadata):
+            metadata_response = self.client.get(
+                f"/api/tasks/{task['id']}/video-metadata"
+            )
+        with patch(
+            f"{WORKSPACE_MODULE}.extract_frame_at_timestamp",
+            return_value=(exact_frame, metadata),
+        ):
+            selected_response = self.client.post(
+                f"/api/tasks/{task['id']}/select-timestamp",
+                json={"timestamp": 21.4},
+            )
+
+        self.assertEqual(metadata_response.status_code, 200)
+        self.assertEqual(metadata_response.get_json()["metadata"]["duration"], 72.5)
+        self.assertEqual(selected_response.status_code, 200)
+        self.assertEqual(
+            selected_response.get_json()["task"]["selected_timestamp"],
+            21.4,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/api/tasks/{task['id']}/select-timestamp",
+                json={"timestamp": -1},
+            ).status_code,
+            400,
+        )
 
     def test_unknown_task_and_path_like_token_return_404(self) -> None:
         self._scan()
@@ -616,7 +767,13 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                 "layouts": {
                     "4x3": {
                         "text": [
-                            {"x": 0.20, "y": 0.30, "scale": 0.8, "font_size": 104}
+                            {
+                                "x": 0.20,
+                                "y": 0.30,
+                                "scale": 0.8,
+                                "font_size": 104,
+                                "center_x": True,
+                            }
                         ],
                         "stickers": [
                             {
@@ -624,6 +781,7 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                                 "x": 0.70,
                                 "y": 0.25,
                                 "width": 0.12,
+                                "center_y": True,
                             }
                         ],
                     }
@@ -633,11 +791,14 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
 
         self.assertEqual(response.status_code, 200)
         preview = response.get_json()["preview"]
-        self.assertAlmostEqual(preview["placements"][0]["box"][0], 1440 * 0.20, delta=2)
+        text_box = preview["placements"][0]["box"]
+        self.assertAlmostEqual((text_box[0] + text_box[2]) / 2, 1440 / 2, delta=2)
         self.assertAlmostEqual(preview["placements"][0]["box"][1], 1080 * 0.30, delta=2)
         self.assertEqual(preview["placements"][0]["font_size"], 104)
         self.assertEqual(preview["placements"][0]["stroke_color"], "#ffffff")
         self.assertAlmostEqual(preview["stickers"][0]["box"][0], 1440 * 0.70, delta=2)
+        sticker_box = preview["stickers"][0]["box"]
+        self.assertAlmostEqual((sticker_box[1] + sticker_box[3]) / 2, 1080 / 2, delta=2)
         self.assertIn("background_media_token", preview)
         with self.client.get(f"/api/media/{preview['background_media_token']}") as base:
             self.assertEqual(base.status_code, 200)
@@ -648,7 +809,11 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
             "focus_x": 0.25,
             "focus_y": 0.35,
             "layouts": {
-                "4x3": {"focus_x": 0.65, "focus_y": 0.75},
+                "4x3": {
+                    "focus_x": 0.65,
+                    "focus_y": 0.75,
+                    "background_scale": 1.6,
+                },
                 "16x9": {},
             },
         }
@@ -657,10 +822,18 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
         wide = _render_options(payload, "16x9", library)
 
         self.assertEqual((compact["focus_x"], compact["focus_y"]), (0.65, 0.75))
+        self.assertEqual(compact["background_scale"], 1.6)
         self.assertEqual((wide["focus_x"], wide["focus_y"]), (0.25, 0.35))
+        self.assertEqual(wide["background_scale"], 1.0)
         with self.assertRaisesRegex(ApiError, "focus_x"):
             _render_options(
                 {"layouts": {"4x3": {"focus_x": 1.1}}},
+                "4x3",
+                library,
+            )
+        with self.assertRaisesRegex(ApiError, "background_scale"):
+            _render_options(
+                {"layouts": {"4x3": {"background_scale": 2.6}}},
                 "4x3",
                 library,
             )

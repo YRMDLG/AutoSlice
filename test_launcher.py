@@ -33,11 +33,11 @@ class LauncherTests(unittest.TestCase):
         )
 
     def test_gpu_runtime_path_stays_outside_repository(self):
-        runtime = launcher._gpu_runtime_python(r"C:\Users\测试\AppData\Local")
+        runtime = launcher._gpu_runtime_python(r"X:\fixtures\LocalAppData")
 
         self.assertEqual(
             runtime,
-            Path(r"C:\Users\测试\AppData\Local\AutoSlice\gpu-py310-cu130\Scripts\python.exe"),
+            Path(r"X:\fixtures\LocalAppData\AutoSlice\gpu-py310-cu130\Scripts\python.exe"),
         )
 
     def test_gpu_runtime_health_check_requires_file_and_cuda_probe(self):
@@ -115,16 +115,45 @@ class LauncherTests(unittest.TestCase):
         self.assertNotIn("AUTOSLICE_FUNASR_DEVICE", parent_env)
 
     def test_dependency_check_uses_module_specs_without_importing_funasr(self):
-        available = {"flask": object(), "funasr": None, "docx": object()}
+        available = {
+            "flask": object(),
+            "funasr": None,
+            "soxr": object(),
+            "docx": object(),
+        }
 
         missing = launcher._missing_dependencies(lambda name: available[name])
 
         self.assertEqual(missing, ["funasr"])
 
+    def test_dependency_check_upgrades_outdated_funasr(self):
+        missing = launcher._missing_dependencies(
+            find_spec=lambda _name: object(),
+            version_reader=lambda name: "1.3.9" if name == "funasr" else "99.0",
+        )
+
+        self.assertEqual(missing, ["funasr>=1.4.1"])
+
+    def test_dependency_install_clears_all_proxy_variants(self):
+        captured = {}
+
+        def fake_runner(_command, **kwargs):
+            captured["env"] = kwargs["env"]
+            return Mock(returncode=0)
+
+        launcher._install_dependencies(runner=fake_runner)
+
+        for key in (
+                "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                "http_proxy", "https_proxy", "all_proxy"):
+            self.assertEqual(captured["env"][key], "")
+        self.assertEqual(captured["env"]["NO_PROXY"], "*")
+        self.assertEqual(captured["env"]["no_proxy"], "*")
+
     def test_autocover_contract_and_port_selection(self):
         self.assertTrue(launcher._is_compatible_autocover_service({
             "service": "autocover",
-            "api_version": 5,
+            "api_version": 6,
         }))
         self.assertFalse(launcher._is_compatible_autocover_service({
             "service": "autocover",
@@ -149,7 +178,7 @@ class LauncherTests(unittest.TestCase):
             preferred_port=5010,
             service_probe=Mock(return_value={
                 "service": "autocover",
-                "api_version": 5,
+                "api_version": 6,
             }),
             process_factory=process_factory,
         )
@@ -166,7 +195,7 @@ class LauncherTests(unittest.TestCase):
             "api_version": 1,
             "autocover_url": "http://127.0.0.1:5012",
         }
-        cover_payload = {"service": "autocover", "api_version": 5}
+        cover_payload = {"service": "autocover", "api_version": 6}
         slice_probe = Mock(return_value=slice_payload)
         cover_probe = Mock(return_value=cover_payload)
 

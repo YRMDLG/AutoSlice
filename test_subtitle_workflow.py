@@ -18,17 +18,22 @@ from subtitle_workflow import (
     SUBTITLE_REVIEW_CONCURRENCY,
     _default_llm_runner,
     _nvenc_available,
+    _split_cue_for_ass,
     build_ass_document,
     burn_subtitles,
+    generate_subtitle_reference_titles,
     high_confidence_corrections,
+    load_subtitle_edit_state,
     normalise_subtitle_style,
     normalise_video_export,
     parse_srt_document,
+    reflow_subtitle_srt_for_display,
     render_subtitle_preview,
     save_corrected_srt,
     scan_submission_pairs,
     serialise_srt,
     suggest_subtitle_corrections,
+    transcribe_submission_video,
     verify_exact_subtitle_font,
     write_ass_from_srt,
 )
@@ -106,6 +111,98 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         for term in requested_terms:
             self.assertIn(term, prompts[0])
 
+    def test_reference_titles_use_two_stage_generation_and_final_judgement(self):
+        calls = []
+
+        def runner(prompt, compact_prompt, progress_label):
+            calls.append((prompt, compact_prompt, progress_label))
+            if len(calls) == 1:
+                return {
+                    "content_summary": "音音先说免费游戏，最后承认是在整朋友",
+                    "hook": "免费诱饵和朋友上当的反差",
+                    "candidates": [
+                        {"title": "免费游戏送朋友，结果朋友真上当了😂"},
+                        {"title": "朋友以为捡到免费游戏，最后才发现被骗"},
+                        {"title": "拿免费游戏整朋友，音音自己先笑场了"},
+                    ],
+                }
+            return {
+                "recommended_title": "朋友以为白捡免费游戏，最后发现从头被骗😂",
+                "reason": "同时保留免费诱饵和被骗结果",
+                "alternatives": [
+                    "免费游戏送上门，朋友玩到最后才发现是整蛊",
+                    "音音拿免费游戏钓朋友，结果对方真信了",
+                ],
+            }
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "成片.srt"
+            source.write_text(
+                "1\n00:00:00,000 --> 00:00:02,000\n"
+                "这个游戏免费送给你\n\n"
+                "2\n00:00:02,000 --> 00:00:05,000\n"
+                "他居然真的信了哈哈哈\n",
+                encoding="utf-8",
+            )
+            result = generate_subtitle_reference_titles(
+                source,
+                context_title="一起看",
+                llm_runner=runner,
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertIn("这个游戏免费送给你", calls[0][0])
+        self.assertIn("候选标题", calls[1][0])
+        self.assertEqual(
+            result["recommended_title"],
+            "朋友以为白捡免费游戏，最后发现从头被骗😂",
+        )
+        self.assertEqual(len(result["candidates"]), 3)
+        self.assertEqual(result["cue_count"], 2)
+        self.assertFalse(result["sampled"])
+
+    def test_reference_title_long_subtitles_sample_the_whole_timeline(self):
+        observed = []
+
+        def runner(prompt, _compact_prompt, _progress_label):
+            observed.append(prompt)
+            if len(observed) == 1:
+                return {
+                    "content_summary": "覆盖整段事件",
+                    "hook": "开头铺垫和结尾反转",
+                    "candidates": [
+                        {"title": "开头铺垫很认真，结尾突然翻车"},
+                        {"title": "一路认真解释，最后一句把自己拆穿"},
+                        {"title": "前面说得头头是道，结尾直接露馅"},
+                    ],
+                }
+            return {
+                "recommended_title": "前面说得头头是道，结尾一句直接露馅",
+                "reason": "覆盖开头和结尾",
+                "alternatives": [],
+            }
+
+        cue_blocks = []
+        for index in range(1, 181):
+            start = index - 1
+            end = index
+            cue_blocks.append(
+                f"{index}\n00:{start // 60:02d}:{start % 60:02d},000 --> "
+                f"00:{end // 60:02d}:{end % 60:02d},000\n"
+                f"第{index}条" + "很长字幕" * 40
+            )
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "长成片.srt"
+            source.write_text("\n\n".join(cue_blocks), encoding="utf-8")
+            result = generate_subtitle_reference_titles(
+                source,
+                llm_runner=runner,
+            )
+
+        self.assertTrue(result["sampled"])
+        self.assertIn("第1条", observed[0])
+        self.assertIn("第180条", observed[0])
+
     def test_invalid_or_reverse_timeline_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "字幕.srt"
@@ -148,6 +245,185 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "序号不存在"):
                 save_corrected_srt(source, [{"index": 99, "corrected": "新文字"}])
 
+    def test_save_corrected_srt_can_delete_cues_without_changing_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            source_before = source.read_bytes()
+            output = save_corrected_srt(
+                source,
+                [{"index": 2, "corrected": "这是校对后的字幕"}],
+                deleted_indices=[1, 3],
+            )
+            corrected_cues = parse_srt_document(output)
+            source_after = source.read_bytes()
+
+        self.assertEqual(source_after, source_before)
+        self.assertEqual([cue.index for cue in corrected_cues], [2])
+        self.assertEqual(corrected_cues[0].text, "这是校对后的字幕")
+        self.assertEqual(corrected_cues[0].start, "00:00:02,500")
+
+    def test_save_rejects_invalid_or_conflicting_subtitle_deletions(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            cases = (
+                ([1, 1], "序号重复"),
+                ([99], "序号不存在"),
+                (["1"], "必须是整数"),
+                ([1, 2, 3], "不能删除全部字幕"),
+            )
+            for deleted_indices, message in cases:
+                with self.subTest(deleted_indices=deleted_indices):
+                    with self.assertRaisesRegex(ValueError, message):
+                        save_corrected_srt(
+                            source,
+                            [],
+                            deleted_indices=deleted_indices,
+                        )
+            with self.assertRaisesRegex(ValueError, "不能同时修改和删除"):
+                save_corrected_srt(
+                    source,
+                    [{"index": 1, "corrected": "新文字"}],
+                    deleted_indices=[1],
+                )
+
+    def test_save_corrected_srt_merges_adjacent_cues_without_changing_source(self):
+        source_text = (
+            "1\n00:00:00,000 --> 00:00:01,000\n越来越\n\n"
+            "2\n00:00:01,000 --> 00:00:02,000\n大了 还要我怎么样\n\n"
+            "3\n00:00:02,000 --> 00:00:03,000\n下一句话\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(source_text, encoding="utf-8")
+            source_before = source.read_bytes()
+            output = save_corrected_srt(
+                source,
+                [{"index": 2, "corrected": "大了 还要我怎么办"}],
+                merge_pairs=[{"first": 1, "second": 2}],
+            )
+            merged = parse_srt_document(output)
+            source_after = source.read_bytes()
+
+        self.assertEqual(source_after, source_before)
+        self.assertEqual([cue.index for cue in merged], [1, 3])
+        self.assertEqual(merged[0].start, "00:00:00,000")
+        self.assertEqual(merged[0].end, "00:00:02,000")
+        self.assertEqual(merged[0].text, "越来越大了 还要我怎么办")
+        self.assertEqual(merged[1].text, "下一句话")
+
+    def test_save_corrected_srt_merges_a_chain_and_applies_group_override(self):
+        source_text = (
+            "1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n"
+            "2\n00:00:01,000 --> 00:00:02,000\n第二句\n\n"
+            "3\n00:00:02,000 --> 00:00:03,000\n第三句\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(source_text, encoding="utf-8")
+            output = save_corrected_srt(
+                source,
+                [],
+                merge_pairs=[
+                    {"first": 1, "second": 2},
+                    {"first": 2, "second": 3},
+                ],
+                merge_overrides={"1": "整理后的完整句子"},
+            )
+            merged = parse_srt_document(output)
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].index, 1)
+        self.assertEqual(merged[0].start, "00:00:00,000")
+        self.assertEqual(merged[0].end, "00:00:03,000")
+        self.assertEqual(merged[0].text, "整理后的完整句子")
+
+    def test_save_corrected_srt_applies_and_restores_manual_timing(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            output = save_corrected_srt(
+                source,
+                [{"index": 1, "corrected": "音音你好"}],
+                time_overrides={"1": {"start": 1.2, "end": 2.3}},
+            )
+            corrected = parse_srt_document(output)
+            edit_state = load_subtitle_edit_state(source)
+
+            self.assertEqual(corrected[0].start, "00:00:01,200")
+            self.assertEqual(corrected[0].end, "00:00:02,300")
+            self.assertEqual(
+                edit_state["time_overrides"],
+                {"1": {"start": 1.2, "end": 2.3}},
+            )
+            self.assertEqual(edit_state["corrections"][0]["corrected"], "音音你好")
+            self.assertTrue(Path(edit_state["state_path"]).is_file())
+
+            source.write_text(SAMPLE_SRT.replace("音音晚上好", "音音早上好"), encoding="utf-8")
+            self.assertIsNone(load_subtitle_edit_state(source))
+
+    def test_manual_timing_validates_group_root_and_timeline_order(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            cases = (
+                ({"1": {"start": 2.0, "end": 1.0}}, None, "结束时间"),
+                ({"2": {"start": 0.5, "end": 1.5}}, None, "时间轴会倒序"),
+                (
+                    {"2": {"start": 2.5, "end": 4.5}},
+                    [{"first": 1, "second": 2}],
+                    "组首条",
+                ),
+            )
+            for timings, pairs, message in cases:
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(ValueError, message):
+                        save_corrected_srt(
+                            source,
+                            [],
+                            merge_pairs=pairs,
+                            time_overrides=timings,
+                        )
+            with self.assertRaisesRegex(ValueError, "已删除字幕"):
+                save_corrected_srt(
+                    source,
+                    [],
+                    deleted_indices=[1],
+                    time_overrides={"1": {"start": 1.0, "end": 2.0}},
+                )
+
+    def test_save_corrected_srt_rejects_invalid_merge_relationships(self):
+        source_text = (
+            "1\n00:00:00,000 --> 00:00:01,000\n第一条\n\n"
+            "2\n00:00:01,000 --> 00:00:02,000\n第二条\n\n"
+            "3\n00:00:02,000 --> 00:00:03,000\n第三条\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(source_text, encoding="utf-8")
+            cases = (
+                ([{"first": 1, "second": 3}], None, "相邻"),
+                ([{"first": 1, "second": 2}], {"2": "错误"}, "组首条"),
+                ([{"first": 1, "second": 2}], {"3": "错误"}, "没有对应"),
+            )
+            for merge_pairs, merge_overrides, message in cases:
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(ValueError, message):
+                        save_corrected_srt(
+                            source,
+                            [],
+                            merge_pairs=merge_pairs,
+                            merge_overrides=merge_overrides,
+                        )
+            with self.assertRaisesRegex(ValueError, "已删除字幕"):
+                save_corrected_srt(
+                    source,
+                    [],
+                    deleted_indices=[2],
+                    merge_pairs=[{"first": 1, "second": 2}],
+                )
+
     def test_scan_pairs_different_jianying_names_and_ignores_outputs(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -169,6 +445,147 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
                 "source_created_at", "source_modified_at"):
             self.assertIsInstance(pairs[0][field], float)
             self.assertGreater(pairs[0][field], 0)
+
+    def test_scan_includes_video_without_srt_until_transcription_finishes(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td) / "待识别投稿"
+            folder.mkdir()
+            video = folder / "精剪成片.mp4"
+            video.write_bytes(b"video")
+
+            before = scan_submission_pairs(td)
+            expected_id = before[0]["id"]
+            expected_srt = video.with_suffix(".srt")
+            expected_srt.write_text(SAMPLE_SRT, encoding="utf-8")
+            after = scan_submission_pairs(td)
+
+        self.assertEqual(len(before), 1)
+        self.assertFalse(before[0]["has_source_srt"])
+        self.assertTrue(before[0]["needs_transcription"])
+        self.assertEqual(before[0]["srt_path"], str(expected_srt))
+        self.assertEqual(before[0]["cue_count"], 0)
+        self.assertEqual(after[0]["id"], expected_id)
+        self.assertTrue(after[0]["has_source_srt"])
+        self.assertFalse(after[0]["needs_transcription"])
+        self.assertEqual(after[0]["cue_count"], 3)
+
+    def test_reflow_long_subtitles_keeps_source_and_scanner_prefers_working_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td) / "待校对投稿"
+            folder.mkdir()
+            video = folder / "精剪成片.mp4"
+            source = video.with_suffix(".srt")
+            video.write_bytes(b"video")
+            source_text = "这是需要整理为适合二十号字幕显示的超长字幕内容" * 3
+            source.write_text(
+                f"1\n00:00:00,000 --> 00:00:06,000\n{source_text}\n",
+                encoding="utf-8",
+            )
+            source_before = source.read_bytes()
+
+            result = reflow_subtitle_srt_for_display(source)
+            reflowed = Path(result["srt_path"])
+            reflowed_cues = parse_srt_document(reflowed)
+            pairs = scan_submission_pairs(td)
+            corrected = Path(result["corrected_srt_path"])
+            corrected.write_text(reflowed.read_text(encoding="utf-8"), encoding="utf-8")
+            protected_pairs = scan_submission_pairs(td)
+            source_after = source.read_bytes()
+
+        self.assertEqual(source_after, source_before)
+        self.assertTrue(reflowed.name.endswith("_排版.srt"))
+        self.assertEqual("".join(cue.text for cue in reflowed_cues), source_text)
+        self.assertTrue(all(
+            len("".join(cue.text.split())) <= result["max_chars"]
+            for cue in reflowed_cues
+        ))
+        self.assertTrue(all(
+            later.start_seconds >= earlier.end_seconds
+            for earlier, later in zip(reflowed_cues, reflowed_cues[1:])
+        ))
+        self.assertEqual(pairs[0]["srt_path"], str(reflowed))
+        self.assertEqual(pairs[0]["raw_srt_path"], str(source))
+        self.assertTrue(pairs[0]["is_reflowed_srt"])
+        self.assertTrue(pairs[0]["can_reflow_srt"])
+        self.assertFalse(protected_pairs[0]["can_reflow_srt"])
+
+    def test_reflow_rebalances_short_clause_tail_between_adjacent_cues(self):
+        source_text = (
+            "1\n00:00:00,000 --> 00:00:02,000\n我我这几天头已经越来越\n\n"
+            "2\n00:00:02,800 --> 00:00:04,000\n大了 还要我怎么样\n\n"
+            "3\n00:00:04,100 --> 00:00:05,000\n唉 什么标题啊\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(source_text, encoding="utf-8")
+            result = reflow_subtitle_srt_for_display(source)
+            cues = parse_srt_document(result["srt_path"])
+
+        self.assertEqual(cues[0].text, "我我这几天头已经")
+        self.assertEqual(cues[1].text, "越来越大了 还要我怎么样")
+        self.assertEqual(cues[2].text, "唉 什么标题啊")
+        self.assertTrue(all(
+            len("".join(cue.text.split())) <= result["max_chars"]
+            for cue in cues
+        ))
+
+    def test_reflow_recovers_unknown_short_tail_but_keeps_sentence_connectors(self):
+        source_text = (
+            "1\n00:00:00,000 --> 00:00:02,000\n今天直播状态特别引人不\n\n"
+            "2\n00:00:02,100 --> 00:00:03,500\n适 后面还是正常内容\n\n"
+            "3\n00:00:03,600 --> 00:00:05,000\n今天真的非常开心\n\n"
+            "4\n00:00:05,100 --> 00:00:06,500\n所以 接下来继续聊天\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "字幕.srt"
+            source.write_text(source_text, encoding="utf-8")
+            result = reflow_subtitle_srt_for_display(source)
+            cues = parse_srt_document(result["srt_path"])
+
+        self.assertEqual(cues[0].text, "今天直播状态特别")
+        self.assertEqual(cues[1].text, "引人不适 后面还是正常内容")
+        self.assertEqual(cues[2].text, "今天真的非常开心")
+        self.assertEqual(cues[3].text, "所以 接下来继续聊天")
+
+    def test_transcription_cleans_checkpoint_only_after_valid_srt(self):
+        with tempfile.TemporaryDirectory() as td:
+            video = Path(td) / "精剪成片.mp4"
+            video.write_bytes(b"video")
+            checkpoint = video.with_name(f"{video.stem}_asr_checkpoint.json")
+
+            def fake_ensure(video_path, progress_callback=None, checkpoint_path=None):
+                Path(checkpoint_path).write_text('{"status":"completed"}', encoding="utf-8")
+                srt = Path(video_path).with_suffix(".srt")
+                srt.write_text(SAMPLE_SRT, encoding="utf-8")
+                return str(srt)
+
+            with patch("topic_engine.ensure_srt", side_effect=fake_ensure) as ensure:
+                result = transcribe_submission_video(video)
+
+            srt_exists = Path(result["srt_path"]).is_file()
+            checkpoint_exists = checkpoint.exists()
+
+        self.assertEqual(result["cue_count"], 3)
+        self.assertTrue(srt_exists)
+        self.assertFalse(checkpoint_exists)
+        self.assertEqual(ensure.call_args.kwargs["checkpoint_path"], str(checkpoint))
+
+    def test_transcription_failure_keeps_checkpoint_for_resume(self):
+        with tempfile.TemporaryDirectory() as td:
+            video = Path(td) / "精剪成片.mp4"
+            video.write_bytes(b"video")
+            checkpoint = video.with_name(f"{video.stem}_asr_checkpoint.json")
+
+            def fail_with_checkpoint(_video_path, progress_callback=None, checkpoint_path=None):
+                Path(checkpoint_path).write_text('{"status":"failed"}', encoding="utf-8")
+                raise RuntimeError("转录中断")
+
+            with patch("topic_engine.ensure_srt", side_effect=fail_with_checkpoint):
+                with self.assertRaisesRegex(RuntimeError, "转录中断"):
+                    transcribe_submission_video(video)
+            checkpoint_exists = checkpoint.exists()
+
+        self.assertTrue(checkpoint_exists)
 
     def test_review_retries_incomplete_batch_filters_rewrite_and_caches(self):
         calls = []
@@ -587,7 +1004,57 @@ class SubtitleRenderingTests(unittest.TestCase):
         self.assertIn("&H00956ED0", document)
         self.assertIn(",5.33,0.0,5,", document)
         self.assertIn(r"{\an5\pos(960,966)}", document)
-        self.assertIn(r"测试\{样式\}\\路径\N第二行", document)
+        self.assertIn(r"测试\{样式\}\\路径 第二行", document)
+
+    def test_ass_splits_oversized_cue_into_safe_sequential_events(self):
+        source_text = "超长字幕必须拆分避免越过画面边缘" * 4
+        cue = parse_srt_document_from_text(
+            f"1\n00:00:00,000 --> 00:00:12,000\n{source_text}\n"
+        )[0]
+
+        document = build_ass_document([cue], 1920, 1080)
+        events = [
+            line for line in document.splitlines()
+            if line.startswith("Dialogue:")
+        ]
+        event_texts = [line.rsplit("}", 1)[-1] for line in events]
+
+        self.assertGreater(len(events), 1)
+        self.assertEqual("".join(event_texts), source_text)
+        self.assertTrue(all(len(text) <= 13 for text in event_texts))
+        self.assertTrue(all(r"{\an5\pos(960,966)}" in event for event in events))
+
+        document_4x3 = build_ass_document([cue], 1440, 1080)
+        events_4x3 = [
+            line for line in document_4x3.splitlines()
+            if line.startswith("Dialogue:")
+        ]
+        event_texts_4x3 = [line.rsplit("}", 1)[-1] for line in events_4x3]
+
+        self.assertGreater(len(events_4x3), len(events))
+        self.assertEqual("".join(event_texts_4x3), source_text)
+        self.assertTrue(all(len(text) <= 9 for text in event_texts_4x3))
+
+    def test_ass_split_keeps_very_short_valid_cue_inside_original_interval(self):
+        source_text = "极短时间内也要依次显示完整字幕" * 5
+        cue = parse_srt_document_from_text(
+            f"1\n00:00:10,000 --> 00:00:10,050\n{source_text}\n"
+        )[0]
+
+        events = _split_cue_for_ass(cue, 9)
+
+        self.assertGreater(len(events), 1)
+        self.assertEqual(events[0][0], 10.0)
+        self.assertEqual(events[-1][1], 10.05)
+        self.assertEqual("".join(event[2] for event in events), source_text)
+        self.assertTrue(all(
+            10.0 <= start < end <= 10.05
+            for start, end, _text in events
+        ))
+        self.assertTrue(all(
+            later[0] >= earlier[1]
+            for earlier, later in zip(events, events[1:])
+        ))
 
     def test_exact_font_resolves_to_noto_sans_hans_black(self):
         verify_exact_subtitle_font.cache_clear()

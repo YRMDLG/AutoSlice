@@ -34,6 +34,15 @@ _ACTIVE_PROFILE: ContextVar["StreamerProfile | None"] = ContextVar(
 
 
 @dataclass(frozen=True)
+class OutroClipConfig:
+    """主播可选的收播系列切片规则。"""
+
+    series_title: str
+    search_tail_sec: int
+    triggers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class StreamerProfile:
     """单个主播工作流所需的稳定配置。"""
 
@@ -46,6 +55,7 @@ class StreamerProfile:
     path_keywords: tuple[str, ...]
     asr_replacements: tuple[tuple[str, str], ...]
     title_style_profile: Path | None
+    outro_clip: OutroClipConfig | None
 
     def to_public_dict(self) -> dict[str, object]:
         """只返回前端选择所需字段，不暴露本机配置路径。"""
@@ -124,6 +134,37 @@ def _title_style_path(config_path: Path, payload: dict[str, object]) -> Path | N
     return resolved
 
 
+def _outro_clip_config(payload: dict[str, object]) -> OutroClipConfig | None:
+    """校验可选收播片规则；未配置或显式停用时返回 None。"""
+
+    value = payload.get("outro_clip")
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("主播配置 outro_clip 必须是对象或 null")
+    enabled = value.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError("主播配置 outro_clip.enabled 必须是布尔值")
+    if not enabled:
+        return None
+
+    series_title = _required_text(value, "series_title", maximum=80)
+    search_tail_sec = value.get("search_tail_sec", 1200)
+    if (
+            isinstance(search_tail_sec, bool)
+            or not isinstance(search_tail_sec, int)
+            or not 60 <= search_tail_sec <= 7200):
+        raise ValueError("主播配置 outro_clip.search_tail_sec 必须是 60-7200 的整数")
+    triggers = _string_list(value, "triggers", maximum=30)
+    if not triggers:
+        raise ValueError("主播配置 outro_clip.triggers 至少包含一条收播口令")
+    return OutroClipConfig(
+        series_title=series_title,
+        search_tail_sec=search_tail_sec,
+        triggers=triggers,
+    )
+
+
 def load_streamer_profiles(
         path: str | os.PathLike[str] | None = None,
 ) -> tuple[dict[str, StreamerProfile], str]:
@@ -167,6 +208,7 @@ def load_streamer_profiles(
             path_keywords=_string_list(item, "path_keywords", maximum=30),
             asr_replacements=_replacement_pairs(item),
             title_style_profile=_title_style_path(config_path, item),
+            outro_clip=_outro_clip_config(item),
         )
         profiles[profile_id] = profile
 
@@ -251,6 +293,7 @@ def _dynamic_filename_profile(
         path_keywords=base_profile.path_keywords,
         asr_replacements=base_profile.asr_replacements,
         title_style_profile=base_profile.title_style_profile,
+        outro_clip=base_profile.outro_clip,
     )
 
 

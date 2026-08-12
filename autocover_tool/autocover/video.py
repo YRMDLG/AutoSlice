@@ -597,6 +597,80 @@ def extract_candidate_frames(
                 shutil.rmtree(staging_dir, ignore_errors=True)
 
 
+def extract_frame_at_timestamp(
+    video_path: str | Path,
+    timestamp: float,
+    *,
+    cache_dir: str | Path | None = None,
+    ffmpeg_path: str | Path | None = None,
+    ffprobe_path: str | Path | None = None,
+    metadata: VideoMetadata | None = None,
+) -> tuple[FrameCandidate, VideoMetadata]:
+    """按用户指定的视频内时间提取单帧，并复用稳定缓存。"""
+
+    source = Path(video_path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"视频文件不存在：{source}")
+    if isinstance(timestamp, bool):
+        raise ValueError("选帧时间必须是数字")
+    try:
+        requested_timestamp = float(timestamp)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("选帧时间必须是数字") from exc
+    if not math.isfinite(requested_timestamp) or requested_timestamp < 0:
+        raise ValueError("选帧时间不能小于 0")
+
+    if metadata is None:
+        metadata = probe_video(source, ffprobe_path=ffprobe_path)
+    elif Path(metadata.path).expanduser().resolve() != source:
+        raise ValueError("视频信息与当前源视频不匹配")
+    if requested_timestamp > metadata.duration:
+        raise ValueError(f"选帧时间不能超过视频时长 {metadata.duration:.3f} 秒")
+    effective_timestamp = min(
+        requested_timestamp,
+        max(0.0, metadata.duration - 0.001),
+    )
+
+    cache_root = Path(
+        cache_dir or Path.cwd() / ".cache" / "frames"
+    ).expanduser().resolve()
+    frame_dir = cache_root / "timeline" / _cache_key(
+        source,
+        1,
+        effective_timestamp,
+        effective_timestamp,
+    )
+    output = frame_dir / "frame.jpg"
+    with _cache_lock(frame_dir):
+        cached = output.is_file()
+        if not cached:
+            frame_dir.mkdir(parents=True, exist_ok=True)
+            temporary = frame_dir / f".{output.name}.{secrets.token_hex(6)}.tmp.jpg"
+            try:
+                _extract_frame(
+                    find_media_binary("ffmpeg", ffmpeg_path),
+                    source,
+                    effective_timestamp,
+                    temporary,
+                    f"{effective_timestamp:.3f}s",
+                )
+                temporary.replace(output)
+            finally:
+                temporary.unlink(missing_ok=True)
+        score, metrics = score_frame(output)
+
+    return (
+        FrameCandidate(
+            path=str(output.resolve()),
+            timestamp=round(effective_timestamp, 3),
+            score=score,
+            metrics=metrics,
+            cached=cached,
+        ),
+        metadata,
+    )
+
+
 def _replace_cache_directory(staging_dir: Path, frame_dir: Path) -> None:
     """用已完整构建的目录替换旧缓存，提交失败时恢复旧目录。"""
 

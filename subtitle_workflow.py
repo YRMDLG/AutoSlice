@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -16,9 +17,11 @@ from pathlib import Path
 
 
 SUBTITLE_REVIEW_VERSION = 3
+SUBTITLE_EDIT_STATE_VERSION = 1
 SUBTITLE_REVIEW_BATCH_SIZE = 30
 SUBTITLE_REVIEW_CONTEXT_CUES = 3
 SUBTITLE_REVIEW_CONCURRENCY = 2
+SUBTITLE_TITLE_EVIDENCE_CHARS = 32000
 
 DEFAULT_SUBTITLE_GLOSSARY = (
     "朱鹮",
@@ -73,11 +76,13 @@ _TIMESTAMP_IN_TEXT_RE = re.compile(
 )
 _PUNCTUATION_RE = re.compile(r"[\s\W_]+", re.UNICODE)
 _GENERATED_SUBTITLE_SUFFIXES = (
+    "_排版",
     "_校对",
     "_校对字幕",
     "_字幕版",
     "_字幕预览",
 )
+_SUBMISSION_VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv"}
 
 EXACT_SUBTITLE_FONT = "Noto Sans S Chinese Black"
 EXACT_SUBTITLE_FONT_RESOLVED = "NotoSansHans-Black"
@@ -207,16 +212,226 @@ def parse_srt_document(path):
     return cues
 
 
-def serialise_srt(cues, text_updates=None):
-    """生成 UTF-8 SRT，仅替换明确指定的字幕正文。"""
-    updates = text_updates or {}
-    blocks = []
-    for cue in cues:
-        text = str(updates.get(cue.index, cue.text)).strip()
+def _normalise_deleted_indices(cues, deleted_indices):
+    """校验删除请求，并返回存在于源字幕中的序号集合。"""
+    if deleted_indices is None:
+        return set()
+    if not isinstance(deleted_indices, (list, tuple, set, frozenset)):
+        raise ValueError("删除字幕序号必须是数组")
+
+    cue_indices = {cue.index for cue in cues}
+    deleted = set()
+    for index in deleted_indices:
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise ValueError("删除字幕序号必须是整数")
+        if index in deleted:
+            raise ValueError(f"删除字幕序号重复: {index}")
+        if index not in cue_indices:
+            raise ValueError(f"删除字幕序号不存在: {index}")
+        deleted.add(index)
+    if cues and len(deleted) == len(cues):
+        raise ValueError("不能删除全部字幕")
+    return deleted
+
+
+def _normalise_merge_pairs(cues, merge_pairs, deleted_indices):
+    """校验相邻字幕合并关系，并返回“后一条 -> 前一条”的映射。"""
+    if merge_pairs is None:
+        return {}
+    if not isinstance(merge_pairs, (list, tuple)):
+        raise ValueError("字幕合并关系必须是数组")
+
+    cue_indices = [cue.index for cue in cues]
+    cue_positions = {index: position for position, index in enumerate(cue_indices)}
+    previous_by_child = {}
+    child_by_previous = {}
+    for item in merge_pairs:
+        if not isinstance(item, dict):
+            raise ValueError("字幕合并项必须是对象")
+        try:
+            first = int(item.get("first"))
+            second = int(item.get("second"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("字幕合并项缺少有效序号") from exc
+        if first not in cue_positions or second not in cue_positions:
+            raise ValueError("字幕合并序号不存在")
+        if first in deleted_indices or second in deleted_indices:
+            raise ValueError("已删除字幕不能参与合并")
+        if cue_positions[second] != cue_positions[first] + 1:
+            raise ValueError("只能合并时间轴中相邻的字幕")
+        if second in previous_by_child or first in child_by_previous:
+            raise ValueError("同一字幕不能同时参与多个合并关系")
+        previous_by_child[second] = first
+        child_by_previous[first] = second
+    return previous_by_child
+
+
+def _normalise_merge_overrides(cues, previous_by_child, merge_overrides):
+    """校验合并后的整段正文覆盖值，仅允许写在合并组首条。"""
+    if merge_overrides is None:
+        return {}
+    if not isinstance(merge_overrides, dict):
+        raise ValueError("合并字幕正文必须是对象")
+
+    cue_indices = {cue.index for cue in cues}
+    child_by_previous = {previous: child for child, previous in previous_by_child.items()}
+    result = {}
+    for raw_index, raw_text in merge_overrides.items():
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("合并字幕正文序号无效") from exc
+        if index not in cue_indices or index in previous_by_child:
+            raise ValueError("合并字幕正文必须对应合并组首条")
+        if index not in child_by_previous:
+            raise ValueError("合并字幕正文没有对应的合并关系")
+        text = str(raw_text or "").strip()
         if not text:
-            raise ValueError(f"SRT 第 {cue.index} 条修正后为空")
+            raise ValueError("合并字幕正文不能为空")
+        if _TIMESTAMP_IN_TEXT_RE.search(text):
+            raise ValueError("合并字幕正文包含时间轴")
+        result[index] = text
+    return result
+
+
+def _normalise_time_overrides(
+        cues, previous_by_child, deleted_indices, time_overrides):
+    """校验合并组首条的手工时间覆盖，并统一为 SRT 时间码。"""
+    if time_overrides is None:
+        return {}
+    if not isinstance(time_overrides, dict):
+        raise ValueError("字幕时间调整必须是对象")
+
+    cue_by_index = {cue.index: cue for cue in cues}
+    child_by_previous = {
+        previous: child for child, previous in previous_by_child.items()
+    }
+    result = {}
+    for raw_index, raw_value in time_overrides.items():
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("字幕时间调整序号无效") from exc
+        if index not in cue_by_index:
+            raise ValueError(f"字幕时间调整序号不存在: {index}")
+        if index in previous_by_child:
+            raise ValueError("字幕时间调整必须对应合并组首条")
+        if index in deleted_indices:
+            raise ValueError("已删除字幕不能调整时间")
+        if not isinstance(raw_value, dict):
+            raise ValueError(f"第 {index} 条字幕时间调整必须是对象")
+        start_value = raw_value.get("start")
+        end_value = raw_value.get("end")
+        if isinstance(start_value, bool) or isinstance(end_value, bool):
+            raise ValueError(f"第 {index} 条字幕时间必须是秒数")
+        try:
+            start_seconds = float(start_value)
+            end_seconds = float(end_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"第 {index} 条字幕时间必须是秒数") from exc
+        if not math.isfinite(start_seconds) or not math.isfinite(end_seconds):
+            raise ValueError(f"第 {index} 条字幕时间必须是有限数字")
+        if start_seconds < 0:
+            raise ValueError(f"第 {index} 条字幕开始时间不能小于 0")
+        if end_seconds <= start_seconds:
+            raise ValueError(f"第 {index} 条字幕结束时间必须晚于开始时间")
+
+        members = [cue_by_index[index]]
+        cursor = index
+        while cursor in child_by_previous:
+            cursor = child_by_previous[cursor]
+            members.append(cue_by_index[cursor])
+        result[index] = {
+            "start": _srt_timestamp(start_seconds),
+            "end": _srt_timestamp(end_seconds),
+            "start_seconds": start_seconds,
+            "end_seconds": end_seconds,
+            "default_start": members[0].start,
+            "default_end": members[-1].end,
+        }
+    return result
+
+
+def _join_subtitle_text(left, right):
+    """合并两条正文，保留原有停顿空格，避免把中文词组强行断开。"""
+    raw_left = str(left or "")
+    raw_right = str(right or "")
+    left_text = raw_left.rstrip()
+    right_text = raw_right.lstrip()
+    if not left_text:
+        return right_text
+    if not right_text:
+        return left_text
+    if raw_left[-1:].isspace() or raw_right[:1].isspace():
+        return f"{left_text} {right_text}"
+    return left_text + right_text
+
+
+def _merged_subtitle_cues(
+        cues, text_updates, deleted_indices, previous_by_child, merge_overrides,
+        time_overrides):
+    """应用修改、删除和合并，生成新的连续 SRT cue 列表。"""
+    cue_by_index = {cue.index: cue for cue in cues}
+    child_by_previous = {previous: child for child, previous in previous_by_child.items()}
+    output = []
+    for cue in cues:
+        if cue.index in deleted_indices or cue.index in previous_by_child:
+            continue
+        members = [cue]
+        cursor = cue.index
+        while cursor in child_by_previous:
+            cursor = child_by_previous[cursor]
+            members.append(cue_by_index[cursor])
+        text = ""
+        for member in members:
+            text = _join_subtitle_text(
+                text,
+                text_updates.get(member.index, member.text),
+            )
+        text = merge_overrides.get(cue.index, text).strip()
+        if not text:
+            raise ValueError(f"第 {cue.index} 条合并后字幕为空")
+        timing = time_overrides.get(cue.index, {})
+        output.append(SubtitleCue(
+            index=cue.index,
+            start=timing.get("start", cue.start),
+            end=timing.get("end", members[-1].end),
+            settings=cue.settings,
+            text=text,
+        ))
+    if cues and not output:
+        raise ValueError("不能删除全部字幕")
+    previous_start = -1.0
+    for cue in output:
+        if cue.start_seconds < previous_start:
+            raise ValueError(f"第 {cue.index} 条字幕开始时间早于上一条，时间轴会倒序")
+        previous_start = cue.start_seconds
+    return output
+
+
+def serialise_srt(
+        cues, text_updates=None, deleted_indices=None, *, merge_pairs=None,
+        merge_overrides=None, time_overrides=None):
+    """生成 UTF-8 SRT，支持正文、删除、合并及时间调整。"""
+    updates = text_updates or {}
+    deleted = _normalise_deleted_indices(cues, deleted_indices)
+    previous_by_child = _normalise_merge_pairs(cues, merge_pairs, deleted)
+    overrides = _normalise_merge_overrides(
+        cues,
+        previous_by_child,
+        merge_overrides,
+    )
+    timings = _normalise_time_overrides(
+        cues,
+        previous_by_child,
+        deleted,
+        time_overrides,
+    )
+    blocks = []
+    for cue in _merged_subtitle_cues(
+            cues, updates, deleted, previous_by_child, overrides, timings):
         blocks.append(
-            f"{cue.index}\n{cue.start} --> {cue.end}{cue.settings}\n{text}"
+            f"{cue.index}\n{cue.start} --> {cue.end}{cue.settings}\n{cue.text}"
         )
     return "\n\n".join(blocks) + "\n"
 
@@ -226,8 +441,184 @@ def _corrected_srt_path(source_srt_path):
     return source.with_name(f"{source.stem}_校对.srt")
 
 
-def save_corrected_srt(source_srt_path, corrections, output_path=None):
-    """校验并保存已确认修正；原 SRT 保持只读。"""
+def _reflowed_srt_path(source_srt_path):
+    source = Path(source_srt_path)
+    return source.with_name(f"{source.stem}_排版.srt")
+
+
+def _subtitle_edit_state_path(source_srt_path):
+    source = Path(source_srt_path)
+    return source.with_name(f"{source.stem}_校对状态.json")
+
+
+def _subtitle_content_fingerprint(source_srt_path):
+    return hashlib.sha256(Path(source_srt_path).read_bytes()).hexdigest()
+
+
+def _srt_timestamp(seconds):
+    total_milliseconds = max(0, int(round(float(seconds) * 1000)))
+    hours, remainder = divmod(total_milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    whole_seconds, milliseconds = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d},{milliseconds:03d}"
+
+
+_SHORT_CLAUSE_INTERJECTIONS = frozenset({
+    "啊", "呀", "哎", "唉", "哦", "嗯", "呃",
+    "所以", "但是", "然后", "不过", "其实", "反正", "因为", "如果",
+})
+_CONTINUATION_SUFFIXES = (
+    "越来越", "这个", "那个", "一个", "什么", "怎么", "不是", "就是",
+    "可以", "没有", "我们", "你们", "他们", "然后", "因为", "所以",
+    "但是", "已经", "正在", "还是", "真的", "感觉", "应该", "可能",
+    "不会", "不要", "想要",
+)
+_SHORT_FRAGMENT_MAX_GAP_SECONDS = 1.0
+
+
+def _visible_subtitle_char_count(text):
+    return len(re.sub(r"\s+", "", str(text or "")))
+
+
+def _short_clause_prefix(text):
+    match = re.match(r"^([^\s]{1,2})\s+", str(text or "").lstrip())
+    if not match:
+        return ""
+    prefix = match.group(1)
+    return "" if prefix in _SHORT_CLAUSE_INTERJECTIONS else prefix
+
+
+def _continuation_suffix_to_shift(text, prefix=""):
+    stripped = str(text or "").rstrip()
+    if not stripped:
+        return ""
+    last_space = max(stripped.rfind(" "), stripped.rfind("\t"))
+    if last_space >= 0:
+        tail = stripped[last_space + 1:]
+        if 1 <= _visible_subtitle_char_count(tail) <= 3:
+            return tail
+    for suffix in _CONTINUATION_SUFFIXES:
+        if stripped.endswith(suffix):
+            return suffix
+    # 没有命中词表时，仅对接近正常行长的上一条做保守回收：一字短头通常
+    # 需要带回前三字，两字短头带回前两字，组成常见的四字左右短语。
+    visible_chars = _visible_subtitle_char_count(stripped)
+    generic_size = 3 if len(prefix) == 1 else 2
+    if visible_chars >= 8 and len(stripped) >= generic_size:
+        candidate = stripped[-generic_size:]
+        if not re.search(r"\s", candidate):
+            return candidate
+    return ""
+
+
+def _rebalance_short_leading_subtitle_fragments(cues, max_chars):
+    """修复“短尾 + 空格 + 新句”式断句，保持所有 cue 的原时间范围。"""
+    try:
+        max_chars = max(1, int(max_chars))
+    except (TypeError, ValueError):
+        return list(cues or [])
+    result = list(cues or [])
+    for index in range(1, len(result)):
+        previous = result[index - 1]
+        current = result[index]
+        if (
+                current.start_seconds - previous.end_seconds
+                > _SHORT_FRAGMENT_MAX_GAP_SECONDS):
+            continue
+        prefix = _short_clause_prefix(current.text)
+        movable = _continuation_suffix_to_shift(previous.text, prefix)
+        if not prefix or not movable:
+            continue
+        previous_text = previous.text.rstrip()
+        if not previous_text.endswith(movable):
+            continue
+        revised_previous = previous_text[:-len(movable)].rstrip()
+        revised_current = movable + current.text.lstrip()
+        if (
+                _visible_subtitle_char_count(revised_previous) < 2
+                or _visible_subtitle_char_count(revised_current) > max_chars):
+            continue
+        result[index - 1] = SubtitleCue(
+            index=previous.index,
+            start=previous.start,
+            end=previous.end,
+            settings=previous.settings,
+            text=revised_previous,
+        )
+        result[index] = SubtitleCue(
+            index=current.index,
+            start=current.start,
+            end=current.end,
+            settings=current.settings,
+            text=revised_current,
+        )
+    return result
+
+
+def reflow_subtitle_srt_for_display(
+        source_srt_path, output_path=None, max_chars=None):
+    """无损拆分超长字幕，生成供校对和压制使用的排版副本。"""
+    source = Path(source_srt_path).expanduser().resolve()
+    if not source.is_file():
+        raise ValueError("源字幕文件不存在")
+    if source.suffix.casefold() != ".srt":
+        raise ValueError("源字幕必须是 SRT")
+    destination = (
+        Path(output_path).expanduser().resolve()
+        if output_path else _reflowed_srt_path(source)
+    )
+    if destination == source:
+        raise ValueError("排版字幕不能覆盖源字幕")
+    if (
+            _corrected_srt_path(source).is_file()
+            or _corrected_srt_path(destination).is_file()):
+        raise ValueError("已有校对字幕，不能重新整理源字幕")
+
+    if max_chars is None:
+        # 与 FunASR 新生成工作字幕使用同一上限，避免旧字幕在校对页面再次过长。
+        from topic_engine import SUBTITLE_MAX_CHARS
+
+        max_chars = SUBTITLE_MAX_CHARS
+    try:
+        max_chars = max(1, int(max_chars))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("字幕单行字数上限无效") from exc
+
+    source_cues = parse_srt_document(source)
+    reflowed_cues = []
+    next_index = 1
+    for cue in source_cues:
+        for start, end, text in _split_cue_for_ass(cue, max_chars):
+            reflowed_cues.append(SubtitleCue(
+                index=next_index,
+                start=_srt_timestamp(start),
+                end=_srt_timestamp(end),
+                settings=cue.settings,
+                text=text,
+            ))
+            next_index += 1
+
+    reflowed_cues = _rebalance_short_leading_subtitle_fragments(
+        reflowed_cues,
+        max_chars,
+    )
+    if not reflowed_cues:
+        raise ValueError("源字幕没有可整理的内容")
+    _atomic_write_text(destination, serialise_srt(reflowed_cues))
+    return {
+        "source_srt_path": str(source),
+        "srt_path": str(destination),
+        "corrected_srt_path": str(_corrected_srt_path(destination)),
+        "cue_count": len(reflowed_cues),
+        "split_count": len(reflowed_cues) - len(source_cues),
+        "max_chars": max_chars,
+    }
+
+
+def save_corrected_srt(
+        source_srt_path, corrections, output_path=None, *, deleted_indices=None,
+        merge_pairs=None, merge_overrides=None, time_overrides=None):
+    """校验并保存正文、删除、合并和时间调整；原 SRT 保持只读。"""
     cues = parse_srt_document(source_srt_path)
     cue_by_index = {cue.index: cue for cue in cues}
     updates = {}
@@ -251,9 +642,157 @@ def save_corrected_srt(source_srt_path, corrections, output_path=None):
             raise ValueError(f"第 {index} 条修正文包含时间轴")
         updates[index] = corrected
 
+    deleted = _normalise_deleted_indices(cues, deleted_indices)
+    conflicting_indices = sorted(set(updates) & deleted)
+    if conflicting_indices:
+        raise ValueError(
+            f"第 {conflicting_indices[0]} 条字幕不能同时修改和删除"
+        )
+
+    previous_by_child = _normalise_merge_pairs(cues, merge_pairs, deleted)
+    normalized_merge_overrides = _normalise_merge_overrides(
+        cues,
+        previous_by_child,
+        merge_overrides,
+    )
+    normalized_time_overrides = _normalise_time_overrides(
+        cues,
+        previous_by_child,
+        deleted,
+        time_overrides,
+    )
     destination = Path(output_path) if output_path else _corrected_srt_path(source_srt_path)
-    _atomic_write_text(destination, serialise_srt(cues, updates))
+    _atomic_write_text(
+        destination,
+        serialise_srt(
+            cues,
+            updates,
+            deleted_indices=deleted,
+            merge_pairs=merge_pairs,
+            merge_overrides=merge_overrides,
+            time_overrides=time_overrides,
+        ),
+    )
+    state_payload = {
+        "version": SUBTITLE_EDIT_STATE_VERSION,
+        "source_srt_path": str(Path(source_srt_path).resolve()),
+        "source_fingerprint": _subtitle_content_fingerprint(source_srt_path),
+        "corrected_srt_path": str(destination.resolve()),
+        "corrected_fingerprint": _subtitle_content_fingerprint(destination),
+        "corrections": [
+            {
+                "index": index,
+                "original": cue_by_index[index].text,
+                "corrected": corrected,
+            }
+            for index, corrected in sorted(updates.items())
+        ],
+        "deleted_indices": sorted(deleted),
+        "merge_pairs": [
+            {"first": first, "second": second}
+            for second, first in sorted(previous_by_child.items())
+        ],
+        "merge_overrides": {
+            str(index): text
+            for index, text in sorted(normalized_merge_overrides.items())
+        },
+        "time_overrides": {
+            str(index): {
+                "start": timing["start_seconds"],
+                "end": timing["end_seconds"],
+            }
+            for index, timing in sorted(normalized_time_overrides.items())
+        },
+    }
+    _atomic_write_text(
+        _subtitle_edit_state_path(source_srt_path),
+        json.dumps(state_payload, ensure_ascii=False, indent=2),
+    )
     return str(destination)
+
+
+def load_subtitle_edit_state(source_srt_path):
+    """读取与源字幕完全匹配的校对状态；旧产物或过期状态返回 None。"""
+
+    source = Path(source_srt_path).resolve()
+    state_path = _subtitle_edit_state_path(source)
+    if not state_path.is_file():
+        return None
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        if int(payload.get("version", 0)) != SUBTITLE_EDIT_STATE_VERSION:
+            return None
+        saved_source = Path(str(payload.get("source_srt_path", ""))).resolve()
+        if os.path.normcase(str(saved_source)) != os.path.normcase(str(source)):
+            return None
+        if payload.get("source_fingerprint") != _subtitle_content_fingerprint(source):
+            return None
+        corrected = Path(str(payload.get("corrected_srt_path", ""))).resolve()
+        if not corrected.is_file():
+            return None
+        if payload.get("corrected_fingerprint") != _subtitle_content_fingerprint(corrected):
+            return None
+        cues = parse_srt_document(source)
+        deleted = _normalise_deleted_indices(cues, payload.get("deleted_indices", []))
+        previous_by_child = _normalise_merge_pairs(
+            cues,
+            payload.get("merge_pairs", []),
+            deleted,
+        )
+        normalized_merge_overrides = _normalise_merge_overrides(
+            cues,
+            previous_by_child,
+            payload.get("merge_overrides", {}),
+        )
+        normalized_time_overrides = _normalise_time_overrides(
+            cues,
+            previous_by_child,
+            deleted,
+            payload.get("time_overrides", {}),
+        )
+        cue_by_index = {cue.index: cue for cue in cues}
+        corrections = []
+        for item in payload.get("corrections", []):
+            if not isinstance(item, dict):
+                return None
+            index = int(item.get("index"))
+            if index not in cue_by_index or index in deleted:
+                return None
+            if str(item.get("original", "")) != cue_by_index[index].text:
+                return None
+            corrected_text = str(item.get("corrected", "")).strip()
+            if not corrected_text or _TIMESTAMP_IN_TEXT_RE.search(corrected_text):
+                return None
+            corrections.append({
+                "index": index,
+                "original": cue_by_index[index].text,
+                "corrected": corrected_text,
+            })
+        return {
+            "state_path": str(state_path),
+            "corrected_srt_path": str(corrected),
+            "corrections": corrections,
+            "deleted_indices": sorted(deleted),
+            "merge_pairs": [
+                {"first": first, "second": second}
+                for second, first in sorted(previous_by_child.items())
+            ],
+            "merge_overrides": {
+                str(index): text
+                for index, text in sorted(normalized_merge_overrides.items())
+            },
+            "time_overrides": {
+                str(index): {
+                    "start": timing["start_seconds"],
+                    "end": timing["end_seconds"],
+                }
+                for index, timing in sorted(normalized_time_overrides.items())
+            },
+        }
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def _is_generated_stem(stem):
@@ -272,21 +811,24 @@ def _path_timestamps(path):
     return float(created_at), float(stat.st_mtime)
 
 
-def _pair_result(video_path, srt_path):
+def _pair_result(video_path, srt_path=None):
     directory = video_path.parent
     folder_created_at, folder_modified_at = _path_timestamps(directory)
     source_created_at, source_modified_at = _path_timestamps(video_path)
-    corrected_srt = _corrected_srt_path(srt_path)
+    raw_srt = srt_path or video_path.with_suffix(".srt")
+    reflowed_srt = _reflowed_srt_path(raw_srt)
+    expected_srt = reflowed_srt if reflowed_srt.is_file() else raw_srt
+    has_source_srt = expected_srt.is_file()
+    corrected_srt = _corrected_srt_path(expected_srt)
     output_video = video_path.with_name(f"{video_path.stem}_字幕版.mp4")
-    pair_key = "\n".join(
-        (os.path.normcase(str(video_path.resolve())), os.path.normcase(str(srt_path.resolve())))
-    )
-    try:
-        cue_count = len(parse_srt_document(srt_path))
-        subtitle_error = ""
-    except (OSError, ValueError) as exc:
-        cue_count = 0
-        subtitle_error = str(exc)
+    pair_key = os.path.normcase(str(video_path.resolve()))
+    cue_count = 0
+    subtitle_error = ""
+    if has_source_srt:
+        try:
+            cue_count = len(parse_srt_document(expected_srt))
+        except (OSError, ValueError) as exc:
+            subtitle_error = str(exc)
     return {
         "id": hashlib.sha256(pair_key.encode("utf-8")).hexdigest()[:16],
         "title": directory.name,
@@ -297,8 +839,17 @@ def _pair_result(video_path, srt_path):
         "source_modified_at": source_modified_at,
         "video_name": video_path.name,
         "video_path": str(video_path),
-        "srt_name": srt_path.name,
-        "srt_path": str(srt_path),
+        "raw_srt_path": str(raw_srt),
+        "srt_name": expected_srt.name,
+        "srt_path": str(expected_srt),
+        "is_reflowed_srt": expected_srt == reflowed_srt,
+        "has_source_srt": has_source_srt,
+        "needs_transcription": not has_source_srt,
+        "can_reflow_srt": (
+            raw_srt.is_file()
+            and not _corrected_srt_path(expected_srt).is_file()
+            and not _corrected_srt_path(raw_srt).is_file()
+        ),
         "cue_count": cue_count,
         "subtitle_error": subtitle_error,
         "corrected_srt_path": str(corrected_srt),
@@ -309,7 +860,7 @@ def _pair_result(video_path, srt_path):
 
 
 def scan_submission_pairs(root_dir):
-    """递归扫描投稿目录，优先同名配对，单视频/单字幕目录允许异名配对。"""
+    """递归扫描投稿视频；已有字幕优先配对，无字幕视频保留为待识别项。"""
     root = Path(root_dir)
     if not root.is_dir():
         raise ValueError("投稿目录不存在")
@@ -320,7 +871,7 @@ def scan_submission_pairs(root_dir):
         videos = sorted(
             path
             for path in (folder / name for name in names)
-            if path.suffix.lower() in {".mp4", ".mov", ".mkv"}
+            if path.suffix.lower() in _SUBMISSION_VIDEO_SUFFIXES
             and not _is_generated_stem(path.stem)
         )
         subtitles = sorted(
@@ -328,7 +879,7 @@ def scan_submission_pairs(root_dir):
             for path in (folder / name for name in names)
             if path.suffix.lower() == ".srt" and not _is_generated_stem(path.stem)
         )
-        if not videos or not subtitles:
+        if not videos:
             continue
 
         unmatched_videos = list(videos)
@@ -344,8 +895,44 @@ def scan_submission_pairs(root_dir):
 
         if len(unmatched_videos) == 1 and len(unmatched_subtitles) == 1:
             pairs.append(_pair_result(unmatched_videos[0], unmatched_subtitles[0]))
+            unmatched_videos.clear()
+
+        pairs.extend(_pair_result(video) for video in unmatched_videos)
 
     return sorted(pairs, key=lambda item: (item["directory"].casefold(), item["video_name"].casefold()))
+
+
+def transcribe_submission_video(video_path, progress_callback=None):
+    """为精剪成片生成同名 SRT；成功后清理检查点，失败时保留续跑数据。"""
+    video = Path(video_path).expanduser().resolve()
+    if not video.is_file():
+        raise ValueError("投稿视频文件不存在")
+    if video.suffix.casefold() not in _SUBMISSION_VIDEO_SUFFIXES:
+        raise ValueError("投稿视频格式不受支持")
+
+    from topic_engine import ensure_srt
+
+    expected_srt = video.with_suffix(".srt")
+    checkpoint_path = video.with_name(f"{video.stem}_asr_checkpoint.json")
+    srt_path = ensure_srt(
+        str(video),
+        progress_callback=progress_callback,
+        checkpoint_path=str(checkpoint_path),
+    )
+    if not srt_path or not Path(srt_path).is_file():
+        raise RuntimeError("未识别到有效语音，没有生成 SRT 字幕")
+    generated_srt = Path(srt_path).resolve()
+    if generated_srt != expected_srt.resolve():
+        raise RuntimeError("FunASR 返回了非预期的字幕路径")
+    cues = parse_srt_document(generated_srt)
+    if not cues:
+        raise RuntimeError("生成的 SRT 没有有效字幕")
+    checkpoint_path.unlink(missing_ok=True)
+    return {
+        "video_path": str(video),
+        "srt_path": str(generated_srt),
+        "cue_count": len(cues),
+    }
 
 
 def _subtitle_source_fingerprint(srt_path, context_title, glossary):
@@ -743,6 +1330,244 @@ def high_confidence_corrections(review_result, minimum_confidence=0.95):
     return selected
 
 
+def _subtitle_title_evidence(cues, maximum_chars=SUBTITLE_TITLE_EVIDENCE_CHARS):
+    """保留整段字幕的时间顺序；超长成片按均匀采样压缩，避免只看开头。"""
+    rows = []
+    for cue in cues:
+        clean_text = re.sub(r"\s+", " ", str(cue.text or "")).strip()
+        if clean_text:
+            rows.append(f"[{cue.start} - {cue.end}] {clean_text}")
+    if not rows:
+        raise ValueError("字幕没有可用于生成标题的正文")
+    full_text = "\n".join(rows)
+    if len(full_text) <= maximum_chars:
+        return full_text, False
+
+    target_count = max(3, int(len(rows) * maximum_chars / len(full_text)))
+    if target_count >= len(rows):
+        return full_text[:maximum_chars], True
+    indices = {
+        round(position * (len(rows) - 1) / (target_count - 1))
+        for position in range(target_count)
+    }
+    sampled = "\n".join(rows[index] for index in sorted(indices))
+    return sampled[:maximum_chars], True
+
+
+def _subtitle_title_generation_prompt(
+        evidence, context_title, *, sampled=False, compact=False):
+    from topic_engine import _build_title_style_prompt, _title_hook_prompt_guide
+
+    style_prompt = _build_title_style_prompt(evidence, compact=compact)
+    evidence_limit = 12000 if compact else SUBTITLE_TITLE_EVIDENCE_CHARS
+    sampling_note = (
+        "字幕过长，下面是覆盖开头、中段和结尾的等距样本；不得把缺失内容脑补为事实。"
+        if sampled else
+        "下面是当前成片按时间顺序排列的完整字幕。"
+    )
+    return (
+        "你负责根据一条已经精剪完成的视频字幕生成B站投稿标题。"
+        "先还原这段视频完整发生了什么：触发点、对话推进、真正结果或收尾原话分别是什么；"
+        "再找陌生观众第一眼最想追问‘为什么’的具体矛盾、反差、误会、视觉细节或社死后果。"
+        "字幕是ASR文本，可能缺少标点或有少量同音错字，应结合上下文理解，但绝不能补写字幕没有的事件。"
+        "生成3个真正不同角度的标题：优先尝试原话反差、结果前置、口语吐槽；"
+        "每个标题都应把具体诱因与真正结果、反转或代价写完整，不能只写‘聊到、介绍、发现、讨论、看到’。"
+        "现有视频/目录名称只用于识别人物和主题，不能因为它已经像标题就照抄。"
+        + _title_hook_prompt_guide()
+        + "\n只输出JSON对象："
+        '{"content_summary":"一句话还原事件全过程",'
+        '"hook":"最值得点击且有字幕证据的诱因+结果",'
+        '"candidates":[{"title":"标题A","angle":"原话反差"},'
+        '{"title":"标题B","angle":"结果前置"},'
+        '{"title":"标题C","angle":"口语吐槽"}]}。'
+        "不得输出分析过程或Markdown。\n\n"
+        f"当前视频名称：{context_title or '未提供'}\n"
+        f"字幕说明：{sampling_note}\n\n"
+        f"账号历史标题风格（只学习语气和结构，不得照抄旧事件）：\n{style_prompt or '无'}\n\n"
+        "当前成片字幕：\n" + evidence[:evidence_limit]
+    )
+
+
+def _normalise_subtitle_title_payload(payload, context_title):
+    from topic_engine import (
+        MAX_PUBLISH_TITLE_CHARS,
+        _extract_json_payload,
+        _normalise_publish_title,
+    )
+
+    if isinstance(payload, str):
+        payload = _extract_json_payload(payload)
+    if not isinstance(payload, dict):
+        raise RuntimeError("标题生成没有返回有效 JSON 对象")
+    raw_candidates = payload.get("candidates")
+    if not isinstance(raw_candidates, list):
+        raise RuntimeError("标题生成结果缺少 candidates 数组")
+    titles = []
+    for item in raw_candidates:
+        raw_title = item.get("title") if isinstance(item, dict) else item
+        raw_title = re.sub(r"\s+", " ", str(raw_title or "")).strip()
+        if not 4 <= len(raw_title) <= MAX_PUBLISH_TITLE_CHARS:
+            continue
+        title = _normalise_publish_title(raw_title, context_title or "视频片段")
+        if title not in titles:
+            titles.append(title)
+    if len(titles) < 3:
+        raise RuntimeError("AI 未返回 3 个不同且有效的参考标题")
+    return {
+        "content_summary": re.sub(
+            r"\s+", " ", str(payload.get("content_summary") or "")
+        ).strip()[:500],
+        "hook": re.sub(r"\s+", " ", str(payload.get("hook") or "")).strip()[:300],
+        "candidates": titles[:3],
+    }
+
+
+def _subtitle_title_judge_prompt(
+        evidence, context_title, generated, *, sampled=False, compact=False):
+    from topic_engine import _build_title_style_prompt, _title_hook_prompt_guide
+
+    style_prompt = _build_title_style_prompt(evidence, compact=compact)
+    evidence_limit = 10000 if compact else SUBTITLE_TITLE_EVIDENCE_CHARS
+    return (
+        "你是独立的B站切片标题终审，不参与上一轮候选生成。"
+        "请逐字核对字幕，比较3个候选；如果都遗漏最强后果、反转或收尾原话，可以重写。"
+        "最终标题必须具体、口语化、有好奇点，同时完全受字幕证据支持。"
+        "不要偏爱排在第一的标题，不要写成内容摘要，不要为博眼球编造事实。"
+        + _title_hook_prompt_guide()
+        + "\n只输出JSON对象："
+        '{"recommended_title":"最终推荐标题",'
+        '"reason":"一句话说明保留了什么诱因和爆点",'
+        '"alternatives":["备选标题1","备选标题2"]}。'
+        "不要输出分析过程或Markdown。\n\n"
+        f"当前视频名称：{context_title or '未提供'}\n"
+        f"上一轮内容还原：{generated['content_summary']}\n"
+        f"上一轮爆点：{generated['hook']}\n"
+        f"候选标题：{json.dumps(generated['candidates'], ensure_ascii=False)}\n"
+        f"账号历史标题风格：\n{style_prompt or '无'}\n\n"
+        f"字幕{'（等距样本）' if sampled else '（完整）'}：\n"
+        + evidence[:evidence_limit]
+    )
+
+
+def _normalise_subtitle_title_judgement(payload, generated, context_title):
+    from topic_engine import (
+        MAX_PUBLISH_TITLE_CHARS,
+        _extract_json_payload,
+        _normalise_publish_title,
+    )
+
+    if isinstance(payload, str):
+        payload = _extract_json_payload(payload)
+    if not isinstance(payload, dict):
+        raise RuntimeError("标题终审没有返回有效 JSON 对象")
+    raw_recommended = re.sub(
+        r"\s+", " ", str(payload.get("recommended_title") or "")
+    ).strip()
+    if not 4 <= len(raw_recommended) <= MAX_PUBLISH_TITLE_CHARS:
+        raise RuntimeError("标题终审没有返回有效推荐标题")
+    recommended = _normalise_publish_title(
+        raw_recommended,
+        context_title or "视频片段",
+    )
+    titles = [recommended]
+    for value in payload.get("alternatives") or []:
+        raw = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not 4 <= len(raw) <= MAX_PUBLISH_TITLE_CHARS:
+            continue
+        title = _normalise_publish_title(raw, context_title or "视频片段")
+        if title not in titles:
+            titles.append(title)
+    for title in generated["candidates"]:
+        if title not in titles:
+            titles.append(title)
+    return {
+        "recommended_title": recommended,
+        "reason": re.sub(
+            r"\s+", " ", str(payload.get("reason") or "")
+        ).strip()[:300],
+        "candidates": titles[:3],
+        "content_summary": generated["content_summary"],
+        "hook": generated["hook"],
+    }
+
+
+def _default_subtitle_title_runner(prompt, compact_prompt, progress_label):
+    from topic_engine import _call_llm_with_retry, _extract_json_payload
+
+    response = _call_llm_with_retry(
+        prompt,
+        compact_prompt=compact_prompt,
+        max_tokens=6000,
+        compact_max_tokens=4500,
+        attempts=3,
+        progress_label=progress_label,
+        require_json=True,
+        reasoning_stage="review",
+    )
+    return _extract_json_payload(response)
+
+
+def generate_subtitle_reference_titles(
+        srt_path, context_title="", llm_runner=None, progress_callback=None):
+    """根据当前成片字幕生成三个参考投稿标题，并独立终审推荐一个。"""
+    cues = parse_srt_document(srt_path)
+    evidence, sampled = _subtitle_title_evidence(cues)
+    runner = llm_runner or _default_subtitle_title_runner
+
+    if progress_callback:
+        progress_callback("根据校对字幕理解片段并生成标题候选...", 25, 100)
+    generation_prompt = _subtitle_title_generation_prompt(
+        evidence,
+        context_title,
+        sampled=sampled,
+    )
+    generated = _normalise_subtitle_title_payload(
+        runner(
+            generation_prompt,
+            _subtitle_title_generation_prompt(
+                evidence,
+                context_title,
+                sampled=sampled,
+                compact=True,
+            ),
+            "字幕参考标题候选生成",
+        ),
+        context_title,
+    )
+
+    if progress_callback:
+        progress_callback("独立复核标题爆点与字幕证据...", 65, 100)
+    judgement = _normalise_subtitle_title_judgement(
+        runner(
+            _subtitle_title_judge_prompt(
+                evidence,
+                context_title,
+                generated,
+                sampled=sampled,
+            ),
+            _subtitle_title_judge_prompt(
+                evidence,
+                context_title,
+                generated,
+                sampled=sampled,
+                compact=True,
+            ),
+            "字幕参考标题独立终审",
+        ),
+        generated,
+        context_title,
+    )
+    judgement.update({
+        "source_srt_path": str(Path(srt_path).resolve()),
+        "context_title": str(context_title or ""),
+        "cue_count": len(cues),
+        "sampled": sampled,
+    })
+    if progress_callback:
+        progress_callback("参考标题生成完成", 100, 100)
+    return judgement
+
+
 def normalise_subtitle_style(style=None):
     """校验剪映参数；指定字体固定为用户确认的精确字体。"""
     values = dict(DEFAULT_SUBTITLE_STYLE)
@@ -893,6 +1718,87 @@ def _escape_ass_text(text):
     )
 
 
+def _subtitle_display_text_size(text):
+    return len(re.sub(r"\s+", "", str(text or "")))
+
+
+def _subtitle_display_char_limit(width, geometry):
+    """按输出画布、字号和描边估算一行字幕的安全字数。"""
+    usable_width = max(1.0, float(width) - geometry["margin"] * 2)
+    glyph_width = max(
+        1.0,
+        geometry["font_size"] * 0.92 + geometry["outline"] * 2,
+    )
+    return max(6, min(32, int(usable_width / glyph_width)))
+
+
+def _split_subtitle_text_for_ass(text, max_chars):
+    """将显示过长的单条字幕拆为安全行，优先保留词间空格。"""
+    remaining = re.sub(r"\s+", " ", str(text or "")).strip()
+    parts = []
+    while _subtitle_display_text_size(remaining) > max_chars:
+        visible_count = 0
+        hard_cut = len(remaining)
+        for index, char in enumerate(remaining):
+            if not char.isspace():
+                visible_count += 1
+            if visible_count >= max_chars:
+                hard_cut = index + 1
+                break
+        preferred_cut = remaining.rfind(" ", 0, hard_cut)
+        if (
+                preferred_cut > 0
+                and _subtitle_display_text_size(remaining[:preferred_cut])
+                >= max(2, int(max_chars * 0.55))):
+            cut = preferred_cut
+        else:
+            cut = hard_cut
+        part = remaining[:cut].strip()
+        if not part:
+            part = remaining[:hard_cut].strip()
+            cut = hard_cut
+        if not part:
+            break
+        parts.append(part)
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        parts.append(remaining)
+    return parts
+
+
+def _split_cue_for_ass(cue, max_chars):
+    """把一条 SRT cue 拆成连续 ASS 事件，避免靠自动换行撑出画面。"""
+    parts = _split_subtitle_text_for_ass(cue.text, max_chars)
+    if not parts:
+        return []
+    start = cue.start_seconds
+    end = cue.end_seconds
+    if end <= start:
+        # SRT 时间轴本身无效时才给渲染器一个最小可显示区间。
+        end = start + 0.01
+    if len(parts) == 1:
+        return [(start, end, parts[0])]
+
+    weights = [max(1, _subtitle_display_text_size(part)) for part in parts]
+    total_weight = sum(weights)
+    duration = end - start
+    minimum_duration = min(0.05, duration / len(parts))
+    cursor = start
+    events = []
+    for index, (part, weight) in enumerate(zip(parts, weights)):
+        if index == len(parts) - 1:
+            next_cursor = end
+        else:
+            ideal_cursor = start + duration * sum(weights[:index + 1]) / total_weight
+            remaining_parts = len(parts) - index - 1
+            earliest_cursor = cursor + minimum_duration
+            latest_cursor = end - minimum_duration * remaining_parts
+            next_cursor = min(latest_cursor, max(earliest_cursor, ideal_cursor))
+        events.append((cursor, next_cursor, part))
+        cursor = next_cursor
+    return events
+
+
 def _style_geometry(style, width, height):
     scale = float(height) / 1080.0
     return {
@@ -928,12 +1834,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     position = rf"{{\an5\pos({geometry['x']},{geometry['y']})}}"
     events = []
+    max_chars = _subtitle_display_char_limit(width, geometry)
     for cue in cues:
-        events.append(
-            "Dialogue: 0,"
-            f"{_ass_timestamp(cue.start_seconds)},{_ass_timestamp(cue.end_seconds)},"
-            f"Default,,0,0,0,,{position}{_escape_ass_text(cue.text)}"
-        )
+        for start, end, text in _split_cue_for_ass(cue, max_chars):
+            events.append(
+                "Dialogue: 0,"
+                f"{_ass_timestamp(start)},{_ass_timestamp(end)},"
+                f"Default,,0,0,0,,{position}{_escape_ass_text(text)}"
+            )
     return header + "\n".join(events) + "\n"
 
 

@@ -15,6 +15,7 @@ import math
 import bisect
 import difflib
 import os, re, json, time, zipfile, requests, threading, shutil
+import unicodedata
 from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timedelta
@@ -79,16 +80,57 @@ LLM_MAX_CONCURRENCY = 4
 TOPIC_ANALYSIS_CHECKPOINT_VERSION = 1
 # 修改候选复核提示、标题证据或通过规则时必须递增，防止旧标题检查点被继续复用。
 CLIP_REVIEW_POLICY_VERSION = 6
-FUNASR_MODEL = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+FUNASR_MODEL = (
+    os.environ.get("AUTOSLICE_FUNASR_MODEL", "").strip()
+    or "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+)
+FUNASR_CONTEXTUAL_MODEL = (
+    os.environ.get("AUTOSLICE_FUNASR_CONTEXTUAL_MODEL", "").strip()
+    or "damo/speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
+)
+FUNASR_VAD_MODEL = (
+    os.environ.get("AUTOSLICE_FUNASR_VAD_MODEL", "").strip()
+    or "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"
+)
+FUNASR_PUNC_MODEL = (
+    os.environ.get("AUTOSLICE_FUNASR_PUNC_MODEL", "").strip()
+    or "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+)
 FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
 FUNASR_CHUNK_SEC = 120.0
 FUNASR_CHUNK_PRE_CONTEXT_SEC = 20.0
 FUNASR_BATCH_SIZE_SEC = 60
-FUNASR_CHECKPOINT_VERSION = 2
+FUNASR_CHECKPOINT_VERSION = 3
 FUNASR_CPU_RETRY_DELAY_SEC = 1
 FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
     r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 )
+FUNASR_CONTEXTUAL_CACHE_MODEL_DIR = os.path.expanduser(
+    r"~\.cache\modelscope\hub\models\damo\speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
+)
+FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC = os.path.expanduser(
+    r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
+)
+FUNASR_NANO_MODEL = (
+    os.environ.get("AUTOSLICE_FUNASR_NANO_MODEL", "").strip()
+    or "FunAudioLLM/Fun-ASR-Nano-2512"
+)
+FUNASR_NANO_CACHE_ROOTS = (
+    os.path.expanduser(
+        r"~\.cache\modelscope\hub\models\FunAudioLLM\Fun-ASR-Nano-2512"
+    ),
+    os.path.expanduser(
+        r"~\.cache\huggingface\hub\models--FunAudioLLM--Fun-ASR-Nano-2512\snapshots"
+    ),
+)
+FUNASR_VAD_CACHE_MODEL_DIR = os.path.expanduser(
+    r"~\.cache\modelscope\hub\models\iic\speech_fsmn_vad_zh-cn-16k-common-pytorch"
+)
+FUNASR_PUNC_CACHE_MODEL_DIR = os.path.expanduser(
+    r"~\.cache\modelscope\hub\models\iic\punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+)
+FUNASR_HOTWORD_MAX_COUNT = 80
+FUNASR_HOTWORD_MAX_CHARS = 2400
 DANMAKU_WINDOW = 60
 DANMAKU_WINDOW_STEP = 15  # 每 15 秒采样一个 60 秒窗口，兼顾峰值定位和全场覆盖
 DANMAKU_MESSAGE_MAX_CHARS = 120
@@ -141,13 +183,21 @@ SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
 SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
 SRT_MAX_ESTIMATED_SEG_SEC = 300 # 单条异常字幕最多估算 5 分钟
 SRT_REPEAT_REPAIR_MIN_ENTRIES = 8  # 旧版把整段全文按每个字重复写入时的识别下限
-SUBTITLE_TARGET_CHARS = 18
-SUBTITLE_MAX_CHARS = 28
+# 当前默认字幕为剪映字号 20、描边 100。28 字会在 16:9 成片中直接越界，
+# 因此工作 SRT 以 13 字为硬上限；最终 ASS 仍会按实际画布再做一次保险拆分。
+SUBTITLE_TARGET_CHARS = 10
+SUBTITLE_MAX_CHARS = 13
+# 只供修复历史“全文重复到逐字时间戳”的旧 SRT 使用。该路径需要较完整的
+# 上下文来纠正跨词专名；最终成片仍会在 ASS 层按画布宽度安全拆分。
+SUBTITLE_LEGACY_REPAIR_MAX_CHARS = 28
 SUBTITLE_MAX_DURATION_SEC = 7.0
 SUBTITLE_PAUSE_BREAK_SEC = 0.65
 TOPIC_MIN_REPORT_SEC = 60       # 正文较多但模型给出几秒时，报告至少扩到 1 分钟
 TOPIC_MAX_REPAIRED_REPORT_SEC = 180
-MANUAL_TIMELINE_DIR = r"F:\切片时间轴"
+MANUAL_TIMELINE_DIR = os.environ.get(
+    "AUTOSLICE_TIMELINE_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "timelines"),
+)
 MANUAL_TIMELINE_CHUNK_MARGIN_SEC = 180
 MANUAL_TIMELINE_TOPIC_PRE_SEC = 30
 MANUAL_TIMELINE_TOPIC_POST_SEC = 150
@@ -178,7 +228,10 @@ TITLE_STYLE_PROFILE_PATH = str(
 TITLE_STYLE_EXAMPLE_LIMIT = 8
 DEFAULT_REFINEMENT_QUEUE_DIR = os.environ.get(
     "AUTOSLICE_REFINEMENT_QUEUE_DIR",
-    r"F:\Videos\自动切片",
+    os.environ.get(
+        "AUTOSLICE_OUTPUT_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"),
+    ),
 )
 _UNIFIED_REFINEMENT_QUEUE_LOCK = threading.Lock()
 _LEADING_ACCOUNT_PREFIX_RE = re.compile(
@@ -214,7 +267,7 @@ _TITLE_STYLE_TAG_KEYWORDS = {
 REFINEMENT_WORKFLOW_STEPS = (
     ("verify_context", "核查前后文"),
     ("trim_breath", "剪气口与停顿"),
-    ("correct_subtitles", "导入片段同名校对字幕并检查专名"),
+    ("correct_subtitles", "精剪导出后自动识别、校对并压制字幕"),
     ("add_intro_outro", "添加片头片尾"),
     ("export_video", "导出精调成片"),
     ("make_cover", "用 AutoCover 制作封面"),
@@ -362,6 +415,20 @@ def _join_asr_tokens(tokens):
     return result.strip()
 
 
+def _strip_asr_subtitle_punctuation(text):
+    """按剪辑习惯移除 ASR 字幕标点；逗号类保留为单个分隔空格。"""
+    result = []
+    comma_like = {"，", ",", "、"}
+    for char in str(text or ""):
+        if char in comma_like:
+            result.append(" ")
+        elif unicodedata.category(char).startswith("P"):
+            continue
+        else:
+            result.append(char)
+    return re.sub(r"\s+", " ", "".join(result)).strip()
+
+
 def _normalise_asr_text(text, streamer_name="主播"):
     """清理 ASR 分词空格，并应用当前主播配置的低歧义专名纠错。"""
     if isinstance(text, (list, tuple)):
@@ -369,7 +436,8 @@ def _normalise_asr_text(text, streamer_name="主播"):
     else:
         tokens = re.split(r'\s+', str(text or "").replace("\n", " ").strip())
     clean = _join_asr_tokens(tokens)
-    return _normalise_streamer_terms(clean, streamer_name=streamer_name)
+    clean = _normalise_streamer_terms(clean, streamer_name=streamer_name)
+    return _strip_asr_subtitle_punctuation(clean)
 
 
 def _normalise_streamer_terms(text, streamer_name="主播"):
@@ -387,10 +455,106 @@ def _subtitle_text_size(text):
     return len(re.sub(r'\s+', '', text or ""))
 
 
-def _segment_timed_tokens(timed_tokens, streamer_name="主播"):
+def _split_subtitle_text_for_display(text, max_chars=SUBTITLE_MAX_CHARS):
+    """按可读长度拆分字幕正文，优先在空格处断开，必要时按字硬切。"""
+    try:
+        max_chars = max(1, int(max_chars))
+    except (TypeError, ValueError):
+        max_chars = SUBTITLE_MAX_CHARS
+    remaining = re.sub(r"\s+", " ", str(text or "")).strip()
+    parts = []
+    while _subtitle_text_size(remaining) > max_chars:
+        visible_count = 0
+        hard_cut = len(remaining)
+        for index, char in enumerate(remaining):
+            if not char.isspace():
+                visible_count += 1
+            if visible_count >= max_chars:
+                hard_cut = index + 1
+                break
+        preferred_cut = remaining.rfind(" ", 0, hard_cut)
+        if (
+                preferred_cut > 0
+                and _subtitle_text_size(remaining[:preferred_cut])
+                >= max(2, int(max_chars * 0.55))):
+            cut = preferred_cut
+        else:
+            cut = hard_cut
+        part = remaining[:cut].strip()
+        if not part:
+            part = remaining[:hard_cut].strip()
+            cut = hard_cut
+        if not part:
+            break
+        parts.append(part)
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        parts.append(remaining)
+    return parts
+
+
+def _split_timed_subtitle_segment(start_s, end_s, text, max_chars=SUBTITLE_MAX_CHARS):
+    """将过长字幕按正文比例分配为连续时间段，避免单条字幕越界。"""
+    parts = _split_subtitle_text_for_display(text, max_chars=max_chars)
+    if not parts:
+        return []
+    start_s = float(start_s)
+    end_s = float(end_s)
+    if end_s <= start_s:
+        # 仅修复无效时间戳；合法的极短字幕仍必须保留原始时间范围。
+        end_s = start_s + 0.1
+    if len(parts) == 1:
+        return [(start_s, end_s, parts[0])]
+
+    weights = [max(1, _subtitle_text_size(part)) for part in parts]
+    total_weight = sum(weights)
+    duration = end_s - start_s
+    minimum_duration = min(0.05, duration / len(parts))
+    cursor = start_s
+    segments = []
+    for index, (part, weight) in enumerate(zip(parts, weights)):
+        if index == len(parts) - 1:
+            next_cursor = end_s
+        else:
+            ideal_cursor = start_s + duration * sum(weights[:index + 1]) / total_weight
+            remaining_parts = len(parts) - index - 1
+            earliest_cursor = cursor + minimum_duration
+            latest_cursor = end_s - minimum_duration * remaining_parts
+            next_cursor = min(latest_cursor, max(earliest_cursor, ideal_cursor))
+        segments.append((cursor, next_cursor, part))
+        cursor = next_cursor
+    return segments
+
+
+def _should_hold_subtitle_for_short_clause(timed_tokens, index, current_chars, max_chars):
+    """句末只剩一两个字时延后软截断，避免把短语尾巴单独丢到下一条。"""
+    if current_chars >= max_chars:
+        return False
+    trailing_chars = 0
+    for _start_s, _end_s, future_token in timed_tokens[index + 1:]:
+        for char in str(future_token or ""):
+            if char.isspace():
+                continue
+            if unicodedata.category(char).startswith("P") or char == "…":
+                return (
+                    0 < trailing_chars <= 2
+                    and current_chars + trailing_chars <= max_chars
+                )
+            trailing_chars += 1
+            if trailing_chars > 2 or current_chars + trailing_chars > max_chars:
+                return False
+    return False
+
+
+def _segment_timed_tokens(
+        timed_tokens, streamer_name="主播", max_chars=SUBTITLE_MAX_CHARS):
     """把字/词时间戳整理成适合阅读和边界吸附的短句字幕。"""
     if not timed_tokens:
         return []
+    try:
+        max_chars = max(1, int(max_chars))
+    except (TypeError, ValueError):
+        max_chars = SUBTITLE_MAX_CHARS
     segments = []
     current = []
     current_chars = 0
@@ -402,7 +566,9 @@ def _segment_timed_tokens(timed_tokens, streamer_name="主播"):
             return
         text = _normalise_asr_text([item[2] for item in current], streamer_name=streamer_name)
         if text:
-            segments.append((current[0][0], current[-1][1], text))
+            segments.extend(_split_timed_subtitle_segment(
+                current[0][0], current[-1][1], text, max_chars=max_chars,
+            ))
         current = []
         current_chars = 0
 
@@ -416,34 +582,81 @@ def _segment_timed_tokens(timed_tokens, streamer_name="主播"):
         next_gap = 0.0
         if index + 1 < len(timed_tokens):
             next_gap = max(0.0, float(timed_tokens[index + 1][0]) - float(end_s))
+        target_break = (
+            current_chars >= SUBTITLE_TARGET_CHARS
+            and (next_gap >= 0.15 or duration >= 4.5)
+        )
+        hold_for_short_clause = (
+            target_break
+            and _should_hold_subtitle_for_short_clause(
+                timed_tokens,
+                index,
+                current_chars,
+                max_chars,
+            )
+        )
         should_break = (
             (token[-1] in sentence_end_tokens and current_chars >= 4)
             or (next_gap >= SUBTITLE_PAUSE_BREAK_SEC and current_chars >= 2)
-            or (current_chars >= SUBTITLE_TARGET_CHARS and (next_gap >= 0.15 or duration >= 4.5))
-            or current_chars >= SUBTITLE_MAX_CHARS
+            or (target_break and not hold_for_short_clause)
+            or current_chars >= max_chars
             or duration >= SUBTITLE_MAX_DURATION_SEC
         )
         if should_break:
             flush()
     flush()
-    return segments
+
+    # Nano 的 VAD 分段有时会把句末标点放到下一段的开头。标点没有独立
+    # 语义，应回挂到上一条；极短尾字也在时间连续且不超长时并回上一条。
+    closing_punctuation = "，。！？；：、,.!?;:）)]}》】”’"
+    polished = []
+    for start_s, end_s, text in segments:
+        leading = ""
+        while text and text[0] in closing_punctuation:
+            leading += text[0]
+            text = text[1:]
+        if leading and polished:
+            previous = polished[-1]
+            polished[-1] = (previous[0], previous[1], previous[2] + leading)
+        if not text:
+            if polished:
+                previous = polished[-1]
+                polished[-1] = (
+                    previous[0], max(previous[1], end_s), previous[2]
+                )
+            continue
+        if polished:
+            previous = polished[-1]
+            gap = max(0.0, start_s - previous[1])
+            combined_text = previous[2] + text
+            if (
+                    end_s - start_s < 0.5
+                    and gap <= 0.4
+                    and _subtitle_text_size(combined_text) <= max_chars):
+                polished[-1] = (previous[0], end_s, combined_text)
+                continue
+        polished.append((start_s, end_s, text))
+    return polished
 
 
-def _segments_from_funasr_result(text, timestamps, offset=0.0, streamer_name="主播"):
+def _segments_from_funasr_result(
+        text, timestamps, offset=0.0, streamer_name="主播", raw_text=None,
+        max_chars=SUBTITLE_MAX_CHARS):
     """把单个 FunASR 结果转成短句，避免把整段全文复制到每个字时间戳。"""
     timestamps = [item for item in (timestamps or []) if isinstance(item, (list, tuple)) and len(item) == 2]
     if not text or not timestamps:
         return []
-    tokens = str(text).strip().split()
-    if len(tokens) != len(timestamps):
-        compact = re.sub(r'\s+', '', str(text))
-        if len(compact) == len(timestamps):
-            tokens = list(compact)
-        else:
-            start_s = offset + float(timestamps[0][0]) / 1000.0
-            end_s = offset + float(timestamps[-1][1]) / 1000.0
-            clean = _normalise_asr_text(text, streamer_name=streamer_name)
-            return [(start_s, max(end_s, start_s + 0.1), clean)] if clean else []
+    tokens, aligned = _align_funasr_tokens(text, timestamps, raw_text=raw_text)
+    if not aligned:
+        start_s = offset + float(timestamps[0][0]) / 1000.0
+        end_s = offset + float(timestamps[-1][1]) / 1000.0
+        clean = _normalise_asr_text(text, streamer_name=streamer_name)
+        return _split_timed_subtitle_segment(
+            start_s,
+            max(end_s, start_s + 0.1),
+            clean,
+            max_chars=max_chars,
+        )
     timed_tokens = [
         (
             offset + float(timestamp[0]) / 1000.0,
@@ -452,7 +665,11 @@ def _segments_from_funasr_result(text, timestamps, offset=0.0, streamer_name="�
         )
         for token, timestamp in zip(tokens, timestamps)
     ]
-    return _segment_timed_tokens(timed_tokens, streamer_name=streamer_name)
+    return _segment_timed_tokens(
+        timed_tokens,
+        streamer_name=streamer_name,
+        max_chars=max_chars,
+    )
 
 
 def _read_srt_entries(srt_path):
@@ -500,7 +717,11 @@ def _load_repaired_srt_segments(srt_path):
                 (entry[0], entry[1], token)
                 for entry, token in zip(group, tokens)
             ]
-            segments.extend(_segment_timed_tokens(timed_tokens, streamer_name=streamer_name))
+            segments.extend(_segment_timed_tokens(
+                timed_tokens,
+                streamer_name=streamer_name,
+                max_chars=SUBTITLE_LEGACY_REPAIR_MAX_CHARS,
+            ))
         else:
             for start_s, end_s, text in group:
                 clean_text = _normalise_asr_text(text, streamer_name=streamer_name)
@@ -593,7 +814,7 @@ def _manual_timeline_doc_candidates(video_start, timeline_dir=MANUAL_TIMELINE_DI
 
 
 def _find_manual_timeline_doc(video_path, timeline_dir=MANUAL_TIMELINE_DIR):
-    """自动查找 F:\切片时间轴 下和录播日期匹配的 docx。"""
+    """自动查找时间轴目录中和录播日期匹配的 docx。"""
     video_start = _extract_video_start_datetime(video_path)
     for path in _manual_timeline_doc_candidates(video_start, timeline_dir):
         if os.path.exists(path):
@@ -1275,7 +1496,32 @@ def _prepare_funasr_environment():
 
 
 def _funasr_model_cache_candidates():
-    return [FUNASR_CACHE_MODEL_DIR]
+    configured = os.environ.get("AUTOSLICE_FUNASR_MODEL_DIR", "").strip()
+    candidates = []
+    if configured:
+        candidates.append(os.path.abspath(os.path.expanduser(configured)))
+    # contextual 模型只在完整缓存存在时启用；否则继续使用已有普通模型。
+    candidates.extend(_funasr_nano_cache_candidates())
+    candidates.extend((
+        FUNASR_CONTEXTUAL_CACHE_MODEL_DIR,
+        FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC,
+        FUNASR_CACHE_MODEL_DIR,
+    ))
+    return list(dict.fromkeys(candidates))
+
+
+def _funasr_nano_cache_candidates():
+    candidates = []
+    for root in FUNASR_NANO_CACHE_ROOTS:
+        if os.path.isfile(os.path.join(root, "model.pt")):
+            candidates.append(root)
+        elif os.path.isdir(root):
+            candidates.extend(
+                os.path.join(root, name)
+                for name in sorted(os.listdir(root), reverse=True)
+                if os.path.isfile(os.path.join(root, name, "model.pt"))
+            )
+    return candidates
 
 
 def _resolve_funasr_model_source():
@@ -1284,6 +1530,93 @@ def _resolve_funasr_model_source():
         if model_dir and os.path.isfile(os.path.join(model_dir, "model.pt")):
             return model_dir
     return FUNASR_MODEL
+
+
+def _resolve_funasr_aux_model_source(model_id, cache_dir):
+    """只返回完整的本地辅助模型，避免启动时因网络问题隐式下载。"""
+    configured = os.environ.get(
+        "AUTOSLICE_FUNASR_VAD_DIR" if model_id == FUNASR_VAD_MODEL else "AUTOSLICE_FUNASR_PUNC_DIR",
+        "",
+    ).strip()
+    candidates = []
+    if configured:
+        candidates.append(os.path.abspath(os.path.expanduser(configured)))
+    candidates.append(cache_dir)
+    for model_dir in dict.fromkeys(candidates):
+        if model_dir and os.path.isfile(os.path.join(model_dir, "model.pt")):
+            return model_dir
+    return None
+
+
+def _funasr_model_runtime_signature():
+    """让旧 ASR 检查点在模型/标点配置变化后自动失效。"""
+    model_source = _resolve_funasr_model_source()
+    contextual_active = "contextual" in str(model_source).casefold()
+    vad_source = _resolve_funasr_aux_model_source(FUNASR_VAD_MODEL, FUNASR_VAD_CACHE_MODEL_DIR)
+    punc_source = _resolve_funasr_aux_model_source(FUNASR_PUNC_MODEL, FUNASR_PUNC_CACHE_MODEL_DIR)
+    return {
+        "asr_model": os.path.normcase(os.path.abspath(model_source)),
+        "contextual_hotwords": contextual_active,
+        "vad_model": os.path.normcase(os.path.abspath(vad_source)) if vad_source else None,
+        "punc_model": os.path.normcase(os.path.abspath(punc_source)) if punc_source else None,
+        "funasr_chunk_sec": FUNASR_CHUNK_SEC,
+        "funasr_chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
+    }
+
+
+def _funasr_hotwords(video_path=None, streamer_name=""):
+    """构造受限的 ASR 热词串；普通 Paraformer 会忽略它，contextual 模型才使用。"""
+    values = []
+    configured = os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")
+    values.extend(re.split(r"[,，、;；\n\r\t ]+", configured))
+    try:
+        from subtitle_workflow import DEFAULT_SUBTITLE_GLOSSARY
+        values.extend(DEFAULT_SUBTITLE_GLOSSARY)
+    except (ImportError, AttributeError):
+        pass
+    profile = current_streamer_profile()
+    values.extend((streamer_name, profile.canonical_name, profile.report_name, *profile.aliases))
+    values.extend(source for source, _ in profile.asr_replacements)
+    values.extend(target for _, target in profile.asr_replacements)
+    result = []
+    seen = set()
+    for value in values:
+        value = str(value or "").strip()
+        if not value or len(value) < 2 or len(value) > 40:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+        if len(result) >= FUNASR_HOTWORD_MAX_COUNT:
+            break
+    return " ".join(result)[:FUNASR_HOTWORD_MAX_CHARS]
+
+
+def _funasr_generate_kwargs(model, hotwords=""):
+    kwargs = {
+        "batch_size_s": FUNASR_BATCH_SIZE_SEC,
+        "disable_pbar": True,
+        "return_raw_text": True,
+    }
+    model_class = type(getattr(model, "model", model)).__name__.casefold()
+    if "funasrnano" in model_class:
+        kwargs.update({
+            "hotwords": str(hotwords or "").split(),
+            # Nano 的音频编码器包含只支持 fp32 的算子。让 FunASR
+            # 按模型配置选择解码精度，避免 RTX 20 系列强制 fp16 后出现
+            # Float/Half 混算错误或整段感叹号文本。
+            "language": "中文",
+            "itn": True,
+            "max_length": 1024,
+        })
+        kwargs.pop("return_raw_text", None)
+        return kwargs
+    supports_hotwords = "contextual" in model_class
+    if hotwords and supports_hotwords:
+        kwargs["hotword"] = hotwords
+    return kwargs
 
 
 def _resolve_funasr_device(requested_device=None):
@@ -1311,14 +1644,41 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
     _prepare_funasr_environment()
     selected_device = _resolve_funasr_device(device)
     model_source = _resolve_funasr_model_source()
+    is_nano = "fun-asr-nano" in str(model_source).casefold()
+    vad_source = _resolve_funasr_aux_model_source(
+        FUNASR_VAD_MODEL,
+        FUNASR_VAD_CACHE_MODEL_DIR,
+    )
+    punc_source = None if is_nano else _resolve_funasr_aux_model_source(
+        FUNASR_PUNC_MODEL,
+        FUNASR_PUNC_CACHE_MODEL_DIR,
+    )
+    model_kwargs = {
+        "model": model_source,
+        "device": selected_device,
+        "disable_update": True,
+        "disable_pbar": True,
+    }
+    if is_nano:
+        # Fun-ASR-Nano 的音频编码器必须保持 fp32；低精度只应由
+        # generate 阶段按模型配置处理，不能在 AutoModel 初始化时整模 half。
+        model_kwargs.update({"trust_remote_code": True})
+    if vad_source:
+        model_kwargs["vad_model"] = vad_source
+        model_kwargs["vad_kwargs"] = {
+            # Nano 官方长音频模式要求先按 30 秒切段；直接输入 1-2 分钟
+            # 音频会让 LLM 解码退化为无标点的 CTC 文本。
+            "max_single_segment_time": 30000 if is_nano else 60000
+        }
+    if punc_source:
+        model_kwargs["punc_model"] = punc_source
     try:
-        model = AutoModel(
-            model=model_source,
-            device=selected_device,
-            disable_update=True,
-        )
+        model = AutoModel(**model_kwargs)
         try:
             model._autoslice_device = selected_device
+            model._autoslice_model_source = model_source
+            model._autoslice_vad_source = vad_source
+            model._autoslice_punc_source = punc_source
         except (AttributeError, TypeError):
             pass
         return model
@@ -1331,13 +1691,14 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
                     100,
             )
             try:
-                model = AutoModel(
-                    model=model_source,
-                    device="cpu",
-                    disable_update=True,
-                )
+                cpu_kwargs = dict(model_kwargs)
+                cpu_kwargs["device"] = "cpu"
+                model = AutoModel(**cpu_kwargs)
                 try:
                     model._autoslice_device = "cpu"
+                    model._autoslice_model_source = model_source
+                    model._autoslice_vad_source = vad_source
+                    model._autoslice_punc_source = punc_source
                 except (AttributeError, TypeError):
                     pass
                 return model
@@ -1356,7 +1717,7 @@ def _funasr_checkpoint_path(video_path):
     return os.path.splitext(video_path)[0] + "_asr_checkpoint.json"
 
 
-def _funasr_source_fingerprint(video_path, duration):
+def _funasr_source_fingerprint(video_path, duration, hotwords=""):
     stat = os.stat(video_path)
     payload = {
         "path": os.path.normcase(os.path.abspath(video_path)),
@@ -1367,6 +1728,10 @@ def _funasr_source_fingerprint(video_path, duration):
         "channels": 1,
         "chunk_sec": FUNASR_CHUNK_SEC,
         "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
+        "runtime_signature": _funasr_model_runtime_signature(),
+        "hotword_digest": hashlib.sha256(
+            str(hotwords or "").encode("utf-8")
+        ).hexdigest(),
     }
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -1393,22 +1758,73 @@ def _normalise_funasr_result(result):
     for item in result or []:
         if not isinstance(item, dict):
             continue
+        # Fun-ASR-Nano 同时返回 LLM 文本和 CTC 字级对齐结果。Nano 的
+        # LLM 文本在部分硬件/精度组合下可能是占位符，但 CTC 文本与
+        # ctc_timestamps 仍然可用；统一转换为项目内部的毫秒时间戳契约。
+        llm_text = str(item.get("text", ""))
+        llm_timestamps = item.get("timestamps")
+        ctc_text = item.get("ctc_text")
+        ctc_timestamps = item.get("ctc_timestamps")
+        llm_text_is_meaningful = bool(
+            re.search(r"[\w\u3400-\u9fff]", llm_text, flags=re.UNICODE)
+        )
+        use_nano_llm = llm_text_is_meaningful and bool(llm_timestamps)
+        use_nano_ctc = (
+            not use_nano_llm
+            and isinstance(ctc_text, str)
+            and bool(ctc_timestamps)
+        )
+        if use_nano_llm:
+            text_value = llm_text
+            source_timestamps = llm_timestamps
+        elif use_nano_ctc:
+            text_value = ctc_text
+            source_timestamps = ctc_timestamps
+        else:
+            text_value = llm_text
+            source_timestamps = item.get("timestamp", [])
+        nano_timestamp_tokens = []
         timestamps = []
-        for pair in item.get("timestamp", []) or []:
-            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+        for pair in source_timestamps or []:
+            if isinstance(pair, dict):
+                token = str(pair.get("token", "")).strip()
+                if not token:
+                    # Nano 会为部分停顿返回纯空白 token。空白没有字幕内容，
+                    # 保留其时间戳反而会破坏 token 与时间戳的一一对应关系。
+                    continue
+                values_source = (pair.get("start_time"), pair.get("end_time"))
+                nano_timestamp_tokens.append(token)
+            elif isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                values_source = pair[:2]
+            else:
                 continue
             values = []
-            for value in pair[:2]:
+            for value in values_source:
                 if hasattr(value, "item"):
                     value = value.item()
                 if value is not None and not isinstance(value, (int, float)):
                     value = float(value)
+                # Nano 的 ctc_timestamps 单位是秒；旧 FunASR timestamp
+                # 单位是毫秒。内部始终使用毫秒，避免字幕整体缩短 1000 倍。
+                if (use_nano_llm or use_nano_ctc) and isinstance(value, (int, float)):
+                    value *= 1000.0
                 values.append(value)
             timestamps.append(values)
-        normalised.append({
-            "text": str(item.get("text", "")),
+        entry = {
+            "text": str(text_value),
             "timestamp": timestamps,
-        })
+        }
+        raw_text = item.get("raw_text")
+        if (
+                (use_nano_llm or use_nano_ctc)
+                and nano_timestamp_tokens
+                and len(nano_timestamp_tokens) == len(timestamps)):
+            # Nano 的 token 字段与时间戳一一对应。保留带空格的 token 序列，
+            # 让后续标点对齐既能使用 LLM 校正后的正文，又不会新增时间 token。
+            raw_text = " ".join(nano_timestamp_tokens)
+        if isinstance(raw_text, str):
+            entry["raw_text"] = raw_text
+        normalised.append(entry)
     return normalised
 
 
@@ -1420,6 +1836,8 @@ def _is_valid_funasr_result(result):
                 not isinstance(item, dict)
                 or not isinstance(item.get("text"), str)
                 or not isinstance(item.get("timestamp"), list)):
+            return False
+        if "raw_text" in item and not isinstance(item.get("raw_text"), str):
             return False
         for pair in item["timestamp"]:
             if (
@@ -1441,14 +1859,19 @@ def _is_close_number(value, expected):
 
 
 def _prepare_funasr_checkpoint(
-        video_path, duration, chunk_count, checkpoint_path=None):
+        video_path, duration, chunk_count, checkpoint_path=None, hotwords=""):
     checkpoint_path = os.path.abspath(
         checkpoint_path or _funasr_checkpoint_path(video_path)
     )
-    source_fingerprint = _funasr_source_fingerprint(video_path, duration)
+    source_fingerprint = _funasr_source_fingerprint(
+        video_path,
+        duration,
+        hotwords=hotwords,
+    )
     payload = {
         "version": FUNASR_CHECKPOINT_VERSION,
         "source_fingerprint": source_fingerprint,
+        "runtime_signature": _funasr_model_runtime_signature(),
         "video_path": os.path.abspath(video_path),
         "duration": float(duration),
         "chunk_sec": FUNASR_CHUNK_SEC,
@@ -1552,19 +1975,128 @@ def _dedupe_overlapping_funasr_segments(segments):
     return deduped
 
 
-def _trim_funasr_tokens_to_core(text, timestamps, input_start, core_start, core_end):
-    """先按字词时间归属主体区间，避免重叠输入在边界生成重复半句。"""
+def _is_funasr_punctuation(char):
+    return unicodedata.category(char).startswith("P") or char in "…"
+
+
+def _attach_funasr_punctuation_to_tokens(tokens, text):
+    """在 token 文本有少量识别差异时，仍把正文标点映射回字级时间戳。"""
+    tokens = [str(token) for token in (tokens or [])]
+    if not tokens or not isinstance(text, str):
+        return tokens
+
+    raw_text = "".join(tokens)
+    plain_chars = []
+    punctuation = defaultdict(str)
+    position = 0
+    for char in text:
+        if char.isspace():
+            continue
+        if _is_funasr_punctuation(char):
+            punctuation[position] += char
+        else:
+            plain_chars.append(char)
+            position += 1
+    if not punctuation:
+        return tokens
+
+    target_text = "".join(plain_chars)
+    matcher = difflib.SequenceMatcher(None, raw_text, target_text, autojunk=False)
+    target_to_source = {}
+    for tag, source_start, source_end, target_start, target_end in matcher.get_opcodes():
+        source_len = max(0, source_end - source_start)
+        target_len = max(0, target_end - target_start)
+        if tag == "equal":
+            for offset in range(target_len):
+                target_to_source[target_start + offset] = source_start + offset
+        elif tag in {"replace", "insert"}:
+            for offset in range(target_len):
+                target_to_source[target_start + offset] = source_start + min(
+                    offset, max(0, source_len - 1)
+                )
+
+    boundaries = []
+    boundary = 0
+    for token in tokens:
+        boundary += len(token)
+        boundaries.append(boundary)
+    result = list(tokens)
+    for target_position, marks in punctuation.items():
+        source_position = target_to_source.get(target_position)
+        if source_position is None:
+            known = [pos for pos in target_to_source if pos <= target_position]
+            source_position = target_to_source[max(known)] if known else 0
+        if source_position <= 0:
+            result[0] = marks + result[0]
+            continue
+        token_index = bisect.bisect_left(boundaries, source_position)
+        token_index = min(token_index, len(result) - 1)
+        result[token_index] += marks
+    return result
+
+
+def _align_funasr_tokens(text, timestamps, raw_text=None):
+    """把标点模型新增的字符挂回原始 ASR token，保持时间戳数量一致。"""
     timestamps = [
         item for item in (timestamps or [])
         if isinstance(item, (list, tuple)) and len(item) == 2
     ]
-    tokens = str(text or "").strip().split()
+    if not timestamps:
+        return [], False
+
+    source_text = raw_text if isinstance(raw_text, str) and raw_text.strip() else text
+    tokens = str(source_text).strip().split()
     if len(tokens) != len(timestamps):
-        compact = re.sub(r'\s+', '', str(text or ""))
-        if len(compact) == len(timestamps):
-            tokens = list(compact)
+        compact_source = re.sub(r"\s+", "", str(source_text))
+        if len(compact_source) != len(timestamps):
+            return [], False
+        tokens = list(compact_source)
+
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        return tokens, True
+
+    raw_compact = "".join(tokens)
+    punct_by_position = defaultdict(str)
+    plain_chars = []
+    position = 0
+    for char in str(text):
+        if char.isspace():
+            continue
+        if _is_funasr_punctuation(char):
+            punct_by_position[position] += char
         else:
-            return str(text or ""), timestamps, False
+            plain_chars.append(char)
+            position += 1
+    raw_plain = "".join(
+        char for char in raw_compact if not _is_funasr_punctuation(char)
+    )
+    if "".join(plain_chars) != raw_plain:
+        # 标点模型偶尔会连同正文一起归一化；此时保留原始 token，至少不破坏时间轴。
+        if raw_plain != raw_compact:
+            return tokens, True
+        return _attach_funasr_punctuation_to_tokens(tokens, text), True
+
+    if raw_plain != raw_compact:
+        # Nano 的 timestamps 已经包含原生标点 token，无需重复挂载。
+        return tokens, True
+
+    aligned = []
+    consumed = 0
+    for token in tokens:
+        token_end = consumed + len(token)
+        prefix = punct_by_position.get(0, "") if consumed == 0 else ""
+        suffix = punct_by_position.get(token_end, "")
+        aligned.append(prefix + token + suffix)
+        consumed = token_end
+    return aligned, True
+
+
+def _trim_funasr_tokens_to_core(
+        text, timestamps, input_start, core_start, core_end, raw_text=None):
+    """先按字词时间归属主体区间，避免重叠输入在边界生成重复半句。"""
+    tokens, aligned = _align_funasr_tokens(text, timestamps, raw_text=raw_text)
+    if not aligned:
+        return str(text or ""), timestamps, False
 
     selected_tokens = []
     selected_timestamps = []
@@ -1599,12 +2131,15 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
     duration = _probe_video_duration(video_path)
     if not duration:
         raise RuntimeError("无法读取录播时长，FunASR 转录未启动。")
+    streamer_name = _infer_streamer_name(video_path)
+    hotwords = _funasr_hotwords(video_path, streamer_name=streamer_name)
     chunk_count = max(1, int(math.ceil(duration / FUNASR_CHUNK_SEC)))
     checkpoint_path, checkpoint = _prepare_funasr_checkpoint(
         video_path,
         duration,
         chunk_count,
         checkpoint_path=checkpoint_path,
+        hotwords=hotwords,
     )
     checkpoint["status"] = "running"
     checkpoint["updated_at"] = datetime.now().isoformat(timespec="seconds")
@@ -1654,6 +2189,7 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                 device=requested_device,
             )
             current_device = getattr(model, "_autoslice_device", requested_device)
+            generate_kwargs = _funasr_generate_kwargs(model, hotwords=hotwords)
 
             for index in missing_indices:
                 active_chunk_index = index
@@ -1690,8 +2226,7 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                 try:
                     result = model.generate(
                         input=active_chunk_path,
-                        batch_size_s=FUNASR_BATCH_SIZE_SEC,
-                        disable_pbar=True,
+                        **generate_kwargs,
                     )
                 except Exception as first_error:
                     if str(current_device).startswith("cuda"):
@@ -1709,14 +2244,17 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                             device="cpu",
                         )
                         current_device = "cpu"
+                        generate_kwargs = _funasr_generate_kwargs(
+                            model,
+                            hotwords=hotwords,
+                        )
                     else:
                         if FUNASR_CPU_RETRY_DELAY_SEC:
                             time.sleep(FUNASR_CPU_RETRY_DELAY_SEC)
                     try:
                         result = model.generate(
                             input=active_chunk_path,
-                            batch_size_s=FUNASR_BATCH_SIZE_SEC,
-                            disable_pbar=True,
+                            **generate_kwargs,
                         )
                     except Exception as retry_error:
                         raise RuntimeError(
@@ -1748,7 +2286,6 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                 active_chunk_path = None
                 active_chunk_index = None
 
-        streamer_name = _infer_streamer_name(video_path)
         all_segments = []
         for index in range(chunk_count):
             entry = checkpoint["chunks"].get(str(index))
@@ -1762,6 +2299,7 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
             core_end = start + chunk_duration
             for item in entry.get("result") or []:
                 text_value = str(item.get("text", "")).strip()
+                raw_text_value = item.get("raw_text")
                 timestamps = item.get("timestamp", [])
                 if text_value and timestamps:
                     core_text, core_timestamps, token_aligned = (
@@ -1771,6 +2309,7 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                             input_start,
                             start,
                             core_end,
+                            raw_text=raw_text_value,
                         )
                     )
                     if not core_text or not core_timestamps:
@@ -5060,7 +5599,8 @@ def _optimize_manual_timeline_for_video_impl(
         progress_callback("计算人工时间轴附近弹幕依据...", 15, 100)
     peaks = analyze_danmaku(ass_path) if ass_path and os.path.isfile(ass_path) else DanmakuDensitySeries()
     srt_duration = max((end for _, end, _ in srt_segments), default=None)
-    video_duration = _probe_video_duration(flv_path) or srt_duration
+    probed_video_duration = _probe_video_duration(flv_path)
+    video_duration = probed_video_duration or srt_duration
     streamer_name = current_streamer_profile().report_name
     video_base = os.path.splitext(flv_path)[0]
     manual_timeline = _prepare_optimized_manual_timeline(
@@ -5256,7 +5796,14 @@ def _dedupe_clip_marks(marks):
     """对 clip_marks 做最终去重，避免旧 JSON 或异常响应导致重复切片。"""
     deduped = []
     seen_topics = []
-    for mark in sorted(marks, key=lambda m: (int(m.get("topic_start", m.get("start", 0))), int(m.get("topic_end", m.get("end", 0))), m.get("title", ""))):
+    for mark in sorted(
+            marks,
+            key=lambda m: (
+                0 if m.get("clip_type") == "stream_outro" else 1,
+                int(m.get("topic_start", m.get("start", 0))),
+                int(m.get("topic_end", m.get("end", 0))),
+                m.get("title", ""),
+            )):
         try:
             topic_start = int(float(mark.get("topic_start", mark["start"])))
             topic_end = int(float(mark.get("topic_end", mark["end"])))
@@ -5432,6 +5979,8 @@ def _refresh_natural_boundary_metadata(mark):
 def _cap_expanded_clip_mark(mark):
     """在字幕吸附和重叠处理后再次限长，优先保留话题核心或弹幕峰值。"""
     item = dict(mark)
+    if item.get("preserve_to_video_end"):
+        return item
     start_s = int(item["start"])
     end_s = int(item["end"])
     if end_s - start_s <= TOPIC_MAX_CLIP_SEC:
@@ -5545,6 +6094,108 @@ def _srt_video_duration(srt_segments):
     return max(seg_end for _, seg_end, _ in srt_segments)
 
 
+_OUTRO_TRIGGER_NORMALISE_RE = re.compile(r"[\s,，。！？!?、…~～\-_—]+")
+OUTRO_TRIGGER_JOIN_GAP_SEC = 8
+
+
+def _normalise_outro_trigger_text(value):
+    """只为明确收播口令匹配清理停顿和标点，不把泛化“晚安”当口令。"""
+
+    return _OUTRO_TRIGGER_NORMALISE_RE.sub("", str(value or "")).casefold()
+
+
+def _detect_stream_outro_clip(srt_segments, video_duration, streamer_profile=None):
+    """在录播尾部识别明确收播口令，并生成保留至真实视频结束的系列切片。"""
+
+    profile = streamer_profile or current_streamer_profile()
+    config = getattr(profile, "outro_clip", None)
+    if config is None or not srt_segments or not video_duration:
+        return None
+    try:
+        video_end = int(math.ceil(float(video_duration)))
+    except (TypeError, ValueError):
+        return None
+    if video_end <= 0:
+        return None
+
+    tail_start = max(0, video_end - config.search_tail_sec)
+    normalised_triggers = [
+        (trigger, _normalise_outro_trigger_text(trigger))
+        for trigger in config.triggers
+    ]
+    matched = None
+    joined_text = ""
+    cue_starts = []
+    previous_end = None
+    for cue_start, cue_end, text in sorted(srt_segments, key=lambda item: (item[0], item[1])):
+        if cue_start < tail_start or cue_start >= video_end:
+            continue
+        normalised_text = _normalise_outro_trigger_text(text)
+        if not normalised_text:
+            continue
+        if previous_end is not None and cue_start - previous_end > OUTRO_TRIGGER_JOIN_GAP_SEC:
+            joined_text = ""
+            cue_starts = []
+        previous_end = cue_end
+        joined_text += normalised_text
+        cue_starts.extend([cue_start] * len(normalised_text))
+        for trigger, normalised_trigger in normalised_triggers:
+            match_at = joined_text.find(normalised_trigger)
+            if match_at >= 0:
+                matched = (cue_starts[match_at], trigger)
+                break
+        if matched is not None:
+            break
+
+    if matched is None:
+        return None
+    cue_start, trigger = matched
+    start = max(0, min(int(math.floor(cue_start)), video_end - 1))
+    series_title = config.series_title
+    publish_title = f"{profile.title_prefix}{series_title}".strip()
+    return {
+        "start": start,
+        "end": video_end,
+        "topic_start": start,
+        "topic_end": video_end,
+        "report_start": start,
+        "report_end": video_end,
+        "slice_anchor": start,
+        "slice_anchor_source": "收播口令",
+        "title": series_title,
+        "publish_title": publish_title or series_title,
+        "clip_type": "stream_outro",
+        "series_title": series_title,
+        "preserve_to_video_end": True,
+        "outro_trigger": trigger,
+        "time_basis": "video_elapsed_seconds",
+    }
+
+
+def _outro_topic_from_mark(mark):
+    """把确定性收播片同步到完整话题报告，不参与普通候选复核。"""
+
+    trigger = str(mark.get("outro_trigger") or "收播口令").strip()
+    title = str(mark.get("title") or "收播片段").strip()
+    return {
+        "start": int(mark["start"]),
+        "end": int(mark["end"]),
+        "title": title,
+        "publish_title": mark.get("publish_title") or title,
+        "can_slice": True,
+        "slice_anchor": int(mark["start"]),
+        "slice_anchor_source": "收播口令",
+        "clip_type": "stream_outro",
+        "preserve_to_video_end": True,
+        "outro_trigger": trigger,
+        "body": [
+            f"·检测到收播开始语：“{trigger}”",
+            "·保留从收播告别到录播实际结束的完整互动",
+            f"·系列切片：{title}",
+        ],
+    }
+
+
 def _snap_clip_to_srt_segments(
     start_s,
     end_s,
@@ -5628,6 +6279,8 @@ def _integer_clip_bounds_outside_subtitles(start_s, end_s, srt_segments):
 def _fit_final_clip_to_safe_srt_boundaries(mark, srt_segments):
     """限长与去重后向内避开字幕句，避免最终整数边界重新切断一句话。"""
     item = _cap_expanded_clip_mark(mark)
+    if item.get("preserve_to_video_end"):
+        return _refresh_natural_boundary_metadata(item)
     start_point = int(item["start"])
     end_point = int(item["end"])
     if not srt_segments:
@@ -6614,15 +7267,51 @@ def _expand_clip_mark_with_context(mark, srt_segments=None, video_duration=None)
 
 def _expand_clip_marks_with_context(marks, srt_segments=None, video_duration=None):
     """批量扩展切片上下文；输入/输出时间均为视频内秒数。"""
+    outro_marks = [
+        dict(mark) for mark in (marks or [])
+        if mark.get("clip_type") == "stream_outro" and mark.get("preserve_to_video_end")
+    ]
+    ordinary_marks = [
+        mark for mark in (marks or [])
+        if mark.get("clip_type") != "stream_outro"
+    ]
+
+    def overlaps_outro(mark):
+        try:
+            start = float(mark["start"])
+            end = float(mark["end"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        return any(
+            start < float(outro["end"]) and end > float(outro["start"])
+            for outro in outro_marks
+        )
+
+    # 收播片是用户明确指定的独立系列。普通尾部候选与它重叠时直接让位，
+    # 既不合并成超长杂项，也不会输出两条内容高度重复的视频。
+    ordinary_marks = [mark for mark in ordinary_marks if not overlaps_outro(mark)]
     expanded = [
         _expand_clip_mark_with_context(mark, srt_segments=srt_segments, video_duration=video_duration)
-        for mark in _dedupe_clip_marks(marks)
+        for mark in _dedupe_clip_marks(ordinary_marks)
     ]
     merged = _merge_expanded_clip_marks(expanded, srt_segments=srt_segments)
-    return [
+    ordinary_final = [
         _fit_final_clip_to_safe_srt_boundaries(mark, srt_segments or [])
         for mark in merged
     ]
+    ordinary_final = [mark for mark in ordinary_final if not overlaps_outro(mark)]
+    outro_final = []
+    for mark in _dedupe_clip_marks(outro_marks):
+        item = dict(mark)
+        if video_duration:
+            item["end"] = int(math.ceil(float(video_duration)))
+            item["topic_end"] = item["end"]
+            item["report_end"] = item["end"]
+        outro_final.append(_fit_final_clip_to_safe_srt_boundaries(item, srt_segments or []))
+    return sorted(
+        [*ordinary_final, *outro_final],
+        key=lambda item: (int(item.get("start", 0)), int(item.get("end", 0)), item.get("title", "")),
+    )
 
 # ============================================================
 # 逐话题时间轴报告格式化
@@ -7601,25 +8290,6 @@ def _clip_subtitle_filename(clip_filename):
     return os.path.splitext(clip_filename)[0] + ".srt"
 
 
-def _write_clip_srt(srt_segments, clip_start, clip_end, output_path):
-    """裁剪整场字幕并减去切片起点，生成从 0 秒开始的片段 SRT。"""
-    clip_start = float(clip_start)
-    clip_end = float(clip_end)
-    entries = []
-    for seg_start, seg_end, text in srt_segments or []:
-        local_start = max(float(seg_start), clip_start) - clip_start
-        local_end = min(float(seg_end), clip_end) - clip_start
-        clean_text = str(text or "").strip()
-        if local_end <= local_start or not clean_text:
-            continue
-        entries.append((local_start, local_end, clean_text))
-
-    with open(output_path, "w", encoding="utf-8", newline="\n") as f:
-        for index, (start_s, end_s, text) in enumerate(entries, 1):
-            f.write(f"{index}\n{_srt_time(start_s)} --> {_srt_time(end_s)}\n{text}\n\n")
-    return len(entries)
-
-
 def _resolve_clip_subtitle_source(flv_path, data):
     """优先使用流水线校对字幕，兼容旧 JSON 回退到同名 SRT。"""
     layout = None
@@ -7727,6 +8397,10 @@ def _render_artifact_overview(layout, clip_data=None, manifest=None, slice_dir=N
             f"- 视频内时间: {_format_report_time(start)}－{_format_report_time(end)}"
             f"（{max(0, int(round(end - start)))} 秒）",
             f"- 投稿标题: {publish_title}",
+            *(
+                [f"- 系列收播片: {mark.get('series_title') or title}"]
+                if mark.get("clip_type") == "stream_outro" else []
+            ),
             f"- 切片文件: `{os.path.abspath(clip_path)}`",
             "",
         ])
@@ -7927,6 +8601,10 @@ def _build_refinement_manifest(video_path, source_srt_path, corrected_srt_path,
             "topic_start": int(mark.get("topic_start", mark["start"])),
             "topic_end": int(mark.get("topic_end", mark["end"])),
             "topic_title": mark.get("title", "未命名片段"),
+            "clip_type": mark.get("clip_type", "topic"),
+            "series_title": mark.get("series_title"),
+            "outro_trigger": mark.get("outro_trigger"),
+            "preserve_to_video_end": bool(mark.get("preserve_to_video_end")),
             "publish_title": _normalise_publish_title(
                 mark.get("publish_title"), mark.get("title", "未命名片段")
             ),
@@ -7988,9 +8666,14 @@ def _render_refinement_manifest_markdown(manifest):
             f"- 视频内时间: {_format_report_time(task.get('start', 0))}－"
             f"{_format_report_time(task.get('end', 0))}（{task.get('duration', 0)} 秒）",
             f"- 切片文件: `{task.get('slice_path') or task.get('clip_filename')}`",
-            f"- 片段字幕: `{task.get('subtitle_path') or '等待自动切片'}`",
+            f"- 片段字幕: `{task.get('subtitle_path') or '精剪导出后在字幕校对页识别'}`",
             f"- 投稿标题: {task.get('publish_title', '')}",
         ])
+        if task.get("clip_type") == "stream_outro":
+            lines.append(
+                f"- 系列收播片: {task.get('series_title') or task.get('topic_title')}"
+                f"（触发语：{task.get('outro_trigger') or '收播口令'}）"
+            )
         for step in task.get("steps") or []:
             checked = "x" if step.get("status") == "已完成" else " "
             lines.append(f"- [{checked}] {step.get('label')}（{step.get('status', '待处理')}）")
@@ -8025,6 +8708,10 @@ def _unified_refinement_record(manifest):
             "id": task.get("id"),
             "status": task.get("status", "待处理"),
             "topic_title": task.get("topic_title", "未命名片段"),
+            "clip_type": task.get("clip_type", "topic"),
+            "series_title": task.get("series_title"),
+            "outro_trigger": task.get("outro_trigger"),
+            "preserve_to_video_end": bool(task.get("preserve_to_video_end")),
             "publish_title": task.get("publish_title", ""),
             "start": int(task.get("start", 0)),
             "end": int(task.get("end", 0)),
@@ -8107,12 +8794,17 @@ def _render_unified_refinement_queue_markdown(queue):
                 f"  - 视频内时间: {_format_report_time(task.get('start', 0))}－"
                 f"{_format_report_time(task.get('end', 0))}",
                 f"  - 切片: `{task.get('slice_path') or task.get('clip_filename') or '等待自动切片'}`",
-                f"  - 片段字幕: `{task.get('subtitle_path') or '等待自动切片'}`",
+                f"  - 片段字幕: `{task.get('subtitle_path') or '精剪导出后在字幕校对页识别'}`",
                 f"  - 首尾: 已在话题核心前保留 {pre_context} 秒、后保留 {post_context} 秒；"
                 f"自然停顿额外调整前 {task.get('natural_boundary_pre_sec', 0)} 秒、"
                 f"后 {task.get('natural_boundary_post_sec', 0)} 秒",
                 f"  - 投稿标题: {task.get('publish_title', '')}",
             ])
+            if task.get("clip_type") == "stream_outro":
+                lines.append(
+                    f"  - 系列收播片: {task.get('series_title') or task.get('topic_title')}"
+                    f"（触发语：{task.get('outro_trigger') or '收播口令'}）"
+                )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -8201,7 +8893,7 @@ def _update_refinement_manifest_after_slice(manifest_json_path, report_dir, mark
         task["subtitle_path"] = subtitle_path if os.path.isfile(subtitle_path) else None
         for step in task.get("steps") or []:
             if step.get("key") == "correct_subtitles":
-                step["label"] = "导入片段同名校对字幕并检查专名"
+                step["label"] = "精剪导出后自动识别、校对并压制字幕"
         if os.path.isfile(output_path):
             task["status"] = "待精调"
             found_count += 1
@@ -9885,7 +10577,8 @@ def _run_pipeline_impl(
     segs = parse_srt_text(srt_path)
     chunks = chunk_srt(segs, peaks)
     srt_duration = max((end for _, end, _ in segs), default=None)
-    video_duration = _probe_video_duration(flv_path) or srt_duration
+    probed_video_duration = _probe_video_duration(flv_path)
+    video_duration = probed_video_duration or srt_duration
     if optimized_timeline_path:
         selected_optimized_path = os.path.abspath(optimized_timeline_path)
         _copy_artifact_file(
@@ -10028,15 +10721,29 @@ def _run_pipeline_impl(
             item for item in (api_precheck_warning, title_review_warning) if item
         )
     accepted_topics = _clean_topics_for_report(accepted_topics)
+    # 复核旧产物时 analysis_topics 可能已带上一轮生成的收播片；收播片由
+    # 当前字幕和真实视频时长重新判定，避免报告和队列出现重复的系列任务。
+    accepted_topics = [
+        topic for topic in accepted_topics
+        if topic.get("clip_type") != "stream_outro"
+    ]
     raw_clip_marks = _clip_marks_from_topics(accepted_topics)
     candidate_review_audit = _build_clip_candidate_review_audit(accepted_topics)
     candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
     _write_artifact_json(candidate_review_audit_path, candidate_review_audit)
     srt_segments_for_context = parse_srt_segments(srt_path)
+    outro_mark = _detect_stream_outro_clip(
+        srt_segments_for_context,
+        probed_video_duration,
+        streamer_profile=streamer_profile,
+    )
+    if outro_mark:
+        accepted_topics.append(_outro_topic_from_mark(outro_mark))
+        raw_clip_marks.append(outro_mark)
     clip_marks = _expand_clip_marks_with_context(
         raw_clip_marks,
         srt_segments=srt_segments_for_context,
-        video_duration=_srt_video_duration(srt_segments_for_context),
+        video_duration=video_duration or _srt_video_duration(srt_segments_for_context),
     )
     _synchronise_selected_topic_ranges(accepted_topics, clip_marks)
     analysis_topics = _analysis_topics_snapshot(accepted_topics)
@@ -10498,11 +11205,24 @@ def _retry_clip_review_from_artifacts_impl(
             item for item in (clip_review_warning, title_review_warning) if item
         )
     accepted_topics = _clean_topics_for_report(accepted_topics)
+    accepted_topics = [
+        topic for topic in accepted_topics
+        if topic.get("clip_type") != "stream_outro"
+    ]
     raw_clip_marks = _clip_marks_from_topics(accepted_topics)
     candidate_review_audit = _build_clip_candidate_review_audit(accepted_topics)
     candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
     _write_artifact_json(candidate_review_audit_path, candidate_review_audit)
-    video_duration = _probe_video_duration(flv_path) or _srt_video_duration(srt_segments)
+    probed_video_duration = _probe_video_duration(flv_path)
+    video_duration = probed_video_duration or _srt_video_duration(srt_segments)
+    outro_mark = _detect_stream_outro_clip(
+        srt_segments,
+        probed_video_duration,
+        streamer_profile=streamer_profile,
+    )
+    if outro_mark:
+        accepted_topics.append(_outro_topic_from_mark(outro_mark))
+        raw_clip_marks.append(outro_mark)
     clip_marks = _expand_clip_marks_with_context(
         raw_clip_marks,
         srt_segments=srt_segments,
@@ -11118,21 +11838,6 @@ def _slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=No
     finally:
         if temporary_seek_source and os.path.exists(temporary_seek_source):
             os.remove(temporary_seek_source)
-
-    if subtitle_segments:
-        for job in slice_jobs:
-            if not os.path.isfile(job["output_path"]):
-                continue
-            subtitle_path = os.path.join(
-                report_dir,
-                _clip_subtitle_filename(job["output_name"]),
-            )
-            _write_clip_srt(
-                subtitle_segments,
-                job["start"],
-                job["end"],
-                subtitle_path,
-            )
 
     _update_refinement_manifest_after_slice(
         data.get("task_manifest_json_path"),

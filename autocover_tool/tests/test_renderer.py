@@ -85,6 +85,34 @@ class RendererTests(unittest.TestCase):
         self.assertGreater(left_pixel[1], left_pixel[0])
         self.assertGreater(right_pixel[0], right_pixel[1])
 
+    def test_background_scale_zooms_canvas_without_changing_output_size(self) -> None:
+        with Image.open(self.frame_path) as frame:
+            normal = compose_background(
+                frame,
+                HOME_4_3,
+                get_template("dialog"),
+                background_scale=1.0,
+            )
+            zoomed = compose_background(
+                frame,
+                HOME_4_3,
+                get_template("dialog"),
+                background_scale=1.8,
+            )
+
+        self.assertEqual(normal.size, zoomed.size)
+        self.assertNotEqual(normal.tobytes(), zoomed.tobytes())
+        normal.close()
+        zoomed.close()
+        with Image.open(self.frame_path) as frame:
+            with self.assertRaisesRegex(ValueError, "背景缩放"):
+                compose_background(
+                    frame,
+                    HOME_4_3,
+                    get_template("dialog"),
+                    background_scale=2.6,
+                )
+
     def test_text_moves_opposite_a_detailed_left_side(self) -> None:
         frame_path = self.root / "left-subject.jpg"
         frame = Image.new("RGB", (1920, 1080), "#b991aa")

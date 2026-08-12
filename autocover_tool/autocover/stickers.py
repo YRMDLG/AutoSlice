@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
+import re
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -15,6 +17,12 @@ from PIL import Image, UnidentifiedImageError
 SUPPORTED_STICKER_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 DEFAULT_STICKER_ROOT = Path(
     os.environ.get("AUTOCOVER_STICKER_DIR", Path.cwd() / "stickers")
+).expanduser().resolve()
+DEFAULT_IMPORTED_STICKER_ROOT = Path(
+    os.environ.get(
+        "AUTOCOVER_USER_ASSET_DIR",
+        Path(os.environ.get("LOCALAPPDATA", Path.home())) / "AutoCover" / "user-assets",
+    )
 ).expanduser().resolve()
 
 
@@ -38,8 +46,16 @@ class StickerAsset:
 class StickerLibrary:
     """只读扫描并安全解析表情包素材。"""
 
-    def __init__(self, root: str | Path = DEFAULT_STICKER_ROOT) -> None:
+    def __init__(
+        self,
+        root: str | Path = DEFAULT_STICKER_ROOT,
+        *,
+        import_root: str | Path | None = None,
+    ) -> None:
         self.root = Path(root).expanduser().resolve()
+        self.import_root = Path(
+            import_root or DEFAULT_IMPORTED_STICKER_ROOT
+        ).expanduser().resolve()
         self._assets: dict[str, StickerAsset] = {}
         self._paths: dict[str, Path] = {}
         self._root_available = False
@@ -77,14 +93,11 @@ class StickerLibrary:
 
         assets: dict[str, StickerAsset] = {}
         paths: dict[str, Path] = {}
-        self._root_available = self.root.is_dir()
+        self._root_available = self.root.is_dir() or self.import_root.is_dir()
         self._invalid_count = 0
-        if not self._root_available:
-            self._assets = assets
-            self._paths = paths
-            return []
 
-        for candidate in sorted(self.root.rglob("*"), key=lambda item: item.as_posix().casefold()):
+        root_candidates = self.root.rglob("*") if self.root.is_dir() else ()
+        for candidate in sorted(root_candidates, key=lambda item: item.as_posix().casefold()):
             if not candidate.is_file() or candidate.suffix.casefold() not in SUPPORTED_STICKER_EXTENSIONS:
                 continue
             resolved = candidate.resolve()
@@ -117,6 +130,36 @@ class StickerLibrary:
             )
             assets[asset_id] = asset
             paths[asset_id] = resolved
+
+        if self.import_root.is_dir():
+            for candidate in sorted(
+                self.import_root.glob("*"),
+                key=lambda item: item.name.casefold(),
+            ):
+                if (
+                    not candidate.is_file()
+                    or candidate.suffix.casefold() not in SUPPORTED_STICKER_EXTENSIONS
+                ):
+                    continue
+                try:
+                    with Image.open(candidate) as image:
+                        image.verify()
+                    with Image.open(candidate) as image:
+                        width, height = image.size
+                except (OSError, UnidentifiedImageError):
+                    self._invalid_count += 1
+                    continue
+                relative_path = Path("我的导入") / candidate.name
+                asset_id = self._asset_id(relative_path)
+                assets[asset_id] = StickerAsset(
+                    id=asset_id,
+                    name=candidate.stem,
+                    group="我的导入",
+                    relative_path=relative_path.as_posix(),
+                    width=width,
+                    height=height,
+                )
+                paths[asset_id] = candidate.resolve()
 
         self._assets = assets
         self._paths = paths
@@ -154,6 +197,39 @@ class StickerLibrary:
         except KeyError as exc:
             raise KeyError("贴图素材不存在或已失效") from exc
 
+    def import_image(self, filename: str, raw: bytes) -> StickerAsset:
+        """验证并保存用户手动导入的本地图片。"""
+
+        suffix = Path(str(filename or "")).suffix.casefold()
+        if suffix not in SUPPORTED_STICKER_EXTENSIONS:
+            raise ValueError("只支持 PNG、JPEG 或 WebP 图片")
+        if not raw:
+            raise ValueError("导入图片为空")
+        try:
+            with Image.open(io.BytesIO(raw)) as image:
+                image.verify()
+            with Image.open(io.BytesIO(raw)) as image:
+                width, height = image.size
+        except (OSError, UnidentifiedImageError) as exc:
+            raise ValueError("导入文件不是有效图片或图片已损坏") from exc
+        if width <= 0 or height <= 0:
+            raise ValueError("导入图片尺寸无效")
+
+        digest = hashlib.sha256(raw).hexdigest()[:24]
+        safe_stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", Path(filename).stem).strip(" ._")
+        safe_stem = (safe_stem or "导入图片")[:48]
+        self.import_root.mkdir(parents=True, exist_ok=True)
+        destination = self.import_root / f"{safe_stem}-{digest[:10]}{suffix}"
+        if not destination.is_file():
+            temporary = self.import_root / f".{destination.name}.tmp"
+            try:
+                temporary.write_bytes(raw)
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+        self.scan()
+        return self.get(self._asset_id(Path("我的导入") / destination.name))
+
     def resolve(self, asset_id: str) -> Path:
         """解析已登记素材；拒绝任意路径和已删除文件。"""
 
@@ -161,8 +237,14 @@ class StickerLibrary:
         path = self._paths[asset_id]
         if not path.is_file():
             raise FileNotFoundError("贴图素材文件已不存在")
-        try:
-            path.relative_to(self.root)
-        except ValueError as exc:
-            raise KeyError("贴图素材不在允许目录中") from exc
+        allowed = False
+        for root in (self.root, self.import_root):
+            try:
+                path.relative_to(root)
+                allowed = True
+                break
+            except ValueError:
+                continue
+        if not allowed:
+            raise KeyError("贴图素材不在允许目录中")
         return path

@@ -1,3 +1,4 @@
 flask>=3.0
-funasr
+funasr>=1.4.1
+soxr>=1.0
 python-docx

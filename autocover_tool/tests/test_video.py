@@ -24,6 +24,7 @@ from autocover.video import (
     _improve_subtitle_candidates,
     _read_cached_candidates,
     extract_candidate_frames,
+    extract_frame_at_timestamp,
     plan_candidate_timestamps,
     probe_video,
     score_frame,
@@ -55,6 +56,42 @@ class TimestampPlanningTests(unittest.TestCase):
             plan_candidate_timestamps(10, count=0)
         with self.assertRaisesRegex(ValueError, "不能为负数"):
             plan_candidate_timestamps(10, intro_seconds=-1)
+
+    def test_extracts_exact_timeline_frame_and_reuses_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "clip.mp4"
+            source.write_bytes(b"video")
+            cache = root / "cache"
+            metadata = VideoMetadata(str(source.resolve()), 45.0, 1920, 1080, 30.0)
+            calls = []
+
+            def fake_extract(_ffmpeg, _source, timestamp, output, _label):
+                calls.append(timestamp)
+                Image.new("RGB", (320, 180), "#4cb7ca").save(output)
+
+            with (
+                patch("autocover.video.probe_video", return_value=metadata),
+                patch("autocover.video.find_media_binary", return_value="ffmpeg"),
+                patch("autocover.video._extract_frame", side_effect=fake_extract),
+            ):
+                first, first_metadata = extract_frame_at_timestamp(
+                    source,
+                    12.3,
+                    cache_dir=cache,
+                )
+                second, _ = extract_frame_at_timestamp(
+                    source,
+                    12.3,
+                    cache_dir=cache,
+                )
+
+            self.assertEqual(calls, [12.3])
+            self.assertEqual(first_metadata.duration, 45.0)
+            self.assertEqual(first.timestamp, 12.3)
+            self.assertFalse(first.cached)
+            self.assertTrue(second.cached)
+            self.assertEqual(first.path, second.path)
 
 
 class FrameScoringTests(unittest.TestCase):

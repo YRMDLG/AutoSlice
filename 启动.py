@@ -4,10 +4,12 @@ AutoSlice 一键启动
 Ctrl+C 完全停止
 """
 
+import importlib.metadata
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -19,11 +21,12 @@ import urllib.request
 
 PROJECT_DIR = Path(__file__).resolve().parent
 GPU_RUNTIME_RELATIVE_PATH = Path("AutoSlice") / "gpu-py310-cu130" / "Scripts" / "python.exe"
-REQUIRED_IMPORTS = ("flask", "funasr", "docx")
-AUTOCOVER_PROJECT_DIR = PROJECT_DIR.parent / "AutoCover"
+REQUIRED_IMPORTS = ("flask", "funasr", "soxr", "docx")
+MINIMUM_PACKAGE_VERSIONS = {"funasr": "1.4.1"}
+AUTOCOVER_PROJECT_DIR = PROJECT_DIR / "autocover_tool"
 AUTOCOVER_PREFERRED_PORT = 5010
 AUTOCOVER_SERVICE_ID = "autocover"
-AUTOCOVER_API_VERSION = 5
+AUTOCOVER_API_VERSION = 6
 AUTOCOVER_START_TIMEOUT = 20.0
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1
@@ -104,12 +107,36 @@ def _run_gpu_child(
         return 130
 
 
-def _missing_dependencies(find_spec=importlib.util.find_spec):
-    return [name for name in REQUIRED_IMPORTS if find_spec(name) is None]
+def _version_tuple(value):
+    numbers = [int(item) for item in re.findall(r"\d+", str(value or ""))[:3]]
+    return tuple((numbers + [0, 0, 0])[:3])
+
+
+def _missing_dependencies(
+        find_spec=importlib.util.find_spec,
+        version_reader=importlib.metadata.version):
+    missing = [name for name in REQUIRED_IMPORTS if find_spec(name) is None]
+    for package_name, minimum in MINIMUM_PACKAGE_VERSIONS.items():
+        if package_name in missing:
+            continue
+        try:
+            installed = version_reader(package_name)
+        except importlib.metadata.PackageNotFoundError:
+            missing.append(package_name)
+            continue
+        if _version_tuple(installed) < _version_tuple(minimum):
+            missing.append(f"{package_name}>={minimum}")
+    return missing
 
 
 def _install_dependencies(runner=subprocess.run):
-    env = {**os.environ, "HTTP_PROXY": "", "HTTPS_PROXY": ""}
+    env = {**os.environ}
+    for key in (
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+            "http_proxy", "https_proxy", "all_proxy"):
+        env[key] = ""
+    env["NO_PROXY"] = "*"
+    env["no_proxy"] = "*"
     result = runner(
         [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
         cwd=str(PROJECT_DIR),
@@ -303,9 +330,9 @@ def _start_autocover(
     factory = process_factory or subprocess.Popen
     child_env = dict(env)
     child_env["PYTHONUTF8"] = "1"
-    child_env.setdefault("AUTOCOVER_INPUT_DIR", r"F:\Videos")
-    child_env.setdefault("AUTOCOVER_OUTPUT_DIR", r"F:\Videos\封面")
-    child_env.setdefault("AUTOCOVER_STICKER_DIR", r"F:\Videos\视频素材\表情包")
+    child_env.setdefault("AUTOCOVER_INPUT_DIR", str(PROJECT_DIR / "output"))
+    child_env.setdefault("AUTOCOVER_OUTPUT_DIR", str(PROJECT_DIR / "covers"))
+    child_env.setdefault("AUTOCOVER_STICKER_DIR", str(PROJECT_DIR / "stickers"))
     process = factory(
         [
             str(python_executable), "-m", "autocover.cli", "serve",

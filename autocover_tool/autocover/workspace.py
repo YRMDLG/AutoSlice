@@ -14,7 +14,13 @@ from typing import Any
 
 from .style import get_palette, get_template
 from .titles import load_title_map, match_title, recommend_visual_style
-from .video import FrameCandidate, extract_candidate_frames
+from .video import (
+    FrameCandidate,
+    VideoMetadata,
+    extract_candidate_frames,
+    extract_frame_at_timestamp,
+    probe_video,
+)
 
 
 VIDEO_EXTENSIONS = frozenset({".flv", ".mp4", ".mkv", ".mov", ".avi"})
@@ -69,6 +75,10 @@ class CoverTask:
     status: str = "pending"
     candidates: tuple[FrameCandidate, ...] = ()
     selected_index: int = 0
+    custom_candidate: FrameCandidate | None = None
+    video_duration: float | None = None
+    video_width: int | None = None
+    video_height: int | None = None
     error: str | None = None
     output_paths: dict[str, str] = field(default_factory=dict)
 
@@ -233,6 +243,10 @@ class CoverWorkspace:
                             previous.selected_index,
                             max(0, len(previous.candidates) - 1),
                         )
+                        task.custom_candidate = previous.custom_candidate
+                        task.video_duration = previous.video_duration
+                        task.video_width = previous.video_width
+                        task.video_height = previous.video_height
                         task.error = previous.error
                         task.title = previous.title
                         task.template_key = previous.template_key
@@ -270,6 +284,11 @@ class CoverWorkspace:
             return replace(
                 task,
                 candidates=tuple(task.candidates),
+                custom_candidate=(
+                    replace(task.custom_candidate)
+                    if task.custom_candidate is not None
+                    else None
+                ),
                 output_paths=dict(task.output_paths),
             )
 
@@ -357,6 +376,7 @@ class CoverWorkspace:
                 self._register_media(candidate.path)
             current.candidates = candidates
             current.selected_index = 0
+            current.custom_candidate = None
             current.status = "ready"
             current.error = None
             return current
@@ -370,14 +390,71 @@ class CoverWorkspace:
             for index, candidate in enumerate(task.candidates):
                 if Path(candidate.path).resolve() == selected_path:
                     task.selected_index = index
+                    task.custom_candidate = None
                     return task
         raise ValueError("所选媒体不是该任务的候选帧")
+
+    def video_metadata(self, task_id: str) -> VideoMetadata:
+        """读取并缓存连续时间轴所需的视频时长和尺寸。"""
+
+        with self._lock:
+            task = self.get_task(task_id)
+            if (
+                task.video_duration is not None
+                and task.video_width is not None
+                and task.video_height is not None
+            ):
+                return VideoMetadata(
+                    path=task.video_path,
+                    duration=task.video_duration,
+                    width=task.video_width,
+                    height=task.video_height,
+                    fps=0.0,
+                )
+            source_path = task.video_path
+        metadata = probe_video(source_path)
+        with self._lock:
+            current = self.get_task(task_id)
+            if current.video_path != source_path:
+                raise RuntimeError("封面任务源视频在读取信息期间发生变化")
+            current.video_duration = metadata.duration
+            current.video_width = metadata.width
+            current.video_height = metadata.height
+        return metadata
+
+    def select_timestamp(self, task_id: str, timestamp: float) -> CoverTask:
+        """提取并选中用户在连续时间轴上指定的画面。"""
+
+        with self._lock:
+            task = self.get_task(task_id)
+            source_path = task.video_path
+        metadata = self.video_metadata(task_id)
+        candidate, metadata = extract_frame_at_timestamp(
+            source_path,
+            timestamp,
+            cache_dir=self.cache_dir,
+            metadata=metadata,
+        )
+        with self._lock:
+            current = self.get_task(task_id)
+            if current.video_path != source_path:
+                raise RuntimeError("封面任务源视频在选帧期间发生变化")
+            current.custom_candidate = candidate
+            current.video_duration = metadata.duration
+            current.video_width = metadata.width
+            current.video_height = metadata.height
+            current.status = "ready"
+            current.error = None
+            self._register_media(candidate.path)
+            return current
 
     def selected_candidate(self, task_id: str) -> FrameCandidate:
         """返回任务当前选中的候选帧。"""
 
         with self._lock:
             task = self.get_task(task_id)
+            if task.custom_candidate is not None:
+                return task.custom_candidate
             if not task.candidates:
                 raise ValueError("该任务尚未生成候选帧")
             return task.candidates[task.selected_index]
@@ -472,9 +549,15 @@ class CoverWorkspace:
                         "score": candidate.score,
                         "metrics": candidate.metrics.to_dict(),
                         "cached": candidate.cached,
-                        "selected": index == task.selected_index,
+                        "selected": (
+                            task.custom_candidate is None
+                            and index == task.selected_index
+                        ),
                     }
                 )
+            selected = task.custom_candidate
+            if selected is None and task.candidates:
+                selected = task.candidates[task.selected_index]
             return {
                 "id": task.id,
                 "filename": task.filename,
@@ -489,6 +572,13 @@ class CoverWorkspace:
                 "status": task.status,
                 "error": task.error,
                 "video_token": video_token,
+                "video_duration": task.video_duration,
+                "video_width": task.video_width,
+                "video_height": task.video_height,
+                "selected_timestamp": selected.timestamp if selected is not None else None,
+                "selected_frame_token": (
+                    self._register_media(selected.path) if selected is not None else None
+                ),
                 "candidates": candidates,
                 "output_files": {
                     key: Path(path).name for key, path in task.output_paths.items()

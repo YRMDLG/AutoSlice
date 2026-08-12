@@ -18,9 +18,8 @@
       </div>
     </a>
     <nav class="product-nav" aria-label="统一工作台">
-      <a href="http://127.0.0.1:5002/">智能分析</a>
-      <a href="http://127.0.0.1:5002/direct-slice">高级重切</a>
-      <a href="http://127.0.0.1:5002/subtitle-workflow">字幕校对</a>
+      <a href="{{ autoslice_base_url }}/">智能分析</a>
+      <a href="{{ autoslice_base_url }}/subtitle-workflow">字幕校对</a>
       <a href="/" class="active" aria-current="page">自动封面</a>
     </nav>
     <div class="workspace-summary" id="workspace-summary" title="尚未载入切片目录">尚未载入切片目录</div>
@@ -65,6 +64,11 @@
           <input id="sync-ratios" type="checkbox" checked>
           <span>双比例同步</span>
         </label>
+        <label class="background-zoom" title="只缩放背景画面，文字和贴图保持原位">
+          <span>画面缩放</span>
+          <input id="background-scale" type="range" min="100" max="250" step="1" value="100" disabled>
+          <output id="background-scale-value">100%</output>
+        </label>
         <span class="preview-state" id="preview-state">等待选择切片</span>
       </div>
 
@@ -74,6 +78,18 @@
           <div class="cover-overlay" id="cover-overlay" aria-label="可拖拽封面元素"></div>
           <div class="preview-empty" id="preview-empty">选择目录后开始制作</div>
           <div class="preview-loader" id="preview-loader" hidden>正在生成预览...</div>
+        </div>
+      </div>
+
+      <div class="frame-timeline" id="frame-timeline" aria-label="视频连续选帧">
+        <div class="frame-timeline-heading">
+          <strong>精确选帧</strong>
+          <span id="timeline-status">载入视频后可拖动选帧</span>
+        </div>
+        <div class="frame-timeline-controls">
+          <span id="timeline-current">0:00.0</span>
+          <input id="timeline-range" type="range" min="0" max="1" step="0.1" value="0" disabled aria-label="拖动到指定视频时间选帧">
+          <span id="timeline-duration">0:00.0</span>
         </div>
       </div>
 
@@ -161,6 +177,8 @@
           <div class="sticker-heading">
             <div class="control-label">表情贴图</div>
             <div class="sticker-heading-tools">
+              <button class="button quiet sticker-import-button" id="upload-sticker" type="button">导入图片</button>
+              <input id="upload-sticker-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
               <span class="sticker-library-summary" id="sticker-library-summary" aria-live="polite">正在读取贴图库…</span>
               <button class="icon-button small-icon" id="refresh-stickers" type="button" title="重新扫描表情包目录" aria-label="重新扫描表情包目录">↻</button>
             </div>

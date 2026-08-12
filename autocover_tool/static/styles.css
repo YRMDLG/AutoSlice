@@ -291,7 +291,7 @@ h2 {
 
 .preview-panel {
   display: grid;
-  grid-template-rows: 48px minmax(300px, 1fr) 170px;
+  grid-template-rows: auto minmax(300px, 1fr) 68px 160px;
   background: #0d0f0e;
 }
 
@@ -534,6 +534,28 @@ h2 {
   accent-color: var(--accent);
 }
 
+.background-zoom {
+  min-width: 220px;
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr) 38px;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.background-zoom input {
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.background-zoom output {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .preview-state {
   min-width: 0;
   margin: 0 0 0 auto;
@@ -592,6 +614,38 @@ h2 {
   inset: 0;
   overflow: hidden;
   pointer-events: none;
+}
+
+.alignment-guide {
+  position: absolute;
+  z-index: 8;
+  display: block;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background: #42d7ff;
+  transition: opacity 60ms ease-out;
+}
+
+.alignment-guide.visible {
+  opacity: 0.92;
+  visibility: visible;
+}
+
+.alignment-guide.vertical {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.alignment-guide.horizontal {
+  right: 0;
+  left: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-0.5px);
 }
 
 .editable-element {
@@ -744,6 +798,54 @@ h2 {
   padding: 9px 13px 11px;
   border-top: 1px solid var(--line);
   background: #141715;
+}
+
+.frame-timeline {
+  min-width: 0;
+  padding: 8px 13px;
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid var(--line);
+  background: #111412;
+}
+
+.frame-timeline-heading,
+.frame-timeline-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.frame-timeline-heading strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.frame-timeline-heading span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frame-timeline-controls > span {
+  width: 56px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.frame-timeline-controls > span:last-child {
+  text-align: right;
+}
+
+.frame-timeline-controls input {
+  min-width: 0;
+  flex: 1;
+  accent-color: var(--accent);
 }
 
 .section-heading {
@@ -1022,6 +1124,13 @@ select:hover {
   align-items: center;
   justify-content: flex-end;
   gap: 7px;
+}
+
+.sticker-import-button {
+  min-height: 28px;
+  padding: 4px 8px;
+  flex: 0 0 auto;
+  font-size: 11px;
 }
 
 .sticker-library-summary {

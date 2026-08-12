@@ -37,19 +37,19 @@ def _configured_directory(env_name, fallback):
 
 DEFAULT_VIDEO_DIR = _configured_directory(
     "AUTOSLICE_VIDEO_DIR",
-    r"F:\001",
+    Path(PROJECT_DIR) / "recordings",
 )
 DEFAULT_OUTPUT_DIR = _configured_directory(
     "AUTOSLICE_OUTPUT_DIR",
-    r"F:\Videos\自动切片",
+    Path(PROJECT_DIR) / "output",
 )
 DEFAULT_TIMELINE_DIR = _configured_directory(
     "AUTOSLICE_TIMELINE_DIR",
-    r"F:\切片时间轴",
+    Path(PROJECT_DIR) / "timelines",
 )
 DEFAULT_SUBMISSION_DIR = _configured_directory(
     "AUTOSLICE_SUBMISSION_DIR",
-    r"F:\Videos\投稿",
+    Path(PROJECT_DIR) / "submissions",
 )
 DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
 AUTOSLICE_SERVICE_ID = "autoslice"
@@ -657,6 +657,44 @@ def _reserve_subtitle_review_task(srt_path, force):
     )
 
 
+def _reserve_subtitle_title_task(srt_path):
+    """同一份校对字幕同时只生成一组参考标题。"""
+    return _reserve_task(
+        "subtitle_title",
+        "subtitle_title",
+        "参考标题等待生成...",
+        source_paths=(srt_path,),
+        metadata={
+            "source_srt_path": os.path.abspath(srt_path),
+        },
+    )
+
+
+def _validate_subtitle_video(video_path):
+    if not video_path or not os.path.isfile(video_path):
+        raise ValueError("投稿视频文件不存在")
+    if os.path.splitext(video_path)[1].lower() not in {".mp4", ".mov", ".mkv"}:
+        raise ValueError("投稿视频格式不受支持")
+    return os.path.abspath(video_path)
+
+
+def _reserve_subtitle_transcription_task(video_path):
+    """同一成片同时只允许一个转录任务，并预约同名 SRT 输出。"""
+    srt_path = os.path.splitext(video_path)[0] + ".srt"
+    return _reserve_task(
+        "subtitle_transcribe",
+        "subtitle_transcription",
+        "字幕识别等待启动...",
+        source_paths=(video_path,),
+        output_paths=(srt_path,),
+        conflict_types={"subtitle_transcription", "subtitle_render"},
+        metadata={
+            "source_video_path": os.path.abspath(video_path),
+            "output_srt_path": os.path.abspath(srt_path),
+        },
+    )
+
+
 def _validate_subtitle_path(srt_path):
     if not srt_path or not os.path.isfile(srt_path):
         raise ValueError("SRT 字幕文件不存在")
@@ -666,11 +704,7 @@ def _validate_subtitle_path(srt_path):
 
 
 def _validate_subtitle_pair(video_path, srt_path):
-    if not video_path or not os.path.isfile(video_path):
-        raise ValueError("投稿视频文件不存在")
-    if os.path.splitext(video_path)[1].lower() not in {".mp4", ".mov", ".mkv"}:
-        raise ValueError("投稿视频格式不受支持")
-    video_path = os.path.abspath(video_path)
+    video_path = _validate_subtitle_video(video_path)
     srt_path = _validate_subtitle_path(srt_path)
     if os.path.normcase(os.path.dirname(video_path)) != os.path.normcase(os.path.dirname(srt_path)):
         raise ValueError("视频和字幕必须位于同一投稿目录")
@@ -734,6 +768,85 @@ def run_subtitle_review_task(
         )
     except Exception as exc:
         _record_task_error(task_id, "字幕检查失败", exc)
+
+
+def run_subtitle_title_task(
+        task_id, srt_path, context_title, streamer_profile):
+    """后台根据已保存的校对字幕生成参考投稿标题。"""
+    update_task(
+        task_id,
+        status="running",
+        progress="准备理解整段字幕...",
+        step=0,
+        total=100,
+    )
+
+    def callback(msg, step, total):
+        update_task(
+            task_id,
+            status="running",
+            progress=msg,
+            step=step,
+            total=total,
+        )
+
+    try:
+        from subtitle_workflow import generate_subtitle_reference_titles
+
+        with streamer_profile_context(streamer_profile):
+            result = generate_subtitle_reference_titles(
+                srt_path,
+                context_title=context_title,
+                progress_callback=callback,
+            )
+        update_task(
+            task_id,
+            status="done",
+            progress="参考标题生成完成",
+            result=json.dumps(result, ensure_ascii=False),
+            step=100,
+            total=100,
+        )
+    except Exception as exc:
+        _record_task_error(task_id, "参考标题生成失败", exc)
+
+
+def run_subtitle_transcription_task(task_id, video_path):
+    """后台为精剪成片生成同名 SRT，完成后可直接进入字幕校对。"""
+    update_task(
+        task_id,
+        status="running",
+        progress="准备自动识别字幕...",
+        step=0,
+        total=100,
+    )
+
+    def callback(msg, step, total):
+        update_task(
+            task_id,
+            status="running",
+            progress=msg,
+            step=step,
+            total=total,
+        )
+
+    try:
+        from subtitle_workflow import transcribe_submission_video
+
+        result = transcribe_submission_video(
+            video_path,
+            progress_callback=callback,
+        )
+        update_task(
+            task_id,
+            status="done",
+            progress=f"字幕识别完成，共 {result['cue_count']} 条",
+            result=json.dumps(result, ensure_ascii=False),
+            step=100,
+            total=100,
+        )
+    except Exception as exc:
+        _record_task_error(task_id, "字幕识别失败", exc)
 
 
 def run_subtitle_render_task(
@@ -1148,6 +1261,69 @@ def subtitle_cues():
     return jsonify({"srt_path": srt_path, "cues": cues, "count": len(cues)})
 
 
+@app.route("/api/subtitles/edit-state", methods=["POST"])
+def subtitle_edit_state():
+    from subtitle_workflow import load_subtitle_edit_state
+
+    data = request.get_json(silent=True) or {}
+    try:
+        srt_path = _validate_subtitle_path(data.get("srt_path", ""))
+        edit_state = load_subtitle_edit_state(srt_path)
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({
+        "srt_path": srt_path,
+        "available": edit_state is not None,
+        "edit_state": edit_state,
+    })
+
+
+@app.route("/api/subtitles/transcribe", methods=["POST"])
+def subtitle_transcribe():
+    data = request.get_json(silent=True) or {}
+    try:
+        video_path = _validate_subtitle_video(data.get("video_path", ""))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    task_id, active_task_id = _reserve_subtitle_transcription_task(video_path)
+    if active_task_id:
+        return jsonify({
+            "error": "该视频正在识别字幕，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
+    try:
+        threading.Thread(
+            target=run_subtitle_transcription_task,
+            args=(task_id, video_path),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        _record_task_error(task_id, "字幕识别启动失败", exc)
+        return jsonify({"error": _safe_task_error(exc), "task_id": task_id}), 500
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/api/subtitles/reflow", methods=["POST"])
+def subtitle_reflow():
+    """为旧版过长 SRT 生成排版副本，不改写源字幕。"""
+    from subtitle_workflow import reflow_subtitle_srt_for_display
+
+    data = request.get_json(silent=True) or {}
+    try:
+        video_path, srt_path = _validate_subtitle_pair(
+            data.get("video_path", ""),
+            data.get("srt_path", ""),
+        )
+        result = reflow_subtitle_srt_for_display(srt_path)
+        if os.path.normcase(os.path.abspath(result["source_srt_path"])) != os.path.normcase(srt_path):
+            raise ValueError("整理结果不属于当前源字幕")
+        result["video_path"] = video_path
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
 @app.route("/api/subtitles/review", methods=["POST"])
 def subtitle_review():
     data = request.get_json(silent=True) or {}
@@ -1201,17 +1377,77 @@ def subtitle_review():
     return jsonify({"task_id": task_id})
 
 
+@app.route("/api/subtitles/generate-title", methods=["POST"])
+def subtitle_generate_title():
+    """根据当前已保存字幕生成参考标题，不改视频名或字幕文件。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        video_path, srt_path = _validate_subtitle_pair(
+            data.get("video_path", ""),
+            data.get("srt_path", ""),
+        )
+        streamer_profile = _request_streamer_profile(data, video_path)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    context_title = str(
+        data.get("context_title") or os.path.basename(os.path.dirname(video_path))
+    ).strip()
+    if not context_title:
+        context_title = Path(video_path).stem
+    if len(context_title) > 300:
+        return jsonify({"error": "视频标题过长"}), 400
+
+    task_id, active_task_id = _reserve_subtitle_title_task(srt_path)
+    if active_task_id:
+        return jsonify({
+            "error": "该字幕正在生成参考标题，请等待当前任务完成",
+            "task_id": active_task_id,
+        }), 409
+    try:
+        threading.Thread(
+            target=run_subtitle_title_task,
+            args=(task_id, srt_path, context_title, streamer_profile),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        _record_task_error(task_id, "参考标题任务启动失败", exc)
+        return jsonify({
+            "error": f"参考标题任务启动失败: {_safe_task_error(exc)}",
+            "task_id": task_id,
+        }), 500
+    return jsonify({"task_id": task_id})
+
+
 @app.route("/api/subtitles/save", methods=["POST"])
 def subtitle_save():
     from subtitle_workflow import parse_srt_document, save_corrected_srt
 
     data = request.get_json(silent=True) or {}
     corrections = data.get("corrections", [])
+    deleted_indices = data.get("deleted_indices", [])
+    merge_pairs = data.get("merge_pairs", [])
+    merge_overrides = data.get("merge_overrides", {})
+    time_overrides = data.get("time_overrides", {})
     if not isinstance(corrections, list):
         return jsonify({"error": "字幕修正必须是数组"}), 400
+    if not isinstance(deleted_indices, list):
+        return jsonify({"error": "删除字幕序号必须是数组"}), 400
+    if not isinstance(merge_pairs, list):
+        return jsonify({"error": "字幕合并关系必须是数组"}), 400
+    if not isinstance(merge_overrides, dict):
+        return jsonify({"error": "合并字幕正文必须是对象"}), 400
+    if not isinstance(time_overrides, dict):
+        return jsonify({"error": "字幕时间调整必须是对象"}), 400
     try:
         srt_path = _validate_subtitle_path(data.get("srt_path", ""))
-        output_path = save_corrected_srt(srt_path, corrections)
+        output_path = save_corrected_srt(
+            srt_path,
+            corrections,
+            deleted_indices=deleted_indices,
+            merge_pairs=merge_pairs,
+            merge_overrides=merge_overrides,
+            time_overrides=time_overrides,
+        )
         cue_count = len(parse_srt_document(output_path))
     except (OSError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
@@ -1219,6 +1455,9 @@ def subtitle_save():
         "source_srt_path": srt_path,
         "corrected_srt_path": output_path,
         "correction_count": len(corrections),
+        "deletion_count": len(deleted_indices),
+        "merge_count": len(merge_pairs),
+        "timing_count": len(time_overrides),
         "cue_count": cue_count,
     })
 
