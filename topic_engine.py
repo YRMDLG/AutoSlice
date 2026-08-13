@@ -1634,6 +1634,74 @@ def _resolve_funasr_device(requested_device=None):
     return "cpu"
 
 
+def funasr_public_status():
+    """返回不含本机模型路径的 FunASR 状态和可执行调整提示。"""
+
+    model_source = _resolve_funasr_model_source()
+    source_text = str(model_source or "")
+    source_key = source_text.replace("\\", "/").casefold()
+    is_nano = "fun-asr-nano" in source_key
+    is_contextual = "contextual" in source_key
+    is_local_model = os.path.isfile(os.path.join(source_text, "model.pt"))
+    selected_device = _resolve_funasr_device()
+    custom_hotwords = bool(
+        str(os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")).strip()
+    )
+
+    if is_nano:
+        model_key = "nano"
+        display_name = "Fun-ASR-Nano-2512"
+        hotword_mode = "native"
+    elif is_contextual:
+        model_key = "contextual_paraformer"
+        display_name = "Contextual Paraformer"
+        hotword_mode = "native"
+    else:
+        model_key = "paraformer"
+        display_name = "Paraformer（兼容回退）"
+        hotword_mode = "post_correction_only"
+
+    needs_setup = not is_nano
+    model_ready = is_local_model
+    if not model_ready:
+        summary = f"未检测到可用的本地 {display_name} 模型缓存"
+        recommendation = "关闭服务后运行 python setup_asr_model.py，再重新启动。"
+    elif needs_setup:
+        summary = f"当前使用 {display_name}，可以识别，但不是推荐模型"
+        recommendation = "建议关闭服务后运行 python setup_asr_model.py，安装推荐 Nano 模型。"
+    else:
+        summary = f"当前使用 {display_name}（推荐）"
+        recommendation = "识别专名不准时，调整热词或主播专名纠错规则。"
+
+    if hotword_mode == "native":
+        hotword_hint = (
+            "已读取自定义热词；长期错字仍建议写入主播专名纠错规则。"
+            if custom_hotwords
+            else "可在 autoslice.local.json 设置 AUTOSLICE_FUNASR_HOTWORDS 追加临时热词。"
+        )
+    else:
+        hotword_hint = (
+            "普通 Paraformer 不直接接收热词；当前只应用识别后的主播专名纠错规则。"
+        )
+
+    return {
+        "model_key": model_key,
+        "display_name": display_name,
+        "device": selected_device,
+        "model_ready": model_ready,
+        "recommended": is_nano and model_ready,
+        "needs_setup": needs_setup or not model_ready,
+        "hotword_mode": hotword_mode,
+        "custom_hotwords": custom_hotwords,
+        "summary": summary,
+        "recommendation": recommendation,
+        "hotword_hint": hotword_hint,
+        "correction_hint": (
+            "长期固定纠错：编辑 streamer_profiles.json 中对应主播的 asr_replacements。"
+        ),
+    }
+
+
 def _load_funasr_model(AutoModel, progress_callback=None, device=None):
     """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
     _prepare_funasr_environment()

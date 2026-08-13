@@ -7,6 +7,16 @@ import runtime_config
 
 class RuntimeConfigTests(unittest.TestCase):
 
+    def test_local_config_accepts_funasr_adjustment_keys(self):
+        for key in (
+            "AUTOSLICE_FUNASR_DEVICE",
+            "AUTOSLICE_FUNASR_HOTWORDS",
+            "AUTOSLICE_FUNASR_MODEL_DIR",
+            "AUTOSLICE_FUNASR_VAD_DIR",
+            "AUTOSLICE_FUNASR_PUNC_DIR",
+        ):
+            self.assertIn(key, runtime_config._LOCAL_ENVIRONMENT_KEYS)
+
     def test_configured_value_prioritizes_environment_then_local_then_default(self):
         key = "AUTOSLICE_TEST_DIRECTORY"
         with patch.object(runtime_config, "LOCAL_ENVIRONMENT", {key: r"D:\\local"}):

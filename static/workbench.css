@@ -449,6 +449,44 @@ textarea:hover {
   background: var(--warning);
 }
 
+.runtime-guidance {
+  margin: 0 0 14px 170px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--info);
+  border-radius: 6px;
+  background: var(--info-bg);
+  color: var(--text-secondary);
+}
+
+.runtime-guidance > div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.runtime-guidance strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.runtime-guidance p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.runtime-guidance .runtime-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .04em;
+}
+
+.runtime-guidance.success { border-left-color: var(--success); }
+.runtime-guidance.warning { border-left-color: var(--warning); }
+
 .video-list {
   max-height: 316px;
   overflow: auto;

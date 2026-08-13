@@ -80,6 +80,10 @@
                     <strong>分析设置</strong>
                     <span>默认设置适合日常任务</span>
                 </div>
+                <div id="asrStatus" class="runtime-guidance" role="status" aria-live="polite">
+                    <div><span class="runtime-label">字幕识别</span><strong id="asrStatusTitle">正在检查 FunASR...</strong></div>
+                    <p id="asrStatusHint">模型状态不会影响已有 SRT 的录播。</p>
+                </div>
                 <div class="field-row">
                     <label for="streamerProfile">主播配置</label>
                     <select id="streamerProfile" onchange="onStreamerProfileChange()">
@@ -155,6 +159,21 @@ function setNotice(message,kind=''){
     const notice=byId('pageNotice');
     notice.textContent=message;
     notice.className=`notice ${kind}`.trim();
+}
+
+async function loadAsrStatus(){
+    const box=byId('asrStatus');
+    try{
+        const data=await jsonRequest('/api/asr-status');
+        byId('asrStatusTitle').textContent=`${data.display_name} · ${data.device}`;
+        byId('asrStatusHint').textContent=[data.summary,data.recommendation,data.hotword_hint,data.correction_hint].filter(Boolean).join(' ');
+        box.classList.toggle('warning',Boolean(data.needs_setup));
+        box.classList.toggle('success',Boolean(data.recommended));
+    }catch(error){
+        byId('asrStatusTitle').textContent='FunASR 状态读取失败';
+        byId('asrStatusHint').textContent=error.message;
+        box.classList.add('warning');
+    }
 }
 
 async function jsonRequest(url,options={}){
@@ -427,6 +446,7 @@ async function retryClipReview(){
 restoreWorkspacePaths();
 connectSSE();
 loadStreamerProfiles();
+loadAsrStatus();
 toggleTimelineMode();
 scan();
 </script>

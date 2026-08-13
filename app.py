@@ -1635,6 +1635,15 @@ def streamer_profiles_contract():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/asr-status")
+def asr_status_contract():
+    """展示当前 FunASR 模型与调整入口，不返回任何本机模型路径。"""
+
+    from topic_engine import funasr_public_status
+
+    return jsonify(funasr_public_status())
+
+
 @app.route("/api/start-pipeline", methods=["POST"])
 def start_pipeline():
     """启动完整话题分析流水线（v2）"""

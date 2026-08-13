@@ -53,6 +53,7 @@ from topic_engine import (
     _filter_unsupported_ai_points, _fit_final_clip_to_safe_srt_boundaries,
     _funasr_chunk_fingerprint, _funasr_checkpoint_path,
     _funasr_generate_kwargs, _funasr_hotwords,
+    funasr_public_status,
     _funasr_source_fingerprint,
     _danmaku_peak_content_evidence, _format_danmaku_peak_content,
     _high_energy_danmaku_peaks, _infer_streamer_name, _is_retryable_llm_error,
@@ -1575,6 +1576,46 @@ class TopicEngineParseTests(unittest.TestCase):
             (model_dir / "model.pt").write_bytes(b"fake")
             with patch("topic_engine._funasr_model_cache_candidates", return_value=[str(model_dir)]):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
+
+    def test_funasr_public_status_marks_nano_as_recommended_without_leaking_path(self):
+        with TemporaryDirectory() as td:
+            model_dir = Path(td) / "Fun-ASR-Nano-2512"
+            model_dir.mkdir()
+            (model_dir / "model.pt").write_bytes(b"fake")
+            with (
+                patch("topic_engine._resolve_funasr_model_source", return_value=str(model_dir)),
+                patch("topic_engine._resolve_funasr_device", return_value="cuda:0"),
+                patch.dict(
+                    "topic_engine.os.environ",
+                    {"AUTOSLICE_FUNASR_HOTWORDS": "音音 朱鹮"},
+                    clear=True,
+                ),
+            ):
+                status = funasr_public_status()
+
+        self.assertEqual(status["model_key"], "nano")
+        self.assertEqual(status["device"], "cuda:0")
+        self.assertTrue(status["recommended"])
+        self.assertTrue(status["custom_hotwords"])
+        self.assertNotIn(str(model_dir), json.dumps(status, ensure_ascii=False))
+
+    def test_funasr_public_status_explains_plain_paraformer_fallback(self):
+        with TemporaryDirectory() as td:
+            model_dir = Path(td) / "speech_paraformer"
+            model_dir.mkdir()
+            (model_dir / "model.pt").write_bytes(b"fake")
+            with (
+                patch("topic_engine._resolve_funasr_model_source", return_value=str(model_dir)),
+                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
+                patch.dict("topic_engine.os.environ", {}, clear=True),
+            ):
+                status = funasr_public_status()
+
+        self.assertEqual(status["model_key"], "paraformer")
+        self.assertFalse(status["recommended"])
+        self.assertTrue(status["needs_setup"])
+        self.assertIn("setup_asr_model.py", status["recommendation"])
+        self.assertIn("不直接接收热词", status["hotword_hint"])
 
     def test_funasr_model_loader_attaches_cached_vad_and_punctuation_models(self):
         calls = []

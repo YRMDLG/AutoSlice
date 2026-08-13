@@ -44,6 +44,8 @@ http://localhost:5002
 回退所需的 VAD 和标点模型；只需成功执行一次，之后会优先使用本地缓存和字幕热词。下载失败时
 原有 Paraformer 缓存仍可回退使用。GPU 安装脚本只写入
 `%LOCALAPPDATA%\AutoSlice`，不会替换系统 Python 的 CPU PyTorch。
+启动后，智能分析和字幕校对页面会直接提示当前 FunASR 模型、设备、是否回退，以及热词与
+固定专名纠错的调整位置；无需靠控制台猜测实际用了哪个模型。
 
 所有公开默认目录都位于仓库内。需要继续使用自己已有的录播、投稿、封面或贴图库时，
 复制 `autoslice.local.example.json` 为本机的 `autoslice.local.json`，再填入自己的目录。

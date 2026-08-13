@@ -190,6 +190,30 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             "autocover_url": "http://localhost:5013",
         })
 
+    def test_asr_status_contract_is_public_and_path_free(self):
+        public_status = {
+            "model_key": "nano",
+            "display_name": "Fun-ASR-Nano-2512",
+            "device": "cuda:0",
+            "model_ready": True,
+            "recommended": True,
+            "needs_setup": False,
+            "hotword_mode": "native",
+            "custom_hotwords": True,
+            "summary": "当前使用推荐模型",
+            "recommendation": "识别专名不准时调整热词",
+            "hotword_hint": "已读取自定义热词",
+            "correction_hint": "固定纠错见主播配置",
+        }
+        with patch("topic_engine.funasr_public_status", return_value=public_status):
+            response = self.client.get("/api/asr-status")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), public_status)
+        serialized = json.dumps(response.get_json(), ensure_ascii=False)
+        self.assertNotIn("model_path", serialized)
+        self.assertNotIn("model_source", serialized)
+
     def test_workspace_paths_are_generic_configurable_and_browser_persisted(self):
         with patch.dict(
                 os.environ,
@@ -279,6 +303,9 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
                 "'/api/subtitles/reflow'",
                 "can_reflow_srt"):
             self.assertIn(marker, script)
+
+        self.assertIn('id="asrGuidance"', html)
+        self.assertIn("'/api/asr-status'", script)
 
     def test_review_page_exposes_adjacent_merge_and_restores_saved_groups(self):
         _html, script = self._page_script()
@@ -885,6 +912,8 @@ class TopicPipelineApiTests(unittest.TestCase):
         self.assertIn('id="streamerProfile"', html)
         self.assertIn("/api/streamer-profiles", html)
         self.assertIn("autoslice.streamer-profile", html)
+        self.assertIn('id="asrStatus"', html)
+        self.assertIn("'/api/asr-status'", html)
         self.assertEqual(html.count("streamer_profile_id:selectedStreamerProfile()"), 3)
         self.assertGreaterEqual(
             html.count("output_dir:document.getElementById('outputDir').value"),

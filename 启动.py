@@ -410,9 +410,19 @@ def main():
 
         sys.path.insert(0, str(PROJECT_DIR))
         from app import app
+        from topic_engine import funasr_public_status
 
-        device = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
-        print(f"AutoSlice Web 已启动: http://localhost:5002（FunASR: {device}）")
+        asr_status = funasr_public_status()
+        print(
+            "AutoSlice Web 已启动: http://localhost:5002"
+            f"（FunASR: {asr_status['display_name']} · {asr_status['device']}）"
+        )
+        if asr_status["needs_setup"]:
+            print(f"  FunASR 提示: {asr_status['recommendation']}")
+        print(
+            "  识别调整: autoslice.local.json 的 AUTOSLICE_FUNASR_HOTWORDS；"
+            "固定纠错见 streamer_profiles.json 的 asr_replacements"
+        )
         print("控制台将实时显示所有任务进度")
         app.run(
             host=_autoslice_bind_host(),

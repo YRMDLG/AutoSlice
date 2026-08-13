@@ -52,6 +52,8 @@ body{overflow:hidden}
 .task-status::before{content:"";width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--info)}
 .task-status.error{background:var(--danger-bg);color:#ffc1bd}.task-status.error::before{background:var(--danger)}
 .task-status.done{background:var(--success-bg);color:#b9ebce}.task-status.done::before{background:var(--success)}
+    .asr-guidance{padding:9px 13px;border-bottom:1px solid var(--line);background:#131a16;color:var(--text-secondary);font-size:12px;line-height:1.5}
+    .asr-guidance strong{color:var(--text);margin-right:8px}.asr-guidance.warning{border-left:3px solid var(--warning);padding-left:10px}.asr-guidance.success{border-left:3px solid var(--success);padding-left:10px}
 .cue-list{overflow:auto;flex:1;padding-bottom:66px;background:#111412}
 .cue-row{display:grid;grid-template-columns:24px 94px minmax(0,1fr);gap:10px;padding:11px 13px;border-bottom:1px solid #262b28;align-items:start;cursor:pointer}
 .cue-row:hover{background:#151916}
@@ -158,6 +160,7 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
                 <button class="button quiet" type="button" id="forceReviewButton" title="忽略已有缓存并重新调用 AI" disabled>强制重新检查</button>
             </div>
         </div>
+        <div id="asrGuidance" class="asr-guidance" role="status" aria-live="polite"><strong>FunASR</strong><span>正在检查模型和设备...</span></div>
         <div class="title-reference" aria-live="polite">
             <div class="title-reference-head">
                 <span class="title-reference-label">参考标题</span>
@@ -252,6 +255,7 @@ function styleValues(){return{font_name:'Noto Sans S Chinese Black',font_size:Nu
 function exportValues(){return{width:1920,height:1080,bitrate_kbps:Number(document.getElementById('bitrate').value),rate_control:'vbr',codec:'h264',container:'mp4',fps:Number(document.getElementById('fps').value),color_space:'bt709',color_range:'tv',audio:'copy'};}
 
 async function loadDefaults(){try{const data=await jsonRequest('/api/subtitles/defaults');state.defaults=data;const font=data.font||{};const el=document.getElementById('fontStatus');el.textContent=font.available?`${font.requested} → ${font.resolved}`:`字体不可用：${font.resolved||'未解析'}`;el.className=`font-status ${font.available?'ok':''}`;applyDefaults(data);}catch(error){setTask(error.message,'error');}}
+async function loadAsrStatus(){const box=document.getElementById('asrGuidance');try{const data=await jsonRequest('/api/asr-status');box.querySelector('strong').textContent=`${data.display_name} · ${data.device}`;box.querySelector('span').textContent=[data.recommendation,data.hotword_hint,data.correction_hint].filter(Boolean).join(' ');box.classList.toggle('warning',Boolean(data.needs_setup));box.classList.toggle('success',Boolean(data.recommended));}catch(error){box.querySelector('strong').textContent='FunASR 状态读取失败';box.querySelector('span').textContent=error.message;box.classList.add('warning');}}
 function applyDefaults(data){const style=data.style||{},exp=data.export||{};let remembered='';try{remembered=localStorage.getItem(SUBTITLE_ROOT_STORAGE_KEY)||''}catch(error){}document.getElementById('rootDir').value=remembered||data.submission_dir||'submissions';document.getElementById('fontSize').value=style.font_size??20;setColor('fontColor',style.font_color||'ffffff');setColor('outlineColor',style.outline_color||'d06e95');document.getElementById('outlineWidth').value=style.outline_width??100;document.getElementById('positionX').value=style.x??0;document.getElementById('positionY').value=style.y??-788;document.getElementById('bitrate').value=exp.bitrate_kbps??8000;document.getElementById('fps').value=exp.fps??60;}
 function setColor(id,value){const clean=String(value).replace('#','').toLowerCase();document.getElementById(id).value=clean;document.getElementById(`${id}Picker`).value=`#${clean}`;}
 
@@ -470,7 +474,7 @@ document.getElementById('previewRange').addEventListener('input',event=>document
 document.getElementById('previewTime').addEventListener('input',event=>document.getElementById('previewRange').value=event.target.value);
 [['fontColor','fontColorPicker'],['outlineColor','outlineColorPicker']].forEach(([textId,pickerId])=>{document.getElementById(textId).addEventListener('input',event=>{if(/^[0-9a-fA-F]{6}$/.test(event.target.value))document.getElementById(pickerId).value=`#${event.target.value}`;});document.getElementById(pickerId).addEventListener('input',event=>document.getElementById(textId).value=event.target.value.slice(1));});
 
-async function boot(){await loadDefaults();connectSSE();await scan();}
+async function boot(){await Promise.all([loadDefaults(),loadAsrStatus()]);connectSSE();await scan();}
 boot();
 </script>
 </body>
