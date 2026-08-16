@@ -713,7 +713,17 @@ def _validate_subtitle_path(srt_path):
 def _validate_subtitle_pair(video_path, srt_path):
     video_path = _validate_subtitle_video(video_path)
     srt_path = _validate_subtitle_path(srt_path)
-    if os.path.normcase(os.path.dirname(video_path)) != os.path.normcase(os.path.dirname(srt_path)):
+    try:
+        same_directory = os.path.samefile(
+            os.path.dirname(video_path),
+            os.path.dirname(srt_path),
+        )
+    except OSError:
+        same_directory = (
+            os.path.normcase(os.path.realpath(os.path.dirname(video_path)))
+            == os.path.normcase(os.path.realpath(os.path.dirname(srt_path)))
+        )
+    if not same_directory:
         raise ValueError("视频和字幕必须位于同一投稿目录")
     return video_path, srt_path
 
@@ -1359,7 +1369,17 @@ def subtitle_reflow():
             data.get("srt_path", ""),
         )
         result = reflow_subtitle_srt_for_display(srt_path)
-        if os.path.normcase(os.path.abspath(result["source_srt_path"])) != os.path.normcase(srt_path):
+        try:
+            result_matches_source = os.path.samefile(
+                result["source_srt_path"],
+                srt_path,
+            )
+        except OSError:
+            result_matches_source = (
+                os.path.normcase(os.path.realpath(result["source_srt_path"]))
+                == os.path.normcase(os.path.realpath(srt_path))
+            )
+        if not result_matches_source:
             raise ValueError("整理结果不属于当前源字幕")
         result["video_path"] = video_path
     except (OSError, ValueError) as exc:

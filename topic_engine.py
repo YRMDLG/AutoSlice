@@ -3478,6 +3478,9 @@ def _load_title_style_profile(profile_path=None):
     if not isinstance(payload, dict):
         return empty
 
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+    is_template = bool(source.get("template"))
+
     rules = []
     for rule in payload.get("rules") or []:
         text = re.sub(r'\s+', ' ', str(rule)).strip()
@@ -3493,6 +3496,15 @@ def _load_title_style_profile(profile_path=None):
         if not isinstance(item, dict):
             continue
         title = re.sub(r'\s+', ' ', str(item.get("title", ""))).strip()
+        if is_template:
+            # 公开模板使用【主播】占位符，运行时必须跟随当前主播配置；
+            # 私有历史样本则仍严格隔离前缀，防止串号。
+            title = re.sub(
+                r'^\u3010[^\u3011]{1,80}\u3011',
+                title_prefix,
+                title,
+                count=1,
+            )
         if (
             (title_prefix and not title.startswith(title_prefix))
             or "直播回放" in title
@@ -3512,7 +3524,7 @@ def _load_title_style_profile(profile_path=None):
         })
         seen_titles.add(title)
     return {
-        "source": payload.get("source") if isinstance(payload.get("source"), dict) else {},
+        "source": source,
         "rules": rules,
         "examples": examples,
     }

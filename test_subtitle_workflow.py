@@ -56,6 +56,42 @@ SAMPLE_SRT = """1
 """
 
 
+def assert_same_path(testcase, actual, expected):
+    """Windows CI 可能用 8.3 短路径表示同一个临时文件。"""
+
+    actual_path = Path(actual)
+    expected_path = Path(expected)
+    if actual_path.exists() and expected_path.exists():
+        testcase.assertTrue(
+            actual_path.samefile(expected_path),
+            f"路径不一致: {actual_path} != {expected_path}",
+        )
+        return
+    if os.name == "nt":
+        actual_suffix = _temporary_path_suffix(actual_path)
+        expected_suffix = _temporary_path_suffix(expected_path)
+        if actual_suffix is not None and expected_suffix is not None:
+            testcase.assertEqual(actual_suffix, expected_suffix)
+            return
+    testcase.assertEqual(
+        os.path.normcase(os.path.normpath(str(actual_path))),
+        os.path.normcase(os.path.normpath(str(expected_path))),
+    )
+
+
+def _temporary_path_suffix(path):
+    """提取临时目录后的部分，兼容 Windows 用户目录短路径。"""
+
+    path_parts = tuple(part.casefold() for part in Path(path).parts)
+    temp_parts = tuple(part.casefold() for part in Path(tempfile.gettempdir()).parts)
+    for marker_size in range(min(3, len(temp_parts)), 0, -1):
+        marker = temp_parts[-marker_size:]
+        for index in range(len(path_parts) - marker_size + 1):
+            if path_parts[index:index + marker_size] == marker:
+                return path_parts[index + marker_size:]
+    return None
+
+
 class SubtitleParsingAndReviewTests(unittest.TestCase):
     def test_parse_and_serialise_preserve_multiline_timeline_and_settings(self):
         with tempfile.TemporaryDirectory() as td:
@@ -613,8 +649,8 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             later.start_seconds >= earlier.end_seconds
             for earlier, later in zip(reflowed_cues, reflowed_cues[1:])
         ))
-        self.assertEqual(pairs[0]["srt_path"], str(reflowed))
-        self.assertEqual(pairs[0]["raw_srt_path"], str(source))
+        assert_same_path(self, pairs[0]["srt_path"], reflowed)
+        assert_same_path(self, pairs[0]["raw_srt_path"], source)
         self.assertTrue(pairs[0]["is_reflowed_srt"])
         self.assertTrue(pairs[0]["can_reflow_srt"])
         self.assertFalse(protected_pairs[0]["can_reflow_srt"])
@@ -685,7 +721,11 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertEqual(result["cue_count"], 3)
         self.assertTrue(srt_exists)
         self.assertFalse(checkpoint_exists)
-        self.assertEqual(ensure.call_args.kwargs["checkpoint_path"], str(checkpoint))
+        assert_same_path(
+            self,
+            ensure.call_args.kwargs["checkpoint_path"],
+            checkpoint,
+        )
         self.assertTrue(ensure.call_args.kwargs["foreground_only"])
         self.assertEqual(result["background_filter"], {
             "enabled": True,

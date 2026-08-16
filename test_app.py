@@ -1395,7 +1395,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             len("".join(cue.text.split())) <= payload["max_chars"]
             for cue in reflowed_cues
         ))
-        self.assertEqual(rescanned["srt_path"], str(reflowed_path))
+        assert_same_path(self, rescanned["srt_path"], reflowed_path)
         self.assertTrue(rescanned["is_reflowed_srt"])
         self.assertTrue(rescanned["can_reflow_srt"])
 
@@ -1709,9 +1709,10 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             json.loads(task["result"])["recommended_title"],
             title_result["recommended_title"],
         )
-        self.assertEqual(
+        assert_same_path(
+            self,
             generate.call_args.args[0],
-            str(corrected_srt.resolve()),
+            corrected_srt.resolve(),
         )
         self.assertEqual(
             generate.call_args.kwargs["context_title"],

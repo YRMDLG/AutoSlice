@@ -1001,8 +1001,35 @@ class TitleStyleEvidenceTests(unittest.TestCase):
 
     @streamer_profile_context("zeyin")
     def test_user_approved_visual_and_goal_samples_are_selected(self):
+        profile = {
+            "source": {"reviewed_submission_count": 3},
+            "rules": [],
+            "examples": [
+                {
+                    "title": "【泽音】AI音初登场，蓝框中间却有一条虾线🦐",
+                    "tags": ["新衣", "视觉细节"],
+                    "source": "user_approved",
+                },
+                {
+                    "title": "【泽音】虾线从篮筐一直拉到裤子鼓包😨",
+                    "tags": ["视觉细节", "反差"],
+                    "source": "user_approved",
+                },
+                {
+                    "title": "【泽音】想靠游戏天分冲50W粉，这目标比登天还难😭",
+                    "tags": ["目标反差", "游戏"],
+                    "source": "user_approved",
+                },
+                {
+                    "title": "【泽音】送免费游戏CDK整蛊，激活后直接污染朋友Steam库🤣",
+                    "tags": ["整蛊", "反差"],
+                    "source": "user_approved",
+                },
+            ],
+        }
         visual = _select_title_style_examples(
             "AI音 新衣服 紫色 蓝框 虾线 裤子鼓包",
+            profile=profile,
             limit=3,
         )
         visual_titles = [item["title"] for item in visual]
@@ -1011,12 +1038,14 @@ class TitleStyleEvidenceTests(unittest.TestCase):
 
         goal = _select_title_style_examples(
             "目标50万粉 游戏高手 做不到 更难",
+            profile=profile,
             limit=2,
         )
         self.assertTrue(any("50W粉" in item["title"] for item in goal))
 
         prank = _select_title_style_examples(
             "把CDK送朋友整蛊，激活后污染Steam游戏库，朋友天塌了",
+            profile=profile,
             limit=2,
         )
         self.assertTrue(any(
@@ -2019,9 +2048,12 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertFalse(any(segment[1] - segment[0] < 0.5 for segment in segments[1:]))
 
     def test_funasr_device_auto_uses_cuda_only_when_torch_reports_available(self):
-        with patch("torch.cuda.is_available", return_value=True):
+        fake_torch = ModuleType("torch")
+        fake_torch.cuda = Mock()
+        with patch.dict(sys.modules, {"torch": fake_torch}):
+            fake_torch.cuda.is_available.return_value = True
             self.assertEqual(_resolve_funasr_device("auto"), "cuda:0")
-        with patch("torch.cuda.is_available", return_value=False):
+            fake_torch.cuda.is_available.return_value = False
             self.assertEqual(_resolve_funasr_device("auto"), "cpu")
         self.assertEqual(_resolve_funasr_device("cuda"), "cuda:0")
         self.assertEqual(_resolve_funasr_device("cpu"), "cpu")
@@ -7925,12 +7957,26 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
     @streamer_profile_context("zeyin")
     def test_chunk_prompt_requests_full_timeline_and_fan_aliases(self):
-        prompt, _, _ = _build_chunk_prompt(
-            {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
-            0,
-            1,
-            streamer_name="音音",
+        public_profile = _load_title_style_profile(
+            str(Path(__file__).with_name("title_style_profile.example.json"))
         )
+        with patch(
+                "topic_engine._load_title_style_profile",
+                return_value=public_profile):
+            prompt, _, _ = _build_chunk_prompt(
+                {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
+                0,
+                1,
+                streamer_name="音音",
+            )
+
+            compact_prompt, _, _ = _build_chunk_prompt(
+                {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
+                0,
+                1,
+                compact=True,
+                streamer_name="音音",
+            )
 
         self.assertIn("全程时间轴，不是只挑爆点", prompt)
         self.assertIn("普通聊天、过渡、游戏过程、读弹幕、感谢礼物也要写进时间轴", prompt)
@@ -7941,7 +7987,8 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertIn('"publish_title"', prompt)
         self.assertIn("固定以“【泽音】”开头", prompt)
         self.assertIn("账号历史投稿标题风格", prompt)
-        self.assertIn("已审阅账号 2654 条投稿", prompt)
+        self.assertIn("由公开通用标题模板归纳", prompt)
+        self.assertIn("本来只是看一眼新衣", prompt)
         self.assertIn("不要机械地", prompt)
         self.assertIn("连续配方步骤、榜单解说", prompt)
         self.assertIn("抢到最后一张高铁票不等于误车", prompt)
@@ -7949,13 +7996,6 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertIn("只有问号刷屏不能加", prompt)
         self.assertNotIn("直播回放】", prompt)
 
-        compact_prompt, _, _ = _build_chunk_prompt(
-            {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
-            0,
-            1,
-            compact=True,
-            streamer_name="音音",
-        )
         self.assertIn('"publish_title"', compact_prompt)
         self.assertIn("根据历史风格选择", compact_prompt)
         self.assertIn("事件+原话、SC+回应", compact_prompt)
@@ -8005,15 +8045,21 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
     @streamer_profile_context("zeyin")
     def test_manual_enrichment_prompt_uses_relevant_historical_title_style(self):
-        prompt = _build_manual_topic_enrichment_prompt([{
-            "start": 120,
-            "end": 240,
-            "title": "念SC后吐槽",
-            "body": ["·字幕核查：音音念完一条SC后接着回应观众"],
-        }], streamer_name="音音")
+        public_profile = _load_title_style_profile(
+            str(Path(__file__).with_name("title_style_profile.example.json"))
+        )
+        with patch(
+                "topic_engine._load_title_style_profile",
+                return_value=public_profile):
+            prompt = _build_manual_topic_enrichment_prompt([{
+                "start": 120,
+                "end": 240,
+                "title": "念SC后吐槽",
+                "body": ["·字幕核查：音音念完一条SC后接着回应观众"],
+            }], streamer_name="音音")
 
         self.assertIn("账号历史投稿标题风格", prompt)
-        self.assertIn("群发关心SC", prompt)
+        self.assertIn("观众发来一条长 SC", prompt)
         self.assertIn("不要每项都机械使用‘结果/当场’", prompt)
         self.assertIn("focus_start必须从念出触发内容或明确引出问题处开始", prompt)
         self.assertIn("ASR没有识别出SC字样", prompt)
