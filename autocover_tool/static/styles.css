@@ -1,6 +1,6 @@
 @font-face {
   font-family: "AutoCover Seto";
-  src: url("/api/fonts/default?glyph-revision=1");
+  src: url("/api/fonts/default?glyph-revision=2");
   font-display: swap;
   font-style: normal;
   font-weight: 400;
@@ -586,6 +586,20 @@ h2 {
   box-shadow: var(--shadow);
 }
 
+.cover-frame.can-pan-background {
+  cursor: grab;
+  touch-action: none;
+}
+
+.cover-frame.can-pan-background.is-panning-background {
+  cursor: grabbing;
+}
+
+.cover-frame.can-pan-background.is-panning-background #cover-preview,
+.cover-frame.can-pan-background.is-panning-background #cover-background-preview {
+  cursor: grabbing;
+}
+
 .cover-frame.ratio-4x3 {
   width: min(calc(100cqw - 36px), calc(133.333cqh - 48px), 1100px);
   aspect-ratio: 4 / 3;
@@ -603,9 +617,15 @@ h2 {
   object-fit: contain;
 }
 
-.cover-frame > #cover-preview {
-  position: relative;
+.cover-frame > #cover-preview,
+.cover-frame > #cover-background-preview {
+  position: absolute;
+  inset: 0;
   z-index: 0;
+}
+
+.cover-frame > #cover-background-preview {
+  will-change: transform;
 }
 
 .cover-overlay {

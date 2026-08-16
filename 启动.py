@@ -25,6 +25,10 @@ from runtime_config import (
     STICKER_DIR,
     apply_local_environment,
 )
+from autocover_tool.autocover import (
+    API_VERSION as AUTOCOVER_API_VERSION,
+    SERVICE_ID as AUTOCOVER_SERVICE_ID,
+)
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -33,11 +37,12 @@ REQUIRED_IMPORTS = ("flask", "funasr", "soxr", "docx")
 MINIMUM_PACKAGE_VERSIONS = {"funasr": "1.4.1"}
 AUTOCOVER_PROJECT_DIR = AUTOCOVER_DIR
 AUTOCOVER_PREFERRED_PORT = 5010
-AUTOCOVER_SERVICE_ID = "autocover"
-AUTOCOVER_API_VERSION = 6
 AUTOCOVER_START_TIMEOUT = 20.0
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1
+# 与 app.py/subtitle_workflow.py 保持一致；旧进程缺少该字段时不得静默复用。
+AUTOSLICE_SUBTITLE_REVIEW_VERSION = 4
+AUTOSLICE_SUBTITLE_ASR_VERSION = 2
 AUTOSLICE_PORT = 5002
 
 
@@ -193,12 +198,31 @@ def _is_compatible_autoslice_service(payload):
         payload
         and payload.get("service") == AUTOSLICE_SERVICE_ID
         and payload.get("api_version") == AUTOSLICE_API_VERSION
+        and payload.get("subtitle_review_version")
+        == AUTOSLICE_SUBTITLE_REVIEW_VERSION
+        and payload.get("subtitle_asr_version")
+        == AUTOSLICE_SUBTITLE_ASR_VERSION
     )
 
 
 def _existing_unified_services(autoslice_probe=None, autocover_probe=None):
     probe_slice = autoslice_probe or _probe_autoslice_service
     slice_payload = probe_slice(AUTOSLICE_PORT)
+    if (
+            isinstance(slice_payload, dict)
+            and slice_payload.get("service") == AUTOSLICE_SERVICE_ID
+            and slice_payload.get("api_version") == AUTOSLICE_API_VERSION
+            and (
+                slice_payload.get("subtitle_review_version")
+                != AUTOSLICE_SUBTITLE_REVIEW_VERSION
+                or slice_payload.get("subtitle_asr_version")
+                != AUTOSLICE_SUBTITLE_ASR_VERSION
+            )
+    ):
+        raise RuntimeError(
+            "检测到旧版 AutoSlice 服务仍在运行；请先在旧窗口按 Ctrl+C，"
+            "再重新执行 python 启动.py，以加载最新字幕校对与背景音过滤规则。"
+        )
     if not _is_compatible_autoslice_service(slice_payload):
         return None
 

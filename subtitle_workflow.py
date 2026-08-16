@@ -10,13 +10,15 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 
 
-SUBTITLE_REVIEW_VERSION = 3
+SUBTITLE_REVIEW_VERSION = 4
+SUBTITLE_ASR_VERSION = 2
 SUBTITLE_EDIT_STATE_VERSION = 1
 SUBTITLE_REVIEW_BATCH_SIZE = 30
 SUBTITLE_REVIEW_CONTEXT_CUES = 3
@@ -65,6 +67,8 @@ DEFAULT_SUBTITLE_GLOSSARY = (
     "真纸棒",
     "脆鲨",
 )
+
+_ATOMIC_WRITE_LOCK = threading.Lock()
 
 _TIME_LINE_RE = re.compile(
     r"^(?P<start>\d{1,3}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*"
@@ -902,7 +906,8 @@ def scan_submission_pairs(root_dir):
     return sorted(pairs, key=lambda item: (item["directory"].casefold(), item["video_name"].casefold()))
 
 
-def transcribe_submission_video(video_path, progress_callback=None):
+def transcribe_submission_video(
+        video_path, progress_callback=None, foreground_only=True):
     """为精剪成片生成同名 SRT；成功后清理检查点，失败时保留续跑数据。"""
     video = Path(video_path).expanduser().resolve()
     if not video.is_file():
@@ -918,6 +923,7 @@ def transcribe_submission_video(video_path, progress_callback=None):
         str(video),
         progress_callback=progress_callback,
         checkpoint_path=str(checkpoint_path),
+        foreground_only=bool(foreground_only),
     )
     if not srt_path or not Path(srt_path).is_file():
         raise RuntimeError("未识别到有效语音，没有生成 SRT 字幕")
@@ -927,19 +933,69 @@ def transcribe_submission_video(video_path, progress_callback=None):
     cues = parse_srt_document(generated_srt)
     if not cues:
         raise RuntimeError("生成的 SRT 没有有效字幕")
+    filter_result = {
+        "enabled": bool(foreground_only),
+        "mode": "off",
+        "speaker_filtered_segment_count": 0,
+        "speaker_filtered_chunk_count": 0,
+    }
+    try:
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        checkpoint = {}
+    if isinstance(checkpoint, dict):
+        filter_result.update({
+            "mode": str(checkpoint.get("foreground_filter_mode") or "off"),
+            "speaker_filtered_segment_count": int(
+                checkpoint.get("speaker_filtered_segment_count") or 0
+            ),
+            "speaker_filtered_chunk_count": int(
+                checkpoint.get("speaker_filtered_chunk_count") or 0
+            ),
+        })
     checkpoint_path.unlink(missing_ok=True)
     return {
         "video_path": str(video),
         "srt_path": str(generated_srt),
         "cue_count": len(cues),
+        "background_filter": filter_result,
     }
 
 
-def _subtitle_source_fingerprint(srt_path, context_title, glossary):
+def normalise_subtitle_review_dictionary(glossary=None, replacements=None):
+    """合并默认专名、额外词条和固定纠错映射，保持顺序稳定。"""
+
+    active_glossary = tuple(dict.fromkeys(
+        str(item).strip()
+        for item in (*DEFAULT_SUBTITLE_GLOSSARY, *(glossary or ()))
+        if str(item).strip()
+    ))
+    active_replacements = []
+    for item in replacements or ():
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            raise ValueError("固定纠错映射必须由两个字符串组成")
+        source, target = (str(part).strip() for part in item)
+        if not source or not target:
+            raise ValueError("固定纠错映射不能包含空字符串")
+        pair = (source, target)
+        if source != target and pair not in active_replacements:
+            active_replacements.append(pair)
+    active_glossary = tuple(dict.fromkeys((
+        *active_glossary,
+        *(target for _, target in active_replacements),
+    )))
+    return active_glossary, tuple(active_replacements)
+
+
+def _subtitle_source_fingerprint(
+        srt_path, context_title, glossary, replacements=(),
+        streamer_profile_id=""):
     digest = hashlib.sha256()
     digest.update(Path(srt_path).read_bytes())
     digest.update(str(context_title or "").encode("utf-8"))
     digest.update(json.dumps(list(glossary), ensure_ascii=False).encode("utf-8"))
+    digest.update(json.dumps(list(replacements), ensure_ascii=False).encode("utf-8"))
+    digest.update(str(streamer_profile_id or "").encode("utf-8"))
     digest.update(str(SUBTITLE_REVIEW_VERSION).encode("ascii"))
     return digest.hexdigest()
 
@@ -950,7 +1006,8 @@ def _review_cache_path(srt_path):
 
 
 def _validated_cached_review(
-        cached, srt_path, cues, fingerprint, context_title, glossary, cache_path):
+        cached, srt_path, cues, fingerprint, context_title, glossary,
+        replacements, streamer_profile_id, streamer_profile_label, cache_path):
     """只接受由当前规则和当前字幕生成的完整缓存。"""
     if not isinstance(cached, dict):
         return None
@@ -966,6 +1023,10 @@ def _validated_cached_review(
     if str(cached.get("context_title", "")) != str(context_title or ""):
         return None
     if cached.get("glossary") != list(glossary):
+        return None
+    if cached.get("replacements") != [list(pair) for pair in replacements]:
+        return None
+    if str(cached.get("streamer_profile_id", "")) != str(streamer_profile_id or ""):
         return None
     cached_source = cached.get("source_srt_path")
     if not cached_source or os.path.normcase(os.path.abspath(cached_source)) != os.path.normcase(
@@ -993,13 +1054,20 @@ def _validated_cached_review(
         "context_title": str(context_title or ""),
         "cue_count": len(cues),
         "glossary": list(glossary),
+        "replacements": [list(pair) for pair in replacements],
+        "streamer_profile_id": str(streamer_profile_id or ""),
+        "streamer_profile_label": str(streamer_profile_label or ""),
+        "glossary_count": len(glossary),
+        "replacement_count": len(replacements),
         "suggestions": sorted(suggestions, key=lambda item: item["index"]),
         "cache_path": str(cache_path),
         "cache_hit": True,
     }
 
 
-def _review_prompt(cues, target_indices, context_title, glossary, compact=False):
+def _review_prompt(
+        cues, target_indices, context_title, glossary, replacements=(),
+        compact=False):
     cue_rows = [
         {"index": cue.index, "text": cue.text}
         for cue in cues
@@ -1007,18 +1075,27 @@ def _review_prompt(cues, target_indices, context_title, glossary, compact=False)
     rules = (
         "只修正能从上下文确认的错别字、同音误识别、专名和断词错误。"
         "禁止润色、改写语气、删除口头重复、增补标点或猜测听不清内容。"
+        "必须主动检查与优先词表发音相近或被错误断开的文字；能从人物、团体、粉丝称呼等语境确认时改成词表中的专名。"
         "原文若是语义成立的常用词，不能只因视频标题或优先词表就替换成同主题词。"
+        "固定纠错映射来自当前已识别主播的用户配置；原文精确出现左侧错词时必须改为右侧专名。"
         "没有错误的字幕不要放入 corrections。original 必须逐字复制输入原文。"
     )
     if compact:
         rules = (
             "只改确定错字和专名；不润色、不改标点、不删口癖；"
+            "主动核对与优先词表同音或错误断开的专名；"
             "不能仅凭标题或词表替换语义成立的常用词；original 必须与输入完全一致。"
+            "精确命中当前主播固定纠错映射时必须修正。"
         )
+    replacement_rows = [
+        {"错误词": source, "正确词": target}
+        for source, target in replacements
+    ]
     return (
         "你是直播切片的字幕校对员。"
         f"视频标题：{context_title or '未提供'}\n"
         f"优先词表：{'、'.join(glossary)}\n"
+        f"当前主播固定纠错映射：{json.dumps(replacement_rows, ensure_ascii=False)}\n"
         f"待检查序号：{json.dumps(target_indices, ensure_ascii=False)}\n"
         f"规则：{rules}\n"
         "必须只输出一个 JSON 对象，格式为："
@@ -1124,10 +1201,13 @@ def _normalise_suggestion(item, cue_by_index, target_indices):
     }
 
 
-def _review_batch(cues, target_indices, context_title, glossary, llm_runner):
+def _review_batch(
+        cues, target_indices, context_title, glossary, replacements, llm_runner):
     cue_by_index = {cue.index: cue for cue in cues}
-    prompt = _review_prompt(cues, target_indices, context_title, glossary, compact=False)
-    compact_prompt = _review_prompt(cues, target_indices, context_title, glossary, compact=True)
+    prompt = _review_prompt(
+        cues, target_indices, context_title, glossary, replacements, compact=False)
+    compact_prompt = _review_prompt(
+        cues, target_indices, context_title, glossary, replacements, compact=True)
     last_error = None
     for attempt in range(2):
         active_prompt = compact_prompt if attempt else prompt
@@ -1185,15 +1265,60 @@ def _review_batch(cues, target_indices, context_title, glossary, llm_runner):
     raise RuntimeError(last_error or "字幕 AI 校对结果无效")
 
 
+def _apply_fixed_replacements(text, replacements):
+    corrected = str(text or "")
+    applied = []
+    # 先替换长短语，避免“音乐声们”先命中“音乐声”后漏掉更精确规则。
+    ordered_replacements = sorted(
+        replacements or (),
+        key=lambda pair: len(str(pair[0])),
+        reverse=True,
+    )
+    for source, target in ordered_replacements:
+        if source in corrected:
+            corrected = corrected.replace(source, target)
+            applied.append(f"{source} → {target}")
+    return corrected, applied
+
+
+def _fixed_replacement_suggestions(cues, replacements):
+    """把当前主播的固定错词映射转成确定性建议，避免依赖模型记忆。"""
+
+    suggestions = []
+    for cue in cues:
+        corrected, applied = _apply_fixed_replacements(cue.text, replacements)
+        if corrected == cue.text:
+            continue
+        suggestions.append({
+            "index": cue.index,
+            "original": cue.text,
+            "corrected": corrected,
+            "reason": f"当前主播固定纠错：{'、'.join(applied)}",
+            "confidence": 1.0,
+            "source": "fixed_replacement",
+            "start": cue.start,
+            "end": cue.end,
+        })
+    return suggestions
+
+
 def suggest_subtitle_corrections(
         srt_path, context_title="", glossary=None, llm_runner=None,
-        use_cache=True, progress_callback=None):
+        use_cache=True, progress_callback=None, replacements=None,
+        streamer_profile_id="", streamer_profile_label=""):
     """逐批检查字幕并返回建议；不修改原始字幕。"""
     cues = parse_srt_document(srt_path)
-    active_glossary = tuple(
-        dict.fromkeys(str(item).strip() for item in (glossary or DEFAULT_SUBTITLE_GLOSSARY) if str(item).strip())
+    active_glossary, active_replacements = normalise_subtitle_review_dictionary(
+        glossary,
+        replacements,
     )
-    fingerprint = _subtitle_source_fingerprint(srt_path, context_title, active_glossary)
+    fingerprint = _subtitle_source_fingerprint(
+        srt_path,
+        context_title,
+        active_glossary,
+        active_replacements,
+        streamer_profile_id,
+    )
     cache_path = _review_cache_path(srt_path)
     if use_cache and cache_path.is_file():
         try:
@@ -1205,6 +1330,9 @@ def suggest_subtitle_corrections(
                 fingerprint,
                 context_title,
                 active_glossary,
+                active_replacements,
+                streamer_profile_id,
+                streamer_profile_label,
                 cache_path,
             )
             if validated:
@@ -1213,7 +1341,10 @@ def suggest_subtitle_corrections(
             pass
 
     runner = llm_runner if llm_runner is not None else _build_default_llm_runner()
-    suggestions_by_index = {}
+    suggestions_by_index = {
+        item["index"]: item
+        for item in _fixed_replacement_suggestions(cues, active_replacements)
+    }
     batch_specs = []
     for batch_number, target_start in enumerate(
             range(0, len(cues), SUBTITLE_REVIEW_BATCH_SIZE), 1):
@@ -1237,6 +1368,7 @@ def suggest_subtitle_corrections(
             target_indices,
             context_title,
             active_glossary,
+            active_replacements,
             runner,
         )
 
@@ -1284,11 +1416,18 @@ def suggest_subtitle_corrections(
         "context_title": context_title,
         "cue_count": len(cues),
         "glossary": list(active_glossary),
+        "replacements": [list(pair) for pair in active_replacements],
+        "streamer_profile_id": str(streamer_profile_id or ""),
+        "streamer_profile_label": str(streamer_profile_label or ""),
+        "glossary_count": len(active_glossary),
+        "replacement_count": len(active_replacements),
         "suggestions": [suggestions_by_index[index] for index in sorted(suggestions_by_index)],
         "cache_path": str(cache_path),
         "cache_hit": False,
     }
-    if _subtitle_source_fingerprint(srt_path, context_title, active_glossary) != fingerprint:
+    if _subtitle_source_fingerprint(
+            srt_path, context_title, active_glossary, active_replacements,
+            streamer_profile_id) != fingerprint:
         raise RuntimeError("源字幕在 AI 检查期间已变化，请重新检查")
     _atomic_write_text(
         cache_path,
@@ -1302,6 +1441,11 @@ def suggest_subtitle_corrections(
 def high_confidence_corrections(review_result, minimum_confidence=0.95):
     """返回可默认勾选的保守修正；增删字符的建议必须人工确认。"""
     selected = []
+    replacements = tuple(
+        (str(item[0]), str(item[1]))
+        for item in (review_result or {}).get("replacements", [])
+        if isinstance(item, (list, tuple)) and len(item) == 2
+    )
     for item in (review_result or {}).get("suggestions", []):
         try:
             confidence = float(item.get("confidence", 0))
@@ -1309,6 +1453,16 @@ def high_confidence_corrections(review_result, minimum_confidence=0.95):
             continue
         original = _semantic_text(str(item.get("original", "")))
         corrected = _semantic_text(str(item.get("corrected", "")))
+        fixed_corrected, fixed_applied = _apply_fixed_replacements(
+            str(item.get("original", "")),
+            replacements,
+        )
+        if (
+                fixed_applied
+                and confidence >= float(minimum_confidence)
+                and fixed_corrected == str(item.get("corrected", ""))):
+            selected.append(item)
+            continue
         if confidence < float(minimum_confidence) or len(original) != len(corrected):
             continue
         matcher = difflib.SequenceMatcher(None, original, corrected)
@@ -1859,24 +2013,25 @@ def _atomic_write_text(path, text):
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                newline="",
-                prefix=f".{destination.name}.",
-                suffix=".tmp",
-                dir=destination.parent,
-                delete=False) as stream:
-            temp_path = Path(stream.name)
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temp_path, destination)
-        temp_path = None
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+    with _ATOMIC_WRITE_LOCK:
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    newline="",
+                    prefix=f".{destination.name}.",
+                    suffix=".tmp",
+                    dir=destination.parent,
+                    delete=False) as stream:
+                temp_path = Path(stream.name)
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, destination)
+            temp_path = None
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
 
 
 def write_ass_from_srt(

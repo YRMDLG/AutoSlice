@@ -113,6 +113,64 @@ class RendererTests(unittest.TestCase):
                     background_scale=2.6,
                 )
 
+    def test_zoomed_background_focus_pans_across_the_canvas(self) -> None:
+        frame = Image.new("RGB", (HOME_4_3.width, HOME_4_3.height), "#ff0000")
+        draw = ImageDraw.Draw(frame)
+        draw.rectangle((HOME_4_3.width // 2, 0, HOME_4_3.width, HOME_4_3.height), fill="#0000ff")
+        left = compose_background(
+            frame,
+            HOME_4_3,
+            get_template("dialog"),
+            focus_x=0.0,
+            focus_y=0.5,
+            background_scale=2.0,
+        )
+        right = compose_background(
+            frame,
+            HOME_4_3,
+            get_template("dialog"),
+            focus_x=1.0,
+            focus_y=0.5,
+            background_scale=2.0,
+        )
+
+        try:
+            center = (HOME_4_3.width // 2, HOME_4_3.height // 2)
+            self.assertGreater(left.getpixel(center)[0], left.getpixel(center)[2])
+            self.assertGreater(right.getpixel(center)[2], right.getpixel(center)[0])
+        finally:
+            left.close()
+            right.close()
+            frame.close()
+
+    def test_interactive_background_output_keeps_unzoomed_pan_area(self) -> None:
+        source = self.root / "pan-source.png"
+        frame = Image.new("RGB", (HOME_4_3.width, HOME_4_3.height), "#ff0000")
+        ImageDraw.Draw(frame).rectangle(
+            (HOME_4_3.width // 2, 0, HOME_4_3.width, HOME_4_3.height),
+            fill="#0000ff",
+        )
+        frame.save(source)
+        frame.close()
+        background = self.root / "pan-background.jpg"
+        render_cover(
+            source,
+            "测试拖动",
+            self.root / "pan-cover.jpg",
+            canvas_key="4x3",
+            template_key="dialog",
+            focus_x=0.0,
+            focus_y=0.5,
+            background_scale=2.0,
+            background_output_path=background,
+        )
+
+        with Image.open(background) as interactive:
+            left = interactive.getpixel((HOME_4_3.width // 4, HOME_4_3.height // 2))
+            right = interactive.getpixel((HOME_4_3.width * 3 // 4, HOME_4_3.height // 2))
+        self.assertGreater(left[0], left[2])
+        self.assertGreater(right[2], right[0])
+
     def test_text_moves_opposite_a_detailed_left_side(self) -> None:
         frame_path = self.root / "left-subject.jpg"
         frame = Image.new("RGB", (1920, 1080), "#b991aa")

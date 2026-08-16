@@ -153,11 +153,21 @@ class LauncherTests(unittest.TestCase):
     def test_autocover_contract_and_port_selection(self):
         self.assertTrue(launcher._is_compatible_autocover_service({
             "service": "autocover",
-            "api_version": 6,
+            "api_version": launcher.AUTOCOVER_API_VERSION,
         }))
         self.assertFalse(launcher._is_compatible_autocover_service({
             "service": "autocover",
             "api_version": 3,
+        }))
+        self.assertTrue(launcher._is_compatible_autoslice_service({
+            "service": "autoslice",
+            "api_version": 1,
+            "subtitle_review_version": 4,
+            "subtitle_asr_version": launcher.AUTOSLICE_SUBTITLE_ASR_VERSION,
+        }))
+        self.assertFalse(launcher._is_compatible_autoslice_service({
+            "service": "autoslice",
+            "api_version": 1,
         }))
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
@@ -178,7 +188,7 @@ class LauncherTests(unittest.TestCase):
             preferred_port=5010,
             service_probe=Mock(return_value={
                 "service": "autocover",
-                "api_version": 6,
+                "api_version": launcher.AUTOCOVER_API_VERSION,
             }),
             process_factory=process_factory,
         )
@@ -193,9 +203,14 @@ class LauncherTests(unittest.TestCase):
         slice_payload = {
             "service": "autoslice",
             "api_version": 1,
+            "subtitle_review_version": 4,
+            "subtitle_asr_version": launcher.AUTOSLICE_SUBTITLE_ASR_VERSION,
             "autocover_url": "http://127.0.0.1:5012",
         }
-        cover_payload = {"service": "autocover", "api_version": 6}
+        cover_payload = {
+            "service": "autocover",
+            "api_version": launcher.AUTOCOVER_API_VERSION,
+        }
         slice_probe = Mock(return_value=slice_payload)
         cover_probe = Mock(return_value=cover_payload)
 
@@ -212,6 +227,15 @@ class LauncherTests(unittest.TestCase):
             launcher._existing_unified_services(
                 Mock(return_value=slice_payload),
                 Mock(return_value=None),
+            )
+        with self.assertRaisesRegex(RuntimeError, "旧版 AutoSlice"):
+            launcher._existing_unified_services(
+                Mock(return_value={
+                    "service": "autoslice",
+                    "api_version": 1,
+                    "autocover_url": "http://127.0.0.1:5012",
+                }),
+                Mock(return_value=cover_payload),
             )
         invalid_payload = dict(slice_payload, autocover_url="http://127.0.0.1:bad")
         with self.assertRaisesRegex(RuntimeError, "没有有效"):

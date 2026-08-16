@@ -469,6 +469,31 @@ def _blurred_backdrop(
     return ImageEnhance.Brightness(backdrop).enhance(brightness)
 
 
+def _zoom_background(
+    background: Image.Image,
+    canvas: CanvasSpec,
+    background_scale: float,
+    focus_x: float,
+    focus_y: float,
+) -> Image.Image:
+    """围绕可拖动焦点放大画面，并保持输出画布尺寸不变。"""
+
+    if not 1.0 <= float(background_scale) <= 2.5:
+        raise ValueError("背景缩放必须在 1.0 到 2.5 之间")
+    if background_scale <= 1.0:
+        return background
+    focus_x = max(0.0, min(1.0, float(focus_x)))
+    focus_y = max(0.0, min(1.0, float(focus_y)))
+    crop_width = max(1, round(canvas.width / background_scale))
+    crop_height = max(1, round(canvas.height / background_scale))
+    # 0 对齐左/上边缘，1 对齐右/下边缘，0.5 保持居中。
+    left = round((canvas.width - crop_width) * focus_x)
+    top = round((canvas.height - crop_height) * focus_y)
+    zoomed = background.crop((left, top, left + crop_width, top + crop_height))
+    background.close()
+    return zoomed.resize((canvas.width, canvas.height), Image.Resampling.LANCZOS)
+
+
 def compose_background(
     frame: Image.Image,
     canvas: CanvasSpec,
@@ -485,9 +510,6 @@ def compose_background(
     effective_focus_x = _focus_from_template(template) if focus_x is None else focus_x
     effective_focus_x = max(0.0, min(1.0, effective_focus_x))
     focus_y = max(0.0, min(1.0, focus_y))
-    if not 1.0 <= float(background_scale) <= 2.5:
-        raise ValueError("背景缩放必须在 1.0 到 2.5 之间")
-
     source_ratio = source.width / source.height
     target_ratio = canvas.aspect_ratio
     should_preserve = (
@@ -524,15 +546,13 @@ def compose_background(
         background = ImageEnhance.Brightness(background).enhance(1.08)
     elif template.background_mode != "portrait_latest" and MELODY_STYLE.background_dim > 0:
         background = ImageEnhance.Brightness(background).enhance(1.0 - MELODY_STYLE.background_dim)
-    if background_scale > 1.0:
-        crop_width = max(1, round(canvas.width / background_scale))
-        crop_height = max(1, round(canvas.height / background_scale))
-        left = max(0, (canvas.width - crop_width) // 2)
-        top = max(0, (canvas.height - crop_height) // 2)
-        zoomed = background.crop((left, top, left + crop_width, top + crop_height))
-        background.close()
-        background = zoomed.resize(target_size, Image.Resampling.LANCZOS)
-    return background
+    return _zoom_background(
+        background,
+        canvas,
+        background_scale,
+        effective_focus_x,
+        focus_y,
+    )
 
 
 def _text_area(canvas: CanvasSpec, template: CoverTemplate) -> tuple[int, int, int, int]:
@@ -1105,6 +1125,8 @@ def render_cover(
         raise FileNotFoundError(f"候选帧不存在：{source}")
     if max_bytes <= 0:
         raise ValueError("封面体积上限必须为正数")
+    if not 1.0 <= float(background_scale) <= 2.5:
+        raise ValueError("背景缩放必须在 1.0 到 2.5 之间")
 
     recommendation = recommend_visual_style(title)
     effective_template_key = template_key or recommendation.template_key
@@ -1128,6 +1150,11 @@ def render_cover(
             roles = ["context"] + ["quote"] * (len(cleaned) - 2) + ["emphasis"]
         lines = [CoverLine(text, role) for text, role in zip(cleaned, roles)]
 
+    output = _jpeg_output_path(output_path)
+    base_output = (
+        _jpeg_output_path(background_output_path) if background_output_path is not None else None
+    )
+    background_image: Image.Image | None = None
     with Image.open(source) as frame:
         layout_template = _auto_adjust_text_side(frame, template)
         if lines is None:
@@ -1142,19 +1169,41 @@ def render_cover(
                 template_key=effective_template_key,
                 max_line_units=max_line_units,
             )
-        image = compose_background(
-            frame,
-            canvas,
-            layout_template,
-            focus_x=focus_x,
-            focus_y=focus_y,
-            background_scale=background_scale,
-        )
-    output = _jpeg_output_path(output_path)
-    base_output = (
-        _jpeg_output_path(background_output_path) if background_output_path is not None else None
-    )
-    background_image = image.copy() if base_output is not None else None
+        if base_output is None:
+            image = compose_background(
+                frame,
+                canvas,
+                layout_template,
+                focus_x=focus_x,
+                focus_y=focus_y,
+                background_scale=background_scale,
+            )
+        else:
+            # 交互预览需要保留一张未二次放大的纯背景，浏览器才能在拖动时
+            # 用 CSS 实时显示完整轨迹；最终成品仍使用同一焦点做精确裁切。
+            image = compose_background(
+                frame,
+                canvas,
+                layout_template,
+                focus_x=focus_x,
+                focus_y=focus_y,
+                background_scale=1.0,
+            )
+            background_image = image.copy()
+            effective_focus_x = (
+                _focus_from_template(layout_template) if focus_x is None else focus_x
+            )
+            try:
+                image = _zoom_background(
+                    image,
+                    canvas,
+                    background_scale,
+                    effective_focus_x,
+                    focus_y,
+                )
+            except Exception:
+                background_image.close()
+                raise
     try:
         sticker_placements = draw_stickers(image, stickers or (), canvas)
         assert lines is not None

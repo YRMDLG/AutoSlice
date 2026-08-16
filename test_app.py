@@ -187,6 +187,8 @@ class AutoCoverIntegrationTests(unittest.TestCase):
         self.assertEqual(response.get_json(), {
             "service": "autoslice",
             "api_version": 1,
+            "subtitle_review_version": 4,
+            "subtitle_asr_version": 2,
             "autocover_url": "http://localhost:5013",
         })
 
@@ -261,6 +263,14 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
         self.assertIn("overflow-x: auto", css)
         self.assertIn("overflow-x: auto", css.split(".topnav", 1)[1])
 
+    def test_subtitle_transcription_defaults_to_foreground_audio(self):
+        html, script = self._page_script()
+
+        self.assertIn('id="foregroundOnly" type="checkbox" checked', html)
+        self.assertIn("排除背景音", html)
+        self.assertIn("foreground_only:foregroundOnly", script)
+        self.assertIn("autoslice.subtitle-foreground-only", script)
+
     def test_review_script_tracks_task_ownership_and_protects_manual_edits(self):
         html, script = self._page_script()
 
@@ -279,6 +289,11 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
             "function restoreCue(index)",
             "deleted_indices:removed",
             "cue-delete",
+            "reviewDictionary",
+            "renderReviewDictionary(data.review_profile)",
+            "renderReviewDictionary(result)",
+            "renderReferenceTitles();renderReviewDictionary();",
+            "replacement_count",
         ):
             self.assertIn(marker, script)
         self.assertIn("重新检查", html)
@@ -336,10 +351,12 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
                 "function timeOverrides(",
                 "data-time-start",
                 "data-time-end",
+                "data-toggle-cue-detail",
                 "time_overrides:timings",
                 "'/api/subtitles/edit-state'",
                 "cue-detail"):
             self.assertIn(marker, script if marker != "cue-detail" else html)
+        self.assertNotIn("row.addEventListener('click'", script)
 
     def test_review_queue_exposes_persistent_folder_and_name_sorting(self):
         html, script = self._page_script()
@@ -357,6 +374,25 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
                 "const selectedId=selectedPair()?.id",
                 "state.pairs.findIndex(pair=>pair.id===selectedId)",
         ):
+            self.assertIn(marker, script)
+
+    def test_review_page_persists_personalized_style_and_export_settings(self):
+        _html, script = self._page_script()
+
+        for marker in (
+                "SUBTITLE_STYLE_STORAGE_KEY",
+                "SUBTITLE_EXPORT_STORAGE_KEY",
+                "function loadStoredObject(key)",
+                "function storedStyleOverrides()",
+                "function storedExportOverrides()",
+                "function persistSubtitleSettings()",
+                "localStorage.setItem(SUBTITLE_STYLE_STORAGE_KEY",
+                "localStorage.setItem(SUBTITLE_EXPORT_STORAGE_KEY",
+                "...storedStyleOverrides()",
+                "...storedExportOverrides()",
+                "persistSubtitleSettings();",
+                "window.addEventListener('beforeunload',persistSubtitleSettings)",
+                "['fontSize','outlineWidth','positionX','positionY','bitrate','fps']"):
             self.assertIn(marker, script)
 
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查页面脚本语法")
@@ -1252,7 +1288,8 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             video.write_bytes(b"video")
             scan = self.client.post("/api/subtitles/scan", json={"root_dir": td})
 
-            def fake_transcribe(video_path, progress_callback=None):
+            def fake_transcribe(
+                    video_path, progress_callback=None, foreground_only=True):
                 srt = Path(video_path).with_suffix(".srt")
                 srt.write_text(
                     "1\n00:00:00,000 --> 00:00:01,000\n音音测试\n",
@@ -1264,6 +1301,12 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
                     "video_path": str(Path(video_path).resolve()),
                     "srt_path": str(srt.resolve()),
                     "cue_count": 1,
+                    "background_filter": {
+                        "enabled": foreground_only,
+                        "mode": "speaker_diarization",
+                        "speaker_filtered_segment_count": 2,
+                        "speaker_filtered_chunk_count": 1,
+                    },
                 }
 
             with (
@@ -1275,7 +1318,10 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             ):
                 response = self.client.post(
                     "/api/subtitles/transcribe",
-                    json={"video_path": str(video)},
+                    json={
+                        "video_path": str(video),
+                        "foreground_only": True,
+                    },
                 )
             rescanned = self.client.post(
                 "/api/subtitles/scan",
@@ -1293,9 +1339,30 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertEqual(task["status"], "done")
         self.assertEqual(task["task_type"], "subtitle_transcription")
         self.assertEqual(result["cue_count"], 1)
+        self.assertEqual(
+            result["background_filter"]["mode"],
+            "speaker_diarization",
+        )
         self.assertTrue(generated_srt_exists)
         transcribe.assert_called_once()
+        self.assertTrue(transcribe.call_args.kwargs["foreground_only"])
         self.assertTrue(rescanned.get_json()["pairs"][0]["has_source_srt"])
+
+    def test_transcribe_rejects_non_boolean_foreground_filter(self):
+        with TemporaryDirectory() as td:
+            video = Path(td) / "最终成片.mp4"
+            video.write_bytes(b"video")
+
+            response = self.client.post(
+                "/api/subtitles/transcribe",
+                json={
+                    "video_path": str(video),
+                    "foreground_only": "yes",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("foreground_only", response.get_json()["error"])
 
     def test_reflow_api_preserves_source_and_scanner_prefers_layout_copy(self):
         with TemporaryDirectory() as td:
@@ -1553,6 +1620,14 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         result = json.loads(app_module.tasks[task_id]["result"])
         self.assertEqual(result["default_corrections"][0]["corrected"], "娃衣")
         self.assertEqual(review.call_args.kwargs["context_title"], "【泽音】测试投稿")
+        self.assertEqual(review.call_args.kwargs["streamer_profile_id"], "zeyin")
+        self.assertEqual(review.call_args.kwargs["streamer_profile_label"], "泽音 Melody")
+        self.assertIn("朱鹮", review.call_args.kwargs["glossary"])
+        self.assertIn(("英英", "音音"), review.call_args.kwargs["replacements"])
+        profile = response.get_json()["review_profile"]
+        self.assertEqual(profile["id"], "zeyin")
+        self.assertGreaterEqual(profile["glossary_count"], 40)
+        self.assertEqual(profile["replacement_count"], 11)
         self.assertEqual(app_module.tasks[task_id]["task_type"], "subtitle_review")
         assert_same_path(
             self,
@@ -1560,6 +1635,34 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             str(srt.resolve()),
         )
         self.assertFalse(app_module.tasks[task_id]["force"])
+
+    def test_review_unknown_streamer_uses_generic_dictionary_without_zeyin_mapping(self):
+        with TemporaryDirectory() as td:
+            folder = Path(td) / "普通投稿"
+            folder.mkdir()
+            video = folder / "剪映导出.mp4"
+            srt = folder / "剪映字幕.srt"
+            video.write_bytes(b"video")
+            srt.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\n英英晚上好\n",
+                encoding="utf-8",
+            )
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "subtitle_workflow.suggest_subtitle_corrections",
+                    return_value={"suggestions": []},
+                ) as review,
+            ):
+                response = self.client.post(
+                    "/api/subtitles/review",
+                    json={"video_path": str(video), "srt_path": str(srt)},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["review_profile"]["id"], "generic")
+        self.assertEqual(review.call_args.kwargs["streamer_profile_id"], "generic")
+        self.assertEqual(review.call_args.kwargs["replacements"], ())
 
     def test_reference_title_runs_in_background_with_corrected_subtitle(self):
         with TemporaryDirectory() as td:

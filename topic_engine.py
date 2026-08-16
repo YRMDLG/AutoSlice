@@ -97,6 +97,10 @@ FUNASR_PUNC_MODEL = (
     os.environ.get("AUTOSLICE_FUNASR_PUNC_MODEL", "").strip()
     or "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
 )
+FUNASR_SPK_MODEL = (
+    os.environ.get("AUTOSLICE_FUNASR_SPK_MODEL", "").strip()
+    or "iic/speech_campplus_sv_zh-cn_16k-common"
+)
 FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
 FUNASR_CHUNK_SEC = 120.0
 FUNASR_CHUNK_PRE_CONTEXT_SEC = 20.0
@@ -129,6 +133,20 @@ FUNASR_VAD_CACHE_MODEL_DIR = os.path.expanduser(
 )
 FUNASR_PUNC_CACHE_MODEL_DIR = os.path.expanduser(
     r"~\.cache\modelscope\hub\models\iic\punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+)
+FUNASR_SPK_CACHE_MODEL_DIR = os.path.expanduser(
+    os.path.join(
+        r"~\.cache\modelscope\hub\models",
+        *FUNASR_SPK_MODEL.split("/"),
+    )
+)
+FUNASR_SPK_WEIGHT_FILES = ("campplus_cn_common.bin", "model.pt")
+# 字幕工作台的“排除背景音”只处理用于识别的临时 WAV，不修改源视频音轨。
+# 先抑制稳定噪声和低音量背景，再由可选 CAM++ 说话人聚类保留主要说话人。
+FUNASR_FOREGROUND_AUDIO_FILTER = (
+    "highpass=f=80,lowpass=f=12000,"
+    "afftdn=nf=-32,"
+    "agate=threshold=0.012:ratio=6:attack=8:release=220"
 )
 FUNASR_HOTWORD_MAX_COUNT = 80
 FUNASR_HOTWORD_MAX_CHARS = 2400
@@ -1543,17 +1561,44 @@ def _resolve_funasr_aux_model_source(model_id, cache_dir):
     return None
 
 
-def _funasr_model_runtime_signature():
+def _resolve_funasr_speaker_model_source():
+    """只启用已完整下载到本机的 CAM++，日常识别绝不隐式联网。"""
+
+    configured = os.environ.get("AUTOSLICE_FUNASR_SPK_DIR", "").strip()
+    candidates = []
+    if configured:
+        candidates.append(os.path.abspath(os.path.expanduser(configured)))
+    candidates.append(FUNASR_SPK_CACHE_MODEL_DIR)
+    for model_dir in dict.fromkeys(candidates):
+        if model_dir and any(
+                os.path.isfile(os.path.join(model_dir, filename))
+                for filename in FUNASR_SPK_WEIGHT_FILES):
+            return model_dir
+    return None
+
+
+def _funasr_model_runtime_signature(foreground_only=False):
     """让旧 ASR 检查点在模型/标点配置变化后自动失效。"""
     model_source = _resolve_funasr_model_source()
     contextual_active = "contextual" in str(model_source).casefold()
     vad_source = _resolve_funasr_aux_model_source(FUNASR_VAD_MODEL, FUNASR_VAD_CACHE_MODEL_DIR)
     punc_source = _resolve_funasr_aux_model_source(FUNASR_PUNC_MODEL, FUNASR_PUNC_CACHE_MODEL_DIR)
+    speaker_source = (
+        _resolve_funasr_speaker_model_source() if foreground_only else None
+    )
     return {
         "asr_model": os.path.normcase(os.path.abspath(model_source)),
         "contextual_hotwords": contextual_active,
         "vad_model": os.path.normcase(os.path.abspath(vad_source)) if vad_source else None,
         "punc_model": os.path.normcase(os.path.abspath(punc_source)) if punc_source else None,
+        "speaker_model": (
+            os.path.normcase(os.path.abspath(speaker_source))
+            if speaker_source else None
+        ),
+        "foreground_only": bool(foreground_only),
+        "foreground_audio_filter": (
+            FUNASR_FOREGROUND_AUDIO_FILTER if foreground_only else None
+        ),
         "funasr_chunk_sec": FUNASR_CHUNK_SEC,
         "funasr_chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
     }
@@ -1607,10 +1652,14 @@ def _funasr_generate_kwargs(model, hotwords=""):
             "max_length": 1024,
         })
         kwargs.pop("return_raw_text", None)
+        if getattr(model, "_autoslice_spk_source", None):
+            kwargs["return_spk_res"] = True
         return kwargs
     supports_hotwords = "contextual" in model_class
     if hotwords and supports_hotwords:
         kwargs["hotword"] = hotwords
+    if getattr(model, "_autoslice_spk_source", None):
+        kwargs["return_spk_res"] = True
     return kwargs
 
 
@@ -1647,6 +1696,7 @@ def funasr_public_status():
     custom_hotwords = bool(
         str(os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")).strip()
     )
+    speaker_filter_ready = bool(_resolve_funasr_speaker_model_source())
 
     if is_nano:
         model_key = "nano"
@@ -1699,10 +1749,22 @@ def funasr_public_status():
         "correction_hint": (
             "长期固定纠错：编辑 streamer_profiles.json 中对应主播的 asr_replacements。"
         ),
+        "foreground_filter_available": True,
+        "speaker_filter_ready": speaker_filter_ready,
+        "foreground_filter_mode": (
+            "speaker_diarization" if speaker_filter_ready else "adaptive_gate"
+        ),
+        "foreground_filter_hint": (
+            "字幕工作台可用 CAM++ 主要说话人识别，能进一步排除背景对白。"
+            if speaker_filter_ready
+            else "字幕工作台已启用基础背景音门限；重新运行 python setup_asr_model.py "
+                 "可安装 CAM++，进一步区分主要说话人与背景对白。"
+        ),
     }
 
 
-def _load_funasr_model(AutoModel, progress_callback=None, device=None):
+def _load_funasr_model(
+        AutoModel, progress_callback=None, device=None, foreground_only=False):
     """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
     _prepare_funasr_environment()
     selected_device = _resolve_funasr_device(device)
@@ -1715,6 +1777,9 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
     punc_source = None if is_nano else _resolve_funasr_aux_model_source(
         FUNASR_PUNC_MODEL,
         FUNASR_PUNC_CACHE_MODEL_DIR,
+    )
+    speaker_source = (
+        _resolve_funasr_speaker_model_source() if foreground_only else None
     )
     model_kwargs = {
         "model": model_source,
@@ -1735,6 +1800,12 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
         }
     if punc_source:
         model_kwargs["punc_model"] = punc_source
+    if speaker_source:
+        model_kwargs.update({
+            "spk_model": speaker_source,
+            # Nano 内置标点但没有独立 punc_model；vad_segment 对两类模型都可用。
+            "spk_mode": "vad_segment",
+        })
     try:
         model = AutoModel(**model_kwargs)
         try:
@@ -1742,6 +1813,12 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
             model._autoslice_model_source = model_source
             model._autoslice_vad_source = vad_source
             model._autoslice_punc_source = punc_source
+            model._autoslice_spk_source = speaker_source
+            model._autoslice_foreground_filter = (
+                "speaker_diarization" if speaker_source
+                else "adaptive_gate" if foreground_only
+                else "off"
+            )
         except (AttributeError, TypeError):
             pass
         return model
@@ -1762,6 +1839,12 @@ def _load_funasr_model(AutoModel, progress_callback=None, device=None):
                     model._autoslice_model_source = model_source
                     model._autoslice_vad_source = vad_source
                     model._autoslice_punc_source = punc_source
+                    model._autoslice_spk_source = speaker_source
+                    model._autoslice_foreground_filter = (
+                        "speaker_diarization" if speaker_source
+                        else "adaptive_gate" if foreground_only
+                        else "off"
+                    )
                 except (AttributeError, TypeError):
                     pass
                 return model
@@ -1780,7 +1863,8 @@ def _funasr_checkpoint_path(video_path):
     return os.path.splitext(video_path)[0] + "_asr_checkpoint.json"
 
 
-def _funasr_source_fingerprint(video_path, duration, hotwords=""):
+def _funasr_source_fingerprint(
+        video_path, duration, hotwords="", foreground_only=False):
     stat = os.stat(video_path)
     payload = {
         "path": os.path.normcase(os.path.abspath(video_path)),
@@ -1791,7 +1875,9 @@ def _funasr_source_fingerprint(video_path, duration, hotwords=""):
         "channels": 1,
         "chunk_sec": FUNASR_CHUNK_SEC,
         "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
-        "runtime_signature": _funasr_model_runtime_signature(),
+        "runtime_signature": _funasr_model_runtime_signature(
+            foreground_only=foreground_only
+        ),
         "hotword_digest": hashlib.sha256(
             str(hotwords or "").encode("utf-8")
         ).hexdigest(),
@@ -1887,6 +1973,52 @@ def _normalise_funasr_result(result):
             raw_text = " ".join(nano_timestamp_tokens)
         if isinstance(raw_text, str):
             entry["raw_text"] = raw_text
+        speaker_segments = []
+        for sentence in item.get("sentence_info") or []:
+            if not isinstance(sentence, dict):
+                continue
+            sentence_text = str(
+                sentence.get("sentence", sentence.get("text", "")) or ""
+            ).strip()
+            speaker = sentence.get("spk")
+            if hasattr(speaker, "item"):
+                speaker = speaker.item()
+            try:
+                sentence_start = float(sentence.get("start"))
+                sentence_end = float(sentence.get("end"))
+            except (TypeError, ValueError):
+                continue
+            if (
+                    not sentence_text
+                    or speaker is None
+                    or not math.isfinite(sentence_start)
+                    or not math.isfinite(sentence_end)
+                    or sentence_end <= sentence_start):
+                continue
+            sentence_timestamps = []
+            for pair in sentence.get("timestamp") or []:
+                if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                    continue
+                values = []
+                for value in pair[:2]:
+                    if hasattr(value, "item"):
+                        value = value.item()
+                    try:
+                        value = float(value)
+                    except (TypeError, ValueError):
+                        value = None
+                    values.append(value)
+                if all(value is not None and math.isfinite(value) for value in values):
+                    sentence_timestamps.append(values)
+            speaker_segments.append({
+                "speaker": str(speaker),
+                "start": sentence_start,
+                "end": sentence_end,
+                "text": sentence_text,
+                "timestamp": sentence_timestamps,
+            })
+        if speaker_segments:
+            entry["speaker_segments"] = speaker_segments
         normalised.append(entry)
     return normalised
 
@@ -1902,6 +2034,18 @@ def _is_valid_funasr_result(result):
             return False
         if "raw_text" in item and not isinstance(item.get("raw_text"), str):
             return False
+        speaker_segments = item.get("speaker_segments", [])
+        if not isinstance(speaker_segments, list):
+            return False
+        for segment in speaker_segments:
+            if (
+                    not isinstance(segment, dict)
+                    or not isinstance(segment.get("speaker"), str)
+                    or not isinstance(segment.get("text"), str)
+                    or not isinstance(segment.get("timestamp", []), list)
+                    or not isinstance(segment.get("start"), (int, float))
+                    or not isinstance(segment.get("end"), (int, float))):
+                return False
         for pair in item["timestamp"]:
             if (
                     not isinstance(pair, list)
@@ -1914,6 +2058,51 @@ def _is_valid_funasr_result(result):
     return True
 
 
+def _primary_speaker_segments(result):
+    """从一个识别块中保留持续时间和发言次数占优的主要说话人。"""
+
+    segments = []
+    stats = defaultdict(lambda: {"duration": 0.0, "count": 0, "first": math.inf})
+    for item in result or []:
+        if not isinstance(item, dict):
+            continue
+        for segment in item.get("speaker_segments") or []:
+            if not isinstance(segment, dict):
+                continue
+            speaker = str(segment.get("speaker", "")).strip()
+            try:
+                start = float(segment.get("start"))
+                end = float(segment.get("end"))
+            except (TypeError, ValueError):
+                continue
+            if not speaker or not math.isfinite(start) or not math.isfinite(end) or end <= start:
+                continue
+            segments.append(segment)
+            stat = stats[speaker]
+            stat["duration"] += max(0.0, end - start) / 1000.0
+            stat["count"] += 1
+            stat["first"] = min(stat["first"], start)
+    if len(stats) < 2:
+        return None, 0, None
+
+    primary = max(
+        stats,
+        key=lambda speaker: (
+            stats[speaker]["duration"] + stats[speaker]["count"] * 0.75,
+            stats[speaker]["count"],
+            -stats[speaker]["first"],
+        ),
+    )
+    selected = [
+        segment for segment in segments
+        if str(segment.get("speaker", "")).strip() == primary
+    ]
+    removed_count = len(segments) - len(selected)
+    if not selected or removed_count <= 0:
+        return None, 0, None
+    return selected, removed_count, primary
+
+
 def _is_close_number(value, expected):
     try:
         return math.isclose(float(value), expected, abs_tol=0.001)
@@ -1922,7 +2111,8 @@ def _is_close_number(value, expected):
 
 
 def _prepare_funasr_checkpoint(
-        video_path, duration, chunk_count, checkpoint_path=None, hotwords=""):
+        video_path, duration, chunk_count, checkpoint_path=None, hotwords="",
+        foreground_only=False):
     checkpoint_path = os.path.abspath(
         checkpoint_path or _funasr_checkpoint_path(video_path)
     )
@@ -1930,17 +2120,27 @@ def _prepare_funasr_checkpoint(
         video_path,
         duration,
         hotwords=hotwords,
+        foreground_only=foreground_only,
     )
     payload = {
         "version": FUNASR_CHECKPOINT_VERSION,
         "source_fingerprint": source_fingerprint,
-        "runtime_signature": _funasr_model_runtime_signature(),
+        "runtime_signature": _funasr_model_runtime_signature(
+            foreground_only=foreground_only
+        ),
         "video_path": os.path.abspath(video_path),
         "duration": float(duration),
         "chunk_sec": FUNASR_CHUNK_SEC,
         "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
         "chunk_count": int(chunk_count),
         "status": "pending",
+        "foreground_only": bool(foreground_only),
+        "foreground_filter_mode": (
+            "speaker_diarization"
+            if foreground_only and _resolve_funasr_speaker_model_source()
+            else "adaptive_gate" if foreground_only
+            else "off"
+        ),
         "chunks": {},
     }
     try:
@@ -2176,7 +2376,9 @@ def _trim_funasr_tokens_to_core(
     return " ".join(selected_tokens), selected_timestamps, True
 
 
-def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
+def ensure_srt(
+        video_path, progress_callback=None, checkpoint_path=None,
+        foreground_only=False):
     """确保 SRT 存在；分块检查点可恢复，全部成功后才原子写入正式字幕。"""
     import subprocess as sp
     import uuid
@@ -2203,6 +2405,7 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
         chunk_count,
         checkpoint_path=checkpoint_path,
         hotwords=hotwords,
+        foreground_only=foreground_only,
     )
     checkpoint["status"] = "running"
     checkpoint["updated_at"] = datetime.now().isoformat(timespec="seconds")
@@ -2232,11 +2435,17 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                 raise RuntimeError("FunASR 未安装，无法生成字幕。") from exc
 
             wav_path = os.path.splitext(video_path)[0] + f"_asr_{uuid.uuid4().hex[:6]}.wav"
+            audio_extract_command = [
+                "ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
+                "-ar", "16000", "-ac", "1",
+            ]
+            if foreground_only:
+                audio_extract_command.extend([
+                    "-af", FUNASR_FOREGROUND_AUDIO_FILTER,
+                ])
+            audio_extract_command.extend(["-y", wav_path])
             sp.run(
-                [
-                    "ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1", "-y", wav_path,
-                ],
+                audio_extract_command,
                 check=True,
                 stdout=sp.PIPE,
                 stderr=sp.DEVNULL,
@@ -2246,12 +2455,30 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
             requested_device = _resolve_funasr_device()
             if progress_callback:
                 progress_callback(f"加载 FunASR 模型({requested_device})...", 10, 100)
+            model_load_options = {"foreground_only": True} if foreground_only else {}
             model = _load_funasr_model(
                 AutoModel,
                 progress_callback=progress_callback,
                 device=requested_device,
+                **model_load_options,
             )
             current_device = getattr(model, "_autoslice_device", requested_device)
+            foreground_filter_mode = getattr(
+                model,
+                "_autoslice_foreground_filter",
+                "adaptive_gate" if foreground_only else "off",
+            )
+            checkpoint["foreground_filter_mode"] = foreground_filter_mode
+            if progress_callback and foreground_only:
+                progress_callback(
+                    (
+                        "已启用主要说话人识别，将排除其他说话人与低音量背景声"
+                        if foreground_filter_mode == "speaker_diarization"
+                        else "未安装 CAM++，已启用基础背景音门限；仍可能保留较响的背景对白"
+                    ),
+                    12,
+                    100,
+                )
             generate_kwargs = _funasr_generate_kwargs(model, hotwords=hotwords)
 
             for index in missing_indices:
@@ -2305,6 +2532,7 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                             AutoModel,
                             progress_callback=progress_callback,
                             device="cpu",
+                            **model_load_options,
                         )
                         current_device = "cpu"
                         generate_kwargs = _funasr_generate_kwargs(
@@ -2350,6 +2578,8 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                 active_chunk_index = None
 
         all_segments = []
+        speaker_filtered_count = 0
+        speaker_filtered_chunks = 0
         for index in range(chunk_count):
             entry = checkpoint["chunks"].get(str(index))
             if not entry:
@@ -2360,7 +2590,56 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
                 index, duration
             )
             core_end = start + chunk_duration
-            for item in entry.get("result") or []:
+            result_items = entry.get("result") or []
+            primary_segments, removed_count, _ = (
+                _primary_speaker_segments(result_items)
+                if foreground_only
+                else (None, 0, None)
+            )
+            if primary_segments:
+                speaker_filtered_count += removed_count
+                speaker_filtered_chunks += 1
+                for speaker_segment in primary_segments:
+                    text_value = str(speaker_segment.get("text", "")).strip()
+                    timestamps = speaker_segment.get("timestamp") or []
+                    if timestamps:
+                        chunk_segments = _segments_from_funasr_result(
+                            text_value,
+                            timestamps,
+                            offset=input_start,
+                            streamer_name=streamer_name,
+                        )
+                    else:
+                        try:
+                            sentence_start = input_start + float(
+                                speaker_segment.get("start")
+                            ) / 1000.0
+                            sentence_end = input_start + float(
+                                speaker_segment.get("end")
+                            ) / 1000.0
+                        except (TypeError, ValueError):
+                            continue
+                        chunk_segments = _split_timed_subtitle_segment(
+                            sentence_start,
+                            max(sentence_end, sentence_start + 0.1),
+                            _normalise_asr_text(
+                                text_value,
+                                streamer_name=streamer_name,
+                            ),
+                        )
+                    for segment in chunk_segments:
+                        segment_midpoint = (segment[0] + segment[1]) / 2.0
+                        if segment_midpoint < start or segment_midpoint >= core_end:
+                            continue
+                        bounded_start = max(0.0, start, segment[0])
+                        bounded_end = min(duration, core_end, segment[1])
+                        if bounded_end > bounded_start:
+                            all_segments.append(
+                                (bounded_start, bounded_end, segment[2])
+                            )
+                continue
+
+            for item in result_items:
                 text_value = str(item.get("text", "")).strip()
                 raw_text_value = item.get("raw_text")
                 timestamps = item.get("timestamp", [])
@@ -2406,6 +2685,8 @@ def ensure_srt(video_path, progress_callback=None, checkpoint_path=None):
             return None
 
         all_segments = _dedupe_overlapping_funasr_segments(all_segments)
+        checkpoint["speaker_filtered_segment_count"] = speaker_filtered_count
+        checkpoint["speaker_filtered_chunk_count"] = speaker_filtered_chunks
         written_count = 0
         with open(srt_temp_path, "w", encoding="utf-8") as handle:
             for start, end, text_value in all_segments:
@@ -3446,7 +3727,14 @@ class _LLMProviderRetryCoordinator:
 
     def _terminal_error(self, error):
         status = _llm_http_status(error)
-        status_note = f"HTTP {status}" if status else "上游错误"
+        if status:
+            status_note = f"HTTP {status}"
+        elif isinstance(error, requests.ConnectionError):
+            status_note = "上游连接被关闭或中断"
+        elif isinstance(error, requests.Timeout):
+            status_note = "上游响应超时"
+        else:
+            status_note = "上游错误"
         return LLMProviderUnavailableError(
             f"上游推理服务暂不可用（{status_note}），"
             f"已完成 {len(self.delays)} 次共享恢复探测；"
@@ -3638,8 +3926,17 @@ def _llm_http_status(error):
 
 
 def _is_provider_service_unavailable(error):
-    """502/503/504 表示网关没有可用推理节点，需跨并发批次统一处理。"""
-    return _llm_http_status(error) in {502, 503, 504}
+    """判断是否应进入跨并发批次的共享恢复流程。
+
+    除 502/503/504 外，requests 将 ``RemoteDisconnected``、连接重置和
+    连接/读取超时包装成 ConnectionError/Timeout。这些错误发生在收到
+    有效响应之前，无法通过改短提示词修复；并发批次各自退避反而会继续
+    给已经不稳定的上游施压，因此与网关 5xx 一样只允许共享协调器探测。
+    """
+
+    if _llm_http_status(error) in {502, 503, 504}:
+        return True
+    return isinstance(error, (requests.ConnectionError, requests.Timeout))
 
 
 def _is_retryable_llm_error(error):
@@ -5898,7 +6195,17 @@ def _dedupe_clip_marks(marks):
             continue
         seen_topics.append(dedupe_topic)
         deduped.append(item)
-    return deduped
+    # 去重阶段让收播片先参与比较，是为了在尾部范围冲突时优先保留用户
+    # 指定的系列片；对外返回仍必须按视频时间排列，否则收播片会变成 01，
+    # 还会迫使所有既有切片无意义地整体改号。
+    return sorted(
+        deduped,
+        key=lambda item: (
+            int(item.get("start", 0)),
+            int(item.get("end", 0)),
+            item.get("title", ""),
+        ),
+    )
 
 
 def _nearest_safe_srt_boundary(candidate, minimum, maximum, srt_segments):
@@ -6168,12 +6475,40 @@ def _srt_video_duration(srt_segments):
 
 _OUTRO_TRIGGER_NORMALISE_RE = re.compile(r"[\s,，。！？!?、…~～\-_—]+")
 OUTRO_TRIGGER_JOIN_GAP_SEC = 8
+OUTRO_VARIANT_FAREWELL_BEFORE_SEC = 30
+OUTRO_VARIANT_FAREWELL_AFTER_SEC = 180
+_OUTRO_ACTIVITY_VARIANT_RE = re.compile(
+    r"(?:那|那么)?(?:我|我们)?今天(?:的)?(?:就)?(?:先)?"
+    r"(?:直播|播|玩|聊|唱|看到|看|说|陪大家)"
+    r"到这里(?:了|吧)?"
+)
+_OUTRO_FAREWELL_EVIDENCE = (
+    "晚安",
+    "拜拜",
+    "明天见",
+    "好梦",
+    "下播",
+    "关播",
+)
 
 
 def _normalise_outro_trigger_text(value):
     """只为明确收播口令匹配清理停顿和标点，不把泛化“晚安”当口令。"""
 
     return _OUTRO_TRIGGER_NORMALISE_RE.sub("", str(value or "")).casefold()
+
+
+def _has_outro_farewell_evidence(entries, trigger_start):
+    """确认“玩/聊/唱到这里”等弹性句式附近确实存在收播告别。"""
+
+    evidence_start = trigger_start - OUTRO_VARIANT_FAREWELL_BEFORE_SEC
+    evidence_end = trigger_start + OUTRO_VARIANT_FAREWELL_AFTER_SEC
+    for cue_start, cue_end, normalised_text in entries:
+        if cue_end < evidence_start or cue_start > evidence_end:
+            continue
+        if any(token in normalised_text for token in _OUTRO_FAREWELL_EVIDENCE):
+            return True
+    return False
 
 
 def _detect_stream_outro_clip(srt_segments, video_duration, streamer_profile=None):
@@ -6195,16 +6530,20 @@ def _detect_stream_outro_clip(srt_segments, video_duration, streamer_profile=Non
         (trigger, _normalise_outro_trigger_text(trigger))
         for trigger in config.triggers
     ]
-    matched = None
-    joined_text = ""
-    cue_starts = []
-    previous_end = None
+    entries = []
     for cue_start, cue_end, text in sorted(srt_segments, key=lambda item: (item[0], item[1])):
         if cue_start < tail_start or cue_start >= video_end:
             continue
         normalised_text = _normalise_outro_trigger_text(text)
         if not normalised_text:
             continue
+        entries.append((cue_start, cue_end, normalised_text))
+
+    candidates = []
+    joined_text = ""
+    cue_starts = []
+    previous_end = None
+    for cue_start, cue_end, normalised_text in entries:
         if previous_end is not None and cue_start - previous_end > OUTRO_TRIGGER_JOIN_GAP_SEC:
             joined_text = ""
             cue_starts = []
@@ -6214,14 +6553,15 @@ def _detect_stream_outro_clip(srt_segments, video_duration, streamer_profile=Non
         for trigger, normalised_trigger in normalised_triggers:
             match_at = joined_text.find(normalised_trigger)
             if match_at >= 0:
-                matched = (cue_starts[match_at], trigger)
-                break
-        if matched is not None:
-            break
+                candidates.append((cue_starts[match_at], 0, trigger))
+        for match in _OUTRO_ACTIVITY_VARIANT_RE.finditer(joined_text):
+            trigger_start = cue_starts[match.start()]
+            if _has_outro_farewell_evidence(entries, trigger_start):
+                candidates.append((trigger_start, 1, match.group(0)))
 
-    if matched is None:
+    if not candidates:
         return None
-    cue_start, trigger = matched
+    cue_start, _, trigger = min(candidates, key=lambda item: (item[0], item[1]))
     start = max(0, min(int(math.floor(cue_start)), video_end - 1))
     series_title = config.series_title
     publish_title = f"{profile.title_prefix}{series_title}".strip()
@@ -11686,6 +12026,9 @@ def _slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=No
     base_name = os.path.splitext(video_name)[0]
     report_dir = os.path.join(output_dir, base_name + "_话题切片")
     os.makedirs(report_dir, exist_ok=True)
+    precise_video_end = None
+    if any(mark.get("preserve_to_video_end") for mark in marks):
+        precise_video_end = _probe_video_duration(flv_path)
     subtitle_source_path = _resolve_clip_subtitle_source(flv_path, data)
     subtitle_segments = (
         parse_srt_segments(subtitle_source_path)
@@ -11697,6 +12040,11 @@ def _slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=No
     for index, mark in enumerate(marks, 1):
         start_s = float(mark["start"])
         end_s = float(mark["end"])
+        if mark.get("preserve_to_video_end") and precise_video_end:
+            # JSON/报告使用向上取整的整秒作为可读边界；真正编码时必须以
+            # ffprobe 的浮点时长收尾，否则计划时长会比源视频多近一秒，
+            # 既可能触发时长校验失败，也无法准确表达“保留到关播”。
+            end_s = min(end_s, float(precise_video_end))
         duration = end_s - start_s
         if duration <= 0:
             continue

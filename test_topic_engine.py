@@ -22,7 +22,7 @@ from llm_client import (
 from streamer_profiles import streamer_profile_context
 from topic_engine import (
     CHUNK_SEC, CLIP_MIN_INTEREST_SCORE, CLIP_REVIEW_POLICY_VERSION,
-    FUNASR_CHUNK_PRE_CONTEXT_SEC,
+    FUNASR_CHUNK_PRE_CONTEXT_SEC, FUNASR_FOREGROUND_AUDIO_FILTER,
     LLM_ANALYSIS_MODEL, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS,
     LLM_MAX_TOKENS, LLM_MODEL,
     MANUAL_TIMELINE_OPTIMIZATION_VERSION,
@@ -56,7 +56,8 @@ from topic_engine import (
     funasr_public_status,
     _funasr_source_fingerprint,
     _danmaku_peak_content_evidence, _format_danmaku_peak_content,
-    _high_energy_danmaku_peaks, _infer_streamer_name, _is_retryable_llm_error,
+    _high_energy_danmaku_peaks, _infer_streamer_name,
+    _is_provider_service_unavailable, _is_retryable_llm_error,
     _load_title_style_profile,
     _load_optimized_timeline_artifact, _make_fallback_topic_from_chunk,
     _merge_manual_timeline_topics,
@@ -68,6 +69,7 @@ from topic_engine import (
     _render_unified_refinement_queue_markdown, _render_refinement_manifest_markdown,
     _resolve_funasr_device,
     _replace_streamer_role, _resolve_funasr_model_source,
+    _resolve_funasr_speaker_model_source,
     _select_title_style_examples, _streamer_report_name,
     _enriched_manual_topic_from_item,
     _enrich_manual_topics_in_batches, _enrich_manual_topics_with_llm,
@@ -75,6 +77,7 @@ from topic_engine import (
     _review_peak_selected_topics, _sanitize_transport_claims,
     _review_selected_publish_titles,
     _normalise_asr_text, _normalise_funasr_result,
+    _primary_speaker_segments,
     _normalise_publish_title, _normalise_title_hook,
     _detect_stream_outro_clip, _outro_topic_from_mark,
     _prepare_seekable_slice_source, _reuse_topic_clip_after_title_change,
@@ -1577,6 +1580,19 @@ class TopicEngineParseTests(unittest.TestCase):
             with patch("topic_engine._funasr_model_cache_candidates", return_value=[str(model_dir)]):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
 
+    def test_funasr_speaker_model_source_uses_configured_local_directory(self):
+        with TemporaryDirectory() as td:
+            model_dir = Path(td)
+            (model_dir / "campplus_cn_common.bin").write_bytes(b"fake")
+            with patch.dict(
+                "topic_engine.os.environ",
+                {"AUTOSLICE_FUNASR_SPK_DIR": str(model_dir)},
+                clear=True,
+            ):
+                resolved = _resolve_funasr_speaker_model_source()
+
+        self.assertEqual(resolved, str(model_dir))
+
     def test_funasr_public_status_marks_nano_as_recommended_without_leaking_path(self):
         with TemporaryDirectory() as td:
             model_dir = Path(td) / "Fun-ASR-Nano-2512"
@@ -1642,6 +1658,67 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(calls[0]["vad_kwargs"]["max_single_segment_time"], 60000)
         self.assertTrue(calls[0]["disable_pbar"])
         self.assertEqual(model._autoslice_punc_source, "punc-cache")
+
+    def test_funasr_model_loader_attaches_cached_speaker_model(self):
+        calls = []
+
+        class LoadedModel:
+            pass
+
+        def fake_auto_model(**kwargs):
+            calls.append(kwargs)
+            return LoadedModel()
+
+        with (
+            patch("topic_engine._resolve_funasr_model_source", return_value="asr-cache"),
+            patch(
+                "topic_engine._resolve_funasr_aux_model_source",
+                side_effect=("vad-cache", "punc-cache"),
+            ),
+            patch(
+                "topic_engine._resolve_funasr_speaker_model_source",
+                return_value="speaker-cache",
+            ),
+        ):
+            model = _load_funasr_model(
+                fake_auto_model,
+                device="cpu",
+                foreground_only=True,
+            )
+
+        self.assertEqual(calls[0]["spk_model"], "speaker-cache")
+        self.assertEqual(calls[0]["spk_mode"], "vad_segment")
+        self.assertEqual(model._autoslice_spk_source, "speaker-cache")
+        self.assertEqual(
+            model._autoslice_foreground_filter,
+            "speaker_diarization",
+        )
+        self.assertTrue(_funasr_generate_kwargs(model)["return_spk_res"])
+
+    def test_funasr_model_loader_uses_audio_gate_without_speaker_model(self):
+        class LoadedModel:
+            pass
+
+        with (
+            patch("topic_engine._resolve_funasr_model_source", return_value="asr-cache"),
+            patch(
+                "topic_engine._resolve_funasr_aux_model_source",
+                return_value=None,
+            ),
+            patch(
+                "topic_engine._resolve_funasr_speaker_model_source",
+                return_value=None,
+            ),
+        ):
+            model = _load_funasr_model(
+                lambda **_kwargs: LoadedModel(),
+                device="cpu",
+                foreground_only=True,
+            )
+
+        self.assertIsNone(model._autoslice_spk_source)
+        self.assertEqual(model._autoslice_foreground_filter, "adaptive_gate")
+        self.assertNotIn("return_spk_res", _funasr_generate_kwargs(model))
 
     def test_funasr_nano_loader_uses_30_second_vad_without_whole_model_fp16(self):
         calls = []
@@ -1852,6 +1929,66 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(result[0]["text"], "只有SC")
         self.assertEqual(result[0]["raw_text"], "只 有 SC")
         self.assertEqual(result[0]["timestamp"][-1], [300.0, 500.0])
+
+    def test_funasr_normalises_and_selects_primary_speaker_segments(self):
+        result = _normalise_funasr_result([{
+            "text": "主要内容 背景内容",
+            "timestamp": [[0, 1000], [1000, 2000]],
+            "sentence_info": [
+                {
+                    "start": 0,
+                    "end": 4000,
+                    "sentence": "主要说话人第一段",
+                    "timestamp": [[0, 1000]],
+                    "spk": 0,
+                },
+                {
+                    "start": 4000,
+                    "end": 5000,
+                    "sentence": "背景对白",
+                    "timestamp": [[4000, 5000]],
+                    "spk": 1,
+                },
+                {
+                    "start": 5000,
+                    "end": 8000,
+                    "sentence": "主要说话人第二段",
+                    "timestamp": [[5000, 8000]],
+                    "spk": 0,
+                },
+            ],
+        }])
+
+        selected, removed, speaker = _primary_speaker_segments(result)
+
+        self.assertEqual(len(result[0]["speaker_segments"]), 3)
+        self.assertEqual(speaker, "0")
+        self.assertEqual(removed, 1)
+        self.assertEqual(
+            [item["text"] for item in selected],
+            ["主要说话人第一段", "主要说话人第二段"],
+        )
+
+    def test_foreground_filter_uses_separate_funasr_checkpoint_fingerprint(self):
+        with TemporaryDirectory() as td:
+            video_path = Path(td) / "recording.flv"
+            video_path.write_bytes(b"source")
+            with patch(
+                "topic_engine._resolve_funasr_speaker_model_source",
+                return_value=None,
+            ):
+                ordinary = _funasr_source_fingerprint(
+                    str(video_path),
+                    120.0,
+                    foreground_only=False,
+                )
+                foreground = _funasr_source_fingerprint(
+                    str(video_path),
+                    120.0,
+                    foreground_only=True,
+                )
+
+        self.assertNotEqual(ordinary, foreground)
 
     def test_funasr_punctuation_is_kept_when_nano_text_has_small_corrections(self):
         timestamps = [[index * 100, (index + 1) * 100] for index in range(8)]
@@ -2069,6 +2206,46 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(srt_text.count("前段"), 1)
         self.assertEqual(srt_text.count("后段"), 1)
         self.assertIn("00:02:05,000", srt_text)
+
+    def test_ensure_srt_foreground_mode_filters_temporary_audio(self):
+        fake_funasr = ModuleType("funasr")
+        fake_funasr.AutoModel = object
+        ffmpeg_calls = []
+
+        class ForegroundModel:
+            _autoslice_foreground_filter = "adaptive_gate"
+
+            def generate(self, **_kwargs):
+                return [{
+                    "text": "主要声音",
+                    "timestamp": [[0, 500], [500, 1000], [1000, 1500], [1500, 2000]],
+                }]
+
+        def fake_ffmpeg(args, **_kwargs):
+            ffmpeg_calls.append(args)
+            Path(args[-1]).write_bytes(b"audio")
+            return Mock(returncode=0)
+
+        with TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "recording.flv"
+            video_path.write_bytes(b"source")
+            with (
+                patch.dict(sys.modules, {"funasr": fake_funasr}),
+                patch("topic_engine._probe_video_duration", return_value=120.0),
+                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
+                patch(
+                    "topic_engine._load_funasr_model",
+                    return_value=ForegroundModel(),
+                ) as load_model,
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                srt_path = ensure_srt(str(video_path), foreground_only=True)
+            srt_text = Path(srt_path).read_text(encoding="utf-8")
+
+        self.assertEqual(ffmpeg_calls[0][ffmpeg_calls[0].index("-af") + 1],
+                         FUNASR_FOREGROUND_AUDIO_FILTER)
+        self.assertTrue(load_model.call_args.kwargs["foreground_only"])
+        self.assertIn("主要声音", srt_text)
 
     def test_funasr_boundary_dedupe_prefers_complete_overlapping_sentence(self):
         segments = [
@@ -2466,6 +2643,33 @@ class TopicEngineParseTests(unittest.TestCase):
         ))
 
     @streamer_profile_context("zeyin")
+    def test_stream_outro_accepts_activity_variant_with_nearby_farewell(self):
+        mark = _detect_stream_outro_clip(
+            [
+                (900.0, 902.0, "轻轻松松大家晚安"),
+                (902.1, 905.0, "我们今天就先玩到这里了"),
+                (906.0, 908.0, "音悦生晚安"),
+            ],
+            1000,
+        )
+
+        self.assertIsNotNone(mark)
+        self.assertEqual(mark["start"], 902)
+        self.assertEqual(mark["end"], 1000)
+        self.assertEqual(mark["title"], "晚安小音音")
+        self.assertEqual(mark["outro_trigger"], "我们今天就先玩到这里了")
+
+    @streamer_profile_context("zeyin")
+    def test_stream_outro_rejects_activity_variant_without_farewell(self):
+        self.assertIsNone(_detect_stream_outro_clip(
+            [
+                (950.0, 954.0, "我们今天就先玩到这里了"),
+                (955.0, 958.0, "接下来换一个游戏"),
+            ],
+            1000,
+        ))
+
+    @streamer_profile_context("zeyin")
     def test_stream_outro_is_not_capped_and_replaces_overlapping_regular_clip(self):
         outro = _detect_stream_outro_clip(
             [(600, 604, "今天的直播就到这里")],
@@ -2743,6 +2947,26 @@ class TopicEngineParseTests(unittest.TestCase):
         deduped = _dedupe_clip_marks(marks)
 
         self.assertEqual([m["title"] for m in deduped], ["话题A", "话题B"])
+
+    def test_dedupe_keeps_outro_priority_but_returns_chronological_order(self):
+        marks = [
+            {"start": 100, "end": 180, "title": "前半段正常话题"},
+            {"start": 900, "end": 980, "title": "普通尾部候选"},
+            {
+                "start": 900,
+                "end": 1000,
+                "title": "晚安小音音",
+                "clip_type": "stream_outro",
+                "preserve_to_video_end": True,
+            },
+        ]
+
+        deduped = _dedupe_clip_marks(marks)
+
+        self.assertEqual(
+            [item["title"] for item in deduped],
+            ["前半段正常话题", "晚安小音音"],
+        )
 
     def test_expand_clip_marks_separates_context_only_overlap(self):
         marks = [
@@ -3784,6 +4008,52 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertLess(ffmpeg_calls[0].index("-ss"), input_index)
         self.assertGreater(ffmpeg_calls[0].index("-ss", input_index), input_index)
         self.assertNotIn(["-c", "copy"], [ffmpeg_calls[0][i:i + 2] for i in range(len(ffmpeg_calls[0]) - 1)])
+
+    def test_slice_from_marks_uses_precise_source_end_for_stream_outro(self):
+        mark = {
+            "start": 90,
+            "end": 101,
+            "title": "晚安小音音",
+            "clip_type": "stream_outro",
+            "preserve_to_video_end": True,
+        }
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flv_path = root / "测试录播.flv"
+            flv_path.write_bytes(b"source-video")
+            clip_json_path = root / "测试录播_clip_marks.json"
+            clip_json_path.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": [mark],
+            }, ensure_ascii=False), encoding="utf-8")
+            ffmpeg_calls = []
+
+            def fake_probe(path):
+                if str(path) == str(flv_path):
+                    return 100.2
+                if str(path).endswith(".part.flv"):
+                    return 10.2
+                return None
+
+            def fake_ffmpeg(args, **_kwargs):
+                ffmpeg_calls.append(args)
+                Path(args[-1]).write_bytes(b"outro")
+                return Mock(returncode=0)
+
+            with (
+                patch("topic_engine._probe_video_duration", side_effect=fake_probe),
+                patch("subprocess.run", side_effect=fake_ffmpeg),
+            ):
+                count, _ = slice_from_marks(
+                    str(flv_path),
+                    str(clip_json_path),
+                    str(root / "输出"),
+                )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(len(ffmpeg_calls), 1)
+        duration_index = ffmpeg_calls[0].index("-t") + 1
+        self.assertEqual(float(ffmpeg_calls[0][duration_index]), 10.2)
 
     def test_slice_from_marks_reuses_valid_clips_and_removes_old_auto_subtitles(self):
         mark = {"start": 10, "end": 90, "title": "开场聊天"}
@@ -8758,6 +9028,62 @@ class LLMRetryTests(unittest.TestCase):
         self.assertEqual(state["calls"], 6)
         self.assertEqual(sleeps, [3])
         self.assertEqual(len(progress), 1)
+
+    def test_parallel_connection_abort_uses_only_shared_recovery_probes(self):
+        """RemoteDisconnected 不应让每个并发批次各自等待四轮重试。"""
+
+        initial_wave = threading.Barrier(3)
+        state = {"calls": 0}
+        lock = threading.Lock()
+
+        def fake_call(*_args, **_kwargs):
+            with lock:
+                state["calls"] += 1
+                call_number = state["calls"]
+            if call_number <= 3:
+                initial_wave.wait(timeout=1)
+            raise requests.ConnectionError(
+                "Connection aborted. RemoteDisconnected("
+                "'Remote end closed connection without response')"
+            )
+
+        outcomes, sleeps, progress = self._run_parallel_requests(fake_call)
+
+        self.assertEqual(state["calls"], 5)
+        self.assertEqual(sleeps, [3, 8])
+        self.assertEqual(len(progress), 2)
+        self.assertTrue(all(
+            isinstance(outcome, LLMProviderUnavailableError)
+            for outcome in outcomes
+        ))
+
+    def test_connection_abort_does_not_switch_to_compact_prompt(self):
+        """连接在响应前中断时保持原提示，不把连接故障误判为输出截断。"""
+
+        calls = []
+        sleeps = []
+        coordinator = _LLMProviderRetryCoordinator(delays=(3, 8))
+
+        def fake_call(prompt, **_kwargs):
+            calls.append(prompt)
+            raise requests.ConnectionError("RemoteDisconnected")
+
+        with patch("topic_engine.call_llm", side_effect=fake_call):
+            with self.assertRaises(LLMProviderUnavailableError):
+                _call_llm_with_retry(
+                    "完整提示",
+                    compact_prompt="紧凑提示",
+                    retry_coordinator=coordinator,
+                    sleep_func=sleeps.append,
+                )
+
+        self.assertEqual(calls, ["完整提示", "完整提示", "完整提示"])
+        self.assertEqual(sleeps, [3, 8])
+
+    def test_connection_errors_are_shared_provider_failures(self):
+        error = requests.ConnectionError("RemoteDisconnected")
+        self.assertTrue(_is_retryable_llm_error(error))
+        self.assertTrue(_is_provider_service_unavailable(error))
 
     def test_single_503_has_bounded_wait_and_clear_error(self):
         sleeps = []

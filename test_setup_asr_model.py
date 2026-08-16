@@ -2,7 +2,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from setup_asr_model import RECOMMENDED_MODELS, install_recommended_models
+from setup_asr_model import (
+    RECOMMENDED_MODELS,
+    _download_model,
+    install_recommended_models,
+)
 
 
 class SetupAsrModelTests(unittest.TestCase):
@@ -15,13 +19,31 @@ class SetupAsrModelTests(unittest.TestCase):
                 calls.append(model_id)
                 target = root / str(len(calls))
                 target.mkdir()
-                (target / "model.pt").write_bytes(b"model")
+                weight_name = (
+                    "campplus_cn_common.bin"
+                    if "campplus" in model_id
+                    else "model.pt"
+                )
+                (target / weight_name).write_bytes(b"model")
                 return str(target)
 
             paths = install_recommended_models(snapshot_loader=fake_snapshot_download)
 
         self.assertEqual(tuple(calls), RECOMMENDED_MODELS)
         self.assertEqual(len(paths), len(RECOMMENDED_MODELS))
+
+    def test_campplus_accepts_official_bin_weight_without_model_pt(self):
+        with TemporaryDirectory() as tmp:
+            model_dir = Path(tmp)
+            (model_dir / "campplus_cn_common.bin").write_bytes(b"model")
+
+            resolved = _download_model(
+                "iic/speech_campplus_sv_zh-cn_16k-common",
+                lambda _model_id: str(model_dir),
+                attempts=1,
+            )
+
+        self.assertEqual(resolved, model_dir.resolve())
 
 
 if __name__ == "__main__":

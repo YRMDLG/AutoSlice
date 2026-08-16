@@ -16,6 +16,7 @@ from .style import get_palette, get_template
 from .titles import load_title_map, match_title, recommend_visual_style
 from .video import (
     FrameCandidate,
+    FrameMetrics,
     VideoMetadata,
     extract_candidate_frames,
     extract_frame_at_timestamp,
@@ -31,7 +32,7 @@ DEFAULT_OUTPUT_DIR = Path(
     os.environ.get("AUTOCOVER_OUTPUT_DIR", Path.cwd() / "covers")
 ).expanduser().resolve()
 DEFAULT_IGNORED_DIRECTORY_NAMES = frozenset(
-    name.casefold() for name in ("视频素材", "封面", "封面输出")
+    name.casefold() for name in ("视频素材", "封面", "封面输出", "_AutoCover草稿")
 )
 MEDIA_TOKEN_TTL_SEC = 12 * 60 * 60
 MEDIA_TOKEN_LIMIT = 2048
@@ -447,6 +448,46 @@ class CoverWorkspace:
             current.error = None
             self._register_media(candidate.path)
             return current
+
+    def restore_saved_candidate(
+        self,
+        task_id: str,
+        frame_path: str | Path,
+        *,
+        timestamp: float,
+        score: float = 0.0,
+        metrics: dict[str, Any] | None = None,
+    ) -> CoverTask:
+        """把磁盘草稿中的选中帧恢复为可继续渲染的轻量候选帧。"""
+
+        values = metrics if isinstance(metrics, dict) else {}
+        restored_metrics = FrameMetrics(
+            brightness=float(values.get("brightness", 0.5)),
+            exposure=float(values.get("exposure", 0.5)),
+            contrast=float(values.get("contrast", 0.5)),
+            sharpness=float(values.get("sharpness", 0.5)),
+            saturation=float(values.get("saturation", 0.5)),
+            subtitle_risk=float(values.get("subtitle_risk", 0.0)),
+        )
+        candidate_path = Path(frame_path).expanduser().resolve()
+        if not candidate_path.is_file():
+            raise FileNotFoundError(f"草稿选中帧不存在：{candidate_path}")
+        candidate = FrameCandidate(
+            path=str(candidate_path),
+            timestamp=max(0.0, float(timestamp)),
+            score=float(score),
+            metrics=restored_metrics,
+            cached=True,
+        )
+        with self._lock:
+            task = self.get_task(task_id)
+            task.candidates = (candidate,)
+            task.selected_index = 0
+            task.custom_candidate = None
+            task.status = "ready"
+            task.error = None
+            self._register_media(candidate.path)
+            return task
 
     def selected_candidate(self, task_id: str) -> FrameCandidate:
         """返回任务当前选中的候选帧。"""

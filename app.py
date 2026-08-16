@@ -10,6 +10,7 @@ from flask import Flask, render_template, request, jsonify, Response, redirect, 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import process_video
+from subtitle_workflow import SUBTITLE_ASR_VERSION, SUBTITLE_REVIEW_VERSION
 from streamer_profiles import (
     public_streamer_profiles,
     resolve_streamer_profile,
@@ -731,7 +732,8 @@ def _validate_subtitle_output_path(video_path, output_path):
 
 
 def run_subtitle_review_task(
-        task_id, srt_path, context_title, glossary=None, force=False):
+        task_id, srt_path, context_title, streamer_profile,
+        glossary=None, force=False):
     """后台生成字幕错字建议，不直接改文件。"""
     update_task(
         task_id,
@@ -752,17 +754,37 @@ def run_subtitle_review_task(
 
     try:
         from subtitle_workflow import (
+            normalise_subtitle_review_dictionary,
             high_confidence_corrections,
             suggest_subtitle_corrections,
+        )
+
+        profile_glossary = (
+            streamer_profile.canonical_name,
+            streamer_profile.report_name,
+            *streamer_profile.aliases,
+            *(target for _, target in streamer_profile.asr_replacements),
+            *(glossary or ()),
+        )
+        active_glossary, active_replacements = normalise_subtitle_review_dictionary(
+            profile_glossary,
+            streamer_profile.asr_replacements,
         )
 
         result = suggest_subtitle_corrections(
             srt_path,
             context_title=context_title,
-            glossary=glossary,
+            glossary=active_glossary,
+            replacements=active_replacements,
+            streamer_profile_id=streamer_profile.id,
+            streamer_profile_label=streamer_profile.label,
             use_cache=not force,
             progress_callback=callback,
         )
+        result.setdefault("streamer_profile_id", streamer_profile.id)
+        result.setdefault("streamer_profile_label", streamer_profile.label)
+        result.setdefault("glossary_count", len(active_glossary))
+        result.setdefault("replacement_count", len(active_replacements))
         result["default_corrections"] = high_confidence_corrections(result)
         update_task(
             task_id,
@@ -817,7 +839,7 @@ def run_subtitle_title_task(
         _record_task_error(task_id, "参考标题生成失败", exc)
 
 
-def run_subtitle_transcription_task(task_id, video_path):
+def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
     """后台为精剪成片生成同名 SRT，完成后可直接进入字幕校对。"""
     update_task(
         task_id,
@@ -842,11 +864,23 @@ def run_subtitle_transcription_task(task_id, video_path):
         result = transcribe_submission_video(
             video_path,
             progress_callback=callback,
+            foreground_only=foreground_only,
         )
+        filter_result = result.get("background_filter") or {}
+        filter_mode = filter_result.get("mode")
+        if filter_mode == "speaker_diarization":
+            filtered_count = int(
+                filter_result.get("speaker_filtered_segment_count") or 0
+            )
+            filter_note = f"，主要说话人过滤 {filtered_count} 段背景对白"
+        elif filter_mode == "adaptive_gate":
+            filter_note = "，已应用基础背景音门限"
+        else:
+            filter_note = ""
         update_task(
             task_id,
             status="done",
-            progress=f"字幕识别完成，共 {result['cue_count']} 条",
+            progress=f"字幕识别完成，共 {result['cue_count']} 条{filter_note}",
             result=json.dumps(result, ensure_ascii=False),
             step=100,
             total=100,
@@ -1289,6 +1323,9 @@ def subtitle_transcribe():
     data = request.get_json(silent=True) or {}
     try:
         video_path = _validate_subtitle_video(data.get("video_path", ""))
+        foreground_only = data.get("foreground_only", True)
+        if not isinstance(foreground_only, bool):
+            raise ValueError("foreground_only 必须是布尔值")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -1301,7 +1338,7 @@ def subtitle_transcribe():
     try:
         threading.Thread(
             target=run_subtitle_transcription_task,
-            args=(task_id, video_path),
+            args=(task_id, video_path, foreground_only),
             daemon=True,
         ).start()
     except Exception as exc:
@@ -1357,6 +1394,27 @@ def subtitle_review():
         glossary = [item.strip() for item in glossary if item.strip()]
         if len(glossary) > 100 or any(len(item) > 100 for item in glossary):
             return jsonify({"error": "优先词表过长"}), 400
+    try:
+        profile_id = str(data.get("streamer_profile_id") or "auto").strip().casefold()
+        streamer_profile = resolve_streamer_profile(
+            profile_id,
+            video_path,
+            context_hint=context_title,
+        )
+        from subtitle_workflow import normalise_subtitle_review_dictionary
+
+        review_glossary, review_replacements = normalise_subtitle_review_dictionary(
+            (
+                streamer_profile.canonical_name,
+                streamer_profile.report_name,
+                *streamer_profile.aliases,
+                *(target for _, target in streamer_profile.asr_replacements),
+                *(glossary or ()),
+            ),
+            streamer_profile.asr_replacements,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     task_id, active_task_id = _reserve_subtitle_review_task(srt_path, force)
     if active_task_id:
@@ -1367,7 +1425,14 @@ def subtitle_review():
     try:
         threading.Thread(
             target=run_subtitle_review_task,
-            args=(task_id, srt_path, context_title, glossary, force),
+            args=(
+                task_id,
+                srt_path,
+                context_title,
+                streamer_profile,
+                glossary,
+                force,
+            ),
             daemon=True,
         ).start()
     except Exception as exc:
@@ -1380,7 +1445,15 @@ def subtitle_review():
             total=100,
         )
         return jsonify({"error": f"字幕检查启动失败: {exc}"}), 500
-    return jsonify({"task_id": task_id})
+    return jsonify({
+        "task_id": task_id,
+        "review_profile": {
+            "id": streamer_profile.id,
+            "label": streamer_profile.label,
+            "glossary_count": len(review_glossary),
+            "replacement_count": len(review_replacements),
+        },
+    })
 
 
 @app.route("/api/subtitles/generate-title", methods=["POST"])
@@ -1622,6 +1695,9 @@ def service_contract():
     return jsonify({
         "service": AUTOSLICE_SERVICE_ID,
         "api_version": AUTOSLICE_API_VERSION,
+        # 启动器用它拒绝复用尚未加载当前字幕校对规则的旧进程。
+        "subtitle_review_version": SUBTITLE_REVIEW_VERSION,
+        "subtitle_asr_version": SUBTITLE_ASR_VERSION,
         "autocover_url": _configured_autocover_url(),
     })
 

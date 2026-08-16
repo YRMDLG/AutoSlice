@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import shutil
 import subprocess
 import tempfile
@@ -162,6 +163,10 @@ class AppTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.mimetype.startswith("font/"))
                 self.assertGreater(len(response.data), 10_000)
+            elif options["default_font"].get("fallback"):
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.mimetype.startswith("font/"))
+                self.assertGreater(len(response.data), 10_000)
             else:
                 self.assertEqual(response.status_code, 404)
 
@@ -196,6 +201,7 @@ class AppTests(unittest.TestCase):
                 page_content,
             )
             self.assertIn('id="inspector-tab-copy"', page_content)
+            self.assertIn('id="cover-background-preview"', page_content)
             self.assertIn(
                 'id="inspector-panel-copy" role="tabpanel" '
                 'aria-labelledby="inspector-tab-copy"',
@@ -221,7 +227,10 @@ class AppTests(unittest.TestCase):
             self.assertIn("/api/stickers", script_content)
             self.assertIn("background_media_token", script_content)
             self.assertIn("default_output_dir", script_content)
-            self.assertIn('const EXPECTED_API_VERSION = 6', script_content)
+            self.assertIn('const EXPECTED_API_VERSION = 8', script_content)
+            self.assertIn("await scanWorkspace(config, {", script_content)
+            self.assertIn('{ preserveDialog = false, autoSelect = false, restoreTaskKey = "" } = {}', script_content)
+            self.assertIn('state.activeTaskId = autoSelect ? state.tasks[0]?.id || null : null', script_content)
             self.assertIn('id="common-stroke-colors"', page_content)
             self.assertIn('id="stroke-color-input"', page_content)
             self.assertIn("line_stroke_colors", script_content)
@@ -246,6 +255,22 @@ class AppTests(unittest.TestCase):
             self.assertIn('elements["cover-overlay"].inert = busy', script_content)
             self.assertIn("function handleEditableElementKeydown(", script_content)
             self.assertIn("function snapElementToCanvasCenter(", script_content)
+            self.assertIn("function beginBackgroundPan(", script_content)
+            self.assertIn('elements["cover-frame"].addEventListener("pointerdown", beginBackgroundPan)', script_content)
+            self.assertIn("function applyInteractiveBackgroundTransform(", script_content)
+            self.assertIn("applyInteractiveBackgroundTransform(settings)", script_content)
+            self.assertIn("function preparePreviewLayers(", script_content)
+            self.assertIn("function activateInteractivePreviewLayer(", script_content)
+            self.assertIn("visibleCopyLineIndices(settings)[index]", script_content)
+            self.assertIn('activateInspectorTab(byId("inspector-tab-copy"))', script_content)
+            self.assertIn('const DRAFT_STORAGE_KEY = "autocover.task-drafts.v1"', script_content)
+            self.assertIn('const ACTIVE_TASK_SESSION_KEY = "autocover.active-task.v1"', script_content)
+            self.assertIn("function persistTaskDraft(", script_content)
+            self.assertIn("function restoreTaskSettings(", script_content)
+            self.assertIn("loadStoredDrafts();", script_content)
+            self.assertIn("persistTaskDraft(activeTask(), { immediate: true })", script_content)
+            self.assertIn("applyRecommended: settings.auto_style && !Array.isArray(settings.copy_lines)", script_content)
+            self.assertIn("restoreTaskKey: reloadTaskDraftKey()", script_content)
             self.assertIn('data-alignment-guide="vertical"', script_content)
             self.assertIn('data-alignment-guide="horizontal"', script_content)
             self.assertIn("function bindRovingTablist(", script_content)
@@ -257,10 +282,11 @@ class AppTests(unittest.TestCase):
             self.assertIn("overflow-x: hidden", css)
             self.assertIn(".editable-element", css)
             self.assertIn(".alignment-guide.visible", css)
+            self.assertIn(".cover-frame.can-pan-background", css)
             self.assertIn(".sticker-grid", css)
             self.assertIn(".sticker-element.selected", css)
             self.assertIn('font-family: "AutoCover Seto"', css)
-            self.assertIn('url("/api/fonts/default?glyph-revision=1")', css)
+            self.assertIn('url("/api/fonts/default?glyph-revision=2")', css)
             self.assertIn(".stroke-color-controls", css)
             self.assertIn(".task-sort-bar", css)
             self.assertIn(".copy-editor-heading", css)
@@ -374,6 +400,230 @@ if (serializedSticker.center_x !== true || serializedSticker.center_y !== true) 
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证封面草稿恢复")
+    def test_task_draft_round_trip_restores_text_layout_and_pan_transform(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const storage = new Map();
+global.localStorage = {
+  getItem(key){ return storage.has(key) ? storage.get(key) : null; },
+  setItem(key, value){ storage.set(key, String(value)); },
+};
+window.clearTimeout = clearTimeout;
+window.setTimeout = setTimeout;
+state.options = {
+  templates: [{key: "headline"}],
+  palettes: [{key: "order_all_yellow"}],
+};
+state.workspaceConfig = {root: "F:\\Videos"};
+const draftTask = {
+  id: "draft-task",
+  relative_path: "投稿\\片段.mp4",
+  title: "默认标题",
+  template_key: "headline",
+  palette_key: "order_all_yellow",
+  selected_timestamp: 42.5,
+};
+state.tasks = [draftTask];
+state.activeTaskId = draftTask.id;
+const draftSettings = defaultSettings(draftTask);
+draftSettings.copy_lines = ["第一行", "第二行"];
+draftSettings.line_colors = ["#ffffff", "#d06e95"];
+draftSettings.line_stroke_colors = ["#111111", "#ffffff"];
+draftSettings.layouts["4x3"].background_scale = 1.8;
+draftSettings.layouts["4x3"].focus_x = 0.2;
+draftSettings.layouts["4x3"].focus_y = 0.7;
+draftSettings.layouts["4x3"].text = [
+  {x: 0.1, y: 0.2, scale: 1, font_size: 88},
+  {x: 0.3, y: 0.4, scale: 1, font_size: 112},
+];
+state.settings.set(draftTask.id, draftSettings);
+persistTaskDraft(draftTask, {immediate: true});
+state.settings.clear();
+state.drafts.clear();
+loadStoredDrafts();
+const restored = taskSettings(draftTask);
+if (restored.copy_lines.join("|") !== "第一行|第二行") throw new Error("文案没有恢复");
+if (restored.line_colors[1] !== "#d06e95") throw new Error("文字颜色没有恢复");
+if (restored.layouts["4x3"].text[1].font_size !== 112) throw new Error("字号布局没有恢复");
+if (restored.layouts["4x3"].background_scale !== 1.8) throw new Error("画面缩放没有恢复");
+if (taskDraft(draftTask).selected_timestamp !== 42.5) throw new Error("选帧时间没有恢复");
+  elements["cover-background-preview"] = {style: {removeProperty(){}}};
+  applyInteractiveBackgroundTransform(restored);
+  if (!elements["cover-background-preview"].style.transform.includes("scale(1.8)")) {
+  throw new Error("拖动预览没有应用实时缩放轨迹");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证刷新任务恢复")
+    def test_reload_task_key_does_not_depend_on_navigation_timing(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+global.performance = {
+  getEntriesByType(){ return [{type: "navigate"}]; },
+  navigation: {type: 0},
+};
+global.sessionStorage = {
+  getItem(key){ return key === ACTIVE_TASK_SESSION_KEY ? "saved-task-key" : null; },
+};
+if (reloadTaskDraftKey() !== "saved-task-key") {
+  throw new Error("Ctrl+F5 被报告为 navigate 时没有恢复当前任务");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证磁盘草稿合并")
+    def test_disk_draft_restores_multiple_video_settings_and_invalidates_stale_preview(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const storage = new Map();
+global.localStorage = {
+  getItem(key){ return storage.has(key) ? storage.get(key) : null; },
+  setItem(key, value){ storage.set(key, String(value)); },
+};
+window.clearTimeout = clearTimeout;
+window.setTimeout = setTimeout;
+state.options = {
+  templates: [{key: "headline"}],
+  palettes: [{key: "classic"}],
+};
+state.workspaceConfig = {root: "F:\\Videos"};
+const task = {
+  id: "disk-task",
+  relative_path: "投稿/片段.mp4",
+  title: "默认标题",
+  template_key: "headline",
+  palette_key: "classic",
+  selected_timestamp: 12.5,
+};
+state.tasks = [task];
+mergeDiskDrafts([{
+  relative_path: task.relative_path,
+  // 后端旧草稿使用 Unix 秒，前端必须归一化后再与 localStorage 毫秒比较。
+  updated_at: Date.now() / 1000,
+  selected_timestamp: 12.5,
+  active: true,
+  settings: {
+    title: "磁盘标题",
+    template_key: "headline",
+    palette_key: "classic",
+    copy_lines: ["磁盘文字"],
+    line_colors: ["#ffffff"],
+    line_stroke_colors: ["#111111"],
+    auto_style: false,
+    layouts: {
+      "4x3": {text: null, stickers: [], focus_x: 0.4, focus_y: 0.6, background_scale: 1.5},
+      "16x9": {text: null, stickers: [], focus_x: 0.5, focus_y: 0.5, background_scale: 1},
+    },
+  },
+  previews: {"4x3": {media_token: "saved-preview", placements: []}},
+}], state.workspaceConfig.root);
+const restored = taskSettings(task);
+if (restored.title !== "磁盘标题") throw new Error("没有从磁盘恢复标题");
+if (ratioLayout(restored, "4x3").background_scale !== 1.5) throw new Error("没有恢复画面缩放");
+if (taskDraft(task).updated_at < 1_000_000_000_000) throw new Error("磁盘草稿时间戳没有统一为毫秒");
+persistTaskDraft(task, {immediate: true});
+if (!taskDraft(task).previews["4x3"]) throw new Error("未修改时错误清除了磁盘预览");
+restored.title = "已修改标题";
+persistTaskDraft(task, {immediate: true});
+if (Object.keys(taskDraft(task).previews).length) throw new Error("设置变化后仍保留过期预览");
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证预览图层切换")
+    def test_interactive_preview_uses_preloaded_background_layer(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const classList = {add(){}, remove(){}, toggle(){}, contains(){ return false; }};
+const removed = [];
+const settled = {
+  hidden: true,
+  dataset: {},
+  style: {removeProperty(name){ removed.push(`settled:${name}`); }},
+};
+const background = {
+  hidden: true,
+  dataset: {},
+  style: {removeProperty(name){ delete this[name]; }},
+  complete: true,
+  naturalWidth: 1440,
+  addEventListener(){},
+};
+Object.assign(elements, {
+  "cover-preview": settled,
+  "cover-background-preview": background,
+  "cover-overlay": {classList},
+  "cover-frame": {classList, setAttribute(){}},
+});
+state.tasks = [{id: "layer-task", candidates: [{}]}];
+state.activeTaskId = "layer-task";
+const settings = defaultSettings(state.tasks[0]);
+settings.layouts["4x3"].background_scale = 1.6;
+settings.layouts["4x3"].focus_x = 0.25;
+settings.layouts["4x3"].focus_y = 0.75;
+state.settings.set("layer-task", settings);
+const preview = {
+  media_token: "settled-token",
+  background_media_token: "background-token",
+};
+state.preview = preview;
+showSettledPreview(preview);
+if (settled.hidden || !background.hidden) throw new Error("静态预览图层状态错误");
+showInteractivePreview(preview);
+if (!settled.hidden || background.hidden) throw new Error("拖动时没有切换到纯背景图层");
+if (!background.style.transform.includes("scale(1.6)")) throw new Error("纯背景没有实时缩放");
+if (settled.style.transform) throw new Error("已经放大的成品预览被二次缩放");
+if (!previewHasContent()) throw new Error("交互图层被误判为空预览");
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_element_drag_does_not_switch_to_background_only_preview(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+
+        interaction = script.split(
+            "function beginElementInteraction(", 1
+        )[1].split("function renderCoverOverlay(", 1)[0]
+        self.assertNotIn("showInteractivePreview(state.preview)", interaction)
+        self.assertIn("文字和贴图交互始终保留完整成品预览", interaction)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required to verify preview loading")
     def test_preview_refresh_keeps_existing_cover_and_delays_first_loader(self) -> None:
@@ -837,6 +1087,172 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                 "4x3",
                 library,
             )
+
+    def test_preview_is_saved_to_disk_and_restored_after_service_restart(self) -> None:
+        task = self._ready_task()
+        draft_revision = 1_800_000_000_500
+        response = self.client.post(
+            f"/api/tasks/{task['id']}/preview",
+            json={
+                "canvas_key": "4x3",
+                "draft_updated_at": draft_revision,
+                "title": "磁盘草稿恢复测试",
+                "template_key": "dialog",
+                "palette_key": "classic",
+                "copy_lines": ["第一行", "第二行"],
+                "line_colors": ["#ffffff", "#d06e95"],
+                "line_stroke_colors": ["#111111", "#ffffff"],
+                "layouts": {
+                    "4x3": {
+                        "focus_x": 0.35,
+                        "focus_y": 0.65,
+                        "background_scale": 1.4,
+                        "text": None,
+                        "stickers": [],
+                    },
+                    "16x9": {
+                        "focus_x": 0.5,
+                        "focus_y": 0.5,
+                        "background_scale": 1.0,
+                        "text": None,
+                        "stickers": [],
+                    },
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        saved = response.get_json()
+        self.assertTrue(saved["draft_saved"])
+        draft_path = Path(saved["draft_path"])
+        self.assertTrue(draft_path.is_file())
+        self.assertTrue((draft_path.parent / task["id"] / "4x3.jpg").is_file())
+        self.assertTrue((draft_path.parent / task["id"] / "4x3-background.jpg").is_file())
+        draft_payload = json.loads(draft_path.read_text(encoding="utf-8"))
+        self.assertGreater(draft_payload["updated_at"], 1_000_000_000_000)
+
+        stale_response = self.client.post(
+            f"/api/tasks/{task['id']}/preview",
+            json={
+                "canvas_key": "4x3",
+                "title": "不应覆盖的新预览",
+                "draft_updated_at": draft_revision - 1000,
+            },
+        )
+        self.assertEqual(stale_response.status_code, 409)
+        preserved_payload = json.loads(draft_path.read_text(encoding="utf-8"))
+        preserved_entry = preserved_payload["tasks"][task["relative_path"]]
+        self.assertEqual(preserved_entry["settings"]["title"], "磁盘草稿恢复测试")
+        self.assertEqual(preserved_entry["client_updated_at"], draft_revision)
+
+        fresh_app = create_app({
+            "TESTING": True,
+            "STICKER_DIR": str(self.sticker_root),
+            "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
+        })
+        fresh_client = fresh_app.test_client()
+        restored_response = fresh_client.post(
+            "/api/workspace/scan",
+            json={
+                "root": str(self.clips),
+                "cache_dir": str(self.cache),
+                "output_dir": str(self.output),
+            },
+        )
+        self.assertEqual(restored_response.status_code, 200)
+        restored = restored_response.get_json()
+        self.assertEqual(Path(restored["draft_path"]), draft_path)
+        self.assertEqual(len(restored["drafts"]), 1)
+        disk_draft = restored["drafts"][0]
+        self.assertTrue(disk_draft["active"])
+        self.assertGreater(disk_draft["updated_at"], 1_000_000_000_000)
+        self.assertEqual(disk_draft["settings"]["copy_lines"], ["第一行", "第二行"])
+        self.assertAlmostEqual(
+            disk_draft["settings"]["layouts"]["4x3"]["background_scale"],
+            1.4,
+        )
+        preview = disk_draft["previews"]["4x3"]
+        self.assertIn("media_token", preview)
+        self.assertIn("background_media_token", preview)
+        with fresh_client.get(f"/api/media/{preview['media_token']}") as media_response:
+            self.assertEqual(media_response.status_code, 200)
+        restored_task = next(
+            item for item in restored["tasks"] if item["relative_path"] == task["relative_path"]
+        )
+        self.assertEqual(len(restored_task["candidates"]), 1)
+        self.assertTrue(restored_task["candidates"][0]["cached"])
+        self.assertAlmostEqual(restored_task["selected_timestamp"], 8.5)
+
+        active_response = fresh_client.post(
+            f"/api/tasks/{restored_task['id']}/draft-active",
+            json={},
+        )
+        self.assertEqual(active_response.status_code, 200)
+        self.assertTrue(active_response.get_json()["saved"])
+
+        source_path = self.clips / Path(task["relative_path"])
+        source_path.write_bytes(source_path.read_bytes() + b"-replaced")
+        invalidated_app = create_app({
+            "TESTING": True,
+            "STICKER_DIR": str(self.sticker_root),
+            "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
+        })
+        invalidated_response = invalidated_app.test_client().post(
+            "/api/workspace/scan",
+            json={
+                "root": str(self.clips),
+                "cache_dir": str(self.cache),
+                "output_dir": str(self.output),
+            },
+        )
+        self.assertEqual(invalidated_response.status_code, 200)
+        self.assertEqual(invalidated_response.get_json()["drafts"], [])
+
+    def test_disk_drafts_are_isolated_for_multiple_videos(self) -> None:
+        tasks = self._scan()
+        for index, task in enumerate(tasks):
+            candidate = FrameCandidate(
+                path=str(self.frame),
+                timestamp=8.5 + index,
+                score=88.0 - index,
+                metrics=self.candidate.metrics,
+            )
+            with patch(
+                f"{WORKSPACE_MODULE}.extract_candidate_frames",
+                return_value=[candidate],
+            ):
+                ready_response = self.client.post(
+                    f"/api/tasks/{task['id']}/candidates",
+                    json={"count": 4},
+                )
+            self.assertEqual(ready_response.status_code, 200)
+            preview_response = self.client.post(
+                f"/api/tasks/{task['id']}/preview",
+                json={
+                    "canvas_key": "4x3",
+                    "title": f"视频 {index + 1} 的独立草稿",
+                    "draft_updated_at": 1_800_000_001_000 + index,
+                },
+            )
+            self.assertEqual(preview_response.status_code, 200)
+            self.assertTrue(preview_response.get_json()["draft_saved"])
+
+        draft_path = Path(
+            self.client.post(
+                "/api/workspace/scan",
+                json={
+                    "root": str(self.clips),
+                    "cache_dir": str(self.cache),
+                    "output_dir": str(self.output),
+                },
+            ).get_json()["draft_path"]
+        )
+        payload = json.loads(draft_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(payload["tasks"]), 2)
+        for index, task in enumerate(tasks):
+            entry = payload["tasks"][task["relative_path"]]
+            self.assertEqual(entry["settings"]["title"], f"视频 {index + 1} 的独立草稿")
+            self.assertTrue((draft_path.parent / task["id"] / "4x3.jpg").is_file())
+        self.assertEqual(payload["active_relative_path"], tasks[-1]["relative_path"])
 
     def test_save_uses_independent_layouts_for_both_ratios(self) -> None:
         task = self._ready_task()

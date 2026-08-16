@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from werkzeug.exceptions import HTTPException
 if __package__ == "autocover_tool":
     from .autocover import API_VERSION, SERVICE_ID
     from .autocover.fonts import get_default_font_status
+    from .autocover.drafts import CoverDraftStore
     from .autocover.renderer import (
         RenderResult,
         StickerOverlay,
@@ -38,6 +40,7 @@ if __package__ == "autocover_tool":
 else:
     from autocover import API_VERSION, SERVICE_ID
     from autocover.fonts import get_default_font_status
+    from autocover.drafts import CoverDraftStore
     from autocover.renderer import (
         RenderResult,
         StickerOverlay,
@@ -132,6 +135,123 @@ def _sticker_library(app: Flask) -> StickerLibrary:
     if not isinstance(library, StickerLibrary):
         raise ApiError("贴图库尚未初始化", 500)
     return library
+
+
+def _draft_store(app: Flask) -> CoverDraftStore:
+    store = app.extensions.get("cover_draft_store")
+    if not isinstance(store, CoverDraftStore):
+        raise ApiError("请先扫描切片目录", 409)
+    return store
+
+
+def _draft_settings(
+    task: CoverTask,
+    payload: dict[str, Any],
+    preview: dict[str, Any],
+    canvas_key: str,
+) -> dict[str, Any]:
+    """把已成功渲染的请求整理成可由前端再次读取的磁盘草稿。"""
+
+    placements = preview.get("placements")
+    if not isinstance(placements, list):
+        placements = []
+    copy_lines = payload.get("copy_lines")
+    if not isinstance(copy_lines, list):
+        copy_lines = [item.get("text", "") for item in placements if isinstance(item, dict)]
+    line_colors = payload.get("line_colors")
+    if not isinstance(line_colors, list):
+        line_colors = [item.get("color", "#ffffff") for item in placements if isinstance(item, dict)]
+    stroke_colors = payload.get("line_stroke_colors")
+    if not isinstance(stroke_colors, list):
+        stroke_colors = [
+            item.get("stroke_color", "#111111")
+            for item in placements
+            if isinstance(item, dict)
+        ]
+    raw_layouts = payload.get("layouts")
+    layouts = json.loads(json.dumps(raw_layouts if isinstance(raw_layouts, dict) else {}))
+    for ratio in ("4x3", "16x9"):
+        if not isinstance(layouts.get(ratio), dict):
+            layouts[ratio] = {
+                "text": None,
+                "stickers": [],
+                "focus_x": 0.5,
+                "focus_y": 0.5,
+                "background_scale": 1.0,
+            }
+    current = layouts[canvas_key]
+    width = max(1.0, float(preview.get("width", 1)))
+    height = max(1.0, float(preview.get("height", 1)))
+    if placements:
+        current["text"] = [
+            {
+                "x": float(item["box"][0]) / width,
+                "y": float(item["box"][1]) / height,
+                "scale": 1.0,
+                "font_size": float(item.get("font_size", 96)),
+                "center_x": False,
+                "center_y": False,
+            }
+            for item in placements
+            if isinstance(item, dict)
+            and isinstance(item.get("box"), (list, tuple))
+            and len(item["box"]) == 4
+        ]
+    return {
+        "title": task.title,
+        "template_key": task.template_key,
+        "palette_key": task.palette_key,
+        "copy_lines": [str(item) for item in copy_lines],
+        "line_colors": [str(item) for item in line_colors],
+        "line_stroke_colors": [str(item) for item in stroke_colors],
+        "auto_style": False,
+        "layouts": layouts,
+    }
+
+
+def _load_disk_drafts(
+    workspace: CoverWorkspace,
+    store: CoverDraftStore,
+) -> list[dict[str, Any]]:
+    """恢复选中帧并把磁盘路径转换为当前进程可用的媒体令牌。"""
+
+    tasks = {task.relative_path: task for task in workspace.list_tasks()}
+    public: list[dict[str, Any]] = []
+    for record in store.load_records(tasks.values()):
+        task = tasks.get(record["relative_path"])
+        if task is None:
+            continue
+        try:
+            workspace.restore_saved_candidate(
+                task.id,
+                record["selected_frame_path"],
+                timestamp=record["selected_timestamp"],
+                score=record["selected_score"],
+                metrics=record["selected_metrics"],
+            )
+        except (OSError, TypeError, ValueError):
+            continue
+        previews: dict[str, dict[str, Any]] = {}
+        for canvas_key, saved in record["previews"].items():
+            metadata = dict(saved["metadata"])
+            image_path = saved["image_path"]
+            background_path = saved["background_path"]
+            metadata["filename"] = image_path.name
+            metadata["media_token"] = workspace.media_token(image_path)
+            if background_path is not None:
+                metadata["background_media_token"] = workspace.media_token(background_path)
+            previews[canvas_key] = metadata
+        public.append(
+            {
+                "relative_path": record["relative_path"],
+                "updated_at": record["updated_at"],
+                "selected_timestamp": record["selected_timestamp"],
+                "settings": record["settings"],
+                "previews": previews,
+                "active": record["active"],
+            }
+        )
+    return public
 
 
 def _optional_list(
@@ -507,6 +627,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     if test_config:
         app.config.update(test_config)
     app.extensions["cover_workspace"] = None
+    app.extensions["cover_draft_store"] = None
     sticker_library = StickerLibrary(
         app.config["STICKER_DIR"],
         import_root=app.config.get("IMPORTED_STICKER_DIR"),
@@ -568,15 +689,18 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.get("/api/fonts/default")
     def default_font():
         font_status = get_default_font_status()
-        if not font_status.available or font_status.font_path is None:
-            raise ApiError("本机尚未配置濑户体", 404)
+        # 浏览器预览应尽量使用和 Pillow 导出相同的字体。濑户体未配置时，
+        # 直接返回已验证可用的系统回退字体，避免 CSS 请求 404 后与导出端字体不一致。
+        render_path = font_status.render_path
+        if render_path is None:
+            raise ApiError("本机没有可用的中文字体，请配置 AUTOCOVER_FONT_PATH", 404)
         mimetype = {
             ".otf": "font/otf",
             ".ttc": "font/collection",
             ".ttf": "font/ttf",
-        }.get(font_status.font_path.suffix.casefold(), "application/octet-stream")
+        }.get(render_path.suffix.casefold(), "application/octet-stream")
         return send_file(
-            font_status.font_path,
+            render_path,
             mimetype=mimetype,
             conditional=True,
             max_age=86_400,
@@ -662,8 +786,18 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             recursive=recursive,
         )
         workspace.scan()
+        draft_store = CoverDraftStore(workspace.root, workspace.output_dir)
+        drafts = _load_disk_drafts(workspace, draft_store)
         app.extensions["cover_workspace"] = workspace
-        return jsonify({"ok": True, "tasks": workspace.all_payloads()})
+        app.extensions["cover_draft_store"] = draft_store
+        return jsonify(
+            {
+                "ok": True,
+                "tasks": workspace.all_payloads(),
+                "drafts": drafts,
+                "draft_path": str(draft_store.index_path),
+            }
+        )
 
     @app.get("/api/tasks")
     def list_tasks():
@@ -683,6 +817,19 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         workspace = _workspace(app)
         workspace.remove_task(task_id)
         return jsonify({"ok": True, "tasks": workspace.all_payloads()})
+
+    @app.post("/api/tasks/<task_id>/draft-active")
+    def mark_draft_active(task_id: str):
+        workspace = _workspace(app)
+        task = workspace.get_task(task_id)
+        saved = _draft_store(app).set_active(task.relative_path)
+        return jsonify(
+            {
+                "ok": True,
+                "saved": saved,
+                "draft_path": str(_draft_store(app).index_path),
+            }
+        )
 
     @app.post("/api/tasks/<task_id>/candidates")
     def generate_candidates(task_id: str):
@@ -733,6 +880,19 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def preview(task_id: str):
         workspace = _workspace(app)
         payload = _json_body()
+        draft_revision = _number_value(
+            payload,
+            "draft_updated_at",
+            minimum=0.0,
+            maximum=10_000_000_000_000.0,
+            default=time.time() * 1000.0,
+        )
+        current_task = workspace.get_task(task_id)
+        if not _draft_store(app).reserve_revision(
+            current_task.relative_path,
+            draft_revision,
+        ):
+            raise ApiError("该预览请求已被更新的编辑替代", 409)
         _apply_task_edits(workspace, task_id, payload)
         task = workspace.task_snapshot(task_id)
         canvas_key = payload.get("canvas_key", "4x3")
@@ -742,7 +902,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()[:12]
         output = workspace.cache_dir / "previews" / task.id / f"{canvas_key}-{preview_key}.jpg"
-        result = _render_task(
+        render_result = _render_task_result(
             app,
             workspace,
             task,
@@ -751,6 +911,23 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             payload,
             include_background=True,
         )
+        result = _render_result_payload(workspace, render_result)
+        draft_saved = False
+        draft_warning = None
+        try:
+            candidate = workspace.selected_candidate(task_id)
+            draft_saved = _draft_store(app).save_preview(
+                workspace.task_snapshot(task_id),
+                settings=_draft_settings(task, payload, result, canvas_key),
+                canvas_key=canvas_key,
+                preview_payload=result,
+                result=render_result,
+                candidate=candidate,
+                revision=draft_revision,
+            )
+        except (OSError, TypeError, ValueError) as error:
+            draft_warning = f"磁盘草稿保存失败：{error}"
+            app.logger.warning(draft_warning)
         workspace.cleanup_preview_cache(
             task.id,
             preserve_paths=(
@@ -758,7 +935,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 output.with_name(f"{output.stem}-background.jpg"),
             ),
         )
-        return jsonify({"ok": True, "preview": result, "task": workspace.task_payload(task_id)})
+        return jsonify(
+            {
+                "ok": True,
+                "preview": result,
+                "task": workspace.task_payload(task_id),
+                "draft_saved": draft_saved,
+                "draft_path": str(_draft_store(app).index_path),
+                "draft_warning": draft_warning,
+            }
+        )
 
     @app.post("/api/tasks/<task_id>/save")
     def save(task_id: str):

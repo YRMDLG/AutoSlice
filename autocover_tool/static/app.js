@@ -1,7 +1,7 @@
 "use strict";
 
 const EXPECTED_SERVICE_ID = "autocover";
-const EXPECTED_API_VERSION = 6;
+const EXPECTED_API_VERSION = 8;
 const CENTER_SNAP_THRESHOLD_PX = 8;
 const LEGACY_DEFAULT_INPUT_DIR = "output";
 const COMMON_LINE_COLORS = Object.freeze([
@@ -10,6 +10,10 @@ const COMMON_LINE_COLORS = Object.freeze([
 ]);
 const COMMON_STROKE_COLORS = Object.freeze(["#111111", "#ffffff"]);
 const MAX_MANUAL_COPY_LINES = 8;
+const DRAFT_STORAGE_KEY = "autocover.task-drafts.v1";
+const ACTIVE_TASK_SESSION_KEY = "autocover.active-task.v1";
+const DRAFT_STORAGE_VERSION = 1;
+const MAX_STORED_DRAFTS = 120;
 // 已经有可用预览时不再用整块遮罩打断编辑；首次生成时延迟显示，避免一闪而过。
 const PREVIEW_LOADER_DELAY_MS = 220;
 const QUEUE_SORT_KEYS = new Set([
@@ -33,12 +37,16 @@ const state = {
   stickerSummary: null,
   selectedElement: null,
   preview: null,
+  interactivePreview: null,
   previewRequestId: 0,
   timelineRequestId: 0,
   overlayObserver: null,
   activeColorLine: 0,
   syncRatios: true,
   queueSort: "folder_created_desc",
+  drafts: new Map(),
+  draftTimer: null,
+  fileDraftPath: "",
 };
 
 const elements = {};
@@ -50,7 +58,7 @@ function byId(id) {
 function cacheElements() {
   [
     "workbench", "workspace-summary", "open-workspace", "batch-export", "rescan",
-    "task-count", "task-sort", "task-list", "preview-state", "cover-frame", "cover-preview",
+    "task-count", "task-sort", "task-list", "preview-state", "cover-frame", "cover-preview", "cover-background-preview",
     "preview-empty", "preview-loader", "candidate-summary", "candidate-strip",
     "refresh-candidates", "active-filename", "reset-copy", "editor-controls",
     "title-input", "layout-variants", "template-select", "palette-select", "palette-preview", "copy-lines", "add-copy-line",
@@ -170,6 +178,232 @@ function refreshInteractionState() {
     elements["cover-overlay"].inert = busy;
     elements["cover-overlay"].setAttribute("aria-disabled", String(busy));
   }
+  updateBackgroundPanState();
+}
+
+function finiteNumber(value, minimum, maximum, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? clamp(number, minimum, maximum) : fallback;
+}
+
+function taskDraftKey(task) {
+  if (!task || !state.workspaceConfig?.root) return "";
+  return `${normalizedWindowsPath(state.workspaceConfig.root)}\n${normalizedWindowsPath(task.relative_path)}`;
+}
+
+function reloadTaskDraftKey() {
+  try {
+    // sessionStorage 天然只属于当前标签页：刷新时保留，全新打开的标签页为空。
+    // 不再依赖 PerformanceNavigationTiming；部分浏览器会把 Ctrl+F5 报告成 navigate，
+    // 导致明明保存了当前任务却无法恢复预览。
+    return sessionStorage.getItem(ACTIVE_TASK_SESSION_KEY) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function normalizedDraftTimestamp(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return 0;
+  return number < 1_000_000_000_000 ? number * 1000 : number;
+}
+
+function loadStoredDrafts() {
+  state.drafts.clear();
+  try {
+    const payload = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || "null");
+    if (payload?.version !== DRAFT_STORAGE_VERSION || !Array.isArray(payload.items)) return;
+    payload.items.slice(0, MAX_STORED_DRAFTS).forEach((item) => {
+      if (Array.isArray(item) && typeof item[0] === "string" && item[1]?.settings) {
+        state.drafts.set(item[0], {
+          ...item[1],
+          updated_at: normalizedDraftTimestamp(item[1].updated_at),
+        });
+      }
+    });
+  } catch (error) {
+    console.warn("读取封面草稿失败，将使用默认设置", error);
+  }
+}
+
+function mergeDiskDrafts(items, workspaceRoot) {
+  if (!Array.isArray(items)) return;
+  items.forEach((item) => {
+    if (!item || typeof item.relative_path !== "string" || !item.settings) return;
+    const key = `${normalizedWindowsPath(workspaceRoot)}\n${normalizedWindowsPath(item.relative_path)}`;
+    const diskDraft = {
+      updated_at: normalizedDraftTimestamp(item.updated_at),
+      selected_timestamp: Number.isFinite(Number(item.selected_timestamp))
+        ? Number(item.selected_timestamp)
+        : null,
+      settings: item.settings,
+      previews: item.previews && typeof item.previews === "object" ? item.previews : {},
+      active: Boolean(item.active),
+      disk_saved: true,
+    };
+    const local = state.drafts.get(key);
+    if (local && normalizedDraftTimestamp(local.updated_at) > diskDraft.updated_at) {
+      state.drafts.set(key, {
+        ...local,
+        previews: {},
+        active: diskDraft.active,
+        disk_saved: true,
+      });
+    } else {
+      state.drafts.set(key, diskDraft);
+    }
+  });
+  flushStoredDrafts();
+}
+
+function serializeTextTransforms(value) {
+  if (!Array.isArray(value)) return null;
+  return value.map((item) => ({
+    x: finiteNumber(item?.x, 0, 1, 0),
+    y: finiteNumber(item?.y, 0, 1, 0),
+    scale: finiteNumber(item?.scale, 0.45, 2, 1),
+    font_size: finiteNumber(item?.font_size, 24, 320, 96),
+    center_x: Boolean(item?.center_x),
+    center_y: Boolean(item?.center_y),
+  }));
+}
+
+function serializeStickers(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).filter((item) => typeof item?.asset_id === "string").map((item) => ({
+    uid: typeof item.uid === "string" ? item.uid : stickerUid(),
+    asset_id: item.asset_id,
+    x: finiteNumber(item.x, 0, 1, 0.5),
+    y: finiteNumber(item.y, 0, 1, 0.5),
+    width: finiteNumber(item.width, 0.03, 0.8, 0.18),
+    rotation: finiteNumber(item.rotation, -180, 180, 0),
+    center_x: Boolean(item.center_x),
+    center_y: Boolean(item.center_y),
+  }));
+}
+
+function serializeLayout(layout) {
+  return {
+    text: serializeTextTransforms(layout?.text),
+    stickers: serializeStickers(layout?.stickers),
+    focus_x: finiteNumber(layout?.focus_x, 0, 1, 0.5),
+    focus_y: finiteNumber(layout?.focus_y, 0, 1, 0.5),
+    background_scale: finiteNumber(layout?.background_scale, 1, 2.5, 1),
+  };
+}
+
+function serializeTaskSettings(settings) {
+  const copyLines = Array.isArray(settings.copy_lines)
+    ? settings.copy_lines.slice(0, MAX_MANUAL_COPY_LINES).map((line) => String(line).slice(0, 40))
+    : null;
+  const serializeColors = (value) => {
+    if (!Array.isArray(value) || !copyLines || value.length !== copyLines.length) return null;
+    const colors = value.map(normalizeHexColor);
+    return colors.every(Boolean) ? colors : null;
+  };
+  return {
+    title: String(settings.title || "").slice(0, 180),
+    template_key: String(settings.template_key || ""),
+    palette_key: String(settings.palette_key || ""),
+    copy_lines: copyLines,
+    line_colors: serializeColors(settings.line_colors),
+    line_stroke_colors: serializeColors(settings.line_stroke_colors),
+    auto_style: Boolean(settings.auto_style),
+    layouts: {
+      "4x3": serializeLayout(settings.layouts?.["4x3"]),
+      "16x9": serializeLayout(settings.layouts?.["16x9"]),
+    },
+  };
+}
+
+function restoreTaskSettings(task, draft) {
+  const defaults = defaultSettings(task);
+  const saved = draft?.settings;
+  if (!saved || typeof saved !== "object") return defaults;
+  const templateKeys = new Set((state.options?.templates || []).map((item) => item.key));
+  const paletteKeys = new Set((state.options?.palettes || []).map((item) => item.key));
+  const copyLines = Array.isArray(saved.copy_lines)
+    ? saved.copy_lines.slice(0, MAX_MANUAL_COPY_LINES).map((line) => String(line).slice(0, 40))
+    : null;
+  const restoreColors = (value) => {
+    if (!Array.isArray(value) || !copyLines || value.length !== copyLines.length) return null;
+    const colors = value.map(normalizeHexColor);
+    return colors.every(Boolean) ? colors : null;
+  };
+  const visibleCount = (copyLines || []).filter((line) => line.trim()).length;
+  const restoreLayout = (value) => {
+    const layout = serializeLayout(value);
+    if (layout.text?.length !== visibleCount) layout.text = null;
+    return layout;
+  };
+  return {
+    ...defaults,
+    title: typeof saved.title === "string" ? saved.title.slice(0, 180) : defaults.title,
+    template_key: templateKeys.has(saved.template_key) ? saved.template_key : defaults.template_key,
+    palette_key: paletteKeys.has(saved.palette_key) ? saved.palette_key : defaults.palette_key,
+    copy_lines: copyLines,
+    line_colors: restoreColors(saved.line_colors),
+    line_stroke_colors: restoreColors(saved.line_stroke_colors),
+    auto_style: Boolean(saved.auto_style),
+    layouts: {
+      "4x3": restoreLayout(saved.layouts?.["4x3"]),
+      "16x9": restoreLayout(saved.layouts?.["16x9"]),
+    },
+  };
+}
+
+function flushStoredDrafts() {
+  window.clearTimeout(state.draftTimer);
+  state.draftTimer = null;
+  const items = [...state.drafts.entries()]
+    .sort((left, right) => Number(right[1]?.updated_at || 0) - Number(left[1]?.updated_at || 0))
+    .slice(0, MAX_STORED_DRAFTS);
+  state.drafts = new Map(items);
+  try {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
+      version: DRAFT_STORAGE_VERSION,
+      items,
+    }));
+  } catch (error) {
+    console.warn("保存封面草稿失败", error);
+  }
+}
+
+function taskDraft(task) {
+  const key = taskDraftKey(task);
+  return key ? state.drafts.get(key) || null : null;
+}
+
+function persistTaskDraft(task = activeTask(), { immediate = false } = {}) {
+  if (!task || !state.settings.has(task.id)) return;
+  const key = taskDraftKey(task);
+  if (!key) return;
+  const previous = state.drafts.get(key);
+  const selectedTimestamp = task.selected_timestamp === null
+    || task.selected_timestamp === undefined
+    ? Number.NaN
+    : Number(task.selected_timestamp);
+  const settings = serializeTaskSettings(state.settings.get(task.id));
+  const timestamp = Number.isFinite(selectedTimestamp)
+    ? selectedTimestamp
+    : previous?.selected_timestamp ?? null;
+  const unchanged = previous
+    && JSON.stringify(previous.settings) === JSON.stringify(settings)
+    && Number(previous.selected_timestamp) === Number(timestamp);
+  const updatedAt = Math.max(
+    Date.now(),
+    normalizedDraftTimestamp(previous?.updated_at) + 1,
+  );
+  state.drafts.set(key, {
+    ...previous,
+    updated_at: updatedAt,
+    selected_timestamp: timestamp,
+    settings,
+    previews: unchanged ? previous?.previews || {} : {},
+  });
+  window.clearTimeout(state.draftTimer);
+  if (immediate) flushStoredDrafts();
+  else state.draftTimer = window.setTimeout(flushStoredDrafts, 120);
 }
 
 function setBusy(active, message = "处理中...") {
@@ -243,7 +477,7 @@ function defaultSettings(task) {
 
 function taskSettings(task) {
   if (!state.settings.has(task.id)) {
-    state.settings.set(task.id, defaultSettings(task));
+    state.settings.set(task.id, restoreTaskSettings(task, taskDraft(task)));
   }
   return state.settings.get(task.id);
 }
@@ -425,15 +659,20 @@ function renderOptions() {
   const font = state.options.default_font;
   if (font) {
     elements["font-status"].textContent = font.available
-      ? `封面字体：${font.label} · ${font.family}`
-      : `封面字体：${font.family}（${font.label}未配置）`;
+      ? `封面字体：${font.family}`
+      : font.fallback
+        ? `封面字体：${font.family} · 系统回退（${font.label}未配置）`
+        : `封面字体：${font.family} · 无可用字体`;
     elements["font-status"].classList.toggle("warning", !font.available);
     elements["font-status"].title = font.warning || "";
   }
 }
 
 async function loadDefaultCoverFont() {
-  if (!state.options?.default_font?.available || !document.fonts?.load) {
+  if (!state.options?.default_font?.fallback && !state.options?.default_font?.available) {
+    return;
+  }
+  if (!document.fonts?.load) {
     return;
   }
   try {
@@ -489,6 +728,7 @@ async function loadLayoutVariants(task, { applyRecommended = false } = {}) {
     renderInspector(task);
   }
   renderTaskList();
+  persistTaskDraft(task);
   return true;
 }
 
@@ -496,6 +736,7 @@ function scheduleLayoutVariants(task) {
   window.clearTimeout(state.recommendTimer);
   if (!task) return;
   const settings = taskSettings(task);
+  persistTaskDraft(task);
   if (!settings.title.trim()) {
     settings.variants = [];
     renderLayoutVariants(settings);
@@ -950,6 +1191,7 @@ function addManualCopyLine() {
   }
   settings.auto_style = false;
   state.activeColorLine = index;
+  persistTaskDraft(task);
   renderCopyLines(settings);
   elements["copy-lines"].querySelector(`[data-line-text="${index}"]`)?.focus();
   setStatus("已添加文字行", `第 ${index + 1} 行，可直接输入并在预览中拖动`);
@@ -1125,7 +1367,10 @@ function updateFocusLabels() {
   elements["background-scale-value"].textContent = `${elements["background-scale"].value}%`;
 }
 
-async function scanWorkspace(config, { preserveDialog = false } = {}) {
+async function scanWorkspace(
+  config,
+  { preserveDialog = false, autoSelect = false, restoreTaskKey = "" } = {},
+) {
   setBusy(true, "正在扫描切片目录...");
   setWorkspaceError();
   let payload;
@@ -1150,9 +1395,13 @@ async function scanWorkspace(config, { preserveDialog = false } = {}) {
 
   state.workspaceConfig = config;
   state.tasks = payload.tasks;
+  state.fileDraftPath = typeof payload.draft_path === "string" ? payload.draft_path : "";
+  mergeDiskDrafts(payload.drafts, config.root);
   sortTasks();
   state.settings.clear();
-  state.activeTaskId = state.tasks[0]?.id || null;
+  // 启动时只扫描并展示队列，不主动选中第一个视频。候选帧提取和预览
+  // 会读取/解码整段媒体，必须等用户明确点击某个切片后再开始，避免打开页面就卡住。
+  state.activeTaskId = autoSelect ? state.tasks[0]?.id || null : null;
   localStorage.setItem("autocover.workspace", JSON.stringify(config));
   elements["workspace-summary"].textContent = config.root;
   elements["workspace-summary"].title = config.root;
@@ -1160,6 +1409,36 @@ async function scanWorkspace(config, { preserveDialog = false } = {}) {
   renderInspector(activeTask());
   renderCandidates(activeTask());
   renderTimeline(activeTask());
+  const diskActive = Array.isArray(payload.drafts)
+    ? payload.drafts.find((item) => item?.active && item?.previews)
+    : null;
+  const effectiveRestoreKey = restoreTaskKey || (
+    diskActive
+      ? `${normalizedWindowsPath(config.root)}\n${normalizedWindowsPath(diskActive.relative_path)}`
+      : ""
+  );
+  const restoredTask = effectiveRestoreKey
+    ? state.tasks.find((task) => taskDraftKey(task) === effectiveRestoreKey) || null
+    : null;
+  if (!autoSelect && restoredTask) {
+    if (!preserveDialog && elements["workspace-dialog"].open) {
+      elements["workspace-dialog"].close();
+    }
+    setStatus("正在恢复上次编辑", restoredTask.filename, "busy");
+    await selectTask(restoredTask.id);
+    return;
+  }
+  if (!autoSelect) {
+    clearPreview(state.tasks.length ? "请从左侧选择要制作的切片" : "目录中没有可用视频");
+    if (!preserveDialog && elements["workspace-dialog"].open) {
+      elements["workspace-dialog"].close();
+    }
+    setStatus(
+      "扫描完成",
+      state.tasks.length ? `${state.tasks.length} 个切片，请选择要制作的切片` : "目录中没有可用视频",
+    );
+    return;
+  }
   if (!preserveDialog && elements["workspace-dialog"].open) {
     elements["workspace-dialog"].close();
   }
@@ -1177,10 +1456,10 @@ async function scanWorkspace(config, { preserveDialog = false } = {}) {
   }
 }
 
-async function ensureCandidates(task, force = false) {
+async function ensureCandidates(task, force = false, { skipPreview = false } = {}) {
   if (task.candidates.length && !force) {
     await ensureTimeline(task);
-    await refreshPreview();
+    if (!skipPreview) await refreshPreview();
     return;
   }
   setBusy(true, `正在为 ${task.filename} 提取候选帧...`);
@@ -1193,7 +1472,7 @@ async function ensureCandidates(task, force = false) {
     renderTaskList();
     renderCandidates(payload.task);
     await ensureTimeline(payload.task);
-    await refreshPreview();
+    if (!skipPreview) await refreshPreview();
   } catch (error) {
     const failed = { ...task, status: "error", error: error.message };
     replaceTask(failed);
@@ -1210,9 +1489,19 @@ async function selectTask(taskId) {
   if (state.activeTaskId === taskId) {
     return;
   }
+  persistTaskDraft(activeTask(), { immediate: true });
   state.previewRequestId += 1;
   state.selectedElement = null;
   state.activeTaskId = taskId;
+  try {
+    sessionStorage.setItem(ACTIVE_TASK_SESSION_KEY, taskDraftKey(activeTask()));
+  } catch (error) {
+    // 禁用会话存储时仍允许正常制作封面。
+  }
+  if (taskDraft(activeTask())?.disk_saved) {
+    api(`/api/tasks/${taskId}/draft-active`, { method: "POST", body: "{}" })
+      .catch((error) => console.warn("记录当前封面草稿失败", error));
+  }
   renderTaskList();
   renderInspector(activeTask());
   renderCandidates(activeTask());
@@ -1220,10 +1509,46 @@ async function selectTask(taskId) {
   clearPreview("正在载入切片");
   try {
     const settings = taskSettings(activeTask());
-    if (!settings.variants.length) {
-      await loadLayoutVariants(activeTask(), { applyRecommended: settings.auto_style });
+    const draft = taskDraft(activeTask());
+    if (restorePreviewFromDraft(activeTask(), draft)) {
+      if (!settings.variants.length) {
+        loadLayoutVariants(activeTask(), { applyRecommended: false }).catch(() => {});
+      }
+      ensureTimeline(activeTask()).catch(() => {});
+      setStatus(
+        "已恢复磁盘草稿",
+        state.fileDraftPath || activeTask().filename,
+      );
+      return;
     }
-    await ensureCandidates(activeTask());
+    if (!settings.variants.length) {
+      await loadLayoutVariants(activeTask(), {
+        applyRecommended: settings.auto_style && !Array.isArray(settings.copy_lines),
+      });
+    }
+    await ensureCandidates(activeTask(), false, { skipPreview: true });
+    const savedTimestamp = draft?.selected_timestamp === null
+      || draft?.selected_timestamp === undefined
+      ? Number.NaN
+      : Number(draft.selected_timestamp);
+    const currentTimestamp = Number(activeTask()?.selected_timestamp);
+    if (Number.isFinite(savedTimestamp) && (
+      !Number.isFinite(currentTimestamp) || Math.abs(savedTimestamp - currentTimestamp) > 0.05
+    )) {
+      setBusy(true, `正在恢复上次选帧 ${formatTimelineTimestamp(savedTimestamp)}...`);
+      try {
+        const payload = await api(`/api/tasks/${taskId}/select-timestamp`, {
+          method: "POST",
+          body: JSON.stringify({ timestamp: savedTimestamp }),
+        });
+        replaceTask(payload.task);
+        renderCandidates(payload.task);
+        renderTimeline(payload.task);
+      } finally {
+        setBusy(false);
+      }
+    }
+    await refreshPreview();
   } catch (error) {
     console.error("载入切片失败", error);
   }
@@ -1296,6 +1621,7 @@ function previewPayload(task, includeCanvas = true) {
     title: settings.title,
     template_key: settings.template_key,
     palette_key: settings.palette_key,
+    draft_updated_at: normalizedDraftTimestamp(taskDraft(task)?.updated_at) || Date.now(),
     layouts: Object.fromEntries(Object.entries(settings.layouts).map(([ratio, layout]) => [
       ratio,
       {
@@ -1376,6 +1702,93 @@ function selectEditableElement(type, index, uid = null) {
       && Number(node.dataset.elementIndex) === index;
     node.classList.toggle("selected", selected);
   });
+  if (type !== "text") return;
+  const task = activeTask();
+  if (!task) return;
+  const settings = taskSettings(task);
+  const sourceLineIndex = visibleCopyLineIndices(settings)[index];
+  if (!Number.isInteger(sourceLineIndex)) return;
+  activateInspectorTab(byId("inspector-tab-copy"));
+  selectColorLine(sourceLineIndex, settings);
+  elements["copy-lines"]
+    .querySelector(`[data-copy-line="${sourceLineIndex}"]`)
+    ?.scrollIntoView({ block: "nearest" });
+}
+
+function updateBackgroundPanState() {
+  const task = activeTask();
+  const scale = task ? ratioLayout(taskSettings(task)).background_scale : 1;
+  const canPan = Boolean(task && state.preview && scale > 1 && !isBusy());
+  elements["cover-frame"].classList.toggle("can-pan-background", canPan);
+  elements["cover-frame"].setAttribute(
+    "aria-label",
+    canPan ? "封面画布；拖动背景调整放大后的取景" : "封面画布",
+  );
+}
+
+function beginBackgroundPan(event) {
+  if (event.button !== 0 || isBusy() || event.target.closest(".editable-element")) return;
+  const task = activeTask();
+  if (!task || !state.preview) return;
+  const settings = taskSettings(task);
+  const layout = ratioLayout(settings);
+  const scale = Number(layout.background_scale) || 1;
+  if (scale <= 1) return;
+
+  event.preventDefault();
+  const frame = elements["cover-frame"];
+  const frameRect = frame.getBoundingClientRect();
+  if (!frameRect.width || !frameRect.height) return;
+  const pointerId = event.pointerId;
+  const start = {
+    pointerX: event.clientX,
+    pointerY: event.clientY,
+    focusX: layout.focus_x,
+    focusY: layout.focus_y,
+  };
+  let moved = false;
+  state.selectedElement = null;
+  elements["cover-overlay"].querySelectorAll(".selected").forEach((node) => {
+    node.classList.remove("selected");
+  });
+  showInteractivePreview(state.preview);
+  frame.classList.add("is-panning-background");
+  frame.setPointerCapture?.(pointerId);
+
+  const move = (moveEvent) => {
+    if (moveEvent.pointerId !== pointerId) return;
+    const deltaX = moveEvent.clientX - start.pointerX;
+    const deltaY = moveEvent.clientY - start.pointerY;
+    if (Math.abs(deltaX) + Math.abs(deltaY) >= 2) moved = true;
+    const panRange = Math.max(0.01, scale - 1);
+    layout.focus_x = clamp(start.focusX - deltaX / frameRect.width / panRange, 0, 1);
+    layout.focus_y = clamp(start.focusY - deltaY / frameRect.height / panRange, 0, 1);
+    if (state.syncRatios) {
+      const synced = ratioLayout(settings, otherRatio());
+      synced.focus_x = layout.focus_x;
+      synced.focus_y = layout.focus_y;
+    }
+    elements["focus-x"].value = Math.round(layout.focus_x * 100);
+    elements["focus-y"].value = Math.round(layout.focus_y * 100);
+    updateFocusLabels();
+    applyInteractiveBackgroundTransform(settings);
+  };
+  const finish = (finishEvent) => {
+    if (finishEvent.pointerId !== pointerId) return;
+    frame.removeEventListener("pointermove", move);
+    frame.removeEventListener("pointerup", finish);
+    frame.removeEventListener("pointercancel", finish);
+    if (frame.hasPointerCapture?.(pointerId)) frame.releasePointerCapture(pointerId);
+    frame.classList.remove("is-panning-background");
+    if (moved) {
+      refreshPreview().catch((error) => console.error("更新背景取景失败", error));
+    } else {
+      showSettledPreview(state.preview);
+    }
+  };
+  frame.addEventListener("pointermove", move);
+  frame.addEventListener("pointerup", finish);
+  frame.addEventListener("pointercancel", finish);
 }
 
 function applyKeyboardTransform(model, type, key, largeStep = false) {
@@ -1439,7 +1852,6 @@ function handleEditableElementKeydown(event, type, index) {
   event.preventDefault();
   event.stopPropagation();
   selectEditableElement(type, index, model.uid || null);
-  showInteractivePreview(state.preview);
   if (action === "move") {
     event.currentTarget.style.left = `${model.x * 100}%`;
     event.currentTarget.style.top = `${model.y * 100}%`;
@@ -1540,7 +1952,7 @@ function beginElementInteraction(event, type, index, mode) {
   const settings = taskSettings(task);
   const layout = ratioLayout(settings);
   const node = event.currentTarget.closest(".editable-element");
-  showInteractivePreview(state.preview);
+  // 文字和贴图交互始终保留完整成品预览；纯背景层只用于背景取景拖动。
   const frameRect = elements["cover-overlay"].getBoundingClientRect();
   const nodeRect = node.getBoundingClientRect();
   let model;
@@ -1678,24 +2090,133 @@ function mediaUrl(token) {
   return `/api/media/${token}?v=${Date.now()}`;
 }
 
+function clearInteractiveBackgroundTransform() {
+  elements["cover-background-preview"].style.removeProperty("transform");
+  elements["cover-background-preview"].style.removeProperty("transform-origin");
+}
+
+function applyInteractiveBackgroundTransform(settings = null) {
+  const task = activeTask();
+  const activeSettings = settings || (task ? taskSettings(task) : null);
+  if (!activeSettings) {
+    clearInteractiveBackgroundTransform();
+    return;
+  }
+  const layout = ratioLayout(activeSettings);
+  const scale = finiteNumber(layout.background_scale, 1, 2.5, 1);
+  const offsetX = -finiteNumber(layout.focus_x, 0, 1, 0.5) * (scale - 1) * 100;
+  const offsetY = -finiteNumber(layout.focus_y, 0, 1, 0.5) * (scale - 1) * 100;
+  elements["cover-background-preview"].style.transformOrigin = "top left";
+  elements["cover-background-preview"].style.transform = `translate3d(${offsetX}%, ${offsetY}%, 0) scale(${scale})`;
+}
+
+function previewLayerUrl(preview, tokenKey, urlKey) {
+  const token = preview?.[tokenKey];
+  if (!token) return "";
+  if (!preview[urlKey]) preview[urlKey] = mediaUrl(token);
+  return preview[urlKey];
+}
+
+function preparePreviewLayers(preview = state.preview) {
+  if (!preview?.media_token) return;
+  const settled = elements["cover-preview"];
+  const background = elements["cover-background-preview"];
+  const settledUrl = previewLayerUrl(preview, "media_token", "_media_url");
+  const backgroundUrl = previewLayerUrl(
+    preview,
+    "background_media_token",
+    "_background_media_url",
+  ) || settledUrl;
+  if (settled.dataset.mediaUrl !== settledUrl) {
+    settled.dataset.mediaUrl = settledUrl;
+    settled.src = settledUrl;
+  }
+  if (background.dataset.mediaUrl !== backgroundUrl) {
+    background.dataset.mediaUrl = backgroundUrl;
+    background.src = backgroundUrl;
+  }
+}
+
+function activateInteractivePreviewLayer(preview = state.preview) {
+  if (!preview || state.preview !== preview) return;
+  const background = elements["cover-background-preview"];
+  if (!background.complete || !background.naturalWidth) return;
+  elements["cover-preview"].hidden = true;
+  background.hidden = false;
+  applyInteractiveBackgroundTransform();
+  elements["cover-overlay"].classList.remove("preview-settled");
+}
+
 function showInteractivePreview(preview = state.preview) {
   if (!preview) return;
-  const token = preview.background_media_token || preview.media_token;
-  elements["cover-preview"].src = mediaUrl(token);
-  elements["cover-overlay"].classList.remove("preview-settled");
+  state.interactivePreview = preview;
+  preparePreviewLayers(preview);
+  const background = elements["cover-background-preview"];
+  if (background.complete && background.naturalWidth) {
+    activateInteractivePreviewLayer(preview);
+  } else {
+    // 纯背景尚未载入时继续显示完整预览，避免把已经放大的成品图再次缩放。
+    // 本地图片载入后再无缝切换，文字和背景拖动共用同一张预热好的底图。
+    background.addEventListener("load", () => {
+      if (state.interactivePreview === preview) activateInteractivePreviewLayer(preview);
+    }, { once: true });
+  }
+  updateBackgroundPanState();
 }
 
 function showSettledPreview(preview = state.preview) {
   if (!preview?.media_token) return;
-  elements["cover-preview"].src = mediaUrl(preview.media_token);
+  state.interactivePreview = null;
+  preparePreviewLayers(preview);
+  clearInteractiveBackgroundTransform();
+  elements["cover-background-preview"].hidden = true;
+  elements["cover-preview"].hidden = false;
   elements["cover-overlay"].classList.add("preview-settled");
+  updateBackgroundPanState();
+}
+
+function restorePreviewFromDraft(task, draft = taskDraft(task)) {
+  const preview = draft?.previews?.[state.ratio];
+  if (!preview?.media_token || !Array.isArray(preview.placements)) return false;
+  state.preview = preview;
+  elements["cover-preview"].hidden = false;
+  elements["preview-empty"].hidden = true;
+  renderCoverOverlay(preview);
+  showSettledPreview(preview);
+  elements["preview-state"].textContent = `${preview.width} × ${preview.height}`;
+  return true;
+}
+
+function rememberDraftPreview(task, preview, response) {
+  const key = taskDraftKey(task);
+  if (!key || !preview?.media_token) return;
+  const current = state.drafts.get(key) || {};
+  const selectedTimestamp = Number(response?.task?.selected_timestamp);
+  state.drafts.set(key, {
+    ...current,
+    updated_at: Date.now(),
+    selected_timestamp: Number.isFinite(selectedTimestamp)
+      ? selectedTimestamp
+      : current.selected_timestamp ?? null,
+    settings: serializeTaskSettings(taskSettings(task)),
+    previews: {
+      ...(current.previews || {}),
+      [state.ratio]: preview,
+    },
+    active: true,
+    disk_saved: Boolean(response?.draft_saved),
+  });
+  if (typeof response?.draft_path === "string") state.fileDraftPath = response.draft_path;
+  flushStoredDrafts();
 }
 
 function previewHasContent() {
   return Boolean(
     state.preview?.media_token
-    && elements["cover-preview"]
-    && !elements["cover-preview"].hidden
+    && (
+      !elements["cover-preview"].hidden
+      || !elements["cover-background-preview"].hidden
+    )
   );
 }
 
@@ -1735,6 +2256,7 @@ async function refreshPreview() {
   const requestId = ++state.previewRequestId;
   const hadPreview = previewHasContent();
   const previousPreview = state.preview;
+  persistTaskDraft(task);
   beginPreviewLoading(requestId);
   try {
     const payload = await api(`/api/tasks/${task.id}/preview`, {
@@ -1759,12 +2281,18 @@ async function refreshPreview() {
       renderCopyLines(settings);
     }
     reconcileLayoutWithPreview(settings, payload.preview);
+    persistTaskDraft(task);
     elements["cover-preview"].hidden = false;
     elements["preview-empty"].hidden = true;
     renderCoverOverlay(payload.preview);
     showSettledPreview(payload.preview);
+    rememberDraftPreview(task, payload.preview, payload);
     elements["preview-state"].textContent = `${payload.preview.width} × ${payload.preview.height}`;
-    setStatus("预览已更新", task.filename);
+    setStatus(
+      payload.draft_saved ? "预览和磁盘草稿已保存" : "预览已更新",
+      payload.draft_warning || state.fileDraftPath || task.filename,
+      payload.draft_warning ? "error" : "ready",
+    );
   } catch (error) {
     if (requestId !== state.previewRequestId) return;
     // 已经有预览时保留旧画面，避免一次网络/渲染失败把正在编辑的封面清空。
@@ -1785,18 +2313,26 @@ function clearPreview(message) {
   state.previewLoaderTimer = null;
   elements["preview-loader"].hidden = true;
   state.preview = null;
+  state.interactivePreview = null;
   state.selectedElement = null;
   elements["cover-preview"].hidden = true;
   elements["cover-preview"].removeAttribute("src");
+  elements["cover-preview"].removeAttribute("data-media-url");
+  elements["cover-background-preview"].hidden = true;
+  elements["cover-background-preview"].removeAttribute("src");
+  elements["cover-background-preview"].removeAttribute("data-media-url");
+  clearInteractiveBackgroundTransform();
   elements["cover-overlay"].replaceChildren();
   elements["cover-overlay"].removeAttribute("style");
   elements["cover-overlay"].classList.remove("preview-settled");
+  updateBackgroundPanState();
   elements["preview-empty"].hidden = false;
   elements["preview-empty"].textContent = message;
   elements["preview-state"].textContent = message;
 }
 
 function schedulePreview() {
+  persistTaskDraft(activeTask());
   window.clearTimeout(state.previewTimer);
   state.previewTimer = window.setTimeout(() => {
     refreshPreview().catch((error) => console.error("自动预览失败", error));
@@ -2003,6 +2539,7 @@ function bindEditor() {
       ratioLayout(settings, otherRatio()).background_scale = layout.background_scale;
     }
     updateFocusLabels();
+    updateBackgroundPanState();
     schedulePreview();
   });
 }
@@ -2034,7 +2571,9 @@ function activateRatioTab(button) {
   state.previewRequestId += 1;
   state.selectedElement = null;
   renderInspector(activeTask());
-  refreshPreview().catch(() => {});
+  if (!restorePreviewFromDraft(activeTask())) {
+    refreshPreview().catch(() => {});
+  }
 }
 
 function bindRovingTablist(selector) {
@@ -2107,6 +2646,7 @@ function bindEvents() {
     const task = activeTask();
     if (state.syncRatios && task) {
       synchronizeCurrentLayout(taskSettings(task));
+      persistTaskDraft(task);
       setStatus("双比例同步已开启", `${state.ratio === "4x3" ? "4:3" : "16:9"} 为当前主编辑比例`);
     } else {
       setStatus("双比例同步已关闭", "两个比例可分别精调");
@@ -2160,11 +2700,13 @@ function bindEvents() {
       });
     }
   });
+  elements["cover-frame"].addEventListener("pointerdown", beginBackgroundPan);
   bindEditor();
 }
 
 async function boot() {
   cacheElements();
+  loadStoredDrafts();
   const storedQueueSort = localStorage.getItem("autocover.task-sort");
   state.queueSort = QUEUE_SORT_KEYS.has(storedQueueSort)
     ? storedQueueSort
@@ -2173,6 +2715,10 @@ async function boot() {
   state.syncRatios = localStorage.getItem("autocover.sync-ratios") !== "false";
   elements["sync-ratios"].checked = state.syncRatios;
   bindEvents();
+  window.addEventListener("beforeunload", () => {
+    persistTaskDraft(activeTask(), { immediate: true });
+    flushStoredDrafts();
+  });
   try {
     state.options = await api("/api/options");
     validateApiCompatibility(state.options);
@@ -2199,7 +2745,12 @@ async function boot() {
   if (stored) {
     try {
       const config = migrateWorkspaceConfig(JSON.parse(stored));
-      await scanWorkspace(config);
+      // 恢复上次目录只建立队列，不自动处理第一个视频；点击队列项后才生成候选帧和预览。
+      // 只有用户主动刷新当前页面时才恢复刚才编辑的任务；全新打开时仍不会自动处理第一个视频。
+      await scanWorkspace(config, {
+        autoSelect: false,
+        restoreTaskKey: reloadTaskDraftKey(),
+      });
       return;
     } catch (error) {
       localStorage.removeItem("autocover.workspace");

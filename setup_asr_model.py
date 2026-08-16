@@ -9,7 +9,25 @@ RECOMMENDED_MODELS = (
     "FunAudioLLM/Fun-ASR-Nano-2512",
     "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
     "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
+    "iic/speech_campplus_sv_zh-cn_16k-common",
 )
+
+
+def _model_weight_names(model_id):
+    """返回模型仓库实际使用的权重文件名。"""
+
+    if "campplus" in str(model_id).casefold():
+        # CAM++ 官方 ModelScope 仓库发布的是 .bin，而不是 model.pt。
+        # 保留 model.pt 兼容用户手动转换或旧版本缓存。
+        return ("campplus_cn_common.bin", "model.pt")
+    return ("model.pt",)
+
+
+def _model_cache_is_complete(path, model_id):
+    return any(
+        (Path(path) / filename).is_file()
+        for filename in _model_weight_names(model_id)
+    )
 
 
 def _download_model(model_id, snapshot_loader, attempts=3):
@@ -17,7 +35,7 @@ def _download_model(model_id, snapshot_loader, attempts=3):
     for attempt in range(1, attempts + 1):
         try:
             path = Path(snapshot_loader(model_id)).resolve()
-            if not (path / "model.pt").is_file():
+            if not _model_cache_is_complete(path, model_id):
                 raise RuntimeError(f"模型缓存不完整: {path}")
             return path
         except Exception as exc:
@@ -56,7 +74,7 @@ def install_recommended_models(snapshot_loader=None):
 def main():
     print("=" * 62)
     print("  AutoSlice 高精度中文语音模型安装")
-    print("  Fun-ASR-Nano + VAD + 标点（免费开源）")
+    print("  Fun-ASR-Nano + VAD + 标点 + CAM++ 主要说话人过滤（免费开源）")
     print("=" * 62)
     try:
         paths = install_recommended_models()

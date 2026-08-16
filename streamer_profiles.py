@@ -283,6 +283,34 @@ def _match_profile_by_filename_name(
     return None
 
 
+def _match_profile_by_context(
+        profiles: dict[str, StreamerProfile],
+        context_hint: str | None,
+) -> StreamerProfile | None:
+    """从投稿目录标题等上下文识别已配置主播，优先采用明确标题前缀。"""
+
+    context = str(context_hint or "").strip().casefold()
+    if not context:
+        return None
+    matches: list[tuple[int, int, str, StreamerProfile]] = []
+    for profile in profiles.values():
+        prefix_name = profile.title_prefix.strip("【】[] \t\r\n")
+        candidates = (
+            (500, profile.title_prefix, 2),
+            (450, prefix_name, 2),
+            (400, profile.canonical_name, 2),
+            (300, profile.report_name, 2),
+            *((200, alias, 2) for alias in profile.aliases),
+        )
+        for priority, candidate, minimum_length in candidates:
+            normalized = str(candidate or "").strip().casefold()
+            if len(normalized) >= minimum_length and normalized in context:
+                matches.append((priority, len(normalized), profile.id, profile))
+    if not matches:
+        return None
+    return max(matches, key=lambda item: (item[0], item[1], item[2]))[3]
+
+
 def _dynamic_filename_profile(
         base_profile: StreamerProfile,
         streamer_name: str,
@@ -312,6 +340,7 @@ def resolve_streamer_profile(
         video_path: str | os.PathLike[str] | None = None,
         *,
         config_path: str | os.PathLike[str] | None = None,
+        context_hint: str | None = None,
 ) -> StreamerProfile:
     """解析显式配置，或按录播路径自动匹配最具体的主播。"""
 
@@ -340,6 +369,9 @@ def resolve_streamer_profile(
                 matches.append((len(normalized_keyword), profile.id, profile))
     if matches:
         return max(matches, key=lambda item: (item[0], item[1]))[2]
+    context_profile = _match_profile_by_context(profiles, context_hint)
+    if context_profile is not None:
+        return context_profile
     default_profile = profiles[default_profile_id]
     if filename_streamer:
         return _dynamic_filename_profile(default_profile, filename_streamer)

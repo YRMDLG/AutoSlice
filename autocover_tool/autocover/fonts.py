@@ -29,6 +29,12 @@ class FontStatus:
     warning: str | None = None
 
     @property
+    def fallback(self) -> bool:
+        """是否正在使用系统回退字体。"""
+
+        return not self.available and self.fallback_path is not None
+
+    @property
     def render_path(self) -> Path | None:
         """返回 Pillow 实际应使用的字体路径。"""
 
@@ -40,6 +46,7 @@ class FontStatus:
         return {
             "label": self.label,
             "available": self.available,
+            "fallback": self.fallback,
             "family": self.family,
             "source": self.source,
             "warning": self.warning,

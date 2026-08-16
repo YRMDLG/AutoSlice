@@ -84,6 +84,28 @@ class StreamerProfileTests(unittest.TestCase):
         self.assertEqual(profile.id, "generic")
         self.assertEqual(profile.title_prefix, "")
 
+    def test_context_title_can_identify_known_streamer_in_submission_folder(self):
+        for context_hint in ("【泽音】测试投稿", "泽音测试投稿", "音音测试投稿"):
+            with self.subTest(context_hint=context_hint):
+                profile = resolve_streamer_profile(
+                    "auto",
+                    r"X:\fixtures\普通投稿\剪映导出.mp4",
+                    context_hint=context_hint,
+                )
+
+                self.assertEqual(profile.id, "zeyin")
+                self.assertEqual(profile.report_name, "音音")
+
+    def test_unknown_context_does_not_fall_back_to_zeyin(self):
+        profile = resolve_streamer_profile(
+            "auto",
+            r"X:\fixtures\普通投稿\剪映导出.mp4",
+            context_hint="另一位主播的测试投稿",
+        )
+
+        self.assertEqual(profile.id, "generic")
+        self.assertEqual(profile.asr_replacements, ())
+
     def test_context_is_nested_and_thread_isolated(self):
         self.assertIsNone(active_streamer_profile())
         self.assertEqual(current_streamer_profile().id, "generic")

@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
+import subtitle_workflow
 from subtitle_workflow import (
     DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_STYLE,
@@ -32,6 +33,7 @@ from subtitle_workflow import (
     save_corrected_srt,
     scan_submission_pairs,
     serialise_srt,
+    normalise_subtitle_review_dictionary,
     suggest_subtitle_corrections,
     transcribe_submission_video,
     verify_exact_subtitle_font,
@@ -110,6 +112,114 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertTrue(prompts[0].startswith("你是直播切片的字幕校对员。"))
         for term in requested_terms:
             self.assertIn(term, prompts[0])
+
+    def test_extra_glossary_and_streamer_replacements_are_merged_and_applied(self):
+        prompts = []
+
+        def runner(prompt, _compact_prompt):
+            prompts.append(prompt)
+            indices = json.loads(
+                prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            )
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "主播字幕.srt"
+            source.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\n英英晚上好\n",
+                encoding="utf-8",
+            )
+            result = suggest_subtitle_corrections(
+                source,
+                glossary=["额外专名"],
+                replacements=[("英英", "音音")],
+                streamer_profile_id="zeyin",
+                streamer_profile_label="泽音 Melody",
+                llm_runner=runner,
+                use_cache=False,
+            )
+            cached = suggest_subtitle_corrections(
+                source,
+                glossary=["额外专名"],
+                replacements=[("英英", "音音")],
+                streamer_profile_id="zeyin",
+                streamer_profile_label="泽音 Melody",
+                llm_runner=lambda *_: self.fail("固定映射缓存不应重新调用 AI"),
+            )
+
+        self.assertIn("朱鹮", result["glossary"])
+        self.assertIn("额外专名", result["glossary"])
+        self.assertEqual(result["replacements"], [["英英", "音音"]])
+        self.assertEqual(result["streamer_profile_id"], "zeyin")
+        self.assertEqual(result["replacement_count"], 1)
+        self.assertIn('"错误词": "英英"', prompts[0])
+        self.assertIn('"正确词": "音音"', prompts[0])
+        self.assertIn("主动检查与优先词表发音相近", prompts[0])
+        self.assertEqual(result["suggestions"][0]["corrected"], "音音晚上好")
+        self.assertEqual(result["suggestions"][0]["confidence"], 1.0)
+        self.assertEqual(result["suggestions"][0]["source"], "fixed_replacement")
+        self.assertEqual(
+            high_confidence_corrections(result)[0]["corrected"],
+            "音音晚上好",
+        )
+        self.assertTrue(cached["cache_hit"])
+        self.assertEqual(
+            high_confidence_corrections(cached)[0]["corrected"],
+            "音音晚上好",
+        )
+
+    def test_review_cache_invalidates_when_replacements_or_profile_change(self):
+        calls = []
+
+        def runner(prompt, _compact_prompt):
+            calls.append(prompt)
+            indices = json.loads(
+                prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            )
+            return {"reviewed_indices": indices, "corrections": []}
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "主播字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            suggest_subtitle_corrections(
+                source,
+                replacements=[("英英", "音音")],
+                streamer_profile_id="zeyin",
+                llm_runner=runner,
+            )
+            suggest_subtitle_corrections(
+                source,
+                replacements=[("莹莹", "音音")],
+                streamer_profile_id="zeyin",
+                llm_runner=runner,
+            )
+            suggest_subtitle_corrections(
+                source,
+                replacements=[("莹莹", "音音")],
+                streamer_profile_id="generic",
+                llm_runner=runner,
+            )
+
+        self.assertEqual(len(calls), 3)
+
+    def test_review_dictionary_normalisation_is_stable_and_deduplicated(self):
+        glossary, replacements = normalise_subtitle_review_dictionary(
+            ["音音", "额外专名", "额外专名"],
+            [("英英", "音音"), ("英英", "音音")],
+        )
+
+        self.assertEqual(glossary.count("音音"), 1)
+        self.assertEqual(glossary.count("额外专名"), 1)
+        self.assertEqual(replacements, (("英英", "音音"),))
+
+    def test_fixed_replacements_apply_longest_source_first(self):
+        corrected, applied = subtitle_workflow._apply_fixed_replacements(
+            "感谢音乐声们",
+            (("音乐声", "音悦生"), ("音乐声们", "音悦生们")),
+        )
+
+        self.assertEqual(corrected, "感谢音悦生们")
+        self.assertIn("音乐声们 → 音悦生们", applied)
 
     def test_reference_titles_use_two_stage_generation_and_final_judgement(self):
         calls = []
@@ -553,8 +663,15 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             video.write_bytes(b"video")
             checkpoint = video.with_name(f"{video.stem}_asr_checkpoint.json")
 
-            def fake_ensure(video_path, progress_callback=None, checkpoint_path=None):
-                Path(checkpoint_path).write_text('{"status":"completed"}', encoding="utf-8")
+            def fake_ensure(
+                    video_path, progress_callback=None, checkpoint_path=None,
+                    foreground_only=False):
+                Path(checkpoint_path).write_text(json.dumps({
+                    "status": "completed",
+                    "foreground_filter_mode": "speaker_diarization",
+                    "speaker_filtered_segment_count": 2,
+                    "speaker_filtered_chunk_count": 1,
+                }), encoding="utf-8")
                 srt = Path(video_path).with_suffix(".srt")
                 srt.write_text(SAMPLE_SRT, encoding="utf-8")
                 return str(srt)
@@ -569,6 +686,13 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertTrue(srt_exists)
         self.assertFalse(checkpoint_exists)
         self.assertEqual(ensure.call_args.kwargs["checkpoint_path"], str(checkpoint))
+        self.assertTrue(ensure.call_args.kwargs["foreground_only"])
+        self.assertEqual(result["background_filter"], {
+            "enabled": True,
+            "mode": "speaker_diarization",
+            "speaker_filtered_segment_count": 2,
+            "speaker_filtered_chunk_count": 1,
+        })
 
     def test_transcription_failure_keeps_checkpoint_for_resume(self):
         with tempfile.TemporaryDirectory() as td:
@@ -576,7 +700,9 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             video.write_bytes(b"video")
             checkpoint = video.with_name(f"{video.stem}_asr_checkpoint.json")
 
-            def fail_with_checkpoint(_video_path, progress_callback=None, checkpoint_path=None):
+            def fail_with_checkpoint(
+                    _video_path, progress_callback=None, checkpoint_path=None,
+                    foreground_only=False):
                 Path(checkpoint_path).write_text('{"status":"failed"}', encoding="utf-8")
                 raise RuntimeError("转录中断")
 

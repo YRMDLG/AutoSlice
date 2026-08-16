@@ -20,6 +20,7 @@ class StickerLibraryTests(unittest.TestCase):
         self.expressions = self.root / "沐霂表情包"
         self.nested = self.root / "表情包" / "常用"
         self.cover = self.root / "封面"
+        self.imported = Path(self.temporary.name) / "导入贴图"
         for directory in (self.expressions, self.nested, self.cover):
             directory.mkdir(parents=True)
         Image.new("RGBA", (160, 120), (255, 0, 80, 128)).save(self.expressions / "害羞.png")
@@ -27,7 +28,7 @@ class StickerLibraryTests(unittest.TestCase):
         Image.new("RGB", (320, 180), "#ffffff").save(self.cover / "普通封面.png")
         (self.expressions / "说明.txt").write_text("不是图片", encoding="utf-8")
         (self.expressions / "损坏.png").write_bytes(b"not-an-image")
-        self.library = StickerLibrary(self.root)
+        self.library = StickerLibrary(self.root, import_root=self.imported)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -54,7 +55,7 @@ class StickerLibraryTests(unittest.TestCase):
         streamer_dir.mkdir(parents=True)
         Image.new("RGBA", (180, 180), (255, 255, 255, 128)).save(streamer_dir / "音音.png")
 
-        library = StickerLibrary(self.root / "表情包")
+        library = StickerLibrary(self.root / "表情包", import_root=self.imported)
         assets = library.scan()
 
         self.assertEqual({asset.name for asset in assets}, {"震惊", "音音"})
@@ -80,7 +81,7 @@ class StickerLibraryTests(unittest.TestCase):
             self.library.resolve(asset.id)
 
     def test_missing_root_returns_an_empty_library(self) -> None:
-        library = StickerLibrary(self.root / "不存在")
+        library = StickerLibrary(self.root / "不存在", import_root=self.imported)
 
         self.assertEqual(library.scan(), [])
         self.assertEqual(library.list_assets(), [])
