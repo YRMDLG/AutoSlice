@@ -10,6 +10,7 @@ from flask import Flask, render_template, request, jsonify, Response, redirect, 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import process_video
+from media_formats import is_scannable_video
 from subtitle_workflow import SUBTITLE_ASR_VERSION, SUBTITLE_REVIEW_VERSION
 from streamer_profiles import (
     public_streamer_profiles,
@@ -1146,11 +1147,18 @@ def scan():
         return jsonify({"error": "目录不存在"})
 
     videos = []
-    for f in sorted(glob_mod.glob(os.path.join(video_dir, "*.flv"))):
+    candidates = (
+        os.path.join(video_dir, name)
+        for name in os.listdir(video_dir)
+        if is_scannable_video(name)
+    )
+    for f in sorted(set(candidates)):
+        if not os.path.isfile(f):
+            continue
         name = os.path.basename(f)
         if name.startswith("[正在录制]") or name.startswith("[录制中]"):
             continue
-        base = f[:-4]
+        base = os.path.splitext(f)[0]
         has_ass = os.path.exists(base + ".ass")
         has_srt = os.path.exists(base + ".srt") and os.path.getsize(base + ".srt") > 0
         videos.append({"name": name, "path": f, "has_ass": has_ass, "has_srt": has_srt})

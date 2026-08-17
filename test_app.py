@@ -50,6 +50,51 @@ def _temporary_path_suffix(path):
     return None
 
 
+class ScanApiTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+
+    def test_scan_supports_declared_formats_and_excludes_non_video_files(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_names = (
+                "01_直播.FLV",
+                "02_直播.mp4",
+                "03_直播.MkV",
+                "04_直播.MOV",
+                "05_直播.aVi",
+            )
+            for name in video_names:
+                (root / name).write_bytes(b"video")
+            (root / "02_直播.ass").write_text("danmaku", encoding="utf-8")
+            (root / "02_直播.srt").write_text("subtitle", encoding="utf-8")
+            (root / "03_直播.srt").write_text("", encoding="utf-8")
+            (root / "说明.txt").write_text("not video", encoding="utf-8")
+            (root / "伪装.mp4").mkdir()
+            (root / "[正在录制]未完成.MP4").write_bytes(b"video")
+            (root / "[录制中]未完成.avi").write_bytes(b"video")
+
+            response = self.client.post(
+                "/api/scan",
+                json={"video_dir": str(root)},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], len(video_names))
+        self.assertEqual(
+            [video["name"] for video in payload["videos"]],
+            list(video_names),
+        )
+        by_name = {video["name"]: video for video in payload["videos"]}
+        self.assertTrue(by_name["02_直播.mp4"]["has_ass"])
+        self.assertTrue(by_name["02_直播.mp4"]["has_srt"])
+        self.assertFalse(by_name["03_直播.MkV"]["has_srt"])
+        self.assertFalse(by_name["05_直播.aVi"]["has_ass"])
+
+
 class AutoCoverIntegrationTests(unittest.TestCase):
 
     def setUp(self):
