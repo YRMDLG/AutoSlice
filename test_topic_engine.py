@@ -20,6 +20,7 @@ from test_external_boundaries import install_test_external_boundary_guard
 install_test_external_boundary_guard()
 
 import topic_engine
+from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.transcription import service as transcription_service
 from llm_client import (
     LLMApiConfig,
@@ -263,8 +264,67 @@ class PromptContractTests(unittest.TestCase):
         self.assertNotIn("subtitle_workflow", source)
 
 
-class DanmakuContentEvidenceTests(unittest.TestCase):
+class DanmakuAnalysisTests(unittest.TestCase):
     """弹幕峰值原文只作为受限证据，不影响旧密度接口。"""
+
+    def test_topic_engine_danmaku_facade_keeps_analysis_object_identity(self):
+        expected = (
+            "DanmakuDensitySeries", "_clean_ass_danmaku_text",
+            "_normalise_danmaku_message", "_display_danmaku_message",
+            "_is_generic_danmaku_reaction", "_is_question_only_danmaku",
+            "_danmaku_title_cue_messages",
+            "_danmaku_title_cue_groups_for_context",
+            "_danmaku_peak_content_evidence", "_format_danmaku_peak_content",
+            "_danmaku_prompt_message_items", "_danmaku_prompt_evidence",
+            "_average_danmaku_density", "_density_percentile",
+            "_danmaku_clip_threshold", "_high_energy_danmaku_peaks",
+            "_median_number", "_danmaku_content_quality",
+            "_danmaku_peak_features", "_reviewed_danmaku_ranking_score",
+            "analyze_danmaku",
+        )
+        constants = (
+            "DANMAKU_WINDOW", "DANMAKU_WINDOW_STEP",
+            "DANMAKU_MESSAGE_MAX_CHARS", "DANMAKU_EVIDENCE_MAX_ITEMS",
+            "DANMAKU_LOCAL_BASELINE_RADIUS_SEC",
+            "DANMAKU_LOCAL_BASELINE_EXCLUSION_SEC", "CLIP_DENSITY_RATIO",
+            "CLIP_DENSITY_PERCENTILE", "CLIP_LOCAL_PEAK_RADIUS_SEC",
+            "_ASS_OVERRIDE_TAG_RE", "_DANMAKU_BRACKET_EMOTE_RE",
+            "_DANMAKU_UPOWER_RE", "_DANMAKU_GENERIC_REACTIONS",
+            "_DANMAKU_TITLE_CUE_GROUPS",
+            "_DANMAKU_TITLE_CUE_PRIORITY_PATTERNS",
+            "_DANMAKU_PROMPT_INSTRUCTION_RE",
+        )
+
+        for name in (*expected, *constants):
+            with self.subTest(name=name):
+                self.assertIs(
+                    getattr(topic_engine, name),
+                    getattr(danmaku_analysis, name),
+                )
+
+    def test_analyze_danmaku_accepts_bilibili_xml(self):
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<i>"
+            '<d p="12.5,1,25,16777215,0,0,0,0">为什么换成紫发了</d>'
+            '<d p="18.0,1,25,16777215,0,0,0,0">？？？</d>'
+            '<d p="bad,1,25,16777215,0,0,0,0">无效</d>'
+            "</i>"
+        )
+        with TemporaryDirectory() as td:
+            xml_path = Path(td) / "弹幕.xml"
+            xml_path.write_text(xml, encoding="utf-8")
+
+            density = analyze_danmaku(str(xml_path))
+
+        self.assertEqual(density.message_count, 2)
+        self.assertEqual(
+            density.messages,
+            ((12.5, "为什么换成紫发了"), (18.0, "？？？")),
+        )
+        evidence = _danmaku_peak_content_evidence(density, 0)
+        self.assertEqual(evidence["question_count"], 1)
+        self.assertEqual(evidence["informative_count"], 1)
 
     def test_analyze_danmaku_preserves_clean_dialogue_text(self):
         lines = [
