@@ -981,6 +981,36 @@
       "to": "autoslice.llm.transport"
     },
     {
+      "from": "scripts.manual.run_real_pipeline_smoke",
+      "imports": [
+        "autoslice.pipeline.run_pipeline"
+      ],
+      "lines": [
+        386
+      ],
+      "to": "autoslice.pipeline"
+    },
+    {
+      "from": "scripts.manual.run_real_pipeline_smoke",
+      "imports": [
+        "autoslice.slicing.slice_from_marks"
+      ],
+      "lines": [
+        397
+      ],
+      "to": "autoslice.slicing"
+    },
+    {
+      "from": "scripts.manual.run_real_pipeline_smoke",
+      "imports": [
+        "streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        176
+      ],
+      "to": "streamer_profiles"
+    },
+    {
       "from": "subtitle_workflow",
       "imports": [
         "autoslice.llm.prompts.PromptContext",
@@ -6196,6 +6226,178 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 1,
+      "longest_function": null,
+      "module": "scripts.manual",
+      "path": "scripts/manual/__init__.py",
+      "sha256": "2abac72a8fb00e81611fd8116bf14e481aac7dc2dd86ba8588124b5759085ffb",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 531,
+      "longest_function": {
+        "end_line": 333,
+        "kind": "function",
+        "line": 264,
+        "line_count": 70,
+        "qualname": "validate_arguments"
+      },
+      "module": "scripts.manual.run_real_pipeline_smoke",
+      "path": "scripts/manual/run_real_pipeline_smoke.py",
+      "sha256": "0ab663f2e050bec0453c39ee3487ab0ef3c6bb1d3a4040807230dd5484d89a7a",
+      "top_level_classes": [
+        {
+          "end_line": 32,
+          "kind": "class",
+          "line": 31,
+          "name": "SmokeValidationError"
+        },
+        {
+          "end_line": 40,
+          "kind": "class",
+          "line": 35,
+          "name": "SafeArgumentParser"
+        },
+        {
+          "end_line": 55,
+          "kind": "class",
+          "line": 44,
+          "name": "SmokePlan"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 114,
+          "kind": "function",
+          "line": 58,
+          "name": "build_parser"
+        },
+        {
+          "end_line": 127,
+          "kind": "function",
+          "line": 117,
+          "name": "_local_absolute_path"
+        },
+        {
+          "end_line": 147,
+          "kind": "function",
+          "line": 130,
+          "name": "_existing_input"
+        },
+        {
+          "end_line": 153,
+          "kind": "function",
+          "line": 150,
+          "name": "_path_key"
+        },
+        {
+          "end_line": 163,
+          "kind": "function",
+          "line": 156,
+          "name": "_is_inside"
+        },
+        {
+          "end_line": 183,
+          "kind": "function",
+          "line": 166,
+          "name": "_resolve_streamer_profile_id"
+        },
+        {
+          "end_line": 189,
+          "kind": "function",
+          "line": 186,
+          "name": "_path_digest"
+        },
+        {
+          "end_line": 205,
+          "kind": "function",
+          "line": 192,
+          "name": "_marker_payload"
+        },
+        {
+          "end_line": 209,
+          "kind": "function",
+          "line": 208,
+          "name": "_marker_path"
+        },
+        {
+          "end_line": 230,
+          "kind": "function",
+          "line": 212,
+          "name": "_validate_existing_output"
+        },
+        {
+          "end_line": 261,
+          "kind": "function",
+          "line": 233,
+          "name": "_prepare_output_dir"
+        },
+        {
+          "end_line": 333,
+          "kind": "function",
+          "line": 264,
+          "name": "validate_arguments"
+        },
+        {
+          "end_line": 339,
+          "kind": "function",
+          "line": 336,
+          "name": "_redacted_file"
+        },
+        {
+          "end_line": 377,
+          "kind": "function",
+          "line": 342,
+          "name": "_plan_summary"
+        },
+        {
+          "end_line": 388,
+          "kind": "function",
+          "line": 380,
+          "name": "_load_analyze_runner"
+        },
+        {
+          "end_line": 399,
+          "kind": "function",
+          "line": 391,
+          "name": "_load_slice_runner"
+        },
+        {
+          "end_line": 408,
+          "kind": "function",
+          "line": 402,
+          "name": "_safe_failure"
+        },
+        {
+          "end_line": 419,
+          "kind": "function",
+          "line": 411,
+          "name": "_count"
+        },
+        {
+          "end_line": 428,
+          "kind": "function",
+          "line": 422,
+          "name": "_result_path"
+        },
+        {
+          "end_line": 491,
+          "kind": "function",
+          "line": 431,
+          "name": "run_authorized_pipeline"
+        },
+        {
+          "end_line": 527,
+          "kind": "function",
+          "line": 494,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 47,
       "longest_function": {
         "end_line": 43,
@@ -7808,7 +8010,9 @@
       "scripts/scan_public_release.py",
       "scripts/smoke_startup.py",
       "scripts/sync_autocover.py",
-      "scripts/validate_public_docs.py"
+      "scripts/validate_public_docs.py",
+      "scripts/manual/__init__.py",
+      "scripts/manual/run_real_pipeline_smoke.py"
     ],
     "root": ".",
     "test_files": [
@@ -7820,6 +8024,7 @@
       "test_launcher.py",
       "test_llm_client.py",
       "test_llm_contracts.py",
+      "test_manual_smoke.py",
       "test_media_formats.py",
       "test_runtime_config.py",
       "test_security_policy.py",
@@ -7844,12 +8049,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 101,
-    "production_line_count": 31988,
-    "production_module_count": 53,
+    "import_edge_count": 104,
+    "production_line_count": 32520,
+    "production_module_count": 55,
     "test_private_patch_count": 17,
-    "top_level_class_count": 80,
-    "top_level_function_count": 813
+    "top_level_class_count": 83,
+    "top_level_function_count": 834
   },
   "test_private_patches": {
     "by_target_module": {
