@@ -325,9 +325,13 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
 
         self.assertIn("朱鹮", result["glossary"])
         self.assertIn("额外专名", result["glossary"])
-        self.assertEqual(result["replacements"], [["英英", "音音"]])
+        expected_replacements = [
+            list(pair)
+            for pair in resolve_streamer_profile("zeyin").asr_replacements
+        ]
+        self.assertEqual(result["replacements"], expected_replacements)
         self.assertEqual(result["streamer_profile_id"], "zeyin")
-        self.assertEqual(result["replacement_count"], 1)
+        self.assertEqual(result["replacement_count"], len(expected_replacements))
         self.assertIn('"错误词": "英英"', prompts[0])
         self.assertIn('"正确词": "音音"', prompts[0])
         self.assertIn("主动检查与优先词表发音相近", prompts[0])
