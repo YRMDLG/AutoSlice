@@ -986,7 +986,7 @@
         "autoslice.pipeline.run_pipeline"
       ],
       "lines": [
-        386
+        434
       ],
       "to": "autoslice.pipeline"
     },
@@ -996,7 +996,7 @@
         "autoslice.slicing.slice_from_marks"
       ],
       "lines": [
-        397
+        445
       ],
       "to": "autoslice.slicing"
     },
@@ -1006,7 +1006,7 @@
         "streamer_profiles.resolve_streamer_profile"
       ],
       "lines": [
-        176
+        187
       ],
       "to": "streamer_profiles"
     },
@@ -6236,17 +6236,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 531,
+      "line_count": 583,
       "longest_function": {
-        "end_line": 333,
+        "end_line": 371,
         "kind": "function",
-        "line": 264,
-        "line_count": 70,
+        "line": 279,
+        "line_count": 93,
         "qualname": "validate_arguments"
       },
       "module": "scripts.manual.run_real_pipeline_smoke",
       "path": "scripts/manual/run_real_pipeline_smoke.py",
-      "sha256": "0ab663f2e050bec0453c39ee3487ab0ef3c6bb1d3a4040807230dd5484d89a7a",
+      "sha256": "a5b6bf78befe35e12b5612327ca982312e3fac17ddd1158c6e986982295a27c1",
       "top_level_classes": [
         {
           "end_line": 32,
@@ -6261,7 +6261,7 @@
           "name": "SafeArgumentParser"
         },
         {
-          "end_line": 55,
+          "end_line": 57,
           "kind": "class",
           "line": 44,
           "name": "SmokePlan"
@@ -6269,129 +6269,129 @@
       ],
       "top_level_functions": [
         {
-          "end_line": 114,
+          "end_line": 125,
           "kind": "function",
-          "line": 58,
+          "line": 60,
           "name": "build_parser"
         },
         {
-          "end_line": 127,
+          "end_line": 138,
           "kind": "function",
-          "line": 117,
+          "line": 128,
           "name": "_local_absolute_path"
         },
         {
-          "end_line": 147,
+          "end_line": 158,
           "kind": "function",
-          "line": 130,
+          "line": 141,
           "name": "_existing_input"
         },
         {
-          "end_line": 153,
+          "end_line": 164,
           "kind": "function",
-          "line": 150,
+          "line": 161,
           "name": "_path_key"
         },
         {
-          "end_line": 163,
+          "end_line": 174,
           "kind": "function",
-          "line": 156,
+          "line": 167,
           "name": "_is_inside"
         },
         {
-          "end_line": 183,
+          "end_line": 194,
           "kind": "function",
-          "line": 166,
+          "line": 177,
           "name": "_resolve_streamer_profile_id"
         },
         {
-          "end_line": 189,
+          "end_line": 200,
           "kind": "function",
-          "line": 186,
+          "line": 197,
           "name": "_path_digest"
         },
         {
-          "end_line": 205,
+          "end_line": 220,
           "kind": "function",
-          "line": 192,
+          "line": 203,
           "name": "_marker_payload"
         },
         {
-          "end_line": 209,
+          "end_line": 224,
           "kind": "function",
-          "line": 208,
+          "line": 223,
           "name": "_marker_path"
         },
         {
-          "end_line": 230,
+          "end_line": 245,
           "kind": "function",
-          "line": 212,
+          "line": 227,
           "name": "_validate_existing_output"
         },
         {
-          "end_line": 261,
+          "end_line": 276,
           "kind": "function",
-          "line": 233,
+          "line": 248,
           "name": "_prepare_output_dir"
         },
         {
-          "end_line": 333,
+          "end_line": 371,
           "kind": "function",
-          "line": 264,
+          "line": 279,
           "name": "validate_arguments"
-        },
-        {
-          "end_line": 339,
-          "kind": "function",
-          "line": 336,
-          "name": "_redacted_file"
         },
         {
           "end_line": 377,
           "kind": "function",
-          "line": 342,
+          "line": 374,
+          "name": "_redacted_file"
+        },
+        {
+          "end_line": 425,
+          "kind": "function",
+          "line": 380,
           "name": "_plan_summary"
         },
         {
-          "end_line": 388,
+          "end_line": 436,
           "kind": "function",
-          "line": 380,
+          "line": 428,
           "name": "_load_analyze_runner"
         },
         {
-          "end_line": 399,
+          "end_line": 447,
           "kind": "function",
-          "line": 391,
+          "line": 439,
           "name": "_load_slice_runner"
         },
         {
-          "end_line": 408,
+          "end_line": 456,
           "kind": "function",
-          "line": 402,
+          "line": 450,
           "name": "_safe_failure"
         },
         {
-          "end_line": 419,
+          "end_line": 467,
           "kind": "function",
-          "line": 411,
+          "line": 459,
           "name": "_count"
         },
         {
-          "end_line": 428,
+          "end_line": 476,
           "kind": "function",
-          "line": 422,
+          "line": 470,
           "name": "_result_path"
         },
         {
-          "end_line": 491,
+          "end_line": 543,
           "kind": "function",
-          "line": 431,
+          "line": 479,
           "name": "run_authorized_pipeline"
         },
         {
-          "end_line": 527,
+          "end_line": 579,
           "kind": "function",
-          "line": 494,
+          "line": 546,
           "name": "main"
         }
       ]
@@ -8050,7 +8050,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 104,
-    "production_line_count": 32520,
+    "production_line_count": 32572,
     "production_module_count": 55,
     "test_private_patch_count": 17,
     "top_level_class_count": 83,

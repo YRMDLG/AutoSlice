@@ -46,10 +46,12 @@ class SmokePlan:
 
     video: Path
     srt: Path
+    srt_preexisting: bool
     danmaku: Path
-    timeline: Path
+    timeline: Path | None
     output_dir: Path
     streamer_profile: str
+    allow_asr: bool
     allow_paid_llm: bool
     allow_ffmpeg: bool
     resume_existing_output: bool
@@ -68,8 +70,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--video", required=True, help="本地绝对视频路径")
     parser.add_argument(
         "--srt",
-        required=True,
-        help="本地绝对 SRT 路径，必须是视频同目录同 stem 的 sibling 文件",
+        help=(
+            "可选的本地绝对 SRT 路径，必须是视频同目录同 stem 的 sibling；"
+            "省略且 sibling 不存在时必须提供 --allow-asr"
+        ),
     )
     parser.add_argument(
         "--danmaku",
@@ -78,8 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--timeline",
-        required=True,
-        help="本地绝对人工时间轴路径，仅支持 .docx；只作为分析参考",
+        help="可选的本地绝对人工时间轴路径，仅支持 .docx；只作为分析参考",
     )
     parser.add_argument(
         "--output-dir",
@@ -99,6 +102,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "续跑由本脚本创建且输入身份一致的已有目录；不允许接管任意目录"
+        ),
+    )
+    parser.add_argument(
+        "--allow-asr",
+        action="store_true",
+        help=(
+            "允许真实分析在 sibling SRT 缺失或为空时调用 FunASR；"
+            "dry-run 只验证计划，不加载模型"
         ),
     )
     parser.add_argument(
@@ -199,7 +210,11 @@ def _marker_payload(plan: SmokePlan) -> dict[str, object]:
             "video": _path_digest(plan.video),
             "srt": _path_digest(plan.srt),
             "danmaku": _path_digest(plan.danmaku),
-            "timeline": _path_digest(plan.timeline),
+            "timeline": (
+                _path_digest(plan.timeline)
+                if plan.timeline is not None
+                else None
+            ),
         },
         "streamer_profile": plan.streamer_profile,
     }
@@ -270,17 +285,38 @@ def validate_arguments(args: argparse.Namespace) -> SmokePlan:
         )
 
     video = _existing_input(args.video, "--video", VIDEO_EXTENSIONS)
-    srt = _existing_input(args.srt, "--srt", frozenset({".srt"}))
     danmaku = _existing_input(args.danmaku, "--danmaku", DANMAKU_EXTENSIONS)
-    timeline = _existing_input(args.timeline, "--timeline", TIMELINE_EXTENSIONS)
 
     expected_srt = video.with_suffix(".srt")
-    if _path_key(srt) != _path_key(expected_srt):
+    if args.srt:
+        srt = _existing_input(args.srt, "--srt", frozenset({".srt"}))
+        if _path_key(srt) != _path_key(expected_srt):
+            raise SmokeValidationError(
+                "--srt 必须是 --video 同目录同 stem 的 sibling .srt 文件"
+            )
+    else:
+        try:
+            srt = expected_srt.resolve(strict=False)
+        except (OSError, RuntimeError) as exc:
+            raise SmokeValidationError("视频 sibling SRT 路径无法解析") from exc
+    srt_preexisting = srt.is_file() and srt.stat().st_size > 0
+    if not srt_preexisting and not args.allow_asr:
         raise SmokeValidationError(
-            "--srt 必须是 --video 同目录同 stem 的 sibling .srt 文件"
+            "未找到可复用的 sibling SRT；自动转录必须显式使用 --allow-asr"
         )
 
-    inputs = (video, srt, danmaku, timeline)
+    timeline = None
+    if args.timeline:
+        timeline = _existing_input(
+            args.timeline,
+            "--timeline",
+            TIMELINE_EXTENSIONS,
+        )
+
+    inputs = tuple(
+        path for path in (video, srt, danmaku, timeline)
+        if path is not None
+    )
     if len({_path_key(path) for path in inputs}) != len(inputs):
         raise SmokeValidationError("四个输入必须是彼此不同的本地文件")
 
@@ -320,10 +356,12 @@ def validate_arguments(args: argparse.Namespace) -> SmokePlan:
     plan = SmokePlan(
         video=video,
         srt=srt,
+        srt_preexisting=srt_preexisting,
         danmaku=danmaku,
         timeline=timeline,
         output_dir=output_dir,
         streamer_profile=streamer_profile,
+        allow_asr=args.allow_asr,
         allow_paid_llm=args.allow_paid_llm,
         allow_ffmpeg=args.allow_ffmpeg,
         resume_existing_output=args.resume_existing_output,
@@ -359,8 +397,18 @@ def _plan_summary(plan: SmokePlan) -> dict[str, Any]:
         "video": _redacted_file(plan.video),
         "srt": _redacted_file(plan.srt),
         "srt_relationship": "validated-video-sibling",
+        "srt_status": (
+            "existing-reusable"
+            if plan.srt_preexisting
+            else "missing-or-empty-asr-authorized"
+        ),
+        "asr_authorized": plan.allow_asr,
         "danmaku": _redacted_file(plan.danmaku),
-        "timeline": _redacted_file(plan.timeline),
+        "timeline": (
+            _redacted_file(plan.timeline)
+            if plan.timeline is not None
+            else None
+        ),
         "timeline_role": "reference-only",
         "output_dir": (
             "<validated-existing-smoke-directory>"
@@ -446,7 +494,11 @@ def run_authorized_pipeline(
     result = analyzer(
         os.fspath(plan.video),
         ass_path=os.fspath(plan.danmaku),
-        manual_timeline_path=os.fspath(plan.timeline),
+        manual_timeline_path=(
+            os.fspath(plan.timeline)
+            if plan.timeline is not None
+            else None
+        ),
         output_dir=os.fspath(plan.output_dir),
         streamer_profile_id=plan.streamer_profile,
     )

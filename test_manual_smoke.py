@@ -25,6 +25,10 @@ class ManualSmokeTests(unittest.TestCase):
         self.timeline = self.root / "timeline.docx"
         for path in (self.video, self.srt, self.danmaku, self.timeline):
             path.touch()
+        self.srt.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n占位字幕\n",
+            encoding="utf-8",
+        )
         self.output_dir = self.root / "smoke-output"
 
     def tearDown(self):
@@ -168,6 +172,68 @@ class ManualSmokeTests(unittest.TestCase):
         analyzer.assert_not_called()
         slicer.assert_not_called()
         self.assertFalse(self.output_dir.exists())
+
+    def test_missing_srt_requires_explicit_asr_authorization(self):
+        self.srt.unlink()
+        argv = [
+            "--video",
+            os.fspath(self.video),
+            "--danmaku",
+            os.fspath(self.danmaku),
+            "--output-dir",
+            os.fspath(self.output_dir),
+        ]
+        analyzer = mock.Mock()
+        code, stdout, stderr = self.invoke(
+            argv,
+            analyze_runner=analyzer,
+            slice_runner=mock.Mock(),
+        )
+
+        self.assertEqual(code, 2)
+        self.assertIn("--allow-asr", stderr)
+        self.assertNotIn(os.fspath(self.root), stdout + stderr)
+        analyzer.assert_not_called()
+        self.assertFalse(self.output_dir.exists())
+
+    def test_optional_timeline_and_authorized_asr_match_real_pipeline_contract(self):
+        self.srt.unlink()
+        argv = [
+            "--video",
+            os.fspath(self.video),
+            "--danmaku",
+            os.fspath(self.danmaku),
+            "--output-dir",
+            os.fspath(self.output_dir),
+            "--allow-asr",
+        ]
+        dry_analyzer = mock.Mock()
+        dry = self.invoke(
+            argv,
+            analyze_runner=dry_analyzer,
+            slice_runner=mock.Mock(),
+        )
+
+        self.assertEqual(dry[0], 0, dry[2])
+        self.assertIn('"srt_status": "missing-or-empty-asr-authorized"', dry[1])
+        self.assertIn('"timeline": null', dry[1])
+        dry_analyzer.assert_not_called()
+        self.assertFalse(self.output_dir.exists())
+
+        analyzer = mock.Mock(return_value=self.analysis_result())
+        paid = self.invoke(
+            [*argv, "--allow-paid-llm"],
+            analyze_runner=analyzer,
+            slice_runner=mock.Mock(),
+        )
+        self.assertEqual(paid[0], 0, paid[2])
+        analyzer.assert_called_once_with(
+            os.fspath(self.video.resolve()),
+            ass_path=os.fspath(self.danmaku.resolve()),
+            manual_timeline_path=None,
+            output_dir=os.fspath(self.output_dir.resolve()),
+            streamer_profile_id="generic",
+        )
 
     def test_paid_only_calls_analysis_owner_without_slicing(self):
         analyzer = mock.Mock(return_value=self.analysis_result())
