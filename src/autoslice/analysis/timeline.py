@@ -10,8 +10,8 @@ import re
 import zipfile
 from datetime import datetime, timedelta
 
-from runtime_config import TIMELINE_DIR
-from streamer_profiles import current_streamer_profile, profile_identity_names
+from autoslice.runtime_config import TIMELINE_DIR
+from autoslice.streamer_profiles import current_streamer_profile, profile_identity_names
 
 
 FACADE_EXPORTS = {

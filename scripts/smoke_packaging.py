@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.resources
 import sys
 
 EXPECTED_DISTRIBUTION = "autoslice"
@@ -26,12 +27,29 @@ def main() -> int:
     import autocover_tool.autocover
     import autoslice
     import autoslice.launcher
+    import autoslice.runtime_config
+    import autoslice.web.app
 
-    if not autoslice.__file__ or not autoslice.launcher.__file__:
+    if (
+        not autoslice.__file__
+        or not autoslice.launcher.__file__
+        or not autoslice.web.app.__file__
+    ):
         print("打包冒烟失败：AutoSlice 包来源不可定位", file=sys.stderr)
         return 1
     if not autocover_tool.autocover.__file__:
         print("打包冒烟失败：AutoCover 包来源不可定位", file=sys.stderr)
+        return 1
+
+    package_root = importlib.resources.files("autoslice")
+    required_resources = (
+        package_root / "resources" / "templates" / "topic_v2.html",
+        package_root / "resources" / "static" / "workbench.css",
+        package_root / "streamer_profiles.json",
+        package_root / "title_style_profile.example.json",
+    )
+    if any(not resource.is_file() for resource in required_resources):
+        print("打包冒烟失败：AutoSlice 包资源不完整", file=sys.stderr)
         return 1
 
     print(

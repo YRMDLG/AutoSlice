@@ -11,14 +11,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from autoslice import reporting as reporting_service
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.transcription import service as transcription_service
-from media_formats import (
+from autoslice.media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
     compatible_output_extensions,
     is_analyzable_video,
     is_sliceable_video,
     normalise_video_extension,
 )
-from streamer_profiles import streamer_profile_context
+from autoslice.streamer_profiles import streamer_profile_context
 
 FACADE_EXPORTS = {
     '_GENERATED_VIDEO_SUFFIX_PATTERN': '_GENERATED_VIDEO_SUFFIX_PATTERN',

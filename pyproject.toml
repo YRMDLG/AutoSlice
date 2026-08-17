@@ -31,6 +31,7 @@ test = ["ruff>=0.9,<1.0"]
 
 [project.scripts]
 autoslice = "autoslice.launcher:main"
+autoslice-setup-asr = "autoslice.setup_asr_model:main"
 
 [project.urls]
 Repository = "https://github.com/YRMDLG/AutoSlice"
@@ -38,30 +39,23 @@ Issues = "https://github.com/YRMDLG/AutoSlice/issues"
 
 [tool.setuptools]
 include-package-data = true
-py-modules = [
-  "app",
-  "artifact_store",
-  "core",
-  "llm_client",
-  "media_formats",
-  "runtime_config",
-  "security_policy",
-  "setup_asr_model",
-  "setup_gpu_runtime",
-  "streamer_profiles",
-  "subtitle_workflow",
-  "task_registry",
-  "task_store",
-  "topic_engine",
-  "启动",
+package-dir = {"" = "src", "autocover_tool" = "autocover_tool"}
+packages = [
+  "autoslice",
+  "autoslice.analysis",
+  "autoslice.llm",
+  "autoslice.transcription",
+  "autoslice.web",
+  "autocover_tool",
+  "autocover_tool.autocover",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["autoslice*", "autocover_tool*"]
-exclude = ["autocover_tool.tests*"]
-
 [tool.setuptools.package-data]
+autoslice = [
+  "*.json",
+  "resources/static/*",
+  "resources/templates/*",
+]
 autocover_tool = ["README.md", "static/*", "templates/*"]
 
 [tool.ruff]

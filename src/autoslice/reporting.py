@@ -9,7 +9,7 @@ import threading
 from datetime import datetime
 
 from autoslice.analysis import candidates as candidate_analysis
-from artifact_store import (
+from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
     ARTIFACT_QUEUE_DIRNAME,
     UNIFIED_REFINEMENT_QUEUE_JSON,
@@ -23,11 +23,11 @@ from artifact_store import (
     write_artifact_json as _write_artifact_json,
     write_artifact_text as _write_artifact_text,
 )
-from media_formats import (
+from autoslice.media_formats import (
     compatible_output_extensions,
     preferred_output_extension,
 )
-from runtime_config import OUTPUT_DIR
+from autoslice.runtime_config import OUTPUT_DIR
 
 FACADE_EXPORTS = {
     'LLM_MODEL': 'LLM_REVIEW_MODEL',

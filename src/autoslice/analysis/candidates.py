@@ -39,7 +39,7 @@ from autoslice.transcription.contracts import (
     DEFAULT_SUBTITLE_MAX_CHARS,
     SubtitleTitleServices,
 )
-from streamer_profiles import (
+from autoslice.streamer_profiles import (
     current_streamer_profile,
     streamer_profile_context,
 )

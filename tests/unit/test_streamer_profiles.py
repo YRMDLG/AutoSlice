@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from streamer_profiles import (
+    PACKAGE_PROFILE_PATH,
     active_streamer_profile,
     current_streamer_profile,
     infer_streamer_name_from_filename,
@@ -15,7 +16,7 @@ from streamer_profiles import (
     streamer_profile_context,
 )
 
-
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ZEYIN_REQUESTED_GLOSSARY = {
     "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音", "音姐",
     "音妈", "露露", "四禧丸子", "沐霂", "又一", "梨安", "恬豆", "七海",
@@ -27,6 +28,25 @@ GENERIC_SUBTITLE_GLOSSARY = {"SC", "提督", "舰长", "娃衣", "bangumi"}
 
 
 class StreamerProfileTests(unittest.TestCase):
+
+    def test_source_examples_match_packaged_defaults(self):
+        root_profile = json.loads(
+            (REPOSITORY_ROOT / "streamer_profiles.json").read_text(encoding="utf-8")
+        )
+        packaged_profile = json.loads(PACKAGE_PROFILE_PATH.read_text(encoding="utf-8"))
+        root_titles = json.loads(
+            (REPOSITORY_ROOT / "title_style_profile.example.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        packaged_titles = json.loads(
+            PACKAGE_PROFILE_PATH.with_name("title_style_profile.example.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(packaged_profile, root_profile)
+        self.assertEqual(packaged_titles, root_titles)
 
     def test_generic_glossary_is_neutral_and_zeyin_keeps_requested_terms(self):
         generic = resolve_streamer_profile("generic")

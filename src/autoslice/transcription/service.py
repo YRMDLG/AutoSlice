@@ -19,7 +19,7 @@ from autoslice.transcription.contracts import (
     DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_MAX_CHARS,
 )
-from streamer_profiles import (
+from autoslice.streamer_profiles import (
     current_streamer_profile,
     infer_streamer_name,
     profile_identity_names,

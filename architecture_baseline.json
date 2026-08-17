@@ -4,7 +4,17 @@
     "forbidden_reverse_import_targets": [
       "app",
       "subtitle_workflow",
-      "topic_engine"
+      "topic_engine",
+      "autoslice.subtitle_workflow",
+      "autoslice.topic_engine",
+      "autoslice.web.app"
+    ],
+    "high_level_source_modules": [
+      "autoslice.core",
+      "autoslice.launcher",
+      "autoslice.subtitle_workflow",
+      "autoslice.topic_engine",
+      "autoslice.web"
     ],
     "low_level_module_prefix": "autoslice"
   },
@@ -14,145 +24,22 @@
     {
       "from": "app",
       "imports": [
-        "autoslice.paths.APPLICATION_DATA_ROOT",
-        "autoslice.paths.STATIC_DIR",
-        "autoslice.paths.TEMPLATE_DIR"
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
-        35
+        3
       ],
-      "to": "autoslice.paths"
+      "to": "_autoslice_compat"
     },
     {
-      "from": "app",
+      "from": "artifact_store",
       "imports": [
-        "media_formats.is_scannable_video"
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
-        14
+        3
       ],
-      "to": "media_formats"
-    },
-    {
-      "from": "app",
-      "imports": [
-        "runtime_config.OUTPUT_DIR",
-        "runtime_config.SUBMISSION_DIR",
-        "runtime_config.TIMELINE_DIR",
-        "runtime_config.VIDEO_DIR"
-      ],
-      "lines": [
-        21
-      ],
-      "to": "runtime_config"
-    },
-    {
-      "from": "app",
-      "imports": [
-        "security_policy.SecurityPolicy"
-      ],
-      "lines": [
-        22
-      ],
-      "to": "security_policy"
-    },
-    {
-      "from": "app",
-      "imports": [
-        "streamer_profiles.public_streamer_profiles",
-        "streamer_profiles.resolve_streamer_profile",
-        "streamer_profiles.streamer_profile_context"
-      ],
-      "lines": [
-        16
-      ],
-      "to": "streamer_profiles"
-    },
-    {
-      "from": "app",
-      "imports": [
-        "subtitle_workflow.DEFAULT_SUBTITLE_STYLE",
-        "subtitle_workflow.DEFAULT_VIDEO_EXPORT",
-        "subtitle_workflow.SUBTITLE_ASR_VERSION",
-        "subtitle_workflow.SUBTITLE_REVIEW_VERSION",
-        "subtitle_workflow.burn_subtitles",
-        "subtitle_workflow.generate_subtitle_reference_titles",
-        "subtitle_workflow.high_confidence_corrections",
-        "subtitle_workflow.load_subtitle_edit_state",
-        "subtitle_workflow.parse_srt_document",
-        "subtitle_workflow.reflow_subtitle_srt_for_display",
-        "subtitle_workflow.render_subtitle_preview",
-        "subtitle_workflow.save_corrected_srt",
-        "subtitle_workflow.scan_submission_pairs",
-        "subtitle_workflow.subtitle_review_profile_rules",
-        "subtitle_workflow.suggest_subtitle_corrections",
-        "subtitle_workflow.transcribe_submission_video",
-        "subtitle_workflow.verify_exact_subtitle_font"
-      ],
-      "lines": [
-        15,
-        695,
-        947,
-        1008,
-        1055,
-        1114,
-        1527,
-        1543,
-        1556,
-        1569,
-        1616,
-        1770,
-        1814
-      ],
-      "to": "subtitle_workflow"
-    },
-    {
-      "from": "app",
-      "imports": [
-        "task_registry.ACTIVE_TASK_STATUSES",
-        "task_registry.TaskLifecycleError",
-        "task_registry.TaskRegistry"
-      ],
-      "lines": [
-        23
-      ],
-      "to": "task_registry"
-    },
-    {
-      "from": "app",
-      "imports": [
-        "task_store.DEFAULT_TASK_DATABASE_PATH",
-        "task_store.MAX_LIST_LIMIT",
-        "task_store.TERMINAL_TASK_STATUSES",
-        "task_store.TaskNotFoundError",
-        "task_store.TaskStore"
-      ],
-      "lines": [
-        28
-      ],
-      "to": "task_store"
-    },
-    {
-      "from": "app",
-      "imports": [
-        "topic_engine.ensure_srt",
-        "topic_engine.funasr_public_status",
-        "topic_engine.optimize_manual_timeline_for_video",
-        "topic_engine.retry_clip_review_from_artifacts",
-        "topic_engine.run_pipeline",
-        "topic_engine.slice_from_marks",
-        "topic_engine.subtitle_title_services"
-      ],
-      "lines": [
-        1009,
-        1056,
-        1157,
-        1206,
-        1255,
-        1994,
-        2061
-      ],
-      "to": "topic_engine"
+      "to": "_autoslice_compat"
     },
     {
       "from": "autocover_tool.app",
@@ -596,6 +483,17 @@
     {
       "from": "autoslice.analysis.candidates",
       "imports": [
+        "autoslice.streamer_profiles.current_streamer_profile",
+        "autoslice.streamer_profiles.streamer_profile_context"
+      ],
+      "lines": [
+        42
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.analysis.candidates",
+      "imports": [
         "autoslice.transcription.contracts.DEFAULT_SUBTITLE_GLOSSARY",
         "autoslice.transcription.contracts.DEFAULT_SUBTITLE_MAX_CHARS",
         "autoslice.transcription.contracts.SubtitleTitleServices"
@@ -616,36 +514,25 @@
       "to": "autoslice.transcription.service"
     },
     {
-      "from": "autoslice.analysis.candidates",
-      "imports": [
-        "streamer_profiles.current_streamer_profile",
-        "streamer_profiles.streamer_profile_context"
-      ],
-      "lines": [
-        42
-      ],
-      "to": "streamer_profiles"
-    },
-    {
       "from": "autoslice.analysis.timeline",
       "imports": [
-        "runtime_config.TIMELINE_DIR"
+        "autoslice.runtime_config.TIMELINE_DIR"
       ],
       "lines": [
         13
       ],
-      "to": "runtime_config"
+      "to": "autoslice.runtime_config"
     },
     {
       "from": "autoslice.analysis.timeline",
       "imports": [
-        "streamer_profiles.current_streamer_profile",
-        "streamer_profiles.profile_identity_names"
+        "autoslice.streamer_profiles.current_streamer_profile",
+        "autoslice.streamer_profiles.profile_identity_names"
       ],
       "lines": [
         14
       ],
-      "to": "streamer_profiles"
+      "to": "autoslice.streamer_profiles"
     },
     {
       "from": "autoslice.analysis.titles",
@@ -685,6 +572,18 @@
     {
       "from": "autoslice.analysis.titles",
       "imports": [
+        "autoslice.streamer_profiles.active_streamer_profile",
+        "autoslice.streamer_profiles.current_streamer_profile",
+        "autoslice.streamer_profiles.streamer_profile_context"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.analysis.titles",
+      "imports": [
         "autoslice.transcription.contracts.DEFAULT_MAX_PUBLISH_TITLE_CHARS"
       ],
       "lines": [
@@ -703,16 +602,82 @@
       "to": "autoslice.transcription.service"
     },
     {
-      "from": "autoslice.analysis.titles",
+      "from": "autoslice.core",
       "imports": [
-        "streamer_profiles.active_streamer_profile",
-        "streamer_profiles.current_streamer_profile",
-        "streamer_profiles.streamer_profile_context"
+        "autoslice.topic_engine.ensure_srt"
       ],
       "lines": [
-        23
+        27
       ],
-      "to": "streamer_profiles"
+      "to": "autoslice.topic_engine"
+    },
+    {
+      "from": "autoslice.launcher",
+      "imports": [
+        "autocover_tool.autocover.API_VERSION",
+        "autocover_tool.autocover.SERVICE_ID"
+      ],
+      "lines": [
+        21,
+        24
+      ],
+      "to": "autocover_tool.autocover"
+    },
+    {
+      "from": "autoslice.launcher",
+      "imports": [
+        "autoslice.paths.APPLICATION_DATA_ROOT",
+        "autoslice.paths.SOURCE_WORKSPACE_ROOT"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.paths"
+    },
+    {
+      "from": "autoslice.launcher",
+      "imports": [
+        "autoslice.runtime_config.AUTOCOVER_DIR",
+        "autoslice.runtime_config.AUTOCOVER_INPUT_DIR",
+        "autoslice.runtime_config.COVER_OUTPUT_DIR",
+        "autoslice.runtime_config.STICKER_DIR",
+        "autoslice.runtime_config.apply_local_environment"
+      ],
+      "lines": [
+        28
+      ],
+      "to": "autoslice.runtime_config"
+    },
+    {
+      "from": "autoslice.launcher",
+      "imports": [
+        "autoslice.security_policy.SecurityConfigurationError",
+        "autoslice.security_policy.SecurityPolicy"
+      ],
+      "lines": [
+        35
+      ],
+      "to": "autoslice.security_policy"
+    },
+    {
+      "from": "autoslice.launcher",
+      "imports": [
+        "autoslice.topic_engine.funasr_public_status"
+      ],
+      "lines": [
+        461
+      ],
+      "to": "autoslice.topic_engine"
+    },
+    {
+      "from": "autoslice.launcher",
+      "imports": [
+        "autoslice.web.app.app"
+      ],
+      "lines": [
+        462
+      ],
+      "to": "autoslice.web.app"
     },
     {
       "from": "autoslice.llm.transport",
@@ -754,22 +719,46 @@
       "to": "autoslice.paths"
     },
     {
-      "from": "autoslice.pipeline",
+      "from": "autoslice.llm_client",
       "imports": [
-        "artifact_store.ARTIFACT_LAYOUT_VERSION",
-        "artifact_store.copy_artifact_file",
-        "artifact_store.seed_artifact_from_legacy",
-        "artifact_store.write_artifact_json",
-        "artifact_store.write_artifact_text"
+        "autoslice.llm.transport.DEFAULT_COMPACT_MAX_TOKENS",
+        "autoslice.llm.transport.DEFAULT_MAX_TOKENS",
+        "autoslice.llm.transport.DEFAULT_MODEL",
+        "autoslice.llm.transport.DEFAULT_PROVIDER_UNAVAILABLE_RETRY_DELAYS",
+        "autoslice.llm.transport.DEFAULT_REASONING_EFFORT",
+        "autoslice.llm.transport.DEFAULT_REQUEST_TIMEOUT",
+        "autoslice.llm.transport.DEFAULT_RETRY_DELAYS",
+        "autoslice.llm.transport.LLMApiConfig",
+        "autoslice.llm.transport.LLMProviderRetryCoordinator",
+        "autoslice.llm.transport.LLMProviderUnavailableError",
+        "autoslice.llm.transport.LLMResponseFormatError",
+        "autoslice.llm.transport.LLMResponseTruncatedError",
+        "autoslice.llm.transport.LLMStructuredOutputError",
+        "autoslice.llm.transport.LLMTimeout",
+        "autoslice.llm.transport.call_compatible_api",
+        "autoslice.llm.transport.call_llm",
+        "autoslice.llm.transport.call_llm_with_retry",
+        "autoslice.llm.transport.decode_response_json",
+        "autoslice.llm.transport.extract_json_payload",
+        "autoslice.llm.transport.infer_api_type",
+        "autoslice.llm.transport.is_provider_service_unavailable",
+        "autoslice.llm.transport.is_retryable_llm_error",
+        "autoslice.llm.transport.llm_http_status",
+        "autoslice.llm.transport.load_api_config",
+        "autoslice.llm.transport.normalise_api_config",
+        "autoslice.llm.transport.normalise_reasoning_effort",
+        "autoslice.llm.transport.normalise_timeout",
+        "autoslice.llm.transport.parse_anthropic_response",
+        "autoslice.llm.transport.parse_openai_response",
+        "autoslice.llm.transport.read_json_config",
+        "autoslice.llm.transport.reset_reasoning_effort_capability_cache",
+        "autoslice.llm.transport.response_has_complete_json",
+        "autoslice.llm.transport.short_llm_error"
       ],
       "lines": [
-        11,
-        12,
-        13,
-        14,
-        15
+        3
       ],
-      "to": "artifact_store"
+      "to": "autoslice.llm.transport"
     },
     {
       "from": "autoslice.pipeline",
@@ -810,6 +799,24 @@
         21
       ],
       "to": "autoslice.analysis.titles"
+    },
+    {
+      "from": "autoslice.pipeline",
+      "imports": [
+        "autoslice.artifact_store.ARTIFACT_LAYOUT_VERSION",
+        "autoslice.artifact_store.copy_artifact_file",
+        "autoslice.artifact_store.seed_artifact_from_legacy",
+        "autoslice.artifact_store.write_artifact_json",
+        "autoslice.artifact_store.write_artifact_text"
+      ],
+      "lines": [
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "to": "autoslice.artifact_store"
     },
     {
       "from": "autoslice.pipeline",
@@ -856,6 +863,17 @@
     {
       "from": "autoslice.pipeline",
       "imports": [
+        "autoslice.streamer_profiles.current_streamer_profile",
+        "autoslice.streamer_profiles.streamer_profile_context"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.pipeline",
+      "imports": [
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
@@ -874,38 +892,6 @@
       "to": "autoslice.transcription.service"
     },
     {
-      "from": "autoslice.pipeline",
-      "imports": [
-        "streamer_profiles.current_streamer_profile",
-        "streamer_profiles.streamer_profile_context"
-      ],
-      "lines": [
-        27
-      ],
-      "to": "streamer_profiles"
-    },
-    {
-      "from": "autoslice.reporting",
-      "imports": [
-        "artifact_store.ARTIFACT_LAYOUT_VERSION",
-        "artifact_store.ARTIFACT_QUEUE_DIRNAME",
-        "artifact_store.UNIFIED_REFINEMENT_QUEUE_JSON",
-        "artifact_store.UNIFIED_REFINEMENT_QUEUE_MD",
-        "artifact_store.artifact_bundle_layout",
-        "artifact_store.copy_artifact_file",
-        "artifact_store.first_existing_artifact_path",
-        "artifact_store.load_artifact_json",
-        "artifact_store.markdown_relative_artifact_link",
-        "artifact_store.rewrite_organized_report_links",
-        "artifact_store.write_artifact_json",
-        "artifact_store.write_artifact_text"
-      ],
-      "lines": [
-        12
-      ],
-      "to": "artifact_store"
-    },
-    {
       "from": "autoslice.reporting",
       "imports": [
         "autoslice.analysis.candidates"
@@ -918,23 +904,54 @@
     {
       "from": "autoslice.reporting",
       "imports": [
-        "media_formats.compatible_output_extensions",
-        "media_formats.preferred_output_extension"
+        "autoslice.artifact_store.ARTIFACT_LAYOUT_VERSION",
+        "autoslice.artifact_store.ARTIFACT_QUEUE_DIRNAME",
+        "autoslice.artifact_store.UNIFIED_REFINEMENT_QUEUE_JSON",
+        "autoslice.artifact_store.UNIFIED_REFINEMENT_QUEUE_MD",
+        "autoslice.artifact_store.artifact_bundle_layout",
+        "autoslice.artifact_store.copy_artifact_file",
+        "autoslice.artifact_store.first_existing_artifact_path",
+        "autoslice.artifact_store.load_artifact_json",
+        "autoslice.artifact_store.markdown_relative_artifact_link",
+        "autoslice.artifact_store.rewrite_organized_report_links",
+        "autoslice.artifact_store.write_artifact_json",
+        "autoslice.artifact_store.write_artifact_text"
       ],
       "lines": [
-        26
+        12
       ],
-      "to": "media_formats"
+      "to": "autoslice.artifact_store"
     },
     {
       "from": "autoslice.reporting",
       "imports": [
-        "runtime_config.OUTPUT_DIR"
+        "autoslice.media_formats.compatible_output_extensions",
+        "autoslice.media_formats.preferred_output_extension"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice.media_formats"
+    },
+    {
+      "from": "autoslice.reporting",
+      "imports": [
+        "autoslice.runtime_config.OUTPUT_DIR"
       ],
       "lines": [
         30
       ],
-      "to": "runtime_config"
+      "to": "autoslice.runtime_config"
+    },
+    {
+      "from": "autoslice.runtime_config",
+      "imports": [
+        "autoslice.paths.APPLICATION_DATA_ROOT"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.paths"
     },
     {
       "from": "autoslice.slicing",
@@ -945,6 +962,20 @@
         12
       ],
       "to": "autoslice.analysis.candidates"
+    },
+    {
+      "from": "autoslice.slicing",
+      "imports": [
+        "autoslice.media_formats.SUPPORTED_VIDEO_EXTENSIONS",
+        "autoslice.media_formats.compatible_output_extensions",
+        "autoslice.media_formats.is_analyzable_video",
+        "autoslice.media_formats.is_sliceable_video",
+        "autoslice.media_formats.normalise_video_extension"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.media_formats"
     },
     {
       "from": "autoslice.slicing",
@@ -959,6 +990,16 @@
     {
       "from": "autoslice.slicing",
       "imports": [
+        "autoslice.streamer_profiles.streamer_profile_context"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.slicing",
+      "imports": [
         "autoslice.transcription.service"
       ],
       "lines": [
@@ -967,28 +1008,285 @@
       "to": "autoslice.transcription.service"
     },
     {
-      "from": "autoslice.slicing",
+      "from": "autoslice.streamer_profiles",
       "imports": [
-        "media_formats.SUPPORTED_VIDEO_EXTENSIONS",
-        "media_formats.compatible_output_extensions",
-        "media_formats.is_analyzable_video",
-        "media_formats.is_sliceable_video",
-        "media_formats.normalise_video_extension"
+        "autoslice.paths.SOURCE_WORKSPACE_ROOT"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.paths"
+    },
+    {
+      "from": "autoslice.subtitle_workflow",
+      "imports": [
+        "autoslice.llm.prompts.PromptContext",
+        "autoslice.llm.prompts.build_title_hook_guide"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.llm.prompts"
+    },
+    {
+      "from": "autoslice.subtitle_workflow",
+      "imports": [
+        "autoslice.llm.transport"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.llm.transport"
+    },
+    {
+      "from": "autoslice.subtitle_workflow",
+      "imports": [
+        "autoslice.streamer_profiles.StreamerProfile",
+        "autoslice.streamer_profiles.merge_profile_subtitle_glossary"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.subtitle_workflow",
+      "imports": [
+        "autoslice.transcription.contracts.DEFAULT_MAX_PUBLISH_TITLE_CHARS",
+        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_GLOSSARY",
+        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_MAX_CHARS",
+        "autoslice.transcription.contracts.SubtitleCue",
+        "autoslice.transcription.contracts.SubtitleTitleServices",
+        "autoslice.transcription.contracts.normalise_generic_publish_title",
+        "autoslice.transcription.contracts.srt_timestamp_seconds"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.task_registry",
+      "imports": [
+        "autoslice.streamer_profiles.StreamerProfile"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.task_registry",
+      "imports": [
+        "autoslice.task_store.MAX_LIST_LIMIT",
+        "autoslice.task_store.TaskNotFoundError",
+        "autoslice.task_store.TaskRecord",
+        "autoslice.task_store.TaskStore",
+        "autoslice.task_store.TaskStoreTransaction",
+        "autoslice.task_store.normalize_task_paths"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.task_store"
+    },
+    {
+      "from": "autoslice.task_store",
+      "imports": [
+        "autoslice.paths.state_dir"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.paths"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.analysis.candidates"
       ],
       "lines": [
         14
       ],
-      "to": "media_formats"
+      "to": "autoslice.analysis.candidates"
     },
     {
-      "from": "autoslice.slicing",
+      "from": "autoslice.topic_engine",
       "imports": [
-        "streamer_profiles.streamer_profile_context"
+        "autoslice.analysis.danmaku"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.analysis.danmaku"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.analysis.timeline"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.analysis.timeline"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.analysis.titles"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.analysis.titles"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.artifact_store.ARTIFACT_BUNDLE_SUFFIX",
+        "autoslice.artifact_store.ARTIFACT_DATA_DIRNAME",
+        "autoslice.artifact_store.ARTIFACT_LAYOUT_VERSION",
+        "autoslice.artifact_store.ARTIFACT_QUEUE_DIRNAME",
+        "autoslice.artifact_store.UNIFIED_REFINEMENT_QUEUE_JSON",
+        "autoslice.artifact_store.UNIFIED_REFINEMENT_QUEUE_MD",
+        "autoslice.artifact_store.artifact_bundle_layout",
+        "autoslice.artifact_store.artifact_bundle_stem",
+        "autoslice.artifact_store.copy_artifact_file",
+        "autoslice.artifact_store.first_existing_artifact_path",
+        "autoslice.artifact_store.load_artifact_json",
+        "autoslice.artifact_store.markdown_relative_artifact_link",
+        "autoslice.artifact_store.rewrite_organized_report_links",
+        "autoslice.artifact_store.seed_artifact_from_legacy",
+        "autoslice.artifact_store.write_artifact_json",
+        "autoslice.artifact_store.write_artifact_text"
+      ],
+      "lines": [
+        45
+      ],
+      "to": "autoslice.artifact_store"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.llm.prompts.ClipCandidatePromptEvidence",
+        "autoslice.llm.prompts.ManualTopicPromptEvidence",
+        "autoslice.llm.prompts.PromptContext",
+        "autoslice.llm.prompts.SYSTEM_PROMPT",
+        "autoslice.llm.prompts.TITLE_HOOK_PROMPT_GUIDE",
+        "autoslice.llm.prompts.TopicAnalysisPromptEvidence",
+        "autoslice.llm.prompts.build_clip_candidate_review_prompt",
+        "autoslice.llm.prompts.build_final_title_generation_prompt",
+        "autoslice.llm.prompts.build_final_title_judge_prompt",
+        "autoslice.llm.prompts.build_manual_topic_enrichment_prompt",
+        "autoslice.llm.prompts.build_system_prompt",
+        "autoslice.llm.prompts.build_title_hook_guide",
+        "autoslice.llm.prompts.build_title_style_prompt",
+        "autoslice.llm.prompts.build_topic_analysis_prompt"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.llm.prompts"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.llm.transport"
       ],
       "lines": [
         21
       ],
-      "to": "streamer_profiles"
+      "to": "autoslice.llm.transport"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.pipeline"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.pipeline"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.reporting"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.reporting"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.runtime_config.OUTPUT_DIR",
+        "autoslice.runtime_config.TIMELINE_DIR"
+      ],
+      "lines": [
+        69
+      ],
+      "to": "autoslice.runtime_config"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.slicing"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.slicing"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.streamer_profiles.active_streamer_profile",
+        "autoslice.streamer_profiles.current_streamer_profile",
+        "autoslice.streamer_profiles.resolve_streamer_profile",
+        "autoslice.streamer_profiles.streamer_profile_context"
+      ],
+      "lines": [
+        63
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.transcription.contracts.DEFAULT_MAX_PUBLISH_TITLE_CHARS",
+        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_GLOSSARY",
+        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_MAX_CHARS",
+        "autoslice.transcription.contracts.SubtitleTitleServices"
+      ],
+      "lines": [
+        39
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.transcription.service"
+      ],
+      "lines": [
+        38
+      ],
+      "to": "autoslice.transcription.service"
+    },
+    {
+      "from": "autoslice.transcription.service",
+      "imports": [
+        "autoslice.streamer_profiles.current_streamer_profile",
+        "autoslice.streamer_profiles.infer_streamer_name",
+        "autoslice.streamer_profiles.profile_identity_names",
+        "autoslice.streamer_profiles.profile_matches_streamer"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.streamer_profiles"
     },
     {
       "from": "autoslice.transcription.service",
@@ -1002,79 +1300,187 @@
       "to": "autoslice.transcription.contracts"
     },
     {
-      "from": "autoslice.transcription.service",
+      "from": "autoslice.web.app",
       "imports": [
-        "streamer_profiles.current_streamer_profile",
-        "streamer_profiles.infer_streamer_name",
-        "streamer_profiles.profile_identity_names",
-        "streamer_profiles.profile_matches_streamer"
+        "autoslice.media_formats.is_scannable_video"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.media_formats"
+    },
+    {
+      "from": "autoslice.web.app",
+      "imports": [
+        "autoslice.paths.APPLICATION_DATA_ROOT",
+        "autoslice.paths.STATIC_DIR",
+        "autoslice.paths.TEMPLATE_DIR"
+      ],
+      "lines": [
+        34
+      ],
+      "to": "autoslice.paths"
+    },
+    {
+      "from": "autoslice.web.app",
+      "imports": [
+        "autoslice.runtime_config.OUTPUT_DIR",
+        "autoslice.runtime_config.SUBMISSION_DIR",
+        "autoslice.runtime_config.TIMELINE_DIR",
+        "autoslice.runtime_config.VIDEO_DIR"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.runtime_config"
+    },
+    {
+      "from": "autoslice.web.app",
+      "imports": [
+        "autoslice.security_policy.SecurityPolicy"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.security_policy"
+    },
+    {
+      "from": "autoslice.web.app",
+      "imports": [
+        "autoslice.streamer_profiles.public_streamer_profiles",
+        "autoslice.streamer_profiles.resolve_streamer_profile",
+        "autoslice.streamer_profiles.streamer_profile_context"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.web.app",
+      "imports": [
+        "autoslice.subtitle_workflow.DEFAULT_SUBTITLE_STYLE",
+        "autoslice.subtitle_workflow.DEFAULT_VIDEO_EXPORT",
+        "autoslice.subtitle_workflow.SUBTITLE_ASR_VERSION",
+        "autoslice.subtitle_workflow.SUBTITLE_REVIEW_VERSION",
+        "autoslice.subtitle_workflow.burn_subtitles",
+        "autoslice.subtitle_workflow.generate_subtitle_reference_titles",
+        "autoslice.subtitle_workflow.high_confidence_corrections",
+        "autoslice.subtitle_workflow.load_subtitle_edit_state",
+        "autoslice.subtitle_workflow.parse_srt_document",
+        "autoslice.subtitle_workflow.reflow_subtitle_srt_for_display",
+        "autoslice.subtitle_workflow.render_subtitle_preview",
+        "autoslice.subtitle_workflow.save_corrected_srt",
+        "autoslice.subtitle_workflow.scan_submission_pairs",
+        "autoslice.subtitle_workflow.subtitle_review_profile_rules",
+        "autoslice.subtitle_workflow.suggest_subtitle_corrections",
+        "autoslice.subtitle_workflow.transcribe_submission_video",
+        "autoslice.subtitle_workflow.verify_exact_subtitle_font"
+      ],
+      "lines": [
+        14,
+        694,
+        946,
+        1007,
+        1054,
+        1113,
+        1526,
+        1542,
+        1555,
+        1568,
+        1615,
+        1769,
+        1813
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
+      "from": "autoslice.web.app",
+      "imports": [
+        "autoslice.task_registry.ACTIVE_TASK_STATUSES",
+        "autoslice.task_registry.TaskLifecycleError",
+        "autoslice.task_registry.TaskRegistry"
       ],
       "lines": [
         22
       ],
-      "to": "streamer_profiles"
+      "to": "autoslice.task_registry"
     },
     {
-      "from": "core",
+      "from": "autoslice.web.app",
       "imports": [
-        "topic_engine.ensure_srt"
+        "autoslice.task_store.DEFAULT_TASK_DATABASE_PATH",
+        "autoslice.task_store.MAX_LIST_LIMIT",
+        "autoslice.task_store.TERMINAL_TASK_STATUSES",
+        "autoslice.task_store.TaskNotFoundError",
+        "autoslice.task_store.TaskStore"
       ],
       "lines": [
         27
       ],
-      "to": "topic_engine"
+      "to": "autoslice.task_store"
     },
     {
-      "from": "llm_client",
+      "from": "autoslice.web.app",
       "imports": [
-        "autoslice.llm.transport.DEFAULT_COMPACT_MAX_TOKENS",
-        "autoslice.llm.transport.DEFAULT_MAX_TOKENS",
-        "autoslice.llm.transport.DEFAULT_MODEL",
-        "autoslice.llm.transport.DEFAULT_PROVIDER_UNAVAILABLE_RETRY_DELAYS",
-        "autoslice.llm.transport.DEFAULT_REASONING_EFFORT",
-        "autoslice.llm.transport.DEFAULT_REQUEST_TIMEOUT",
-        "autoslice.llm.transport.DEFAULT_RETRY_DELAYS",
-        "autoslice.llm.transport.LLMApiConfig",
-        "autoslice.llm.transport.LLMProviderRetryCoordinator",
-        "autoslice.llm.transport.LLMProviderUnavailableError",
-        "autoslice.llm.transport.LLMResponseFormatError",
-        "autoslice.llm.transport.LLMResponseTruncatedError",
-        "autoslice.llm.transport.LLMStructuredOutputError",
-        "autoslice.llm.transport.LLMTimeout",
-        "autoslice.llm.transport.call_compatible_api",
-        "autoslice.llm.transport.call_llm",
-        "autoslice.llm.transport.call_llm_with_retry",
-        "autoslice.llm.transport.decode_response_json",
-        "autoslice.llm.transport.extract_json_payload",
-        "autoslice.llm.transport.infer_api_type",
-        "autoslice.llm.transport.is_provider_service_unavailable",
-        "autoslice.llm.transport.is_retryable_llm_error",
-        "autoslice.llm.transport.llm_http_status",
-        "autoslice.llm.transport.load_api_config",
-        "autoslice.llm.transport.normalise_api_config",
-        "autoslice.llm.transport.normalise_reasoning_effort",
-        "autoslice.llm.transport.normalise_timeout",
-        "autoslice.llm.transport.parse_anthropic_response",
-        "autoslice.llm.transport.parse_openai_response",
-        "autoslice.llm.transport.read_json_config",
-        "autoslice.llm.transport.reset_reasoning_effort_capability_cache",
-        "autoslice.llm.transport.response_has_complete_json",
-        "autoslice.llm.transport.short_llm_error"
+        "autoslice.topic_engine.ensure_srt",
+        "autoslice.topic_engine.funasr_public_status",
+        "autoslice.topic_engine.optimize_manual_timeline_for_video",
+        "autoslice.topic_engine.retry_clip_review_from_artifacts",
+        "autoslice.topic_engine.run_pipeline",
+        "autoslice.topic_engine.slice_from_marks",
+        "autoslice.topic_engine.subtitle_title_services"
+      ],
+      "lines": [
+        1008,
+        1055,
+        1156,
+        1205,
+        1254,
+        1993,
+        2060
+      ],
+      "to": "autoslice.topic_engine"
+    },
+    {
+      "from": "core",
+      "imports": [
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
         3
       ],
-      "to": "autoslice.llm.transport"
+      "to": "_autoslice_compat"
+    },
+    {
+      "from": "llm_client",
+      "imports": [
+        "_autoslice_compat.alias_module"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "_autoslice_compat"
+    },
+    {
+      "from": "media_formats",
+      "imports": [
+        "_autoslice_compat.alias_module"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "_autoslice_compat"
     },
     {
       "from": "runtime_config",
       "imports": [
-        "autoslice.paths.APPLICATION_DATA_ROOT"
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
-        14
+        3
       ],
-      "to": "autoslice.paths"
+      "to": "_autoslice_compat"
     },
     {
       "from": "scripts.manual.run_real_pipeline_smoke",
@@ -1112,7 +1518,7 @@
         "autocover_tool.autocover"
       ],
       "lines": [
-        26
+        27
       ],
       "to": "autocover_tool.autocover"
     },
@@ -1122,7 +1528,7 @@
         "autoslice"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice"
     },
@@ -1132,324 +1538,119 @@
         "autoslice.launcher"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.launcher"
     },
     {
-      "from": "subtitle_workflow",
+      "from": "scripts.smoke_packaging",
       "imports": [
-        "autoslice.llm.prompts.PromptContext",
-        "autoslice.llm.prompts.build_title_hook_guide"
+        "autoslice.runtime_config"
       ],
       "lines": [
-        19
+        30
       ],
-      "to": "autoslice.llm.prompts"
+      "to": "autoslice.runtime_config"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice.web.app"
+      ],
+      "lines": [
+        31
+      ],
+      "to": "autoslice.web.app"
+    },
+    {
+      "from": "security_policy",
+      "imports": [
+        "_autoslice_compat.alias_module"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "_autoslice_compat"
+    },
+    {
+      "from": "setup_asr_model",
+      "imports": [
+        "_autoslice_compat.alias_module"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "_autoslice_compat"
+    },
+    {
+      "from": "setup_gpu_runtime",
+      "imports": [
+        "_autoslice_compat.alias_module"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "_autoslice_compat"
+    },
+    {
+      "from": "streamer_profiles",
+      "imports": [
+        "_autoslice_compat.alias_module"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "_autoslice_compat"
     },
     {
       "from": "subtitle_workflow",
       "imports": [
-        "autoslice.llm.transport"
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
-        18
+        3
       ],
-      "to": "autoslice.llm.transport"
-    },
-    {
-      "from": "subtitle_workflow",
-      "imports": [
-        "autoslice.transcription.contracts.DEFAULT_MAX_PUBLISH_TITLE_CHARS",
-        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_GLOSSARY",
-        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_MAX_CHARS",
-        "autoslice.transcription.contracts.SubtitleCue",
-        "autoslice.transcription.contracts.SubtitleTitleServices",
-        "autoslice.transcription.contracts.normalise_generic_publish_title",
-        "autoslice.transcription.contracts.srt_timestamp_seconds"
-      ],
-      "lines": [
-        20
-      ],
-      "to": "autoslice.transcription.contracts"
-    },
-    {
-      "from": "subtitle_workflow",
-      "imports": [
-        "streamer_profiles.StreamerProfile",
-        "streamer_profiles.merge_profile_subtitle_glossary"
-      ],
-      "lines": [
-        29
-      ],
-      "to": "streamer_profiles"
+      "to": "_autoslice_compat"
     },
     {
       "from": "task_registry",
       "imports": [
-        "streamer_profiles.StreamerProfile"
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
-        22
+        3
       ],
-      "to": "streamer_profiles"
-    },
-    {
-      "from": "task_registry",
-      "imports": [
-        "task_store.MAX_LIST_LIMIT",
-        "task_store.TaskNotFoundError",
-        "task_store.TaskRecord",
-        "task_store.TaskStore",
-        "task_store.TaskStoreTransaction",
-        "task_store.normalize_task_paths"
-      ],
-      "lines": [
-        23
-      ],
-      "to": "task_store"
+      "to": "_autoslice_compat"
     },
     {
       "from": "task_store",
       "imports": [
-        "autoslice.paths.state_dir"
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
-        19
+        3
       ],
-      "to": "autoslice.paths"
+      "to": "_autoslice_compat"
     },
     {
       "from": "topic_engine",
       "imports": [
-        "artifact_store.ARTIFACT_BUNDLE_SUFFIX",
-        "artifact_store.ARTIFACT_DATA_DIRNAME",
-        "artifact_store.ARTIFACT_LAYOUT_VERSION",
-        "artifact_store.ARTIFACT_QUEUE_DIRNAME",
-        "artifact_store.UNIFIED_REFINEMENT_QUEUE_JSON",
-        "artifact_store.UNIFIED_REFINEMENT_QUEUE_MD",
-        "artifact_store.artifact_bundle_layout",
-        "artifact_store.artifact_bundle_stem",
-        "artifact_store.copy_artifact_file",
-        "artifact_store.first_existing_artifact_path",
-        "artifact_store.load_artifact_json",
-        "artifact_store.markdown_relative_artifact_link",
-        "artifact_store.rewrite_organized_report_links",
-        "artifact_store.seed_artifact_from_legacy",
-        "artifact_store.write_artifact_json",
-        "artifact_store.write_artifact_text"
+        "_autoslice_compat.alias_module"
       ],
       "lines": [
-        45
+        3
       ],
-      "to": "artifact_store"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.analysis.candidates"
-      ],
-      "lines": [
-        14
-      ],
-      "to": "autoslice.analysis.candidates"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.analysis.danmaku"
-      ],
-      "lines": [
-        15
-      ],
-      "to": "autoslice.analysis.danmaku"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.analysis.timeline"
-      ],
-      "lines": [
-        16
-      ],
-      "to": "autoslice.analysis.timeline"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.analysis.titles"
-      ],
-      "lines": [
-        17
-      ],
-      "to": "autoslice.analysis.titles"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.llm.prompts.ClipCandidatePromptEvidence",
-        "autoslice.llm.prompts.ManualTopicPromptEvidence",
-        "autoslice.llm.prompts.PromptContext",
-        "autoslice.llm.prompts.SYSTEM_PROMPT",
-        "autoslice.llm.prompts.TITLE_HOOK_PROMPT_GUIDE",
-        "autoslice.llm.prompts.TopicAnalysisPromptEvidence",
-        "autoslice.llm.prompts.build_clip_candidate_review_prompt",
-        "autoslice.llm.prompts.build_final_title_generation_prompt",
-        "autoslice.llm.prompts.build_final_title_judge_prompt",
-        "autoslice.llm.prompts.build_manual_topic_enrichment_prompt",
-        "autoslice.llm.prompts.build_system_prompt",
-        "autoslice.llm.prompts.build_title_hook_guide",
-        "autoslice.llm.prompts.build_title_style_prompt",
-        "autoslice.llm.prompts.build_topic_analysis_prompt"
-      ],
-      "lines": [
-        22
-      ],
-      "to": "autoslice.llm.prompts"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.llm.transport"
-      ],
-      "lines": [
-        21
-      ],
-      "to": "autoslice.llm.transport"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.pipeline"
-      ],
-      "lines": [
-        20
-      ],
-      "to": "autoslice.pipeline"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.reporting"
-      ],
-      "lines": [
-        18
-      ],
-      "to": "autoslice.reporting"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.slicing"
-      ],
-      "lines": [
-        19
-      ],
-      "to": "autoslice.slicing"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.transcription.contracts.DEFAULT_MAX_PUBLISH_TITLE_CHARS",
-        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_GLOSSARY",
-        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_MAX_CHARS",
-        "autoslice.transcription.contracts.SubtitleTitleServices"
-      ],
-      "lines": [
-        39
-      ],
-      "to": "autoslice.transcription.contracts"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "autoslice.transcription.service"
-      ],
-      "lines": [
-        38
-      ],
-      "to": "autoslice.transcription.service"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "runtime_config.OUTPUT_DIR",
-        "runtime_config.TIMELINE_DIR"
-      ],
-      "lines": [
-        69
-      ],
-      "to": "runtime_config"
-    },
-    {
-      "from": "topic_engine",
-      "imports": [
-        "streamer_profiles.active_streamer_profile",
-        "streamer_profiles.current_streamer_profile",
-        "streamer_profiles.resolve_streamer_profile",
-        "streamer_profiles.streamer_profile_context"
-      ],
-      "lines": [
-        63
-      ],
-      "to": "streamer_profiles"
+      "to": "_autoslice_compat"
     },
     {
       "from": "启动",
       "imports": [
-        "app.app"
+        "autoslice.launcher.main"
       ],
       "lines": [
-        450
+        12
       ],
-      "to": "app"
-    },
-    {
-      "from": "启动",
-      "imports": [
-        "autocover_tool.autocover.API_VERSION",
-        "autocover_tool.autocover.SERVICE_ID"
-      ],
-      "lines": [
-        21,
-        24
-      ],
-      "to": "autocover_tool.autocover"
-    },
-    {
-      "from": "启动",
-      "imports": [
-        "runtime_config.AUTOCOVER_DIR",
-        "runtime_config.AUTOCOVER_INPUT_DIR",
-        "runtime_config.COVER_OUTPUT_DIR",
-        "runtime_config.STICKER_DIR",
-        "runtime_config.apply_local_environment"
-      ],
-      "lines": [
-        27
-      ],
-      "to": "runtime_config"
-    },
-    {
-      "from": "启动",
-      "imports": [
-        "security_policy.SecurityConfigurationError",
-        "security_policy.SecurityPolicy"
-      ],
-      "lines": [
-        34
-      ],
-      "to": "security_policy"
-    },
-    {
-      "from": "启动",
-      "imports": [
-        "topic_engine.funasr_public_status"
-      ],
-      "lines": [
-        451
-      ],
-      "to": "topic_engine"
+      "to": "autoslice.launcher"
     }
   ],
   "longest_functions": [
@@ -1459,7 +1660,7 @@
       "line": 1284,
       "line_count": 415,
       "module": "autoslice.pipeline",
-      "path": "autoslice/pipeline.py",
+      "path": "src/autoslice/pipeline.py",
       "qualname": "retry_clip_review_from_artifacts_impl"
     },
     {
@@ -1477,7 +1678,7 @@
       "line": 824,
       "line_count": 403,
       "module": "autoslice.pipeline",
-      "path": "autoslice/pipeline.py",
+      "path": "src/autoslice/pipeline.py",
       "qualname": "run_pipeline_impl"
     },
     {
@@ -1486,7 +1687,7 @@
       "line": 1560,
       "line_count": 364,
       "module": "autoslice.transcription.service",
-      "path": "autoslice/transcription/service.py",
+      "path": "src/autoslice/transcription/service.py",
       "qualname": "ensure_srt"
     },
     {
@@ -1495,7 +1696,7 @@
       "line": 331,
       "line_count": 292,
       "module": "autoslice.slicing",
-      "path": "autoslice/slicing.py",
+      "path": "src/autoslice/slicing.py",
       "qualname": "slice_from_marks_impl"
     },
     {
@@ -1504,7 +1705,7 @@
       "line": 3231,
       "line_count": 264,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_expand_clip_mark_with_context"
     },
     {
@@ -1513,7 +1714,7 @@
       "line": 4489,
       "line_count": 247,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "analyze_topic_chunks"
     },
     {
@@ -1522,7 +1723,7 @@
       "line": 5074,
       "line_count": 246,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_review_peak_selected_topics"
     },
     {
@@ -1531,7 +1732,7 @@
       "line": 428,
       "line_count": 183,
       "module": "autoslice.reporting",
-      "path": "autoslice/reporting.py",
+      "path": "src/autoslice/reporting.py",
       "qualname": "organize_existing_artifacts"
     },
     {
@@ -1540,7 +1741,7 @@
       "line": 2958,
       "line_count": 163,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_find_relevant_topic_context_end"
     },
     {
@@ -1548,8 +1749,8 @@
       "kind": "function",
       "line": 1295,
       "line_count": 151,
-      "module": "subtitle_workflow",
-      "path": "subtitle_workflow.py",
+      "module": "autoslice.subtitle_workflow",
+      "path": "src/autoslice/subtitle_workflow.py",
       "qualname": "suggest_subtitle_corrections"
     },
     {
@@ -1567,16 +1768,16 @@
       "line": 509,
       "line_count": 145,
       "module": "autoslice.pipeline",
-      "path": "autoslice/pipeline.py",
+      "path": "src/autoslice/pipeline.py",
       "qualname": "prepare_optimized_manual_timeline"
     },
     {
-      "end_line": 625,
+      "end_line": 624,
       "kind": "function",
-      "line": 489,
+      "line": 488,
       "line_count": 137,
-      "module": "app",
-      "path": "app.py",
+      "module": "autoslice.web.app",
+      "path": "src/autoslice/web/app.py",
       "qualname": "update_task"
     },
     {
@@ -1585,7 +1786,7 @@
       "line": 1163,
       "line_count": 129,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_is_meta_body_line"
     },
     {
@@ -1594,7 +1795,7 @@
       "line": 500,
       "line_count": 124,
       "module": "autoslice.llm.transport",
-      "path": "autoslice/llm/transport.py",
+      "path": "src/autoslice/llm/transport.py",
       "qualname": "call_compatible_api"
     },
     {
@@ -1603,7 +1804,7 @@
       "line": 4233,
       "line_count": 122,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_apply_danmaku_slice_decisions"
     },
     {
@@ -1612,7 +1813,7 @@
       "line": 1026,
       "line_count": 120,
       "module": "autoslice.transcription.service",
-      "path": "autoslice/transcription/service.py",
+      "path": "src/autoslice/transcription/service.py",
       "qualname": "_normalise_funasr_result"
     },
     {
@@ -1621,7 +1822,7 @@
       "line": 970,
       "line_count": 117,
       "module": "autoslice.analysis.titles",
-      "path": "autoslice/analysis/titles.py",
+      "path": "src/autoslice/analysis/titles.py",
       "qualname": "review_selected_publish_titles"
     },
     {
@@ -1630,7 +1831,7 @@
       "line": 974,
       "line_count": 117,
       "module": "autoslice.reporting",
-      "path": "autoslice/reporting.py",
+      "path": "src/autoslice/reporting.py",
       "qualname": "build_timeline_report"
     },
     {
@@ -1639,7 +1840,7 @@
       "line": 767,
       "line_count": 112,
       "module": "autoslice.llm.transport",
-      "path": "autoslice/llm/transport.py",
+      "path": "src/autoslice/llm/transport.py",
       "qualname": "call_llm_with_retry"
     },
     {
@@ -1648,7 +1849,7 @@
       "line": 1996,
       "line_count": 109,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_merge_expanded_clip_marks"
     },
     {
@@ -1657,7 +1858,7 @@
       "line": 4126,
       "line_count": 105,
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
+      "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_apply_reviewed_slice_decisions"
     },
     {
@@ -1665,595 +1866,63 @@
       "kind": "function",
       "line": 2262,
       "line_count": 105,
-      "module": "subtitle_workflow",
-      "path": "subtitle_workflow.py",
+      "module": "autoslice.subtitle_workflow",
+      "path": "src/autoslice/subtitle_workflow.py",
       "qualname": "burn_subtitles"
     },
     {
-      "end_line": 2103,
+      "end_line": 2102,
       "kind": "function",
-      "line": 2000,
+      "line": 1999,
       "line_count": 104,
-      "module": "app",
-      "path": "app.py",
+      "module": "autoslice.web.app",
+      "path": "src/autoslice/web/app.py",
       "qualname": "start_pipeline"
     }
   ],
   "modules": [
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 2209,
+      "line_count": 20,
       "longest_function": {
-        "end_line": 625,
+        "end_line": 20,
         "kind": "function",
-        "line": 489,
-        "line_count": 137,
-        "qualname": "update_task"
+        "line": 13,
+        "line_count": 8,
+        "qualname": "alias_module"
       },
-      "module": "app",
-      "path": "app.py",
-      "sha256": "22a1b1a6afbc992478b5e26c3d9f1b3d62f39a31b4bb4ff14aba36369e35d9a5",
-      "top_level_classes": [
-        {
-          "end_line": 271,
-          "kind": "class",
-          "line": 126,
-          "name": "_TaskMappingView"
-        },
-        {
-          "end_line": 756,
-          "kind": "class",
-          "line": 755,
-          "name": "_TaskCancelled"
-        }
-      ],
+      "module": "_autoslice_compat",
+      "path": "_autoslice_compat.py",
+      "sha256": "eff5a41af9f907ed36c7a0cf6c6161a1fd7a9c2e51096f398e6de1f317a53325",
+      "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 56,
+          "end_line": 20,
           "kind": "function",
-          "line": 53,
-          "name": "_configured_directory"
-        },
-        {
-          "end_line": 123,
-          "kind": "function",
-          "line": 118,
-          "name": "_task_database_path"
-        },
-        {
-          "end_line": 310,
-          "kind": "function",
-          "line": 290,
-          "name": "_configured_autocover_url"
-        },
-        {
-          "end_line": 317,
-          "kind": "function",
-          "line": 313,
-          "name": "_env_flag"
-        },
-        {
-          "end_line": 322,
-          "kind": "function",
-          "line": 320,
-          "name": "_legacy_direct_slice_enabled"
-        },
-        {
-          "end_line": 329,
-          "kind": "function",
-          "line": 326,
-          "name": "_template_feature_flags"
-        },
-        {
-          "end_line": 342,
-          "kind": "function",
-          "line": 333,
-          "name": "enforce_local_request_boundary"
-        },
-        {
-          "end_line": 359,
-          "kind": "function",
-          "line": 346,
-          "name": "issue_local_browser_session"
-        },
-        {
-          "end_line": 378,
-          "kind": "function",
-          "line": 362,
-          "name": "_redact_task_error_text"
-        },
-        {
-          "end_line": 407,
-          "kind": "function",
-          "line": 381,
-          "name": "_sanitize_sse_value"
-        },
-        {
-          "end_line": 415,
-          "kind": "function",
-          "line": 410,
-          "name": "_format_sse_event"
-        },
-        {
-          "end_line": 424,
-          "kind": "function",
-          "line": 418,
-          "name": "_prune_event_history_locked"
-        },
-        {
-          "end_line": 452,
-          "kind": "function",
-          "line": 427,
-          "name": "broadcast"
-        },
-        {
-          "end_line": 463,
-          "kind": "function",
-          "line": 455,
-          "name": "_prune_tasks_locked"
-        },
-        {
-          "end_line": 486,
-          "kind": "function",
-          "line": 466,
-          "name": "_console_print"
-        },
-        {
-          "end_line": 625,
-          "kind": "function",
-          "line": 489,
-          "name": "update_task"
-        },
-        {
-          "end_line": 632,
-          "kind": "function",
-          "line": 628,
-          "name": "_pipeline_completion_progress"
-        },
-        {
-          "end_line": 655,
-          "kind": "function",
-          "line": 635,
-          "name": "_reserve_task"
-        },
-        {
-          "end_line": 671,
-          "kind": "function",
-          "line": 658,
-          "name": "_reserve_source_task"
-        },
-        {
-          "end_line": 681,
-          "kind": "function",
-          "line": 674,
-          "name": "_set_task_output_dir"
-        },
-        {
-          "end_line": 689,
-          "kind": "function",
-          "line": 684,
-          "name": "_request_streamer_profile"
-        },
-        {
-          "end_line": 697,
-          "kind": "function",
-          "line": 692,
-          "name": "_subtitle_review_rules"
-        },
-        {
-          "end_line": 705,
-          "kind": "function",
-          "line": 700,
-          "name": "_topic_task_output_paths"
-        },
-        {
-          "end_line": 746,
-          "kind": "function",
-          "line": 708,
-          "name": "_completed_task_artifact_dir"
-        },
-        {
-          "end_line": 752,
-          "kind": "function",
-          "line": 749,
-          "name": "_safe_task_error"
-        },
-        {
-          "end_line": 763,
-          "kind": "function",
-          "line": 759,
-          "name": "_task_cancellation_requested"
-        },
-        {
-          "end_line": 768,
-          "kind": "function",
-          "line": 766,
-          "name": "_raise_if_task_cancelled"
-        },
-        {
-          "end_line": 784,
-          "kind": "function",
-          "line": 771,
-          "name": "_record_task_error"
-        },
-        {
-          "end_line": 797,
-          "kind": "function",
-          "line": 787,
-          "name": "_validated_upload_filename"
-        },
-        {
-          "end_line": 826,
-          "kind": "function",
-          "line": 800,
-          "name": "_save_uploaded_file"
-        },
-        {
-          "end_line": 841,
-          "kind": "function",
-          "line": 829,
-          "name": "_reserve_subtitle_review_task"
-        },
-        {
-          "end_line": 855,
-          "kind": "function",
-          "line": 844,
-          "name": "_reserve_subtitle_title_task"
-        },
-        {
-          "end_line": 863,
-          "kind": "function",
-          "line": 858,
-          "name": "_validate_subtitle_video"
-        },
-        {
-          "end_line": 880,
-          "kind": "function",
-          "line": 866,
-          "name": "_reserve_subtitle_transcription_task"
-        },
-        {
-          "end_line": 888,
-          "kind": "function",
-          "line": 883,
-          "name": "_validate_subtitle_path"
-        },
-        {
-          "end_line": 906,
-          "kind": "function",
-          "line": 891,
-          "name": "_validate_subtitle_pair"
-        },
-        {
-          "end_line": 919,
-          "kind": "function",
-          "line": 909,
-          "name": "_validate_subtitle_output_path"
-        },
-        {
-          "end_line": 981,
-          "kind": "function",
-          "line": 922,
-          "name": "run_subtitle_review_task"
-        },
-        {
-          "end_line": 1029,
-          "kind": "function",
-          "line": 984,
-          "name": "run_subtitle_title_task"
-        },
-        {
-          "end_line": 1086,
-          "kind": "function",
-          "line": 1032,
-          "name": "run_subtitle_transcription_task"
-        },
-        {
-          "end_line": 1135,
-          "kind": "function",
-          "line": 1089,
-          "name": "run_subtitle_render_task"
-        },
-        {
-          "end_line": 1178,
-          "kind": "function",
-          "line": 1138,
-          "name": "run_timeline_optimization_task"
-        },
-        {
-          "end_line": 1238,
-          "kind": "function",
-          "line": 1181,
-          "name": "run_clip_review_retry_task"
-        },
-        {
-          "end_line": 1269,
-          "kind": "function",
-          "line": 1241,
-          "name": "run_slice_task"
-        },
-        {
-          "end_line": 1283,
-          "kind": "function",
-          "line": 1275,
-          "name": "_task_init_snapshot"
-        },
-        {
-          "end_line": 1308,
-          "kind": "function",
-          "line": 1286,
-          "name": "_replay_events_locked"
-        },
-        {
-          "end_line": 1349,
-          "kind": "function",
-          "line": 1312,
-          "name": "sse_events"
-        },
-        {
-          "end_line": 1374,
-          "kind": "function",
-          "line": 1353,
-          "name": "cancel_task"
-        },
-        {
-          "end_line": 1385,
-          "kind": "function",
-          "line": 1380,
-          "name": "index"
-        },
-        {
-          "end_line": 1396,
-          "kind": "function",
-          "line": 1389,
-          "name": "direct_slice_page"
-        },
-        {
-          "end_line": 1423,
-          "kind": "function",
-          "line": 1400,
-          "name": "scan"
-        },
-        {
-          "end_line": 1494,
-          "kind": "function",
-          "line": 1427,
-          "name": "slice_start"
-        },
-        {
-          "end_line": 1520,
-          "kind": "function",
-          "line": 1498,
-          "name": "open_result_directory"
-        },
-        {
-          "end_line": 1538,
-          "kind": "function",
-          "line": 1526,
-          "name": "subtitle_defaults"
-        },
-        {
-          "end_line": 1551,
-          "kind": "function",
-          "line": 1542,
-          "name": "subtitle_scan"
-        },
-        {
-          "end_line": 1564,
-          "kind": "function",
-          "line": 1555,
-          "name": "subtitle_cues"
-        },
-        {
-          "end_line": 1581,
-          "kind": "function",
-          "line": 1568,
-          "name": "subtitle_edit_state"
-        },
-        {
-          "end_line": 1610,
-          "kind": "function",
-          "line": 1585,
-          "name": "subtitle_transcribe"
-        },
-        {
-          "end_line": 1640,
-          "kind": "function",
-          "line": 1614,
-          "name": "subtitle_reflow"
-        },
-        {
-          "end_line": 1721,
-          "kind": "function",
-          "line": 1644,
-          "name": "subtitle_review"
-        },
-        {
-          "end_line": 1765,
-          "kind": "function",
-          "line": 1725,
-          "name": "subtitle_generate_title"
-        },
-        {
-          "end_line": 1809,
-          "kind": "function",
-          "line": 1769,
-          "name": "subtitle_save"
-        },
-        {
-          "end_line": 1834,
-          "kind": "function",
-          "line": 1813,
-          "name": "subtitle_preview"
-        },
-        {
-          "end_line": 1886,
-          "kind": "function",
-          "line": 1838,
-          "name": "subtitle_render"
-        },
-        {
-          "end_line": 1900,
-          "kind": "function",
-          "line": 1890,
-          "name": "list_json_timelines"
-        },
-        {
-          "end_line": 1915,
-          "kind": "function",
-          "line": 1904,
-          "name": "upload_json_timeline"
-        },
-        {
-          "end_line": 1924,
-          "kind": "function",
-          "line": 1919,
-          "name": "list_timelines"
-        },
-        {
-          "end_line": 1937,
-          "kind": "function",
-          "line": 1928,
-          "name": "upload_timeline"
-        },
-        {
-          "end_line": 1948,
-          "kind": "function",
-          "line": 1943,
-          "name": "topic_v2_page"
-        },
-        {
-          "end_line": 1953,
-          "kind": "function",
-          "line": 1952,
-          "name": "subtitle_workflow_page"
-        },
-        {
-          "end_line": 1958,
-          "kind": "function",
-          "line": 1957,
-          "name": "autocover_page"
-        },
-        {
-          "end_line": 1966,
-          "kind": "function",
-          "line": 1962,
-          "name": "bootstrap_security_session"
-        },
-        {
-          "end_line": 1978,
-          "kind": "function",
-          "line": 1970,
-          "name": "service_contract"
-        },
-        {
-          "end_line": 1987,
-          "kind": "function",
-          "line": 1982,
-          "name": "streamer_profiles_contract"
-        },
-        {
-          "end_line": 1996,
-          "kind": "function",
-          "line": 1991,
-          "name": "asr_status_contract"
-        },
-        {
-          "end_line": 2103,
-          "kind": "function",
-          "line": 2000,
-          "name": "start_pipeline"
-        },
-        {
-          "end_line": 2148,
-          "kind": "function",
-          "line": 2107,
-          "name": "retry_clip_review"
-        },
-        {
-          "end_line": 2205,
-          "kind": "function",
-          "line": 2152,
-          "name": "optimize_manual_timeline"
+          "line": 13,
+          "name": "alias_module"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 211,
-      "longest_function": {
-        "end_line": 94,
-        "kind": "function",
-        "line": 28,
-        "line_count": 67,
-        "qualname": "artifact_bundle_layout"
-      },
+      "line_count": 5,
+      "longest_function": null,
+      "module": "app",
+      "path": "app.py",
+      "sha256": "8e9cdecedfc0e35eed2da4dfb38f86ca5764594a7602867abed597ad7f0ae6e7",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
       "module": "artifact_store",
       "path": "artifact_store.py",
-      "sha256": "038f6af78658333ef63066786342597d0f7d9dfc8a4fa6f3e4c43f1676af0e82",
+      "sha256": "bd6b9367f0d7b085c5aaeb7801db6311538950870fc683d8fa12014fbc9a1c59",
       "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 25,
-          "kind": "function",
-          "line": 20,
-          "name": "artifact_bundle_stem"
-        },
-        {
-          "end_line": 94,
-          "kind": "function",
-          "line": 28,
-          "name": "artifact_bundle_layout"
-        },
-        {
-          "end_line": 112,
-          "kind": "function",
-          "line": 97,
-          "name": "write_artifact_text"
-        },
-        {
-          "end_line": 119,
-          "kind": "function",
-          "line": 115,
-          "name": "write_artifact_json"
-        },
-        {
-          "end_line": 143,
-          "kind": "function",
-          "line": 122,
-          "name": "copy_artifact_file"
-        },
-        {
-          "end_line": 154,
-          "kind": "function",
-          "line": 146,
-          "name": "load_artifact_json"
-        },
-        {
-          "end_line": 161,
-          "kind": "function",
-          "line": 157,
-          "name": "first_existing_artifact_path"
-        },
-        {
-          "end_line": 173,
-          "kind": "function",
-          "line": 164,
-          "name": "seed_artifact_from_legacy"
-        },
-        {
-          "end_line": 181,
-          "kind": "function",
-          "line": 176,
-          "name": "markdown_relative_artifact_link"
-        },
-        {
-          "end_line": 211,
-          "kind": "function",
-          "line": 184,
-          "name": "rewrite_organized_report_links"
-        }
-      ]
+      "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
@@ -3426,7 +3095,7 @@
       "line_count": 1,
       "longest_function": null,
       "module": "autoslice",
-      "path": "autoslice/__init__.py",
+      "path": "src/autoslice/__init__.py",
       "sha256": "30014d3d3ae15e0b7c1abced4806e3d23b9d8fcf255a98a4451396cb40ad4bb5",
       "top_level_classes": [],
       "top_level_functions": []
@@ -3436,7 +3105,7 @@
       "line_count": 1,
       "longest_function": null,
       "module": "autoslice.analysis",
-      "path": "autoslice/analysis/__init__.py",
+      "path": "src/autoslice/analysis/__init__.py",
       "sha256": "ae35f9dbbc1031062e8480fe6eadec7f7b8f2333e190795d70af9e6db4d48b42",
       "top_level_classes": [],
       "top_level_functions": []
@@ -3452,8 +3121,8 @@
         "qualname": "_expand_clip_mark_with_context"
       },
       "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
-      "sha256": "c7d514df42025b69aff3d52af059c8e126295cfc8a83ef0039283586d83fb88e",
+      "path": "src/autoslice/analysis/candidates.py",
+      "sha256": "ffe753135a085ef58a799aace2635e9525d36ed578329cf8de573b81eb201ee4",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -4219,7 +3888,7 @@
         "qualname": "_danmaku_peak_content_evidence"
       },
       "module": "autoslice.analysis.danmaku",
-      "path": "autoslice/analysis/danmaku.py",
+      "path": "src/autoslice/analysis/danmaku.py",
       "sha256": "08a353309d2027e1c58d2f9b69b7ea81dfa647c4764bff9071e88dd67b74b409",
       "top_level_classes": [
         {
@@ -4387,8 +4056,8 @@
         "qualname": "_parse_manual_timeline_lines"
       },
       "module": "autoslice.analysis.timeline",
-      "path": "autoslice/analysis/timeline.py",
-      "sha256": "657acb3cda033f8b59aa058cec3a14d4dd34176bbca7cb54869a4eb8a0d21d1c",
+      "path": "src/autoslice/analysis/timeline.py",
+      "sha256": "39a24d2d7898f281f25f702e402e5e3fa660154925ccd6797d5910a40413f6cc",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -4500,8 +4169,8 @@
         "qualname": "review_selected_publish_titles"
       },
       "module": "autoslice.analysis.titles",
-      "path": "autoslice/analysis/titles.py",
-      "sha256": "638e6f94a44cf37e3fd60dbefb6c43f012387d6c9de1ea2eb5dbf713f6fdc010",
+      "path": "src/autoslice/analysis/titles.py",
+      "sha256": "11199bc08a53f6992a315852162b44ccd0a4b60894b1c401d93b9a8a34213b7b",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -4760,23 +4429,268 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 12,
+      "line_count": 211,
       "longest_function": {
-        "end_line": 12,
+        "end_line": 94,
         "kind": "function",
-        "line": 8,
-        "line_count": 5,
-        "qualname": "main"
+        "line": 28,
+        "line_count": 67,
+        "qualname": "artifact_bundle_layout"
       },
-      "module": "autoslice.launcher",
-      "path": "autoslice/launcher.py",
-      "sha256": "ae029713e918d33d691401b122e5d31d80148948ef1f6c30d190327e57e82a34",
+      "module": "autoslice.artifact_store",
+      "path": "src/autoslice/artifact_store.py",
+      "sha256": "038f6af78658333ef63066786342597d0f7d9dfc8a4fa6f3e4c43f1676af0e82",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 12,
+          "end_line": 25,
           "kind": "function",
-          "line": 8,
+          "line": 20,
+          "name": "artifact_bundle_stem"
+        },
+        {
+          "end_line": 94,
+          "kind": "function",
+          "line": 28,
+          "name": "artifact_bundle_layout"
+        },
+        {
+          "end_line": 112,
+          "kind": "function",
+          "line": 97,
+          "name": "write_artifact_text"
+        },
+        {
+          "end_line": 119,
+          "kind": "function",
+          "line": 115,
+          "name": "write_artifact_json"
+        },
+        {
+          "end_line": 143,
+          "kind": "function",
+          "line": 122,
+          "name": "copy_artifact_file"
+        },
+        {
+          "end_line": 154,
+          "kind": "function",
+          "line": 146,
+          "name": "load_artifact_json"
+        },
+        {
+          "end_line": 161,
+          "kind": "function",
+          "line": 157,
+          "name": "first_existing_artifact_path"
+        },
+        {
+          "end_line": 173,
+          "kind": "function",
+          "line": 164,
+          "name": "seed_artifact_from_legacy"
+        },
+        {
+          "end_line": 181,
+          "kind": "function",
+          "line": 176,
+          "name": "markdown_relative_artifact_link"
+        },
+        {
+          "end_line": 211,
+          "kind": "function",
+          "line": 184,
+          "name": "rewrite_organized_report_links"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 81,
+      "longest_function": {
+        "end_line": 70,
+        "kind": "function",
+        "line": 36,
+        "line_count": 35,
+        "qualname": "parse_timeline_json"
+      },
+      "module": "autoslice.core",
+      "path": "src/autoslice/core.py",
+      "sha256": "705ff88652f925d072f4d5bc49635f1e3b7b1bf8ef38aaa0b80fbffd0a600624",
+      "top_level_classes": [
+        {
+          "end_line": 21,
+          "kind": "class",
+          "line": 20,
+          "name": "LegacyCoreDeprecatedError"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 33,
+          "kind": "function",
+          "line": 24,
+          "name": "generate_srt"
+        },
+        {
+          "end_line": 70,
+          "kind": "function",
+          "line": 36,
+          "name": "parse_timeline_json"
+        },
+        {
+          "end_line": 81,
+          "kind": "function",
+          "line": 73,
+          "name": "process_video"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 488,
+      "longest_function": {
+        "end_line": 484,
+        "kind": "function",
+        "line": 408,
+        "line_count": 77,
+        "qualname": "main"
+      },
+      "module": "autoslice.launcher",
+      "path": "src/autoslice/launcher.py",
+      "sha256": "7a79886aed415618189647aec074729e46143178e210df73aaf5b57256e07e1d",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 56,
+          "kind": "function",
+          "line": 52,
+          "name": "_gpu_runtime_python"
+        },
+        {
+          "end_line": 65,
+          "kind": "function",
+          "line": 59,
+          "name": "_same_executable"
+        },
+        {
+          "end_line": 86,
+          "kind": "function",
+          "line": 68,
+          "name": "_gpu_runtime_is_healthy"
+        },
+        {
+          "end_line": 102,
+          "kind": "function",
+          "line": 89,
+          "name": "_select_gpu_runtime"
+        },
+        {
+          "end_line": 129,
+          "kind": "function",
+          "line": 105,
+          "name": "_run_gpu_child"
+        },
+        {
+          "end_line": 134,
+          "kind": "function",
+          "line": 132,
+          "name": "_version_tuple"
+        },
+        {
+          "end_line": 151,
+          "kind": "function",
+          "line": 137,
+          "name": "_missing_dependencies"
+        },
+        {
+          "end_line": 174,
+          "kind": "function",
+          "line": 154,
+          "name": "_install_dependencies"
+        },
+        {
+          "end_line": 182,
+          "kind": "function",
+          "line": 177,
+          "name": "_is_compatible_autocover_service"
+        },
+        {
+          "end_line": 195,
+          "kind": "function",
+          "line": 185,
+          "name": "_probe_autocover_service"
+        },
+        {
+          "end_line": 208,
+          "kind": "function",
+          "line": 198,
+          "name": "_probe_autoslice_service"
+        },
+        {
+          "end_line": 220,
+          "kind": "function",
+          "line": 211,
+          "name": "_is_compatible_autoslice_service"
+        },
+        {
+          "end_line": 264,
+          "kind": "function",
+          "line": 223,
+          "name": "_existing_unified_services"
+        },
+        {
+          "end_line": 277,
+          "kind": "function",
+          "line": 267,
+          "name": "_find_available_local_port"
+        },
+        {
+          "end_line": 286,
+          "kind": "function",
+          "line": 280,
+          "name": "_autocover_python"
+        },
+        {
+          "end_line": 311,
+          "kind": "function",
+          "line": 289,
+          "name": "_ensure_autocover_dependencies"
+        },
+        {
+          "end_line": 322,
+          "kind": "function",
+          "line": 314,
+          "name": "_wait_for_autocover"
+        },
+        {
+          "end_line": 333,
+          "kind": "function",
+          "line": 325,
+          "name": "_stop_autocover"
+        },
+        {
+          "end_line": 349,
+          "kind": "function",
+          "line": 336,
+          "name": "_autoslice_bind_host"
+        },
+        {
+          "end_line": 394,
+          "kind": "function",
+          "line": 352,
+          "name": "_start_autocover"
+        },
+        {
+          "end_line": 405,
+          "kind": "function",
+          "line": 397,
+          "name": "_print_help"
+        },
+        {
+          "end_line": 484,
+          "kind": "function",
+          "line": 408,
           "name": "main"
         }
       ]
@@ -4786,7 +4700,7 @@
       "line_count": 1,
       "longest_function": null,
       "module": "autoslice.llm",
-      "path": "autoslice/llm/__init__.py",
+      "path": "src/autoslice/llm/__init__.py",
       "sha256": "3fe739e22316d69560b66566bf38b65a75b04a0273c6c3e80ba9b957a161d6a9",
       "top_level_classes": [],
       "top_level_functions": []
@@ -4802,7 +4716,7 @@
         "qualname": "LLMApiConfig.__post_init__"
       },
       "module": "autoslice.llm.contracts",
-      "path": "autoslice/llm/contracts.py",
+      "path": "src/autoslice/llm/contracts.py",
       "sha256": "c7410cd3b8cc41050873b4ac6653608112bdba65c47d1ff6090340c4a31e393b",
       "top_level_classes": [
         {
@@ -4976,7 +4890,7 @@
         "qualname": "build_clip_candidate_review_prompt"
       },
       "module": "autoslice.llm.prompts",
-      "path": "autoslice/llm/prompts.py",
+      "path": "src/autoslice/llm/prompts.py",
       "sha256": "9253750eefadc149969c8dd8ecc911105506d9065efe73090c36af65ddb33b12",
       "top_level_classes": [
         {
@@ -5084,7 +4998,7 @@
         "qualname": "call_compatible_api"
       },
       "module": "autoslice.llm.transport",
-      "path": "autoslice/llm/transport.py",
+      "path": "src/autoslice/llm/transport.py",
       "sha256": "422f760804e102a5ee75f3d1c00816173a886768346b508334dd0c023779fbfe",
       "top_level_classes": [
         {
@@ -5267,6 +5181,94 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 74,
+      "longest_function": null,
+      "module": "autoslice.llm_client",
+      "path": "src/autoslice/llm_client.py",
+      "sha256": "e82305858789fa23bdc2948295317cbf9ea0681837ca851c85d99b57e785143b",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 124,
+      "longest_function": {
+        "end_line": 58,
+        "kind": "function",
+        "line": 43,
+        "line_count": 16,
+        "qualname": "normalise_video_extension"
+      },
+      "module": "autoslice.media_formats",
+      "path": "src/autoslice/media_formats.py",
+      "sha256": "6ed6079b72b30757cbc6daeb0ee3a2b10132748a9c2885487c74032099e28b36",
+      "top_level_classes": [
+        {
+          "end_line": 24,
+          "kind": "class",
+          "line": 16,
+          "name": "MediaFormatCapability"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 58,
+          "kind": "function",
+          "line": 43,
+          "name": "normalise_video_extension"
+        },
+        {
+          "end_line": 65,
+          "kind": "function",
+          "line": 61,
+          "name": "media_format_for"
+        },
+        {
+          "end_line": 72,
+          "kind": "function",
+          "line": 68,
+          "name": "is_scannable_video"
+        },
+        {
+          "end_line": 79,
+          "kind": "function",
+          "line": 75,
+          "name": "is_analyzable_video"
+        },
+        {
+          "end_line": 86,
+          "kind": "function",
+          "line": 82,
+          "name": "is_sliceable_video"
+        },
+        {
+          "end_line": 97,
+          "kind": "function",
+          "line": 89,
+          "name": "video_filename_stem"
+        },
+        {
+          "end_line": 106,
+          "kind": "function",
+          "line": 100,
+          "name": "_slice_capability"
+        },
+        {
+          "end_line": 113,
+          "kind": "function",
+          "line": 109,
+          "name": "preferred_output_extension"
+        },
+        {
+          "end_line": 124,
+          "kind": "function",
+          "line": 116,
+          "name": "compatible_output_extensions"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 152,
       "longest_function": {
         "end_line": 118,
@@ -5276,7 +5278,7 @@
         "qualname": "resource_directory"
       },
       "module": "autoslice.paths",
-      "path": "autoslice/paths.py",
+      "path": "src/autoslice/paths.py",
       "sha256": "065121f357adea2cefcf0b042e9df7b190048cb1b7bead93447ca958bfc9d66d",
       "top_level_classes": [],
       "top_level_functions": [
@@ -5335,8 +5337,8 @@
         "qualname": "retry_clip_review_from_artifacts_impl"
       },
       "module": "autoslice.pipeline",
-      "path": "autoslice/pipeline.py",
-      "sha256": "7a06a796deca2c6b6990c799e35ac9a63d12d09ea51c779e96b865887e031f5b",
+      "path": "src/autoslice/pipeline.py",
+      "sha256": "8075c6abcf18908b18f1b8d3a5a261c048b329b728aa794856d98ed80466c598",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5514,8 +5516,8 @@
         "qualname": "organize_existing_artifacts"
       },
       "module": "autoslice.reporting",
-      "path": "autoslice/reporting.py",
-      "sha256": "abdc22e4553d2d9b0d45d9d0762a2610166b1a4cde55e7dc4aef416f3c6344ad",
+      "path": "src/autoslice/reporting.py",
+      "sha256": "3e927efa1d5d2005c7771a3fe45eb9ae79b5529eeefe175f90b1f3fa40f95895",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5666,600 +5668,6 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 636,
-      "longest_function": {
-        "end_line": 622,
-        "kind": "function",
-        "line": 331,
-        "line_count": 292,
-        "qualname": "slice_from_marks_impl"
-      },
-      "module": "autoslice.slicing",
-      "path": "autoslice/slicing.py",
-      "sha256": "a7daaf28209700d99ae5a65e23e04da28ce0210d8cb8bb3172164b2429a409b0",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 86,
-          "kind": "function",
-          "line": 72,
-          "name": "validate_video_path"
-        },
-        {
-          "end_line": 136,
-          "kind": "function",
-          "line": 109,
-          "name": "cleanup_stale_topic_clips"
-        },
-        {
-          "end_line": 141,
-          "kind": "function",
-          "line": 139,
-          "name": "format_ffmpeg_seconds"
-        },
-        {
-          "end_line": 161,
-          "kind": "function",
-          "line": 144,
-          "name": "is_reusable_topic_clip"
-        },
-        {
-          "end_line": 179,
-          "kind": "function",
-          "line": 164,
-          "name": "reuse_compatible_topic_clip"
-        },
-        {
-          "end_line": 227,
-          "kind": "function",
-          "line": 182,
-          "name": "reuse_topic_clip_after_title_change"
-        },
-        {
-          "end_line": 244,
-          "kind": "function",
-          "line": 230,
-          "name": "preferred_slice_video_encoder_args"
-        },
-        {
-          "end_line": 251,
-          "kind": "function",
-          "line": 247,
-          "name": "software_slice_video_encoder_args"
-        },
-        {
-          "end_line": 264,
-          "kind": "function",
-          "line": 254,
-          "name": "configured_slice_concurrency"
-        },
-        {
-          "end_line": 287,
-          "kind": "function",
-          "line": 267,
-          "name": "build_precise_slice_ffmpeg_command"
-        },
-        {
-          "end_line": 328,
-          "kind": "function",
-          "line": 290,
-          "name": "prepare_seekable_slice_source"
-        },
-        {
-          "end_line": 622,
-          "kind": "function",
-          "line": 331,
-          "name": "slice_from_marks_impl"
-        },
-        {
-          "end_line": 636,
-          "kind": "function",
-          "line": 625,
-          "name": "slice_from_marks"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 1,
-      "longest_function": null,
-      "module": "autoslice.transcription",
-      "path": "autoslice/transcription/__init__.py",
-      "sha256": "ad54a5eaa52c7cc7393ebdbf9d89ed85e4943a9b65b6f427b0a509e74a751a3a",
-      "top_level_classes": [],
-      "top_level_functions": []
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 128,
-      "longest_function": {
-        "end_line": 116,
-        "kind": "function",
-        "line": 95,
-        "line_count": 22,
-        "qualname": "normalise_generic_publish_title"
-      },
-      "module": "autoslice.transcription.contracts",
-      "path": "autoslice/transcription/contracts.py",
-      "sha256": "5fec3c41da557d7d1110a180c6dee7bbec1a14424b2b79c4914a961313f88dee",
-      "top_level_classes": [
-        {
-          "end_line": 30,
-          "kind": "class",
-          "line": 23,
-          "name": "TranscriptionService"
-        },
-        {
-          "end_line": 50,
-          "kind": "class",
-          "line": 34,
-          "name": "SubtitleTitleServices"
-        },
-        {
-          "end_line": 75,
-          "kind": "class",
-          "line": 54,
-          "name": "SubtitleCue"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 92,
-          "kind": "function",
-          "line": 78,
-          "name": "srt_timestamp_seconds"
-        },
-        {
-          "end_line": 116,
-          "kind": "function",
-          "line": 95,
-          "name": "normalise_generic_publish_title"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 1937,
-      "longest_function": {
-        "end_line": 1923,
-        "kind": "function",
-        "line": 1560,
-        "line_count": 364,
-        "qualname": "ensure_srt"
-      },
-      "module": "autoslice.transcription.service",
-      "path": "autoslice/transcription/service.py",
-      "sha256": "23827bd9de4f28ea1a6e7ad261e2e018f32aa792a4a25734e4a41748113611c3",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 234,
-          "kind": "function",
-          "line": 232,
-          "name": "_text_len_for_timing"
-        },
-        {
-          "end_line": 246,
-          "kind": "function",
-          "line": 237,
-          "name": "_repair_srt_end_time"
-        },
-        {
-          "end_line": 258,
-          "kind": "function",
-          "line": 249,
-          "name": "_join_asr_tokens"
-        },
-        {
-          "end_line": 272,
-          "kind": "function",
-          "line": 261,
-          "name": "_strip_asr_subtitle_punctuation"
-        },
-        {
-          "end_line": 283,
-          "kind": "function",
-          "line": 275,
-          "name": "_normalise_asr_text"
-        },
-        {
-          "end_line": 294,
-          "kind": "function",
-          "line": 286,
-          "name": "_normalise_streamer_terms"
-        },
-        {
-          "end_line": 298,
-          "kind": "function",
-          "line": 297,
-          "name": "_subtitle_text_size"
-        },
-        {
-          "end_line": 336,
-          "kind": "function",
-          "line": 301,
-          "name": "_split_subtitle_text_for_display"
-        },
-        {
-          "end_line": 369,
-          "kind": "function",
-          "line": 339,
-          "name": "_split_timed_subtitle_segment"
-        },
-        {
-          "end_line": 389,
-          "kind": "function",
-          "line": 372,
-          "name": "_should_hold_subtitle_for_short_clause"
-        },
-        {
-          "end_line": 482,
-          "kind": "function",
-          "line": 392,
-          "name": "_segment_timed_tokens"
-        },
-        {
-          "end_line": 515,
-          "kind": "function",
-          "line": 485,
-          "name": "_segments_from_funasr_result"
-        },
-        {
-          "end_line": 535,
-          "kind": "function",
-          "line": 518,
-          "name": "_read_srt_entries"
-        },
-        {
-          "end_line": 587,
-          "kind": "function",
-          "line": 538,
-          "name": "_load_repaired_srt_segments"
-        },
-        {
-          "end_line": 605,
-          "kind": "function",
-          "line": 590,
-          "name": "export_corrected_srt"
-        },
-        {
-          "end_line": 628,
-          "kind": "function",
-          "line": 608,
-          "name": "probe_video_duration"
-        },
-        {
-          "end_line": 633,
-          "kind": "function",
-          "line": 631,
-          "name": "_prepare_funasr_environment"
-        },
-        {
-          "end_line": 648,
-          "kind": "function",
-          "line": 636,
-          "name": "funasr_model_cache_candidates"
-        },
-        {
-          "end_line": 662,
-          "kind": "function",
-          "line": 651,
-          "name": "_funasr_nano_cache_candidates"
-        },
-        {
-          "end_line": 670,
-          "kind": "function",
-          "line": 665,
-          "name": "resolve_funasr_model_source"
-        },
-        {
-          "end_line": 686,
-          "kind": "function",
-          "line": 673,
-          "name": "resolve_funasr_aux_model_source"
-        },
-        {
-          "end_line": 702,
-          "kind": "function",
-          "line": 689,
-          "name": "resolve_funasr_speaker_model_source"
-        },
-        {
-          "end_line": 729,
-          "kind": "function",
-          "line": 705,
-          "name": "_funasr_model_runtime_signature"
-        },
-        {
-          "end_line": 756,
-          "kind": "function",
-          "line": 732,
-          "name": "_funasr_hotwords"
-        },
-        {
-          "end_line": 785,
-          "kind": "function",
-          "line": 759,
-          "name": "_funasr_generate_kwargs"
-        },
-        {
-          "end_line": 805,
-          "kind": "function",
-          "line": 788,
-          "name": "resolve_funasr_device"
-        },
-        {
-          "end_line": 885,
-          "kind": "function",
-          "line": 808,
-          "name": "funasr_public_status"
-        },
-        {
-          "end_line": 981,
-          "kind": "function",
-          "line": 888,
-          "name": "load_funasr_model"
-        },
-        {
-          "end_line": 985,
-          "kind": "function",
-          "line": 984,
-          "name": "funasr_checkpoint_path"
-        },
-        {
-          "end_line": 1008,
-          "kind": "function",
-          "line": 988,
-          "name": "_funasr_source_fingerprint"
-        },
-        {
-          "end_line": 1013,
-          "kind": "function",
-          "line": 1011,
-          "name": "_funasr_chunk_fingerprint"
-        },
-        {
-          "end_line": 1023,
-          "kind": "function",
-          "line": 1016,
-          "name": "_funasr_chunk_input_window"
-        },
-        {
-          "end_line": 1145,
-          "kind": "function",
-          "line": 1026,
-          "name": "_normalise_funasr_result"
-        },
-        {
-          "end_line": 1180,
-          "kind": "function",
-          "line": 1148,
-          "name": "_is_valid_funasr_result"
-        },
-        {
-          "end_line": 1225,
-          "kind": "function",
-          "line": 1183,
-          "name": "_primary_speaker_segments"
-        },
-        {
-          "end_line": 1232,
-          "kind": "function",
-          "line": 1228,
-          "name": "_is_close_number"
-        },
-        {
-          "end_line": 1304,
-          "kind": "function",
-          "line": 1235,
-          "name": "_prepare_funasr_checkpoint"
-        },
-        {
-          "end_line": 1317,
-          "kind": "function",
-          "line": 1307,
-          "name": "write_funasr_checkpoint"
-        },
-        {
-          "end_line": 1368,
-          "kind": "function",
-          "line": 1320,
-          "name": "_existing_srt_is_reusable"
-        },
-        {
-          "end_line": 1376,
-          "kind": "function",
-          "line": 1371,
-          "name": "_quarantine_incomplete_srt"
-        },
-        {
-          "end_line": 1387,
-          "kind": "function",
-          "line": 1379,
-          "name": "clear_funasr_cuda_cache"
-        },
-        {
-          "end_line": 1419,
-          "kind": "function",
-          "line": 1390,
-          "name": "_dedupe_overlapping_funasr_segments"
-        },
-        {
-          "end_line": 1423,
-          "kind": "function",
-          "line": 1422,
-          "name": "_is_funasr_punctuation"
-        },
-        {
-          "end_line": 1479,
-          "kind": "function",
-          "line": 1426,
-          "name": "_attach_funasr_punctuation_to_tokens"
-        },
-        {
-          "end_line": 1535,
-          "kind": "function",
-          "line": 1482,
-          "name": "_align_funasr_tokens"
-        },
-        {
-          "end_line": 1557,
-          "kind": "function",
-          "line": 1538,
-          "name": "_trim_funasr_tokens_to_core"
-        },
-        {
-          "end_line": 1923,
-          "kind": "function",
-          "line": 1560,
-          "name": "ensure_srt"
-        },
-        {
-          "end_line": 1930,
-          "kind": "function",
-          "line": 1926,
-          "name": "srt_time"
-        },
-        {
-          "end_line": 1937,
-          "kind": "function",
-          "line": 1933,
-          "name": "parse_srt_timestamp"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 81,
-      "longest_function": {
-        "end_line": 70,
-        "kind": "function",
-        "line": 36,
-        "line_count": 35,
-        "qualname": "parse_timeline_json"
-      },
-      "module": "core",
-      "path": "core.py",
-      "sha256": "d6dac900c6384458f45d315ab4bad52acf9abae2ce56af6fe92c6999cfcd99f5",
-      "top_level_classes": [
-        {
-          "end_line": 21,
-          "kind": "class",
-          "line": 20,
-          "name": "LegacyCoreDeprecatedError"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 33,
-          "kind": "function",
-          "line": 24,
-          "name": "generate_srt"
-        },
-        {
-          "end_line": 70,
-          "kind": "function",
-          "line": 36,
-          "name": "parse_timeline_json"
-        },
-        {
-          "end_line": 81,
-          "kind": "function",
-          "line": 73,
-          "name": "process_video"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 74,
-      "longest_function": null,
-      "module": "llm_client",
-      "path": "llm_client.py",
-      "sha256": "e82305858789fa23bdc2948295317cbf9ea0681837ca851c85d99b57e785143b",
-      "top_level_classes": [],
-      "top_level_functions": []
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 124,
-      "longest_function": {
-        "end_line": 58,
-        "kind": "function",
-        "line": 43,
-        "line_count": 16,
-        "qualname": "normalise_video_extension"
-      },
-      "module": "media_formats",
-      "path": "media_formats.py",
-      "sha256": "6ed6079b72b30757cbc6daeb0ee3a2b10132748a9c2885487c74032099e28b36",
-      "top_level_classes": [
-        {
-          "end_line": 24,
-          "kind": "class",
-          "line": 16,
-          "name": "MediaFormatCapability"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 58,
-          "kind": "function",
-          "line": 43,
-          "name": "normalise_video_extension"
-        },
-        {
-          "end_line": 65,
-          "kind": "function",
-          "line": 61,
-          "name": "media_format_for"
-        },
-        {
-          "end_line": 72,
-          "kind": "function",
-          "line": 68,
-          "name": "is_scannable_video"
-        },
-        {
-          "end_line": 79,
-          "kind": "function",
-          "line": 75,
-          "name": "is_analyzable_video"
-        },
-        {
-          "end_line": 86,
-          "kind": "function",
-          "line": 82,
-          "name": "is_sliceable_video"
-        },
-        {
-          "end_line": 97,
-          "kind": "function",
-          "line": 89,
-          "name": "video_filename_stem"
-        },
-        {
-          "end_line": 106,
-          "kind": "function",
-          "line": 100,
-          "name": "_slice_capability"
-        },
-        {
-          "end_line": 113,
-          "kind": "function",
-          "line": 109,
-          "name": "preferred_output_extension"
-        },
-        {
-          "end_line": 124,
-          "kind": "function",
-          "line": 116,
-          "name": "compatible_output_extensions"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
       "line_count": 140,
       "longest_function": {
         "end_line": 79,
@@ -6268,8 +5676,8 @@
         "line_count": 19,
         "qualname": "_read_local_environment"
       },
-      "module": "runtime_config",
-      "path": "runtime_config.py",
+      "module": "autoslice.runtime_config",
+      "path": "src/autoslice/runtime_config.py",
       "sha256": "ed3c3dad002446cf4242776738f9531ec2aad6993a77fd0bda711242805aa662",
       "top_level_classes": [],
       "top_level_functions": [
@@ -6313,645 +5721,6 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 589,
-      "longest_function": {
-        "end_line": 543,
-        "kind": "function",
-        "line": 446,
-        "line_count": 98,
-        "qualname": "build_snapshot"
-      },
-      "module": "scripts.architecture_snapshot",
-      "path": "scripts/architecture_snapshot.py",
-      "sha256": "7a448aea04dd62140a0ed0dc0440160c01d2dbcf5b0e9e47b24b62e8ba66af21",
-      "top_level_classes": [
-        {
-          "end_line": 141,
-          "kind": "class",
-          "line": 113,
-          "name": "_FunctionCollector"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 45,
-          "kind": "function",
-          "line": 44,
-          "name": "_normalise_path"
-        },
-        {
-          "end_line": 52,
-          "kind": "function",
-          "line": 48,
-          "name": "_is_excluded_directory"
-        },
-        {
-          "end_line": 81,
-          "kind": "function",
-          "line": 55,
-          "name": "discover_python_files"
-        },
-        {
-          "end_line": 89,
-          "kind": "function",
-          "line": 84,
-          "name": "module_name_for_path"
-        },
-        {
-          "end_line": 93,
-          "kind": "function",
-          "line": 92,
-          "name": "_read_python_source"
-        },
-        {
-          "end_line": 101,
-          "kind": "function",
-          "line": 96,
-          "name": "_definition_kind"
-        },
-        {
-          "end_line": 110,
-          "kind": "function",
-          "line": 104,
-          "name": "_definition_record"
-        },
-        {
-          "end_line": 154,
-          "kind": "function",
-          "line": 144,
-          "name": "_absolute_from_import"
-        },
-        {
-          "end_line": 172,
-          "kind": "function",
-          "line": 157,
-          "name": "_candidate_local_module"
-        },
-        {
-          "end_line": 203,
-          "kind": "function",
-          "line": 175,
-          "name": "_raw_imports"
-        },
-        {
-          "end_line": 216,
-          "kind": "function",
-          "line": 206,
-          "name": "_resolve_import_target"
-        },
-        {
-          "end_line": 280,
-          "kind": "function",
-          "line": 219,
-          "name": "analyse_module"
-        },
-        {
-          "end_line": 289,
-          "kind": "function",
-          "line": 283,
-          "name": "_expression_name"
-        },
-        {
-          "end_line": 293,
-          "kind": "function",
-          "line": 292,
-          "name": "_constant_string"
-        },
-        {
-          "end_line": 315,
-          "kind": "function",
-          "line": 296,
-          "name": "_private_patch_targets"
-        },
-        {
-          "end_line": 339,
-          "kind": "function",
-          "line": 318,
-          "name": "_test_private_patch_snapshot"
-        },
-        {
-          "end_line": 410,
-          "kind": "function",
-          "line": 342,
-          "name": "find_dependency_cycles"
-        },
-        {
-          "end_line": 443,
-          "kind": "function",
-          "line": 413,
-          "name": "dependency_contract_violations"
-        },
-        {
-          "end_line": 543,
-          "kind": "function",
-          "line": 446,
-          "name": "build_snapshot"
-        },
-        {
-          "end_line": 547,
-          "kind": "function",
-          "line": 546,
-          "name": "serialise_snapshot"
-        },
-        {
-          "end_line": 552,
-          "kind": "function",
-          "line": 550,
-          "name": "write_snapshot"
-        },
-        {
-          "end_line": 568,
-          "kind": "function",
-          "line": 555,
-          "name": "_check_snapshot"
-        },
-        {
-          "end_line": 585,
-          "kind": "function",
-          "line": 571,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 50,
-      "longest_function": {
-        "end_line": 30,
-        "kind": "function",
-        "line": 12,
-        "line_count": 19,
-        "qualname": "discover_public_python_files"
-      },
-      "module": "scripts.compile_public",
-      "path": "scripts/compile_public.py",
-      "sha256": "f8a9c9763fcda7ac69a812c05a274c3ad00a7b18050873062630141dd111c5a0",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 30,
-          "kind": "function",
-          "line": 12,
-          "name": "discover_public_python_files"
-        },
-        {
-          "end_line": 46,
-          "kind": "function",
-          "line": 33,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 1,
-      "longest_function": null,
-      "module": "scripts.manual",
-      "path": "scripts/manual/__init__.py",
-      "sha256": "6405cfd2ac0d06828da978f707436b905ff575f00cb10416000155302daa725d",
-      "top_level_classes": [],
-      "top_level_functions": []
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 583,
-      "longest_function": {
-        "end_line": 371,
-        "kind": "function",
-        "line": 279,
-        "line_count": 93,
-        "qualname": "validate_arguments"
-      },
-      "module": "scripts.manual.run_real_pipeline_smoke",
-      "path": "scripts/manual/run_real_pipeline_smoke.py",
-      "sha256": "ed6c5b5dd42516b4ded05dc1f4590a3b5b53935b5cca8521be20dd683e2a8c9c",
-      "top_level_classes": [
-        {
-          "end_line": 32,
-          "kind": "class",
-          "line": 31,
-          "name": "SmokeValidationError"
-        },
-        {
-          "end_line": 40,
-          "kind": "class",
-          "line": 35,
-          "name": "SafeArgumentParser"
-        },
-        {
-          "end_line": 57,
-          "kind": "class",
-          "line": 44,
-          "name": "SmokePlan"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 125,
-          "kind": "function",
-          "line": 60,
-          "name": "build_parser"
-        },
-        {
-          "end_line": 138,
-          "kind": "function",
-          "line": 128,
-          "name": "_local_absolute_path"
-        },
-        {
-          "end_line": 158,
-          "kind": "function",
-          "line": 141,
-          "name": "_existing_input"
-        },
-        {
-          "end_line": 164,
-          "kind": "function",
-          "line": 161,
-          "name": "_path_key"
-        },
-        {
-          "end_line": 174,
-          "kind": "function",
-          "line": 167,
-          "name": "_is_inside"
-        },
-        {
-          "end_line": 194,
-          "kind": "function",
-          "line": 177,
-          "name": "_resolve_streamer_profile_id"
-        },
-        {
-          "end_line": 200,
-          "kind": "function",
-          "line": 197,
-          "name": "_path_digest"
-        },
-        {
-          "end_line": 220,
-          "kind": "function",
-          "line": 203,
-          "name": "_marker_payload"
-        },
-        {
-          "end_line": 224,
-          "kind": "function",
-          "line": 223,
-          "name": "_marker_path"
-        },
-        {
-          "end_line": 245,
-          "kind": "function",
-          "line": 227,
-          "name": "_validate_existing_output"
-        },
-        {
-          "end_line": 276,
-          "kind": "function",
-          "line": 248,
-          "name": "_prepare_output_dir"
-        },
-        {
-          "end_line": 371,
-          "kind": "function",
-          "line": 279,
-          "name": "validate_arguments"
-        },
-        {
-          "end_line": 377,
-          "kind": "function",
-          "line": 374,
-          "name": "_redacted_file"
-        },
-        {
-          "end_line": 425,
-          "kind": "function",
-          "line": 380,
-          "name": "_plan_summary"
-        },
-        {
-          "end_line": 436,
-          "kind": "function",
-          "line": 428,
-          "name": "_load_analyze_runner"
-        },
-        {
-          "end_line": 447,
-          "kind": "function",
-          "line": 439,
-          "name": "_load_slice_runner"
-        },
-        {
-          "end_line": 456,
-          "kind": "function",
-          "line": 450,
-          "name": "_safe_failure"
-        },
-        {
-          "end_line": 467,
-          "kind": "function",
-          "line": 459,
-          "name": "_count"
-        },
-        {
-          "end_line": 476,
-          "kind": "function",
-          "line": 470,
-          "name": "_result_path"
-        },
-        {
-          "end_line": 543,
-          "kind": "function",
-          "line": 479,
-          "name": "run_authorized_pipeline"
-        },
-        {
-          "end_line": 579,
-          "kind": "function",
-          "line": 546,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 57,
-      "longest_function": {
-        "end_line": 53,
-        "kind": "function",
-        "line": 21,
-        "line_count": 33,
-        "qualname": "main"
-      },
-      "module": "scripts.run_hermetic_tests",
-      "path": "scripts/run_hermetic_tests.py",
-      "sha256": "d29d57fb16a67d220e44f84defd941ed7176cb06a99a8e6853dc754a045cdcc6",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 53,
-          "kind": "function",
-          "line": 21,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 94,
-      "longest_function": {
-        "end_line": 90,
-        "kind": "function",
-        "line": 55,
-        "line_count": 36,
-        "qualname": "main"
-      },
-      "module": "scripts.run_linux_logic_tests",
-      "path": "scripts/run_linux_logic_tests.py",
-      "sha256": "30a59287ab7e892af55f7a5ebf01c90927b81fb9aa1dde48dd7ffb54647259d4",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 90,
-          "kind": "function",
-          "line": 55,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 178,
-      "longest_function": {
-        "end_line": 120,
-        "kind": "function",
-        "line": 94,
-        "line_count": 27,
-        "qualname": "_text_errors"
-      },
-      "module": "scripts.scan_public_release",
-      "path": "scripts/scan_public_release.py",
-      "sha256": "06549c78c24dcc585def2b076508f15a313684d3f555408077e705ffdfd02bb8",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 69,
-          "kind": "function",
-          "line": 61,
-          "name": "_candidate_files"
-        },
-        {
-          "end_line": 91,
-          "kind": "function",
-          "line": 72,
-          "name": "_path_errors"
-        },
-        {
-          "end_line": 120,
-          "kind": "function",
-          "line": 94,
-          "name": "_text_errors"
-        },
-        {
-          "end_line": 148,
-          "kind": "function",
-          "line": 123,
-          "name": "_ignore_errors"
-        },
-        {
-          "end_line": 174,
-          "kind": "function",
-          "line": 151,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 45,
-      "longest_function": {
-        "end_line": 41,
-        "kind": "function",
-        "line": 12,
-        "line_count": 30,
-        "qualname": "main"
-      },
-      "module": "scripts.smoke_packaging",
-      "path": "scripts/smoke_packaging.py",
-      "sha256": "90acbaaf3768037569f28be5f005ca1fadd67efa1524db49c586bedb4e3bf659",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 41,
-          "kind": "function",
-          "line": 12,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 217,
-      "longest_function": {
-        "end_line": 213,
-        "kind": "function",
-        "line": 120,
-        "line_count": 94,
-        "qualname": "main"
-      },
-      "module": "scripts.smoke_startup",
-      "path": "scripts/smoke_startup.py",
-      "sha256": "282a2ad2316513476c3c99614e7fc7ab287964f8b76363c1acf585d0c9c4d9c6",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 30,
-          "kind": "function",
-          "line": 22,
-          "name": "_release_files"
-        },
-        {
-          "end_line": 37,
-          "kind": "function",
-          "line": 33,
-          "name": "_copy_release"
-        },
-        {
-          "end_line": 46,
-          "kind": "function",
-          "line": 40,
-          "name": "_port_is_free"
-        },
-        {
-          "end_line": 55,
-          "kind": "function",
-          "line": 49,
-          "name": "_read_json"
-        },
-        {
-          "end_line": 75,
-          "kind": "function",
-          "line": 58,
-          "name": "_wait_for_services"
-        },
-        {
-          "end_line": 102,
-          "kind": "function",
-          "line": 78,
-          "name": "_stop_process_tree"
-        },
-        {
-          "end_line": 117,
-          "kind": "function",
-          "line": 105,
-          "name": "_run_checked"
-        },
-        {
-          "end_line": 213,
-          "kind": "function",
-          "line": 120,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 178,
-      "longest_function": {
-        "end_line": 174,
-        "kind": "function",
-        "line": 145,
-        "line_count": 30,
-        "qualname": "main"
-      },
-      "module": "scripts.sync_autocover",
-      "path": "scripts/sync_autocover.py",
-      "sha256": "253ff5334e9137a03f329bd5e1f13b5376dccb5a05b8c934326d37223d68837f",
-      "top_level_classes": [
-        {
-          "end_line": 30,
-          "kind": "class",
-          "line": 26,
-          "name": "SyncDifference"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 43,
-          "kind": "function",
-          "line": 33,
-          "name": "_validate_source"
-        },
-        {
-          "end_line": 67,
-          "kind": "function",
-          "line": 46,
-          "name": "managed_files"
-        },
-        {
-          "end_line": 89,
-          "kind": "function",
-          "line": 70,
-          "name": "compare_trees"
-        },
-        {
-          "end_line": 112,
-          "kind": "function",
-          "line": 92,
-          "name": "apply_sync"
-        },
-        {
-          "end_line": 142,
-          "kind": "function",
-          "line": 115,
-          "name": "build_parser"
-        },
-        {
-          "end_line": 174,
-          "kind": "function",
-          "line": 145,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 194,
-      "longest_function": {
-        "end_line": 113,
-        "kind": "function",
-        "line": 49,
-        "line_count": 65,
-        "qualname": "_validate_dependency_contract"
-      },
-      "module": "scripts.validate_public_docs",
-      "path": "scripts/validate_public_docs.py",
-      "sha256": "0c30d09cfbc236b7c1bcc8e3adb19290287b284724a1070d7cb2294af12a3371",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 113,
-          "kind": "function",
-          "line": 49,
-          "name": "_validate_dependency_contract"
-        },
-        {
-          "end_line": 142,
-          "kind": "function",
-          "line": 116,
-          "name": "_validate_examples"
-        },
-        {
-          "end_line": 190,
-          "kind": "function",
-          "line": 145,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
       "line_count": 666,
       "longest_function": {
         "end_line": 471,
@@ -6960,8 +5729,8 @@
         "line_count": 72,
         "qualname": "SecurityPolicy.authorize"
       },
-      "module": "security_policy",
-      "path": "security_policy.py",
+      "module": "autoslice.security_policy",
+      "path": "src/autoslice/security_policy.py",
       "sha256": "fb631d0b263aa43de2475a7c17754943fe43a22850f32f3721a14c522054be54",
       "top_level_classes": [
         {
@@ -7056,8 +5825,8 @@
         "line_count": 22,
         "qualname": "install_recommended_models"
       },
-      "module": "setup_asr_model",
-      "path": "setup_asr_model.py",
+      "module": "autoslice.setup_asr_model",
+      "path": "src/autoslice/setup_asr_model.py",
       "sha256": "072e9be88286dea30d7c037c9f004e3762d002f9dd5a4c228d492ff03f674f44",
       "top_level_classes": [],
       "top_level_functions": [
@@ -7103,8 +5872,8 @@
         "line_count": 43,
         "qualname": "setup_gpu_runtime"
       },
-      "module": "setup_gpu_runtime",
-      "path": "setup_gpu_runtime.py",
+      "module": "autoslice.setup_gpu_runtime",
+      "path": "src/autoslice/setup_gpu_runtime.py",
       "sha256": "49421b03cded2f59da61daa574164a01d58a7616bb5630c78869f803f7466589",
       "top_level_classes": [],
       "top_level_functions": [
@@ -7148,162 +5917,257 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 541,
+      "line_count": 636,
       "longest_function": {
-        "end_line": 283,
+        "end_line": 622,
         "kind": "function",
-        "line": 210,
+        "line": 331,
+        "line_count": 292,
+        "qualname": "slice_from_marks_impl"
+      },
+      "module": "autoslice.slicing",
+      "path": "src/autoslice/slicing.py",
+      "sha256": "3d304d43c7d25bfa8875d50a9b902aca2bd473f33164fc4ba5af8aef8dbb8ad5",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 86,
+          "kind": "function",
+          "line": 72,
+          "name": "validate_video_path"
+        },
+        {
+          "end_line": 136,
+          "kind": "function",
+          "line": 109,
+          "name": "cleanup_stale_topic_clips"
+        },
+        {
+          "end_line": 141,
+          "kind": "function",
+          "line": 139,
+          "name": "format_ffmpeg_seconds"
+        },
+        {
+          "end_line": 161,
+          "kind": "function",
+          "line": 144,
+          "name": "is_reusable_topic_clip"
+        },
+        {
+          "end_line": 179,
+          "kind": "function",
+          "line": 164,
+          "name": "reuse_compatible_topic_clip"
+        },
+        {
+          "end_line": 227,
+          "kind": "function",
+          "line": 182,
+          "name": "reuse_topic_clip_after_title_change"
+        },
+        {
+          "end_line": 244,
+          "kind": "function",
+          "line": 230,
+          "name": "preferred_slice_video_encoder_args"
+        },
+        {
+          "end_line": 251,
+          "kind": "function",
+          "line": 247,
+          "name": "software_slice_video_encoder_args"
+        },
+        {
+          "end_line": 264,
+          "kind": "function",
+          "line": 254,
+          "name": "configured_slice_concurrency"
+        },
+        {
+          "end_line": 287,
+          "kind": "function",
+          "line": 267,
+          "name": "build_precise_slice_ffmpeg_command"
+        },
+        {
+          "end_line": 328,
+          "kind": "function",
+          "line": 290,
+          "name": "prepare_seekable_slice_source"
+        },
+        {
+          "end_line": 622,
+          "kind": "function",
+          "line": 331,
+          "name": "slice_from_marks_impl"
+        },
+        {
+          "end_line": 636,
+          "kind": "function",
+          "line": 625,
+          "name": "slice_from_marks"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 555,
+      "longest_function": {
+        "end_line": 297,
+        "kind": "function",
+        "line": 224,
         "line_count": 74,
         "qualname": "load_streamer_profiles"
       },
-      "module": "streamer_profiles",
-      "path": "streamer_profiles.py",
-      "sha256": "965469473bb6750fc5deac8d7be22b4df3c1ef4869448751eb35528b3a70b366",
+      "module": "autoslice.streamer_profiles",
+      "path": "src/autoslice/streamer_profiles.py",
+      "sha256": "7b2f9f71be9fb15440c01dfe98a6cc30d324eaa5ebdb1ee665f6b0aa79a3d867",
       "top_level_classes": [
         {
-          "end_line": 42,
+          "end_line": 50,
           "kind": "class",
-          "line": 37,
+          "line": 45,
           "name": "OutroClipConfig"
         },
         {
-          "end_line": 102,
+          "end_line": 110,
           "kind": "class",
-          "line": 46,
+          "line": 54,
           "name": "StreamerProfile"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 107,
+          "end_line": 115,
           "kind": "function",
-          "line": 105,
+          "line": 113,
           "name": "_config_path"
         },
         {
-          "end_line": 117,
+          "end_line": 125,
           "kind": "function",
-          "line": 110,
+          "line": 118,
           "name": "_required_text"
         },
         {
-          "end_line": 128,
+          "end_line": 136,
           "kind": "function",
-          "line": 120,
+          "line": 128,
           "name": "_string_list"
         },
         {
-          "end_line": 147,
+          "end_line": 155,
           "kind": "function",
-          "line": 131,
+          "line": 139,
           "name": "_replacement_pairs"
         },
         {
-          "end_line": 176,
+          "end_line": 190,
           "kind": "function",
-          "line": 150,
+          "line": 158,
           "name": "_title_style_path"
         },
         {
-          "end_line": 207,
+          "end_line": 221,
           "kind": "function",
-          "line": 179,
+          "line": 193,
           "name": "_outro_clip_config"
         },
         {
-          "end_line": 283,
+          "end_line": 297,
           "kind": "function",
-          "line": 210,
+          "line": 224,
           "name": "load_streamer_profiles"
         },
         {
-          "end_line": 304,
+          "end_line": 318,
           "kind": "function",
-          "line": 286,
+          "line": 300,
           "name": "infer_streamer_name_from_filename"
         },
         {
-          "end_line": 310,
+          "end_line": 324,
           "kind": "function",
-          "line": 307,
+          "line": 321,
           "name": "_normalise_profile_name"
         },
         {
-          "end_line": 321,
+          "end_line": 335,
           "kind": "function",
-          "line": 313,
+          "line": 327,
           "name": "_profile_filename_names"
         },
         {
-          "end_line": 336,
+          "end_line": 350,
           "kind": "function",
-          "line": 324,
+          "line": 338,
           "name": "_match_profile_by_filename_name"
         },
         {
-          "end_line": 364,
+          "end_line": 378,
           "kind": "function",
-          "line": 339,
+          "line": 353,
           "name": "_match_profile_by_context"
         },
         {
-          "end_line": 389,
+          "end_line": 403,
           "kind": "function",
-          "line": 367,
+          "line": 381,
           "name": "_dynamic_filename_profile"
         },
         {
-          "end_line": 432,
+          "end_line": 446,
           "kind": "function",
-          "line": 392,
+          "line": 406,
           "name": "resolve_streamer_profile"
         },
         {
-          "end_line": 453,
+          "end_line": 467,
           "kind": "function",
-          "line": 435,
+          "line": 449,
           "name": "profile_identity_names"
         },
         {
-          "end_line": 461,
+          "end_line": 475,
           "kind": "function",
-          "line": 456,
+          "line": 470,
           "name": "profile_matches_streamer"
         },
         {
-          "end_line": 470,
+          "end_line": 484,
           "kind": "function",
-          "line": 464,
+          "line": 478,
           "name": "infer_streamer_name"
         },
         {
-          "end_line": 483,
+          "end_line": 497,
           "kind": "function",
-          "line": 473,
+          "line": 487,
           "name": "merge_profile_subtitle_glossary"
         },
         {
-          "end_line": 489,
+          "end_line": 503,
           "kind": "function",
-          "line": 486,
+          "line": 500,
           "name": "active_streamer_profile"
         },
         {
-          "end_line": 499,
+          "end_line": 513,
           "kind": "function",
-          "line": 492,
+          "line": 506,
           "name": "current_streamer_profile"
         },
         {
-          "end_line": 524,
+          "end_line": 538,
           "kind": "function",
-          "line": 503,
+          "line": 517,
           "name": "streamer_profile_context"
         },
         {
-          "end_line": 541,
+          "end_line": 555,
           "kind": "function",
-          "line": 527,
+          "line": 541,
           "name": "public_streamer_profiles"
         }
       ]
@@ -7318,9 +6182,9 @@
         "line_count": 151,
         "qualname": "suggest_subtitle_corrections"
       },
-      "module": "subtitle_workflow",
-      "path": "subtitle_workflow.py",
-      "sha256": "c79f525d2183d394ccceff5c2eee3cac49b267079f22e5f267cda9821cd9e96d",
+      "module": "autoslice.subtitle_workflow",
+      "path": "src/autoslice/subtitle_workflow.py",
+      "sha256": "d11d92b6960fef35b24c670167cc058734ce8f8f712aaa663f68513c86762ece",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -7815,9 +6679,9 @@
         "line_count": 71,
         "qualname": "TaskRegistry.reserve"
       },
-      "module": "task_registry",
-      "path": "task_registry.py",
-      "sha256": "d8a8baaf6161cec732ef0f0f8ba687844ae56a23efa50974c818f4b07bcc536a",
+      "module": "autoslice.task_registry",
+      "path": "src/autoslice/task_registry.py",
+      "sha256": "ae2a2666f77120bdad26e0f1642c66a270ed24f75a06221534b715ad675b885c",
       "top_level_classes": [
         {
           "end_line": 52,
@@ -7917,8 +6781,8 @@
         "line_count": 102,
         "qualname": "TaskStoreTransaction._prepare_changes"
       },
-      "module": "task_store",
-      "path": "task_store.py",
+      "module": "autoslice.task_store",
+      "path": "src/autoslice/task_store.py",
       "sha256": "b85e492c90914cda542ca7bc8cbba0519d0d6fb70a56ac92d88f8899b7702d73",
       "top_level_classes": [
         {
@@ -8083,162 +6947,1672 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 688,
+      "line_count": 695,
+      "longest_function": {
+        "end_line": 691,
+        "kind": "function",
+        "line": 670,
+        "line_count": 22,
+        "qualname": "main"
+      },
+      "module": "autoslice.topic_engine",
+      "path": "src/autoslice/topic_engine.py",
+      "sha256": "2950df731a371f843368780c669f8f88a97247bdef9a28016f746069eb2a54b2",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 691,
+          "kind": "function",
+          "line": 670,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1,
       "longest_function": null,
-      "module": "topic_engine",
-      "path": "topic_engine.py",
-      "sha256": "68cb2c104446e7589f8cbc72679aed0de74daad1c0af471308bc69ba1ee9c3ea",
+      "module": "autoslice.transcription",
+      "path": "src/autoslice/transcription/__init__.py",
+      "sha256": "ad54a5eaa52c7cc7393ebdbf9d89ed85e4943a9b65b6f427b0a509e74a751a3a",
       "top_level_classes": [],
       "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 477,
+      "line_count": 128,
       "longest_function": {
-        "end_line": 473,
+        "end_line": 116,
         "kind": "function",
-        "line": 395,
-        "line_count": 79,
-        "qualname": "main"
+        "line": 95,
+        "line_count": 22,
+        "qualname": "normalise_generic_publish_title"
       },
-      "module": "启动",
-      "path": "启动.py",
-      "sha256": "7084c1052f8094eb325ac4aa1885daead0a22886e2ee09888969cea5f2c9ad19",
+      "module": "autoslice.transcription.contracts",
+      "path": "src/autoslice/transcription/contracts.py",
+      "sha256": "5fec3c41da557d7d1110a180c6dee7bbec1a14424b2b79c4914a961313f88dee",
+      "top_level_classes": [
+        {
+          "end_line": 30,
+          "kind": "class",
+          "line": 23,
+          "name": "TranscriptionService"
+        },
+        {
+          "end_line": 50,
+          "kind": "class",
+          "line": 34,
+          "name": "SubtitleTitleServices"
+        },
+        {
+          "end_line": 75,
+          "kind": "class",
+          "line": 54,
+          "name": "SubtitleCue"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 92,
+          "kind": "function",
+          "line": 78,
+          "name": "srt_timestamp_seconds"
+        },
+        {
+          "end_line": 116,
+          "kind": "function",
+          "line": 95,
+          "name": "normalise_generic_publish_title"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1937,
+      "longest_function": {
+        "end_line": 1923,
+        "kind": "function",
+        "line": 1560,
+        "line_count": 364,
+        "qualname": "ensure_srt"
+      },
+      "module": "autoslice.transcription.service",
+      "path": "src/autoslice/transcription/service.py",
+      "sha256": "d4ccb48c9ccc2c096534d266ec747cfec5af85e4f19e2185f7ede2cc06a2e7fc",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 55,
+          "end_line": 234,
           "kind": "function",
-          "line": 51,
-          "name": "_gpu_runtime_python"
+          "line": 232,
+          "name": "_text_len_for_timing"
         },
         {
-          "end_line": 64,
+          "end_line": 246,
           "kind": "function",
-          "line": 58,
-          "name": "_same_executable"
+          "line": 237,
+          "name": "_repair_srt_end_time"
         },
         {
-          "end_line": 85,
+          "end_line": 258,
           "kind": "function",
-          "line": 67,
-          "name": "_gpu_runtime_is_healthy"
+          "line": 249,
+          "name": "_join_asr_tokens"
         },
         {
-          "end_line": 101,
+          "end_line": 272,
           "kind": "function",
-          "line": 88,
-          "name": "_select_gpu_runtime"
+          "line": 261,
+          "name": "_strip_asr_subtitle_punctuation"
         },
         {
-          "end_line": 122,
+          "end_line": 283,
           "kind": "function",
-          "line": 104,
-          "name": "_run_gpu_child"
+          "line": 275,
+          "name": "_normalise_asr_text"
         },
         {
-          "end_line": 127,
+          "end_line": 294,
           "kind": "function",
-          "line": 125,
-          "name": "_version_tuple"
-        },
-        {
-          "end_line": 144,
-          "kind": "function",
-          "line": 130,
-          "name": "_missing_dependencies"
-        },
-        {
-          "end_line": 161,
-          "kind": "function",
-          "line": 147,
-          "name": "_install_dependencies"
-        },
-        {
-          "end_line": 169,
-          "kind": "function",
-          "line": 164,
-          "name": "_is_compatible_autocover_service"
-        },
-        {
-          "end_line": 182,
-          "kind": "function",
-          "line": 172,
-          "name": "_probe_autocover_service"
-        },
-        {
-          "end_line": 195,
-          "kind": "function",
-          "line": 185,
-          "name": "_probe_autoslice_service"
-        },
-        {
-          "end_line": 207,
-          "kind": "function",
-          "line": 198,
-          "name": "_is_compatible_autoslice_service"
-        },
-        {
-          "end_line": 251,
-          "kind": "function",
-          "line": 210,
-          "name": "_existing_unified_services"
-        },
-        {
-          "end_line": 264,
-          "kind": "function",
-          "line": 254,
-          "name": "_find_available_local_port"
-        },
-        {
-          "end_line": 273,
-          "kind": "function",
-          "line": 267,
-          "name": "_autocover_python"
+          "line": 286,
+          "name": "_normalise_streamer_terms"
         },
         {
           "end_line": 298,
           "kind": "function",
-          "line": 276,
-          "name": "_ensure_autocover_dependencies"
-        },
-        {
-          "end_line": 309,
-          "kind": "function",
-          "line": 301,
-          "name": "_wait_for_autocover"
-        },
-        {
-          "end_line": 320,
-          "kind": "function",
-          "line": 312,
-          "name": "_stop_autocover"
+          "line": 297,
+          "name": "_subtitle_text_size"
         },
         {
           "end_line": 336,
           "kind": "function",
-          "line": 323,
-          "name": "_autoslice_bind_host"
+          "line": 301,
+          "name": "_split_subtitle_text_for_display"
         },
         {
-          "end_line": 381,
+          "end_line": 369,
           "kind": "function",
           "line": 339,
-          "name": "_start_autocover"
+          "name": "_split_timed_subtitle_segment"
         },
         {
-          "end_line": 392,
+          "end_line": 389,
           "kind": "function",
-          "line": 384,
-          "name": "_print_help"
+          "line": 372,
+          "name": "_should_hold_subtitle_for_short_clause"
         },
         {
-          "end_line": 473,
+          "end_line": 482,
           "kind": "function",
-          "line": 395,
+          "line": 392,
+          "name": "_segment_timed_tokens"
+        },
+        {
+          "end_line": 515,
+          "kind": "function",
+          "line": 485,
+          "name": "_segments_from_funasr_result"
+        },
+        {
+          "end_line": 535,
+          "kind": "function",
+          "line": 518,
+          "name": "_read_srt_entries"
+        },
+        {
+          "end_line": 587,
+          "kind": "function",
+          "line": 538,
+          "name": "_load_repaired_srt_segments"
+        },
+        {
+          "end_line": 605,
+          "kind": "function",
+          "line": 590,
+          "name": "export_corrected_srt"
+        },
+        {
+          "end_line": 628,
+          "kind": "function",
+          "line": 608,
+          "name": "probe_video_duration"
+        },
+        {
+          "end_line": 633,
+          "kind": "function",
+          "line": 631,
+          "name": "_prepare_funasr_environment"
+        },
+        {
+          "end_line": 648,
+          "kind": "function",
+          "line": 636,
+          "name": "funasr_model_cache_candidates"
+        },
+        {
+          "end_line": 662,
+          "kind": "function",
+          "line": 651,
+          "name": "_funasr_nano_cache_candidates"
+        },
+        {
+          "end_line": 670,
+          "kind": "function",
+          "line": 665,
+          "name": "resolve_funasr_model_source"
+        },
+        {
+          "end_line": 686,
+          "kind": "function",
+          "line": 673,
+          "name": "resolve_funasr_aux_model_source"
+        },
+        {
+          "end_line": 702,
+          "kind": "function",
+          "line": 689,
+          "name": "resolve_funasr_speaker_model_source"
+        },
+        {
+          "end_line": 729,
+          "kind": "function",
+          "line": 705,
+          "name": "_funasr_model_runtime_signature"
+        },
+        {
+          "end_line": 756,
+          "kind": "function",
+          "line": 732,
+          "name": "_funasr_hotwords"
+        },
+        {
+          "end_line": 785,
+          "kind": "function",
+          "line": 759,
+          "name": "_funasr_generate_kwargs"
+        },
+        {
+          "end_line": 805,
+          "kind": "function",
+          "line": 788,
+          "name": "resolve_funasr_device"
+        },
+        {
+          "end_line": 885,
+          "kind": "function",
+          "line": 808,
+          "name": "funasr_public_status"
+        },
+        {
+          "end_line": 981,
+          "kind": "function",
+          "line": 888,
+          "name": "load_funasr_model"
+        },
+        {
+          "end_line": 985,
+          "kind": "function",
+          "line": 984,
+          "name": "funasr_checkpoint_path"
+        },
+        {
+          "end_line": 1008,
+          "kind": "function",
+          "line": 988,
+          "name": "_funasr_source_fingerprint"
+        },
+        {
+          "end_line": 1013,
+          "kind": "function",
+          "line": 1011,
+          "name": "_funasr_chunk_fingerprint"
+        },
+        {
+          "end_line": 1023,
+          "kind": "function",
+          "line": 1016,
+          "name": "_funasr_chunk_input_window"
+        },
+        {
+          "end_line": 1145,
+          "kind": "function",
+          "line": 1026,
+          "name": "_normalise_funasr_result"
+        },
+        {
+          "end_line": 1180,
+          "kind": "function",
+          "line": 1148,
+          "name": "_is_valid_funasr_result"
+        },
+        {
+          "end_line": 1225,
+          "kind": "function",
+          "line": 1183,
+          "name": "_primary_speaker_segments"
+        },
+        {
+          "end_line": 1232,
+          "kind": "function",
+          "line": 1228,
+          "name": "_is_close_number"
+        },
+        {
+          "end_line": 1304,
+          "kind": "function",
+          "line": 1235,
+          "name": "_prepare_funasr_checkpoint"
+        },
+        {
+          "end_line": 1317,
+          "kind": "function",
+          "line": 1307,
+          "name": "write_funasr_checkpoint"
+        },
+        {
+          "end_line": 1368,
+          "kind": "function",
+          "line": 1320,
+          "name": "_existing_srt_is_reusable"
+        },
+        {
+          "end_line": 1376,
+          "kind": "function",
+          "line": 1371,
+          "name": "_quarantine_incomplete_srt"
+        },
+        {
+          "end_line": 1387,
+          "kind": "function",
+          "line": 1379,
+          "name": "clear_funasr_cuda_cache"
+        },
+        {
+          "end_line": 1419,
+          "kind": "function",
+          "line": 1390,
+          "name": "_dedupe_overlapping_funasr_segments"
+        },
+        {
+          "end_line": 1423,
+          "kind": "function",
+          "line": 1422,
+          "name": "_is_funasr_punctuation"
+        },
+        {
+          "end_line": 1479,
+          "kind": "function",
+          "line": 1426,
+          "name": "_attach_funasr_punctuation_to_tokens"
+        },
+        {
+          "end_line": 1535,
+          "kind": "function",
+          "line": 1482,
+          "name": "_align_funasr_tokens"
+        },
+        {
+          "end_line": 1557,
+          "kind": "function",
+          "line": 1538,
+          "name": "_trim_funasr_tokens_to_core"
+        },
+        {
+          "end_line": 1923,
+          "kind": "function",
+          "line": 1560,
+          "name": "ensure_srt"
+        },
+        {
+          "end_line": 1930,
+          "kind": "function",
+          "line": 1926,
+          "name": "srt_time"
+        },
+        {
+          "end_line": 1937,
+          "kind": "function",
+          "line": 1933,
+          "name": "parse_srt_timestamp"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1,
+      "longest_function": null,
+      "module": "autoslice.web",
+      "path": "src/autoslice/web/__init__.py",
+      "sha256": "bd0899971dff3345d560b5e15d918de3ce5240717f5c5f01c7e2d75a7a3f38d3",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 2208,
+      "longest_function": {
+        "end_line": 624,
+        "kind": "function",
+        "line": 488,
+        "line_count": 137,
+        "qualname": "update_task"
+      },
+      "module": "autoslice.web.app",
+      "path": "src/autoslice/web/app.py",
+      "sha256": "ba00000947409619e6af2070a74b3923513ad756fa01e07f99ab869523abf370",
+      "top_level_classes": [
+        {
+          "end_line": 270,
+          "kind": "class",
+          "line": 125,
+          "name": "_TaskMappingView"
+        },
+        {
+          "end_line": 755,
+          "kind": "class",
+          "line": 754,
+          "name": "_TaskCancelled"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 55,
+          "kind": "function",
+          "line": 52,
+          "name": "_configured_directory"
+        },
+        {
+          "end_line": 122,
+          "kind": "function",
+          "line": 117,
+          "name": "_task_database_path"
+        },
+        {
+          "end_line": 309,
+          "kind": "function",
+          "line": 289,
+          "name": "_configured_autocover_url"
+        },
+        {
+          "end_line": 316,
+          "kind": "function",
+          "line": 312,
+          "name": "_env_flag"
+        },
+        {
+          "end_line": 321,
+          "kind": "function",
+          "line": 319,
+          "name": "_legacy_direct_slice_enabled"
+        },
+        {
+          "end_line": 328,
+          "kind": "function",
+          "line": 325,
+          "name": "_template_feature_flags"
+        },
+        {
+          "end_line": 341,
+          "kind": "function",
+          "line": 332,
+          "name": "enforce_local_request_boundary"
+        },
+        {
+          "end_line": 358,
+          "kind": "function",
+          "line": 345,
+          "name": "issue_local_browser_session"
+        },
+        {
+          "end_line": 377,
+          "kind": "function",
+          "line": 361,
+          "name": "_redact_task_error_text"
+        },
+        {
+          "end_line": 406,
+          "kind": "function",
+          "line": 380,
+          "name": "_sanitize_sse_value"
+        },
+        {
+          "end_line": 414,
+          "kind": "function",
+          "line": 409,
+          "name": "_format_sse_event"
+        },
+        {
+          "end_line": 423,
+          "kind": "function",
+          "line": 417,
+          "name": "_prune_event_history_locked"
+        },
+        {
+          "end_line": 451,
+          "kind": "function",
+          "line": 426,
+          "name": "broadcast"
+        },
+        {
+          "end_line": 462,
+          "kind": "function",
+          "line": 454,
+          "name": "_prune_tasks_locked"
+        },
+        {
+          "end_line": 485,
+          "kind": "function",
+          "line": 465,
+          "name": "_console_print"
+        },
+        {
+          "end_line": 624,
+          "kind": "function",
+          "line": 488,
+          "name": "update_task"
+        },
+        {
+          "end_line": 631,
+          "kind": "function",
+          "line": 627,
+          "name": "_pipeline_completion_progress"
+        },
+        {
+          "end_line": 654,
+          "kind": "function",
+          "line": 634,
+          "name": "_reserve_task"
+        },
+        {
+          "end_line": 670,
+          "kind": "function",
+          "line": 657,
+          "name": "_reserve_source_task"
+        },
+        {
+          "end_line": 680,
+          "kind": "function",
+          "line": 673,
+          "name": "_set_task_output_dir"
+        },
+        {
+          "end_line": 688,
+          "kind": "function",
+          "line": 683,
+          "name": "_request_streamer_profile"
+        },
+        {
+          "end_line": 696,
+          "kind": "function",
+          "line": 691,
+          "name": "_subtitle_review_rules"
+        },
+        {
+          "end_line": 704,
+          "kind": "function",
+          "line": 699,
+          "name": "_topic_task_output_paths"
+        },
+        {
+          "end_line": 745,
+          "kind": "function",
+          "line": 707,
+          "name": "_completed_task_artifact_dir"
+        },
+        {
+          "end_line": 751,
+          "kind": "function",
+          "line": 748,
+          "name": "_safe_task_error"
+        },
+        {
+          "end_line": 762,
+          "kind": "function",
+          "line": 758,
+          "name": "_task_cancellation_requested"
+        },
+        {
+          "end_line": 767,
+          "kind": "function",
+          "line": 765,
+          "name": "_raise_if_task_cancelled"
+        },
+        {
+          "end_line": 783,
+          "kind": "function",
+          "line": 770,
+          "name": "_record_task_error"
+        },
+        {
+          "end_line": 796,
+          "kind": "function",
+          "line": 786,
+          "name": "_validated_upload_filename"
+        },
+        {
+          "end_line": 825,
+          "kind": "function",
+          "line": 799,
+          "name": "_save_uploaded_file"
+        },
+        {
+          "end_line": 840,
+          "kind": "function",
+          "line": 828,
+          "name": "_reserve_subtitle_review_task"
+        },
+        {
+          "end_line": 854,
+          "kind": "function",
+          "line": 843,
+          "name": "_reserve_subtitle_title_task"
+        },
+        {
+          "end_line": 862,
+          "kind": "function",
+          "line": 857,
+          "name": "_validate_subtitle_video"
+        },
+        {
+          "end_line": 879,
+          "kind": "function",
+          "line": 865,
+          "name": "_reserve_subtitle_transcription_task"
+        },
+        {
+          "end_line": 887,
+          "kind": "function",
+          "line": 882,
+          "name": "_validate_subtitle_path"
+        },
+        {
+          "end_line": 905,
+          "kind": "function",
+          "line": 890,
+          "name": "_validate_subtitle_pair"
+        },
+        {
+          "end_line": 918,
+          "kind": "function",
+          "line": 908,
+          "name": "_validate_subtitle_output_path"
+        },
+        {
+          "end_line": 980,
+          "kind": "function",
+          "line": 921,
+          "name": "run_subtitle_review_task"
+        },
+        {
+          "end_line": 1028,
+          "kind": "function",
+          "line": 983,
+          "name": "run_subtitle_title_task"
+        },
+        {
+          "end_line": 1085,
+          "kind": "function",
+          "line": 1031,
+          "name": "run_subtitle_transcription_task"
+        },
+        {
+          "end_line": 1134,
+          "kind": "function",
+          "line": 1088,
+          "name": "run_subtitle_render_task"
+        },
+        {
+          "end_line": 1177,
+          "kind": "function",
+          "line": 1137,
+          "name": "run_timeline_optimization_task"
+        },
+        {
+          "end_line": 1237,
+          "kind": "function",
+          "line": 1180,
+          "name": "run_clip_review_retry_task"
+        },
+        {
+          "end_line": 1268,
+          "kind": "function",
+          "line": 1240,
+          "name": "run_slice_task"
+        },
+        {
+          "end_line": 1282,
+          "kind": "function",
+          "line": 1274,
+          "name": "_task_init_snapshot"
+        },
+        {
+          "end_line": 1307,
+          "kind": "function",
+          "line": 1285,
+          "name": "_replay_events_locked"
+        },
+        {
+          "end_line": 1348,
+          "kind": "function",
+          "line": 1311,
+          "name": "sse_events"
+        },
+        {
+          "end_line": 1373,
+          "kind": "function",
+          "line": 1352,
+          "name": "cancel_task"
+        },
+        {
+          "end_line": 1384,
+          "kind": "function",
+          "line": 1379,
+          "name": "index"
+        },
+        {
+          "end_line": 1395,
+          "kind": "function",
+          "line": 1388,
+          "name": "direct_slice_page"
+        },
+        {
+          "end_line": 1422,
+          "kind": "function",
+          "line": 1399,
+          "name": "scan"
+        },
+        {
+          "end_line": 1493,
+          "kind": "function",
+          "line": 1426,
+          "name": "slice_start"
+        },
+        {
+          "end_line": 1519,
+          "kind": "function",
+          "line": 1497,
+          "name": "open_result_directory"
+        },
+        {
+          "end_line": 1537,
+          "kind": "function",
+          "line": 1525,
+          "name": "subtitle_defaults"
+        },
+        {
+          "end_line": 1550,
+          "kind": "function",
+          "line": 1541,
+          "name": "subtitle_scan"
+        },
+        {
+          "end_line": 1563,
+          "kind": "function",
+          "line": 1554,
+          "name": "subtitle_cues"
+        },
+        {
+          "end_line": 1580,
+          "kind": "function",
+          "line": 1567,
+          "name": "subtitle_edit_state"
+        },
+        {
+          "end_line": 1609,
+          "kind": "function",
+          "line": 1584,
+          "name": "subtitle_transcribe"
+        },
+        {
+          "end_line": 1639,
+          "kind": "function",
+          "line": 1613,
+          "name": "subtitle_reflow"
+        },
+        {
+          "end_line": 1720,
+          "kind": "function",
+          "line": 1643,
+          "name": "subtitle_review"
+        },
+        {
+          "end_line": 1764,
+          "kind": "function",
+          "line": 1724,
+          "name": "subtitle_generate_title"
+        },
+        {
+          "end_line": 1808,
+          "kind": "function",
+          "line": 1768,
+          "name": "subtitle_save"
+        },
+        {
+          "end_line": 1833,
+          "kind": "function",
+          "line": 1812,
+          "name": "subtitle_preview"
+        },
+        {
+          "end_line": 1885,
+          "kind": "function",
+          "line": 1837,
+          "name": "subtitle_render"
+        },
+        {
+          "end_line": 1899,
+          "kind": "function",
+          "line": 1889,
+          "name": "list_json_timelines"
+        },
+        {
+          "end_line": 1914,
+          "kind": "function",
+          "line": 1903,
+          "name": "upload_json_timeline"
+        },
+        {
+          "end_line": 1923,
+          "kind": "function",
+          "line": 1918,
+          "name": "list_timelines"
+        },
+        {
+          "end_line": 1936,
+          "kind": "function",
+          "line": 1927,
+          "name": "upload_timeline"
+        },
+        {
+          "end_line": 1947,
+          "kind": "function",
+          "line": 1942,
+          "name": "topic_v2_page"
+        },
+        {
+          "end_line": 1952,
+          "kind": "function",
+          "line": 1951,
+          "name": "subtitle_workflow_page"
+        },
+        {
+          "end_line": 1957,
+          "kind": "function",
+          "line": 1956,
+          "name": "autocover_page"
+        },
+        {
+          "end_line": 1965,
+          "kind": "function",
+          "line": 1961,
+          "name": "bootstrap_security_session"
+        },
+        {
+          "end_line": 1977,
+          "kind": "function",
+          "line": 1969,
+          "name": "service_contract"
+        },
+        {
+          "end_line": 1986,
+          "kind": "function",
+          "line": 1981,
+          "name": "streamer_profiles_contract"
+        },
+        {
+          "end_line": 1995,
+          "kind": "function",
+          "line": 1990,
+          "name": "asr_status_contract"
+        },
+        {
+          "end_line": 2102,
+          "kind": "function",
+          "line": 1999,
+          "name": "start_pipeline"
+        },
+        {
+          "end_line": 2147,
+          "kind": "function",
+          "line": 2106,
+          "name": "retry_clip_review"
+        },
+        {
+          "end_line": 2204,
+          "kind": "function",
+          "line": 2151,
+          "name": "optimize_manual_timeline"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "core",
+      "path": "core.py",
+      "sha256": "cec388866e21d574c4d9412821f75461fad328573194f4d5dce1ba5ac61dd10c",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "llm_client",
+      "path": "llm_client.py",
+      "sha256": "831f05ccc3406e0fd046331a91d904b1713b73e4e2fa3a60065fcaa65c6ebdd2",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "media_formats",
+      "path": "media_formats.py",
+      "sha256": "e6d33436acf110ec874c294471439afbdf961c8f6d6ec38305632143dfbd9180",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "runtime_config",
+      "path": "runtime_config.py",
+      "sha256": "91916b89165f6c7b885d9ced3a90e1ec1cc0b62d81aa3828dbea70d66c9c2f4c",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 611,
+      "longest_function": {
+        "end_line": 565,
+        "kind": "function",
+        "line": 467,
+        "line_count": 99,
+        "qualname": "build_snapshot"
+      },
+      "module": "scripts.architecture_snapshot",
+      "path": "scripts/architecture_snapshot.py",
+      "sha256": "42e566f55fd7d8d1af730e8678ef4bd76a5455b1a34b507787645b0a8c0b2c6a",
+      "top_level_classes": [
+        {
+          "end_line": 157,
+          "kind": "class",
+          "line": 129,
+          "name": "_FunctionCollector"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 59,
+          "kind": "function",
+          "line": 58,
+          "name": "_normalise_path"
+        },
+        {
+          "end_line": 66,
+          "kind": "function",
+          "line": 62,
+          "name": "_is_excluded_directory"
+        },
+        {
+          "end_line": 95,
+          "kind": "function",
+          "line": 69,
+          "name": "discover_python_files"
+        },
+        {
+          "end_line": 105,
+          "kind": "function",
+          "line": 98,
+          "name": "module_name_for_path"
+        },
+        {
+          "end_line": 109,
+          "kind": "function",
+          "line": 108,
+          "name": "_read_python_source"
+        },
+        {
+          "end_line": 117,
+          "kind": "function",
+          "line": 112,
+          "name": "_definition_kind"
+        },
+        {
+          "end_line": 126,
+          "kind": "function",
+          "line": 120,
+          "name": "_definition_record"
+        },
+        {
+          "end_line": 170,
+          "kind": "function",
+          "line": 160,
+          "name": "_absolute_from_import"
+        },
+        {
+          "end_line": 188,
+          "kind": "function",
+          "line": 173,
+          "name": "_candidate_local_module"
+        },
+        {
+          "end_line": 219,
+          "kind": "function",
+          "line": 191,
+          "name": "_raw_imports"
+        },
+        {
+          "end_line": 232,
+          "kind": "function",
+          "line": 222,
+          "name": "_resolve_import_target"
+        },
+        {
+          "end_line": 296,
+          "kind": "function",
+          "line": 235,
+          "name": "analyse_module"
+        },
+        {
+          "end_line": 305,
+          "kind": "function",
+          "line": 299,
+          "name": "_expression_name"
+        },
+        {
+          "end_line": 309,
+          "kind": "function",
+          "line": 308,
+          "name": "_constant_string"
+        },
+        {
+          "end_line": 331,
+          "kind": "function",
+          "line": 312,
+          "name": "_private_patch_targets"
+        },
+        {
+          "end_line": 355,
+          "kind": "function",
+          "line": 334,
+          "name": "_test_private_patch_snapshot"
+        },
+        {
+          "end_line": 426,
+          "kind": "function",
+          "line": 358,
+          "name": "find_dependency_cycles"
+        },
+        {
+          "end_line": 464,
+          "kind": "function",
+          "line": 429,
+          "name": "dependency_contract_violations"
+        },
+        {
+          "end_line": 565,
+          "kind": "function",
+          "line": 467,
+          "name": "build_snapshot"
+        },
+        {
+          "end_line": 569,
+          "kind": "function",
+          "line": 568,
+          "name": "serialise_snapshot"
+        },
+        {
+          "end_line": 574,
+          "kind": "function",
+          "line": 572,
+          "name": "write_snapshot"
+        },
+        {
+          "end_line": 590,
+          "kind": "function",
+          "line": 577,
+          "name": "_check_snapshot"
+        },
+        {
+          "end_line": 607,
+          "kind": "function",
+          "line": 593,
           "name": "main"
         }
       ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 50,
+      "longest_function": {
+        "end_line": 30,
+        "kind": "function",
+        "line": 12,
+        "line_count": 19,
+        "qualname": "discover_public_python_files"
+      },
+      "module": "scripts.compile_public",
+      "path": "scripts/compile_public.py",
+      "sha256": "f8a9c9763fcda7ac69a812c05a274c3ad00a7b18050873062630141dd111c5a0",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 30,
+          "kind": "function",
+          "line": 12,
+          "name": "discover_public_python_files"
+        },
+        {
+          "end_line": 46,
+          "kind": "function",
+          "line": 33,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1,
+      "longest_function": null,
+      "module": "scripts.manual",
+      "path": "scripts/manual/__init__.py",
+      "sha256": "6405cfd2ac0d06828da978f707436b905ff575f00cb10416000155302daa725d",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 583,
+      "longest_function": {
+        "end_line": 371,
+        "kind": "function",
+        "line": 279,
+        "line_count": 93,
+        "qualname": "validate_arguments"
+      },
+      "module": "scripts.manual.run_real_pipeline_smoke",
+      "path": "scripts/manual/run_real_pipeline_smoke.py",
+      "sha256": "ed6c5b5dd42516b4ded05dc1f4590a3b5b53935b5cca8521be20dd683e2a8c9c",
+      "top_level_classes": [
+        {
+          "end_line": 32,
+          "kind": "class",
+          "line": 31,
+          "name": "SmokeValidationError"
+        },
+        {
+          "end_line": 40,
+          "kind": "class",
+          "line": 35,
+          "name": "SafeArgumentParser"
+        },
+        {
+          "end_line": 57,
+          "kind": "class",
+          "line": 44,
+          "name": "SmokePlan"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 125,
+          "kind": "function",
+          "line": 60,
+          "name": "build_parser"
+        },
+        {
+          "end_line": 138,
+          "kind": "function",
+          "line": 128,
+          "name": "_local_absolute_path"
+        },
+        {
+          "end_line": 158,
+          "kind": "function",
+          "line": 141,
+          "name": "_existing_input"
+        },
+        {
+          "end_line": 164,
+          "kind": "function",
+          "line": 161,
+          "name": "_path_key"
+        },
+        {
+          "end_line": 174,
+          "kind": "function",
+          "line": 167,
+          "name": "_is_inside"
+        },
+        {
+          "end_line": 194,
+          "kind": "function",
+          "line": 177,
+          "name": "_resolve_streamer_profile_id"
+        },
+        {
+          "end_line": 200,
+          "kind": "function",
+          "line": 197,
+          "name": "_path_digest"
+        },
+        {
+          "end_line": 220,
+          "kind": "function",
+          "line": 203,
+          "name": "_marker_payload"
+        },
+        {
+          "end_line": 224,
+          "kind": "function",
+          "line": 223,
+          "name": "_marker_path"
+        },
+        {
+          "end_line": 245,
+          "kind": "function",
+          "line": 227,
+          "name": "_validate_existing_output"
+        },
+        {
+          "end_line": 276,
+          "kind": "function",
+          "line": 248,
+          "name": "_prepare_output_dir"
+        },
+        {
+          "end_line": 371,
+          "kind": "function",
+          "line": 279,
+          "name": "validate_arguments"
+        },
+        {
+          "end_line": 377,
+          "kind": "function",
+          "line": 374,
+          "name": "_redacted_file"
+        },
+        {
+          "end_line": 425,
+          "kind": "function",
+          "line": 380,
+          "name": "_plan_summary"
+        },
+        {
+          "end_line": 436,
+          "kind": "function",
+          "line": 428,
+          "name": "_load_analyze_runner"
+        },
+        {
+          "end_line": 447,
+          "kind": "function",
+          "line": 439,
+          "name": "_load_slice_runner"
+        },
+        {
+          "end_line": 456,
+          "kind": "function",
+          "line": 450,
+          "name": "_safe_failure"
+        },
+        {
+          "end_line": 467,
+          "kind": "function",
+          "line": 459,
+          "name": "_count"
+        },
+        {
+          "end_line": 476,
+          "kind": "function",
+          "line": 470,
+          "name": "_result_path"
+        },
+        {
+          "end_line": 543,
+          "kind": "function",
+          "line": 479,
+          "name": "run_authorized_pipeline"
+        },
+        {
+          "end_line": 579,
+          "kind": "function",
+          "line": 546,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 57,
+      "longest_function": {
+        "end_line": 53,
+        "kind": "function",
+        "line": 21,
+        "line_count": 33,
+        "qualname": "main"
+      },
+      "module": "scripts.run_hermetic_tests",
+      "path": "scripts/run_hermetic_tests.py",
+      "sha256": "d29d57fb16a67d220e44f84defd941ed7176cb06a99a8e6853dc754a045cdcc6",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 53,
+          "kind": "function",
+          "line": 21,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 94,
+      "longest_function": {
+        "end_line": 90,
+        "kind": "function",
+        "line": 55,
+        "line_count": 36,
+        "qualname": "main"
+      },
+      "module": "scripts.run_linux_logic_tests",
+      "path": "scripts/run_linux_logic_tests.py",
+      "sha256": "30a59287ab7e892af55f7a5ebf01c90927b81fb9aa1dde48dd7ffb54647259d4",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 90,
+          "kind": "function",
+          "line": 55,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 178,
+      "longest_function": {
+        "end_line": 120,
+        "kind": "function",
+        "line": 94,
+        "line_count": 27,
+        "qualname": "_text_errors"
+      },
+      "module": "scripts.scan_public_release",
+      "path": "scripts/scan_public_release.py",
+      "sha256": "06549c78c24dcc585def2b076508f15a313684d3f555408077e705ffdfd02bb8",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 69,
+          "kind": "function",
+          "line": 61,
+          "name": "_candidate_files"
+        },
+        {
+          "end_line": 91,
+          "kind": "function",
+          "line": 72,
+          "name": "_path_errors"
+        },
+        {
+          "end_line": 120,
+          "kind": "function",
+          "line": 94,
+          "name": "_text_errors"
+        },
+        {
+          "end_line": 148,
+          "kind": "function",
+          "line": 123,
+          "name": "_ignore_errors"
+        },
+        {
+          "end_line": 174,
+          "kind": "function",
+          "line": 151,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 63,
+      "longest_function": {
+        "end_line": 59,
+        "kind": "function",
+        "line": 13,
+        "line_count": 47,
+        "qualname": "main"
+      },
+      "module": "scripts.smoke_packaging",
+      "path": "scripts/smoke_packaging.py",
+      "sha256": "4d576114c028137f7170d2af6dd99bad6e9b46072cae46dc1a2b436e678149b3",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 59,
+          "kind": "function",
+          "line": 13,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 217,
+      "longest_function": {
+        "end_line": 213,
+        "kind": "function",
+        "line": 120,
+        "line_count": 94,
+        "qualname": "main"
+      },
+      "module": "scripts.smoke_startup",
+      "path": "scripts/smoke_startup.py",
+      "sha256": "282a2ad2316513476c3c99614e7fc7ab287964f8b76363c1acf585d0c9c4d9c6",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 30,
+          "kind": "function",
+          "line": 22,
+          "name": "_release_files"
+        },
+        {
+          "end_line": 37,
+          "kind": "function",
+          "line": 33,
+          "name": "_copy_release"
+        },
+        {
+          "end_line": 46,
+          "kind": "function",
+          "line": 40,
+          "name": "_port_is_free"
+        },
+        {
+          "end_line": 55,
+          "kind": "function",
+          "line": 49,
+          "name": "_read_json"
+        },
+        {
+          "end_line": 75,
+          "kind": "function",
+          "line": 58,
+          "name": "_wait_for_services"
+        },
+        {
+          "end_line": 102,
+          "kind": "function",
+          "line": 78,
+          "name": "_stop_process_tree"
+        },
+        {
+          "end_line": 117,
+          "kind": "function",
+          "line": 105,
+          "name": "_run_checked"
+        },
+        {
+          "end_line": 213,
+          "kind": "function",
+          "line": 120,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 178,
+      "longest_function": {
+        "end_line": 174,
+        "kind": "function",
+        "line": 145,
+        "line_count": 30,
+        "qualname": "main"
+      },
+      "module": "scripts.sync_autocover",
+      "path": "scripts/sync_autocover.py",
+      "sha256": "253ff5334e9137a03f329bd5e1f13b5376dccb5a05b8c934326d37223d68837f",
+      "top_level_classes": [
+        {
+          "end_line": 30,
+          "kind": "class",
+          "line": 26,
+          "name": "SyncDifference"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 43,
+          "kind": "function",
+          "line": 33,
+          "name": "_validate_source"
+        },
+        {
+          "end_line": 67,
+          "kind": "function",
+          "line": 46,
+          "name": "managed_files"
+        },
+        {
+          "end_line": 89,
+          "kind": "function",
+          "line": 70,
+          "name": "compare_trees"
+        },
+        {
+          "end_line": 112,
+          "kind": "function",
+          "line": 92,
+          "name": "apply_sync"
+        },
+        {
+          "end_line": 142,
+          "kind": "function",
+          "line": 115,
+          "name": "build_parser"
+        },
+        {
+          "end_line": 174,
+          "kind": "function",
+          "line": 145,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 194,
+      "longest_function": {
+        "end_line": 113,
+        "kind": "function",
+        "line": 49,
+        "line_count": 65,
+        "qualname": "_validate_dependency_contract"
+      },
+      "module": "scripts.validate_public_docs",
+      "path": "scripts/validate_public_docs.py",
+      "sha256": "0c30d09cfbc236b7c1bcc8e3adb19290287b284724a1070d7cb2294af12a3371",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 113,
+          "kind": "function",
+          "line": 49,
+          "name": "_validate_dependency_contract"
+        },
+        {
+          "end_line": 142,
+          "kind": "function",
+          "line": 116,
+          "name": "_validate_examples"
+        },
+        {
+          "end_line": 190,
+          "kind": "function",
+          "line": 145,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "security_policy",
+      "path": "security_policy.py",
+      "sha256": "a8686cef99847eb3bffd70801d500dab6491945ee1b3c29fe864abef459e6800",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 7,
+      "longest_function": null,
+      "module": "setup_asr_model",
+      "path": "setup_asr_model.py",
+      "sha256": "6b3544cb48f621d97cb75779880d4cd5b584f29f5dd1c4efddd71616cb511ffb",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 11,
+      "longest_function": null,
+      "module": "setup_gpu_runtime",
+      "path": "setup_gpu_runtime.py",
+      "sha256": "fb108fbe653f6cdc398e6330df32a8f54837a862504fc7b0e3e427b1d8a83ced",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "streamer_profiles",
+      "path": "streamer_profiles.py",
+      "sha256": "ed4219df19dd528393b13120125725a6141e0e9c5a93c3b91881dd8ae7e08900",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "subtitle_workflow",
+      "path": "subtitle_workflow.py",
+      "sha256": "3d51bd210bfd769493f8e404e4ff3b021746f912fa0d0b46767d6f5ef5a22217",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "task_registry",
+      "path": "task_registry.py",
+      "sha256": "70da837a4cf74721f388bdbfd514771f7b3a5d401f83db62199912ee24102ccc",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
+      "module": "task_store",
+      "path": "task_store.py",
+      "sha256": "5a8ebf1fc974a172fdb0e223a15c73a17bd6e8825e7f0c37db5f72ce5d12af38",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 7,
+      "longest_function": null,
+      "module": "topic_engine",
+      "path": "topic_engine.py",
+      "sha256": "f7c6cce49cbb95be0c0aa653853e7af3e7d6ccc83ebeccedde2310865c869d4d",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 16,
+      "longest_function": null,
+      "module": "启动",
+      "path": "启动.py",
+      "sha256": "85fa6fcb7cfe4069ee4c65fe3b63406ca30153056addbe80f63d3c0e2e5b255a",
+      "top_level_classes": [],
+      "top_level_functions": []
     }
   ],
   "schema_version": 1,
@@ -8266,6 +8640,7 @@
       ".codex-tmp-"
     ],
     "production_files": [
+      "_autoslice_compat.py",
       "app.py",
       "artifact_store.py",
       "core.py",
@@ -8296,24 +8671,6 @@
       "autocover_tool/autocover/titles.py",
       "autocover_tool/autocover/video.py",
       "autocover_tool/autocover/workspace.py",
-      "autoslice/__init__.py",
-      "autoslice/launcher.py",
-      "autoslice/paths.py",
-      "autoslice/pipeline.py",
-      "autoslice/reporting.py",
-      "autoslice/slicing.py",
-      "autoslice/analysis/__init__.py",
-      "autoslice/analysis/candidates.py",
-      "autoslice/analysis/danmaku.py",
-      "autoslice/analysis/timeline.py",
-      "autoslice/analysis/titles.py",
-      "autoslice/llm/__init__.py",
-      "autoslice/llm/contracts.py",
-      "autoslice/llm/prompts.py",
-      "autoslice/llm/transport.py",
-      "autoslice/transcription/__init__.py",
-      "autoslice/transcription/contracts.py",
-      "autoslice/transcription/service.py",
       "scripts/architecture_snapshot.py",
       "scripts/compile_public.py",
       "scripts/run_hermetic_tests.py",
@@ -8324,7 +8681,40 @@
       "scripts/sync_autocover.py",
       "scripts/validate_public_docs.py",
       "scripts/manual/__init__.py",
-      "scripts/manual/run_real_pipeline_smoke.py"
+      "scripts/manual/run_real_pipeline_smoke.py",
+      "src/autoslice/__init__.py",
+      "src/autoslice/artifact_store.py",
+      "src/autoslice/core.py",
+      "src/autoslice/launcher.py",
+      "src/autoslice/llm_client.py",
+      "src/autoslice/media_formats.py",
+      "src/autoslice/paths.py",
+      "src/autoslice/pipeline.py",
+      "src/autoslice/reporting.py",
+      "src/autoslice/runtime_config.py",
+      "src/autoslice/security_policy.py",
+      "src/autoslice/setup_asr_model.py",
+      "src/autoslice/setup_gpu_runtime.py",
+      "src/autoslice/slicing.py",
+      "src/autoslice/streamer_profiles.py",
+      "src/autoslice/subtitle_workflow.py",
+      "src/autoslice/task_registry.py",
+      "src/autoslice/task_store.py",
+      "src/autoslice/topic_engine.py",
+      "src/autoslice/analysis/__init__.py",
+      "src/autoslice/analysis/candidates.py",
+      "src/autoslice/analysis/danmaku.py",
+      "src/autoslice/analysis/timeline.py",
+      "src/autoslice/analysis/titles.py",
+      "src/autoslice/llm/__init__.py",
+      "src/autoslice/llm/contracts.py",
+      "src/autoslice/llm/prompts.py",
+      "src/autoslice/llm/transport.py",
+      "src/autoslice/transcription/__init__.py",
+      "src/autoslice/transcription/contracts.py",
+      "src/autoslice/transcription/service.py",
+      "src/autoslice/web/__init__.py",
+      "src/autoslice/web/app.py"
     ],
     "root": ".",
     "test_files": [
@@ -8369,12 +8759,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 116,
-    "production_line_count": 33024,
-    "production_module_count": 59,
+    "import_edge_count": 135,
+    "production_line_count": 33200,
+    "production_module_count": 75,
     "test_private_patch_count": 17,
     "top_level_class_count": 83,
-    "top_level_function_count": 851
+    "top_level_function_count": 852
   },
   "test_private_patches": {
     "by_target_module": {

@@ -16,7 +16,21 @@ DEFAULT_OUTPUT = ROOT / "architecture_baseline.json"
 SCHEMA_VERSION = 1
 LONGEST_FUNCTION_LIMIT = 25
 LOW_LEVEL_MODULE_PREFIX = "autoslice"
-FORBIDDEN_LOW_LEVEL_TARGETS = ("app", "subtitle_workflow", "topic_engine")
+FORBIDDEN_LOW_LEVEL_TARGETS = (
+    "app",
+    "subtitle_workflow",
+    "topic_engine",
+    "autoslice.subtitle_workflow",
+    "autoslice.topic_engine",
+    "autoslice.web.app",
+)
+HIGH_LEVEL_SOURCE_MODULES = frozenset({
+    "autoslice.core",
+    "autoslice.launcher",
+    "autoslice.subtitle_workflow",
+    "autoslice.topic_engine",
+    "autoslice.web",
+})
 
 # 这些目录只保存本地环境、用户媒体或生成产物，不属于源码扫描范围。
 EXCLUDED_DIRECTORY_NAMES = frozenset({
@@ -84,6 +98,8 @@ def discover_python_files(root: Path) -> tuple[list[Path], list[Path]]:
 def module_name_for_path(path: Path, root: Path) -> str:
     relative = path.relative_to(root).with_suffix("")
     parts = list(relative.parts)
+    if parts and parts[0] == "src":
+        parts.pop(0)
     if parts[-1] == "__init__":
         parts.pop()
     return ".".join(parts)
@@ -432,10 +448,15 @@ def dependency_contract_violations(
     for edge in current_snapshot.get("import_edges", []):
         source = str(edge["from"])
         target = str(edge["to"])
-        is_low_level = (
+        is_autoslice = (
             source == LOW_LEVEL_MODULE_PREFIX
             or source.startswith(f"{LOW_LEVEL_MODULE_PREFIX}.")
         )
+        is_high_level_source = any(
+            source == module or source.startswith(f"{module}.")
+            for module in HIGH_LEVEL_SOURCE_MODULES
+        )
+        is_low_level = is_autoslice and not is_high_level_source
         if is_low_level and target in forbidden_targets:
             violations.append(
                 f"底层模块 {source} 禁止反向导入高层模块 {target}"
@@ -535,6 +556,7 @@ def build_snapshot(root: Path = ROOT) -> dict[str, object]:
         "dependency_cycles": dependency_cycles,
         "dependency_policy": {
             "low_level_module_prefix": LOW_LEVEL_MODULE_PREFIX,
+            "high_level_source_modules": sorted(HIGH_LEVEL_SOURCE_MODULES),
             "forbidden_reverse_import_targets": list(FORBIDDEN_LOW_LEVEL_TARGETS),
         },
         "duplicate_top_level_definitions": duplicate_definitions,

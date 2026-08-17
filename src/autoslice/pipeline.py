@@ -8,11 +8,11 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from artifact_store import ARTIFACT_LAYOUT_VERSION
-from artifact_store import copy_artifact_file as _copy_artifact_file
-from artifact_store import seed_artifact_from_legacy as _seed_artifact_from_legacy
-from artifact_store import write_artifact_json as _write_artifact_json
-from artifact_store import write_artifact_text as _write_artifact_text
+from autoslice.artifact_store import ARTIFACT_LAYOUT_VERSION
+from autoslice.artifact_store import copy_artifact_file as _copy_artifact_file
+from autoslice.artifact_store import seed_artifact_from_legacy as _seed_artifact_from_legacy
+from autoslice.artifact_store import write_artifact_json as _write_artifact_json
+from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice.analysis import candidates as candidate_analysis
@@ -24,7 +24,7 @@ from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
 from autoslice.llm.prompts import build_title_hook_guide as _render_title_hook_guide
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription.contracts import SubtitleTitleServices
-from streamer_profiles import (
+from autoslice.streamer_profiles import (
     current_streamer_profile,
     streamer_profile_context,
 )

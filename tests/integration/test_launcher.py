@@ -1,4 +1,3 @@
-import importlib.util
 import io
 import socket
 import unittest
@@ -7,14 +6,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
+from autoslice import launcher
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER_PATH = REPOSITORY_ROOT / "启动.py"
-SPEC = importlib.util.spec_from_file_location("autoslice_launcher", LAUNCHER_PATH)
-launcher = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(launcher)
 
 
 class LauncherTests(unittest.TestCase):
+    def test_root_launcher_is_a_thin_source_compatibility_entry(self):
+        source = LAUNCHER_PATH.read_text(encoding="utf-8")
+
+        self.assertLess(len(source.splitlines()), 25)
+        self.assertIn("from autoslice.launcher import main", source)
+
     def test_help_is_side_effect_free_and_documents_both_entry_points(self):
         output = io.StringIO()
         with (

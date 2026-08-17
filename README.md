@@ -103,18 +103,27 @@ AutoCover 仍可用自己的依赖文件单独运行：
 ```text
 AutoSlice/
 ├── pyproject.toml             # 安装元数据、统一依赖与 autoslice 命令
-├── 启动.py                    # 管理 AutoSlice/AutoCover 与 Windows GPU 运行时
-├── app.py                     # Flask 路由、任务接口与 SSE
-├── autoslice/                 # 分析、转录、LLM、切片、报告和编排模块
-├── topic_engine.py            # 兼容 façade
-├── task_store.py              # SQLite 任务历史
-├── security_policy.py         # Host、Origin、会话与 LAN 路径策略
-├── subtitle_workflow.py       # 字幕生成、校对、ASS 与压制
-├── autocover_tool/            # AutoCover 服务与独立依赖
+├── 启动.py                    # 源码克隆的一键启动薄入口
+├── src/
+│   └── autoslice/             # AutoSlice 唯一生产实现
+│       ├── web/               # Flask 路由、任务接口与 SSE
+│       ├── analysis/          # 弹幕、时间轴、候选、边界与标题
+│       ├── transcription/     # FunASR、SRT 与原子检查点
+│       ├── llm/               # 模型契约、提示词、重试与传输
+│       ├── resources/         # 随包分发的模板和静态资源
+│       ├── pipeline.py        # 分析流水线与续跑编排
+│       ├── reporting.py       # 报告与整理包
+│       └── slicing.py         # FFmpeg 切片与成片复用
+├── app.py 等                  # 临时旧导入兼容 alias，不保存第二套实现
+├── autocover_tool/            # AutoCover 独立边界（待迁入 src）
 ├── tests/                     # unit/integration/architecture/support 测试
-├── requirements.txt           # AutoSlice 根依赖
+├── scripts/                   # 离线验证、发布和人工冒烟入口
+├── requirements.txt           # 兼容安装依赖清单
 └── docs/                      # 配置、工作流、排错与架构文档
 ```
+
+新增代码应从 `autoslice.*` 包导入 owner；根目录 `app.py`、
+`topic_engine.py` 等文件只为旧脚本过渡，不应继续加入业务逻辑。
 
 ## 已知限制
 

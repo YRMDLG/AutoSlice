@@ -20,7 +20,7 @@ from autoslice.llm.prompts import (
 )
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription.contracts import DEFAULT_MAX_PUBLISH_TITLE_CHARS
-from streamer_profiles import (
+from autoslice.streamer_profiles import (
     active_streamer_profile,
     current_streamer_profile,
     streamer_profile_context,

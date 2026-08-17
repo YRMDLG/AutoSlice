@@ -1,6 +1,8 @@
 import json
+import os
 import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.request
@@ -21,7 +23,7 @@ BASELINE_PATH = ROOT / "architecture_baseline.json"
 # 后续不得在 topic_engine 中重新引入同名定义。
 CURRENT_LLM_IDENTITY_DEBT = {
     "status": "resolved",
-    "owner_module": "topic_engine",
+    "owner_module": "autoslice.topic_engine",
     "local_definitions": (
         "_LLMProviderRetryCoordinator",
         "_call_llm_with_retry",
@@ -251,7 +253,7 @@ class ArchitectureDependencyTests(unittest.TestCase):
         }
         self.assertNotIn(("subtitle_workflow", "topic_engine"), edges)
         self.assertNotIn(("topic_engine", "subtitle_workflow"), edges)
-        for high_level_module in ("app", "subtitle_workflow", "topic_engine"):
+        for high_level_module in architecture_snapshot.FORBIDDEN_LOW_LEVEL_TARGETS:
             self.assertNotIn(
                 ("autoslice.transcription.contracts", high_level_module),
                 edges,
@@ -300,18 +302,79 @@ class ArchitectureDependencyTests(unittest.TestCase):
 
     def test_all_autoslice_modules_avoid_high_level_reverse_imports(self):
         current = architecture_snapshot.build_snapshot(ROOT)
-        forbidden = {"app", "subtitle_workflow", "topic_engine"}
+        forbidden = set(architecture_snapshot.FORBIDDEN_LOW_LEVEL_TARGETS)
 
         reverse_edges = [
             edge
             for edge in current["import_edges"]
-            if edge["from"].startswith("autoslice.") and edge["to"] in forbidden
+            if edge["from"].startswith("autoslice.")
+            and not any(
+                edge["from"] == module
+                or edge["from"].startswith(f"{module}.")
+                for module in architecture_snapshot.HIGH_LEVEL_SOURCE_MODULES
+            )
+            and edge["to"] in forbidden
         ]
 
         self.assertEqual(reverse_edges, [])
 
 
 class ArchitectureDefinitionTests(unittest.TestCase):
+
+    def test_editable_install_imports_autoslice_from_src_layout(self):
+        import autoslice
+
+        package_path = Path(autoslice.__file__).resolve()
+
+        self.assertTrue(package_path.is_relative_to(ROOT / "src"))
+
+    def test_legacy_top_level_modules_alias_the_installed_owners(self):
+        aliases = {
+            "app": "autoslice.web.app",
+            "artifact_store": "autoslice.artifact_store",
+            "core": "autoslice.core",
+            "llm_client": "autoslice.llm_client",
+            "media_formats": "autoslice.media_formats",
+            "runtime_config": "autoslice.runtime_config",
+            "security_policy": "autoslice.security_policy",
+            "streamer_profiles": "autoslice.streamer_profiles",
+            "subtitle_workflow": "autoslice.subtitle_workflow",
+            "task_registry": "autoslice.task_registry",
+            "task_store": "autoslice.task_store",
+            "topic_engine": "autoslice.topic_engine",
+        }
+        script = (
+            "import importlib\n"
+            f"aliases = {aliases!r}\n"
+            "for legacy_name, owner_name in aliases.items():\n"
+            "    legacy = importlib.import_module(legacy_name)\n"
+            "    owner = importlib.import_module(owner_name)\n"
+            "    if legacy is not owner:\n"
+            "        raise AssertionError(f'{legacy_name} is not {owner_name}')\n"
+        )
+
+        # ``autoslice.web.app`` 会在导入时创建生产任务后端。兼容身份检查必须
+        # 在独立进程和临时数据库中完成，避免单独运行架构测试时污染工作区，
+        # 也避免把已导入的临时 TaskStore 留给后续集成测试。
+        with tempfile.TemporaryDirectory(prefix="autoslice-alias-test-") as directory:
+            environment = os.environ.copy()
+            environment["AUTOSLICE_TASK_DB"] = str(
+                Path(directory) / "tasks.sqlite3"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-B", "-c", script],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stdout + completed.stderr,
+        )
 
     def test_phase6_facades_keep_every_owner_object_identity(self):
         import topic_engine
@@ -382,9 +445,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_topic_engine_is_a_thin_definition_free_facade(self):
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
-        topic_engine = modules["topic_engine"]
+        topic_engine = modules["autoslice.topic_engine"]
 
-        self.assertEqual(topic_engine["top_level_functions"], [])
+        self.assertEqual(
+            [item["name"] for item in topic_engine["top_level_functions"]],
+            ["main"],
+        )
         self.assertEqual(topic_engine["top_level_classes"], [])
         self.assertLess(topic_engine["line_count"], 1000)
 
