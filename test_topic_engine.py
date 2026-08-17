@@ -21,6 +21,7 @@ install_test_external_boundary_guard()
 
 import topic_engine
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis import timeline as timeline_analysis
 from autoslice.transcription import service as transcription_service
 from llm_client import (
     LLMApiConfig,
@@ -5765,69 +5766,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
         self.assertEqual(peaks, [(150, 100.0), (450, 80.0)])
 
-    def test_manual_star_with_only_normal_density_cannot_force_slice(self):
-        topics = [{
-            "start": 500,
-            "end": 620,
-            "title": "人工星标普通互动",
-            "manual_stars": 5,
-            "body": ["●人工时间轴⭐⭐⭐⭐⭐：普通互动"],
-        }]
 
-        _apply_danmaku_slice_decisions(topics, peaks=[(520, 50)], avg_density=50)
-
-        self.assertFalse(topics[0]["can_slice"])
-        self.assertEqual(_clip_marks_from_topics(topics), [])
-
-    def test_high_star_manual_evidence_only_adds_review_candidate(self):
-        topics = [{
-            "start": 500,
-            "end": 620,
-            "title": "红白改金曲后的反问",
-            "manual_stars": 5,
-            "body": [
-                "·音音解释红白活动后来改成金曲",
-                "●人工时间轴⭐⭐⭐⭐⭐：8:50 被问骄傲后澄清自己说的是输了",
-            ],
-            "manual_timeline": [{
-                "start": 530,
-                "end": 590,
-                "stars": 5,
-                "text": "红白改金曲后的反问",
-                "original_entries": [{
-                    "start": 550,
-                    "stars": 5,
-                    "text": "骄傲上了？不是输了吗",
-                }],
-            }],
-        }]
-
-        _apply_danmaku_slice_decisions(topics, peaks=[], avg_density=80)
-
-        self.assertFalse(topics[0]["can_slice"])
-        self.assertTrue(topics[0]["clip_review_candidate"])
-        self.assertEqual(topics[0]["clip_candidate_sources"], ["人工高星时间轴"])
-        self.assertEqual(_clip_marks_from_topics(topics), [])
-
-        topics[0].update({
-            "clip_review_validated": True,
-            "clip_interest_score": 81,
-            "clip_interest_reason": "完整解释活动由来并以反问收尾",
-        })
-        _apply_danmaku_slice_decisions(
-            topics,
-            peaks=[],
-            avg_density=80,
-            require_clip_review=True,
-        )
-        marks = _clip_marks_from_topics(topics)
-        audit = _build_clip_candidate_review_audit(topics)
-
-        self.assertTrue(topics[0]["can_slice"])
-        self.assertEqual(topics[0]["slice_anchor_source"], "人工高星时间轴")
-        self.assertEqual(len(marks), 1)
-        self.assertEqual(audit["approved_count"], 1)
-        self.assertEqual(audit["candidates"][0]["status"], "已通过并生成切片")
 
     def test_reviewed_semantic_focus_survives_peak_outside_revised_range(self):
         topics = [{
@@ -6428,159 +6367,16 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertLessEqual(expanded[0]["end"] - expanded[0]["start"], 300)
         self.assertLess(topics[0]["slice_start"], topics[0]["end"])
 
-    def test_manual_timeline_lines_convert_wall_clock_to_video_time(self):
-        video_start = datetime(2026, 7, 8, 20, 10, 53)
-        lines = [
-            "20:31:56 最喜欢在上帝视角看你们猜了 ⭐",
-            "2026-07-09 00:00:00 至 2026-07-09 04:00:00 的记录如下：",
-            "03:01:14 被妈妈说“脸圆成什么样了” ⭐",
-        ]
 
-        entries = _parse_manual_timeline_lines(lines, video_start)
 
-        self.assertEqual(entries[0]["start"], 1263)
-        self.assertEqual(entries[0]["stars"], 1)
-        self.assertEqual(entries[1]["start"], 24621)
-        self.assertIn("脸圆成什么样了", entries[1]["text"])
 
-    def test_manual_timeline_splits_two_clock_records_joined_in_one_paragraph(self):
-        entries = _parse_manual_timeline_lines(
-            [
-                "22:59:27 用app控制电器，回家前提前打开"
-                "23:10:42 《这个声音好听啊》学说话‘黑心商家’ ⭐",
-            ],
-            datetime(2026, 7, 14, 19, 59, 0),
-        )
 
-        self.assertEqual(len(entries), 2)
-        self.assertEqual([item["start"] for item in entries], [10827, 11502])
-        self.assertEqual([item["stars"] for item in entries], [0, 1])
-        self.assertIn("控制电器", entries[0]["text"])
-        self.assertIn("黑心商家", entries[1]["text"])
 
-    def test_video_start_datetime_accepts_ri_and_missing_seconds(self):
-        video_path = r"X:\fixtures\泽音Melody-2026年07月12日22点35分.flv"
 
-        video_start = _extract_video_start_datetime(video_path)
 
-        self.assertEqual(video_start, datetime(2026, 7, 12, 22, 35, 0))
-        self.assertEqual(
-            _extract_video_start_datetime("变色龙-2026年07月08号-20点10分53秒-001.flv"),
-            datetime(2026, 7, 8, 20, 10, 53),
-        )
 
-    def test_find_manual_timeline_doc_for_recording_without_seconds(self):
-        with TemporaryDirectory() as tmp:
-            timeline_path = Path(tmp) / "20260712.docx"
-            timeline_path.write_bytes(b"fake docx body")
 
-            found = _find_manual_timeline_doc(
-                r"X:\fixtures\泽音Melody-2026年07月12日22点35分.flv",
-                timeline_dir=tmp,
-            )
 
-        self.assertEqual(found, str(timeline_path))
-
-    def test_elapsed_report_reference_requires_explicit_time_basis(self):
-        report_lines = [
-            "> 时间基准：视频内时间/播放进度（不是现实钟点）",
-            "②[02:30－06:00]赶飞机趣事：裙子被风吹起 ✂️",
-            "【泽音】下飞机遇到狂风，裙子当场被吹飞😱",
-            "③[06:00－10:03]控场心得与上台支招 ✂️",
-        ]
-
-        entries = _parse_elapsed_timeline_report_lines(report_lines)
-
-        self.assertEqual([(item["start"], item["end"]) for item in entries], [(150, 360), (360, 603)])
-        self.assertEqual(entries[0]["text"], "赶飞机趣事：裙子被风吹起")
-        self.assertEqual(entries[0]["reference_publish_title"], "【泽音】下飞机遇到狂风，裙子当场被吹飞😱")
-        self.assertEqual(entries[0]["time_basis"], "video_elapsed_seconds")
-        self.assertEqual(_parse_elapsed_timeline_report_lines(report_lines[1:]), [])
-
-    def test_elapsed_report_ranges_stay_as_independent_topic_candidates(self):
-        entries = _parse_elapsed_timeline_report_lines([
-            "> 时间基准：视频内时间/播放进度（不是现实钟点）",
-            "②[02:30－06:00]赶飞机趣事：裙子被风吹起 ✂️",
-            "③[06:00－10:03]控场心得与上台支招 ✂️",
-        ])
-
-        topics = _topics_from_manual_timeline(entries, srt_segments=[], peaks=[])
-
-        self.assertEqual(len(topics), 2)
-        self.assertEqual((topics[0]["start"], topics[0]["end"]), (150, 360))
-        self.assertEqual((topics[1]["start"], topics[1]["end"]), (360, 603))
-
-        _merge_manual_timeline_topics(topics, entries)
-        first_body = "\n".join(topics[0]["body"])
-        self.assertNotIn("控场心得与上台支招", first_body)
-
-    def test_manual_timeline_ignores_earlier_same_day_record_for_split_video(self):
-        entries = _parse_manual_timeline_lines(
-            [
-                "20:10:13 第一分段里的记录",
-                "21:35:30 第二分段开始后的记录",
-                "23:49:45 第二分段后段记录",
-            ],
-            datetime(2026, 7, 10, 21, 17, 21),
-        )
-
-        self.assertEqual([item["text"] for item in entries], ["第二分段开始后的记录", "第二分段后段记录"])
-        self.assertEqual(entries[0]["start"], 1089)
-        self.assertEqual(entries[1]["start"], 9144)
-
-    def test_manual_timeline_maps_after_midnight_record_to_next_day(self):
-        entries = _parse_manual_timeline_lines(
-            ["00:10:00 跨午夜后的记录"],
-            datetime(2026, 7, 10, 23, 50, 0),
-        )
-
-        self.assertEqual(entries[0]["start"], 1200)
-        self.assertEqual(entries[0]["clock"], "2026-07-11 00:10:00")
-
-    def test_manual_timeline_filters_whole_stream_records_by_segment_duration(self):
-        entries = [
-            {"start": 405, "text": "当前分段开头"},
-            {"start": 2885, "text": "当前分段后段"},
-            {"start": 5522, "text": "下一分段内容"},
-        ]
-
-        filtered = _filter_manual_timeline_entries(entries, video_duration=4405)
-
-        self.assertEqual([item["text"] for item in filtered], ["当前分段开头", "当前分段后段"])
-
-    def test_load_manual_timeline_can_be_disabled_or_specified(self):
-        video_path = r"X:\fixtures\泽音Melody\2026年07月08号\变色龙躲猫猫-2026年07月08号-20点10分53秒-001.flv"
-        disabled = load_manual_timeline(video_path, manual_timeline_path="__none__")
-
-        self.assertEqual(disabled["entries"], [])
-        self.assertEqual(disabled["mode"], "disabled")
-
-        with TemporaryDirectory() as tmp:
-            doc_path = Path(tmp) / "指定时间轴.docx"
-            doc_path.write_bytes(b"fake docx body")
-            with patch("topic_engine._read_docx_lines", return_value=["20:31:56 指定时间轴重点 ⭐"]):
-                loaded = load_manual_timeline(video_path, manual_timeline_path=str(doc_path))
-
-        self.assertEqual(loaded["path"], str(doc_path))
-        self.assertEqual(loaded["mode"], "manual")
-        self.assertEqual(len(loaded["entries"]), 1)
-        self.assertIn("指定时间轴重点", loaded["entries"][0]["text"])
-
-    def test_manual_timeline_summary_is_json_serializable(self):
-        summary = _manual_timeline_summary({
-            "path": r"X:\fixtures\timelines\20260709.docx",
-            "video_start": datetime(2026, 7, 9, 20, 0, 47),
-            "entries": [
-                {"start": 60, "stars": 0, "text": "普通记录"},
-                {"start": 120, "stars": 2, "text": "重点记录"},
-            ],
-        })
-
-        encoded = json.dumps(summary, ensure_ascii=False)
-
-        self.assertIn("2026-07-09 20:00:47", encoded)
-        self.assertEqual(summary["entry_count"], 2)
-        self.assertEqual(summary["star_count"], 1)
 
     def test_manual_timeline_is_only_added_after_independent_first_pass(self):
         entries = _parse_manual_timeline_lines(
@@ -6675,26 +6471,6 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertIn("·弹幕依据：", body)
         self.assertIn("·时间轴：", body)
 
-    def test_manual_timeline_fuzzy_alignment_corrects_large_wall_clock_drift(self):
-        entries = [{
-            "start": 400,
-            "clock": "2026-07-14 20:06:40",
-            "text": "华为闹钟怎么设成半夜十二点了",
-            "stars": 1,
-        }]
-        aligned = _align_manual_timeline_entries_to_srt(
-            entries,
-            srt_segments=[
-                (100, 130, "音音发现华为把闹钟设置成了半夜十二点真的很生气"),
-                (380, 430, "音音继续感谢礼物并准备打开游戏"),
-            ],
-        )
-
-        self.assertEqual(aligned[0]["original_start"], 400)
-        self.assertLessEqual(aligned[0]["start"], 140)
-        self.assertLess(aligned[0]["alignment_shift_sec"], -200)
-        self.assertEqual(aligned[0]["alignment_source"], "subtitle_fuzzy_match")
-        self.assertEqual(entries[0]["start"], 400)
 
     def test_optimize_manual_timeline_uses_subtitles_and_writes_review_artifact(self):
         entries = [
@@ -8685,6 +8461,287 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         )
 
         self.assertGreater(expanded[0]["start"], 150)
+
+
+class ManualTimelineTests(unittest.TestCase):
+    """北京时间参考、多段录播过滤、星标证据与 SRT 校准回归。"""
+
+    def test_topic_engine_timeline_facade_keeps_analysis_object_identity(self):
+        expected = (
+            "_extract_video_start_datetime", "_manual_timeline_doc_candidates",
+            "_find_manual_timeline_doc",
+            "_parse_manual_timeline_lines", "_parse_elapsed_timeline_report_lines",
+            "_filter_manual_timeline_entries", "load_manual_timeline",
+            "_manual_timeline_summary", "_manual_alignment_text",
+            "_manual_alignment_score", "_manual_semantic_core",
+            "_manual_text_supports_candidate", "_srt_alignment_windows",
+            "_align_manual_timeline_entries_to_srt",
+        )
+        constants = (
+            "MANUAL_TIMELINE_DIR", "MANUAL_TIMELINE_CHUNK_MARGIN_SEC",
+            "MANUAL_TIMELINE_TOPIC_PRE_SEC", "MANUAL_TIMELINE_TOPIC_POST_SEC",
+            "MANUAL_TIMELINE_END_MARGIN_SEC", "MANUAL_TIMELINE_OPTIMIZE_GAP_SEC",
+            "MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC",
+            "MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE",
+            "MANUAL_TIMELINE_OPTIMIZATION_VERSION",
+            "MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC",
+            "MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC",
+            "MANUAL_TIMELINE_ALIGNMENT_STEP_SEC",
+            "MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE",
+            "MANUAL_TIMELINE_GROUNDING_MIN_SCORE",
+            "_MANUAL_SEMANTIC_GENERIC_TERMS",
+            "_MANUAL_SEMANTIC_BIGRAM_STOPWORDS",
+        )
+        for name in (*expected, *constants):
+            with self.subTest(name=name):
+                self.assertIs(
+                    getattr(topic_engine, name),
+                    getattr(timeline_analysis, name),
+                )
+        self.assertIs(topic_engine._read_docx_lines, timeline_analysis.read_docx_lines)
+        self.assertIs(topic_engine._parse_hms, timeline_analysis.parse_hms)
+
+    def test_manual_star_with_only_normal_density_cannot_force_slice(self):
+        topics = [{
+            "start": 500,
+            "end": 620,
+            "title": "人工星标普通互动",
+            "manual_stars": 5,
+            "body": ["●人工时间轴⭐⭐⭐⭐⭐：普通互动"],
+        }]
+
+        _apply_danmaku_slice_decisions(topics, peaks=[(520, 50)], avg_density=50)
+
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertEqual(_clip_marks_from_topics(topics), [])
+
+    def test_high_star_manual_evidence_only_adds_review_candidate(self):
+        topics = [{
+            "start": 500,
+            "end": 620,
+            "title": "红白改金曲后的反问",
+            "manual_stars": 5,
+            "body": [
+                "·音音解释红白活动后来改成金曲",
+                "●人工时间轴⭐⭐⭐⭐⭐：8:50 被问骄傲后澄清自己说的是输了",
+            ],
+            "manual_timeline": [{
+                "start": 530,
+                "end": 590,
+                "stars": 5,
+                "text": "红白改金曲后的反问",
+                "original_entries": [{
+                    "start": 550,
+                    "stars": 5,
+                    "text": "骄傲上了？不是输了吗",
+                }],
+            }],
+        }]
+
+        _apply_danmaku_slice_decisions(topics, peaks=[], avg_density=80)
+
+        self.assertFalse(topics[0]["can_slice"])
+        self.assertTrue(topics[0]["clip_review_candidate"])
+        self.assertEqual(topics[0]["clip_candidate_sources"], ["人工高星时间轴"])
+        self.assertEqual(_clip_marks_from_topics(topics), [])
+
+        topics[0].update({
+            "clip_review_validated": True,
+            "clip_interest_score": 81,
+            "clip_interest_reason": "完整解释活动由来并以反问收尾",
+        })
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[],
+            avg_density=80,
+            require_clip_review=True,
+        )
+        marks = _clip_marks_from_topics(topics)
+        audit = _build_clip_candidate_review_audit(topics)
+
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertEqual(topics[0]["slice_anchor_source"], "人工高星时间轴")
+        self.assertEqual(len(marks), 1)
+        self.assertEqual(audit["approved_count"], 1)
+        self.assertEqual(audit["candidates"][0]["status"], "已通过并生成切片")
+
+    def test_manual_timeline_lines_convert_wall_clock_to_video_time(self):
+        video_start = datetime(2026, 7, 8, 20, 10, 53)
+        lines = [
+            "20:31:56 最喜欢在上帝视角看你们猜了 ⭐",
+            "2026-07-09 00:00:00 至 2026-07-09 04:00:00 的记录如下：",
+            "03:01:14 被妈妈说“脸圆成什么样了” ⭐",
+        ]
+
+        entries = _parse_manual_timeline_lines(lines, video_start)
+
+        self.assertEqual(entries[0]["start"], 1263)
+        self.assertEqual(entries[0]["stars"], 1)
+        self.assertEqual(entries[1]["start"], 24621)
+        self.assertIn("脸圆成什么样了", entries[1]["text"])
+
+    def test_manual_timeline_splits_two_clock_records_joined_in_one_paragraph(self):
+        entries = _parse_manual_timeline_lines(
+            [
+                "22:59:27 用app控制电器，回家前提前打开"
+                "23:10:42 《这个声音好听啊》学说话‘黑心商家’ ⭐",
+            ],
+            datetime(2026, 7, 14, 19, 59, 0),
+        )
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual([item["start"] for item in entries], [10827, 11502])
+        self.assertEqual([item["stars"] for item in entries], [0, 1])
+        self.assertIn("控制电器", entries[0]["text"])
+        self.assertIn("黑心商家", entries[1]["text"])
+
+    def test_video_start_datetime_accepts_ri_and_missing_seconds(self):
+        video_path = r"X:\fixtures\泽音Melody-2026年07月12日22点35分.flv"
+
+        video_start = _extract_video_start_datetime(video_path)
+
+        self.assertEqual(video_start, datetime(2026, 7, 12, 22, 35, 0))
+        self.assertEqual(
+            _extract_video_start_datetime("变色龙-2026年07月08号-20点10分53秒-001.flv"),
+            datetime(2026, 7, 8, 20, 10, 53),
+        )
+
+    def test_find_manual_timeline_doc_for_recording_without_seconds(self):
+        with TemporaryDirectory() as tmp:
+            timeline_path = Path(tmp) / "20260712.docx"
+            timeline_path.write_bytes(b"fake docx body")
+
+            found = _find_manual_timeline_doc(
+                r"X:\fixtures\泽音Melody-2026年07月12日22点35分.flv",
+                timeline_dir=tmp,
+            )
+
+        self.assertEqual(found, str(timeline_path))
+
+    def test_elapsed_report_reference_requires_explicit_time_basis(self):
+        report_lines = [
+            "> 时间基准：视频内时间/播放进度（不是现实钟点）",
+            "②[02:30－06:00]赶飞机趣事：裙子被风吹起 ✂️",
+            "【泽音】下飞机遇到狂风，裙子当场被吹飞😱",
+            "③[06:00－10:03]控场心得与上台支招 ✂️",
+        ]
+
+        entries = _parse_elapsed_timeline_report_lines(report_lines)
+
+        self.assertEqual([(item["start"], item["end"]) for item in entries], [(150, 360), (360, 603)])
+        self.assertEqual(entries[0]["text"], "赶飞机趣事：裙子被风吹起")
+        self.assertEqual(entries[0]["reference_publish_title"], "【泽音】下飞机遇到狂风，裙子当场被吹飞😱")
+        self.assertEqual(entries[0]["time_basis"], "video_elapsed_seconds")
+        self.assertEqual(_parse_elapsed_timeline_report_lines(report_lines[1:]), [])
+
+    def test_elapsed_report_ranges_stay_as_independent_topic_candidates(self):
+        entries = _parse_elapsed_timeline_report_lines([
+            "> 时间基准：视频内时间/播放进度（不是现实钟点）",
+            "②[02:30－06:00]赶飞机趣事：裙子被风吹起 ✂️",
+            "③[06:00－10:03]控场心得与上台支招 ✂️",
+        ])
+
+        topics = _topics_from_manual_timeline(entries, srt_segments=[], peaks=[])
+
+        self.assertEqual(len(topics), 2)
+        self.assertEqual((topics[0]["start"], topics[0]["end"]), (150, 360))
+        self.assertEqual((topics[1]["start"], topics[1]["end"]), (360, 603))
+
+        _merge_manual_timeline_topics(topics, entries)
+        first_body = "\n".join(topics[0]["body"])
+        self.assertNotIn("控场心得与上台支招", first_body)
+
+    def test_manual_timeline_ignores_earlier_same_day_record_for_split_video(self):
+        entries = _parse_manual_timeline_lines(
+            [
+                "20:10:13 第一分段里的记录",
+                "21:35:30 第二分段开始后的记录",
+                "23:49:45 第二分段后段记录",
+            ],
+            datetime(2026, 7, 10, 21, 17, 21),
+        )
+
+        self.assertEqual([item["text"] for item in entries], ["第二分段开始后的记录", "第二分段后段记录"])
+        self.assertEqual(entries[0]["start"], 1089)
+        self.assertEqual(entries[1]["start"], 9144)
+
+    def test_manual_timeline_maps_after_midnight_record_to_next_day(self):
+        entries = _parse_manual_timeline_lines(
+            ["00:10:00 跨午夜后的记录"],
+            datetime(2026, 7, 10, 23, 50, 0),
+        )
+
+        self.assertEqual(entries[0]["start"], 1200)
+        self.assertEqual(entries[0]["clock"], "2026-07-11 00:10:00")
+
+    def test_manual_timeline_filters_whole_stream_records_by_segment_duration(self):
+        entries = [
+            {"start": 405, "text": "当前分段开头"},
+            {"start": 2885, "text": "当前分段后段"},
+            {"start": 5522, "text": "下一分段内容"},
+        ]
+
+        filtered = _filter_manual_timeline_entries(entries, video_duration=4405)
+
+        self.assertEqual([item["text"] for item in filtered], ["当前分段开头", "当前分段后段"])
+
+    def test_load_manual_timeline_can_be_disabled_or_specified(self):
+        video_path = r"X:\fixtures\泽音Melody\2026年07月08号\变色龙躲猫猫-2026年07月08号-20点10分53秒-001.flv"
+        disabled = load_manual_timeline(video_path, manual_timeline_path="__none__")
+
+        self.assertEqual(disabled["entries"], [])
+        self.assertEqual(disabled["mode"], "disabled")
+
+        with TemporaryDirectory() as tmp:
+            doc_path = Path(tmp) / "指定时间轴.docx"
+            doc_path.write_bytes(b"fake docx body")
+            with patch(
+                "autoslice.analysis.timeline.read_docx_lines",
+                return_value=["20:31:56 指定时间轴重点 ⭐"],
+            ):
+                loaded = load_manual_timeline(video_path, manual_timeline_path=str(doc_path))
+
+        self.assertEqual(loaded["path"], str(doc_path))
+        self.assertEqual(loaded["mode"], "manual")
+        self.assertEqual(len(loaded["entries"]), 1)
+        self.assertIn("指定时间轴重点", loaded["entries"][0]["text"])
+
+    def test_manual_timeline_summary_is_json_serializable(self):
+        summary = _manual_timeline_summary({
+            "path": r"X:\fixtures\timelines\20260709.docx",
+            "video_start": datetime(2026, 7, 9, 20, 0, 47),
+            "entries": [
+                {"start": 60, "stars": 0, "text": "普通记录"},
+                {"start": 120, "stars": 2, "text": "重点记录"},
+            ],
+        })
+
+        encoded = json.dumps(summary, ensure_ascii=False)
+
+        self.assertIn("2026-07-09 20:00:47", encoded)
+        self.assertEqual(summary["entry_count"], 2)
+        self.assertEqual(summary["star_count"], 1)
+
+    def test_manual_timeline_fuzzy_alignment_corrects_large_wall_clock_drift(self):
+        entries = [{
+            "start": 400,
+            "clock": "2026-07-14 20:06:40",
+            "text": "华为闹钟怎么设成半夜十二点了",
+            "stars": 1,
+        }]
+        aligned = _align_manual_timeline_entries_to_srt(
+            entries,
+            srt_segments=[
+                (100, 130, "音音发现华为把闹钟设置成了半夜十二点真的很生气"),
+                (380, 430, "音音继续感谢礼物并准备打开游戏"),
+            ],
+        )
+
+        self.assertEqual(aligned[0]["original_start"], 400)
+        self.assertLessEqual(aligned[0]["start"], 140)
+        self.assertLess(aligned[0]["alignment_shift_sec"], -200)
+        self.assertEqual(aligned[0]["alignment_source"], "subtitle_fuzzy_match")
+        self.assertEqual(entries[0]["start"], 400)
 
 
 class LatestArtifactCleanupTests(unittest.TestCase):
