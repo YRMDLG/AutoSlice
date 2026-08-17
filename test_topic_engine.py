@@ -19,6 +19,8 @@ from test_external_boundaries import install_test_external_boundary_guard
 
 install_test_external_boundary_guard()
 
+import topic_engine
+from autoslice.transcription import service as transcription_service
 from llm_client import (
     LLMApiConfig,
     reset_reasoning_effort_capability_cache,
@@ -1924,8 +1926,94 @@ class SliceOutputFormatTests(unittest.TestCase):
         self.assertEqual(payload["video_path"], str(source.resolve()))
 
 
-class TopicEngineParseTests(unittest.TestCase):
-    """话题分析解析与去重的快速回归测试。"""
+class TranscriptionTests(unittest.TestCase):
+    """转录服务、SRT 原子提交与兼容 façade 回归测试。"""
+
+    def test_topic_engine_transcription_facade_keeps_service_object_identity(self):
+        expected_functions = {
+            "_profile_identity_names": "profile_identity_names",
+            "_profile_matches_streamer": "profile_matches_streamer",
+            "_infer_streamer_name": "infer_streamer_name",
+            "_text_len_for_timing": "_text_len_for_timing",
+            "_repair_srt_end_time": "_repair_srt_end_time",
+            "_join_asr_tokens": "_join_asr_tokens",
+            "_strip_asr_subtitle_punctuation": "_strip_asr_subtitle_punctuation",
+            "_normalise_asr_text": "_normalise_asr_text",
+            "_normalise_streamer_terms": "_normalise_streamer_terms",
+            "_subtitle_text_size": "_subtitle_text_size",
+            "_split_subtitle_text_for_display": "_split_subtitle_text_for_display",
+            "_split_timed_subtitle_segment": "_split_timed_subtitle_segment",
+            "_should_hold_subtitle_for_short_clause": "_should_hold_subtitle_for_short_clause",
+            "_segment_timed_tokens": "_segment_timed_tokens",
+            "_segments_from_funasr_result": "_segments_from_funasr_result",
+            "_read_srt_entries": "_read_srt_entries",
+            "_load_repaired_srt_segments": "_load_repaired_srt_segments",
+            "export_corrected_srt": "export_corrected_srt",
+            "_probe_video_duration": "probe_video_duration",
+            "_prepare_funasr_environment": "_prepare_funasr_environment",
+            "_funasr_model_cache_candidates": "funasr_model_cache_candidates",
+            "_funasr_nano_cache_candidates": "_funasr_nano_cache_candidates",
+            "_resolve_funasr_model_source": "resolve_funasr_model_source",
+            "_resolve_funasr_aux_model_source": "resolve_funasr_aux_model_source",
+            "_resolve_funasr_speaker_model_source": "resolve_funasr_speaker_model_source",
+            "_funasr_model_runtime_signature": "_funasr_model_runtime_signature",
+            "_funasr_hotwords": "_funasr_hotwords",
+            "_funasr_generate_kwargs": "_funasr_generate_kwargs",
+            "_resolve_funasr_device": "resolve_funasr_device",
+            "funasr_public_status": "funasr_public_status",
+            "_load_funasr_model": "load_funasr_model",
+            "_funasr_checkpoint_path": "funasr_checkpoint_path",
+            "_funasr_source_fingerprint": "_funasr_source_fingerprint",
+            "_funasr_chunk_fingerprint": "_funasr_chunk_fingerprint",
+            "_funasr_chunk_input_window": "_funasr_chunk_input_window",
+            "_normalise_funasr_result": "_normalise_funasr_result",
+            "_is_valid_funasr_result": "_is_valid_funasr_result",
+            "_primary_speaker_segments": "_primary_speaker_segments",
+            "_is_close_number": "_is_close_number",
+            "_prepare_funasr_checkpoint": "_prepare_funasr_checkpoint",
+            "_write_funasr_checkpoint": "write_funasr_checkpoint",
+            "_clear_funasr_cuda_cache": "clear_funasr_cuda_cache",
+            "_dedupe_overlapping_funasr_segments": "_dedupe_overlapping_funasr_segments",
+            "_is_funasr_punctuation": "_is_funasr_punctuation",
+            "_attach_funasr_punctuation_to_tokens": "_attach_funasr_punctuation_to_tokens",
+            "_align_funasr_tokens": "_align_funasr_tokens",
+            "_trim_funasr_tokens_to_core": "_trim_funasr_tokens_to_core",
+            "ensure_srt": "ensure_srt",
+            "_srt_time": "srt_time",
+            "_parse_srt_timestamp": "parse_srt_timestamp",
+        }
+        expected_constants = (
+            "FUNASR_BATCH_SIZE_SEC", "FUNASR_CACHE_MODEL_DIR",
+            "FUNASR_CHECKPOINT_VERSION", "FUNASR_CHUNK_PRE_CONTEXT_SEC",
+            "FUNASR_CHUNK_SEC", "FUNASR_CONTEXTUAL_CACHE_MODEL_DIR",
+            "FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC", "FUNASR_CONTEXTUAL_MODEL",
+            "FUNASR_CPU_RETRY_DELAY_SEC", "FUNASR_DEFAULT_DEVICE",
+            "FUNASR_FOREGROUND_AUDIO_FILTER", "FUNASR_HOTWORD_MAX_CHARS",
+            "FUNASR_HOTWORD_MAX_COUNT", "FUNASR_MODEL",
+            "FUNASR_NANO_CACHE_ROOTS", "FUNASR_NANO_MODEL",
+            "FUNASR_PUNC_CACHE_MODEL_DIR", "FUNASR_PUNC_MODEL",
+            "FUNASR_SPK_CACHE_MODEL_DIR", "FUNASR_SPK_MODEL",
+            "FUNASR_SPK_WEIGHT_FILES", "FUNASR_VAD_CACHE_MODEL_DIR",
+            "FUNASR_VAD_MODEL", "SRT_ABNORMAL_CHARS_PER_SEC",
+            "SRT_ESTIMATED_CHARS_PER_SEC", "SRT_MAX_ESTIMATED_SEG_SEC",
+            "SRT_REPEAT_REPAIR_MIN_ENTRIES", "SUBTITLE_LEGACY_REPAIR_MAX_CHARS",
+            "SUBTITLE_MAX_CHARS", "SUBTITLE_MAX_DURATION_SEC",
+            "SUBTITLE_PAUSE_BREAK_SEC", "SUBTITLE_TARGET_CHARS",
+            "TOPIC_CONTEXT_GAP",
+        )
+
+        for facade_name, service_name in expected_functions.items():
+            with self.subTest(facade_name=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(transcription_service, service_name),
+                )
+        for constant_name in expected_constants:
+            with self.subTest(constant_name=constant_name):
+                self.assertIs(
+                    getattr(topic_engine, constant_name),
+                    getattr(transcription_service, constant_name),
+                )
 
     def test_danmaku_density_keeps_uniform_low_windows_and_true_stream_average(self):
         timestamps = [0, 10, 20, 30, 40, 50, 120]
@@ -1953,7 +2041,7 @@ class TopicEngineParseTests(unittest.TestCase):
             calls.append((kwargs, os.environ.get("MODELSCOPE_LOCAL_ONLY")))
             return object()
 
-        with patch.dict("topic_engine.os.environ", {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             model = _load_funasr_model(fake_auto_model, device="cpu")
 
         self.assertIsNotNone(model)
@@ -1965,7 +2053,7 @@ class TopicEngineParseTests(unittest.TestCase):
         with TemporaryDirectory() as td:
             model_dir = Path(td)
             (model_dir / "model.pt").write_bytes(b"fake")
-            with patch("topic_engine._funasr_model_cache_candidates", return_value=[str(model_dir)]):
+            with patch("autoslice.transcription.service.funasr_model_cache_candidates", return_value=[str(model_dir)]):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
 
     def test_funasr_speaker_model_source_uses_configured_local_directory(self):
@@ -1973,7 +2061,7 @@ class TopicEngineParseTests(unittest.TestCase):
             model_dir = Path(td)
             (model_dir / "campplus_cn_common.bin").write_bytes(b"fake")
             with patch.dict(
-                "topic_engine.os.environ",
+                "os.environ",
                 {"AUTOSLICE_FUNASR_SPK_DIR": str(model_dir)},
                 clear=True,
             ):
@@ -1987,10 +2075,10 @@ class TopicEngineParseTests(unittest.TestCase):
             model_dir.mkdir()
             (model_dir / "model.pt").write_bytes(b"fake")
             with (
-                patch("topic_engine._resolve_funasr_model_source", return_value=str(model_dir)),
-                patch("topic_engine._resolve_funasr_device", return_value="cuda:0"),
+                patch("autoslice.transcription.service.resolve_funasr_model_source", return_value=str(model_dir)),
+                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cuda:0"),
                 patch.dict(
-                    "topic_engine.os.environ",
+                    "os.environ",
                     {"AUTOSLICE_FUNASR_HOTWORDS": "音音 朱鹮"},
                     clear=True,
                 ),
@@ -2009,9 +2097,9 @@ class TopicEngineParseTests(unittest.TestCase):
             model_dir.mkdir()
             (model_dir / "model.pt").write_bytes(b"fake")
             with (
-                patch("topic_engine._resolve_funasr_model_source", return_value=str(model_dir)),
-                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
-                patch.dict("topic_engine.os.environ", {}, clear=True),
+                patch("autoslice.transcription.service.resolve_funasr_model_source", return_value=str(model_dir)),
+                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
+                patch.dict("os.environ", {}, clear=True),
             ):
                 status = funasr_public_status()
 
@@ -2032,9 +2120,9 @@ class TopicEngineParseTests(unittest.TestCase):
             return LoadedModel()
 
         with (
-            patch("topic_engine._resolve_funasr_model_source", return_value="asr-cache"),
+            patch("autoslice.transcription.service.resolve_funasr_model_source", return_value="asr-cache"),
             patch(
-                "topic_engine._resolve_funasr_aux_model_source",
+                "autoslice.transcription.service.resolve_funasr_aux_model_source",
                 side_effect=("vad-cache", "punc-cache"),
             ),
         ):
@@ -2058,13 +2146,13 @@ class TopicEngineParseTests(unittest.TestCase):
             return LoadedModel()
 
         with (
-            patch("topic_engine._resolve_funasr_model_source", return_value="asr-cache"),
+            patch("autoslice.transcription.service.resolve_funasr_model_source", return_value="asr-cache"),
             patch(
-                "topic_engine._resolve_funasr_aux_model_source",
+                "autoslice.transcription.service.resolve_funasr_aux_model_source",
                 side_effect=("vad-cache", "punc-cache"),
             ),
             patch(
-                "topic_engine._resolve_funasr_speaker_model_source",
+                "autoslice.transcription.service.resolve_funasr_speaker_model_source",
                 return_value="speaker-cache",
             ),
         ):
@@ -2088,13 +2176,13 @@ class TopicEngineParseTests(unittest.TestCase):
             pass
 
         with (
-            patch("topic_engine._resolve_funasr_model_source", return_value="asr-cache"),
+            patch("autoslice.transcription.service.resolve_funasr_model_source", return_value="asr-cache"),
             patch(
-                "topic_engine._resolve_funasr_aux_model_source",
+                "autoslice.transcription.service.resolve_funasr_aux_model_source",
                 return_value=None,
             ),
             patch(
-                "topic_engine._resolve_funasr_speaker_model_source",
+                "autoslice.transcription.service.resolve_funasr_speaker_model_source",
                 return_value=None,
             ),
         ):
@@ -2120,11 +2208,11 @@ class TopicEngineParseTests(unittest.TestCase):
 
         with (
             patch(
-                "topic_engine._resolve_funasr_model_source",
+                "autoslice.transcription.service.resolve_funasr_model_source",
                 return_value="C:/models/Fun-ASR-Nano-2512",
             ),
             patch(
-                "topic_engine._resolve_funasr_aux_model_source",
+                "autoslice.transcription.service.resolve_funasr_aux_model_source",
                 return_value="vad-cache",
             ),
         ):
@@ -2362,7 +2450,7 @@ class TopicEngineParseTests(unittest.TestCase):
             video_path = Path(td) / "recording.flv"
             video_path.write_bytes(b"source")
             with patch(
-                "topic_engine._resolve_funasr_speaker_model_source",
+                "autoslice.transcription.service.resolve_funasr_speaker_model_source",
                 return_value=None,
             ):
                 ordinary = _funasr_source_fingerprint(
@@ -2444,7 +2532,7 @@ class TopicEngineParseTests(unittest.TestCase):
         def fake_auto_model(**_kwargs):
             raise RuntimeError("SSL EOF")
 
-        with patch.dict("topic_engine.os.environ", {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "FunASR 模型加载失败"):
                 _load_funasr_model(fake_auto_model, progress_callback=lambda *args: events.append(args))
 
@@ -2489,9 +2577,9 @@ class TopicEngineParseTests(unittest.TestCase):
             _write_funasr_checkpoint(checkpoint_path, payload)
 
             with (
-                patch("topic_engine._probe_video_duration", return_value=duration),
+                patch("autoslice.transcription.service.probe_video_duration", return_value=duration),
                 patch(
-                    "topic_engine._load_funasr_model",
+                    "autoslice.transcription.service.load_funasr_model",
                     side_effect=AssertionError("完整检查点不应加载模型"),
                 ),
                 patch("subprocess.run") as run,
@@ -2575,9 +2663,9 @@ class TopicEngineParseTests(unittest.TestCase):
             video_path.write_bytes(b"source")
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("topic_engine._probe_video_duration", return_value=240.0),
-                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
-                patch("topic_engine._load_funasr_model", return_value=model),
+                patch("autoslice.transcription.service.probe_video_duration", return_value=240.0),
+                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
+                patch("autoslice.transcription.service.load_funasr_model", return_value=model),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 srt_path = ensure_srt(str(video_path))
@@ -2622,10 +2710,10 @@ class TopicEngineParseTests(unittest.TestCase):
             video_path.write_bytes(b"source")
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("topic_engine._probe_video_duration", return_value=120.0),
-                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
+                patch("autoslice.transcription.service.probe_video_duration", return_value=120.0),
+                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
                 patch(
-                    "topic_engine._load_funasr_model",
+                    "autoslice.transcription.service.load_funasr_model",
                     return_value=ForegroundModel(),
                 ) as load_model,
                 patch("subprocess.run", side_effect=fake_ffmpeg),
@@ -2674,7 +2762,7 @@ class TopicEngineParseTests(unittest.TestCase):
             checkpoint_path.write_text('{"old": true}', encoding="utf-8")
 
             with (
-                patch("topic_engine.os.replace", side_effect=OSError("disk busy")),
+                patch("autoslice.transcription.service.replace_file_atomically", side_effect=OSError("disk busy")),
                 self.assertRaises(OSError),
             ):
                 _write_funasr_checkpoint(
@@ -2718,10 +2806,10 @@ class TopicEngineParseTests(unittest.TestCase):
             video_path.write_bytes(b"source")
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("topic_engine._probe_video_duration", return_value=120.0),
-                patch("topic_engine._resolve_funasr_device", return_value="cuda:0"),
-                patch("topic_engine._load_funasr_model", side_effect=fake_load),
-                patch("topic_engine._clear_funasr_cuda_cache"),
+                patch("autoslice.transcription.service.probe_video_duration", return_value=120.0),
+                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cuda:0"),
+                patch("autoslice.transcription.service.load_funasr_model", side_effect=fake_load),
+                patch("autoslice.transcription.service.clear_funasr_cuda_cache"),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 srt_path = ensure_srt(
@@ -2761,12 +2849,24 @@ class TopicEngineParseTests(unittest.TestCase):
             root = Path(tmp)
             video_path = root / "recording.flv"
             video_path.write_bytes(b"source")
+            formal_srt_path = root / "recording.srt"
+            formal_srt_path.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\n残缺字幕\n\n",
+                encoding="utf-8",
+            )
+            checkpoint_path = Path(_funasr_checkpoint_path(str(video_path)))
+            checkpoint_path.write_text(
+                json.dumps({"status": "failed"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            os.utime(formal_srt_path, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(checkpoint_path, ns=(2_000_000_000, 2_000_000_000))
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("topic_engine._probe_video_duration", return_value=240.0),
-                patch("topic_engine._resolve_funasr_device", return_value="cpu"),
-                patch("topic_engine._load_funasr_model", return_value=model),
-                patch("topic_engine.FUNASR_CPU_RETRY_DELAY_SEC", 0),
+                patch("autoslice.transcription.service.probe_video_duration", return_value=240.0),
+                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
+                patch("autoslice.transcription.service.load_funasr_model", return_value=model),
+                patch("autoslice.transcription.service.FUNASR_CPU_RETRY_DELAY_SEC", 0),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
                 self.assertRaisesRegex(RuntimeError, "连续失败"),
             ):
@@ -2779,7 +2879,10 @@ class TopicEngineParseTests(unittest.TestCase):
                 path.name for path in root.iterdir()
                 if path.suffix == ".wav" or path.name.endswith(".srt.tmp")
             ]
-            formal_srt_exists = (root / "recording.srt").exists()
+            formal_srt_exists = formal_srt_path.exists()
+            quarantined_srt = Path(str(formal_srt_path) + ".incomplete")
+            quarantined_srt_exists = quarantined_srt.exists()
+            quarantined_srt_text = quarantined_srt.read_text(encoding="utf-8")
 
         self.assertEqual(list(checkpoint["chunks"]), ["0"])
         self.assertEqual(checkpoint["status"], "failed")
@@ -2787,8 +2890,13 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(checkpoint["last_failure"]["chunk_index"], 1)
         self.assertIn("连续失败", checkpoint["last_failure"]["message"])
         self.assertFalse(formal_srt_exists)
+        self.assertTrue(quarantined_srt_exists)
+        self.assertIn("残缺字幕", quarantined_srt_text)
         self.assertEqual(leftovers, [])
         self.assertEqual(model.calls, 3)
+
+class TopicEngineParseTests(unittest.TestCase):
+    """话题分析解析与去重的快速回归测试。"""
 
     def test_default_llm_model_uses_configured_model(self):
         self.assertTrue(LLM_MODEL)

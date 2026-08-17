@@ -39,6 +39,7 @@ from autoslice.llm.prompts import (
     build_title_style_prompt as _render_title_style_prompt,
     build_topic_analysis_prompt as _render_topic_analysis_prompt,
 )
+from autoslice.transcription import service as transcription_service
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -79,6 +80,92 @@ from streamer_profiles import (
     streamer_profile_context,
 )
 from runtime_config import OUTPUT_DIR, TIMELINE_DIR
+
+
+# 转录兼容 façade：所有符号直接绑定唯一 service 对象，禁止本地再实现。
+_profile_identity_names = transcription_service.profile_identity_names
+_profile_matches_streamer = transcription_service.profile_matches_streamer
+_infer_streamer_name = transcription_service.infer_streamer_name
+FUNASR_BATCH_SIZE_SEC = transcription_service.FUNASR_BATCH_SIZE_SEC
+FUNASR_CACHE_MODEL_DIR = transcription_service.FUNASR_CACHE_MODEL_DIR
+FUNASR_CHECKPOINT_VERSION = transcription_service.FUNASR_CHECKPOINT_VERSION
+FUNASR_CHUNK_PRE_CONTEXT_SEC = transcription_service.FUNASR_CHUNK_PRE_CONTEXT_SEC
+FUNASR_CHUNK_SEC = transcription_service.FUNASR_CHUNK_SEC
+FUNASR_CONTEXTUAL_CACHE_MODEL_DIR = transcription_service.FUNASR_CONTEXTUAL_CACHE_MODEL_DIR
+FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC = transcription_service.FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC
+FUNASR_CONTEXTUAL_MODEL = transcription_service.FUNASR_CONTEXTUAL_MODEL
+FUNASR_CPU_RETRY_DELAY_SEC = transcription_service.FUNASR_CPU_RETRY_DELAY_SEC
+FUNASR_DEFAULT_DEVICE = transcription_service.FUNASR_DEFAULT_DEVICE
+FUNASR_FOREGROUND_AUDIO_FILTER = transcription_service.FUNASR_FOREGROUND_AUDIO_FILTER
+FUNASR_HOTWORD_MAX_CHARS = transcription_service.FUNASR_HOTWORD_MAX_CHARS
+FUNASR_HOTWORD_MAX_COUNT = transcription_service.FUNASR_HOTWORD_MAX_COUNT
+FUNASR_MODEL = transcription_service.FUNASR_MODEL
+FUNASR_NANO_CACHE_ROOTS = transcription_service.FUNASR_NANO_CACHE_ROOTS
+FUNASR_NANO_MODEL = transcription_service.FUNASR_NANO_MODEL
+FUNASR_PUNC_CACHE_MODEL_DIR = transcription_service.FUNASR_PUNC_CACHE_MODEL_DIR
+FUNASR_PUNC_MODEL = transcription_service.FUNASR_PUNC_MODEL
+FUNASR_SPK_CACHE_MODEL_DIR = transcription_service.FUNASR_SPK_CACHE_MODEL_DIR
+FUNASR_SPK_MODEL = transcription_service.FUNASR_SPK_MODEL
+FUNASR_SPK_WEIGHT_FILES = transcription_service.FUNASR_SPK_WEIGHT_FILES
+FUNASR_VAD_CACHE_MODEL_DIR = transcription_service.FUNASR_VAD_CACHE_MODEL_DIR
+FUNASR_VAD_MODEL = transcription_service.FUNASR_VAD_MODEL
+SRT_ABNORMAL_CHARS_PER_SEC = transcription_service.SRT_ABNORMAL_CHARS_PER_SEC
+SRT_ESTIMATED_CHARS_PER_SEC = transcription_service.SRT_ESTIMATED_CHARS_PER_SEC
+SRT_MAX_ESTIMATED_SEG_SEC = transcription_service.SRT_MAX_ESTIMATED_SEG_SEC
+SRT_REPEAT_REPAIR_MIN_ENTRIES = transcription_service.SRT_REPEAT_REPAIR_MIN_ENTRIES
+SUBTITLE_LEGACY_REPAIR_MAX_CHARS = transcription_service.SUBTITLE_LEGACY_REPAIR_MAX_CHARS
+SUBTITLE_MAX_CHARS = transcription_service.SUBTITLE_MAX_CHARS
+SUBTITLE_MAX_DURATION_SEC = transcription_service.SUBTITLE_MAX_DURATION_SEC
+SUBTITLE_PAUSE_BREAK_SEC = transcription_service.SUBTITLE_PAUSE_BREAK_SEC
+SUBTITLE_TARGET_CHARS = transcription_service.SUBTITLE_TARGET_CHARS
+TOPIC_CONTEXT_GAP = transcription_service.TOPIC_CONTEXT_GAP
+_text_len_for_timing = transcription_service._text_len_for_timing
+_repair_srt_end_time = transcription_service._repair_srt_end_time
+_join_asr_tokens = transcription_service._join_asr_tokens
+_strip_asr_subtitle_punctuation = transcription_service._strip_asr_subtitle_punctuation
+_normalise_asr_text = transcription_service._normalise_asr_text
+_normalise_streamer_terms = transcription_service._normalise_streamer_terms
+_subtitle_text_size = transcription_service._subtitle_text_size
+_split_subtitle_text_for_display = transcription_service._split_subtitle_text_for_display
+_split_timed_subtitle_segment = transcription_service._split_timed_subtitle_segment
+_should_hold_subtitle_for_short_clause = transcription_service._should_hold_subtitle_for_short_clause
+_segment_timed_tokens = transcription_service._segment_timed_tokens
+_segments_from_funasr_result = transcription_service._segments_from_funasr_result
+_read_srt_entries = transcription_service._read_srt_entries
+_load_repaired_srt_segments = transcription_service._load_repaired_srt_segments
+export_corrected_srt = transcription_service.export_corrected_srt
+_probe_video_duration = transcription_service.probe_video_duration
+_prepare_funasr_environment = transcription_service._prepare_funasr_environment
+_funasr_model_cache_candidates = transcription_service.funasr_model_cache_candidates
+_funasr_nano_cache_candidates = transcription_service._funasr_nano_cache_candidates
+_resolve_funasr_model_source = transcription_service.resolve_funasr_model_source
+_resolve_funasr_aux_model_source = transcription_service.resolve_funasr_aux_model_source
+_resolve_funasr_speaker_model_source = transcription_service.resolve_funasr_speaker_model_source
+_funasr_model_runtime_signature = transcription_service._funasr_model_runtime_signature
+_funasr_hotwords = transcription_service._funasr_hotwords
+_funasr_generate_kwargs = transcription_service._funasr_generate_kwargs
+_resolve_funasr_device = transcription_service.resolve_funasr_device
+funasr_public_status = transcription_service.funasr_public_status
+_load_funasr_model = transcription_service.load_funasr_model
+_funasr_checkpoint_path = transcription_service.funasr_checkpoint_path
+_funasr_source_fingerprint = transcription_service._funasr_source_fingerprint
+_funasr_chunk_fingerprint = transcription_service._funasr_chunk_fingerprint
+_funasr_chunk_input_window = transcription_service._funasr_chunk_input_window
+_normalise_funasr_result = transcription_service._normalise_funasr_result
+_is_valid_funasr_result = transcription_service._is_valid_funasr_result
+_primary_speaker_segments = transcription_service._primary_speaker_segments
+_is_close_number = transcription_service._is_close_number
+_prepare_funasr_checkpoint = transcription_service._prepare_funasr_checkpoint
+_write_funasr_checkpoint = transcription_service.write_funasr_checkpoint
+_clear_funasr_cuda_cache = transcription_service.clear_funasr_cuda_cache
+_dedupe_overlapping_funasr_segments = transcription_service._dedupe_overlapping_funasr_segments
+_is_funasr_punctuation = transcription_service._is_funasr_punctuation
+_attach_funasr_punctuation_to_tokens = transcription_service._attach_funasr_punctuation_to_tokens
+_align_funasr_tokens = transcription_service._align_funasr_tokens
+_trim_funasr_tokens_to_core = transcription_service._trim_funasr_tokens_to_core
+ensure_srt = transcription_service.ensure_srt
+_srt_time = transcription_service.srt_time
+_parse_srt_timestamp = transcription_service.parse_srt_timestamp
 
 
 # LLM 兼容 façade 必须与唯一 gateway 保持对象身份；本模块不得重新定义。
@@ -135,75 +222,8 @@ LLM_MAX_CONCURRENCY = 4
 TOPIC_ANALYSIS_CHECKPOINT_VERSION = 1
 # 修改候选复核提示、标题证据或通过规则时必须递增，防止旧标题检查点被继续复用。
 CLIP_REVIEW_POLICY_VERSION = 6
-FUNASR_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_MODEL", "").strip()
-    or "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-)
-FUNASR_CONTEXTUAL_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_CONTEXTUAL_MODEL", "").strip()
-    or "damo/speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
-)
-FUNASR_VAD_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_VAD_MODEL", "").strip()
-    or "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"
-)
-FUNASR_PUNC_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_PUNC_MODEL", "").strip()
-    or "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
-)
-FUNASR_SPK_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_SPK_MODEL", "").strip()
-    or "iic/speech_campplus_sv_zh-cn_16k-common"
-)
-FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
-FUNASR_CHUNK_SEC = 120.0
-FUNASR_CHUNK_PRE_CONTEXT_SEC = 20.0
-FUNASR_BATCH_SIZE_SEC = 60
-FUNASR_CHECKPOINT_VERSION = 3
-FUNASR_CPU_RETRY_DELAY_SEC = 1
-FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-)
-FUNASR_CONTEXTUAL_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\damo\speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
-)
-FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
-)
-FUNASR_NANO_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_NANO_MODEL", "").strip()
-    or "FunAudioLLM/Fun-ASR-Nano-2512"
-)
-FUNASR_NANO_CACHE_ROOTS = (
-    os.path.expanduser(
-        r"~\.cache\modelscope\hub\models\FunAudioLLM\Fun-ASR-Nano-2512"
-    ),
-    os.path.expanduser(
-        r"~\.cache\huggingface\hub\models--FunAudioLLM--Fun-ASR-Nano-2512\snapshots"
-    ),
-)
-FUNASR_VAD_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\speech_fsmn_vad_zh-cn-16k-common-pytorch"
-)
-FUNASR_PUNC_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
-)
-FUNASR_SPK_CACHE_MODEL_DIR = os.path.expanduser(
-    os.path.join(
-        r"~\.cache\modelscope\hub\models",
-        *FUNASR_SPK_MODEL.split("/"),
-    )
-)
-FUNASR_SPK_WEIGHT_FILES = ("campplus_cn_common.bin", "model.pt")
 # 字幕工作台的“排除背景音”只处理用于识别的临时 WAV，不修改源视频音轨。
 # 先抑制稳定噪声和低音量背景，再由可选 CAM++ 说话人聚类保留主要说话人。
-FUNASR_FOREGROUND_AUDIO_FILTER = (
-    "highpass=f=80,lowpass=f=12000,"
-    "afftdn=nf=-32,"
-    "agate=threshold=0.012:ratio=6:attack=8:release=220"
-)
-FUNASR_HOTWORD_MAX_COUNT = 80
-FUNASR_HOTWORD_MAX_CHARS = 2400
 DANMAKU_WINDOW = 60
 DANMAKU_WINDOW_STEP = 15  # 每 15 秒采样一个 60 秒窗口，兼顾峰值定位和全场覆盖
 DANMAKU_MESSAGE_MAX_CHARS = 120
@@ -226,7 +246,6 @@ TOPIC_REVIEW_FOCUS_MAX_SEC = 180  # AI 语义核心最多 3 分钟，给前因�
 TOPIC_DIRECT_SLICE_MAX_SEC = TOPIC_REVIEW_FOCUS_MAX_SEC
 TOPIC_FOCUS_PRE_SEC = 0         # 长话题核心从弹幕峰值窗口开始，前因由 TOPIC_PRE_CONTEXT_SEC 补
 TOPIC_FOCUS_POST_SEC = DANMAKU_WINDOW  # 长话题核心覆盖完整弹幕峰值窗口
-TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
 TOPIC_NATURAL_BOUNDARY_PRE_MAX_SEC = 30
 TOPIC_NATURAL_BOUNDARY_POST_MAX_SEC = 45
 TOPIC_AI_FOCUS_PRE_CONTEXT_SEC = 20
@@ -252,19 +271,10 @@ SLICE_DEFAULT_CONCURRENCY = 2
 SLICE_MAX_CONCURRENCY = 2
 SC_CONTEXT_LOOKBACK_SEC = 180   # 话题前 3 分钟内的 SC/礼物触发点会纳入切片
 SC_FALLBACK_GIFT_LOOKBACK_SEC = 15  # 仅凭“感谢礼物”推断 SC 时避免回溯到无关互动
-SRT_ABNORMAL_CHARS_PER_SEC = 18 # 超过该语速视为 ASR 时间戳异常
-SRT_ESTIMATED_CHARS_PER_SEC = 7 # 异常长字幕按该语速估算结束时间
-SRT_MAX_ESTIMATED_SEG_SEC = 300 # 单条异常字幕最多估算 5 分钟
-SRT_REPEAT_REPAIR_MIN_ENTRIES = 8  # 旧版把整段全文按每个字重复写入时的识别下限
 # 当前默认字幕为剪映字号 20、描边 100。28 字会在 16:9 成片中直接越界，
 # 因此工作 SRT 以 13 字为硬上限；最终 ASS 仍会按实际画布再做一次保险拆分。
-SUBTITLE_TARGET_CHARS = 10
-SUBTITLE_MAX_CHARS = DEFAULT_SUBTITLE_MAX_CHARS
 # 只供修复历史“全文重复到逐字时间戳”的旧 SRT 使用。该路径需要较完整的
 # 上下文来纠正跨词专名；最终成片仍会在 ASS 层按画布宽度安全拆分。
-SUBTITLE_LEGACY_REPAIR_MAX_CHARS = 28
-SUBTITLE_MAX_DURATION_SEC = 7.0
-SUBTITLE_PAUSE_BREAK_SEC = 0.65
 TOPIC_MIN_REPORT_SEC = 60       # 正文较多但模型给出几秒时，报告至少扩到 1 分钟
 TOPIC_MAX_REPAIRED_REPORT_SEC = 180
 MANUAL_TIMELINE_DIR = str(TIMELINE_DIR)
@@ -363,24 +373,6 @@ def fmt_time(seconds):
     return str(timedelta(seconds=int(seconds)))
 
 
-def _profile_identity_names(profile):
-    """返回可用于识别当前主播的正式名和配置称呼。"""
-    names = {
-        profile.canonical_name,
-        profile.report_name,
-        *profile.aliases,
-        *profile.path_keywords,
-    }
-    short_name = re.sub(
-        r'[A-Za-z][A-Za-z0-9_. -]*$',
-        '',
-        profile.canonical_name,
-    ).strip()
-    if len(short_name) >= 2:
-        names.add(short_name)
-    return tuple(
-        sorted((name for name in names if name), key=len, reverse=True)
-    )
 
 
 def _profile_formal_names(profile):
@@ -398,9 +390,6 @@ def _profile_formal_names(profile):
     )
 
 
-def _profile_matches_streamer(profile, streamer_name):
-    name = str(streamer_name or '').strip()
-    return not name or name in _profile_identity_names(profile)
 
 
 def _active_streamer_aliases():
@@ -454,11 +443,6 @@ def _streamer_role_pattern(*extra_names):
     ) + ")"
 
 
-def _infer_streamer_name(video_path):
-    """从当前任务或录播路径解析主播正式名。"""
-    active = active_streamer_profile()
-    profile = active or resolve_streamer_profile("auto", video_path)
-    return profile.canonical_name
 
 
 def _streamer_report_name(streamer_name):
@@ -470,380 +454,34 @@ def _streamer_report_name(streamer_name):
     return name or profile.report_name
 
 
-def _text_len_for_timing(text):
-    """估算语速用长度：去掉空白，保留中文/数字/字母。"""
-    return len(re.sub(r'\s+', '', text or ""))
 
 
-def _repair_srt_end_time(start_s, end_s, text):
-    """修复 FunASR 偶发的“几百字压到零点几秒”时间戳。"""
-    duration = max(0.001, end_s - start_s)
-    text_len = _text_len_for_timing(text)
-    if text_len < 80:
-        return end_s
-    if text_len / duration <= SRT_ABNORMAL_CHARS_PER_SEC:
-        return end_s
-    estimated = min(SRT_MAX_ESTIMATED_SEG_SEC, max(duration, text_len / SRT_ESTIMATED_CHARS_PER_SEC))
-    return start_s + estimated
 
 
-def _join_asr_tokens(tokens):
-    """拼接 FunASR 字/词 token；中文不加空格，连续英文词保留分隔。"""
-    result = ""
-    for token in (str(item).strip() for item in tokens):
-        if not token:
-            continue
-        if result and re.search(r'[A-Za-z0-9]$', result) and re.match(r'^[A-Za-z0-9]', token):
-            result += " "
-        result += token
-    return result.strip()
 
 
-def _strip_asr_subtitle_punctuation(text):
-    """按剪辑习惯移除 ASR 字幕标点；逗号类保留为单个分隔空格。"""
-    result = []
-    comma_like = {"，", ",", "、"}
-    for char in str(text or ""):
-        if char in comma_like:
-            result.append(" ")
-        elif unicodedata.category(char).startswith("P"):
-            continue
-        else:
-            result.append(char)
-    return re.sub(r"\s+", " ", "".join(result)).strip()
 
 
-def _normalise_asr_text(text, streamer_name="主播"):
-    """清理 ASR 分词空格，并应用当前主播配置的低歧义专名纠错。"""
-    if isinstance(text, (list, tuple)):
-        tokens = text
-    else:
-        tokens = re.split(r'\s+', str(text or "").replace("\n", " ").strip())
-    clean = _join_asr_tokens(tokens)
-    clean = _normalise_streamer_terms(clean, streamer_name=streamer_name)
-    return _strip_asr_subtitle_punctuation(clean)
 
 
-def _normalise_streamer_terms(text, streamer_name="主播"):
-    """统一字幕和 AI 报告中的主播/粉丝专名，不改动其它排版。"""
-    clean = str(text or "")
-    profile = current_streamer_profile()
-    if not _profile_matches_streamer(profile, streamer_name):
-        return clean
-    for source, target in profile.asr_replacements:
-        clean = clean.replace(source, target)
-    return clean
 
 
-def _subtitle_text_size(text):
-    return len(re.sub(r'\s+', '', text or ""))
 
 
-def _split_subtitle_text_for_display(text, max_chars=SUBTITLE_MAX_CHARS):
-    """按可读长度拆分字幕正文，优先在空格处断开，必要时按字硬切。"""
-    try:
-        max_chars = max(1, int(max_chars))
-    except (TypeError, ValueError):
-        max_chars = SUBTITLE_MAX_CHARS
-    remaining = re.sub(r"\s+", " ", str(text or "")).strip()
-    parts = []
-    while _subtitle_text_size(remaining) > max_chars:
-        visible_count = 0
-        hard_cut = len(remaining)
-        for index, char in enumerate(remaining):
-            if not char.isspace():
-                visible_count += 1
-            if visible_count >= max_chars:
-                hard_cut = index + 1
-                break
-        preferred_cut = remaining.rfind(" ", 0, hard_cut)
-        if (
-                preferred_cut > 0
-                and _subtitle_text_size(remaining[:preferred_cut])
-                >= max(2, int(max_chars * 0.55))):
-            cut = preferred_cut
-        else:
-            cut = hard_cut
-        part = remaining[:cut].strip()
-        if not part:
-            part = remaining[:hard_cut].strip()
-            cut = hard_cut
-        if not part:
-            break
-        parts.append(part)
-        remaining = remaining[cut:].lstrip()
-    if remaining:
-        parts.append(remaining)
-    return parts
 
 
-def _split_timed_subtitle_segment(start_s, end_s, text, max_chars=SUBTITLE_MAX_CHARS):
-    """将过长字幕按正文比例分配为连续时间段，避免单条字幕越界。"""
-    parts = _split_subtitle_text_for_display(text, max_chars=max_chars)
-    if not parts:
-        return []
-    start_s = float(start_s)
-    end_s = float(end_s)
-    if end_s <= start_s:
-        # 仅修复无效时间戳；合法的极短字幕仍必须保留原始时间范围。
-        end_s = start_s + 0.1
-    if len(parts) == 1:
-        return [(start_s, end_s, parts[0])]
-
-    weights = [max(1, _subtitle_text_size(part)) for part in parts]
-    total_weight = sum(weights)
-    duration = end_s - start_s
-    minimum_duration = min(0.05, duration / len(parts))
-    cursor = start_s
-    segments = []
-    for index, (part, weight) in enumerate(zip(parts, weights)):
-        if index == len(parts) - 1:
-            next_cursor = end_s
-        else:
-            ideal_cursor = start_s + duration * sum(weights[:index + 1]) / total_weight
-            remaining_parts = len(parts) - index - 1
-            earliest_cursor = cursor + minimum_duration
-            latest_cursor = end_s - minimum_duration * remaining_parts
-            next_cursor = min(latest_cursor, max(earliest_cursor, ideal_cursor))
-        segments.append((cursor, next_cursor, part))
-        cursor = next_cursor
-    return segments
 
 
-def _should_hold_subtitle_for_short_clause(timed_tokens, index, current_chars, max_chars):
-    """句末只剩一两个字时延后软截断，避免把短语尾巴单独丢到下一条。"""
-    if current_chars >= max_chars:
-        return False
-    trailing_chars = 0
-    for _start_s, _end_s, future_token in timed_tokens[index + 1:]:
-        for char in str(future_token or ""):
-            if char.isspace():
-                continue
-            if unicodedata.category(char).startswith("P") or char == "…":
-                return (
-                    0 < trailing_chars <= 2
-                    and current_chars + trailing_chars <= max_chars
-                )
-            trailing_chars += 1
-            if trailing_chars > 2 or current_chars + trailing_chars > max_chars:
-                return False
-    return False
 
 
-def _segment_timed_tokens(
-        timed_tokens, streamer_name="主播", max_chars=SUBTITLE_MAX_CHARS):
-    """把字/词时间戳整理成适合阅读和边界吸附的短句字幕。"""
-    if not timed_tokens:
-        return []
-    try:
-        max_chars = max(1, int(max_chars))
-    except (TypeError, ValueError):
-        max_chars = SUBTITLE_MAX_CHARS
-    segments = []
-    current = []
-    current_chars = 0
-    sentence_end_tokens = "。！？!?；;"
-
-    def flush():
-        nonlocal current, current_chars
-        if not current:
-            return
-        text = _normalise_asr_text([item[2] for item in current], streamer_name=streamer_name)
-        if text:
-            segments.extend(_split_timed_subtitle_segment(
-                current[0][0], current[-1][1], text, max_chars=max_chars,
-            ))
-        current = []
-        current_chars = 0
-
-    for index, (start_s, end_s, token) in enumerate(timed_tokens):
-        token = str(token).strip()
-        if not token:
-            continue
-        current.append((float(start_s), float(end_s), token))
-        current_chars += _subtitle_text_size(token)
-        duration = current[-1][1] - current[0][0]
-        next_gap = 0.0
-        if index + 1 < len(timed_tokens):
-            next_gap = max(0.0, float(timed_tokens[index + 1][0]) - float(end_s))
-        target_break = (
-            current_chars >= SUBTITLE_TARGET_CHARS
-            and (next_gap >= 0.15 or duration >= 4.5)
-        )
-        hold_for_short_clause = (
-            target_break
-            and _should_hold_subtitle_for_short_clause(
-                timed_tokens,
-                index,
-                current_chars,
-                max_chars,
-            )
-        )
-        should_break = (
-            (token[-1] in sentence_end_tokens and current_chars >= 4)
-            or (next_gap >= SUBTITLE_PAUSE_BREAK_SEC and current_chars >= 2)
-            or (target_break and not hold_for_short_clause)
-            or current_chars >= max_chars
-            or duration >= SUBTITLE_MAX_DURATION_SEC
-        )
-        if should_break:
-            flush()
-    flush()
-
-    # Nano 的 VAD 分段有时会把句末标点放到下一段的开头。标点没有独立
-    # 语义，应回挂到上一条；极短尾字也在时间连续且不超长时并回上一条。
-    closing_punctuation = "，。！？；：、,.!?;:）)]}》】”’"
-    polished = []
-    for start_s, end_s, text in segments:
-        leading = ""
-        while text and text[0] in closing_punctuation:
-            leading += text[0]
-            text = text[1:]
-        if leading and polished:
-            previous = polished[-1]
-            polished[-1] = (previous[0], previous[1], previous[2] + leading)
-        if not text:
-            if polished:
-                previous = polished[-1]
-                polished[-1] = (
-                    previous[0], max(previous[1], end_s), previous[2]
-                )
-            continue
-        if polished:
-            previous = polished[-1]
-            gap = max(0.0, start_s - previous[1])
-            combined_text = previous[2] + text
-            if (
-                    end_s - start_s < 0.5
-                    and gap <= 0.4
-                    and _subtitle_text_size(combined_text) <= max_chars):
-                polished[-1] = (previous[0], end_s, combined_text)
-                continue
-        polished.append((start_s, end_s, text))
-    return polished
 
 
-def _segments_from_funasr_result(
-        text, timestamps, offset=0.0, streamer_name="主播", raw_text=None,
-        max_chars=SUBTITLE_MAX_CHARS):
-    """把单个 FunASR 结果转成短句，避免把整段全文复制到每个字时间戳。"""
-    timestamps = [item for item in (timestamps or []) if isinstance(item, (list, tuple)) and len(item) == 2]
-    if not text or not timestamps:
-        return []
-    tokens, aligned = _align_funasr_tokens(text, timestamps, raw_text=raw_text)
-    if not aligned:
-        start_s = offset + float(timestamps[0][0]) / 1000.0
-        end_s = offset + float(timestamps[-1][1]) / 1000.0
-        clean = _normalise_asr_text(text, streamer_name=streamer_name)
-        return _split_timed_subtitle_segment(
-            start_s,
-            max(end_s, start_s + 0.1),
-            clean,
-            max_chars=max_chars,
-        )
-    timed_tokens = [
-        (
-            offset + float(timestamp[0]) / 1000.0,
-            offset + float(timestamp[1]) / 1000.0,
-            token,
-        )
-        for token, timestamp in zip(tokens, timestamps)
-    ]
-    return _segment_timed_tokens(
-        timed_tokens,
-        streamer_name=streamer_name,
-        max_chars=max_chars,
-    )
 
 
-def _read_srt_entries(srt_path):
-    """读取原始 SRT 条目，不提前修正时间，供异常结构识别使用。"""
-    if not srt_path or not os.path.exists(srt_path):
-        return []
-    with open(srt_path, encoding="utf-8") as f:
-        content = f.read()
-    pattern = r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)'
-    entries = []
-    for start_str, end_str, text in re.findall(pattern, content, re.DOTALL):
-        clean_text = text.strip().replace("\n", " ").strip()
-        if not clean_text:
-            continue
-        entries.append((
-            _parse_srt_timestamp(start_str),
-            _parse_srt_timestamp(end_str),
-            clean_text,
-        ))
-    return entries
 
 
-def _load_repaired_srt_segments(srt_path):
-    """加载健康 SRT，并无损还原旧版 FunASR 的“全文逐字重复”异常文件。"""
-    entries = _read_srt_entries(srt_path)
-    if not entries:
-        return []
-    streamer_name = _infer_streamer_name(srt_path)
-    segments = []
-    index = 0
-    while index < len(entries):
-        raw_text = entries[index][2]
-        group_end = index + 1
-        while group_end < len(entries) and entries[group_end][2] == raw_text:
-            group_end += 1
-        group = entries[index:group_end]
-        tokens = raw_text.split()
-        is_repeated_funasr_block = (
-            len(group) >= SRT_REPEAT_REPAIR_MIN_ENTRIES
-            and len(tokens) == len(group)
-            and _subtitle_text_size(raw_text) >= 20
-        )
-        if is_repeated_funasr_block:
-            timed_tokens = [
-                (entry[0], entry[1], token)
-                for entry, token in zip(group, tokens)
-            ]
-            segments.extend(_segment_timed_tokens(
-                timed_tokens,
-                streamer_name=streamer_name,
-                max_chars=SUBTITLE_LEGACY_REPAIR_MAX_CHARS,
-            ))
-        else:
-            for start_s, end_s, text in group:
-                clean_text = _normalise_asr_text(text, streamer_name=streamer_name)
-                if not clean_text:
-                    continue
-                repaired_end = _repair_srt_end_time(start_s, end_s, clean_text)
-                if (
-                    segments
-                    and clean_text == segments[-1][2]
-                    and start_s - segments[-1][1] <= TOPIC_CONTEXT_GAP
-                ):
-                    segments[-1] = (
-                        segments[-1][0],
-                        max(segments[-1][1], repaired_end),
-                        clean_text,
-                    )
-                else:
-                    segments.append((start_s, repaired_end, clean_text))
-        index = group_end
-    return sorted(segments, key=lambda item: (item[0], item[1]))
 
 
-def export_corrected_srt(source_srt_path, output_path=None):
-    """生成可导入剪映的校对版，不覆盖原始 SRT。"""
-    segments = _load_repaired_srt_segments(source_srt_path)
-    if not segments:
-        return None
-    output_path = os.path.abspath(
-        output_path or os.path.splitext(source_srt_path)[0] + "_校对字幕.srt"
-    )
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        for index, (start_s, end_s, text) in enumerate(segments, 1):
-            f.write(
-                f"{index}\n{_srt_time(start_s)} --> {_srt_time(max(end_s, start_s + 0.1))}\n"
-                f"{text}\n\n"
-            )
-    return output_path
 
 
 def _repair_short_topic_end(start_s, end_s, body_lines, chunk_end):
@@ -1160,27 +798,6 @@ def _filter_manual_timeline_entries(entries, video_duration, end_margin_sec=MANU
     return [item for item in entries or [] if 0 <= float(item.get("start", -1)) <= max_start]
 
 
-def _probe_video_duration(video_path):
-    """用 ffprobe 获取当前分段视频的精确时长；失败时返回 None。"""
-    if not video_path or not os.path.isfile(video_path):
-        return None
-    import subprocess as sp
-    try:
-        result = sp.run(
-            [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", video_path,
-            ],
-            check=True,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-            encoding="utf-8",
-            errors="replace",
-        )
-        duration = float(result.stdout.strip())
-        return duration if duration > 0 else None
-    except (OSError, ValueError, sp.CalledProcessError):
-        return None
 
 
 def load_manual_timeline(video_path, timeline_dir=MANUAL_TIMELINE_DIR, manual_timeline_path=None):
@@ -1546,1240 +1163,64 @@ def _topics_from_manual_timeline(
 # Step 1: FunASR 自动转录 (复用 core.py 逻辑，降级到 CPU)
 # ============================================================
 
-def _prepare_funasr_environment():
-    """FunASR 模型只使用本地缓存，避免 Web 任务在网络下载失败时长时间卡住。"""
-    os.environ.setdefault("MODELSCOPE_LOCAL_ONLY", "1")
-
-
-def _funasr_model_cache_candidates():
-    configured = os.environ.get("AUTOSLICE_FUNASR_MODEL_DIR", "").strip()
-    candidates = []
-    if configured:
-        candidates.append(os.path.abspath(os.path.expanduser(configured)))
-    # contextual 模型只在完整缓存存在时启用；否则继续使用已有普通模型。
-    candidates.extend(_funasr_nano_cache_candidates())
-    candidates.extend((
-        FUNASR_CONTEXTUAL_CACHE_MODEL_DIR,
-        FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC,
-        FUNASR_CACHE_MODEL_DIR,
-    ))
-    return list(dict.fromkeys(candidates))
-
-
-def _funasr_nano_cache_candidates():
-    candidates = []
-    for root in FUNASR_NANO_CACHE_ROOTS:
-        if os.path.isfile(os.path.join(root, "model.pt")):
-            candidates.append(root)
-        elif os.path.isdir(root):
-            candidates.extend(
-                os.path.join(root, name)
-                for name in sorted(os.listdir(root), reverse=True)
-                if os.path.isfile(os.path.join(root, name, "model.pt"))
-            )
-    return candidates
-
-
-def _resolve_funasr_model_source():
-    """优先返回本地缓存目录，避免 AutoModel 用模型 ID 访问 ModelScope API。"""
-    for model_dir in _funasr_model_cache_candidates():
-        if model_dir and os.path.isfile(os.path.join(model_dir, "model.pt")):
-            return model_dir
-    return FUNASR_MODEL
-
-
-def _resolve_funasr_aux_model_source(model_id, cache_dir):
-    """只返回完整的本地辅助模型，避免启动时因网络问题隐式下载。"""
-    configured = os.environ.get(
-        "AUTOSLICE_FUNASR_VAD_DIR" if model_id == FUNASR_VAD_MODEL else "AUTOSLICE_FUNASR_PUNC_DIR",
-        "",
-    ).strip()
-    candidates = []
-    if configured:
-        candidates.append(os.path.abspath(os.path.expanduser(configured)))
-    candidates.append(cache_dir)
-    for model_dir in dict.fromkeys(candidates):
-        if model_dir and os.path.isfile(os.path.join(model_dir, "model.pt")):
-            return model_dir
-    return None
-
-
-def _resolve_funasr_speaker_model_source():
-    """只启用已完整下载到本机的 CAM++，日常识别绝不隐式联网。"""
-
-    configured = os.environ.get("AUTOSLICE_FUNASR_SPK_DIR", "").strip()
-    candidates = []
-    if configured:
-        candidates.append(os.path.abspath(os.path.expanduser(configured)))
-    candidates.append(FUNASR_SPK_CACHE_MODEL_DIR)
-    for model_dir in dict.fromkeys(candidates):
-        if model_dir and any(
-                os.path.isfile(os.path.join(model_dir, filename))
-                for filename in FUNASR_SPK_WEIGHT_FILES):
-            return model_dir
-    return None
-
-
-def _funasr_model_runtime_signature(foreground_only=False):
-    """让旧 ASR 检查点在模型/标点配置变化后自动失效。"""
-    model_source = _resolve_funasr_model_source()
-    contextual_active = "contextual" in str(model_source).casefold()
-    vad_source = _resolve_funasr_aux_model_source(FUNASR_VAD_MODEL, FUNASR_VAD_CACHE_MODEL_DIR)
-    punc_source = _resolve_funasr_aux_model_source(FUNASR_PUNC_MODEL, FUNASR_PUNC_CACHE_MODEL_DIR)
-    speaker_source = (
-        _resolve_funasr_speaker_model_source() if foreground_only else None
-    )
-    return {
-        "asr_model": os.path.normcase(os.path.abspath(model_source)),
-        "contextual_hotwords": contextual_active,
-        "vad_model": os.path.normcase(os.path.abspath(vad_source)) if vad_source else None,
-        "punc_model": os.path.normcase(os.path.abspath(punc_source)) if punc_source else None,
-        "speaker_model": (
-            os.path.normcase(os.path.abspath(speaker_source))
-            if speaker_source else None
-        ),
-        "foreground_only": bool(foreground_only),
-        "foreground_audio_filter": (
-            FUNASR_FOREGROUND_AUDIO_FILTER if foreground_only else None
-        ),
-        "funasr_chunk_sec": FUNASR_CHUNK_SEC,
-        "funasr_chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
-    }
-
-
-def _funasr_hotwords(video_path=None, streamer_name=""):
-    """构造受限的 ASR 热词串；普通 Paraformer 会忽略它，contextual 模型才使用。"""
-    values = []
-    configured = os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")
-    values.extend(re.split(r"[,，、;；\n\r\t ]+", configured))
-    values.extend(DEFAULT_SUBTITLE_GLOSSARY)
-    profile = current_streamer_profile()
-    values.extend(profile.subtitle_glossary)
-    values.extend((streamer_name, profile.canonical_name, profile.report_name, *profile.aliases))
-    values.extend(source for source, _ in profile.asr_replacements)
-    values.extend(target for _, target in profile.asr_replacements)
-    result = []
-    seen = set()
-    for value in values:
-        value = str(value or "").strip()
-        if not value or len(value) < 2 or len(value) > 40:
-            continue
-        key = value.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(value)
-        if len(result) >= FUNASR_HOTWORD_MAX_COUNT:
-            break
-    return " ".join(result)[:FUNASR_HOTWORD_MAX_CHARS]
-
-
-def _funasr_generate_kwargs(model, hotwords=""):
-    kwargs = {
-        "batch_size_s": FUNASR_BATCH_SIZE_SEC,
-        "disable_pbar": True,
-        "return_raw_text": True,
-    }
-    model_class = type(getattr(model, "model", model)).__name__.casefold()
-    if "funasrnano" in model_class:
-        kwargs.update({
-            "hotwords": str(hotwords or "").split(),
-            # Nano 的音频编码器包含只支持 fp32 的算子。让 FunASR
-            # 按模型配置选择解码精度，避免 RTX 20 系列强制 fp16 后出现
-            # Float/Half 混算错误或整段感叹号文本。
-            "language": "中文",
-            "itn": True,
-            "max_length": 1024,
-        })
-        kwargs.pop("return_raw_text", None)
-        if getattr(model, "_autoslice_spk_source", None):
-            kwargs["return_spk_res"] = True
-        return kwargs
-    supports_hotwords = "contextual" in model_class
-    if hotwords and supports_hotwords:
-        kwargs["hotword"] = hotwords
-    if getattr(model, "_autoslice_spk_source", None):
-        kwargs["return_spk_res"] = True
-    return kwargs
-
-
-def _resolve_funasr_device(requested_device=None):
-    """优先使用可用的 CUDA；显卡运行时缺失时保持 CPU 路径。"""
-    requested = str(
-        requested_device
-        or os.environ.get("AUTOSLICE_FUNASR_DEVICE", FUNASR_DEFAULT_DEVICE)
-        or "auto"
-    ).strip().lower()
-    if requested == "cuda":
-        return "cuda:0"
-    if requested not in {"", "auto"}:
-        return requested
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return "cuda:0"
-    except (ImportError, OSError, RuntimeError):
-        pass
-    return "cpu"
-
-
-def funasr_public_status():
-    """返回不含本机模型路径的 FunASR 状态和可执行调整提示。"""
-
-    model_source = _resolve_funasr_model_source()
-    source_text = str(model_source or "")
-    source_key = source_text.replace("\\", "/").casefold()
-    is_nano = "fun-asr-nano" in source_key
-    is_contextual = "contextual" in source_key
-    is_local_model = os.path.isfile(os.path.join(source_text, "model.pt"))
-    selected_device = _resolve_funasr_device()
-    custom_hotwords = bool(
-        str(os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")).strip()
-    )
-    speaker_filter_ready = bool(_resolve_funasr_speaker_model_source())
-
-    if is_nano:
-        model_key = "nano"
-        display_name = "Fun-ASR-Nano-2512"
-        hotword_mode = "native"
-    elif is_contextual:
-        model_key = "contextual_paraformer"
-        display_name = "Contextual Paraformer"
-        hotword_mode = "native"
-    else:
-        model_key = "paraformer"
-        display_name = "Paraformer（兼容回退）"
-        hotword_mode = "post_correction_only"
-
-    needs_setup = not is_nano
-    model_ready = is_local_model
-    if not model_ready:
-        summary = f"未检测到可用的本地 {display_name} 模型缓存"
-        recommendation = "关闭服务后运行 python setup_asr_model.py，再重新启动。"
-    elif needs_setup:
-        summary = f"当前使用 {display_name}，可以识别，但不是推荐模型"
-        recommendation = "建议关闭服务后运行 python setup_asr_model.py，安装推荐 Nano 模型。"
-    else:
-        summary = f"当前使用 {display_name}（推荐）"
-        recommendation = "识别专名不准时，调整热词或主播专名纠错规则。"
-
-    if hotword_mode == "native":
-        hotword_hint = (
-            "已读取自定义热词；长期错字仍建议写入主播专名纠错规则。"
-            if custom_hotwords
-            else "可在 autoslice.local.json 设置 AUTOSLICE_FUNASR_HOTWORDS 追加临时热词。"
-        )
-    else:
-        hotword_hint = (
-            "普通 Paraformer 不直接接收热词；当前只应用识别后的主播专名纠错规则。"
-        )
-
-    return {
-        "model_key": model_key,
-        "display_name": display_name,
-        "device": selected_device,
-        "model_ready": model_ready,
-        "recommended": is_nano and model_ready,
-        "needs_setup": needs_setup or not model_ready,
-        "hotword_mode": hotword_mode,
-        "custom_hotwords": custom_hotwords,
-        "summary": summary,
-        "recommendation": recommendation,
-        "hotword_hint": hotword_hint,
-        "correction_hint": (
-            "长期固定纠错：编辑 streamer_profiles.json 中对应主播的 asr_replacements。"
-        ),
-        "foreground_filter_available": True,
-        "speaker_filter_ready": speaker_filter_ready,
-        "foreground_filter_mode": (
-            "speaker_diarization" if speaker_filter_ready else "adaptive_gate"
-        ),
-        "foreground_filter_hint": (
-            "字幕工作台可用 CAM++ 主要说话人识别，能进一步排除背景对白。"
-            if speaker_filter_ready
-            else "字幕工作台已启用基础背景音门限；重新运行 python setup_asr_model.py "
-                 "可安装 CAM++，进一步区分主要说话人与背景对白。"
-        ),
-    }
-
-
-def _load_funasr_model(
-        AutoModel, progress_callback=None, device=None, foreground_only=False):
-    """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
-    _prepare_funasr_environment()
-    selected_device = _resolve_funasr_device(device)
-    model_source = _resolve_funasr_model_source()
-    is_nano = "fun-asr-nano" in str(model_source).casefold()
-    vad_source = _resolve_funasr_aux_model_source(
-        FUNASR_VAD_MODEL,
-        FUNASR_VAD_CACHE_MODEL_DIR,
-    )
-    punc_source = None if is_nano else _resolve_funasr_aux_model_source(
-        FUNASR_PUNC_MODEL,
-        FUNASR_PUNC_CACHE_MODEL_DIR,
-    )
-    speaker_source = (
-        _resolve_funasr_speaker_model_source() if foreground_only else None
-    )
-    model_kwargs = {
-        "model": model_source,
-        "device": selected_device,
-        "disable_update": True,
-        "disable_pbar": True,
-    }
-    if is_nano:
-        # Fun-ASR-Nano 的音频编码器必须保持 fp32；低精度只应由
-        # generate 阶段按模型配置处理，不能在 AutoModel 初始化时整模 half。
-        model_kwargs.update({"trust_remote_code": True})
-    if vad_source:
-        model_kwargs["vad_model"] = vad_source
-        model_kwargs["vad_kwargs"] = {
-            # Nano 官方长音频模式要求先按 30 秒切段；直接输入 1-2 分钟
-            # 音频会让 LLM 解码退化为无标点的 CTC 文本。
-            "max_single_segment_time": 30000 if is_nano else 60000
-        }
-    if punc_source:
-        model_kwargs["punc_model"] = punc_source
-    if speaker_source:
-        model_kwargs.update({
-            "spk_model": speaker_source,
-            # Nano 内置标点但没有独立 punc_model；vad_segment 对两类模型都可用。
-            "spk_mode": "vad_segment",
-        })
-    try:
-        model = AutoModel(**model_kwargs)
-        try:
-            model._autoslice_device = selected_device
-            model._autoslice_model_source = model_source
-            model._autoslice_vad_source = vad_source
-            model._autoslice_punc_source = punc_source
-            model._autoslice_spk_source = speaker_source
-            model._autoslice_foreground_filter = (
-                "speaker_diarization" if speaker_source
-                else "adaptive_gate" if foreground_only
-                else "off"
-            )
-        except (AttributeError, TypeError):
-            pass
-        return model
-    except Exception as exc:
-        if selected_device.startswith("cuda"):
-            if progress_callback:
-                progress_callback(
-                    f"FunASR GPU 加载失败，自动改用 CPU: {exc}",
-                    10,
-                    100,
-            )
-            try:
-                cpu_kwargs = dict(model_kwargs)
-                cpu_kwargs["device"] = "cpu"
-                model = AutoModel(**cpu_kwargs)
-                try:
-                    model._autoslice_device = "cpu"
-                    model._autoslice_model_source = model_source
-                    model._autoslice_vad_source = vad_source
-                    model._autoslice_punc_source = punc_source
-                    model._autoslice_spk_source = speaker_source
-                    model._autoslice_foreground_filter = (
-                        "speaker_diarization" if speaker_source
-                        else "adaptive_gate" if foreground_only
-                        else "off"
-                    )
-                except (AttributeError, TypeError):
-                    pass
-                return model
-            except Exception as cpu_exc:
-                exc = cpu_exc
-        message = (
-            "FunASR 模型加载失败：本地 ModelScope 缓存不可用，或模型下载被网络/SSL 中断。"
-            "请先生成同名 SRT，或在网络正常时预下载 FunASR 模型后重试。"
-        )
-        if progress_callback:
-            progress_callback(f"{message} 原始错误: {exc}", 0, 100)
-        raise RuntimeError(message) from exc
-
-
-def _funasr_checkpoint_path(video_path):
-    return os.path.splitext(video_path)[0] + "_asr_checkpoint.json"
-
-
-def _funasr_source_fingerprint(
-        video_path, duration, hotwords="", foreground_only=False):
-    stat = os.stat(video_path)
-    payload = {
-        "path": os.path.normcase(os.path.abspath(video_path)),
-        "size": stat.st_size,
-        "mtime_ns": stat.st_mtime_ns,
-        "duration": round(float(duration), 3),
-        "sample_rate": 16000,
-        "channels": 1,
-        "chunk_sec": FUNASR_CHUNK_SEC,
-        "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
-        "runtime_signature": _funasr_model_runtime_signature(
-            foreground_only=foreground_only
-        ),
-        "hotword_digest": hashlib.sha256(
-            str(hotwords or "").encode("utf-8")
-        ).hexdigest(),
-    }
-    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _funasr_chunk_fingerprint(source_fingerprint, index, start, duration):
-    value = f"{source_fingerprint}:{index}:{start:.3f}:{duration:.3f}"
-    return hashlib.sha256(value.encode("ascii")).hexdigest()
-
-
-def _funasr_chunk_input_window(index, duration):
-    """返回主体时间段及带前置语境的实际识别时间段。"""
-    core_start = index * FUNASR_CHUNK_SEC
-    core_duration = min(FUNASR_CHUNK_SEC, max(0.0, duration - core_start))
-    pre_context = min(FUNASR_CHUNK_PRE_CONTEXT_SEC, core_start)
-    input_start = core_start - pre_context
-    input_duration = core_duration + pre_context
-    return core_start, core_duration, input_start, input_duration
-
-
-def _normalise_funasr_result(result):
-    """只保存恢复 SRT 所需字段，并把 numpy 标量转成 JSON 基础类型。"""
-    normalised = []
-    for item in result or []:
-        if not isinstance(item, dict):
-            continue
-        # Fun-ASR-Nano 同时返回 LLM 文本和 CTC 字级对齐结果。Nano 的
-        # LLM 文本在部分硬件/精度组合下可能是占位符，但 CTC 文本与
-        # ctc_timestamps 仍然可用；统一转换为项目内部的毫秒时间戳契约。
-        llm_text = str(item.get("text", ""))
-        llm_timestamps = item.get("timestamps")
-        ctc_text = item.get("ctc_text")
-        ctc_timestamps = item.get("ctc_timestamps")
-        llm_text_is_meaningful = bool(
-            re.search(r"[\w\u3400-\u9fff]", llm_text, flags=re.UNICODE)
-        )
-        use_nano_llm = llm_text_is_meaningful and bool(llm_timestamps)
-        use_nano_ctc = (
-            not use_nano_llm
-            and isinstance(ctc_text, str)
-            and bool(ctc_timestamps)
-        )
-        if use_nano_llm:
-            text_value = llm_text
-            source_timestamps = llm_timestamps
-        elif use_nano_ctc:
-            text_value = ctc_text
-            source_timestamps = ctc_timestamps
-        else:
-            text_value = llm_text
-            source_timestamps = item.get("timestamp", [])
-        nano_timestamp_tokens = []
-        timestamps = []
-        for pair in source_timestamps or []:
-            if isinstance(pair, dict):
-                token = str(pair.get("token", "")).strip()
-                if not token:
-                    # Nano 会为部分停顿返回纯空白 token。空白没有字幕内容，
-                    # 保留其时间戳反而会破坏 token 与时间戳的一一对应关系。
-                    continue
-                values_source = (pair.get("start_time"), pair.get("end_time"))
-                nano_timestamp_tokens.append(token)
-            elif isinstance(pair, (list, tuple)) and len(pair) >= 2:
-                values_source = pair[:2]
-            else:
-                continue
-            values = []
-            for value in values_source:
-                if hasattr(value, "item"):
-                    value = value.item()
-                if value is not None and not isinstance(value, (int, float)):
-                    value = float(value)
-                # Nano 的 ctc_timestamps 单位是秒；旧 FunASR timestamp
-                # 单位是毫秒。内部始终使用毫秒，避免字幕整体缩短 1000 倍。
-                if (use_nano_llm or use_nano_ctc) and isinstance(value, (int, float)):
-                    value *= 1000.0
-                values.append(value)
-            timestamps.append(values)
-        entry = {
-            "text": str(text_value),
-            "timestamp": timestamps,
-        }
-        raw_text = item.get("raw_text")
-        if (
-                (use_nano_llm or use_nano_ctc)
-                and nano_timestamp_tokens
-                and len(nano_timestamp_tokens) == len(timestamps)):
-            # Nano 的 token 字段与时间戳一一对应。保留带空格的 token 序列，
-            # 让后续标点对齐既能使用 LLM 校正后的正文，又不会新增时间 token。
-            raw_text = " ".join(nano_timestamp_tokens)
-        if isinstance(raw_text, str):
-            entry["raw_text"] = raw_text
-        speaker_segments = []
-        for sentence in item.get("sentence_info") or []:
-            if not isinstance(sentence, dict):
-                continue
-            sentence_text = str(
-                sentence.get("sentence", sentence.get("text", "")) or ""
-            ).strip()
-            speaker = sentence.get("spk")
-            if hasattr(speaker, "item"):
-                speaker = speaker.item()
-            try:
-                sentence_start = float(sentence.get("start"))
-                sentence_end = float(sentence.get("end"))
-            except (TypeError, ValueError):
-                continue
-            if (
-                    not sentence_text
-                    or speaker is None
-                    or not math.isfinite(sentence_start)
-                    or not math.isfinite(sentence_end)
-                    or sentence_end <= sentence_start):
-                continue
-            sentence_timestamps = []
-            for pair in sentence.get("timestamp") or []:
-                if not isinstance(pair, (list, tuple)) or len(pair) < 2:
-                    continue
-                values = []
-                for value in pair[:2]:
-                    if hasattr(value, "item"):
-                        value = value.item()
-                    try:
-                        value = float(value)
-                    except (TypeError, ValueError):
-                        value = None
-                    values.append(value)
-                if all(value is not None and math.isfinite(value) for value in values):
-                    sentence_timestamps.append(values)
-            speaker_segments.append({
-                "speaker": str(speaker),
-                "start": sentence_start,
-                "end": sentence_end,
-                "text": sentence_text,
-                "timestamp": sentence_timestamps,
-            })
-        if speaker_segments:
-            entry["speaker_segments"] = speaker_segments
-        normalised.append(entry)
-    return normalised
-
-
-def _is_valid_funasr_result(result):
-    if not isinstance(result, list):
-        return False
-    for item in result:
-        if (
-                not isinstance(item, dict)
-                or not isinstance(item.get("text"), str)
-                or not isinstance(item.get("timestamp"), list)):
-            return False
-        if "raw_text" in item and not isinstance(item.get("raw_text"), str):
-            return False
-        speaker_segments = item.get("speaker_segments", [])
-        if not isinstance(speaker_segments, list):
-            return False
-        for segment in speaker_segments:
-            if (
-                    not isinstance(segment, dict)
-                    or not isinstance(segment.get("speaker"), str)
-                    or not isinstance(segment.get("text"), str)
-                    or not isinstance(segment.get("timestamp", []), list)
-                    or not isinstance(segment.get("start"), (int, float))
-                    or not isinstance(segment.get("end"), (int, float))):
-                return False
-        for pair in item["timestamp"]:
-            if (
-                    not isinstance(pair, list)
-                    or len(pair) != 2
-                    or any(
-                        value is not None and not isinstance(value, (int, float))
-                        for value in pair
-                    )):
-                return False
-    return True
-
-
-def _primary_speaker_segments(result):
-    """从一个识别块中保留持续时间和发言次数占优的主要说话人。"""
-
-    segments = []
-    stats = defaultdict(lambda: {"duration": 0.0, "count": 0, "first": math.inf})
-    for item in result or []:
-        if not isinstance(item, dict):
-            continue
-        for segment in item.get("speaker_segments") or []:
-            if not isinstance(segment, dict):
-                continue
-            speaker = str(segment.get("speaker", "")).strip()
-            try:
-                start = float(segment.get("start"))
-                end = float(segment.get("end"))
-            except (TypeError, ValueError):
-                continue
-            if not speaker or not math.isfinite(start) or not math.isfinite(end) or end <= start:
-                continue
-            segments.append(segment)
-            stat = stats[speaker]
-            stat["duration"] += max(0.0, end - start) / 1000.0
-            stat["count"] += 1
-            stat["first"] = min(stat["first"], start)
-    if len(stats) < 2:
-        return None, 0, None
-
-    primary = max(
-        stats,
-        key=lambda speaker: (
-            stats[speaker]["duration"] + stats[speaker]["count"] * 0.75,
-            stats[speaker]["count"],
-            -stats[speaker]["first"],
-        ),
-    )
-    selected = [
-        segment for segment in segments
-        if str(segment.get("speaker", "")).strip() == primary
-    ]
-    removed_count = len(segments) - len(selected)
-    if not selected or removed_count <= 0:
-        return None, 0, None
-    return selected, removed_count, primary
-
-
-def _is_close_number(value, expected):
-    try:
-        return math.isclose(float(value), expected, abs_tol=0.001)
-    except (TypeError, ValueError):
-        return False
-
-
-def _prepare_funasr_checkpoint(
-        video_path, duration, chunk_count, checkpoint_path=None, hotwords="",
-        foreground_only=False):
-    checkpoint_path = os.path.abspath(
-        checkpoint_path or _funasr_checkpoint_path(video_path)
-    )
-    source_fingerprint = _funasr_source_fingerprint(
-        video_path,
-        duration,
-        hotwords=hotwords,
-        foreground_only=foreground_only,
-    )
-    payload = {
-        "version": FUNASR_CHECKPOINT_VERSION,
-        "source_fingerprint": source_fingerprint,
-        "runtime_signature": _funasr_model_runtime_signature(
-            foreground_only=foreground_only
-        ),
-        "video_path": os.path.abspath(video_path),
-        "duration": float(duration),
-        "chunk_sec": FUNASR_CHUNK_SEC,
-        "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
-        "chunk_count": int(chunk_count),
-        "status": "pending",
-        "foreground_only": bool(foreground_only),
-        "foreground_filter_mode": (
-            "speaker_diarization"
-            if foreground_only and _resolve_funasr_speaker_model_source()
-            else "adaptive_gate" if foreground_only
-            else "off"
-        ),
-        "chunks": {},
-    }
-    try:
-        with open(checkpoint_path, encoding="utf-8") as handle:
-            existing = json.load(handle)
-    except (OSError, ValueError, TypeError):
-        existing = None
-    if not isinstance(existing, dict):
-        return checkpoint_path, payload
-    if (
-            existing.get("version") != FUNASR_CHECKPOINT_VERSION
-            or existing.get("source_fingerprint") != source_fingerprint
-            or existing.get("chunk_count") != chunk_count):
-        return checkpoint_path, payload
-
-    existing_chunks = existing.get("chunks")
-    if not isinstance(existing_chunks, dict):
-        return checkpoint_path, payload
-    if isinstance(existing.get("last_failure"), dict):
-        payload["last_failure"] = existing["last_failure"]
-    for index in range(chunk_count):
-        start, chunk_duration, input_start, input_duration = (
-            _funasr_chunk_input_window(index, duration)
-        )
-        expected_fingerprint = _funasr_chunk_fingerprint(
-            source_fingerprint,
-            index,
-            start,
-            chunk_duration,
-        )
-        entry = existing_chunks.get(str(index))
-        if (
-                isinstance(entry, dict)
-                and entry.get("fingerprint") == expected_fingerprint
-                and _is_close_number(entry.get("input_start"), input_start)
-                and _is_close_number(entry.get("input_duration"), input_duration)
-                and _is_valid_funasr_result(entry.get("result"))):
-            payload["chunks"][str(index)] = entry
-    return checkpoint_path, payload
-
-
-def _write_funasr_checkpoint(path, payload):
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    temp_path = path + ".tmp"
-    try:
-        with open(temp_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-        os.replace(temp_path, path)
-    except Exception:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        raise
-
-
-def _clear_funasr_cuda_cache():
-    try:
-        import gc
-        import torch
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except (ImportError, OSError, RuntimeError):
-        pass
-
-
-def _dedupe_overlapping_funasr_segments(segments):
-    """合并分块边界处“半句 + 完整句”的重叠识别结果。"""
-    deduped = []
-    for segment in sorted(segments, key=lambda item: (item[0], item[1])):
-        if not deduped:
-            deduped.append(segment)
-            continue
-        previous = deduped[-1]
-        overlap = min(previous[1], segment[1]) - max(previous[0], segment[0])
-        shorter_duration = min(
-            max(0.001, previous[1] - previous[0]),
-            max(0.001, segment[1] - segment[0]),
-        )
-        previous_text = re.sub(r'\s+', '', previous[2])
-        segment_text = re.sub(r'\s+', '', segment[2])
-        contains = (
-            previous_text
-            and segment_text
-            and (previous_text in segment_text or segment_text in previous_text)
-        )
-        if overlap > 0.1 and overlap / shorter_duration >= 0.6 and contains:
-            preferred = segment if len(segment_text) >= len(previous_text) else previous
-            deduped[-1] = (
-                min(previous[0], segment[0]),
-                max(previous[1], segment[1]),
-                preferred[2],
-            )
-            continue
-        deduped.append(segment)
-    return deduped
-
-
-def _is_funasr_punctuation(char):
-    return unicodedata.category(char).startswith("P") or char in "…"
-
-
-def _attach_funasr_punctuation_to_tokens(tokens, text):
-    """在 token 文本有少量识别差异时，仍把正文标点映射回字级时间戳。"""
-    tokens = [str(token) for token in (tokens or [])]
-    if not tokens or not isinstance(text, str):
-        return tokens
-
-    raw_text = "".join(tokens)
-    plain_chars = []
-    punctuation = defaultdict(str)
-    position = 0
-    for char in text:
-        if char.isspace():
-            continue
-        if _is_funasr_punctuation(char):
-            punctuation[position] += char
-        else:
-            plain_chars.append(char)
-            position += 1
-    if not punctuation:
-        return tokens
-
-    target_text = "".join(plain_chars)
-    matcher = difflib.SequenceMatcher(None, raw_text, target_text, autojunk=False)
-    target_to_source = {}
-    for tag, source_start, source_end, target_start, target_end in matcher.get_opcodes():
-        source_len = max(0, source_end - source_start)
-        target_len = max(0, target_end - target_start)
-        if tag == "equal":
-            for offset in range(target_len):
-                target_to_source[target_start + offset] = source_start + offset
-        elif tag in {"replace", "insert"}:
-            for offset in range(target_len):
-                target_to_source[target_start + offset] = source_start + min(
-                    offset, max(0, source_len - 1)
-                )
-
-    boundaries = []
-    boundary = 0
-    for token in tokens:
-        boundary += len(token)
-        boundaries.append(boundary)
-    result = list(tokens)
-    for target_position, marks in punctuation.items():
-        source_position = target_to_source.get(target_position)
-        if source_position is None:
-            known = [pos for pos in target_to_source if pos <= target_position]
-            source_position = target_to_source[max(known)] if known else 0
-        if source_position <= 0:
-            result[0] = marks + result[0]
-            continue
-        token_index = bisect.bisect_left(boundaries, source_position)
-        token_index = min(token_index, len(result) - 1)
-        result[token_index] += marks
-    return result
-
-
-def _align_funasr_tokens(text, timestamps, raw_text=None):
-    """把标点模型新增的字符挂回原始 ASR token，保持时间戳数量一致。"""
-    timestamps = [
-        item for item in (timestamps or [])
-        if isinstance(item, (list, tuple)) and len(item) == 2
-    ]
-    if not timestamps:
-        return [], False
-
-    source_text = raw_text if isinstance(raw_text, str) and raw_text.strip() else text
-    tokens = str(source_text).strip().split()
-    if len(tokens) != len(timestamps):
-        compact_source = re.sub(r"\s+", "", str(source_text))
-        if len(compact_source) != len(timestamps):
-            return [], False
-        tokens = list(compact_source)
-
-    if not isinstance(raw_text, str) or not raw_text.strip():
-        return tokens, True
-
-    raw_compact = "".join(tokens)
-    punct_by_position = defaultdict(str)
-    plain_chars = []
-    position = 0
-    for char in str(text):
-        if char.isspace():
-            continue
-        if _is_funasr_punctuation(char):
-            punct_by_position[position] += char
-        else:
-            plain_chars.append(char)
-            position += 1
-    raw_plain = "".join(
-        char for char in raw_compact if not _is_funasr_punctuation(char)
-    )
-    if "".join(plain_chars) != raw_plain:
-        # 标点模型偶尔会连同正文一起归一化；此时保留原始 token，至少不破坏时间轴。
-        if raw_plain != raw_compact:
-            return tokens, True
-        return _attach_funasr_punctuation_to_tokens(tokens, text), True
-
-    if raw_plain != raw_compact:
-        # Nano 的 timestamps 已经包含原生标点 token，无需重复挂载。
-        return tokens, True
-
-    aligned = []
-    consumed = 0
-    for token in tokens:
-        token_end = consumed + len(token)
-        prefix = punct_by_position.get(0, "") if consumed == 0 else ""
-        suffix = punct_by_position.get(token_end, "")
-        aligned.append(prefix + token + suffix)
-        consumed = token_end
-    return aligned, True
-
-
-def _trim_funasr_tokens_to_core(
-        text, timestamps, input_start, core_start, core_end, raw_text=None):
-    """先按字词时间归属主体区间，避免重叠输入在边界生成重复半句。"""
-    tokens, aligned = _align_funasr_tokens(text, timestamps, raw_text=raw_text)
-    if not aligned:
-        return str(text or ""), timestamps, False
-
-    selected_tokens = []
-    selected_timestamps = []
-    for token, timestamp in zip(tokens, timestamps):
-        try:
-            midpoint = input_start + (
-                float(timestamp[0]) + float(timestamp[1])
-            ) / 2000.0
-        except (TypeError, ValueError):
-            continue
-        if core_start <= midpoint < core_end:
-            selected_tokens.append(token)
-            selected_timestamps.append(timestamp)
-    return " ".join(selected_tokens), selected_timestamps, True
-
-
-def ensure_srt(
-        video_path, progress_callback=None, checkpoint_path=None,
-        foreground_only=False):
-    """确保 SRT 存在；分块检查点可恢复，全部成功后才原子写入正式字幕。"""
-    import subprocess as sp
-    import uuid
-
-    srt_path = os.path.splitext(video_path)[0] + ".srt"
-    srt_temp_path = srt_path + ".tmp"
-    if os.path.exists(srt_path) and os.path.getsize(srt_path) > 0:
-        if progress_callback:
-            progress_callback("SRT 已存在，跳过转录", 5, 100)
-        return srt_path
-
-    if progress_callback:
-        progress_callback("FunASR 转录中...", 5, 100)
-
-    duration = _probe_video_duration(video_path)
-    if not duration:
-        raise RuntimeError("无法读取录播时长，FunASR 转录未启动。")
-    streamer_name = _infer_streamer_name(video_path)
-    hotwords = _funasr_hotwords(video_path, streamer_name=streamer_name)
-    chunk_count = max(1, int(math.ceil(duration / FUNASR_CHUNK_SEC)))
-    checkpoint_path, checkpoint = _prepare_funasr_checkpoint(
-        video_path,
-        duration,
-        chunk_count,
-        checkpoint_path=checkpoint_path,
-        hotwords=hotwords,
-        foreground_only=foreground_only,
-    )
-    checkpoint["status"] = "running"
-    checkpoint["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    checkpoint.pop("last_failure", None)
-    _write_funasr_checkpoint(checkpoint_path, checkpoint)
-    missing_indices = [
-        index for index in range(chunk_count)
-        if str(index) not in checkpoint["chunks"]
-    ]
-    if progress_callback and len(missing_indices) < chunk_count:
-        progress_callback(
-            f"已复用 FunASR 检查点 {chunk_count - len(missing_indices)}/{chunk_count} 块",
-            10,
-            100,
-        )
-
-    wav_path = None
-    active_chunk_path = None
-    model = None
-    current_device = None
-    active_chunk_index = None
-    try:
-        if missing_indices:
-            try:
-                from funasr import AutoModel
-            except ImportError as exc:
-                raise RuntimeError("FunASR 未安装，无法生成字幕。") from exc
-
-            wav_path = os.path.splitext(video_path)[0] + f"_asr_{uuid.uuid4().hex[:6]}.wav"
-            audio_extract_command = [
-                "ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-                "-ar", "16000", "-ac", "1",
-            ]
-            if foreground_only:
-                audio_extract_command.extend([
-                    "-af", FUNASR_FOREGROUND_AUDIO_FILTER,
-                ])
-            audio_extract_command.extend(["-y", wav_path])
-            sp.run(
-                audio_extract_command,
-                check=True,
-                stdout=sp.PIPE,
-                stderr=sp.DEVNULL,
-                encoding="utf-8",
-                errors="replace",
-            )
-            requested_device = _resolve_funasr_device()
-            if progress_callback:
-                progress_callback(f"加载 FunASR 模型({requested_device})...", 10, 100)
-            model_load_options = {"foreground_only": True} if foreground_only else {}
-            model = _load_funasr_model(
-                AutoModel,
-                progress_callback=progress_callback,
-                device=requested_device,
-                **model_load_options,
-            )
-            current_device = getattr(model, "_autoslice_device", requested_device)
-            foreground_filter_mode = getattr(
-                model,
-                "_autoslice_foreground_filter",
-                "adaptive_gate" if foreground_only else "off",
-            )
-            checkpoint["foreground_filter_mode"] = foreground_filter_mode
-            if progress_callback and foreground_only:
-                progress_callback(
-                    (
-                        "已启用主要说话人识别，将排除其他说话人与低音量背景声"
-                        if foreground_filter_mode == "speaker_diarization"
-                        else "未安装 CAM++，已启用基础背景音门限；仍可能保留较响的背景对白"
-                    ),
-                    12,
-                    100,
-                )
-            generate_kwargs = _funasr_generate_kwargs(model, hotwords=hotwords)
-
-            for index in missing_indices:
-                active_chunk_index = index
-                start, chunk_duration, input_start, input_duration = (
-                    _funasr_chunk_input_window(index, duration)
-                )
-                if progress_callback:
-                    pct = 10 + int((index / chunk_count) * 80)
-                    progress_callback(
-                        f"转录中 ({index + 1}/{chunk_count})...",
-                        pct,
-                        100,
-                    )
-
-                if chunk_count == 1:
-                    active_chunk_path = wav_path
-                else:
-                    active_chunk_path = (
-                        os.path.splitext(video_path)[0] + f"_chunk_{index}.wav"
-                    )
-                    sp.run(
-                        [
-                            "ffmpeg", "-y", "-ss", str(input_start), "-i", wav_path,
-                            "-t", str(input_duration), "-acodec", "pcm_s16le",
-                            "-ar", "16000", "-ac", "1", active_chunk_path,
-                        ],
-                        check=True,
-                        stdout=sp.PIPE,
-                        stderr=sp.DEVNULL,
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-
-                try:
-                    result = model.generate(
-                        input=active_chunk_path,
-                        **generate_kwargs,
-                    )
-                except Exception as first_error:
-                    if str(current_device).startswith("cuda"):
-                        if progress_callback:
-                            progress_callback(
-                                f"第 {index + 1} 块 GPU 转录失败，改用 CPU 重试: {first_error}",
-                                10 + int((index / chunk_count) * 80),
-                                100,
-                            )
-                        model = None
-                        _clear_funasr_cuda_cache()
-                        model = _load_funasr_model(
-                            AutoModel,
-                            progress_callback=progress_callback,
-                            device="cpu",
-                            **model_load_options,
-                        )
-                        current_device = "cpu"
-                        generate_kwargs = _funasr_generate_kwargs(
-                            model,
-                            hotwords=hotwords,
-                        )
-                    else:
-                        if FUNASR_CPU_RETRY_DELAY_SEC:
-                            time.sleep(FUNASR_CPU_RETRY_DELAY_SEC)
-                    try:
-                        result = model.generate(
-                            input=active_chunk_path,
-                            **generate_kwargs,
-                        )
-                    except Exception as retry_error:
-                        raise RuntimeError(
-                            f"FunASR 第 {index + 1}/{chunk_count} 块连续失败，"
-                            "已保留此前检查点，未生成残缺 SRT。"
-                        ) from retry_error
-
-                normalised_result = _normalise_funasr_result(result)
-                chunk_fingerprint = _funasr_chunk_fingerprint(
-                    checkpoint["source_fingerprint"],
-                    index,
-                    start,
-                    chunk_duration,
-                )
-                checkpoint["chunks"][str(index)] = {
-                    "fingerprint": chunk_fingerprint,
-                    "start": start,
-                    "duration": chunk_duration,
-                    "input_start": input_start,
-                    "input_duration": input_duration,
-                    "result": normalised_result,
-                    "completed_at": datetime.now().isoformat(timespec="seconds"),
-                }
-                checkpoint["completed_chunk_count"] = len(checkpoint["chunks"])
-                checkpoint["updated_at"] = datetime.now().isoformat(timespec="seconds")
-                _write_funasr_checkpoint(checkpoint_path, checkpoint)
-                if active_chunk_path != wav_path and os.path.exists(active_chunk_path):
-                    os.remove(active_chunk_path)
-                active_chunk_path = None
-                active_chunk_index = None
-
-        all_segments = []
-        speaker_filtered_count = 0
-        speaker_filtered_chunks = 0
-        for index in range(chunk_count):
-            entry = checkpoint["chunks"].get(str(index))
-            if not entry:
-                raise RuntimeError(
-                    f"FunASR 第 {index + 1}/{chunk_count} 块缺失，未生成残缺 SRT。"
-                )
-            start, chunk_duration, input_start, _ = _funasr_chunk_input_window(
-                index, duration
-            )
-            core_end = start + chunk_duration
-            result_items = entry.get("result") or []
-            primary_segments, removed_count, _ = (
-                _primary_speaker_segments(result_items)
-                if foreground_only
-                else (None, 0, None)
-            )
-            if primary_segments:
-                speaker_filtered_count += removed_count
-                speaker_filtered_chunks += 1
-                for speaker_segment in primary_segments:
-                    text_value = str(speaker_segment.get("text", "")).strip()
-                    timestamps = speaker_segment.get("timestamp") or []
-                    if timestamps:
-                        chunk_segments = _segments_from_funasr_result(
-                            text_value,
-                            timestamps,
-                            offset=input_start,
-                            streamer_name=streamer_name,
-                        )
-                    else:
-                        try:
-                            sentence_start = input_start + float(
-                                speaker_segment.get("start")
-                            ) / 1000.0
-                            sentence_end = input_start + float(
-                                speaker_segment.get("end")
-                            ) / 1000.0
-                        except (TypeError, ValueError):
-                            continue
-                        chunk_segments = _split_timed_subtitle_segment(
-                            sentence_start,
-                            max(sentence_end, sentence_start + 0.1),
-                            _normalise_asr_text(
-                                text_value,
-                                streamer_name=streamer_name,
-                            ),
-                        )
-                    for segment in chunk_segments:
-                        segment_midpoint = (segment[0] + segment[1]) / 2.0
-                        if segment_midpoint < start or segment_midpoint >= core_end:
-                            continue
-                        bounded_start = max(0.0, start, segment[0])
-                        bounded_end = min(duration, core_end, segment[1])
-                        if bounded_end > bounded_start:
-                            all_segments.append(
-                                (bounded_start, bounded_end, segment[2])
-                            )
-                continue
-
-            for item in result_items:
-                text_value = str(item.get("text", "")).strip()
-                raw_text_value = item.get("raw_text")
-                timestamps = item.get("timestamp", [])
-                if text_value and timestamps:
-                    core_text, core_timestamps, token_aligned = (
-                        _trim_funasr_tokens_to_core(
-                            text_value,
-                            timestamps,
-                            input_start,
-                            start,
-                            core_end,
-                            raw_text=raw_text_value,
-                        )
-                    )
-                    if not core_text or not core_timestamps:
-                        continue
-                    chunk_segments = _segments_from_funasr_result(
-                        core_text,
-                        core_timestamps,
-                        offset=input_start,
-                        streamer_name=streamer_name,
-                    )
-                    for segment in chunk_segments:
-                        segment_midpoint = (segment[0] + segment[1]) / 2.0
-                        if (
-                                not token_aligned
-                                and (segment_midpoint < start or segment_midpoint >= core_end)):
-                            continue
-                        bounded_start = max(0.0, start, segment[0])
-                        bounded_end = min(duration, core_end, segment[1])
-                        if bounded_end > bounded_start:
-                            all_segments.append(
-                                (bounded_start, bounded_end, segment[2])
-                            )
-
-        if not all_segments:
-            checkpoint["status"] = "completed_empty"
-            checkpoint["segment_count"] = 0
-            checkpoint["completed_at"] = datetime.now().isoformat(timespec="seconds")
-            _write_funasr_checkpoint(checkpoint_path, checkpoint)
-            if progress_callback:
-                progress_callback("未识别到有效语音，未生成空 SRT", 0, 100)
-            return None
-
-        all_segments = _dedupe_overlapping_funasr_segments(all_segments)
-        checkpoint["speaker_filtered_segment_count"] = speaker_filtered_count
-        checkpoint["speaker_filtered_chunk_count"] = speaker_filtered_chunks
-        written_count = 0
-        with open(srt_temp_path, "w", encoding="utf-8") as handle:
-            for start, end, text_value in all_segments:
-                if len(text_value) < 2:
-                    continue
-                written_count += 1
-                handle.write(
-                    f"{written_count}\n{_srt_time(start)} --> {_srt_time(end)}\n"
-                    f"{text_value}\n\n"
-                )
-        if not written_count:
-            os.remove(srt_temp_path)
-            checkpoint["status"] = "completed_empty"
-            checkpoint["segment_count"] = 0
-            checkpoint["completed_at"] = datetime.now().isoformat(timespec="seconds")
-            _write_funasr_checkpoint(checkpoint_path, checkpoint)
-            return None
-        os.replace(srt_temp_path, srt_path)
-        checkpoint["status"] = "completed"
-        checkpoint["segment_count"] = written_count
-        checkpoint["coverage"] = {"start": 0.0, "end": float(duration)}
-        checkpoint["completed_at"] = datetime.now().isoformat(timespec="seconds")
-        _write_funasr_checkpoint(checkpoint_path, checkpoint)
-        if progress_callback:
-            progress_callback(f"转录完成 ({written_count} 条)", 90, 100)
-        return srt_path
-    except Exception as exc:
-        checkpoint["status"] = "failed"
-        checkpoint["last_failure"] = {
-            "chunk_index": active_chunk_index,
-            "message": str(exc),
-            "failed_at": datetime.now().isoformat(timespec="seconds"),
-        }
-        checkpoint["completed_chunk_count"] = len(checkpoint.get("chunks") or {})
-        try:
-            _write_funasr_checkpoint(checkpoint_path, checkpoint)
-        except OSError:
-            pass
-        raise
-    finally:
-        if active_chunk_path and active_chunk_path != wav_path and os.path.exists(active_chunk_path):
-            os.remove(active_chunk_path)
-        if wav_path and os.path.exists(wav_path):
-            os.remove(wav_path)
-        if os.path.exists(srt_temp_path):
-            os.remove(srt_temp_path)
-
-
-def _srt_time(s):
-    h, m = divmod(int(s), 3600)
-    m, sec = divmod(m, 60)
-    ms = int((s - int(s)) * 1000)
-    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ============================================================
@@ -5985,11 +4426,6 @@ def _cap_expanded_clip_mark(mark):
 # 话题切片上下文扩展
 # ============================================================
 
-def _parse_srt_timestamp(value):
-    """解析 SRT 时间戳，返回视频内秒数。"""
-    h, m, rest = value.strip().split(":")
-    s, ms = rest.replace(".", ",").split(",")
-    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
 
 
 def parse_srt_segments(srt_path):

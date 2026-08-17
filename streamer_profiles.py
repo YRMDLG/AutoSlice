@@ -431,6 +431,44 @@ def resolve_streamer_profile(
     return default_profile
 
 
+def profile_identity_names(profile: StreamerProfile) -> tuple[str, ...]:
+    """返回可用于识别当前主播的正式名和配置称呼。"""
+
+    names = {
+        profile.canonical_name,
+        profile.report_name,
+        *profile.aliases,
+        *profile.path_keywords,
+    }
+    short_name = re.sub(
+        r"[A-Za-z][A-Za-z0-9_. -]*$",
+        "",
+        profile.canonical_name,
+    ).strip()
+    if len(short_name) >= 2:
+        names.add(short_name)
+    return tuple(
+        sorted((name for name in names if name), key=len, reverse=True)
+    )
+
+
+def profile_matches_streamer(
+        profile: StreamerProfile, streamer_name: str | None) -> bool:
+    """判断显式主播称呼是否属于给定 profile。"""
+
+    name = str(streamer_name or "").strip()
+    return not name or name in profile_identity_names(profile)
+
+
+def infer_streamer_name(
+        video_path: str | os.PathLike[str] | None) -> str:
+    """从当前任务快照或录播路径解析主播正式名。"""
+
+    active = active_streamer_profile()
+    profile = active or resolve_streamer_profile("auto", video_path)
+    return profile.canonical_name
+
+
 def merge_profile_subtitle_glossary(
         profile: StreamerProfile,
         extra_terms: tuple[str, ...] | list[str] | None = None,
