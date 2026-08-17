@@ -12,10 +12,10 @@ from scripts import architecture_snapshot
 ROOT = Path(__file__).resolve().parent
 BASELINE_PATH = ROOT / "architecture_baseline.json"
 
-# Phase 1 只冻结身份契约，不冒充 Phase 4 已完成。以下符号仍由单体拥有，
-# 必须在后续迁移真正删除旧实现时连同这份债务记录一起更新。
+# Phase 4 已把以下实现全部迁入唯一 gateway；债务记录保留为回归护栏，
+# 后续不得在 topic_engine 中重新引入同名定义。
 CURRENT_LLM_IDENTITY_DEBT = {
-    "status": "present",
+    "status": "resolved",
     "owner_module": "topic_engine",
     "local_definitions": (
         "_LLMProviderRetryCoordinator",
@@ -258,6 +258,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
 
     def test_topic_engine_llm_imports_keep_transport_object_identity(self):
+        from autoslice.llm import transport
         import llm_client
         import topic_engine
 
@@ -265,19 +266,44 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "_LLMApiConfig": "LLMApiConfig",
             "_call_compatible_api": "call_compatible_api",
             "_infer_api_type": "infer_api_type",
+            "_infer_llm_api_type": "infer_api_type",
             "_load_llm_api_config": "load_api_config",
+            "load_api_config": "load_api_config",
             "_normalise_api_config": "normalise_api_config",
+            "_normalise_llm_api_config": "normalise_api_config",
             "_read_llm_json_config": "read_json_config",
+            "_read_json_config": "read_json_config",
+            "LLMResponseTruncatedError": "LLMResponseTruncatedError",
+            "LLMStructuredOutputError": "LLMStructuredOutputError",
+            "LLMResponseFormatError": "LLMResponseFormatError",
+            "LLMProviderUnavailableError": "LLMProviderUnavailableError",
+            "_LLMProviderRetryCoordinator": "LLMProviderRetryCoordinator",
+            "_llm_response_has_complete_json": "response_has_complete_json",
+            "_decode_llm_response_json": "decode_response_json",
+            "_parse_openai_response": "parse_openai_response",
+            "_parse_anthropic_response": "parse_anthropic_response",
+            "call_llm": "call_llm",
+            "_short_llm_error": "short_llm_error",
+            "_llm_http_status": "llm_http_status",
+            "_is_provider_service_unavailable": "is_provider_service_unavailable",
+            "_is_retryable_llm_error": "is_retryable_llm_error",
+            "_call_llm_with_retry": "call_llm_with_retry",
+            "_extract_json_payload": "extract_json_payload",
         }
         for facade_name, transport_name in expected_identities.items():
             with self.subTest(facade_name=facade_name):
                 self.assertIs(
                     getattr(topic_engine, facade_name),
-                    getattr(llm_client, transport_name),
+                    getattr(transport, transport_name),
                     msg=f"{facade_name} 被后定义覆盖，不再指向唯一传输符号",
                 )
+                self.assertIs(
+                    getattr(llm_client, transport_name),
+                    getattr(transport, transport_name),
+                    msg=f"llm_client.{transport_name} 不是唯一实现的兼容导出",
+                )
 
-    def test_legacy_llm_implementation_debt_is_not_reported_as_resolved(self):
+    def test_resolved_llm_implementation_debt_cannot_reappear(self):
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
         owner = modules[CURRENT_LLM_IDENTITY_DEBT["owner_module"]]
@@ -288,11 +314,11 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             )
         }
 
-        self.assertEqual(CURRENT_LLM_IDENTITY_DEBT["status"], "present")
+        self.assertEqual(CURRENT_LLM_IDENTITY_DEBT["status"], "resolved")
         self.assertEqual(
-            set(CURRENT_LLM_IDENTITY_DEBT["local_definitions"]),
+            set(),
             set(CURRENT_LLM_IDENTITY_DEBT["local_definitions"]) & local_names,
-            msg="债务记录必须与 topic_engine 中仍存在的 LLM 实现完全对应",
+            msg="topic_engine 不得重新定义已迁入唯一 gateway 的 LLM 实现",
         )
 
 

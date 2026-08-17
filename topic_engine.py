@@ -20,14 +20,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timedelta
 
-from llm_client import (
-    LLMApiConfig as _LLMApiConfig,
-    call_compatible_api as _call_compatible_api,
-    infer_api_type as _infer_api_type,
-    load_api_config as _load_llm_api_config,
-    normalise_api_config as _normalise_api_config,
-    read_json_config as _read_llm_json_config,
-)
+from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import (
     ClipCandidatePromptEvidence as _ClipCandidatePromptEvidence,
     FinalTitlePromptEvidence as _FinalTitlePromptEvidence,
@@ -80,6 +73,35 @@ from streamer_profiles import (
     streamer_profile_context,
 )
 from runtime_config import OUTPUT_DIR, TIMELINE_DIR
+
+
+# LLM 兼容 façade 必须与唯一 gateway 保持对象身份；本模块不得重新定义。
+_LLMApiConfig = llm_gateway.LLMApiConfig
+_call_compatible_api = llm_gateway.call_compatible_api
+_infer_api_type = llm_gateway.infer_api_type
+_infer_llm_api_type = llm_gateway.infer_api_type
+_load_llm_api_config = llm_gateway.load_api_config
+_normalise_api_config = llm_gateway.normalise_api_config
+_normalise_llm_api_config = llm_gateway.normalise_api_config
+_read_llm_json_config = llm_gateway.read_json_config
+_read_json_config = llm_gateway.read_json_config
+load_api_config = llm_gateway.load_api_config
+LLMResponseTruncatedError = llm_gateway.LLMResponseTruncatedError
+LLMStructuredOutputError = llm_gateway.LLMStructuredOutputError
+LLMResponseFormatError = llm_gateway.LLMResponseFormatError
+LLMProviderUnavailableError = llm_gateway.LLMProviderUnavailableError
+_LLMProviderRetryCoordinator = llm_gateway.LLMProviderRetryCoordinator
+_llm_response_has_complete_json = llm_gateway.response_has_complete_json
+_decode_llm_response_json = llm_gateway.decode_response_json
+_parse_openai_response = llm_gateway.parse_openai_response
+_parse_anthropic_response = llm_gateway.parse_anthropic_response
+call_llm = llm_gateway.call_llm
+_short_llm_error = llm_gateway.short_llm_error
+_llm_http_status = llm_gateway.llm_http_status
+_is_provider_service_unavailable = llm_gateway.is_provider_service_unavailable
+_is_retryable_llm_error = llm_gateway.is_retryable_llm_error
+_call_llm_with_retry = llm_gateway.call_llm_with_retry
+_extract_json_payload = llm_gateway.extract_json_payload
 
 
 # ============================================================
@@ -1512,34 +1534,6 @@ def _topics_from_manual_timeline(
         }
         topics.append(topic)
     return topics
-
-
-def _infer_llm_api_type(base_url, token):
-    """只为旧配置推断协议；新配置应显式填写 api_type。"""
-    return _infer_api_type(base_url, token)
-
-
-def _normalise_llm_api_config(payload, source, default_api_type=None):
-    return _normalise_api_config(
-        payload,
-        source,
-        default_model=LLM_MODEL,
-        default_api_type=default_api_type,
-    )
-
-
-def _read_json_config(path):
-    return _read_llm_json_config(path, json_loader=json.load)
-
-
-def load_api_config():
-    """读取显式环境变量或本地配置，不借用其他程序的凭据。"""
-    return _load_llm_api_config(
-        project_dir=os.path.dirname(os.path.abspath(__file__)),
-        default_model=LLM_MODEL,
-        path_module=os.path,
-        json_loader=json.load,
-    )
 
 
 # ============================================================
@@ -3661,377 +3655,6 @@ def _build_system_prompt(streamer_name=None):
     return _render_system_prompt(_prompt_context(streamer_name))
 
 
-class LLMResponseTruncatedError(RuntimeError):
-    """LLM 因输出额度耗尽而未返回完整结构化结果。"""
-
-
-class LLMStructuredOutputError(RuntimeError):
-    """LLM 返回了文本，但没有可解析的完整 JSON。"""
-
-
-class LLMResponseFormatError(RuntimeError):
-    """LLM 请求成功，但响应 JSON 不符合所选 API 协议。"""
-
-
-class LLMProviderUnavailableError(RuntimeError):
-    """上游推理节点在共享探测后仍不可用。"""
-
-
-_RETRY_AFTER_SHARED_RECOVERY = object()
-
-
-class _LLMProviderRetryCoordinator:
-    """让同一并发阶段只由一个请求探测暂时不可用的上游。"""
-
-    def __init__(self, delays=LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS):
-        self.delays = tuple(max(0, float(value)) for value in delays)
-        self._state_lock = threading.Lock()
-        self._recovery_lock = threading.Lock()
-        self._generation = 0
-        self._retry_index = 0
-        self._terminal_message = None
-
-    def generation(self):
-        with self._state_lock:
-            return self._generation
-
-    def _mark_recovered(self):
-        with self._state_lock:
-            self._generation += 1
-            self._retry_index = 0
-            self._terminal_message = None
-
-    def _terminal_error(self, error):
-        status = _llm_http_status(error)
-        if status:
-            status_note = f"HTTP {status}"
-        elif isinstance(error, requests.ConnectionError):
-            status_note = "上游连接被关闭或中断"
-        elif isinstance(error, requests.Timeout):
-            status_note = "上游响应超时"
-        else:
-            status_note = "上游错误"
-        return LLMProviderUnavailableError(
-            f"上游推理服务暂不可用（{status_note}），"
-            f"已完成 {len(self.delays)} 次共享恢复探测；"
-            "已完成的检查点会保留，请稍后直接重试。"
-        )
-
-    def recover(self, observed_generation, request_func, original_error,
-                sleep_func=time.sleep, progress_callback=None,
-                progress_label="API", progress_step=0):
-        """串行执行恢复探测；等待者复用恢复状态，不重复休眠和请求。"""
-        with self._recovery_lock:
-            with self._state_lock:
-                if self._terminal_message:
-                    raise LLMProviderUnavailableError(self._terminal_message)
-                if self._generation != observed_generation:
-                    return _RETRY_AFTER_SHARED_RECOVERY
-
-            last_error = original_error
-            while True:
-                with self._state_lock:
-                    retry_index = self._retry_index
-                    if retry_index >= len(self.delays):
-                        terminal = self._terminal_error(last_error)
-                        self._terminal_message = str(terminal)
-                        raise terminal
-                    self._retry_index += 1
-
-                delay = self.delays[retry_index]
-                remaining_wait = int(sum(self.delays[retry_index:]))
-                delay_label = int(delay) if delay.is_integer() else delay
-                if progress_callback:
-                    progress_callback(
-                        f"{progress_label}：上游推理服务暂不可用，"
-                        f"{delay_label}s 后统一探测 "
-                        f"({retry_index + 1}/{len(self.delays)}，"
-                        f"最多再等待 {remaining_wait}s): {_short_llm_error(last_error)}",
-                        progress_step,
-                        100,
-                    )
-                sleep_func(delay_label)
-                try:
-                    result = request_func()
-                except Exception as exc:
-                    if _is_provider_service_unavailable(exc):
-                        last_error = exc
-                        continue
-                    self._mark_recovered()
-                    raise
-                self._mark_recovered()
-                return result
-
-
-def _llm_response_has_complete_json(content):
-    """判断响应中是否包含可解析的完整 JSON。"""
-    return bool(content and _extract_json_payload(content) is not None)
-
-
-def _decode_llm_response_json(response, api_type):
-    try:
-        payload = response.json()
-    except (TypeError, ValueError) as exc:
-        raise LLMResponseFormatError(
-            f"{api_type} API 返回了非 JSON 响应（HTTP 200）"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise LLMResponseFormatError(
-            f"{api_type} API 响应顶层必须是 JSON 对象"
-        )
-    return payload
-
-
-def _openai_content_text(value, field_name):
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    if not isinstance(value, list):
-        raise LLMResponseFormatError(
-            f"OpenAI API 的 {field_name} 字段类型错误"
-        )
-    parts = []
-    for block in value:
-        if not isinstance(block, dict):
-            raise LLMResponseFormatError(
-                f"OpenAI API 的 {field_name} 内容块必须是对象"
-            )
-        block_type = block.get("type")
-        if block_type not in {"text", "output_text"}:
-            continue
-        text = block.get("text")
-        if not isinstance(text, str):
-            raise LLMResponseFormatError(
-                f"OpenAI API 的 {field_name} 文本块缺少 text"
-            )
-        parts.append(text)
-    return "\n".join(part for part in parts if part)
-
-
-def _parse_openai_response(data, model, max_tokens):
-    choices = data.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise LLMResponseFormatError("OpenAI API 响应缺少非空 choices 数组")
-    choice = choices[0]
-    if not isinstance(choice, dict):
-        raise LLMResponseFormatError("OpenAI API 的 choice 必须是对象")
-
-    message = choice.get("message", {})
-    if not isinstance(message, dict):
-        raise LLMResponseFormatError("OpenAI API 的 message 必须是对象")
-    content = _openai_content_text(message.get("content"), "message.content")
-    if not content:
-        reasoning_content = _openai_content_text(
-            message.get("reasoning_content"),
-            "message.reasoning_content",
-        )
-        if _llm_response_has_complete_json(reasoning_content):
-            content = reasoning_content
-    if not content:
-        content = _openai_content_text(choice.get("text"), "choice.text")
-
-    finish_reason = choice.get("finish_reason")
-    if finish_reason == "length" and not _llm_response_has_complete_json(content):
-        raise LLMResponseTruncatedError(
-            f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
-        )
-    if not content:
-        raise LLMResponseFormatError("OpenAI API 响应没有可用文本内容")
-    return content
-
-
-def _parse_anthropic_response(data, model, max_tokens):
-    blocks = data.get("content")
-    if not isinstance(blocks, list) or not blocks:
-        if data.get("stop_reason") == "max_tokens":
-            raise LLMResponseTruncatedError(
-                f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
-            )
-        raise LLMResponseFormatError("Anthropic API 响应缺少非空 content 数组")
-    parts = []
-    for block in blocks:
-        if not isinstance(block, dict):
-            raise LLMResponseFormatError("Anthropic API 的 content 块必须是对象")
-        if block.get("type") != "text":
-            continue
-        text = block.get("text")
-        if not isinstance(text, str):
-            raise LLMResponseFormatError("Anthropic API 的文本块缺少 text")
-        parts.append(text)
-    content = "\n".join(part for part in parts if part)
-    if data.get("stop_reason") == "max_tokens" and not _llm_response_has_complete_json(content):
-        raise LLMResponseTruncatedError(
-            f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
-        )
-    if not content:
-        raise LLMResponseFormatError("Anthropic API 响应没有可用文本内容")
-    return content
-
-
-def call_llm(
-        prompt, max_tokens=LLM_MAX_TOKENS, json_mode=False,
-        model_override=None, reasoning_stage=None):
-    return _call_compatible_api(
-        prompt,
-        max_tokens=max_tokens,
-        json_mode=json_mode,
-        model_override=model_override,
-        request_timeout=LLM_REQUEST_TIMEOUT,
-        load_config=load_api_config,
-        decode_response=_decode_llm_response_json,
-        parse_openai=_parse_openai_response,
-        parse_anthropic=_parse_anthropic_response,
-        request_post=requests.post,
-        reasoning_stage=reasoning_stage,
-    )
-
-
-def _short_llm_error(error):
-    """把 LLM/API 异常压缩成适合进度显示的一行。"""
-    if isinstance(error, requests.HTTPError) and error.response is not None:
-        text = (error.response.text or "").replace("\n", " ").strip()
-        return f"HTTP {error.response.status_code}: {text[:160]}"
-    return str(error)[:200]
-
-
-def _llm_http_status(error):
-    if isinstance(error, requests.HTTPError) and error.response is not None:
-        return error.response.status_code
-    return None
-
-
-def _is_provider_service_unavailable(error):
-    """判断是否应进入跨并发批次的共享恢复流程。
-
-    除 502/503/504 外，requests 将 ``RemoteDisconnected``、连接重置和
-    连接/读取超时包装成 ConnectionError/Timeout。这些错误发生在收到
-    有效响应之前，无法通过改短提示词修复；并发批次各自退避反而会继续
-    给已经不稳定的上游施压，因此与网关 5xx 一样只允许共享协调器探测。
-    """
-
-    if _llm_http_status(error) in {502, 503, 504}:
-        return True
-    return isinstance(error, (requests.ConnectionError, requests.Timeout))
-
-
-def _is_retryable_llm_error(error):
-    """判断是否适合重试：服务端 5xx、限流 429、连接/超时。"""
-    if isinstance(error, (
-            LLMResponseFormatError,
-            LLMResponseTruncatedError,
-            LLMStructuredOutputError,
-    )):
-        return True
-    if isinstance(error, (requests.Timeout, requests.ConnectionError)):
-        return True
-    if isinstance(error, requests.HTTPError) and error.response is not None:
-        status = error.response.status_code
-        return status == 429 or 500 <= status < 600
-    return False
-
-
-def _call_llm_with_retry(prompt, compact_prompt=None, max_tokens=LLM_MAX_TOKENS,
-                          compact_max_tokens=LLM_COMPACT_MAX_TOKENS, attempts=None,
-                          sleep_func=time.sleep, progress_callback=None,
-                          progress_label="API", progress_step=0, require_json=False,
-                          retry_coordinator=None, model_override=None,
-                          reasoning_stage=None):
-    """对临时性 LLM/API 错误做退避重试；连续失败后再抛出。"""
-    total_attempts = attempts or (len(LLM_RETRY_DELAYS) + 1)
-    last_error = None
-    regular_failures = 0
-    provider_failures = 0
-    provider_retry_limit = min(
-        len(LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS),
-        max(0, total_attempts - 1),
-    )
-    for attempt in range(total_attempts):
-        use_compact = compact_prompt is not None and (
-            regular_failures >= 2
-            or isinstance(last_error, (LLMResponseTruncatedError, LLMStructuredOutputError))
-        )
-        active_prompt = compact_prompt if use_compact else prompt
-        active_tokens = compact_max_tokens if use_compact else max_tokens
-
-        def request_once():
-            call_kwargs = {
-                "max_tokens": active_tokens,
-                "json_mode": require_json,
-            }
-            if model_override:
-                call_kwargs["model_override"] = model_override
-            if reasoning_stage:
-                call_kwargs["reasoning_stage"] = reasoning_stage
-            result = call_llm(active_prompt, **call_kwargs)
-            if require_json and _extract_json_payload(result) is None:
-                raise LLMStructuredOutputError(
-                    "模型未返回完整 JSON，将改用紧凑提示重试"
-                )
-            return result
-
-        observed_generation = (
-            retry_coordinator.generation() if retry_coordinator else None
-        )
-        try:
-            return request_once()
-        except Exception as e:
-            last_error = e
-            if _is_provider_service_unavailable(e):
-                if retry_coordinator:
-                    recovered = retry_coordinator.recover(
-                        observed_generation,
-                        request_once,
-                        e,
-                        sleep_func=sleep_func,
-                        progress_callback=progress_callback,
-                        progress_label=progress_label,
-                        progress_step=progress_step,
-                    )
-                    if recovered is _RETRY_AFTER_SHARED_RECOVERY:
-                        continue
-                    return recovered
-                if provider_failures >= provider_retry_limit:
-                    raise LLMProviderUnavailableError(
-                        "上游推理服务暂不可用，"
-                        f"已完成 {provider_retry_limit} 次恢复探测；"
-                        "请稍后直接重试，已完成的检查点不会丢失。"
-                    ) from e
-                delay = LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS[provider_failures]
-                provider_failures += 1
-                remaining_wait = sum(
-                    LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS[
-                        provider_failures - 1:provider_retry_limit
-                    ]
-                )
-                if progress_callback:
-                    progress_callback(
-                        f"{progress_label}：上游推理服务暂不可用，"
-                        f"{delay}s 后探测 "
-                        f"({provider_failures}/{provider_retry_limit}，"
-                        f"最多再等待 {remaining_wait}s): {_short_llm_error(e)}",
-                        progress_step,
-                        100,
-                    )
-                sleep_func(delay)
-                continue
-            if not _is_retryable_llm_error(e) or attempt >= total_attempts - 1:
-                raise
-            delay = LLM_RETRY_DELAYS[
-                min(regular_failures, len(LLM_RETRY_DELAYS) - 1)
-            ]
-            regular_failures += 1
-            compact_note = "，改用紧凑提示" if use_compact else ""
-            if progress_callback:
-                progress_callback(
-                    f"{progress_label} 失败{compact_note}，{delay}s 后重试 "
-                    f"({regular_failures}/{total_attempts - 1}): {_short_llm_error(e)}",
-                    progress_step, 100,
-                )
-            sleep_func(delay)
-    raise last_error
-
-
 def _build_chunk_prompt(ch, index, total, compact=False, streamer_name=None):
     """构造字幕/弹幕首轮 prompt；人工时间轴不得参与这一轮。"""
     chunk_start = ch["start"]
@@ -4614,24 +4237,6 @@ def _normalise_body_line(line):
     return "·" + line
 
 
-def _extract_json_payload(response):
-    """从 LLM 响应中提取 JSON 对象/数组；提取失败返回 None。"""
-    text = _strip_code_fence(response)
-    if not text:
-        return None
-    candidates = []
-    if "{" in text and "}" in text:
-        candidates.append(text[text.find("{"):text.rfind("}") + 1])
-    if "[" in text and "]" in text:
-        candidates.append(text[text.find("["):text.rfind("]") + 1])
-    for candidate in candidates:
-        try:
-            return json.loads(candidate)
-        except Exception:
-            continue
-    return None
-
-
 def _json_points_to_body(points):
     """把 JSON points/body 字段转换成报告正文要点。"""
     if points is None:
@@ -5008,7 +4613,7 @@ def _enrich_manual_topics_with_llm(
         streamer_name=streamer_name,
         compact=True,
     )
-    response = _call_llm_with_retry(
+    response = llm_gateway.call_llm_with_retry(
         prompt,
         compact_prompt=compact_prompt,
         require_json=True,
@@ -5106,7 +4711,7 @@ def _enrich_manual_topics_in_batches(
             progress_step=progress_start,
         )
 
-    provider_retry_coordinator = _LLMProviderRetryCoordinator()
+    provider_retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
     concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
     if report_progress:
         report_progress(
@@ -9622,7 +9227,7 @@ def _analyze_topic_chunks(
 
     if pending:
         try:
-            api_config = load_api_config()
+            api_config = llm_gateway.load_api_config()
         except Exception as exc:
             message = _short_llm_error(exc)
             if report_progress:
@@ -9647,10 +9252,10 @@ def _analyze_topic_chunks(
         consecutive_failed_chunks = 0
         completed_pending = 0
         checkpoint_warning_reported = False
-        provider_retry_coordinator = _LLMProviderRetryCoordinator()
+        provider_retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
 
         def request_chunk(prepared):
-            return _call_llm_with_retry(
+            return llm_gateway.call_llm_with_retry(
                 prepared["prompt"],
                 compact_prompt=prepared["compact_prompt"],
                 require_json=True,
@@ -10242,7 +9847,7 @@ def _review_selected_publish_titles(
         for offset in range(0, len(selected), CLIP_REVIEW_BATCH_SIZE)
     ]
     report_progress = _serialized_progress_callback(progress_callback)
-    retry_coordinator = _LLMProviderRetryCoordinator()
+    retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
     profile_id = current_streamer_profile().id
 
     def review_batch(batch_index, batch):
@@ -10257,7 +9862,7 @@ def _review_selected_publish_titles(
                 batch,
                 streamer_name=streamer_name,
             )
-            generation_response = _call_llm_with_retry(
+            generation_response = llm_gateway.call_llm_with_retry(
                 generation_prompt,
                 compact_prompt=_build_final_title_generation_prompt(
                     batch,
@@ -10283,7 +9888,7 @@ def _review_selected_publish_titles(
                 candidates,
                 streamer_name=streamer_name,
             )
-            judge_response = _call_llm_with_retry(
+            judge_response = llm_gateway.call_llm_with_retry(
                 judge_prompt,
                 compact_prompt=_build_final_title_judge_prompt(
                     batch,
@@ -10521,7 +10126,7 @@ def _review_peak_selected_topics(
     unresolved = list(selected)
     last_errors = {}
     report_progress = _serialized_progress_callback(progress_callback)
-    provider_retry_coordinator = _LLMProviderRetryCoordinator()
+    provider_retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
     review_rounds = (
         (
             (CLIP_REVIEW_RETRY_BATCH_SIZE, "检查点补充"),
@@ -10579,7 +10184,7 @@ def _review_peak_selected_topics(
             })
 
         def review_job(job):
-            return _call_llm_with_retry(
+            return llm_gateway.call_llm_with_retry(
                 job["prompt"],
                 compact_prompt=job["compact_prompt"],
                 require_json=True,

@@ -126,11 +126,15 @@ def normalise_api_config(
         "api_type",
         payload.get("protocol", default_api_type),
     )
-    api_type = (
-        infer_api_type(base_url, token)
-        if raw_api_type is None or not str(raw_api_type).strip()
-        else normalise_protocol(raw_api_type)
-    )
+    if raw_api_type is None or not str(raw_api_type).strip():
+        api_type = infer_api_type(base_url, token)
+    else:
+        try:
+            api_type = normalise_protocol(raw_api_type)
+        except ValueError as exc:
+            raise ValueError(
+                f"API 配置 api_type 只支持 openai 或 anthropic：{source}"
+            ) from exc
     analysis_reasoning_effort = normalise_reasoning_effort(
         payload["analysis_reasoning_effort"]
         if "analysis_reasoning_effort" in payload
@@ -151,8 +155,9 @@ def normalise_api_config(
     )
 
 
-def read_json_config(path: Any, *, json_loader: Callable = json.load) -> Any:
+def read_json_config(path: Any, *, json_loader: Optional[Callable] = None) -> Any:
     """读取显式配置文件，错误中不包含文件正文。"""
+    json_loader = json_loader or json.load
     try:
         with open(path, encoding="utf-8") as file:
             return json_loader(file)
@@ -162,10 +167,12 @@ def read_json_config(path: Any, *, json_loader: Callable = json.load) -> Any:
 
 def load_api_config(
         *, project_dir: Any = None, default_model: Optional[str] = None,
-        path_module=os.path, json_loader: Callable = json.load,
+        path_module=None, json_loader: Optional[Callable] = None,
         environ: Optional[dict] = None) -> LLMApiConfig:
     """只读取 AutoSlice 显式环境变量或项目 ``api_config.json``。"""
     project_dir = str(PROJECT_DIR if project_dir is None else project_dir)
+    path_module = path_module or os.path
+    json_loader = json_loader or json.load
     default_model = str(
         default_model
         or os.environ.get("AUTOSLICE_LLM_MODEL", "").strip()
@@ -509,6 +516,8 @@ def short_llm_error(error: BaseException) -> str:
 
 def is_provider_service_unavailable(error: BaseException) -> bool:
     """判断是否应进入跨并发批次的共享恢复流程。"""
+    if isinstance(error, (requests.ConnectionError, requests.Timeout)):
+        return True
     return classify_retry(error) in {
         RetryCategory.PROVIDER_UNAVAILABLE,
         RetryCategory.TRANSIENT_NETWORK,
@@ -517,6 +526,8 @@ def is_provider_service_unavailable(error: BaseException) -> bool:
 
 def is_retryable_llm_error(error: BaseException) -> bool:
     """判断错误是否适合退避重试。"""
+    if isinstance(error, (requests.ConnectionError, requests.Timeout)):
+        return True
     return is_retryable_error(error)
 
 

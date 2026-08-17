@@ -714,7 +714,7 @@ class AdaptiveClipSelectionTests(unittest.TestCase):
             },
         ]}, ensure_ascii=False)
 
-        with patch("topic_engine._call_llm_with_retry", return_value=response) as call:
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response) as call:
             warning = _review_peak_selected_topics(
                 topics,
                 srt_segments=[
@@ -791,7 +791,7 @@ class AdaptiveClipSelectionTests(unittest.TestCase):
         }]}, ensure_ascii=False)
 
         with patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 side_effect=[first_response, retry_response],
         ) as call:
             warning = _review_peak_selected_topics(
@@ -1066,7 +1066,7 @@ class TitleHookPromptTests(unittest.TestCase):
         }]}, ensure_ascii=False)
 
         with patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 side_effect=[generated, judged],
         ) as call:
             warning = _review_selected_publish_titles([topic], streamer_name="音音")
@@ -1097,7 +1097,7 @@ class TitleHookPromptTests(unittest.TestCase):
             "clip_review_validated": True,
         }
 
-        with patch("topic_engine._call_llm_with_retry") as call:
+        with patch("autoslice.llm.transport.call_llm_with_retry") as call:
             warning = _review_selected_publish_titles([topic], streamer_name="音音")
 
         self.assertIsNone(warning)
@@ -2795,9 +2795,9 @@ class TopicEngineParseTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("topic_engine.os.path.exists", return_value=True),
+            patch("autoslice.llm.transport.os.path.exists", return_value=True),
             patch("builtins.open", mock_open(read_data="{}")),
-            patch("topic_engine.json.load", return_value={"base_url": "https://example.test", "token": "token"}),
+            patch("autoslice.llm.transport.json.load", return_value={"base_url": "https://example.test", "token": "token"}),
         ):
             self.assertEqual(load_api_config()[2], LLM_MODEL)
 
@@ -2807,7 +2807,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 "AUTOSLICE_API_TOKEN": "token",
                 "AUTOSLICE_API_TYPE": "openai",
             }, clear=True),
-            patch("topic_engine.os.path.exists", return_value=False),
+            patch("autoslice.llm.transport.os.path.exists", return_value=False),
         ):
             self.assertEqual(load_api_config()[2], LLM_MODEL)
 
@@ -5020,7 +5020,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 raise make_http_error(500)
             return "OK"
 
-        with patch("topic_engine.call_llm", side_effect=fake_call):
+        with patch("autoslice.llm.transport.call_llm", side_effect=fake_call):
             result = _call_llm_with_retry(
                 "完整提示",
                 compact_prompt="紧凑提示",
@@ -5054,8 +5054,8 @@ class TopicEngineParseTests(unittest.TestCase):
         }, ensure_ascii=False)
 
         with (
-            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
-            patch("topic_engine._call_llm_with_retry", return_value=response) as call,
+            patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+            patch("autoslice.llm.transport.call_llm_with_retry", return_value=response) as call,
         ):
             topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
 
@@ -5105,7 +5105,7 @@ class TopicEngineParseTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
             patch(
-                "topic_engine.load_api_config",
+                "autoslice.llm.transport.load_api_config",
                 return_value=LLMApiConfig(
                     "https://example.test",
                     "token",
@@ -5115,7 +5115,7 @@ class TopicEngineParseTests(unittest.TestCase):
                     review_reasoning_effort="xhigh",
                 ),
             ),
-            patch("topic_engine._call_llm_with_retry", side_effect=fake_call) as call,
+            patch("autoslice.llm.transport.call_llm_with_retry", side_effect=fake_call) as call,
         ):
             topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
 
@@ -5156,8 +5156,8 @@ class TopicEngineParseTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "2"}),
-            patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
-            patch("topic_engine._call_llm_with_retry", side_effect=fake_call),
+            patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+            patch("autoslice.llm.transport.call_llm_with_retry", side_effect=fake_call),
         ):
             topics, failed_chunks, warning = _analyze_topic_chunks(chunks, "音音")
 
@@ -5194,8 +5194,8 @@ class TopicEngineParseTests(unittest.TestCase):
             checkpoint_path = Path(td) / "首轮检查点.json"
             checkpoint_path.write_text("{中断写入", encoding="utf-8")
             with (
-                patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
-                patch("topic_engine._call_llm_with_retry", side_effect=response_for_prompt) as first_call,
+                patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+                patch("autoslice.llm.transport.call_llm_with_retry", side_effect=response_for_prompt) as first_call,
             ):
                 first_topics, _, _ = _analyze_topic_chunks(
                     chunks,
@@ -5204,8 +5204,8 @@ class TopicEngineParseTests(unittest.TestCase):
                 )
 
             with (
-                patch("topic_engine.load_api_config", side_effect=AssertionError("全缓存时不应检查 API")),
-                patch("topic_engine._call_llm_with_retry", side_effect=AssertionError("全缓存时不应调用 API")) as cached_call,
+                patch("autoslice.llm.transport.load_api_config", side_effect=AssertionError("全缓存时不应检查 API")),
+                patch("autoslice.llm.transport.call_llm_with_retry", side_effect=AssertionError("全缓存时不应调用 API")) as cached_call,
             ):
                 cached_topics, _, _ = _analyze_topic_chunks(
                     chunks,
@@ -5215,8 +5215,8 @@ class TopicEngineParseTests(unittest.TestCase):
 
             chunks[1]["text"] += " 更新字幕"
             with (
-                patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
-                patch("topic_engine._call_llm_with_retry", side_effect=response_for_prompt) as changed_call,
+                patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+                patch("autoslice.llm.transport.call_llm_with_retry", side_effect=response_for_prompt) as changed_call,
             ):
                 changed_topics, _, _ = _analyze_topic_chunks(
                     chunks,
@@ -5256,7 +5256,7 @@ class TopicEngineParseTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
             patch(
-                "topic_engine.load_api_config",
+                "autoslice.llm.transport.load_api_config",
                 return_value=LLMApiConfig(
                     "https://example.test",
                     "token",
@@ -5267,7 +5267,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 ),
             ),
             patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 side_effect=LLMProviderUnavailableError("上游推理服务暂不可用"),
             ) as call,
             self.assertRaisesRegex(RuntimeError, "上游推理服务持续不可用"),
@@ -5298,8 +5298,8 @@ class TopicEngineParseTests(unittest.TestCase):
             checkpoint_path.write_text(old_content, encoding="utf-8")
             progress = []
             with (
-                patch("topic_engine.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
-                patch("topic_engine._call_llm_with_retry", return_value=response),
+                patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
+                patch("autoslice.llm.transport.call_llm_with_retry", return_value=response),
                 patch("topic_engine.os.replace", side_effect=OSError("磁盘暂时不可写")),
             ):
                 topics, failed_chunks, warning = _analyze_topic_chunks(
@@ -5329,8 +5329,8 @@ class TopicEngineParseTests(unittest.TestCase):
         }
 
         with (
-            patch("topic_engine.load_api_config", return_value=("https://example.test/v1", "sk-test", "deepseek-v4-pro")),
-            patch("topic_engine.requests.post", return_value=response) as post,
+            patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test/v1", "sk-test", "deepseek-v4-pro")),
+            patch("autoslice.llm.transport.requests.post", return_value=response) as post,
         ):
             self.assertEqual(
                 call_llm("测试", max_tokens=12000, json_mode=True),
@@ -5353,7 +5353,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 raise LLMResponseTruncatedError("输出被截断")
             return '{"topics": []}'
 
-        with patch("topic_engine.call_llm", side_effect=fake_call):
+        with patch("autoslice.llm.transport.call_llm", side_effect=fake_call):
             result = _call_llm_with_retry(
                 "完整提示",
                 compact_prompt="紧凑提示",
@@ -5379,7 +5379,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 return "这里是分析过程，没有 JSON"
             return '{"topics": []}'
 
-        with patch("topic_engine.call_llm", side_effect=fake_call):
+        with patch("autoslice.llm.transport.call_llm", side_effect=fake_call):
             result = _call_llm_with_retry(
                 "完整提示",
                 compact_prompt="紧凑提示",
@@ -5419,7 +5419,7 @@ class TopicEngineParseTests(unittest.TestCase):
             calls.append((prompt, max_tokens))
             raise make_http_error(400)
 
-        with patch("topic_engine.call_llm", side_effect=fake_call):
+        with patch("autoslice.llm.transport.call_llm", side_effect=fake_call):
             with self.assertRaises(requests.HTTPError):
                 _call_llm_with_retry(
                     "完整提示",
@@ -5777,7 +5777,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             },
         ]}, ensure_ascii=False)
 
-        with patch("topic_engine._call_llm_with_retry", return_value=response):
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response):
             warning = _review_peak_selected_topics(
                 topics,
                 srt_segments=srt_segments,
@@ -5855,7 +5855,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("topic_engine._call_llm_with_retry", side_effect=fake_review) as call,
+            patch("autoslice.llm.transport.call_llm_with_retry", side_effect=fake_review) as call,
         ):
             warning = _review_peak_selected_topics(
                 topics,
@@ -5926,7 +5926,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         }]}, ensure_ascii=False)
 
         with patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 side_effect=[first_response, retry_response],
         ) as mocked_call:
             warning = _review_peak_selected_topics(
@@ -5960,7 +5960,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         }]}, ensure_ascii=False)
 
         with patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 return_value=response,
         ) as mocked_call:
             warning = _review_peak_selected_topics(
@@ -6001,7 +6001,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
             "reason": "",
         }]}, ensure_ascii=False)
 
-        with patch("topic_engine._call_llm_with_retry", return_value=response):
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response):
             warning = _review_peak_selected_topics(
                 [topic],
                 srt_segments=[(100, 200, "音音念出留言后完整回应")],
@@ -6030,7 +6030,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("topic_engine._call_llm_with_retry", side_effect=make_http_error(500)) as call,
+            patch("autoslice.llm.transport.call_llm_with_retry", side_effect=make_http_error(500)) as call,
         ):
             warning = _review_peak_selected_topics(
                 topics,
@@ -6092,7 +6092,7 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         }]}, ensure_ascii=False)
 
         with patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 return_value=response,
         ) as mocked_call:
             warning = _review_peak_selected_topics(
@@ -6975,7 +6975,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 }]}
 """
 
-        with patch("topic_engine._call_llm_with_retry", return_value=response) as mocked_call:
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response) as mocked_call:
             updated = _enrich_manual_topics_with_llm(topics, streamer_name="音音")
 
         prompt = mocked_call.call_args.args[0]
@@ -7044,7 +7044,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 ]}
 """
 
-        with patch("topic_engine._call_llm_with_retry", return_value=response) as mocked_call:
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response) as mocked_call:
             updated = _enrich_manual_topics_with_llm(topics, streamer_name="音音")
 
         self.assertEqual(updated, 2)
@@ -7079,7 +7079,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         }, ensure_ascii=False)
 
         with (
-            patch("topic_engine._call_llm_with_retry", return_value=response),
+            patch("autoslice.llm.transport.call_llm_with_retry", return_value=response),
             self.assertRaisesRegex(LLMStructuredOutputError, "没有返回可用话题"),
         ):
             _enrich_manual_topics_with_llm(topics, streamer_name="音音")
@@ -7241,7 +7241,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 }]}
 """
 
-        with patch("topic_engine._call_llm_with_retry", return_value=response):
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response):
             _enrich_manual_topics_with_llm(topics, streamer_name="音音")
         _apply_danmaku_slice_decisions(
             topics,
@@ -7327,7 +7327,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 }]}
 """
 
-        with patch("topic_engine._call_llm_with_retry", return_value=response):
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response):
             _enrich_manual_topics_with_llm(topics, streamer_name="音音")
 
         self.assertEqual((topics[0]["start"], topics[0]["end"]), (100, 200))
@@ -8720,11 +8720,11 @@ class HybridModelRoutingTests(unittest.TestCase):
             checkpoint_path = Path(td) / "话题检查点.json"
             with (
                 patch(
-                    "topic_engine.load_api_config",
+                    "autoslice.llm.transport.load_api_config",
                     return_value=("https://example.test", "token", LLM_MODEL),
                 ),
                 patch(
-                    "topic_engine._call_llm_with_retry",
+                    "autoslice.llm.transport.call_llm_with_retry",
                     return_value=response,
                 ) as call,
             ):
@@ -8757,7 +8757,7 @@ class HybridModelRoutingTests(unittest.TestCase):
             "points": ["音音说明刚出门就突然下起大雨"],
         }]}, ensure_ascii=False)
         with patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 return_value=manual_response,
         ) as manual_call:
             _enrich_manual_topics_with_llm(manual_topics)
@@ -8785,7 +8785,7 @@ class HybridModelRoutingTests(unittest.TestCase):
             "reason": "",
         }]}, ensure_ascii=False)
         with patch(
-                "topic_engine._call_llm_with_retry",
+                "autoslice.llm.transport.call_llm_with_retry",
                 return_value=clip_response,
         ) as review_call:
             _review_peak_selected_topics(
@@ -9045,9 +9045,9 @@ class LLMApiContractTests(unittest.TestCase):
         opener = mock_open(read_data="{}")
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("topic_engine.os.path.exists", return_value=True),
+            patch("autoslice.llm.transport.os.path.exists", return_value=True),
             patch("builtins.open", opener),
-            patch("topic_engine.json.load", return_value=config_payload),
+            patch("autoslice.llm.transport.json.load", return_value=config_payload),
         ):
             config = load_api_config()
 
@@ -9092,8 +9092,8 @@ class LLMApiContractTests(unittest.TestCase):
             }),
         ]
         with (
-            patch("topic_engine.load_api_config", return_value=config),
-            patch("topic_engine.requests.post", side_effect=responses) as post,
+            patch("autoslice.llm.transport.load_api_config", return_value=config),
+            patch("autoslice.llm.transport.requests.post", side_effect=responses) as post,
         ):
             self.assertEqual(call_llm("复核", reasoning_stage="review"), "复核")
             self.assertEqual(call_llm("分析", reasoning_stage="analysis"), "分析")
@@ -9128,9 +9128,9 @@ class LLMApiContractTests(unittest.TestCase):
         reset_reasoning_effort_capability_cache()
         try:
             with (
-                patch("topic_engine.load_api_config", return_value=config),
+                patch("autoslice.llm.transport.load_api_config", return_value=config),
                 patch(
-                    "topic_engine.requests.post",
+                    "autoslice.llm.transport.requests.post",
                     side_effect=[rejected, valid, valid],
                 ) as post,
             ):
@@ -9159,9 +9159,9 @@ class LLMApiContractTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with (
                     patch.dict(os.environ, {}, clear=True),
-                    patch("topic_engine.os.path.exists", return_value=True),
+                    patch("autoslice.llm.transport.os.path.exists", return_value=True),
                     patch("builtins.open", mock_open(read_data="{}")),
-                    patch("topic_engine.json.load", return_value=payload),
+                    patch("autoslice.llm.transport.json.load", return_value=payload),
                     self.assertRaisesRegex(ValueError, expected_message) as raised,
                 ):
                     load_api_config()
@@ -9177,7 +9177,7 @@ class LLMApiContractTests(unittest.TestCase):
         opener = mock_open(read_data="{}")
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("topic_engine.os.path.exists") as exists,
+            patch("autoslice.llm.transport.os.path.exists") as exists,
             patch("builtins.open", opener),
         ):
             config = load_api_config()
@@ -9204,9 +9204,9 @@ class LLMApiContractTests(unittest.TestCase):
                 {"AUTOSLICE_LLM_MODEL": "environment-model"},
                 clear=True,
             ),
-            patch("topic_engine.os.path.exists", return_value=True),
+            patch("autoslice.llm.transport.os.path.exists", return_value=True),
             patch("builtins.open", mock_open(read_data="{}")),
-            patch("topic_engine.json.load", return_value=payload),
+            patch("autoslice.llm.transport.json.load", return_value=payload),
         ):
             config = load_api_config()
 
@@ -9220,7 +9220,7 @@ class LLMApiContractTests(unittest.TestCase):
                 {"AUTOSLICE_API_TOKEN": "secret-value"},
                 clear=True,
             ),
-            patch("topic_engine.os.path.exists") as exists,
+            patch("autoslice.llm.transport.os.path.exists") as exists,
             patch("builtins.open", opener),
             self.assertRaisesRegex(ValueError, "base_url") as raised,
         ):
@@ -9234,8 +9234,8 @@ class LLMApiContractTests(unittest.TestCase):
         opener = mock_open(read_data="{}")
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("topic_engine.os.path.exists", return_value=False),
-            patch("topic_engine.os.path.expanduser") as expanduser,
+            patch("autoslice.llm.transport.os.path.exists", return_value=False),
+            patch("autoslice.llm.transport.os.path.expanduser") as expanduser,
             patch("builtins.open", opener),
             self.assertRaisesRegex(ValueError, "未配置 LLM API") as raised,
         ):
@@ -9252,10 +9252,10 @@ class LLMApiContractTests(unittest.TestCase):
         })
         with (
             patch(
-                "topic_engine.load_api_config",
+                "autoslice.llm.transport.load_api_config",
                 return_value=("https://example.test/v1", "sk-ant-test", "model"),
             ),
-            patch("topic_engine.requests.post", return_value=response) as post,
+            patch("autoslice.llm.transport.requests.post", return_value=response) as post,
         ):
             result = call_llm("测试")
 
@@ -9272,17 +9272,17 @@ class LLMApiContractTests(unittest.TestCase):
             "api_type": "openai",
         }
         with (
-            patch("topic_engine.os.path.exists", return_value=True),
+            patch("autoslice.llm.transport.os.path.exists", return_value=True),
             patch("builtins.open", mock_open(read_data="{}")),
-            patch("topic_engine.json.load", return_value=config_payload),
+            patch("autoslice.llm.transport.json.load", return_value=config_payload),
         ):
             config = load_api_config()
         response = self._response({
             "choices": [{"finish_reason": "stop", "message": {"content": "完成"}}],
         })
         with (
-            patch("topic_engine.load_api_config", return_value=config),
-            patch("topic_engine.requests.post", return_value=response) as post,
+            patch("autoslice.llm.transport.load_api_config", return_value=config),
+            patch("autoslice.llm.transport.requests.post", return_value=response) as post,
         ):
             result = call_llm("测试")
 
@@ -9306,10 +9306,10 @@ class LLMApiContractTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with (
                     patch(
-                        "topic_engine.load_api_config",
+                        "autoslice.llm.transport.load_api_config",
                         return_value=("https://example.test/v1", "sk-test", "model"),
                     ),
-                    patch("topic_engine.requests.post", return_value=self._response(payload)),
+                    patch("autoslice.llm.transport.requests.post", return_value=self._response(payload)),
                     self.assertRaises(LLMResponseFormatError) as raised,
                 ):
                     call_llm("含个人信息的提示")
@@ -9324,10 +9324,10 @@ class LLMApiContractTests(unittest.TestCase):
         sleeps = []
         with (
             patch(
-                "topic_engine.load_api_config",
+                "autoslice.llm.transport.load_api_config",
                 return_value=("https://example.test/v1", "sk-test", "model"),
             ),
-            patch("topic_engine.requests.post", side_effect=[invalid, valid]) as post,
+            patch("autoslice.llm.transport.requests.post", side_effect=[invalid, valid]) as post,
         ):
             result = _call_llm_with_retry(
                 "测试",
@@ -9350,10 +9350,10 @@ class LLMApiContractTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with (
                     patch(
-                        "topic_engine.load_api_config",
+                        "autoslice.llm.transport.load_api_config",
                         return_value=("https://example.test", "sk-ant-test", "model"),
                     ),
-                    patch("topic_engine.requests.post", return_value=self._response(payload)),
+                    patch("autoslice.llm.transport.requests.post", return_value=self._response(payload)),
                     self.assertRaises(LLMResponseFormatError),
                 ):
                     call_llm("测试")
@@ -9376,7 +9376,7 @@ class LLMRetryTests(unittest.TestCase):
             )
 
         with (
-            patch("topic_engine.call_llm", side_effect=fake_call),
+            patch("autoslice.llm.transport.call_llm", side_effect=fake_call),
             ThreadPoolExecutor(max_workers=3) as executor,
         ):
             futures = [executor.submit(request) for _ in range(3)]
@@ -9473,7 +9473,7 @@ class LLMRetryTests(unittest.TestCase):
             calls.append(prompt)
             raise requests.ConnectionError("RemoteDisconnected")
 
-        with patch("topic_engine.call_llm", side_effect=fake_call):
+        with patch("autoslice.llm.transport.call_llm", side_effect=fake_call):
             with self.assertRaises(LLMProviderUnavailableError):
                 _call_llm_with_retry(
                     "完整提示",
@@ -9494,7 +9494,7 @@ class LLMRetryTests(unittest.TestCase):
         sleeps = []
         progress = []
         with (
-            patch("topic_engine.call_llm", side_effect=make_http_error(503)) as call,
+            patch("autoslice.llm.transport.call_llm", side_effect=make_http_error(503)) as call,
             self.assertRaisesRegex(LLMProviderUnavailableError, "检查点不会丢失"),
         ):
             _call_llm_with_retry(
@@ -9525,7 +9525,7 @@ class LLMRetryTests(unittest.TestCase):
                 raise outcome
             return outcome
 
-        with patch("topic_engine.call_llm", side_effect=fake_call):
+        with patch("autoslice.llm.transport.call_llm", side_effect=fake_call):
             first = _call_llm_with_retry(
                 "第一次请求",
                 retry_coordinator=coordinator,
