@@ -237,8 +237,15 @@ def _merge_metadata(
 def _record_snapshot(record: TaskRecord) -> dict[str, Any]:
     """返回独立字典，并明确提供旧 ``task dict`` 所需字段映射。"""
 
-    payload = record.to_dict()
-    payload["result"] = copy.deepcopy(record.result_summary)
+    # 旧 Web 层把预约 metadata 直接平铺在 task 字典顶层。先复制 metadata，
+    # 再覆盖核心字段，既保持兼容，也禁止 metadata 冒充 status/task_id。
+    payload = copy.deepcopy(record.metadata)
+    payload.update(record.to_dict())
+    legacy_result = record.result_summary
+    if legacy_result is None and record.status in {
+            "error", "cancelled", "interrupted"}:
+        legacy_result = record.error_summary
+    payload["result"] = copy.deepcopy(legacy_result)
     payload["error"] = record.error_summary
     payload["completed_at"] = record.finished_at
     payload["streamer_profile"] = copy.deepcopy(

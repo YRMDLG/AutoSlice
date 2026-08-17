@@ -429,6 +429,23 @@ class TaskRegistryTests(unittest.TestCase):
         self.assertEqual(snapshot["result"], {"output": "relative/result.srt"})
         self.assertIsNone(snapshot["error"])
         self.assertEqual(snapshot["completed_at"], completed.finished_at)
+        self.assertEqual(snapshot["owner"], "subtitle")
+        self.assertEqual(snapshot["checkpoint"]["finished"], True)
+
+    def test_legacy_snapshot_exposes_error_as_result_without_losing_error(self):
+        task_id, _ = self.registry.reserve(
+            "subtitle_render",
+            source_paths=(self.root / "成片.mp4",),
+            run_nonce="legacy-error",
+        )
+        self.registry.mark_running(task_id)
+        self.registry.fail(task_id, "编码失败")
+
+        snapshot = self.registry.snapshot(task_id)
+
+        self.assertEqual(snapshot["status"], "error")
+        self.assertEqual(snapshot["result"], "编码失败")
+        self.assertEqual(snapshot["error"], "编码失败")
 
     def test_ttl_and_limit_cleanup_never_delete_active_tasks(self):
         queued_id = self.reserve(source_paths=(self.root / "active-queued.flv",))

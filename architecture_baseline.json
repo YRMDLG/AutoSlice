@@ -7061,17 +7061,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 757,
+      "line_count": 764,
       "longest_function": {
-        "end_line": 365,
+        "end_line": 372,
         "kind": "function",
-        "line": 295,
+        "line": 302,
         "line_count": 71,
         "qualname": "TaskRegistry.reserve"
       },
       "module": "task_registry",
       "path": "task_registry.py",
-      "sha256": "cc68fd539c821ef60d44cca7a76179b0ae5c59f2d2befd3ab1e2af652010b0b2",
+      "sha256": "807cb7d6514f72d9ed6e31e01c6c6f7681832b0aa9e0e780705077426dfbb38a",
       "top_level_classes": [
         {
           "end_line": 52,
@@ -7098,9 +7098,9 @@
           "name": "TaskIdentityCollisionError"
         },
         {
-          "end_line": 744,
+          "end_line": 751,
           "kind": "class",
-          "line": 250,
+          "line": 257,
           "name": "TaskRegistry"
         }
       ],
@@ -7154,7 +7154,7 @@
           "name": "_merge_metadata"
         },
         {
-          "end_line": 247,
+          "end_line": 254,
           "kind": "function",
           "line": 237,
           "name": "_record_snapshot"
@@ -7599,7 +7599,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 96,
-    "production_line_count": 30557,
+    "production_line_count": 30564,
     "production_module_count": 51,
     "test_private_patch_count": 12,
     "top_level_class_count": 71,
