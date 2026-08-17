@@ -1,4 +1,4 @@
-"""验证 editable 安装的元数据、包导入和命令行入口。"""
+"""验证当前 AutoSlice 安装的元数据、包导入、资源和命令行入口。"""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def main() -> int:
         return 1
 
     print(
-        "editable 安装冒烟通过："
+        "安装包冒烟通过："
         f"{distribution.metadata['Name']} {distribution.version}"
     )
     return 0

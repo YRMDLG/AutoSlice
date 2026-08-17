@@ -8642,7 +8642,7 @@
       },
       "module": "scripts.smoke_packaging",
       "path": "scripts/smoke_packaging.py",
-      "sha256": "5254e0cd6a6829fbadc3fbb2f69433dfe946f255cc8140ff8ef5e86f5163feac",
+      "sha256": "398c263871a5b614d8c25040f467d4946c757d3c7db4a14d13f0d10c01a3364a",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -8749,6 +8749,101 @@
           "end_line": 190,
           "kind": "function",
           "line": 145,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 289,
+      "longest_function": {
+        "end_line": 208,
+        "kind": "function",
+        "line": 156,
+        "line_count": 53,
+        "qualname": "_build_and_install_wheel"
+      },
+      "module": "scripts.verify_distribution",
+      "path": "scripts/verify_distribution.py",
+      "sha256": "451a03c4c27e49f2aaa5f12e66420995a2bb4b1a5686c36a60d17ff0b3f5e468",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 28,
+          "kind": "function",
+          "line": 18,
+          "name": "_release_files"
+        },
+        {
+          "end_line": 35,
+          "kind": "function",
+          "line": 31,
+          "name": "_copy_release"
+        },
+        {
+          "end_line": 41,
+          "kind": "function",
+          "line": 38,
+          "name": "_venv_executable"
+        },
+        {
+          "end_line": 69,
+          "kind": "function",
+          "line": 44,
+          "name": "_run_checked"
+        },
+        {
+          "end_line": 89,
+          "kind": "function",
+          "line": 72,
+          "name": "_direct_build_environment"
+        },
+        {
+          "end_line": 105,
+          "kind": "function",
+          "line": 92,
+          "name": "_runtime_environment"
+        },
+        {
+          "end_line": 117,
+          "kind": "function",
+          "line": 108,
+          "name": "_package_tree"
+        },
+        {
+          "end_line": 134,
+          "kind": "function",
+          "line": 120,
+          "name": "_installed_origins"
+        },
+        {
+          "end_line": 153,
+          "kind": "function",
+          "line": 137,
+          "name": "_assert_installed_from_venv"
+        },
+        {
+          "end_line": 208,
+          "kind": "function",
+          "line": 156,
+          "name": "_build_and_install_wheel"
+        },
+        {
+          "end_line": 242,
+          "kind": "function",
+          "line": 211,
+          "name": "_verify_installed_runtime"
+        },
+        {
+          "end_line": 266,
+          "kind": "function",
+          "line": 245,
+          "name": "_verify_distribution"
+        },
+        {
+          "end_line": 285,
+          "kind": "function",
+          "line": 269,
           "name": "main"
         }
       ]
@@ -8909,6 +9004,7 @@
       "scripts/smoke_packaging.py",
       "scripts/smoke_startup.py",
       "scripts/validate_public_docs.py",
+      "scripts/verify_distribution.py",
       "scripts/manual/__init__.py",
       "scripts/manual/run_real_pipeline_smoke.py",
       "src/autoslice/__init__.py",
@@ -9003,11 +9099,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 149,
-    "production_line_count": 33183,
-    "production_module_count": 88,
+    "production_line_count": 33472,
+    "production_module_count": 89,
     "test_private_patch_count": 17,
     "top_level_class_count": 82,
-    "top_level_function_count": 847
+    "top_level_function_count": 860
   },
   "test_private_patches": {
     "by_target_module": {

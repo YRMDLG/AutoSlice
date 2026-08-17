@@ -50,6 +50,10 @@ jobs:
           python -B scripts/smoke_packaging.py
           autoslice --help
 
+      - name: Validate wheel outside repository
+        shell: pwsh
+        run: python -B scripts/verify_distribution.py
+
       - name: Install FFmpeg
         shell: pwsh
         run: |
