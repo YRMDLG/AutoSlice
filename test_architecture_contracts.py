@@ -12,6 +12,21 @@ from scripts import architecture_snapshot
 ROOT = Path(__file__).resolve().parent
 BASELINE_PATH = ROOT / "architecture_baseline.json"
 
+# Phase 1 只冻结身份契约，不冒充 Phase 4 已完成。以下符号仍由单体拥有，
+# 必须在后续迁移真正删除旧实现时连同这份债务记录一起更新。
+CURRENT_LLM_IDENTITY_DEBT = {
+    "status": "present",
+    "owner_module": "topic_engine",
+    "local_definitions": (
+        "_LLMProviderRetryCoordinator",
+        "_call_llm_with_retry",
+        "_decode_llm_response_json",
+        "_parse_anthropic_response",
+        "_parse_openai_response",
+        "call_llm",
+    ),
+}
+
 
 class ArchitectureSnapshotTests(unittest.TestCase):
 
@@ -196,6 +211,88 @@ class ArchitectureDependencyTests(unittest.TestCase):
         self.assertEqual(
             violations,
             ["底层模块 autoslice.llm.transport 禁止反向导入高层模块 topic_engine"],
+        )
+
+
+class ArchitectureDefinitionTests(unittest.TestCase):
+
+    def test_current_modules_have_no_duplicate_top_level_definitions(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+
+    def test_duplicate_function_or_class_name_is_detected_from_ast(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "duplicate.py").write_text(
+                "def repeated():\n"
+                "    return 1\n"
+                "\n"
+                "class repeated:\n"
+                "    pass\n",
+                encoding="utf-8",
+            )
+            snapshot = architecture_snapshot.build_snapshot(root)
+
+        self.assertEqual(
+            snapshot["duplicate_top_level_definitions"],
+            [{
+                "module": "duplicate",
+                "path": "duplicate.py",
+                "name": "repeated",
+                "definitions": [
+                    {
+                        "name": "repeated",
+                        "kind": "function",
+                        "line": 1,
+                        "end_line": 2,
+                    },
+                    {
+                        "name": "repeated",
+                        "kind": "class",
+                        "line": 4,
+                        "end_line": 5,
+                    },
+                ],
+            }],
+        )
+
+    def test_topic_engine_llm_imports_keep_transport_object_identity(self):
+        import llm_client
+        import topic_engine
+
+        expected_identities = {
+            "_LLMApiConfig": "LLMApiConfig",
+            "_call_compatible_api": "call_compatible_api",
+            "_infer_api_type": "infer_api_type",
+            "_load_llm_api_config": "load_api_config",
+            "_normalise_api_config": "normalise_api_config",
+            "_read_llm_json_config": "read_json_config",
+        }
+        for facade_name, transport_name in expected_identities.items():
+            with self.subTest(facade_name=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(llm_client, transport_name),
+                    msg=f"{facade_name} 被后定义覆盖，不再指向唯一传输符号",
+                )
+
+    def test_legacy_llm_implementation_debt_is_not_reported_as_resolved(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner = modules[CURRENT_LLM_IDENTITY_DEBT["owner_module"]]
+        local_names = {
+            definition["name"]
+            for definition in (
+                owner["top_level_functions"] + owner["top_level_classes"]
+            )
+        }
+
+        self.assertEqual(CURRENT_LLM_IDENTITY_DEBT["status"], "present")
+        self.assertEqual(
+            set(CURRENT_LLM_IDENTITY_DEBT["local_definitions"]),
+            set(CURRENT_LLM_IDENTITY_DEBT["local_definitions"]) & local_names,
+            msg="债务记录必须与 topic_engine 中仍存在的 LLM 实现完全对应",
         )
 
 
