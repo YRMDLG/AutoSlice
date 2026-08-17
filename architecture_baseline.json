@@ -884,6 +884,26 @@
       "to": "autoslice.paths"
     },
     {
+      "from": "autoslice.slice_planning",
+      "imports": [
+        "autoslice.reporting"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.reporting"
+    },
+    {
+      "from": "autoslice.slice_planning",
+      "imports": [
+        "autoslice.slice_reuse"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.slice_reuse"
+    },
+    {
       "from": "autoslice.slice_reuse",
       "imports": [
         "autoslice.media_formats.SUPPORTED_VIDEO_EXTENSIONS",
@@ -947,6 +967,16 @@
         10
       ],
       "to": "autoslice.reporting"
+    },
+    {
+      "from": "autoslice.slicing",
+      "imports": [
+        "autoslice.slice_planning"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.slice_planning"
     },
     {
       "from": "autoslice.slicing",
@@ -2082,10 +2112,10 @@
       "qualname": "ensure_srt"
     },
     {
-      "end_line": 483,
+      "end_line": 458,
       "kind": "function",
       "line": 191,
-      "line_count": 293,
+      "line_count": 268,
       "module": "autoslice.slicing",
       "path": "src/autoslice/slicing.py",
       "qualname": "slice_from_marks_impl"
@@ -5376,6 +5406,42 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 85,
+      "longest_function": {
+        "end_line": 54,
+        "kind": "function",
+        "line": 25,
+        "line_count": 30,
+        "qualname": "build_slice_jobs"
+      },
+      "module": "autoslice.slice_planning",
+      "path": "src/autoslice/slice_planning.py",
+      "sha256": "3ad56d7bf2ac25724aec65c966f3572ab0629430fe7327243152a10c4c2cb77e",
+      "top_level_classes": [
+        {
+          "end_line": 22,
+          "kind": "class",
+          "line": 13,
+          "name": "SliceJobPartition"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 54,
+          "kind": "function",
+          "line": 25,
+          "name": "build_slice_jobs"
+        },
+        {
+          "end_line": 85,
+          "kind": "function",
+          "line": 57,
+          "name": "partition_slice_jobs"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 179,
       "longest_function": {
         "end_line": 179,
@@ -5417,17 +5483,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 497,
+      "line_count": 472,
       "longest_function": {
-        "end_line": 483,
+        "end_line": 458,
         "kind": "function",
         "line": 191,
-        "line_count": 293,
+        "line_count": 268,
         "qualname": "slice_from_marks_impl"
       },
       "module": "autoslice.slicing",
       "path": "src/autoslice/slicing.py",
-      "sha256": "b45f9531e98310865d0be6d552856778dc47b2abf49b8505a0bf1137c2beb7ef",
+      "sha256": "4fea40e9f78b980d3fd007b46331c0461b69bf3e331d5149ffb4fb05ec450805",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5473,15 +5539,15 @@
           "name": "prepare_seekable_slice_source"
         },
         {
-          "end_line": 483,
+          "end_line": 458,
           "kind": "function",
           "line": 191,
           "name": "slice_from_marks_impl"
         },
         {
-          "end_line": 497,
+          "end_line": 472,
           "kind": "function",
-          "line": 486,
+          "line": 461,
           "name": "slice_from_marks"
         }
       ]
@@ -9370,6 +9436,7 @@
       "src/autoslice/security_policy.py",
       "src/autoslice/setup_asr_model.py",
       "src/autoslice/setup_gpu_runtime.py",
+      "src/autoslice/slice_planning.py",
       "src/autoslice/slice_reuse.py",
       "src/autoslice/slicing.py",
       "src/autoslice/streamer_profiles.py",
@@ -9440,6 +9507,8 @@
       "tests/unit/test_runtime_config.py",
       "tests/unit/test_security_policy.py",
       "tests/unit/test_setup_asr_model.py",
+      "tests/unit/test_slice_planning.py",
+      "tests/unit/test_slice_reuse.py",
       "tests/unit/test_streamer_profiles.py",
       "tests/unit/test_task_registry.py",
       "tests/unit/test_task_store.py",
@@ -9455,12 +9524,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 175,
-    "production_line_count": 33894,
-    "production_module_count": 95,
+    "import_edge_count": 178,
+    "production_line_count": 33954,
+    "production_module_count": 96,
     "test_private_patch_count": 17,
-    "top_level_class_count": 82,
-    "top_level_function_count": 860
+    "top_level_class_count": 83,
+    "top_level_function_count": 862
   },
   "test_private_patches": {
     "by_target_module": {

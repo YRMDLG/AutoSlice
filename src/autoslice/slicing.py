@@ -8,7 +8,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from autoslice import reporting as reporting_service
-from autoslice import slice_reuse
+from autoslice import slice_planning, slice_reuse
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.media_formats import (
@@ -231,49 +231,24 @@ def slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=Non
         else []
     )
 
-    slice_jobs = []
-    for index, mark in enumerate(marks, 1):
-        start_s = float(mark["start"])
-        end_s = float(mark["end"])
-        if mark.get("preserve_to_video_end") and precise_video_end:
-            # JSON/报告使用向上取整的整秒作为可读边界；真正编码时必须以
-            # ffprobe 的浮点时长收尾，否则计划时长会比源视频多近一秒，
-            # 既可能触发时长校验失败，也无法准确表达“保留到关播”。
-            end_s = min(end_s, float(precise_video_end))
-        duration = end_s - start_s
-        if duration <= 0:
-            continue
-        output_name = reporting_service.topic_clip_filename(index, mark, flv_path)
-        slice_jobs.append({
-            "index": index,
-            "mark": mark,
-            "start": start_s,
-            "end": end_s,
-            "duration": duration,
-            "title": mark.get("title", f"片段{index}"),
-            "output_name": output_name,
-            "output_path": os.path.join(report_dir, output_name),
-        })
-
-    reusable_jobs = []
-    pending_jobs = []
-    title_renamed_count = 0
-    for job in slice_jobs:
-        if slice_reuse.is_reusable_topic_clip(
-                job["output_path"], flv_path, job["duration"]):
-            reusable_jobs.append(job)
-        elif slice_reuse.reuse_compatible_topic_clip(job, flv_path):
-            reusable_jobs.append(job)
-        elif slice_reuse.reuse_topic_clip_after_title_change(
-                job, report_dir, flv_path):
-            reusable_jobs.append(job)
-            title_renamed_count += 1
-        else:
-            pending_jobs.append(job)
+    slice_jobs = slice_planning.build_slice_jobs(
+        marks,
+        flv_path,
+        report_dir,
+        precise_video_end=precise_video_end,
+    )
+    partition = slice_planning.partition_slice_jobs(
+        slice_jobs,
+        flv_path,
+        report_dir,
+    )
+    reusable_jobs = partition.reusable_jobs
+    pending_jobs = partition.pending_jobs
+    title_renamed_count = partition.title_renamed_count
 
     removed_count = slice_reuse.cleanup_stale_topic_clips(
         report_dir,
-        preserve_names=[job["output_name"] for job in reusable_jobs],
+        preserve_names=partition.reusable_output_names,
     )
 
     if progress_callback:

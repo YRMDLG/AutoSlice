@@ -769,6 +769,23 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             }.isdisjoint(slicing_functions)
         )
 
+    def test_slice_planning_has_one_owner_and_direct_slicing_consumer(self):
+        from autoslice import slice_planning, slicing
+
+        self.assertIs(slicing.slice_planning, slice_planning)
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        slicing_functions = {
+            item["name"]
+            for item in modules["autoslice.slicing"]["top_level_functions"]
+        }
+        self.assertTrue(
+            {
+                "build_slice_jobs",
+                "partition_slice_jobs",
+            }.isdisjoint(slicing_functions)
+        )
+
     def test_clip_boundaries_have_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline, reporting, slicing
