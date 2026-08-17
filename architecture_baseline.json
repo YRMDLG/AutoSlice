@@ -2725,6 +2725,84 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 124,
+      "longest_function": {
+        "end_line": 58,
+        "kind": "function",
+        "line": 43,
+        "line_count": 16,
+        "qualname": "normalise_video_extension"
+      },
+      "module": "media_formats",
+      "path": "media_formats.py",
+      "sha256": "820afa73f92237e0e3740955492935a0d6d374d1110cbe7d7504a9fe9dfa4f8d",
+      "top_level_classes": [
+        {
+          "end_line": 24,
+          "kind": "class",
+          "line": 16,
+          "name": "MediaFormatCapability"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 58,
+          "kind": "function",
+          "line": 43,
+          "name": "normalise_video_extension"
+        },
+        {
+          "end_line": 65,
+          "kind": "function",
+          "line": 61,
+          "name": "media_format_for"
+        },
+        {
+          "end_line": 72,
+          "kind": "function",
+          "line": 68,
+          "name": "is_scannable_video"
+        },
+        {
+          "end_line": 79,
+          "kind": "function",
+          "line": 75,
+          "name": "is_analyzable_video"
+        },
+        {
+          "end_line": 86,
+          "kind": "function",
+          "line": 82,
+          "name": "is_sliceable_video"
+        },
+        {
+          "end_line": 97,
+          "kind": "function",
+          "line": 89,
+          "name": "video_filename_stem"
+        },
+        {
+          "end_line": 106,
+          "kind": "function",
+          "line": 100,
+          "name": "_slice_capability"
+        },
+        {
+          "end_line": 113,
+          "kind": "function",
+          "line": 109,
+          "name": "preferred_output_extension"
+        },
+        {
+          "end_line": 124,
+          "kind": "function",
+          "line": 116,
+          "name": "compatible_output_extensions"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 117,
       "longest_function": {
         "end_line": 56,
@@ -5907,7 +5985,7 @@
       },
       "module": "启动",
       "path": "启动.py",
-      "sha256": "1845a402fb8b059c0de6a35cae1c4fe396457e5b5fcfc68b1e2111033c64cef8",
+      "sha256": "8bcce1d452e362e4ac62a995efcfc625b39b1df581310f2be1f138d8607565d4",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6067,6 +6145,7 @@
       "artifact_store.py",
       "core.py",
       "llm_client.py",
+      "media_formats.py",
       "runtime_config.py",
       "setup_asr_model.py",
       "setup_gpu_runtime.py",
@@ -6103,6 +6182,7 @@
       "test_artifact_store.py",
       "test_external_boundaries.py",
       "test_launcher.py",
+      "test_media_formats.py",
       "test_runtime_config.py",
       "test_setup_asr_model.py",
       "test_streamer_profiles.py",
@@ -6124,11 +6204,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 41,
-    "production_line_count": 26051,
-    "production_module_count": 32,
+    "production_line_count": 26175,
+    "production_module_count": 33,
     "test_private_patch_count": 139,
-    "top_level_class_count": 36,
-    "top_level_function_count": 745
+    "top_level_class_count": 37,
+    "top_level_function_count": 754
   },
   "test_private_patches": {
     "by_target_module": {
