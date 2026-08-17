@@ -154,6 +154,12 @@ const OUTPUT_DIR_STORAGE_KEY='autoslice.output-dir';
 
 function byId(id){return document.getElementById(id)}
 function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}
+function replaceFileExtension(path,extension){
+    const separatorIndex=Math.max(path.lastIndexOf('/'),path.lastIndexOf('\\'));
+    const dotIndex=path.lastIndexOf('.');
+    if(dotIndex<=separatorIndex)return path+extension;
+    return path.slice(0,dotIndex)+extension;
+}
 
 function setNotice(message,kind=''){
     const notice=byId('pageNotice');
@@ -374,7 +380,7 @@ function pick(element,video){
     document.querySelectorAll('.video-item').forEach(item=>item.classList.remove('selected'));
     element.classList.add('selected');
     selVideo=video.path;
-    selAss=video.has_ass?video.path.replace(/\.flv$/i,'.ass'):'';
+    selAss=video.has_ass?replaceFileExtension(video.path,'.ass'):'';
     byId('selectedName').textContent=video.name;
     byId('selectedName').title=video.name;
     byId('selectedPath').textContent=video.path;

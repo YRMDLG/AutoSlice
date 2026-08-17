@@ -95,6 +95,63 @@ class ScanApiTests(unittest.TestCase):
         self.assertFalse(by_name["05_直播.aVi"]["has_ass"])
 
 
+class TopicPageContractTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+
+    def _page_script(self):
+        response = self.client.get("/topic-v2")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        matches = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(matches)
+        return html, matches[-1]
+
+    def test_topic_page_uses_generic_video_filename_derivation(self):
+        _html, script = self._page_script()
+
+        self.assertIn("function replaceFileExtension(path,extension)", script)
+        self.assertIn("replaceFileExtension(video.path,'.ass')", script)
+        self.assertIn("name.textContent=video.name", script)
+        self.assertNotIn(".flv", script.casefold())
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查文件名派生")
+    def test_topic_page_derives_sidecars_for_every_supported_video_suffix(self):
+        _html, script = self._page_script()
+        helper_match = re.search(
+            r"function replaceFileExtension\(path,extension\)\{.*?\n\}",
+            script,
+            flags=re.S,
+        )
+        self.assertIsNotNone(helper_match)
+        cases = [
+            [r"X:\录播\测试.FLV", r"X:\录播\测试.ass"],
+            ["/录播/多点.标题.mp4", "/录播/多点.标题.ass"],
+            ["/录播/测试.MkV", "/录播/测试.ass"],
+            ["/录播/测试.MOV", "/录播/测试.ass"],
+            ["/录播/测试.aVi", "/录播/测试.ass"],
+        ]
+        runtime = (
+            helper_match.group(0)
+            + f"\nconst cases={json.dumps(cases, ensure_ascii=False)};"
+            + "for(const [source,expected] of cases){"
+            + "const actual=replaceFileExtension(source,'.ass');"
+            + "if(actual!==expected)throw new Error(`${source}: ${actual}`);}"
+        )
+
+        result = subprocess.run(
+            ["node", "-e", runtime],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 class AutoCoverIntegrationTests(unittest.TestCase):
 
     def setUp(self):
