@@ -23,15 +23,14 @@ from datetime import datetime, timedelta
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import (
     ClipCandidatePromptEvidence as _ClipCandidatePromptEvidence,
-    FinalTitlePromptEvidence as _FinalTitlePromptEvidence,
     ManualTopicPromptEvidence as _ManualTopicPromptEvidence,
     PromptContext as _PromptContext,
     SYSTEM_PROMPT,
     TITLE_HOOK_PROMPT_GUIDE,
-    TitleStylePromptEvidence as _TitleStylePromptEvidence,
     TopicAnalysisPromptEvidence as _TopicAnalysisPromptEvidence,
     build_clip_candidate_review_prompt as _render_clip_candidate_review_prompt,
     build_final_title_generation_prompt as _render_final_title_generation_prompt,
@@ -224,6 +223,61 @@ _srt_alignment_windows = timeline_analysis._srt_alignment_windows
 _align_manual_timeline_entries_to_srt = timeline_analysis._align_manual_timeline_entries_to_srt
 
 
+# 标题兼容 façade：样式、证据绑定和多阶段复核只保留唯一实现。
+MAX_PUBLISH_TITLE_CHARS = title_analysis.MAX_PUBLISH_TITLE_CHARS
+MAX_TOPIC_TITLE_CHARS = title_analysis.MAX_TOPIC_TITLE_CHARS
+TITLE_STYLE_EXAMPLE_LIMIT = title_analysis.TITLE_STYLE_EXAMPLE_LIMIT
+TITLE_STYLE_PROFILE_PATH = title_analysis.TITLE_STYLE_PROFILE_PATH
+_GENERIC_PUBLISH_TITLES = title_analysis._GENERIC_PUBLISH_TITLES
+_GENERIC_TOPIC_TITLES = title_analysis._GENERIC_TOPIC_TITLES
+_LEADING_ACCOUNT_PREFIX_RE = title_analysis._LEADING_ACCOUNT_PREFIX_RE
+_META_TITLE_KEYWORDS = title_analysis._META_TITLE_KEYWORDS
+_PLACEHOLDER_TITLES = title_analysis._PLACEHOLDER_TITLES
+_PUBLISH_TITLE_META_KEYWORDS = title_analysis._PUBLISH_TITLE_META_KEYWORDS
+_SUCCESSFUL_RAIL_EVIDENCE_RE = title_analysis._SUCCESSFUL_RAIL_EVIDENCE_RE
+_TITLE_STYLE_TAG_KEYWORDS = title_analysis._TITLE_STYLE_TAG_KEYWORDS
+_active_streamer_aliases = title_analysis._active_streamer_aliases
+_build_title_style_prompt = title_analysis._build_title_style_prompt
+_clean_topic_title = title_analysis._clean_topic_title
+_clip_candidate_danmaku_prompt_evidence = title_analysis._clip_candidate_danmaku_prompt_evidence
+_clip_candidate_reference_publish_titles = title_analysis._clip_candidate_reference_publish_titles
+_compact_topic_phrase = title_analysis._compact_topic_phrase
+_derive_topic_title = title_analysis._derive_topic_title
+_fallback_publish_title = title_analysis._fallback_publish_title
+_fallback_title_from_text = title_analysis._fallback_title_from_text
+_is_bad_topic_title = title_analysis._is_bad_topic_title
+_is_generic_topic_title = title_analysis._is_generic_topic_title
+_is_incomplete_ai_title = title_analysis._is_incomplete_ai_title
+_is_placeholder_title = title_analysis._is_placeholder_title
+_load_title_style_profile = title_analysis.load_title_style_profile
+_manual_title_from_text = title_analysis._manual_title_from_text
+_normalise_obvious_report_terms = title_analysis._normalise_obvious_report_terms
+_normalise_publish_title = title_analysis._normalise_publish_title
+_normalise_title_hook = title_analysis._normalise_title_hook
+_profile_formal_names = title_analysis._profile_formal_names
+_prompt_context = title_analysis._prompt_context
+_prompt_streamer_name = title_analysis._prompt_streamer_name
+_publish_title_example = title_analysis._publish_title_example
+_publish_title_instruction = title_analysis._publish_title_instruction
+_publish_title_prefix = title_analysis._publish_title_prefix
+_replace_streamer_role = title_analysis._replace_streamer_role
+_sanitize_transport_claims = title_analysis._sanitize_transport_claims
+_select_title_style_examples = title_analysis._select_title_style_examples
+_specific_topic_phrase = title_analysis._specific_topic_phrase
+_streamer_report_name = title_analysis._streamer_report_name
+_streamer_role_pattern = title_analysis._streamer_role_pattern
+_strip_body_prefix = title_analysis._strip_body_prefix
+_strip_title_meta = title_analysis._strip_title_meta
+_title_style_profile_path = title_analysis._title_style_profile_path
+_final_title_review_payload = title_analysis._final_title_review_payload
+_build_final_title_generation_prompt = title_analysis._build_final_title_generation_prompt
+_normalise_final_title_option = title_analysis._normalise_final_title_option
+_parse_final_title_candidates = title_analysis._parse_final_title_candidates
+_build_final_title_judge_prompt = title_analysis._build_final_title_judge_prompt
+_parse_final_title_judgement = title_analysis._parse_final_title_judgement
+_review_selected_publish_titles = title_analysis.review_selected_publish_titles
+
+
 # 候选兼容 façade：评分、价值复核和边界决策只保留唯一实现。
 CHUNK_SEC = candidate_analysis.CHUNK_SEC
 CLIP_MANUAL_REVIEW_MIN_STARS = candidate_analysis.CLIP_MANUAL_REVIEW_MIN_STARS
@@ -246,8 +300,6 @@ MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE = candidate_analysis.MANUAL_TIMELINE_OPTIMIZ
 MANUAL_TIMELINE_TOPIC_POST_SEC = candidate_analysis.MANUAL_TIMELINE_TOPIC_POST_SEC
 MANUAL_TIMELINE_TOPIC_PRE_SEC = candidate_analysis.MANUAL_TIMELINE_TOPIC_PRE_SEC
 MAX_INITIAL_FAILED_CHUNKS = candidate_analysis.MAX_INITIAL_FAILED_CHUNKS
-MAX_PUBLISH_TITLE_CHARS = candidate_analysis.MAX_PUBLISH_TITLE_CHARS
-MAX_TOPIC_TITLE_CHARS = candidate_analysis.MAX_TOPIC_TITLE_CHARS
 OUTRO_TRIGGER_JOIN_GAP_SEC = candidate_analysis.OUTRO_TRIGGER_JOIN_GAP_SEC
 OUTRO_VARIANT_FAREWELL_AFTER_SEC = candidate_analysis.OUTRO_VARIANT_FAREWELL_AFTER_SEC
 OUTRO_VARIANT_FAREWELL_BEFORE_SEC = candidate_analysis.OUTRO_VARIANT_FAREWELL_BEFORE_SEC
@@ -256,8 +308,6 @@ SC_FALLBACK_GIFT_LOOKBACK_SEC = candidate_analysis.SC_FALLBACK_GIFT_LOOKBACK_SEC
 SC_TRIGGER_KEYWORDS = candidate_analysis.SC_TRIGGER_KEYWORDS
 SRT_ESTIMATED_CHARS_PER_SEC = candidate_analysis.SRT_ESTIMATED_CHARS_PER_SEC
 THANKS_TRIGGER_RE = candidate_analysis.THANKS_TRIGGER_RE
-TITLE_STYLE_EXAMPLE_LIMIT = candidate_analysis.TITLE_STYLE_EXAMPLE_LIMIT
-TITLE_STYLE_PROFILE_PATH = candidate_analysis.TITLE_STYLE_PROFILE_PATH
 TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC = candidate_analysis.TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC
 TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC = candidate_analysis.TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC
 TOPIC_AI_FOCUS_NATURAL_POST_BOUNDARY_SEC = candidate_analysis.TOPIC_AI_FOCUS_NATURAL_POST_BOUNDARY_SEC
@@ -293,22 +343,14 @@ _BOUNDARY_EVIDENCE_STOP_TERMS = candidate_analysis._BOUNDARY_EVIDENCE_STOP_TERMS
 _CIRCLED_NUMBERS = candidate_analysis._CIRCLED_NUMBERS
 _DANMAKU_META_KEYWORDS = candidate_analysis._DANMAKU_META_KEYWORDS
 _FRAGMENT_BODY_LINES = candidate_analysis._FRAGMENT_BODY_LINES
-_GENERIC_PUBLISH_TITLES = candidate_analysis._GENERIC_PUBLISH_TITLES
-_GENERIC_TOPIC_TITLES = candidate_analysis._GENERIC_TOPIC_TITLES
 _HEADING_RE = candidate_analysis._HEADING_RE
-_LEADING_ACCOUNT_PREFIX_RE = candidate_analysis._LEADING_ACCOUNT_PREFIX_RE
 _MANUAL_AI_PLACEHOLDER_PHRASES = candidate_analysis._MANUAL_AI_PLACEHOLDER_PHRASES
 _META_BODY_KEYWORDS = candidate_analysis._META_BODY_KEYWORDS
-_META_TITLE_KEYWORDS = candidate_analysis._META_TITLE_KEYWORDS
 _NEXT_CASE_ASR_TRIGGER_RE = candidate_analysis._NEXT_CASE_ASR_TRIGGER_RE
 _NO_SLICE_HINTS = candidate_analysis._NO_SLICE_HINTS
 _OUTRO_ACTIVITY_VARIANT_RE = candidate_analysis._OUTRO_ACTIVITY_VARIANT_RE
 _OUTRO_FAREWELL_EVIDENCE = candidate_analysis._OUTRO_FAREWELL_EVIDENCE
 _OUTRO_TRIGGER_NORMALISE_RE = candidate_analysis._OUTRO_TRIGGER_NORMALISE_RE
-_PLACEHOLDER_TITLES = candidate_analysis._PLACEHOLDER_TITLES
-_PUBLISH_TITLE_META_KEYWORDS = candidate_analysis._PUBLISH_TITLE_META_KEYWORDS
-_SUCCESSFUL_RAIL_EVIDENCE_RE = candidate_analysis._SUCCESSFUL_RAIL_EVIDENCE_RE
-_TITLE_STYLE_TAG_KEYWORDS = candidate_analysis._TITLE_STYLE_TAG_KEYWORDS
 _TOPIC_CONCLUSION_RE = candidate_analysis._TOPIC_CONCLUSION_RE
 _TOPIC_DECISION_EVIDENCE_RE = candidate_analysis._TOPIC_DECISION_EVIDENCE_RE
 _TOPIC_DISCOURSE_CONTINUATION_RE = candidate_analysis._TOPIC_DISCOURSE_CONTINUATION_RE
@@ -321,7 +363,6 @@ _UNSUPPORTED_AI_AUDIENCE_REACTION_RE = candidate_analysis._UNSUPPORTED_AI_AUDIEN
 _VISUAL_CASE_SHIFT_RE = candidate_analysis._VISUAL_CASE_SHIFT_RE
 _VISUAL_REACTION_LEAD_IN_RE = candidate_analysis._VISUAL_REACTION_LEAD_IN_RE
 _VISUAL_REVIEW_TOPIC_RE = candidate_analysis._VISUAL_REVIEW_TOPIC_RE
-_active_streamer_aliases = candidate_analysis._active_streamer_aliases
 _analysis_topics_snapshot = candidate_analysis._analysis_topics_snapshot
 _analyze_topic_chunks = candidate_analysis.analyze_topic_chunks
 _append_clip_candidate_source = candidate_analysis._append_clip_candidate_source
@@ -338,15 +379,11 @@ _build_chunk_prompt = candidate_analysis._build_chunk_prompt
 _build_clip_candidate_review_audit = candidate_analysis._build_clip_candidate_review_audit
 _build_clip_candidate_review_prompt = candidate_analysis._build_clip_candidate_review_prompt
 _build_manual_topic_enrichment_prompt = candidate_analysis._build_manual_topic_enrichment_prompt
-_build_title_style_prompt = candidate_analysis._build_title_style_prompt
 _cap_expanded_clip_mark = candidate_analysis._cap_expanded_clip_mark
 _capped_speech_chain_start = candidate_analysis._capped_speech_chain_start
 _clean_ass_danmaku_text = candidate_analysis._clean_ass_danmaku_text
 _clean_body_content = candidate_analysis._clean_body_content
-_clean_topic_title = candidate_analysis._clean_topic_title
 _clean_topics_for_report = candidate_analysis._clean_topics_for_report
-_clip_candidate_danmaku_prompt_evidence = candidate_analysis._clip_candidate_danmaku_prompt_evidence
-_clip_candidate_reference_publish_titles = candidate_analysis._clip_candidate_reference_publish_titles
 _clip_context_requires_trigger = candidate_analysis._clip_context_requires_trigger
 _clip_interest_reason = candidate_analysis._clip_interest_reason
 _clip_manual_star_count = candidate_analysis._clip_manual_star_count
@@ -355,13 +392,11 @@ _clip_review_candidate = candidate_analysis._clip_review_candidate
 _clip_review_checkpoint_is_complete = candidate_analysis._clip_review_checkpoint_is_complete
 _clip_review_checkpoint_matches_policy = candidate_analysis._clip_review_checkpoint_matches_policy
 _clip_star_bonus_cap = candidate_analysis._clip_star_bonus_cap
-_compact_topic_phrase = candidate_analysis._compact_topic_phrase
 _configured_llm_concurrency = candidate_analysis._configured_llm_concurrency
 _danmaku_peak_features = candidate_analysis._danmaku_peak_features
 _danmaku_prompt_evidence = candidate_analysis._danmaku_prompt_evidence
 _danmaku_topic_alignment = candidate_analysis._danmaku_topic_alignment
 _dedupe_clip_marks = candidate_analysis._dedupe_clip_marks
-_derive_topic_title = candidate_analysis._derive_topic_title
 _detect_stream_outro_clip = candidate_analysis._detect_stream_outro_clip
 _enrich_manual_topics_in_batches = candidate_analysis.enrich_manual_topics_in_batches
 _enrich_manual_topics_with_llm = candidate_analysis.enrich_manual_topics_with_llm
@@ -369,8 +404,6 @@ _enriched_manual_topic_from_item = candidate_analysis._enriched_manual_topic_fro
 _expand_clip_mark_with_context = candidate_analysis._expand_clip_mark_with_context
 _expand_clip_marks_with_context = candidate_analysis._expand_clip_marks_with_context
 _extract_json_payload = candidate_analysis._extract_json_payload
-_fallback_publish_title = candidate_analysis._fallback_publish_title
-_fallback_title_from_text = candidate_analysis._fallback_title_from_text
 _filter_unsupported_ai_points = candidate_analysis._filter_unsupported_ai_points
 _find_next_topic_hard_end = candidate_analysis._find_next_topic_hard_end
 _find_relevant_topic_context_end = candidate_analysis._find_relevant_topic_context_end
@@ -387,25 +420,20 @@ _has_high_star_manual_evidence = candidate_analysis._has_high_star_manual_eviden
 _has_outro_farewell_evidence = candidate_analysis._has_outro_farewell_evidence
 _high_energy_danmaku_peaks = candidate_analysis._high_energy_danmaku_peaks
 _integer_clip_bounds_outside_subtitles = candidate_analysis._integer_clip_bounds_outside_subtitles
-_is_bad_topic_title = candidate_analysis._is_bad_topic_title
 _is_content_cuttable_topic = candidate_analysis._is_content_cuttable_topic
 _is_duplicate_topic = candidate_analysis._is_duplicate_topic
 _is_explicit_sc_topic = candidate_analysis._is_explicit_sc_topic
 _is_explicit_sc_trigger = candidate_analysis._is_explicit_sc_trigger
 _is_generic_danmaku_reaction = candidate_analysis._is_generic_danmaku_reaction
-_is_generic_topic_title = candidate_analysis._is_generic_topic_title
-_is_incomplete_ai_title = candidate_analysis._is_incomplete_ai_title
 _is_manual_ai_placeholder = candidate_analysis._is_manual_ai_placeholder
 _is_manual_merge_target = candidate_analysis._is_manual_merge_target
 _is_meta_body_line = candidate_analysis._is_meta_body_line
-_is_placeholder_title = candidate_analysis._is_placeholder_title
 _is_retryable_llm_error = candidate_analysis._is_retryable_llm_error
 _is_slice_marked = candidate_analysis._is_slice_marked
 _is_topic_in_chunk = candidate_analysis._is_topic_in_chunk
 _json_can_slice = candidate_analysis._json_can_slice
 _json_points_to_body = candidate_analysis._json_points_to_body
 _load_repaired_srt_segments = candidate_analysis._load_repaired_srt_segments
-_load_title_style_profile = candidate_analysis.load_title_style_profile
 _load_topic_analysis_checkpoint = candidate_analysis._load_topic_analysis_checkpoint
 _looks_like_delayed_topic_conclusion = candidate_analysis._looks_like_delayed_topic_conclusion
 _looks_like_discourse_continuation = candidate_analysis._looks_like_discourse_continuation
@@ -420,18 +448,14 @@ _manual_entry_meaningfully_overlaps_topic = candidate_analysis._manual_entry_mea
 _manual_evidence_line = candidate_analysis._manual_evidence_line
 _manual_review_anchor = candidate_analysis._manual_review_anchor
 _manual_text_supports_candidate = candidate_analysis._manual_text_supports_candidate
-_manual_title_from_text = candidate_analysis._manual_title_from_text
 _merge_expanded_clip_marks = candidate_analysis._merge_expanded_clip_marks
 _merge_manual_timeline_topics = candidate_analysis.merge_manual_timeline_topics
 _nearest_safe_srt_boundary = candidate_analysis._nearest_safe_srt_boundary
 _next_report_topic_safe_boundary = candidate_analysis._next_report_topic_safe_boundary
 _normalise_body_line = candidate_analysis._normalise_body_line
 _normalise_boundary_evidence_text = candidate_analysis._normalise_boundary_evidence_text
-_normalise_obvious_report_terms = candidate_analysis._normalise_obvious_report_terms
 _normalise_outro_trigger_text = candidate_analysis._normalise_outro_trigger_text
-_normalise_publish_title = candidate_analysis._normalise_publish_title
 _normalise_streamer_terms = candidate_analysis._normalise_streamer_terms
-_normalise_title_hook = candidate_analysis._normalise_title_hook
 _optimized_entry_semantic_text = candidate_analysis._optimized_entry_semantic_text
 _outro_topic_from_mark = candidate_analysis._outro_topic_from_mark
 _overlap_ratio = candidate_analysis._overlap_ratio
@@ -440,44 +464,29 @@ _parse_clip_star_bonus = candidate_analysis._parse_clip_star_bonus
 _parse_hms = candidate_analysis._parse_hms
 _parse_json_topics_response = candidate_analysis._parse_json_topics_response
 _parse_llm_response = candidate_analysis._parse_llm_response
-_profile_formal_names = candidate_analysis._profile_formal_names
 _profile_identity_names = candidate_analysis._profile_identity_names
 _profile_matches_streamer = candidate_analysis._profile_matches_streamer
-_prompt_context = candidate_analysis._prompt_context
-_prompt_streamer_name = candidate_analysis._prompt_streamer_name
-_publish_title_example = candidate_analysis._publish_title_example
-_publish_title_instruction = candidate_analysis._publish_title_instruction
-_publish_title_prefix = candidate_analysis._publish_title_prefix
 _reconcile_topic_manual_evidence = candidate_analysis._reconcile_topic_manual_evidence
 _refresh_natural_boundary_metadata = candidate_analysis._refresh_natural_boundary_metadata
 _refresh_topic_danmaku_evidence = candidate_analysis._refresh_topic_danmaku_evidence
 _repair_short_topic_end = candidate_analysis._repair_short_topic_end
-_replace_streamer_role = candidate_analysis._replace_streamer_role
 _report_fact_lines = candidate_analysis._report_fact_lines
 _resolve_reviewed_report_overlaps = candidate_analysis._resolve_reviewed_report_overlaps
 _review_peak_selected_topics = candidate_analysis._review_peak_selected_topics
 _reviewed_danmaku_ranking_score = candidate_analysis._reviewed_danmaku_ranking_score
 _reviewed_topic_has_required_interest = candidate_analysis._reviewed_topic_has_required_interest
 _sanitize_optimized_manual_entry = candidate_analysis._sanitize_optimized_manual_entry
-_sanitize_transport_claims = candidate_analysis._sanitize_transport_claims
 _score_boundary_evidence_text = candidate_analysis._score_boundary_evidence_text
-_select_title_style_examples = candidate_analysis._select_title_style_examples
 _serialized_progress_callback = candidate_analysis._serialized_progress_callback
 _short_llm_error = candidate_analysis._short_llm_error
 _snap_clip_to_srt_segments = candidate_analysis._snap_clip_to_srt_segments
-_specific_topic_phrase = candidate_analysis._specific_topic_phrase
 _split_chain_crossing_topic_end = candidate_analysis._split_chain_crossing_topic_end
 _srt_video_duration = candidate_analysis._srt_video_duration
-_streamer_report_name = candidate_analysis._streamer_report_name
-_streamer_role_pattern = candidate_analysis._streamer_role_pattern
-_strip_body_prefix = candidate_analysis._strip_body_prefix
 _strip_code_fence = candidate_analysis._strip_code_fence
 _strip_prompt_time_labels = candidate_analysis._strip_prompt_time_labels
-_strip_title_meta = candidate_analysis._strip_title_meta
 _subtitle_speech_chains = candidate_analysis._subtitle_speech_chains
 _subtitle_text_size = candidate_analysis._subtitle_text_size
 _text_len_for_timing = candidate_analysis._text_len_for_timing
-_title_style_profile_path = candidate_analysis._title_style_profile_path
 _topic_analysis_prompt_fingerprint = candidate_analysis._topic_analysis_prompt_fingerprint
 _topic_danmaku_reference_lines = candidate_analysis._topic_danmaku_reference_lines
 _topic_index_label = candidate_analysis._topic_index_label
@@ -496,6 +505,7 @@ chunk_srt = candidate_analysis.chunk_srt
 fmt_time = candidate_analysis.fmt_time
 parse_srt_segments = candidate_analysis.parse_srt_segments
 parse_srt_text = candidate_analysis.parse_srt_text
+
 
 # LLM 兼容 façade 必须与唯一 gateway 保持对象身份；本模块不得重新定义。
 _LLMApiConfig = llm_gateway.LLMApiConfig
@@ -2771,282 +2781,18 @@ def _monotonic_progress_callback(progress_callback):
 
 
 
-def _final_title_review_payload(topics, compact=False):
-    """为独立标题阶段整理受限证据，不让标题生成继续承担切片判断。"""
-    payload = []
-    for index, topic in enumerate(topics, 1):
-        body_limit = 8 if compact else 18
-        subtitle_limit = 4 if compact else 10
-        body = [
-            _strip_body_prefix(line)
-            for line in (topic.get("body") or [])[:body_limit]
-            if _strip_body_prefix(line)
-        ]
-        subtitle_evidence = list(topic.get("core_subtitle_evidence") or [])
-        if not subtitle_evidence:
-            subtitle_evidence = [
-                line for line in body if line.startswith("字幕核查：")
-            ]
-        manual_references = []
-        for entry in topic.get("manual_timeline") or []:
-            if not isinstance(entry, dict):
-                continue
-            reference = {
-                "text": entry.get("text"),
-                "summary": (entry.get("summary") or [])[:3],
-                "publish_title": entry.get("publish_title"),
-                "stars": entry.get("stars", 0),
-            }
-            if any(reference.values()):
-                manual_references.append(reference)
-        payload.append({
-            "id": index,
-            "time": f"{fmt_time(topic.get('start', 0))}-{fmt_time(topic.get('end', 0))}",
-            "short_title": topic.get("title"),
-            "current_publish_title": topic.get("publish_title"),
-            "reference_publish_titles": _clip_candidate_reference_publish_titles(topic),
-            "title_hook": topic.get("title_hook"),
-            "subtitle_evidence": subtitle_evidence[:subtitle_limit],
-            "verified_points": body,
-            "manual_references": manual_references[:2 if compact else 4],
-            "danmaku_evidence": _clip_candidate_danmaku_prompt_evidence(topic),
-        })
-    return payload
 
 
-def _build_final_title_generation_prompt(topics, streamer_name=None, compact=False):
-    """只负责发散标题方案；切片价值和边界已经在上一阶段确定。"""
-    payload = _final_title_review_payload(topics, compact=compact)
-    context = _prompt_context(
-        streamer_name,
-        context_text=json.dumps(payload, ensure_ascii=False),
-        compact=compact,
-    )
-    return _render_final_title_generation_prompt(
-        _FinalTitlePromptEvidence(
-            context=context,
-            topics=tuple(payload),
-        )
-    )
 
 
-def _normalise_final_title_option(value, topic):
-    if isinstance(value, dict):
-        value = value.get("title")
-    raw = re.sub(r'\s+', ' ', str(value or ""))
-    raw = raw.replace("**", "").replace("`", "").strip()
-    if (
-        len(raw) < 6
-        or len(raw) > MAX_PUBLISH_TITLE_CHARS
-        or any(keyword.lower() in raw.lower() for keyword in _PUBLISH_TITLE_META_KEYWORDS)
-    ):
-        return None
-    evidence_lines = [
-        *(topic.get("body") or []),
-        *(topic.get("core_subtitle_evidence") or []),
-    ]
-    return _sanitize_transport_claims(
-        _normalise_publish_title(raw, topic.get("title", "未命名片段")),
-        evidence_lines,
-    )
 
 
-def _parse_final_title_candidates(response, topics):
-    payload = _extract_json_payload(response)
-    raw_items = payload.get("topics", []) if isinstance(payload, dict) else []
-    items_by_id = {}
-    for item in raw_items if isinstance(raw_items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        try:
-            item_id = int(item.get("id"))
-        except (TypeError, ValueError):
-            continue
-        if 1 <= item_id <= len(topics) and item_id not in items_by_id:
-            items_by_id[item_id] = item
-
-    result = {}
-    for item_id, topic in enumerate(topics, 1):
-        generated = (items_by_id.get(item_id) or {}).get("candidates") or []
-        values = [
-            topic.get("publish_title"),
-            *_clip_candidate_reference_publish_titles(topic),
-            *generated,
-        ]
-        options = []
-        for value in values:
-            title = _normalise_final_title_option(value, topic)
-            if title and title not in options:
-                options.append(title)
-        if not options:
-            raise LLMStructuredOutputError(f"标题生成缺少 id={item_id} 的有效方案")
-        result[item_id] = options[:6]
-    return result
 
 
-def _build_final_title_judge_prompt(
-        topics, candidates_by_id, streamer_name=None, compact=False):
-    """由独立终审比较原题和新方案，不默认偏爱任何一方。"""
-    payload = _final_title_review_payload(topics, compact=compact)
-    for item in payload:
-        item["title_options"] = candidates_by_id.get(item["id"], [])
-    context = _prompt_context(
-        streamer_name,
-        context_text=json.dumps(payload, ensure_ascii=False),
-        compact=compact,
-    )
-    return _render_final_title_judge_prompt(
-        _FinalTitlePromptEvidence(
-            context=context,
-            topics=tuple(payload),
-        )
-    )
 
 
-def _parse_final_title_judgement(response, topics):
-    payload = _extract_json_payload(response)
-    raw_items = payload.get("topics", []) if isinstance(payload, dict) else []
-    items_by_id = {}
-    for item in raw_items if isinstance(raw_items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        try:
-            item_id = int(item.get("id"))
-        except (TypeError, ValueError):
-            continue
-        if 1 <= item_id <= len(topics) and item_id not in items_by_id:
-            items_by_id[item_id] = item
-    result = {}
-    for item_id, topic in enumerate(topics, 1):
-        item = items_by_id.get(item_id)
-        title = _normalise_final_title_option(
-            item.get("publish_title") if item else None,
-            topic,
-        )
-        if not title:
-            raise LLMStructuredOutputError(f"标题终审缺少 id={item_id} 的有效标题")
-        reason = re.sub(r'\s+', ' ', str(item.get("reason", ""))).strip()[:240]
-        result[item_id] = {"title": title, "reason": reason}
-    return result
 
 
-def _review_selected_publish_titles(
-        topics, streamer_name=None, progress_callback=None,
-        checkpoint_callback=None):
-    """对最终入选片段执行标题生成与独立终审，人工锁定项不参与改写。"""
-    selected = [
-        topic for topic in topics or []
-        if (
-            topic.get("can_slice")
-            and topic.get("clip_review_validated") is True
-            and not topic.get("publish_title_locked")
-            and not topic.get("title_review_validated")
-        )
-    ]
-    for topic in topics or []:
-        if topic.get("publish_title_locked"):
-            topic["title_review_validated"] = True
-            topic["title_review_reason"] = "人工复审标题已锁定"
-    if not selected:
-        return None
-
-    batches = [
-        selected[offset:offset + CLIP_REVIEW_BATCH_SIZE]
-        for offset in range(0, len(selected), CLIP_REVIEW_BATCH_SIZE)
-    ]
-    report_progress = _serialized_progress_callback(progress_callback)
-    retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
-    profile_snapshot = current_streamer_profile()
-
-    def review_batch(batch_index, batch):
-        with streamer_profile_context(profile_snapshot):
-            if report_progress:
-                report_progress(
-                    f"投稿标题候选生成 ({batch_index}/{len(batches)})...",
-                    96,
-                    100,
-                )
-            generation_prompt = _build_final_title_generation_prompt(
-                batch,
-                streamer_name=streamer_name,
-            )
-            generation_response = llm_gateway.call_llm_with_retry(
-                generation_prompt,
-                compact_prompt=_build_final_title_generation_prompt(
-                    batch,
-                    streamer_name=streamer_name,
-                    compact=True,
-                ),
-                require_json=True,
-                progress_callback=report_progress,
-                progress_label="投稿标题候选生成",
-                progress_step=96,
-                retry_coordinator=retry_coordinator,
-                reasoning_stage="review",
-            )
-            candidates = _parse_final_title_candidates(generation_response, batch)
-            if report_progress:
-                report_progress(
-                    f"投稿标题独立终审 ({batch_index}/{len(batches)})...",
-                    96,
-                    100,
-                )
-            judge_prompt = _build_final_title_judge_prompt(
-                batch,
-                candidates,
-                streamer_name=streamer_name,
-            )
-            judge_response = llm_gateway.call_llm_with_retry(
-                judge_prompt,
-                compact_prompt=_build_final_title_judge_prompt(
-                    batch,
-                    candidates,
-                    streamer_name=streamer_name,
-                    compact=True,
-                ),
-                require_json=True,
-                progress_callback=report_progress,
-                progress_label="投稿标题独立终审",
-                progress_step=96,
-                retry_coordinator=retry_coordinator,
-                reasoning_stage="review",
-            )
-            return candidates, _parse_final_title_judgement(judge_response, batch)
-
-    warnings = []
-    concurrency = min(_configured_llm_concurrency(), len(batches))
-    with ThreadPoolExecutor(
-            max_workers=max(1, concurrency),
-            thread_name_prefix="autoslice-title-review") as executor:
-        jobs = [
-            (index, batch, executor.submit(review_batch, index, batch))
-            for index, batch in enumerate(batches, 1)
-        ]
-        for batch_index, batch, future in jobs:
-            for topic in batch:
-                topic["title_review_attempts"] = int(
-                    topic.get("title_review_attempts", 0)
-                ) + 1
-            try:
-                candidates, judgements = future.result()
-            except Exception as exc:
-                warnings.append(
-                    f"第{batch_index}批标题终审失败：{_short_llm_error(exc)}"
-                )
-            else:
-                for item_id, topic in enumerate(batch, 1):
-                    judgement = judgements[item_id]
-                    topic["publish_title"] = judgement["title"]
-                    topic["title_review_candidates"] = candidates[item_id]
-                    topic["title_review_validated"] = True
-                    topic["title_review_reason"] = judgement["reason"]
-                    topic["publish_title_source"] = "ai_title_judge"
-            if checkpoint_callback:
-                checkpoint_callback(topics, batch_index, len(batches))
-
-    if not warnings:
-        return None
-    return "投稿标题终审未全部完成，失败项保留候选复核标题：" + "；".join(warnings)
 
 
 
