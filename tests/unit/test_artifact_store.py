@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from artifact_store import (
+from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
     artifact_bundle_layout,
     artifact_bundle_stem,

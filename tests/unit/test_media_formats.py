@@ -1,7 +1,7 @@
 from pathlib import Path
 import unittest
 
-from media_formats import (
+from autoslice.media_formats import (
     MEDIA_FORMATS,
     SUPPORTED_VIDEO_EXTENSIONS,
     compatible_output_extensions,

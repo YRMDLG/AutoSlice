@@ -6,7 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from task_store import (
+from autoslice.task_store import (
     DEFAULT_TASK_DATABASE_PATH,
     MAX_LIST_LIMIT,
     SensitiveTaskDataError,

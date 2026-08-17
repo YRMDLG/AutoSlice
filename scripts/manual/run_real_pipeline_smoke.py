@@ -180,11 +180,11 @@ def _resolve_streamer_profile_id(raw_value: str, video: Path) -> str:
     profile_id = str(raw_value or "").strip().casefold()
     if not _PROFILE_ID_RE.fullmatch(profile_id):
         raise SmokeValidationError("--streamer-profile 格式无效")
-    root = Path(__file__).resolve().parents[2]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    source_root = Path(__file__).resolve().parents[2] / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
     try:
-        from streamer_profiles import resolve_streamer_profile
+        from autoslice.streamer_profiles import resolve_streamer_profile
 
         resolve_streamer_profile(profile_id, video)
     except (OSError, RuntimeError, ValueError) as exc:
@@ -428,9 +428,9 @@ def _plan_summary(plan: SmokePlan) -> dict[str, Any]:
 def _load_analyze_runner() -> AnalyzeRunner:
     """仅在付费分析已授权后延迟导入唯一分析 owner。"""
 
-    root = Path(__file__).resolve().parents[2]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    source_root = Path(__file__).resolve().parents[2] / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
     from autoslice.pipeline import run_pipeline
 
     return run_pipeline
@@ -439,9 +439,9 @@ def _load_analyze_runner() -> AnalyzeRunner:
 def _load_slice_runner() -> SliceRunner:
     """仅在双重授权后延迟导入唯一切片 owner。"""
 
-    root = Path(__file__).resolve().parents[2]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    source_root = Path(__file__).resolve().parents[2] / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
     from autoslice.slicing import slice_from_marks
 
     return slice_from_marks

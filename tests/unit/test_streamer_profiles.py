@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from streamer_profiles import (
+from autoslice.streamer_profiles import (
     PACKAGE_PROFILE_PATH,
     active_streamer_profile,
     current_streamer_profile,

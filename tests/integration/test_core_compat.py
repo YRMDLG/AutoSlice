@@ -16,8 +16,8 @@ os.environ["AUTOSLICE_TASK_DB"] = str(
     Path(_TEST_TASK_DATABASE_DIR.name) / "tasks.sqlite3"
 )
 
-import app as app_module
-import core
+import autoslice.web.app as app_module
+from autoslice import core
 
 
 def _cleanup_test_task_database():
@@ -139,7 +139,7 @@ class CoreCompatibilityTests(unittest.TestCase):
     def test_generate_srt_forwards_result_and_progress_callback(self):
         progress_callback = unittest.mock.Mock()
         with patch(
-            "topic_engine.ensure_srt",
+            "autoslice.topic_engine.ensure_srt",
             return_value=r"X:\fixtures\录播\测试.srt",
         ) as ensure_srt:
             result = core.generate_srt(
@@ -156,7 +156,7 @@ class CoreCompatibilityTests(unittest.TestCase):
     def test_generate_srt_reports_engine_failure_without_running_fallback(self):
         progress_callback = unittest.mock.Mock()
         with patch(
-            "topic_engine.ensure_srt",
+            "autoslice.topic_engine.ensure_srt",
             side_effect=RuntimeError("ASR unavailable"),
         ):
             result = core.generate_srt(
@@ -173,7 +173,7 @@ class CoreCompatibilityTests(unittest.TestCase):
 
     def test_generate_srt_reenters_the_atomic_engine_on_each_call(self):
         with patch(
-            "topic_engine.ensure_srt",
+            "autoslice.topic_engine.ensure_srt",
             side_effect=[r"X:\first.srt", r"X:\second.srt"],
         ) as ensure_srt:
             first = core.generate_srt(r"X:\first.flv")
@@ -202,7 +202,7 @@ class CoreCompatibilityTests(unittest.TestCase):
                 return_value=nullcontext(),
             ),
             patch(
-                "topic_engine.slice_from_marks",
+                "autoslice.topic_engine.slice_from_marks",
                 return_value=(1, r"X:\output\录播_话题切片"),
             ) as slice_from_marks,
         ):

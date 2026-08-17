@@ -4,7 +4,7 @@
 流水线: FunASR转录 → 弹幕密度分析 → SRT分块 → DeepSeek Pro分析 → 报告 + 切片标记
 
 用法:
-  from topic_engine import run_pipeline
+  from autoslice.topic_engine import run_pipeline
   result = run_pipeline(flv_path, ass_path, progress_callback=cb)
   # result: {"report": "...", "clip_marks": [...], "json_path": "..."}
 """

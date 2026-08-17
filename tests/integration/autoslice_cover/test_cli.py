@@ -36,7 +36,8 @@ class CliTests(unittest.TestCase):
 
     def test_product_copy_is_not_bound_to_one_streamer(self) -> None:
         parser = build_parser()
-        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        repository_root = Path(__file__).resolve().parents[3]
+        readme = (repository_root / "autocover_tool" / "README.md").read_text(
             encoding="utf-8"
         )
 

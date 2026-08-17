@@ -2,8 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import runtime_config
-import task_store
+from autoslice import runtime_config, task_store
 from autoslice import paths
 
 

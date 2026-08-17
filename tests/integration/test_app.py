@@ -19,10 +19,10 @@ os.environ["AUTOSLICE_TASK_DB"] = str(
     Path(_TEST_TASK_DATABASE_DIR.name) / "tasks.sqlite3"
 )
 
-import app as app_module
-from subtitle_workflow import parse_srt_document
-from task_registry import TaskRegistry
-from task_store import TaskStore
+import autoslice.web.app as app_module
+from autoslice.subtitle_workflow import parse_srt_document
+from autoslice.task_registry import TaskRegistry
+from autoslice.task_store import TaskStore
 
 
 def _cleanup_test_task_database():
@@ -551,7 +551,7 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             "hotword_hint": "已读取自定义热词",
             "correction_hint": "固定纠错见主播配置",
         }
-        with patch("topic_engine.funasr_public_status", return_value=public_status):
+        with patch("autoslice.topic_engine.funasr_public_status", return_value=public_status):
             response = self.client.get("/api/asr-status")
 
         self.assertEqual(response.status_code, 200)
@@ -860,7 +860,7 @@ class DirectSliceApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "topic_engine.slice_from_marks",
+                    "autoslice.topic_engine.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -1025,15 +1025,15 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "topic_engine.optimize_manual_timeline_for_video",
+                    "autoslice.topic_engine.optimize_manual_timeline_for_video",
                     return_value=expected,
                 ) as optimize,
                 patch(
-                    "topic_engine.run_pipeline",
+                    "autoslice.topic_engine.run_pipeline",
                     side_effect=AssertionError("独立优化不应运行完整分析"),
                 ),
                 patch(
-                    "topic_engine.slice_from_marks",
+                    "autoslice.topic_engine.slice_from_marks",
                     side_effect=AssertionError("独立优化不应自动切片"),
                 ),
             ):
@@ -1081,9 +1081,9 @@ class TopicPipelineApiTests(unittest.TestCase):
 
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
-                patch("topic_engine.run_pipeline", return_value=pipeline_result) as run_pipeline,
+                patch("autoslice.topic_engine.run_pipeline", return_value=pipeline_result) as run_pipeline,
                 patch(
-                    "topic_engine.slice_from_marks",
+                    "autoslice.topic_engine.slice_from_marks",
                     side_effect=AssertionError("没有切片标记时不应调用切片"),
                 ),
             ):
@@ -1141,11 +1141,11 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "topic_engine.retry_clip_review_from_artifacts",
+                    "autoslice.topic_engine.retry_clip_review_from_artifacts",
                     return_value=result,
                 ) as retry,
                 patch(
-                    "topic_engine.slice_from_marks",
+                    "autoslice.topic_engine.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -1219,7 +1219,7 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "topic_engine.slice_from_marks",
+                    "autoslice.topic_engine.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -1296,7 +1296,7 @@ class TopicPipelineApiTests(unittest.TestCase):
         )
 
     def test_legacy_json_parser_preserves_complete_time_contract(self):
-        from core import parse_timeline_json
+        from autoslice.core import parse_timeline_json
 
         with TemporaryDirectory() as td:
             json_path = Path(td) / "clip_marks.json"
@@ -1329,11 +1329,11 @@ class TopicPipelineApiTests(unittest.TestCase):
         }])
 
     def test_legacy_asr_entry_delegates_to_atomic_engine(self):
-        from core import generate_srt
+        from autoslice.core import generate_srt
 
         progress = []
         with patch(
-            "topic_engine.ensure_srt",
+            "autoslice.topic_engine.ensure_srt",
             return_value=r"X:\fixtures\录播\测试.srt",
         ) as ensure:
             result = generate_srt(
@@ -1497,7 +1497,7 @@ class TopicPipelineApiTests(unittest.TestCase):
             }
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
-                patch("topic_engine.run_pipeline", return_value=pipeline_result),
+                patch("autoslice.topic_engine.run_pipeline", return_value=pipeline_result),
             ):
                 first = self.client.post(
                     "/api/start-pipeline",
@@ -1576,7 +1576,7 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "topic_engine.run_pipeline",
+                    "autoslice.topic_engine.run_pipeline",
                     side_effect=RuntimeError(
                         "token=test-private-value 位于 X:\\fixtures\\api_config.json"
                     ),
@@ -2250,7 +2250,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "subtitle_workflow.transcribe_submission_video",
+                    "autoslice.subtitle_workflow.transcribe_submission_video",
                     side_effect=fake_transcribe,
                 ) as transcribe,
             ):
@@ -2284,7 +2284,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertTrue(generated_srt_exists)
         transcribe.assert_called_once()
         self.assertTrue(transcribe.call_args.kwargs["foreground_only"])
-        from topic_engine import ensure_srt
+        from autoslice.topic_engine import ensure_srt
         self.assertIs(
             transcribe.call_args.kwargs["transcription_service"],
             ensure_srt,
@@ -2548,7 +2548,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "subtitle_workflow.suggest_subtitle_corrections",
+                    "autoslice.subtitle_workflow.suggest_subtitle_corrections",
                     return_value=review_result,
                 ) as review,
             ):
@@ -2595,7 +2595,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "subtitle_workflow.suggest_subtitle_corrections",
+                    "autoslice.subtitle_workflow.suggest_subtitle_corrections",
                     return_value={"suggestions": []},
                 ) as review,
             ):
@@ -2633,7 +2633,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "subtitle_workflow.generate_subtitle_reference_titles",
+                    "autoslice.subtitle_workflow.generate_subtitle_reference_titles",
                     return_value=title_result,
                 ) as generate,
             ):
@@ -2665,7 +2665,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             "【泽音】测试投稿",
         )
         from autoslice.transcription.contracts import SubtitleTitleServices
-        from topic_engine import subtitle_title_services
+        from autoslice.topic_engine import subtitle_title_services
         injected_services = generate.call_args.kwargs["title_services"]
         expected_services = subtitle_title_services()
         self.assertIsInstance(injected_services, SubtitleTitleServices)
@@ -2705,7 +2705,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "subtitle_workflow.suggest_subtitle_corrections",
+                    "autoslice.subtitle_workflow.suggest_subtitle_corrections",
                     return_value=review_result,
                 ) as review,
             ):
@@ -2786,7 +2786,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         with TemporaryDirectory() as td:
             video, srt = self._write_pair(td)
             with patch(
-                "subtitle_workflow.render_subtitle_preview",
+                "autoslice.subtitle_workflow.render_subtitle_preview",
                 return_value=(b"\xff\xd8preview", 0.5),
             ) as preview:
                 response = self.client.post(
@@ -2824,7 +2824,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "subtitle_workflow.burn_subtitles",
+                    "autoslice.subtitle_workflow.burn_subtitles",
                     return_value=render_result,
                 ) as render,
             ):
@@ -2858,7 +2858,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "subtitle_workflow.burn_subtitles",
+                    "autoslice.subtitle_workflow.burn_subtitles",
                     side_effect=RuntimeError("编码失败"),
                 ),
             ):

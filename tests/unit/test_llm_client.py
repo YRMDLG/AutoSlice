@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-import llm_client
+from autoslice import llm_client
 from autoslice.llm import transport
 from autoslice.llm.contracts import (
     LLMApiConfig,

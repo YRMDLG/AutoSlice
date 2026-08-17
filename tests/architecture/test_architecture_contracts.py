@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import socket
@@ -18,6 +19,93 @@ from scripts import (
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = ROOT / "architecture_baseline.json"
+
+LEGACY_COMPATIBILITY_PATHS = frozenset({
+    "_autoslice_compat.py",
+    "app.py",
+    "artifact_store.py",
+    "core.py",
+    "llm_client.py",
+    "media_formats.py",
+    "runtime_config.py",
+    "security_policy.py",
+    "setup_asr_model.py",
+    "setup_gpu_runtime.py",
+    "streamer_profiles.py",
+    "subtitle_workflow.py",
+    "task_registry.py",
+    "task_store.py",
+    "topic_engine.py",
+    "启动.py",
+    "autocover_tool/__init__.py",
+    "autocover_tool/_compat.py",
+    "autocover_tool/app.py",
+    "autocover_tool/启动.py",
+    "autocover_tool/autocover/__init__.py",
+    "autocover_tool/autocover/cli.py",
+    "autocover_tool/autocover/drafts.py",
+    "autocover_tool/autocover/emoji.py",
+    "autocover_tool/autocover/fonts.py",
+    "autocover_tool/autocover/paths.py",
+    "autocover_tool/autocover/renderer.py",
+    "autocover_tool/autocover/stickers.py",
+    "autocover_tool/autocover/style.py",
+    "autocover_tool/autocover/titles.py",
+    "autocover_tool/autocover/video.py",
+    "autocover_tool/autocover/workspace.py",
+})
+
+DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
+    "app",
+    "artifact_store",
+    "core",
+    "llm_client",
+    "media_formats",
+    "runtime_config",
+    "security_policy",
+    "setup_asr_model",
+    "setup_gpu_runtime",
+    "streamer_profiles",
+    "subtitle_workflow",
+    "task_registry",
+    "task_store",
+    "topic_engine",
+    "启动",
+    "autocover_tool",
+    "autocover_tool.app",
+    "autocover_tool.启动",
+    "autocover_tool.autocover",
+    "autocover_tool.autocover.cli",
+    "autocover_tool.autocover.drafts",
+    "autocover_tool.autocover.emoji",
+    "autocover_tool.autocover.fonts",
+    "autocover_tool.autocover.paths",
+    "autocover_tool.autocover.renderer",
+    "autocover_tool.autocover.stickers",
+    "autocover_tool.autocover.style",
+    "autocover_tool.autocover.titles",
+    "autocover_tool.autocover.video",
+    "autocover_tool.autocover.workspace",
+})
+
+LEGACY_IMPORT_ROOTS = frozenset({
+    "app",
+    "artifact_store",
+    "autocover",
+    "autocover_tool",
+    "core",
+    "llm_client",
+    "media_formats",
+    "runtime_config",
+    "security_policy",
+    "setup_asr_model",
+    "setup_gpu_runtime",
+    "streamer_profiles",
+    "subtitle_workflow",
+    "task_registry",
+    "task_store",
+    "topic_engine",
+})
 
 # Phase 4 已把以下实现全部迁入唯一 gateway；债务记录保留为回归护栏，
 # 后续不得在 topic_engine 中重新引入同名定义。
@@ -321,12 +409,90 @@ class ArchitectureDependencyTests(unittest.TestCase):
 
 class ArchitectureDefinitionTests(unittest.TestCase):
 
-    def test_editable_install_imports_autoslice_from_src_layout(self):
+    def test_editable_install_imports_product_packages_from_src_layout(self):
         import autoslice
+        import autoslice_cover
 
-        package_path = Path(autoslice.__file__).resolve()
+        for package in (autoslice, autoslice_cover):
+            with self.subTest(package=package.__name__):
+                package_path = Path(package.__file__).resolve()
+                self.assertTrue(package_path.is_relative_to(ROOT / "src"))
 
-        self.assertTrue(package_path.is_relative_to(ROOT / "src"))
+    def test_all_automated_tests_live_under_the_root_tests_package(self):
+        _production_files, test_files = architecture_snapshot.discover_python_files(ROOT)
+
+        outside_root_tests = sorted(
+            path.relative_to(ROOT).as_posix()
+            for path in test_files
+            if not path.is_relative_to(ROOT / "tests")
+        )
+
+        self.assertEqual(outside_root_tests, [])
+
+    def test_product_owners_live_under_src_or_explicit_script_boundaries(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+        production_paths = set(current["scope"]["production_files"])
+        outside_owner_boundaries = sorted(
+            path
+            for path in production_paths
+            if not path.startswith("src/")
+            and not path.startswith("scripts/")
+            and path not in LEGACY_COMPATIBILITY_PATHS
+        )
+
+        self.assertEqual(outside_owner_boundaries, [])
+
+    def test_legacy_compatibility_modules_are_definition_free(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+
+        for module_name in sorted(DEFINITION_FREE_COMPATIBILITY_MODULES):
+            with self.subTest(module=module_name):
+                module = modules[module_name]
+                self.assertEqual(module["top_level_functions"], [])
+                self.assertEqual(module["top_level_classes"], [])
+                self.assertLessEqual(module["line_count"], 20)
+
+    def test_non_architecture_tests_import_product_owners_directly(self):
+        violations = []
+        for path in sorted((ROOT / "tests").rglob("*.py")):
+            if "architecture" in path.relative_to(ROOT / "tests").parts:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                imported_roots = []
+                if isinstance(node, ast.Import):
+                    imported_roots = [alias.name.split(".", 1)[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imported_roots = [node.module.split(".", 1)[0]]
+                for imported_root in imported_roots:
+                    if imported_root in LEGACY_IMPORT_ROOTS:
+                        violations.append(
+                            f"{path.relative_to(ROOT).as_posix()}:{node.lineno} "
+                            f"导入旧入口 {imported_root}"
+                        )
+
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                is_patch_call = (
+                    isinstance(node.func, ast.Name) and node.func.id == "patch"
+                ) or (
+                    isinstance(node.func, ast.Attribute) and node.func.attr == "patch"
+                )
+                target = node.args[0]
+                if (
+                    is_patch_call
+                    and isinstance(target, ast.Constant)
+                    and isinstance(target.value, str)
+                    and "." in target.value
+                    and target.value.split(".", 1)[0] in LEGACY_IMPORT_ROOTS
+                ):
+                    violations.append(
+                        f"{path.relative_to(ROOT).as_posix()}:{node.lineno} "
+                        f"patch 旧入口 {target.value}"
+                    )
+
+        self.assertEqual(violations, [])
 
     def test_legacy_top_level_modules_alias_the_installed_owners(self):
         aliases = {

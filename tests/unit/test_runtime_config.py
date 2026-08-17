@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import runtime_config
+from autoslice import runtime_config
 
 
 class RuntimeConfigTests(unittest.TestCase):

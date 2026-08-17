@@ -120,7 +120,7 @@ class ManualSmokeTests(unittest.TestCase):
         slicer = mock.Mock()
         resolved = mock.Mock(id="other-streamer")
         with mock.patch(
-            "streamer_profiles.resolve_streamer_profile",
+            "autoslice.streamer_profiles.resolve_streamer_profile",
             return_value=resolved,
         ) as resolve_profile:
             code, stdout, stderr = self.invoke(
@@ -142,7 +142,7 @@ class ManualSmokeTests(unittest.TestCase):
         analyzer = mock.Mock()
         slicer = mock.Mock()
         with mock.patch(
-            "streamer_profiles.resolve_streamer_profile",
+            "autoslice.streamer_profiles.resolve_streamer_profile",
             side_effect=ValueError("private detail"),
         ):
             code, stdout, stderr = self.invoke(

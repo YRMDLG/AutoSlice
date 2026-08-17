@@ -9,11 +9,11 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-import subtitle_workflow
+from autoslice import subtitle_workflow
 from autoslice.llm import transport as llm_gateway
 from autoslice.transcription import contracts as transcription_contracts
-from streamer_profiles import resolve_streamer_profile
-from subtitle_workflow import (
+from autoslice.streamer_profiles import resolve_streamer_profile
+from autoslice.subtitle_workflow import (
     DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_STYLE,
     DEFAULT_VIDEO_EXPORT,
@@ -1315,7 +1315,7 @@ class SubtitleRenderingTests(unittest.TestCase):
     def test_nvenc_probe_uses_supported_frame_dimensions(self):
         _nvenc_available.cache_clear()
         try:
-            with patch("subtitle_workflow.subprocess.run") as run:
+            with patch("autoslice.subtitle_workflow.subprocess.run") as run:
                 run.return_value.returncode = 0
                 self.assertTrue(_nvenc_available())
 

@@ -1621,12 +1621,12 @@
     {
       "from": "scripts.manual.run_real_pipeline_smoke",
       "imports": [
-        "streamer_profiles.resolve_streamer_profile"
+        "autoslice.streamer_profiles.resolve_streamer_profile"
       ],
       "lines": [
         187
       ],
-      "to": "streamer_profiles"
+      "to": "autoslice.streamer_profiles"
     },
     {
       "from": "scripts.smoke_packaging",
@@ -6100,7 +6100,7 @@
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "2950df731a371f843368780c669f8f88a97247bdef9a28016f746069eb2a54b2",
+      "sha256": "863f6059072e370eb11b01d82bff5bc79b58751e2b3191313ab2b19cafaee958",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -8387,7 +8387,7 @@
       },
       "module": "scripts.manual.run_real_pipeline_smoke",
       "path": "scripts/manual/run_real_pipeline_smoke.py",
-      "sha256": "ed6c5b5dd42516b4ded05dc1f4590a3b5b53935b5cca8521be20dd683e2a8c9c",
+      "sha256": "1ae6160e159917b3ed059a8adfd691e4df6fd3f6307fd8b19acbb83c96f8c975",
       "top_level_classes": [
         {
           "end_line": 32,
@@ -8549,7 +8549,7 @@
       },
       "module": "scripts.run_hermetic_tests",
       "path": "scripts/run_hermetic_tests.py",
-      "sha256": "d29d57fb16a67d220e44f84defd941ed7176cb06a99a8e6853dc754a045cdcc6",
+      "sha256": "95d5c524fa301dcf1d59021630687bd5651ad78c3426737893ed2ac72f2dff4a",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -8572,7 +8572,7 @@
       },
       "module": "scripts.run_linux_logic_tests",
       "path": "scripts/run_linux_logic_tests.py",
-      "sha256": "30a59287ab7e892af55f7a5ebf01c90927b81fb9aa1dde48dd7ffb54647259d4",
+      "sha256": "ccd767b5f6d9dc16411c19b0d9c4ff4d0da1f1728963e196d67ae9c63e2e57bd",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -8960,21 +8960,10 @@
     ],
     "root": ".",
     "test_files": [
-      "autocover_tool/tests/__init__.py",
-      "autocover_tool/tests/test_app.py",
-      "autocover_tool/tests/test_cli.py",
-      "autocover_tool/tests/test_compatibility.py",
-      "autocover_tool/tests/test_end_to_end.py",
-      "autocover_tool/tests/test_fonts.py",
-      "autocover_tool/tests/test_paths.py",
-      "autocover_tool/tests/test_renderer.py",
-      "autocover_tool/tests/test_stickers.py",
-      "autocover_tool/tests/test_titles.py",
-      "autocover_tool/tests/test_video.py",
-      "autocover_tool/tests/test_workspace.py",
       "tests/__init__.py",
       "tests/architecture/__init__.py",
       "tests/architecture/test_architecture_contracts.py",
+      "tests/architecture/test_autocover_compatibility.py",
       "tests/architecture/test_external_boundaries.py",
       "tests/integration/__init__.py",
       "tests/integration/test_app.py",
@@ -8983,6 +8972,10 @@
       "tests/integration/test_manual_smoke.py",
       "tests/integration/test_subtitle_workflow.py",
       "tests/integration/test_topic_engine.py",
+      "tests/integration/autoslice_cover/__init__.py",
+      "tests/integration/autoslice_cover/test_app.py",
+      "tests/integration/autoslice_cover/test_cli.py",
+      "tests/integration/autoslice_cover/test_end_to_end.py",
       "tests/support/__init__.py",
       "tests/support/external_boundary_guard.py",
       "tests/unit/__init__.py",
@@ -8996,7 +8989,15 @@
       "tests/unit/test_setup_asr_model.py",
       "tests/unit/test_streamer_profiles.py",
       "tests/unit/test_task_registry.py",
-      "tests/unit/test_task_store.py"
+      "tests/unit/test_task_store.py",
+      "tests/unit/autoslice_cover/__init__.py",
+      "tests/unit/autoslice_cover/test_fonts.py",
+      "tests/unit/autoslice_cover/test_paths.py",
+      "tests/unit/autoslice_cover/test_renderer.py",
+      "tests/unit/autoslice_cover/test_stickers.py",
+      "tests/unit/autoslice_cover/test_titles.py",
+      "tests/unit/autoslice_cover/test_video.py",
+      "tests/unit/autoslice_cover/test_workspace.py"
     ]
   },
   "summary": {
@@ -9017,11 +9018,11 @@
       "builtins": 1
     },
     "by_test_file": {
-      "autocover_tool/tests/test_cli.py": 2,
-      "autocover_tool/tests/test_fonts.py": 1,
-      "autocover_tool/tests/test_video.py": 5,
+      "tests/integration/autoslice_cover/test_cli.py": 2,
       "tests/integration/test_app.py": 8,
-      "tests/support/external_boundary_guard.py": 1
+      "tests/support/external_boundary_guard.py": 1,
+      "tests/unit/autoslice_cover/test_fonts.py": 1,
+      "tests/unit/autoslice_cover/test_video.py": 5
     },
     "targets": [
       {

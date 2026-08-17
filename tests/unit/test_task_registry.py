@@ -3,9 +3,9 @@ import threading
 import unittest
 from pathlib import Path
 
-from streamer_profiles import StreamerProfile
-from task_registry import TaskLifecycleError, TaskRegistry
-from task_store import TaskStore
+from autoslice.streamer_profiles import StreamerProfile
+from autoslice.task_registry import TaskLifecycleError, TaskRegistry
+from autoslice.task_store import TaskStore
 
 
 class ManualClock:

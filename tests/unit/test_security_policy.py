@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from security_policy import SecurityConfigurationError, SecurityPolicy
+from autoslice.security_policy import SecurityConfigurationError, SecurityPolicy
 
 
 class _CookieResponse:

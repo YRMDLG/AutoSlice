@@ -116,7 +116,7 @@ AutoSlice/
 │       └── slicing.py         # FFmpeg 切片与成片复用
 │   └── autoslice_cover/       # AutoCover 唯一生产实现与随包资源
 ├── app.py 等                  # 临时旧导入兼容 alias，不保存第二套实现
-├── autocover_tool/            # AutoCover 旧启动、依赖、测试和数据兼容目录
+├── autocover_tool/            # AutoCover 旧启动、依赖和本机数据兼容目录
 ├── tests/                     # unit/integration/architecture/support 测试
 ├── scripts/                   # 离线验证、发布和人工冒烟入口
 ├── requirements.txt           # 兼容安装依赖清单

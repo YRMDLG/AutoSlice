@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             install_test_external_boundary_guard()
             suite = unittest.defaultTestLoader.discover(
-                start_dir=str(ROOT),
+                start_dir=str(ROOT / "tests"),
                 pattern="test*.py",
                 top_level_dir=str(ROOT),
             )

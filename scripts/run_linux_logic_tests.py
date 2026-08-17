@@ -32,7 +32,7 @@ LINUX_LOGIC_TEST_TARGETS = (
     "tests.integration.test_topic_engine.ManualTimelineTests",
     "tests.unit.test_task_store",
     "tests.unit.test_task_registry",
-    "autocover_tool.tests.test_titles",
+    "tests.unit.autoslice_cover.test_titles",
 )
 
 PRIVATE_ENVIRONMENT_NAMES = (

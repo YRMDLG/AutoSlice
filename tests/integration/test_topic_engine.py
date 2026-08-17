@@ -23,7 +23,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 install_test_external_boundary_guard()
 
-import topic_engine
+from autoslice import topic_engine
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
@@ -31,12 +31,12 @@ from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice.transcription import service as transcription_service
-from llm_client import (
+from autoslice.llm_client import (
     LLMApiConfig,
     reset_reasoning_effort_capability_cache,
 )
-from streamer_profiles import streamer_profile_context
-from topic_engine import (
+from autoslice.streamer_profiles import streamer_profile_context
+from autoslice.topic_engine import (
     CHUNK_SEC, CLIP_MIN_INTEREST_SCORE, CLIP_REVIEW_POLICY_VERSION,
     FUNASR_CHUNK_PRE_CONTEXT_SEC, FUNASR_FOREGROUND_AUDIO_FILTER,
     LLM_ANALYSIS_MODEL, LLM_COMPACT_MAX_TOKENS, LLM_FULL_TEXT_CHARS,
@@ -138,7 +138,6 @@ class PromptContractTests(unittest.TestCase):
 
     def test_topic_engine_prompt_facade_keeps_new_implementation_identity(self):
         from autoslice.llm import prompts
-        import topic_engine
 
         expected = {
             "_render_clip_candidate_review_prompt": "build_clip_candidate_review_prompt",
@@ -4417,7 +4416,7 @@ class TopicEngineParseTests(unittest.TestCase):
             self.assertTrue(all(path.exists() for path in preserved))
 
     def test_pipeline_completion_progress_uses_topic_count_not_clip_count(self):
-        from app import _pipeline_completion_progress
+        from autoslice.web.app import _pipeline_completion_progress
 
         result = {
             "topic_count": 15,
@@ -5635,7 +5634,7 @@ class TopicEngineParseTests(unittest.TestCase):
             with (
                 patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test", "token", "deepseek-v4-pro")),
                 patch("autoslice.llm.transport.call_llm_with_retry", return_value=response),
-                patch("topic_engine.os.replace", side_effect=OSError("磁盘暂时不可写")),
+                patch("autoslice.topic_engine.os.replace", side_effect=OSError("磁盘暂时不可写")),
             ):
                 topics, failed_chunks, warning = _analyze_topic_chunks(
                     chunks,
