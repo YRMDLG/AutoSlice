@@ -9,6 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import subtitle_workflow
+from autoslice.llm import transport as llm_gateway
+from autoslice.transcription import contracts as transcription_contracts
 from subtitle_workflow import (
     DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_STYLE,
@@ -93,6 +95,17 @@ def _temporary_path_suffix(path):
 
 
 class SubtitleParsingAndReviewTests(unittest.TestCase):
+    def test_shared_srt_contracts_keep_object_identity(self):
+        self.assertIs(subtitle_workflow.llm_gateway, llm_gateway)
+        self.assertIs(
+            subtitle_workflow.SubtitleCue,
+            transcription_contracts.SubtitleCue,
+        )
+        self.assertIs(
+            subtitle_workflow.DEFAULT_SUBTITLE_GLOSSARY,
+            transcription_contracts.DEFAULT_SUBTITLE_GLOSSARY,
+        )
+
     def test_parse_and_serialise_preserve_multiline_timeline_and_settings(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "字幕.srt"
@@ -698,10 +711,15 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             video = Path(td) / "精剪成片.mp4"
             video.write_bytes(b"video")
             checkpoint = video.with_name(f"{video.stem}_asr_checkpoint.json")
+            observed_call = {}
 
             def fake_ensure(
                     video_path, progress_callback=None, checkpoint_path=None,
                     foreground_only=False):
+                observed_call.update({
+                    "checkpoint_path": checkpoint_path,
+                    "foreground_only": foreground_only,
+                })
                 Path(checkpoint_path).write_text(json.dumps({
                     "status": "completed",
                     "foreground_filter_mode": "speaker_diarization",
@@ -712,8 +730,10 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
                 srt.write_text(SAMPLE_SRT, encoding="utf-8")
                 return str(srt)
 
-            with patch("topic_engine.ensure_srt", side_effect=fake_ensure) as ensure:
-                result = transcribe_submission_video(video)
+            result = transcribe_submission_video(
+                video,
+                transcription_service=fake_ensure,
+            )
 
             srt_exists = Path(result["srt_path"]).is_file()
             checkpoint_exists = checkpoint.exists()
@@ -723,10 +743,10 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertFalse(checkpoint_exists)
         assert_same_path(
             self,
-            ensure.call_args.kwargs["checkpoint_path"],
+            observed_call["checkpoint_path"],
             checkpoint,
         )
-        self.assertTrue(ensure.call_args.kwargs["foreground_only"])
+        self.assertTrue(observed_call["foreground_only"])
         self.assertEqual(result["background_filter"], {
             "enabled": True,
             "mode": "speaker_diarization",
@@ -746,12 +766,22 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
                 Path(checkpoint_path).write_text('{"status":"failed"}', encoding="utf-8")
                 raise RuntimeError("转录中断")
 
-            with patch("topic_engine.ensure_srt", side_effect=fail_with_checkpoint):
-                with self.assertRaisesRegex(RuntimeError, "转录中断"):
-                    transcribe_submission_video(video)
+            with self.assertRaisesRegex(RuntimeError, "转录中断"):
+                transcribe_submission_video(
+                    video,
+                    transcription_service=fail_with_checkpoint,
+                )
             checkpoint_exists = checkpoint.exists()
 
         self.assertTrue(checkpoint_exists)
+
+    def test_transcription_requires_explicit_service_injection(self):
+        with tempfile.TemporaryDirectory() as td:
+            video = Path(td) / "精剪成片.mp4"
+            video.write_bytes(b"video")
+
+            with self.assertRaisesRegex(ValueError, "显式注入"):
+                transcribe_submission_video(video)
 
     def test_review_retries_incomplete_batch_filters_rewrite_and_caches(self):
         calls = []
@@ -857,7 +887,10 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
 
     def test_default_review_runner_reserves_reasoning_output_budget(self):
         response = '{"reviewed_indices":[],"corrections":[]}'
-        with patch("topic_engine._call_llm_with_retry", return_value=response) as call:
+        with patch(
+            "autoslice.llm.transport.call_llm_with_retry",
+            return_value=response,
+        ) as call:
             payload = _default_llm_runner("完整提示", "紧凑提示")
 
         self.assertEqual(payload["reviewed_indices"], [])
@@ -892,10 +925,13 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             source.write_text("\n\n".join(cue_blocks), encoding="utf-8")
             with (
                 patch(
-                    "topic_engine._LLMProviderRetryCoordinator",
+                    "autoslice.llm.transport.LLMProviderRetryCoordinator",
                     return_value=coordinator,
                 ) as coordinator_factory,
-                patch("topic_engine._call_llm_with_retry", side_effect=fake_call) as call,
+                patch(
+                    "autoslice.llm.transport.call_llm_with_retry",
+                    side_effect=fake_call,
+                ) as call,
             ):
                 result = suggest_subtitle_corrections(
                     source,
@@ -918,7 +954,7 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             source = Path(td) / "字幕.srt"
             source.write_text(SAMPLE_SRT, encoding="utf-8")
             with patch(
-                "topic_engine._LLMProviderRetryCoordinator",
+                "autoslice.llm.transport.LLMProviderRetryCoordinator",
                 side_effect=AssertionError("自定义 runner 不应创建内置协调器"),
             ):
                 result = suggest_subtitle_corrections(

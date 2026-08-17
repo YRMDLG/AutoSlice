@@ -39,6 +39,12 @@ from autoslice.llm.prompts import (
     build_title_style_prompt as _render_title_style_prompt,
     build_topic_analysis_prompt as _render_topic_analysis_prompt,
 )
+from autoslice.transcription.contracts import (
+    DEFAULT_MAX_PUBLISH_TITLE_CHARS,
+    DEFAULT_SUBTITLE_GLOSSARY,
+    DEFAULT_SUBTITLE_MAX_CHARS,
+    SubtitleTitleServices,
+)
 from media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
     compatible_output_extensions,
@@ -253,7 +259,7 @@ SRT_REPEAT_REPAIR_MIN_ENTRIES = 8  # 旧版把整段全文按每个字重复写�
 # 当前默认字幕为剪映字号 20、描边 100。28 字会在 16:9 成片中直接越界，
 # 因此工作 SRT 以 13 字为硬上限；最终 ASS 仍会按实际画布再做一次保险拆分。
 SUBTITLE_TARGET_CHARS = 10
-SUBTITLE_MAX_CHARS = 13
+SUBTITLE_MAX_CHARS = DEFAULT_SUBTITLE_MAX_CHARS
 # 只供修复历史“全文重复到逐字时间戳”的旧 SRT 使用。该路径需要较完整的
 # 上下文来纠正跨词专名；最终成片仍会在 ASS 层按画布宽度安全拆分。
 SUBTITLE_LEGACY_REPAIR_MAX_CHARS = 28
@@ -284,7 +290,7 @@ SC_TRIGGER_KEYWORDS = (
 
 THANKS_TRIGGER_RE = re.compile(r'(谢谢|感谢|谢[谢了]?|多谢).{0,24}(送|的|老板|老公|礼物|留言|支持)')
 
-MAX_PUBLISH_TITLE_CHARS = 80
+MAX_PUBLISH_TITLE_CHARS = DEFAULT_MAX_PUBLISH_TITLE_CHARS
 # 兼容旧测试和外部脚本对该变量的临时覆盖；生产任务优先读取当前主播配置。
 TITLE_STYLE_PROFILE_PATH = str(
     current_streamer_profile().title_style_profile or ""
@@ -1646,11 +1652,7 @@ def _funasr_hotwords(video_path=None, streamer_name=""):
     values = []
     configured = os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")
     values.extend(re.split(r"[,，、;；\n\r\t ]+", configured))
-    try:
-        from subtitle_workflow import DEFAULT_SUBTITLE_GLOSSARY
-        values.extend(DEFAULT_SUBTITLE_GLOSSARY)
-    except (ImportError, AttributeError):
-        pass
+    values.extend(DEFAULT_SUBTITLE_GLOSSARY)
     profile = current_streamer_profile()
     values.extend((streamer_name, profile.canonical_name, profile.report_name, *profile.aliases))
     values.extend(source for source, _ in profile.asr_replacements)
@@ -4296,6 +4298,16 @@ def _normalise_publish_title(raw_title, topic_title):
     ):
         return _fallback_publish_title(topic_title)
     return f"{title_prefix}{title}"
+
+
+def subtitle_title_services():
+    """向高层调用方提供显式标题服务，字幕模块无需反向导入本 façade。"""
+    return SubtitleTitleServices(
+        max_publish_title_chars=MAX_PUBLISH_TITLE_CHARS,
+        build_title_style_prompt=_build_title_style_prompt,
+        build_title_hook_prompt_guide=_title_hook_prompt_guide,
+        normalise_publish_title=_normalise_publish_title,
+    )
 
 
 def _normalise_title_hook(raw_hook):

@@ -1534,7 +1534,9 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             scan = self.client.post("/api/subtitles/scan", json={"root_dir": td})
 
             def fake_transcribe(
-                    video_path, progress_callback=None, foreground_only=True):
+                    video_path, progress_callback=None, foreground_only=True,
+                    transcription_service=None):
+                self.assertTrue(callable(transcription_service))
                 srt = Path(video_path).with_suffix(".srt")
                 srt.write_text(
                     "1\n00:00:00,000 --> 00:00:01,000\n音音测试\n",
@@ -1591,6 +1593,11 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertTrue(generated_srt_exists)
         transcribe.assert_called_once()
         self.assertTrue(transcribe.call_args.kwargs["foreground_only"])
+        from topic_engine import ensure_srt
+        self.assertIs(
+            transcribe.call_args.kwargs["transcription_service"],
+            ensure_srt,
+        )
         self.assertTrue(rescanned.get_json()["pairs"][0]["has_source_srt"])
 
     def test_transcribe_rejects_non_boolean_foreground_filter(self):
@@ -1962,6 +1969,19 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertEqual(
             generate.call_args.kwargs["context_title"],
             "【泽音】测试投稿",
+        )
+        from autoslice.transcription.contracts import SubtitleTitleServices
+        from topic_engine import subtitle_title_services
+        injected_services = generate.call_args.kwargs["title_services"]
+        expected_services = subtitle_title_services()
+        self.assertIsInstance(injected_services, SubtitleTitleServices)
+        self.assertIs(
+            injected_services.build_title_style_prompt,
+            expected_services.build_title_style_prompt,
+        )
+        self.assertIs(
+            injected_services.normalise_publish_title,
+            expected_services.normalise_publish_title,
         )
 
     def test_duplicate_reference_title_task_is_rejected(self):

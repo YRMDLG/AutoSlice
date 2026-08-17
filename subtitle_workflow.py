@@ -12,9 +12,20 @@ import subprocess
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
+
+from autoslice.llm import transport as llm_gateway
+from autoslice.llm.prompts import PromptContext, build_title_hook_guide
+from autoslice.transcription.contracts import (
+    DEFAULT_MAX_PUBLISH_TITLE_CHARS,
+    DEFAULT_SUBTITLE_GLOSSARY,
+    DEFAULT_SUBTITLE_MAX_CHARS,
+    SubtitleCue,
+    SubtitleTitleServices,
+    normalise_generic_publish_title,
+    srt_timestamp_seconds as _srt_timestamp_seconds,
+)
 
 
 SUBTITLE_REVIEW_VERSION = 4
@@ -24,49 +35,6 @@ SUBTITLE_REVIEW_BATCH_SIZE = 30
 SUBTITLE_REVIEW_CONTEXT_CUES = 3
 SUBTITLE_REVIEW_CONCURRENCY = 2
 SUBTITLE_TITLE_EVIDENCE_CHARS = 32000
-
-DEFAULT_SUBTITLE_GLOSSARY = (
-    "朱鹮",
-    "猪獾",
-    "泽音Melody",
-    "泽音melody",
-    "泽音",
-    "音音",
-    "音姐",
-    "音妈",
-    "麻麻",
-    "露露",
-    "四禧丸子",
-    "沐霂",
-    "又一",
-    "梨安",
-    "恬豆",
-    "七海",
-    "小孩梓",
-    "阿梓",
-    "柚恩",
-    "露早",
-    "EOE",
-    "篮筐",
-    "音悦生",
-    "提督",
-    "舰长",
-    "SC",
-    "娃衣",
-    "雷欧奥特曼",
-    "bangumi",
-    "小沐标",
-    "酥酥又",
-    "向心梨",
-    "恬豆包",
-    "柚恩蜜",
-    "gogo队",
-    "小星星",
-    "星瞳",
-    "宣小纸",
-    "真纸棒",
-    "脆鲨",
-)
 
 _ATOMIC_WRITE_LOCK = threading.Lock()
 
@@ -116,29 +84,38 @@ _JIANYING_FONT_TO_1080_ASS = 6.75
 _JIANYING_OUTLINE_TO_1080_ASS = 0.0533333333
 
 
-@dataclass(frozen=True)
-class SubtitleCue:
-    """一条严格保留序号和时间轴的 SRT 字幕。"""
+def _generic_title_style_prompt(_context_text="", compact=False):
+    """未注入账号 profile 时不读取任何标题样本。"""
+    return ""
 
-    index: int
-    start: str
-    end: str
-    settings: str
-    text: str
 
-    @property
-    def start_seconds(self):
-        return _srt_timestamp_seconds(self.start)
+def _generic_title_hook_prompt_guide():
+    """以显式通用身份构造标题规则，不猜测账号前缀。"""
+    context = PromptContext(
+        streamer_display_name="主播",
+        prompt_streamer_name="主播",
+        editor_subject="所选主播",
+        title_prefix_rule="不要添加账号专属方括号前缀",
+        title_prefix_rule_quoted="不要添加账号专属方括号前缀",
+        publish_title_example="具体事件钩子👀结果或反差",
+    )
+    return build_title_hook_guide(context)
 
-    @property
-    def end_seconds(self):
-        return _srt_timestamp_seconds(self.end)
 
-    def to_dict(self):
-        result = asdict(self)
-        result["start_seconds"] = self.start_seconds
-        result["end_seconds"] = self.end_seconds
-        return result
+DEFAULT_SUBTITLE_TITLE_SERVICES = SubtitleTitleServices(
+    max_publish_title_chars=DEFAULT_MAX_PUBLISH_TITLE_CHARS,
+    build_title_style_prompt=_generic_title_style_prompt,
+    build_title_hook_prompt_guide=_generic_title_hook_prompt_guide,
+    normalise_publish_title=normalise_generic_publish_title,
+)
+
+
+def _resolve_title_services(title_services=None):
+    if title_services is None:
+        return DEFAULT_SUBTITLE_TITLE_SERVICES
+    if not isinstance(title_services, SubtitleTitleServices):
+        raise TypeError("title_services 必须是 SubtitleTitleServices")
+    return title_services
 
 
 def _read_subtitle_text(path):
@@ -150,19 +127,6 @@ def _read_subtitle_text(path):
         except UnicodeDecodeError:
             continue
     raise ValueError(f"字幕编码无法识别: {path}")
-
-
-def _srt_timestamp_seconds(value):
-    parts = value.replace(".", ",").split(":")
-    if len(parts) != 3:
-        raise ValueError(f"无效 SRT 时间: {value}")
-    second, millisecond = parts[2].split(",", 1)
-    return (
-        int(parts[0]) * 3600
-        + int(parts[1]) * 60
-        + int(second)
-        + int(millisecond) / 1000.0
-    )
 
 
 def parse_srt_document(path):
@@ -580,9 +544,7 @@ def reflow_subtitle_srt_for_display(
 
     if max_chars is None:
         # 与 FunASR 新生成工作字幕使用同一上限，避免旧字幕在校对页面再次过长。
-        from topic_engine import SUBTITLE_MAX_CHARS
-
-        max_chars = SUBTITLE_MAX_CHARS
+        max_chars = DEFAULT_SUBTITLE_MAX_CHARS
     try:
         max_chars = max(1, int(max_chars))
     except (TypeError, ValueError) as exc:
@@ -907,7 +869,8 @@ def scan_submission_pairs(root_dir):
 
 
 def transcribe_submission_video(
-        video_path, progress_callback=None, foreground_only=True):
+        video_path, progress_callback=None, foreground_only=True,
+        transcription_service=None):
     """为精剪成片生成同名 SRT；成功后清理检查点，失败时保留续跑数据。"""
     video = Path(video_path).expanduser().resolve()
     if not video.is_file():
@@ -915,11 +878,12 @@ def transcribe_submission_video(
     if video.suffix.casefold() not in _SUBMISSION_VIDEO_SUFFIXES:
         raise ValueError("投稿视频格式不受支持")
 
-    from topic_engine import ensure_srt
+    if transcription_service is None or not callable(transcription_service):
+        raise ValueError("字幕转录必须显式注入 transcription_service")
 
     expected_srt = video.with_suffix(".srt")
     checkpoint_path = video.with_name(f"{video.stem}_asr_checkpoint.json")
-    srt_path = ensure_srt(
+    srt_path = transcription_service(
         str(video),
         progress_callback=progress_callback,
         checkpoint_path=str(checkpoint_path),
@@ -1109,8 +1073,6 @@ def _review_prompt(
 
 
 def _default_llm_runner(prompt, compact_prompt, retry_coordinator=None):
-    from topic_engine import _call_llm_with_retry, _extract_json_payload
-
     call_kwargs = {
         "compact_prompt": compact_prompt,
         "max_tokens": 12000,
@@ -1121,17 +1083,15 @@ def _default_llm_runner(prompt, compact_prompt, retry_coordinator=None):
     }
     if retry_coordinator is not None:
         call_kwargs["retry_coordinator"] = retry_coordinator
-    response = _call_llm_with_retry(
+    response = llm_gateway.call_llm_with_retry(
         prompt,
         **call_kwargs,
     )
-    return _extract_json_payload(response)
+    return llm_gateway.extract_json_payload(response)
 
 
 def _build_default_llm_runner():
-    from topic_engine import _LLMProviderRetryCoordinator
-
-    retry_coordinator = _LLMProviderRetryCoordinator()
+    retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
 
     def run(prompt, compact_prompt):
         return _default_llm_runner(
@@ -1148,8 +1108,7 @@ def _normalise_review_payload(payload):
         try:
             payload = json.loads(payload)
         except json.JSONDecodeError:
-            from topic_engine import _extract_json_payload
-            payload = _extract_json_payload(payload)
+            payload = llm_gateway.extract_json_payload(payload)
     return payload if isinstance(payload, dict) else None
 
 
@@ -1509,10 +1468,13 @@ def _subtitle_title_evidence(cues, maximum_chars=SUBTITLE_TITLE_EVIDENCE_CHARS):
 
 
 def _subtitle_title_generation_prompt(
-        evidence, context_title, *, sampled=False, compact=False):
-    from topic_engine import _build_title_style_prompt, _title_hook_prompt_guide
-
-    style_prompt = _build_title_style_prompt(evidence, compact=compact)
+        evidence, context_title, *, sampled=False, compact=False,
+        title_services=None):
+    title_services = _resolve_title_services(title_services)
+    style_prompt = title_services.build_title_style_prompt(
+        evidence,
+        compact=compact,
+    )
     evidence_limit = 12000 if compact else SUBTITLE_TITLE_EVIDENCE_CHARS
     sampling_note = (
         "字幕过长，下面是覆盖开头、中段和结尾的等距样本；不得把缺失内容脑补为事实。"
@@ -1527,7 +1489,7 @@ def _subtitle_title_generation_prompt(
         "生成3个真正不同角度的标题：优先尝试原话反差、结果前置、口语吐槽；"
         "每个标题都应把具体诱因与真正结果、反转或代价写完整，不能只写‘聊到、介绍、发现、讨论、看到’。"
         "现有视频/目录名称只用于识别人物和主题，不能因为它已经像标题就照抄。"
-        + _title_hook_prompt_guide()
+        + title_services.build_title_hook_prompt_guide()
         + "\n只输出JSON对象："
         '{"content_summary":"一句话还原事件全过程",'
         '"hook":"最值得点击且有字幕证据的诱因+结果",'
@@ -1542,15 +1504,11 @@ def _subtitle_title_generation_prompt(
     )
 
 
-def _normalise_subtitle_title_payload(payload, context_title):
-    from topic_engine import (
-        MAX_PUBLISH_TITLE_CHARS,
-        _extract_json_payload,
-        _normalise_publish_title,
-    )
-
+def _normalise_subtitle_title_payload(
+        payload, context_title, title_services=None):
+    title_services = _resolve_title_services(title_services)
     if isinstance(payload, str):
-        payload = _extract_json_payload(payload)
+        payload = llm_gateway.extract_json_payload(payload)
     if not isinstance(payload, dict):
         raise RuntimeError("标题生成没有返回有效 JSON 对象")
     raw_candidates = payload.get("candidates")
@@ -1560,9 +1518,12 @@ def _normalise_subtitle_title_payload(payload, context_title):
     for item in raw_candidates:
         raw_title = item.get("title") if isinstance(item, dict) else item
         raw_title = re.sub(r"\s+", " ", str(raw_title or "")).strip()
-        if not 4 <= len(raw_title) <= MAX_PUBLISH_TITLE_CHARS:
+        if not 4 <= len(raw_title) <= title_services.max_publish_title_chars:
             continue
-        title = _normalise_publish_title(raw_title, context_title or "视频片段")
+        title = title_services.normalise_publish_title(
+            raw_title,
+            context_title or "视频片段",
+        )
         if title not in titles:
             titles.append(title)
     if len(titles) < 3:
@@ -1577,17 +1538,20 @@ def _normalise_subtitle_title_payload(payload, context_title):
 
 
 def _subtitle_title_judge_prompt(
-        evidence, context_title, generated, *, sampled=False, compact=False):
-    from topic_engine import _build_title_style_prompt, _title_hook_prompt_guide
-
-    style_prompt = _build_title_style_prompt(evidence, compact=compact)
+        evidence, context_title, generated, *, sampled=False, compact=False,
+        title_services=None):
+    title_services = _resolve_title_services(title_services)
+    style_prompt = title_services.build_title_style_prompt(
+        evidence,
+        compact=compact,
+    )
     evidence_limit = 10000 if compact else SUBTITLE_TITLE_EVIDENCE_CHARS
     return (
         "你是独立的B站切片标题终审，不参与上一轮候选生成。"
         "请逐字核对字幕，比较3个候选；如果都遗漏最强后果、反转或收尾原话，可以重写。"
         "最终标题必须具体、口语化、有好奇点，同时完全受字幕证据支持。"
         "不要偏爱排在第一的标题，不要写成内容摘要，不要为博眼球编造事实。"
-        + _title_hook_prompt_guide()
+        + title_services.build_title_hook_prompt_guide()
         + "\n只输出JSON对象："
         '{"recommended_title":"最终推荐标题",'
         '"reason":"一句话说明保留了什么诱因和爆点",'
@@ -1603,32 +1567,31 @@ def _subtitle_title_judge_prompt(
     )
 
 
-def _normalise_subtitle_title_judgement(payload, generated, context_title):
-    from topic_engine import (
-        MAX_PUBLISH_TITLE_CHARS,
-        _extract_json_payload,
-        _normalise_publish_title,
-    )
-
+def _normalise_subtitle_title_judgement(
+        payload, generated, context_title, title_services=None):
+    title_services = _resolve_title_services(title_services)
     if isinstance(payload, str):
-        payload = _extract_json_payload(payload)
+        payload = llm_gateway.extract_json_payload(payload)
     if not isinstance(payload, dict):
         raise RuntimeError("标题终审没有返回有效 JSON 对象")
     raw_recommended = re.sub(
         r"\s+", " ", str(payload.get("recommended_title") or "")
     ).strip()
-    if not 4 <= len(raw_recommended) <= MAX_PUBLISH_TITLE_CHARS:
+    if not 4 <= len(raw_recommended) <= title_services.max_publish_title_chars:
         raise RuntimeError("标题终审没有返回有效推荐标题")
-    recommended = _normalise_publish_title(
+    recommended = title_services.normalise_publish_title(
         raw_recommended,
         context_title or "视频片段",
     )
     titles = [recommended]
     for value in payload.get("alternatives") or []:
         raw = re.sub(r"\s+", " ", str(value or "")).strip()
-        if not 4 <= len(raw) <= MAX_PUBLISH_TITLE_CHARS:
+        if not 4 <= len(raw) <= title_services.max_publish_title_chars:
             continue
-        title = _normalise_publish_title(raw, context_title or "视频片段")
+        title = title_services.normalise_publish_title(
+            raw,
+            context_title or "视频片段",
+        )
         if title not in titles:
             titles.append(title)
     for title in generated["candidates"]:
@@ -1646,9 +1609,7 @@ def _normalise_subtitle_title_judgement(payload, generated, context_title):
 
 
 def _default_subtitle_title_runner(prompt, compact_prompt, progress_label):
-    from topic_engine import _call_llm_with_retry, _extract_json_payload
-
-    response = _call_llm_with_retry(
+    response = llm_gateway.call_llm_with_retry(
         prompt,
         compact_prompt=compact_prompt,
         max_tokens=6000,
@@ -1658,12 +1619,14 @@ def _default_subtitle_title_runner(prompt, compact_prompt, progress_label):
         require_json=True,
         reasoning_stage="review",
     )
-    return _extract_json_payload(response)
+    return llm_gateway.extract_json_payload(response)
 
 
 def generate_subtitle_reference_titles(
-        srt_path, context_title="", llm_runner=None, progress_callback=None):
+        srt_path, context_title="", llm_runner=None, progress_callback=None,
+        title_services=None):
     """根据当前成片字幕生成三个参考投稿标题，并独立终审推荐一个。"""
+    title_services = _resolve_title_services(title_services)
     cues = parse_srt_document(srt_path)
     evidence, sampled = _subtitle_title_evidence(cues)
     runner = llm_runner or _default_subtitle_title_runner
@@ -1674,6 +1637,7 @@ def generate_subtitle_reference_titles(
         evidence,
         context_title,
         sampled=sampled,
+        title_services=title_services,
     )
     generated = _normalise_subtitle_title_payload(
         runner(
@@ -1683,10 +1647,12 @@ def generate_subtitle_reference_titles(
                 context_title,
                 sampled=sampled,
                 compact=True,
+                title_services=title_services,
             ),
             "字幕参考标题候选生成",
         ),
         context_title,
+        title_services=title_services,
     )
 
     if progress_callback:
@@ -1698,6 +1664,7 @@ def generate_subtitle_reference_titles(
                 context_title,
                 generated,
                 sampled=sampled,
+                title_services=title_services,
             ),
             _subtitle_title_judge_prompt(
                 evidence,
@@ -1705,11 +1672,13 @@ def generate_subtitle_reference_titles(
                 generated,
                 sampled=sampled,
                 compact=True,
+                title_services=title_services,
             ),
             "字幕参考标题独立终审",
         ),
         generated,
         context_title,
+        title_services=title_services,
     )
     judgement.update({
         "source_srt_path": str(Path(srt_path).resolve()),

@@ -156,7 +156,7 @@ class ArchitectureDependencyTests(unittest.TestCase):
             "debt_status": "present",
         }])
 
-    def test_current_cycles_are_limited_to_recorded_debt(self):
+    def test_current_architecture_has_no_dependency_cycles_or_reverse_edges(self):
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         current = architecture_snapshot.build_snapshot(ROOT)
 
@@ -166,11 +166,20 @@ class ArchitectureDependencyTests(unittest.TestCase):
         )
 
         self.assertEqual(violations, [])
-        self.assertTrue(baseline["dependency_cycles"])
-        for cycle in baseline["dependency_cycles"]:
-            self.assertEqual(cycle["debt_status"], "present")
-            self.assertTrue(cycle["modules"])
-            self.assertFalse(any("*" in module for module in cycle["modules"]))
+        self.assertEqual(baseline["dependency_cycles"], [])
+        self.assertEqual(current["dependency_cycles"], [])
+
+        edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertNotIn(("subtitle_workflow", "topic_engine"), edges)
+        self.assertNotIn(("topic_engine", "subtitle_workflow"), edges)
+        for high_level_module in ("app", "subtitle_workflow", "topic_engine"):
+            self.assertNotIn(
+                ("autoslice.transcription.contracts", high_level_module),
+                edges,
+            )
 
     def test_new_cycle_is_rejected_without_expanding_debt_baseline(self):
         with tempfile.TemporaryDirectory() as temp_dir:

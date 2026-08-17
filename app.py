@@ -830,12 +830,14 @@ def run_subtitle_title_task(
 
     try:
         from subtitle_workflow import generate_subtitle_reference_titles
+        from topic_engine import subtitle_title_services
 
         with streamer_profile_context(streamer_profile):
             result = generate_subtitle_reference_titles(
                 srt_path,
                 context_title=context_title,
                 progress_callback=callback,
+                title_services=subtitle_title_services(),
             )
         update_task(
             task_id,
@@ -870,11 +872,13 @@ def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
 
     try:
         from subtitle_workflow import transcribe_submission_video
+        from topic_engine import ensure_srt
 
         result = transcribe_submission_video(
             video_path,
             progress_callback=callback,
             foreground_only=foreground_only,
+            transcription_service=ensure_srt,
         )
         filter_result = result.get("background_filter") or {}
         filter_mode = filter_result.get("mode")
