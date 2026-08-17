@@ -1569,6 +1569,206 @@ class RefinementManifestTests(unittest.TestCase):
         self.assertEqual(queue["ready_count"], 1)
 
 
+class SliceOutputFormatTests(unittest.TestCase):
+    """视频输入、报告契约和模拟切片共用同一容器策略。"""
+
+    VIDEO_EXTENSIONS = (".flv", ".mp4", ".mkv", ".mov", ".avi")
+
+    @staticmethod
+    def _mark():
+        return {
+            "start": 10,
+            "end": 90,
+            "title": "多格式切片",
+            "publish_title": "多格式切片测试",
+        }
+
+    def test_public_pipeline_accepts_declared_formats_and_rejects_other_files(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            sources = []
+            for extension in self.VIDEO_EXTENSIONS:
+                source = root / f"录播{extension.upper()}"
+                source.write_bytes(b"video")
+                sources.append(source)
+            unsupported = root / "录播.txt"
+            unsupported.write_bytes(b"not-video")
+
+            with patch(
+                    "topic_engine._run_pipeline_impl",
+                    side_effect=lambda *_args, **_kwargs: {},
+            ) as pipeline_impl:
+                for source in sources:
+                    with self.subTest(source=source.name):
+                        result = run_pipeline(str(source))
+                        self.assertIn("streamer_profile_id", result)
+                with self.assertRaisesRegex(ValueError, "不支持的视频格式"):
+                    run_pipeline(str(unsupported))
+
+        self.assertEqual(pipeline_impl.call_count, len(self.VIDEO_EXTENSIONS))
+        self.assertEqual(
+            [
+                Path(call.args[0]).suffix.casefold()
+                for call in pipeline_impl.call_args_list
+            ],
+            list(self.VIDEO_EXTENSIONS),
+        )
+
+    def test_filename_reports_and_manifests_preserve_source_container(self):
+        mark = self._mark()
+        for extension in self.VIDEO_EXTENSIONS:
+            source = f"录播{extension.upper()}"
+            with self.subTest(extension=extension):
+                filename = _topic_clip_filename(1, mark, source)
+                self.assertTrue(filename.endswith(extension))
+                manifest = _build_refinement_manifest(
+                    source,
+                    "字幕.srt",
+                    "校对字幕.srt",
+                    "报告.md",
+                    "标记.json",
+                    [mark],
+                    "清单.json",
+                    "清单.md",
+                )
+                self.assertEqual(manifest["tasks"][0]["clip_filename"], filename)
+                report = _build_timeline_report(
+                    source,
+                    "无弹幕数据",
+                    [],
+                    clip_marks=[mark],
+                )
+                self.assertIn(f"原文件：`{filename}`", report)
+
+    def test_slice_outputs_and_temporary_files_use_source_container(self):
+        mark = self._mark()
+        for extension in self.VIDEO_EXTENSIONS:
+            with (
+                self.subTest(extension=extension),
+                TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                source = root / f"录播{extension.upper()}"
+                source.write_bytes(b"source-video")
+                clip_json = root / "clip_marks.json"
+                clip_json.write_text(json.dumps({
+                    "expanded_with_context": True,
+                    "clip_marks": [mark],
+                }, ensure_ascii=False), encoding="utf-8")
+                ffmpeg_calls = []
+
+                def fake_ffmpeg(args, **_kwargs):
+                    ffmpeg_calls.append(args)
+                    Path(args[-1]).write_bytes(b"clip")
+                    return Mock(returncode=0)
+
+                with (
+                    patch(
+                        "topic_engine._preferred_slice_video_encoder_args",
+                        return_value=["-c:v", "libx264"],
+                    ),
+                    patch("topic_engine._probe_video_duration", return_value=80.0),
+                    patch("subprocess.run", side_effect=fake_ffmpeg),
+                ):
+                    count, report_dir = slice_from_marks(
+                        str(source),
+                        str(clip_json),
+                        str(root / "输出"),
+                    )
+
+                expected_output = (
+                    Path(report_dir) / _topic_clip_filename(1, mark, source)
+                )
+                self.assertEqual(count, 1)
+                self.assertTrue(expected_output.is_file())
+                self.assertEqual(expected_output.suffix, extension)
+                self.assertEqual(len(ffmpeg_calls), 1)
+                self.assertEqual(
+                    ffmpeg_calls[0][-1],
+                    str(expected_output) + ".part" + extension,
+                )
+                self.assertFalse(Path(ffmpeg_calls[0][-1]).exists())
+
+    def test_non_flv_source_reuses_historical_flv_output_without_renaming_container(self):
+        mark = self._mark()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "录播.mp4"
+            source.write_bytes(b"source-video")
+            output_root = root / "输出"
+            layout = _artifact_bundle_layout(str(source), output_dir=str(output_root))
+            Path(layout["data_dir"]).mkdir(parents=True)
+            preferred_name = _topic_clip_filename(1, mark, source)
+            manifest = _build_refinement_manifest(
+                str(source),
+                "字幕.srt",
+                "校对字幕.srt",
+                layout["report_path"],
+                layout["clip_marks_path"],
+                [mark],
+                layout["task_manifest_json_path"],
+                layout["task_manifest_md_path"],
+            )
+            Path(layout["task_manifest_json_path"]).write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            clip_json = root / "clip_marks.json"
+            clip_json.write_text(json.dumps({
+                "expanded_with_context": True,
+                "clip_marks": [mark],
+                "artifact_dir": layout["artifact_dir"],
+                "task_manifest_json_path": layout["task_manifest_json_path"],
+            }, ensure_ascii=False), encoding="utf-8")
+            report_dir = output_root / "录播_话题切片"
+            report_dir.mkdir(parents=True)
+            legacy_name = os.path.splitext(preferred_name)[0] + ".flv"
+            legacy_path = report_dir / legacy_name
+            legacy_path.write_bytes(b"historical-flv")
+
+            with (
+                patch("topic_engine._probe_video_duration", return_value=80.0),
+                patch("subprocess.run") as ffmpeg_run,
+            ):
+                count, actual_report_dir = slice_from_marks(
+                    str(source),
+                    str(clip_json),
+                    str(output_root),
+                )
+
+            overview = Path(layout["overview_path"]).read_text(encoding="utf-8")
+            saved_manifest = json.loads(
+                Path(layout["task_manifest_json_path"]).read_text(encoding="utf-8")
+            )
+            legacy_exists = legacy_path.is_file()
+            preferred_exists = (report_dir / preferred_name).exists()
+
+        self.assertEqual(count, 1)
+        self.assertEqual(actual_report_dir, str(report_dir))
+        self.assertTrue(legacy_exists)
+        self.assertFalse(preferred_exists)
+        self.assertIn(str(legacy_path), overview)
+        self.assertEqual(saved_manifest["tasks"][0]["clip_filename"], legacy_name)
+        self.assertEqual(saved_manifest["tasks"][0]["slice_path"], str(legacy_path))
+        ffmpeg_run.assert_not_called()
+
+    def test_optimized_timeline_records_non_flv_source_path(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "录播.MOV"
+            source.write_bytes(b"video")
+            json_path, _md_path = _write_optimized_timeline_files(
+                str(source.with_suffix("")),
+                "人工时间轴.docx",
+                [],
+                [],
+                video_path=str(source),
+            )
+            payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["video_path"], str(source.resolve()))
+
+
 class TopicEngineParseTests(unittest.TestCase):
     """话题分析解析与去重的快速回归测试。"""
 

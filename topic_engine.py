@@ -28,6 +28,14 @@ from llm_client import (
     normalise_api_config as _normalise_api_config,
     read_json_config as _read_llm_json_config,
 )
+from media_formats import (
+    SUPPORTED_VIDEO_EXTENSIONS,
+    compatible_output_extensions,
+    is_analyzable_video,
+    is_sliceable_video,
+    normalise_video_extension,
+    preferred_output_extension,
+)
 
 from artifact_store import (
     ARTIFACT_BUNDLE_SUFFIX,
@@ -286,6 +294,23 @@ REFINEMENT_WORKFLOW_STEPS = (
     ("make_cover", "用 AutoCover 制作封面"),
     ("publish_bilibili", "在 B 站网页投稿"),
 )
+
+
+def _validated_video_path(path, *, for_slicing=False):
+    """校验公开工作流的视频输入，并保留兼容的 ``flv_path`` 参数名。"""
+
+    normalized_path = os.path.abspath(os.fspath(path))
+    if not os.path.isfile(normalized_path):
+        raise FileNotFoundError(f"录播文件不存在: {normalized_path}")
+    supported = (
+        is_sliceable_video(normalized_path)
+        if for_slicing
+        else is_analyzable_video(normalized_path)
+    )
+    if not supported:
+        extensions = "/".join(SUPPORTED_VIDEO_EXTENSIONS)
+        raise ValueError(f"不支持的视频格式；支持：{extensions}")
+    return normalized_path
 
 
 def fmt_time(seconds):
@@ -5660,7 +5685,7 @@ def _optimized_timeline_paths(video_base, artifact_layout=None):
 
 def _write_optimized_timeline_files(
         video_base, source_path, raw_entries, optimized_entries, warning=None,
-        artifact_layout=None):
+        artifact_layout=None, video_path=None):
     """保存可审阅的优化时间轴，便于判断人工参考如何被字幕校准。"""
     json_path, md_path = _optimized_timeline_paths(
         video_base, artifact_layout=artifact_layout
@@ -5668,7 +5693,11 @@ def _write_optimized_timeline_files(
     os.makedirs(os.path.dirname(os.path.abspath(json_path)), exist_ok=True)
     os.makedirs(os.path.dirname(os.path.abspath(md_path)), exist_ok=True)
     payload = {
-        "video_path": video_base + ".flv",
+        "video_path": (
+            os.path.abspath(video_path)
+            if video_path
+            else video_base + ".flv"
+        ),
         "source_path": source_path,
         "streamer_profile_id": current_streamer_profile().id,
         "optimization_version": MANUAL_TIMELINE_OPTIMIZATION_VERSION,
@@ -5804,6 +5833,7 @@ def _prepare_optimized_manual_timeline(
             entries,
             warning=warning,
             artifact_layout=artifact_layout,
+            video_path=flv_path,
         )
 
     reusable_artifact = None
@@ -5907,6 +5937,7 @@ def _prepare_optimized_manual_timeline(
         optimized_entries,
         warning=warning,
         artifact_layout=artifact_layout,
+        video_path=flv_path,
     )
     manual_timeline["entries"] = optimized_entries
     manual_timeline["optimized_entry_count"] = len(optimized_entries)
@@ -5920,6 +5951,7 @@ def optimize_manual_timeline_for_video(
         flv_path, manual_timeline_path, ass_path=None, progress_callback=None,
         output_dir=None, artifact_dir=None, streamer_profile_id="auto"):
     """在隔离的主播配置上下文中优化人工时间轴。"""
+    flv_path = _validated_video_path(flv_path)
     with streamer_profile_context(streamer_profile_id, flv_path) as profile:
         result = _optimize_manual_timeline_for_video_impl(
             flv_path,
@@ -8676,7 +8708,7 @@ def _clip_marks_from_topics(topics):
     return _dedupe_clip_marks(marks)
 
 
-def _topic_clip_filename(index, mark):
+def _topic_clip_filename(index, mark, source_path=None):
     """生成自动切片文件名；报告和实际 ffmpeg 输出必须共用此规则。"""
     title = str(mark.get("title", f"片段{index}")).strip() or f"片段{index}"
     safe_title = re.sub(r'[\\/:*?"<>|`]', '', title)
@@ -8684,7 +8716,19 @@ def _topic_clip_filename(index, mark):
     if not safe_title:
         safe_title = f"片段{index}"
     start_s = int(float(mark.get("start", 0)))
-    return f"{index:02d}_{start_s}s_{safe_title}.flv"
+    output_extension = preferred_output_extension(source_path or ".flv")
+    return f"{index:02d}_{start_s}s_{safe_title}{output_extension}"
+
+
+def _compatible_topic_clip_filenames(index, mark, source_path):
+    """返回首选文件名以及读取历史产物时允许回退的文件名。"""
+
+    preferred_name = _topic_clip_filename(index, mark, source_path)
+    filename_stem = os.path.splitext(preferred_name)[0]
+    return tuple(
+        filename_stem + extension
+        for extension in compatible_output_extensions(source_path)
+    )
 
 
 def _synchronise_selected_topic_ranges(topics, clip_marks):
@@ -8722,12 +8766,13 @@ def _resolve_clip_subtitle_source(flv_path, data):
             flv_path,
             artifact_dir=data.get("artifact_dir"),
         )
+    video_base = os.path.splitext(flv_path)[0]
     candidates = [
         data.get("corrected_srt_path"),
         layout["corrected_srt_path"] if layout else None,
-        flv_path[:-4] + "_校对字幕.srt",
+        video_base + "_校对字幕.srt",
         data.get("srt_path"),
-        flv_path[:-4] + ".srt",
+        video_base + ".srt",
     ]
     for path in candidates:
         if path and os.path.isfile(path):
@@ -8735,7 +8780,7 @@ def _resolve_clip_subtitle_source(flv_path, data):
     return None
 
 
-def _publish_title_report_lines(clip_marks):
+def _publish_title_report_lines(clip_marks, source_path=None):
     """生成 AutoCover 可直接解析的投稿标题区，只包含最终实际切片。"""
     marks = _dedupe_clip_marks(clip_marks or [])
     if not marks:
@@ -8744,7 +8789,7 @@ def _publish_title_report_lines(clip_marks):
     for index, mark in enumerate(marks, 1):
         start = _format_report_time(mark["start"])
         end = _format_report_time(mark["end"])
-        filename = _topic_clip_filename(index, mark)
+        filename = _topic_clip_filename(index, mark, source_path)
         publish_title = _normalise_publish_title(
             mark.get("publish_title"), mark.get("title", "未命名片段")
         )
@@ -8805,9 +8850,38 @@ def _render_artifact_overview(layout, clip_data=None, manifest=None, slice_dir=N
         lines.extend(["本次没有最终可切片段。", ""])
         return "\n".join(lines)
     for index, mark in enumerate(marks, 1):
-        filename = _topic_clip_filename(index, mark)
-        task = tasks_by_filename.get(filename) or {}
-        clip_path = task.get("slice_path") or os.path.join(slice_dir, filename)
+        candidate_filenames = _compatible_topic_clip_filenames(
+            index,
+            mark,
+            layout["source_video_path"],
+        )
+        task = next(
+            (
+                tasks_by_filename[name]
+                for name in candidate_filenames
+                if name in tasks_by_filename
+            ),
+            {},
+        )
+        existing_filename = next(
+            (
+                name
+                for name in candidate_filenames
+                if os.path.isfile(os.path.join(slice_dir, name))
+            ),
+            None,
+        )
+        filename = (
+            existing_filename
+            or task.get("clip_filename")
+            or candidate_filenames[0]
+        )
+        task_slice_path = task.get("slice_path")
+        clip_path = (
+            task_slice_path
+            if task_slice_path and os.path.isfile(task_slice_path)
+            else os.path.join(slice_dir, filename)
+        )
         title = str(mark.get("title") or f"片段{index}").strip()
         publish_title = _normalise_publish_title(
             mark.get("publish_title") or task.get("publish_title"),
@@ -8929,11 +9003,21 @@ def organize_existing_artifacts(
         for task in manifest.get("tasks") or []:
             if not isinstance(task, dict) or not task.get("clip_filename"):
                 continue
-            candidate = os.path.abspath(os.path.join(
-                actual_slice_dir, task["clip_filename"]
-            ))
+            filename_stem = os.path.splitext(task["clip_filename"])[0]
+            candidate_paths = [
+                os.path.abspath(os.path.join(
+                    actual_slice_dir,
+                    filename_stem + extension,
+                ))
+                for extension in compatible_output_extensions(flv_path)
+            ]
+            candidate = next(
+                (path for path in candidate_paths if os.path.isfile(path)),
+                candidate_paths[0],
+            )
             subtitle = os.path.splitext(candidate)[0] + ".srt"
             if os.path.isfile(candidate):
+                task["clip_filename"] = os.path.basename(candidate)
                 task["slice_path"] = candidate
             if os.path.isfile(subtitle):
                 task["subtitle_path"] = subtitle
@@ -9012,7 +9096,7 @@ def _build_refinement_manifest(video_path, source_srt_path, corrected_srt_path,
     """构造一场录播的统一精调任务数据。"""
     tasks = []
     for index, mark in enumerate(_dedupe_clip_marks(clip_marks or []), 1):
-        filename = _topic_clip_filename(index, mark)
+        filename = _topic_clip_filename(index, mark, video_path)
         tasks.append({
             "id": f"{index:02d}",
             "status": "等待自动切片",
@@ -9303,12 +9387,37 @@ def _update_refinement_manifest_after_slice(manifest_json_path, report_dir, mark
         for task in manifest.get("tasks") or []
         if task.get("clip_filename")
     }
+    source_path = (
+        manifest.get("source_video_path")
+        or manifest.get("video_path")
+        or ".flv"
+    )
     found_count = 0
     for index, mark in enumerate(_dedupe_clip_marks(marks or []), 1):
-        filename = _topic_clip_filename(index, mark)
-        task = tasks_by_name.get(filename)
+        candidate_filenames = _compatible_topic_clip_filenames(
+            index,
+            mark,
+            source_path,
+        )
+        task = next(
+            (
+                tasks_by_name[name]
+                for name in candidate_filenames
+                if name in tasks_by_name
+            ),
+            None,
+        )
         if not task:
             continue
+        filename = next(
+            (
+                name
+                for name in candidate_filenames
+                if os.path.isfile(os.path.join(report_dir, name))
+            ),
+            candidate_filenames[0],
+        )
+        task["clip_filename"] = filename
         output_path = os.path.abspath(os.path.join(report_dir, filename))
         task["slice_path"] = output_path
         subtitle_path = os.path.abspath(
@@ -9435,7 +9544,10 @@ def _build_timeline_report(
                 topic_index += 1
             lines.append("")
 
-    publish_title_lines = _publish_title_report_lines(clip_marks)
+    publish_title_lines = _publish_title_report_lines(
+        clip_marks,
+        source_path=video_name,
+    )
     if publish_title_lines:
         lines.extend(publish_title_lines)
 
@@ -10908,6 +11020,7 @@ def run_pipeline(
         optimized_timeline_path=None, output_dir=None, artifact_dir=None,
         streamer_profile_id="auto"):
     """在隔离的主播配置上下文中执行完整分析流水线。"""
+    flv_path = _validated_video_path(flv_path)
     with streamer_profile_context(streamer_profile_id, flv_path) as profile:
         result = _run_pipeline_impl(
             flv_path,
@@ -11367,6 +11480,7 @@ def retry_clip_review_from_artifacts(
         progress_callback=None, output_dir=None, artifact_dir=None,
         streamer_profile_id="auto"):
     """在隔离的主播配置上下文中只重做切片候选复核。"""
+    flv_path = _validated_video_path(flv_path)
     with streamer_profile_context(streamer_profile_id, flv_path) as profile:
         result = _retry_clip_review_from_artifacts_impl(
             flv_path,
@@ -11798,12 +11912,18 @@ def _retry_clip_review_from_artifacts_impl(
     }
 
 
+_GENERATED_VIDEO_SUFFIX_PATTERN = "|".join(
+    re.escape(extension.removeprefix("."))
+    for extension in SUPPORTED_VIDEO_EXTENSIONS
+)
 _GENERATED_TOPIC_ARTIFACT_RE = re.compile(
-    r'^\d{2,3}_\d+s_.+\.(?:flv|srt)$',
+    rf'^\d{{2,3}}_\d+s_.+\.(?:{_GENERATED_VIDEO_SUFFIX_PATTERN}|srt)$',
     re.IGNORECASE,
 )
 _GENERATED_TOPIC_TEMP_RE = re.compile(
-    r'^(?:\d{2,3}_\d+s_.+\.flv\.part\.flv|\.autoslice_seek_index_\d+\.mkv)$',
+    rf'^(?:\d{{2,3}}_\d+s_.+\.(?:{_GENERATED_VIDEO_SUFFIX_PATTERN})'
+    rf'\.part\.(?:{_GENERATED_VIDEO_SUFFIX_PATTERN})|'
+    r'\.autoslice_seek_index_\d+\.mkv)$',
     re.IGNORECASE,
 )
 
@@ -11863,6 +11983,24 @@ def _is_reusable_topic_clip(output_path, source_path, expected_duration):
     )
 
 
+def _reuse_compatible_topic_clip(job, source_path):
+    """首选产物不存在时，原路径复用兼容的历史容器产物。"""
+
+    preferred_path = os.path.abspath(job["output_path"])
+    output_stem = os.path.splitext(preferred_path)[0]
+    for extension in compatible_output_extensions(source_path):
+        candidate_path = output_stem + extension
+        if os.path.normcase(candidate_path) == os.path.normcase(preferred_path):
+            continue
+        if not _is_reusable_topic_clip(
+                candidate_path, source_path, job["duration"]):
+            continue
+        job["output_path"] = candidate_path
+        job["output_name"] = os.path.basename(candidate_path)
+        return True
+    return False
+
+
 def _reuse_topic_clip_after_title_change(job, report_dir, source_path):
     """起点和时长未变时复用旧视频，允许标题或候选编号发生变化。"""
     expected_name = str(job["output_name"])
@@ -11872,6 +12010,7 @@ def _reuse_topic_clip_after_title_change(job, report_dir, source_path):
     except OSError:
         return False
     candidates = []
+    compatible_extensions = set(compatible_output_extensions(source_path))
     for name in names:
         if name.casefold() == expected_name.casefold():
             continue
@@ -11879,7 +12018,7 @@ def _reuse_topic_clip_after_title_change(job, report_dir, source_path):
             continue
         if (
                 start_marker not in name.casefold()
-                or not name.lower().endswith(".flv")):
+                or normalise_video_extension(name) not in compatible_extensions):
             continue
         path = os.path.join(report_dir, name)
         try:
@@ -11891,17 +12030,21 @@ def _reuse_topic_clip_after_title_change(job, report_dir, source_path):
         if not _is_reusable_topic_clip(
                 candidate_path, source_path, job["duration"]):
             continue
+        target_extension = normalise_video_extension(candidate_path)
+        target_path = os.path.splitext(job["output_path"])[0] + target_extension
         try:
-            os.replace(candidate_path, job["output_path"])
+            os.replace(candidate_path, target_path)
         except OSError:
             try:
-                shutil.copy2(candidate_path, job["output_path"])
+                shutil.copy2(candidate_path, target_path)
             except OSError:
                 try:
-                    os.remove(job["output_path"])
+                    os.remove(target_path)
                 except OSError:
                     pass
                 continue
+        job["output_path"] = target_path
+        job["output_name"] = os.path.basename(target_path)
         return True
     return False
 
@@ -12022,7 +12165,9 @@ def _slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=No
 
     marks = _dedupe_clip_marks(data.get("clip_marks", []))
     if not data.get("expanded_with_context"):
-        srt_segments_for_context = parse_srt_segments(flv_path[:-4] + ".srt")
+        srt_segments_for_context = parse_srt_segments(
+            os.path.splitext(flv_path)[0] + ".srt"
+        )
         marks = _expand_clip_marks_with_context(
             marks,
             srt_segments=srt_segments_for_context,
@@ -12060,7 +12205,7 @@ def _slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=No
         duration = end_s - start_s
         if duration <= 0:
             continue
-        output_name = _topic_clip_filename(index, mark)
+        output_name = _topic_clip_filename(index, mark, flv_path)
         slice_jobs.append({
             "index": index,
             "mark": mark,
@@ -12078,6 +12223,8 @@ def _slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=No
     for job in slice_jobs:
         if _is_reusable_topic_clip(
                 job["output_path"], flv_path, job["duration"]):
+            reusable_jobs.append(job)
+        elif _reuse_compatible_topic_clip(job, flv_path):
             reusable_jobs.append(job)
         elif _reuse_topic_clip_after_title_change(job, report_dir, flv_path):
             reusable_jobs.append(job)
@@ -12137,7 +12284,8 @@ def _slice_from_marks_impl(flv_path, json_path, output_dir, progress_callback=No
         duration = job["duration"]
         title = job["title"]
         output_path = job["output_path"]
-        temporary_output_path = output_path + ".part.flv"
+        output_extension = normalise_video_extension(output_path)
+        temporary_output_path = output_path + ".part" + output_extension
         effective_encoder_args = list(requested_encoder_args)
 
         if slice_progress:
@@ -12300,6 +12448,7 @@ def slice_from_marks(
         flv_path, json_path, output_dir, progress_callback=None,
         streamer_profile_id="auto"):
     """按标记切片，并在当前线程显式激活调用方冻结的主播配置。"""
+    flv_path = _validated_video_path(flv_path, for_slicing=True)
     with streamer_profile_context(streamer_profile_id, flv_path):
         return _slice_from_marks_impl(
             flv_path,
@@ -12325,7 +12474,7 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if len(sys.argv) > 1:
         flv = sys.argv[1]
-        ass = flv[:-4] + ".ass" if not os.path.exists(flv[:-4] + ".ass") else flv[:-4] + ".ass"
+        ass = os.path.splitext(flv)[0] + ".ass"
         if not os.path.exists(ass):
             ass = None
         result = run_pipeline(flv, ass, progress_callback=lambda m, s, t: print(f"[{s}%] {m}"))
@@ -12334,4 +12483,4 @@ if __name__ == "__main__":
         for cm in result['clip_marks'][:10]:
             print(f"  [{fmt_time(cm['start'])}-{fmt_time(cm['end'])}] {cm['title']}")
     else:
-        print("用法: python topic_engine.py <视频.flv>")
+        print("用法: python topic_engine.py <视频文件>")
