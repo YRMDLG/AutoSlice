@@ -26,8 +26,9 @@ from security_policy import LOOPBACK_HOSTS, SecurityPolicy
 
 if __package__ == "autocover_tool":
     from .autocover import API_VERSION, SERVICE_ID
-    from .autocover.fonts import get_default_font_status
     from .autocover.drafts import CoverDraftStore
+    from .autocover.fonts import get_default_font_status
+    from .autocover.paths import STATIC_DIR, TEMPLATE_DIR
     from .autocover.renderer import (
         RenderResult,
         StickerOverlay,
@@ -46,8 +47,9 @@ if __package__ == "autocover_tool":
     )
 else:
     from autocover import API_VERSION, SERVICE_ID
-    from autocover.fonts import get_default_font_status
     from autocover.drafts import CoverDraftStore
+    from autocover.fonts import get_default_font_status
+    from autocover.paths import STATIC_DIR, TEMPLATE_DIR
     from autocover.renderer import (
         RenderResult,
         StickerOverlay,
@@ -595,7 +597,11 @@ def _save_task(
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     """创建可测试的本地 Flask 应用。"""
 
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        static_folder=str(STATIC_DIR),
+        template_folder=str(TEMPLATE_DIR),
+    )
     app.config.from_mapping(
         JSON_AS_ASCII=False,
         MAX_CONTENT_LENGTH=MAX_STICKER_UPLOAD_BYTES,

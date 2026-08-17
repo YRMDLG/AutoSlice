@@ -9,7 +9,6 @@ import json
 import os
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import urlsplit
 
@@ -37,6 +36,7 @@ from autoslice.llm.contracts import (
     normalise_timeout,
     redact_url_credentials,
 )
+from autoslice.paths import APPLICATION_DATA_ROOT
 
 DEFAULT_MODEL = "gpt-5.6-terra"
 DEFAULT_MAX_TOKENS = 16000
@@ -44,7 +44,7 @@ DEFAULT_COMPACT_MAX_TOKENS = 12000
 DEFAULT_REQUEST_TIMEOUT = (30, 300)
 DEFAULT_RETRY_DELAYS = (3, 8, 20, 45)
 DEFAULT_PROVIDER_UNAVAILABLE_RETRY_DELAYS = (3, 8)
-PROJECT_DIR = Path(__file__).resolve().parents[2]
+PROJECT_DIR = APPLICATION_DATA_ROOT
 
 _UNSUPPORTED_REASONING_EFFORT_KEYS = set()
 _REASONING_EFFORT_LOCK = threading.Lock()

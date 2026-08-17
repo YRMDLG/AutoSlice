@@ -15,6 +15,7 @@ from pathlib import Path
 
 from PIL import Image, ImageFilter, ImageStat
 
+from .paths import CACHE_DIR
 
 CACHE_VERSION = 3
 LOW_SUBTITLE_RISK = 0.05
@@ -514,7 +515,7 @@ def extract_candidate_frames(
     source = Path(video_path).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(f"视频文件不存在：{source}")
-    cache_root = Path(cache_dir or Path.cwd() / ".cache" / "frames").expanduser().resolve()
+    cache_root = Path(cache_dir or CACHE_DIR).expanduser().resolve()
     cache_root.mkdir(parents=True, exist_ok=True)
     frame_dir = cache_root / _cache_key(source, count, intro_seconds, outro_seconds)
     manifest_path = frame_dir / "manifest.json"
@@ -631,9 +632,7 @@ def extract_frame_at_timestamp(
         max(0.0, metadata.duration - 0.001),
     )
 
-    cache_root = Path(
-        cache_dir or Path.cwd() / ".cache" / "frames"
-    ).expanduser().resolve()
+    cache_root = Path(cache_dir or CACHE_DIR).expanduser().resolve()
     frame_dir = cache_root / "timeline" / _cache_key(
         source,
         1,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import secrets
 import threading
 import time
@@ -12,6 +11,15 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .paths import (
+    CACHE_DIR,
+)
+from .paths import (
+    DEFAULT_INPUT_DIR as _DEFAULT_INPUT_DIR,
+)
+from .paths import (
+    DEFAULT_OUTPUT_DIR as _DEFAULT_OUTPUT_DIR,
+)
 from .style import get_palette, get_template
 from .titles import load_title_map, match_title, recommend_visual_style
 from .video import (
@@ -23,14 +31,9 @@ from .video import (
     probe_video,
 )
 
-
+DEFAULT_INPUT_DIR = _DEFAULT_INPUT_DIR
+DEFAULT_OUTPUT_DIR = _DEFAULT_OUTPUT_DIR
 VIDEO_EXTENSIONS = frozenset({".flv", ".mp4", ".mkv", ".mov", ".avi"})
-DEFAULT_INPUT_DIR = Path(
-    os.environ.get("AUTOCOVER_INPUT_DIR", Path.cwd() / "input")
-).expanduser().resolve()
-DEFAULT_OUTPUT_DIR = Path(
-    os.environ.get("AUTOCOVER_OUTPUT_DIR", Path.cwd() / "covers")
-).expanduser().resolve()
 DEFAULT_IGNORED_DIRECTORY_NAMES = frozenset(
     name.casefold() for name in ("视频素材", "封面", "封面输出", "_AutoCover草稿")
 )
@@ -102,7 +105,7 @@ class CoverWorkspace:
 
         self.root = workspace_root
         self.title_file = Path(title_file).expanduser().resolve() if title_file else None
-        self.cache_dir = Path(cache_dir or Path.cwd() / ".cache" / "frames").expanduser().resolve()
+        self.cache_dir = Path(cache_dir or CACHE_DIR).expanduser().resolve()
         self.output_dir = Path(output_dir or DEFAULT_OUTPUT_DIR).expanduser().resolve()
         self.recursive = recursive
         self._title_map = load_title_map(self.title_file)

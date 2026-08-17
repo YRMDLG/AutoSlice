@@ -16,9 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Sequence
 
+from autoslice.paths import state_dir
 
 TASK_STORE_SCHEMA_VERSION = 1
-DEFAULT_TASK_STATE_DIR = Path(__file__).resolve().parent / ".autoslice-state"
+DEFAULT_TASK_STATE_DIR = state_dir()
 DEFAULT_TASK_DATABASE_PATH = DEFAULT_TASK_STATE_DIR / "tasks.sqlite3"
 
 VALID_TASK_STATUSES = frozenset({

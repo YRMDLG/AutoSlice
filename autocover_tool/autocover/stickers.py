@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import os
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -13,17 +12,9 @@ from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
+from .paths import DEFAULT_IMPORTED_STICKER_ROOT, DEFAULT_STICKER_ROOT
 
 SUPPORTED_STICKER_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
-DEFAULT_STICKER_ROOT = Path(
-    os.environ.get("AUTOCOVER_STICKER_DIR", Path.cwd() / "stickers")
-).expanduser().resolve()
-DEFAULT_IMPORTED_STICKER_ROOT = Path(
-    os.environ.get(
-        "AUTOCOVER_USER_ASSET_DIR",
-        Path(os.environ.get("LOCALAPPDATA", Path.home())) / "AutoCover" / "user-assets",
-    )
-).expanduser().resolve()
 
 
 @dataclass(frozen=True, slots=True)

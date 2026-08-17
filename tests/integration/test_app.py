@@ -83,6 +83,24 @@ def _temporary_path_suffix(path):
     return None
 
 
+class ResourcePathTests(unittest.TestCase):
+    def test_templates_and_static_files_do_not_depend_on_current_directory(self):
+        previous = Path.cwd()
+        with TemporaryDirectory() as directory:
+            try:
+                os.chdir(directory)
+                client = app_module.app.test_client()
+                page = client.get("/")
+                stylesheet = client.get("/static/workbench.css")
+            finally:
+                os.chdir(previous)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(stylesheet.status_code, 200)
+        page.close()
+        stylesheet.close()
+
+
 class ScanApiTests(unittest.TestCase):
 
     def setUp(self):

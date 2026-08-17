@@ -10,8 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
-
+from autocover.paths import DATA_ROOT
 from autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
 from autocover.workspace import (
     DEFAULT_INPUT_DIR,
@@ -19,6 +18,7 @@ from autocover.workspace import (
     MEDIA_TOKEN_TTL_SEC,
     CoverWorkspace,
 )
+from PIL import Image
 
 
 def _candidate(path: Path, timestamp: float, score: float) -> FrameCandidate:
@@ -104,8 +104,8 @@ class WorkspaceTests(unittest.TestCase):
     def test_default_output_directory_and_explicit_override(self) -> None:
         default_workspace = CoverWorkspace(self.clips, cache_dir=self.root / "默认缓存")
 
-        self.assertEqual(DEFAULT_INPUT_DIR, (Path.cwd() / "input").resolve())
-        self.assertEqual(DEFAULT_OUTPUT_DIR, (Path.cwd() / "covers").resolve())
+        self.assertEqual(DEFAULT_INPUT_DIR, (DATA_ROOT / "input").resolve())
+        self.assertEqual(DEFAULT_OUTPUT_DIR, (DATA_ROOT / "covers").resolve())
         self.assertEqual(default_workspace.output_dir, DEFAULT_OUTPUT_DIR.resolve())
         self.assertEqual(self.workspace.output_dir, (self.root / "输出").resolve())
 

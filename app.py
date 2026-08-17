@@ -32,8 +32,13 @@ from task_store import (
     TaskNotFoundError,
     TaskStore,
 )
+from autoslice.paths import APPLICATION_DATA_ROOT, STATIC_DIR, TEMPLATE_DIR
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    static_folder=str(STATIC_DIR),
+    template_folder=str(TEMPLATE_DIR),
+)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
 task_lock = threading.RLock()
@@ -42,7 +47,7 @@ event_queue_lock = threading.RLock()
 _event_history = deque()
 _event_sequence = 0
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = str(APPLICATION_DATA_ROOT)
 
 
 def _configured_directory(env_name, fallback):

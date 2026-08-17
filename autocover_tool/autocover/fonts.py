@@ -9,11 +9,10 @@ from typing import Iterable
 
 from PIL import ImageFont
 
+from .paths import LOCAL_FONT_PATH
 
 DEFAULT_FONT_LABEL = "濑户体"
 FONT_PATH_ENV = "AUTOCOVER_FONT_PATH"
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LOCAL_FONT_PATH = PROJECT_ROOT / "local" / "fonts" / "seto-bilibili.ttf"
 
 
 @dataclass(frozen=True, slots=True)

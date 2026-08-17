@@ -11,7 +11,9 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-PROJECT_DIR = Path(__file__).resolve().parent
+from autoslice.paths import APPLICATION_DATA_ROOT
+
+PROJECT_DIR = APPLICATION_DATA_ROOT
 LOCAL_CONFIG_ENV_NAME = "AUTOSLICE_LOCAL_CONFIG"
 
 

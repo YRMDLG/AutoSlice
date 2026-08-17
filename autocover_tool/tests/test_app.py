@@ -24,11 +24,12 @@ if __package__ and __package__.startswith("autocover_tool."):
     APP_MODULE = "autocover_tool.app"
     WORKSPACE_MODULE = "autocover_tool.autocover.workspace"
 else:
-    from app import ApiError, _number_value, _render_options, create_app
     from autocover import API_VERSION, SERVICE_ID
     from autocover.renderer import render_cover as actual_render_cover
     from autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
     from autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
+
+    from app import ApiError, _number_value, _render_options, create_app
 
     APP_MODULE = "app"
     WORKSPACE_MODULE = "autocover.workspace"
@@ -40,6 +41,30 @@ def _bootstrapped_client(flask_app):
     if response.status_code != 200:
         raise RuntimeError("AutoCover 测试客户端无法建立本机会话")
     return client
+
+
+class ResourcePathTests(unittest.TestCase):
+    def test_templates_and_static_files_do_not_depend_on_current_directory(self):
+        previous = Path.cwd()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            try:
+                os.chdir(root)
+                flask_app = create_app({
+                    "TESTING": True,
+                    "STICKER_DIR": str(root / "贴图"),
+                    "IMPORTED_STICKER_DIR": str(root / "导入贴图"),
+                })
+                client = _bootstrapped_client(flask_app)
+                page = client.get("/")
+                stylesheet = client.get("/static/styles.css")
+            finally:
+                os.chdir(previous)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(stylesheet.status_code, 200)
+        page.close()
+        stylesheet.close()
 
 
 class SecurityBoundaryTests(unittest.TestCase):

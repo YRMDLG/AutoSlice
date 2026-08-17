@@ -85,7 +85,7 @@ AutoCover 仍可用自己的依赖文件单独运行：
 ## 通用配置、任务历史与安全默认值
 
 - 未识别到专属主播时使用 `generic` 通用配置，不会串用泽音的词表、错词映射、收播规则或标题风格；主播专属能力由 `streamer_profiles.json` 中的 profile 提供。
-- 任务历史保存在 Git 忽略的本地 `.autoslice-state/tasks.sqlite3`。服务重启后，遗留的 `queued`/`running` 任务会被标记为 `interrupted`；后台线程不会跨进程继续运行，但兼容的 ASR、话题分析和候选复核检查点可在重新发起任务时续跑。
+- 源码克隆模式的任务历史保存在 Git 忽略的本地 `.autoslice-state/tasks.sqlite3`；安装包脱离仓库运行时改用用户数据目录，也可通过 `AUTOSLICE_STATE_DIR` 或 `AUTOSLICE_TASK_DB` 显式隔离。服务重启后，遗留的 `queued`/`running` 任务会被标记为 `interrupted`；后台线程不会跨进程继续运行，但兼容的 ASR、话题分析和候选复核检查点可在重新发起任务时续跑。
 - Web 服务默认仅绑定 loopback，并校验 Host、同源 Origin/Referer 或本机会话。LAN 模式必须显式配置至少 32 字符的强随机 token、允许的 Host、完整 Origin 和绝对路径根目录。
 - LLM 代理默认为 `direct`，不会继承 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`；需要系统代理或专用代理时再选择 `system` 或 `custom`。
 
