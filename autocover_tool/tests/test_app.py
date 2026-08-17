@@ -14,25 +14,14 @@ from unittest.mock import patch
 
 from PIL import Image
 
-if __package__ and __package__.startswith("autocover_tool."):
-    from ..app import ApiError, _number_value, _render_options, create_app
-    from ..autocover import API_VERSION, SERVICE_ID
-    from ..autocover.renderer import render_cover as actual_render_cover
-    from ..autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
-    from ..autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
+from autoslice_cover import API_VERSION, SERVICE_ID
+from autoslice_cover.app import ApiError, _number_value, _render_options, create_app
+from autoslice_cover.renderer import render_cover as actual_render_cover
+from autoslice_cover.video import FrameCandidate, FrameMetrics, VideoMetadata
+from autoslice_cover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
 
-    APP_MODULE = "autocover_tool.app"
-    WORKSPACE_MODULE = "autocover_tool.autocover.workspace"
-else:
-    from autocover import API_VERSION, SERVICE_ID
-    from autocover.renderer import render_cover as actual_render_cover
-    from autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
-    from autocover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
-
-    from app import ApiError, _number_value, _render_options, create_app
-
-    APP_MODULE = "app"
-    WORKSPACE_MODULE = "autocover.workspace"
+APP_MODULE = "autoslice_cover.app"
+WORKSPACE_MODULE = "autoslice_cover.workspace"
 
 
 def _bootstrapped_client(flask_app):

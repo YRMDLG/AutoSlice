@@ -32,6 +32,7 @@ test = ["ruff>=0.9,<1.0"]
 [project.scripts]
 autoslice = "autoslice.launcher:main"
 autoslice-setup-asr = "autoslice.setup_asr_model:main"
+autoslice-cover = "autoslice_cover.cli:main"
 
 [project.urls]
 Repository = "https://github.com/YRMDLG/AutoSlice"
@@ -39,15 +40,14 @@ Issues = "https://github.com/YRMDLG/AutoSlice/issues"
 
 [tool.setuptools]
 include-package-data = true
-package-dir = {"" = "src", "autocover_tool" = "autocover_tool"}
+package-dir = {"" = "src"}
 packages = [
   "autoslice",
   "autoslice.analysis",
   "autoslice.llm",
   "autoslice.transcription",
   "autoslice.web",
-  "autocover_tool",
-  "autocover_tool.autocover",
+  "autoslice_cover",
 ]
 
 [tool.setuptools.package-data]
@@ -56,7 +56,7 @@ autoslice = [
   "resources/static/*",
   "resources/templates/*",
 ]
-autocover_tool = ["README.md", "static/*", "templates/*"]
+autoslice_cover = ["resources/static/*", "resources/templates/*"]
 
 [tool.ruff]
 target-version = "py310"

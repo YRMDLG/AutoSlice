@@ -177,7 +177,7 @@ def _candidate_local_module(
         return None
     if imported_name in known_modules:
         return imported_name
-    # autocover_tool 同时是独立应用目录，运行时会把该目录加入 sys.path。
+    # src 布局统一去掉目录前缀，兼容目录则保留其显式模块名。
     suffix_matches = sorted(
         module
         for module in known_modules

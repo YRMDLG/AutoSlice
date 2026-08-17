@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from autocover.video import (
+from autoslice_cover.video import (
     CACHE_VERSION,
     FrameCandidate,
     FrameMetrics,
@@ -71,9 +71,9 @@ class TimestampPlanningTests(unittest.TestCase):
                 Image.new("RGB", (320, 180), "#4cb7ca").save(output)
 
             with (
-                patch("autocover.video.probe_video", return_value=metadata),
-                patch("autocover.video.find_media_binary", return_value="ffmpeg"),
-                patch("autocover.video._extract_frame", side_effect=fake_extract),
+                patch("autoslice_cover.video.probe_video", return_value=metadata),
+                patch("autoslice_cover.video.find_media_binary", return_value="ffmpeg"),
+                patch("autoslice_cover.video._extract_frame", side_effect=fake_extract),
             ):
                 first, first_metadata = extract_frame_at_timestamp(
                     source,
@@ -173,8 +173,8 @@ class SubtitleNeighborhoodTests(unittest.TestCase):
                 Image.new("RGB", (320, 180), "#d986ad").save(output)
 
             low_metrics = FrameMetrics(0.5, 1.0, 0.6, 0.7, 0.4, 0.0)
-            with patch("autocover.video._extract_frame", side_effect=fake_extract) as extract:
-                with patch("autocover.video.score_frame", return_value=(72.0, low_metrics)):
+            with patch("autoslice_cover.video._extract_frame", side_effect=fake_extract) as extract:
+                with patch("autoslice_cover.video.score_frame", return_value=(72.0, low_metrics)):
                     improved = _improve_subtitle_candidates(
                         candidates,
                         ffmpeg="ffmpeg",
@@ -198,9 +198,9 @@ class MediaReliabilityTests(unittest.TestCase):
             output = root / "frame.jpg"
 
             with (
-                patch("autocover.video.find_media_binary", return_value="ffprobe"),
+                patch("autoslice_cover.video.find_media_binary", return_value="ffprobe"),
                 patch(
-                    "autocover.video.subprocess.run",
+                    "autoslice_cover.video.subprocess.run",
                     side_effect=subprocess.TimeoutExpired(["ffprobe"], 30),
                 ) as run,
                 self.assertRaisesRegex(RuntimeError, "ffprobe.*超时"),
@@ -213,7 +213,7 @@ class MediaReliabilityTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(["ffmpeg"], 90)
 
             with (
-                patch("autocover.video.subprocess.run", side_effect=timeout_with_partial),
+                patch("autoslice_cover.video.subprocess.run", side_effect=timeout_with_partial),
                 self.assertRaisesRegex(RuntimeError, "候选帧.*超时"),
             ):
                 _extract_frame("ffmpeg", source, 1.0, output, "1")
@@ -272,10 +272,10 @@ class MediaReliabilityTests(unittest.TestCase):
             metadata = VideoMetadata(str(source.resolve()), 30.0, 640, 360, 30.0)
             metrics = FrameMetrics(0.5, 1.0, 0.5, 0.5, 0.4, 0.0)
             with (
-                patch("autocover.video.probe_video", return_value=metadata),
-                patch("autocover.video.find_media_binary", return_value="ffmpeg"),
-                patch("autocover.video._extract_frame", side_effect=fake_extract),
-                patch("autocover.video.score_frame", return_value=(70.0, metrics)),
+                patch("autoslice_cover.video.probe_video", return_value=metadata),
+                patch("autoslice_cover.video.find_media_binary", return_value="ffmpeg"),
+                patch("autoslice_cover.video._extract_frame", side_effect=fake_extract),
+                patch("autoslice_cover.video.score_frame", return_value=(70.0, metrics)),
                 ThreadPoolExecutor(max_workers=2) as executor,
             ):
                 first = executor.submit(
@@ -314,10 +314,10 @@ class MediaReliabilityTests(unittest.TestCase):
                 Image.new("RGB", (64, 36), "#d884ad").save(output)
 
             with (
-                patch("autocover.video.probe_video", return_value=metadata),
-                patch("autocover.video.find_media_binary", return_value="ffmpeg"),
-                patch("autocover.video._extract_frame", side_effect=successful_extract),
-                patch("autocover.video.score_frame", return_value=(70.0, metrics)),
+                patch("autoslice_cover.video.probe_video", return_value=metadata),
+                patch("autoslice_cover.video.find_media_binary", return_value="ffmpeg"),
+                patch("autoslice_cover.video._extract_frame", side_effect=successful_extract),
+                patch("autoslice_cover.video.score_frame", return_value=(70.0, metrics)),
             ):
                 first = extract_candidate_frames(source, cache_dir=cache, count=2)
             original_bytes = {
@@ -326,10 +326,10 @@ class MediaReliabilityTests(unittest.TestCase):
             }
 
             with (
-                patch("autocover.video.probe_video", return_value=metadata),
-                patch("autocover.video.find_media_binary", return_value="ffmpeg"),
+                patch("autoslice_cover.video.probe_video", return_value=metadata),
+                patch("autoslice_cover.video.find_media_binary", return_value="ffmpeg"),
                 patch(
-                    "autocover.video._extract_frame",
+                    "autoslice_cover.video._extract_frame",
                     side_effect=RuntimeError("模拟提取失败"),
                 ),
                 self.assertRaisesRegex(RuntimeError, "模拟提取失败"),

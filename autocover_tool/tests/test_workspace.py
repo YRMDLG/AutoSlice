@@ -10,9 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from autocover.paths import DATA_ROOT
-from autocover.video import FrameCandidate, FrameMetrics, VideoMetadata
-from autocover.workspace import (
+from autoslice_cover.paths import DATA_ROOT
+from autoslice_cover.video import FrameCandidate, FrameMetrics, VideoMetadata
+from autoslice_cover.workspace import (
     DEFAULT_INPUT_DIR,
     DEFAULT_OUTPUT_DIR,
     MEDIA_TOKEN_TTL_SEC,
@@ -133,7 +133,7 @@ class WorkspaceTests(unittest.TestCase):
         (title_folder / "7月13日.mp4").write_bytes(b"video")
         default_output = videos_root / "封面"
 
-        with patch("autocover.workspace.DEFAULT_OUTPUT_DIR", default_output):
+        with patch("autoslice_cover.workspace.DEFAULT_OUTPUT_DIR", default_output):
             task = CoverWorkspace(title_folder).scan()[0]
 
         expected = default_output / title_folder.name / "7月13日-4x3.jpg"
@@ -148,7 +148,7 @@ class WorkspaceTests(unittest.TestCase):
             _candidate(frames / "other.jpg", 15.0, 72.0),
         ]
 
-        with patch("autocover.workspace.extract_candidate_frames", return_value=candidates):
+        with patch("autoslice_cover.workspace.extract_candidate_frames", return_value=candidates):
             updated = self.workspace.generate_candidates(task.id)
 
         payload = self.workspace.task_payload(task.id)
@@ -163,7 +163,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_rejects_unknown_or_cross_task_media_tokens(self) -> None:
         first, second = self.workspace.scan()
         frame = _candidate(self.root / "frame.jpg", 5.0, 80.0)
-        with patch("autocover.workspace.extract_candidate_frames", return_value=[frame]):
+        with patch("autoslice_cover.workspace.extract_candidate_frames", return_value=[frame]):
             self.workspace.generate_candidates(first.id)
         token = self.workspace.task_payload(first.id)["candidates"][0]["token"]
 
@@ -179,11 +179,11 @@ class WorkspaceTests(unittest.TestCase):
             Image.new("RGB", (32, 32), "#d884ad").save(path)
             files.append(path)
 
-        with patch("autocover.workspace.time.time", return_value=100.0):
+        with patch("autoslice_cover.workspace.time.time", return_value=100.0):
             expiring_token = self.workspace.media_token(files[0])
         with (
             patch(
-                "autocover.workspace.time.time",
+                "autoslice_cover.workspace.time.time",
                 return_value=100.0 + MEDIA_TOKEN_TTL_SEC + 1,
             ),
             self.assertRaisesRegex(KeyError, "已过期"),
@@ -191,9 +191,9 @@ class WorkspaceTests(unittest.TestCase):
             self.workspace.resolve_media(expiring_token)
 
         with (
-            patch("autocover.workspace.MEDIA_TOKEN_LIMIT", 2),
+            patch("autoslice_cover.workspace.MEDIA_TOKEN_LIMIT", 2),
             patch(
-                "autocover.workspace.time.time",
+                "autoslice_cover.workspace.time.time",
                 side_effect=(200.0, 201.0, 202.0),
             ),
         ):
@@ -201,7 +201,7 @@ class WorkspaceTests(unittest.TestCase):
             self.workspace.media_token(files[1])
             self.workspace.media_token(files[2])
         with (
-            patch("autocover.workspace.time.time", return_value=203.0),
+            patch("autoslice_cover.workspace.time.time", return_value=203.0),
             self.assertRaisesRegex(KeyError, "已过期"),
         ):
             self.workspace.resolve_media(oldest)
@@ -234,7 +234,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_candidate_failure_is_recorded_on_task(self) -> None:
         task = self.workspace.scan()[0]
         with patch(
-            "autocover.workspace.extract_candidate_frames",
+            "autoslice_cover.workspace.extract_candidate_frames",
             side_effect=RuntimeError("ffmpeg 提取失败"),
         ):
             with self.assertRaisesRegex(RuntimeError, "ffmpeg"):
@@ -251,7 +251,7 @@ class WorkspaceTests(unittest.TestCase):
             _candidate(frames / "one.jpg", 5.0, 80.0),
             _candidate(frames / "two.jpg", 10.0, 70.0),
         ]
-        with patch("autocover.workspace.extract_candidate_frames", return_value=candidates):
+        with patch("autoslice_cover.workspace.extract_candidate_frames", return_value=candidates):
             self.workspace.generate_candidates(task.id)
         second_token = self.workspace.task_payload(task.id)["candidates"][1]["token"]
         self.workspace.select_candidate(task.id, second_token)
@@ -265,9 +265,9 @@ class WorkspaceTests(unittest.TestCase):
         frame = _candidate(self.root / "精确选帧.jpg", 18.25, 75.0)
         metadata = VideoMetadata(task.video_path, 60.0, 1920, 1080, 30.0)
         with (
-            patch("autocover.workspace.probe_video", return_value=metadata),
+            patch("autoslice_cover.workspace.probe_video", return_value=metadata),
             patch(
-                "autocover.workspace.extract_frame_at_timestamp",
+                "autoslice_cover.workspace.extract_frame_at_timestamp",
                 return_value=(frame, metadata),
             ),
         ):
@@ -283,7 +283,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_video_metadata_is_probed_once_and_cached(self) -> None:
         task = self.workspace.scan()[0]
         metadata = VideoMetadata(task.video_path, 90.0, 1280, 720, 30.0)
-        with patch("autocover.workspace.probe_video", return_value=metadata) as probe:
+        with patch("autoslice_cover.workspace.probe_video", return_value=metadata) as probe:
             first = self.workspace.video_metadata(task.id)
             second = self.workspace.video_metadata(task.id)
 
@@ -309,7 +309,7 @@ class WorkspaceTests(unittest.TestCase):
 
         with (
             patch(
-                "autocover.workspace.extract_candidate_frames",
+                "autoslice_cover.workspace.extract_candidate_frames",
                 side_effect=blocking_extract,
             ),
             ThreadPoolExecutor(max_workers=2) as executor,
@@ -337,7 +337,7 @@ class WorkspaceTests(unittest.TestCase):
 
         with (
             patch(
-                "autocover.workspace.extract_candidate_frames",
+                "autoslice_cover.workspace.extract_candidate_frames",
                 side_effect=blocking_extract,
             ),
             ThreadPoolExecutor(max_workers=1) as executor,
@@ -367,7 +367,7 @@ class WorkspaceTests(unittest.TestCase):
 
         with (
             patch(
-                "autocover.workspace.extract_candidate_frames",
+                "autoslice_cover.workspace.extract_candidate_frames",
                 side_effect=blocking_extract,
             ),
             ThreadPoolExecutor(max_workers=1) as executor,

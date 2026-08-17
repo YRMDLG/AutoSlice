@@ -8,11 +8,16 @@ AutoCover 是通用的 B 站切片封面工作台，也是统一自动化项目�
 python 启动.py
 ```
 
-启动器会自动启动 AutoSlice 和 AutoCover。需要单独调试时，在本目录执行：
+启动器会自动启动 AutoSlice 和 AutoCover。需要单独调试时，在项目根目录执行：
 
 ```powershell
-python -m autocover.cli serve
+autoslice-cover serve
+# 或
+python -m autoslice_cover.cli serve
 ```
+
+AutoCover 的唯一生产实现位于 `src/autoslice_cover`。本目录保留旧启动脚本、
+独立依赖清单、测试和运行数据兼容入口，不再保存第二套业务实现。
 
 ## 使用流程
 
@@ -51,7 +56,7 @@ python -m autocover.cli serve
 ## 独立批处理
 
 ```powershell
-python -m autocover.cli batch "output" --output-dir "covers" --canvas both
+autoslice-cover batch "output" --output-dir "covers" --canvas both
 ```
 
 AutoCover 不调用外部 AI 服务，也不会上传视频、标题或图片。

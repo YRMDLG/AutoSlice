@@ -1,4 +1,5 @@
 import io
+import os
 import socket
 import unittest
 from contextlib import redirect_stdout
@@ -328,11 +329,16 @@ class LauncherTests(unittest.TestCase):
         command = process_factory.call_args.args[0]
         self.assertEqual(command, [
             r"C:\Python310\python.exe",
-            "-m", "autocover.cli", "serve",
+            "-m", "autoslice_cover.cli", "serve",
             "--port", "5011", "--no-browser",
         ])
         self.assertEqual(process_factory.call_args.kwargs["cwd"], str(cover_dir))
-        self.assertEqual(process_factory.call_args.kwargs["env"]["PYTHONUTF8"], "1")
+        child_env = process_factory.call_args.kwargs["env"]
+        self.assertEqual(child_env["PYTHONUTF8"], "1")
+        self.assertEqual(
+            child_env["PYTHONPATH"].split(os.pathsep)[0],
+            str(launcher.PACKAGE_SOURCE_ROOT),
+        )
         waiter.assert_called_once_with(5011, process)
         self.assertEqual(env["AUTOCOVER_URL"], url)
 

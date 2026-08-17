@@ -80,7 +80,7 @@ jobs:
 
       - name: Check AutoCover JavaScript
         shell: pwsh
-        run: node --check autocover_tool/static/app.js
+        run: node --check src/autoslice_cover/resources/static/app.js
 
   linux-logic-only:
     name: Linux logic only (no media support) / Python 3.10

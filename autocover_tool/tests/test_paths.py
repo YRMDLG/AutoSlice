@@ -6,14 +6,23 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autocover import paths
+from autoslice_cover import paths
 
 
 class AutoCoverPathContractTests(unittest.TestCase):
     def test_source_checkout_preserves_existing_tool_data_root(self):
-        expected = paths.PACKAGE_ROOT.resolve()
+        repository_root = Path(__file__).resolve().parents[2]
+        expected = (repository_root / "autocover_tool").resolve()
 
         self.assertEqual(paths.DATA_ROOT, expected)
+        self.assertEqual(
+            paths.TEMPLATE_DIR,
+            paths.PACKAGE_ROOT / "resources" / "templates",
+        )
+        self.assertEqual(
+            paths.STATIC_DIR,
+            paths.PACKAGE_ROOT / "resources" / "static",
+        )
         self.assertTrue(paths.TEMPLATE_DIR.is_dir())
         self.assertTrue(paths.STATIC_DIR.is_dir())
 

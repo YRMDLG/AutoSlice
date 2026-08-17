@@ -44,382 +44,168 @@
     {
       "from": "autocover_tool.app",
       "imports": [
-        "autocover.API_VERSION",
-        "autocover.SERVICE_ID",
-        "autocover_tool.autocover.API_VERSION",
-        "autocover_tool.autocover.SERVICE_ID"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        28,
-        49
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover"
+      "to": "autocover_tool._compat"
     },
     {
-      "from": "autocover_tool.app",
+      "from": "autocover_tool.autocover",
       "imports": [
-        "autocover.drafts.CoverDraftStore",
-        "autocover_tool.autocover.drafts.CoverDraftStore"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        29,
-        50
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.drafts"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "autocover.fonts.get_default_font_status",
-        "autocover_tool.autocover.fonts.get_default_font_status"
-      ],
-      "lines": [
-        30,
-        51
-      ],
-      "to": "autocover_tool.autocover.fonts"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "autocover.paths.STATIC_DIR",
-        "autocover.paths.TEMPLATE_DIR",
-        "autocover_tool.autocover.paths.STATIC_DIR",
-        "autocover_tool.autocover.paths.TEMPLATE_DIR"
-      ],
-      "lines": [
-        31,
-        52
-      ],
-      "to": "autocover_tool.autocover.paths"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "autocover.renderer.RenderResult",
-        "autocover.renderer.StickerOverlay",
-        "autocover.renderer.TextTransform",
-        "autocover.renderer.commit_output_transaction",
-        "autocover.renderer.render_cover",
-        "autocover_tool.autocover.renderer.RenderResult",
-        "autocover_tool.autocover.renderer.StickerOverlay",
-        "autocover_tool.autocover.renderer.TextTransform",
-        "autocover_tool.autocover.renderer.commit_output_transaction",
-        "autocover_tool.autocover.renderer.render_cover"
-      ],
-      "lines": [
-        32,
-        53
-      ],
-      "to": "autocover_tool.autocover.renderer"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "autocover.stickers.DEFAULT_STICKER_ROOT",
-        "autocover.stickers.StickerLibrary",
-        "autocover_tool.autocover.stickers.DEFAULT_STICKER_ROOT",
-        "autocover_tool.autocover.stickers.StickerLibrary"
-      ],
-      "lines": [
-        39,
-        60
-      ],
-      "to": "autocover_tool.autocover.stickers"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "autocover.style.CANVAS_SPECS",
-        "autocover.style.PALETTES",
-        "autocover.style.TEMPLATES",
-        "autocover_tool.autocover.style.CANVAS_SPECS",
-        "autocover_tool.autocover.style.PALETTES",
-        "autocover_tool.autocover.style.TEMPLATES"
-      ],
-      "lines": [
-        40,
-        61
-      ],
-      "to": "autocover_tool.autocover.style"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "autocover.titles.recommend_layout_variants",
-        "autocover_tool.autocover.titles.recommend_layout_variants"
-      ],
-      "lines": [
-        41,
-        62
-      ],
-      "to": "autocover_tool.autocover.titles"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "autocover.workspace.CoverTask",
-        "autocover.workspace.CoverWorkspace",
-        "autocover.workspace.DEFAULT_INPUT_DIR",
-        "autocover.workspace.DEFAULT_OUTPUT_DIR",
-        "autocover_tool.autocover.workspace.CoverTask",
-        "autocover_tool.autocover.workspace.CoverWorkspace",
-        "autocover_tool.autocover.workspace.DEFAULT_INPUT_DIR",
-        "autocover_tool.autocover.workspace.DEFAULT_OUTPUT_DIR"
-      ],
-      "lines": [
-        42,
-        63
-      ],
-      "to": "autocover_tool.autocover.workspace"
-    },
-    {
-      "from": "autocover_tool.app",
-      "imports": [
-        "security_policy.LOOPBACK_HOSTS",
-        "security_policy.SecurityPolicy"
-      ],
-      "lines": [
-        25
-      ],
-      "to": "security_policy"
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.cli",
       "imports": [
-        "app.create_app"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        126
+        4,
+        6
       ],
-      "to": "app"
-    },
-    {
-      "from": "autocover_tool.autocover.cli",
-      "imports": [
-        "autocover_tool.app.create_app"
-      ],
-      "lines": [
-        124
-      ],
-      "to": "autocover_tool.app"
-    },
-    {
-      "from": "autocover_tool.autocover.cli",
-      "imports": [
-        "autocover_tool.autocover.API_VERSION",
-        "autocover_tool.autocover.SERVICE_ID"
-      ],
-      "lines": [
-        17
-      ],
-      "to": "autocover_tool.autocover"
-    },
-    {
-      "from": "autocover_tool.autocover.cli",
-      "imports": [
-        "autocover_tool.autocover.renderer.render_cover"
-      ],
-      "lines": [
-        18
-      ],
-      "to": "autocover_tool.autocover.renderer"
-    },
-    {
-      "from": "autocover_tool.autocover.cli",
-      "imports": [
-        "autocover_tool.autocover.workspace.CoverWorkspace"
-      ],
-      "lines": [
-        19
-      ],
-      "to": "autocover_tool.autocover.workspace"
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.drafts",
       "imports": [
-        "autocover_tool.autocover.renderer.RenderResult"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        17
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.renderer"
+      "to": "autocover_tool._compat"
     },
     {
-      "from": "autocover_tool.autocover.drafts",
+      "from": "autocover_tool.autocover.emoji",
       "imports": [
-        "autocover_tool.autocover.video.FrameCandidate"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        18
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.video"
-    },
-    {
-      "from": "autocover_tool.autocover.drafts",
-      "imports": [
-        "autocover_tool.autocover.workspace.CoverTask"
-      ],
-      "lines": [
-        19
-      ],
-      "to": "autocover_tool.autocover.workspace"
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.fonts",
       "imports": [
-        "autocover_tool.autocover.paths.LOCAL_FONT_PATH"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        12
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.paths"
+      "to": "autocover_tool._compat"
+    },
+    {
+      "from": "autocover_tool.autocover.paths",
+      "imports": [
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
+      ],
+      "lines": [
+        4,
+        6
+      ],
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.renderer",
       "imports": [
-        "autocover_tool.autocover.emoji.get_emoji_font_path",
-        "autocover_tool.autocover.emoji.is_emoji_character",
-        "autocover_tool.autocover.emoji.render_emoji_image"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        16
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.emoji"
-    },
-    {
-      "from": "autocover_tool.autocover.renderer",
-      "imports": [
-        "autocover_tool.autocover.fonts.resolve_font_path",
-        "autocover_tool.autocover.fonts.resolve_font_stack"
-      ],
-      "lines": [
-        17
-      ],
-      "to": "autocover_tool.autocover.fonts"
-    },
-    {
-      "from": "autocover_tool.autocover.renderer",
-      "imports": [
-        "autocover_tool.autocover.style.CanvasSpec",
-        "autocover_tool.autocover.style.CoverPalette",
-        "autocover_tool.autocover.style.CoverTemplate",
-        "autocover_tool.autocover.style.MELODY_STYLE",
-        "autocover_tool.autocover.style.get_canvas_spec",
-        "autocover_tool.autocover.style.get_palette",
-        "autocover_tool.autocover.style.get_template"
-      ],
-      "lines": [
-        18
-      ],
-      "to": "autocover_tool.autocover.style"
-    },
-    {
-      "from": "autocover_tool.autocover.renderer",
-      "imports": [
-        "autocover_tool.autocover.titles.CoverLine",
-        "autocover_tool.autocover.titles.create_cover_copy",
-        "autocover_tool.autocover.titles.recommend_visual_style"
-      ],
-      "lines": [
-        27
-      ],
-      "to": "autocover_tool.autocover.titles"
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.stickers",
       "imports": [
-        "autocover_tool.autocover.paths.DEFAULT_IMPORTED_STICKER_ROOT",
-        "autocover_tool.autocover.paths.DEFAULT_STICKER_ROOT"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        15
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.paths"
+      "to": "autocover_tool._compat"
+    },
+    {
+      "from": "autocover_tool.autocover.style",
+      "imports": [
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
+      ],
+      "lines": [
+        4,
+        6
+      ],
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.titles",
       "imports": [
-        "autocover_tool.autocover.style.MELODY_STYLE",
-        "autocover_tool.autocover.style.VisualStyleRecommendation",
-        "autocover_tool.autocover.style.get_template"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        10
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.style"
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.video",
       "imports": [
-        "autocover_tool.autocover.paths.CACHE_DIR"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        18
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.paths"
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.autocover.workspace",
       "imports": [
-        "autocover_tool.autocover.paths.CACHE_DIR",
-        "autocover_tool.autocover.paths.DEFAULT_INPUT_DIR",
-        "autocover_tool.autocover.paths.DEFAULT_OUTPUT_DIR"
+        "_compat.alias_module",
+        "autocover_tool._compat.alias_module"
       ],
       "lines": [
-        14,
-        17,
-        20
+        4,
+        6
       ],
-      "to": "autocover_tool.autocover.paths"
-    },
-    {
-      "from": "autocover_tool.autocover.workspace",
-      "imports": [
-        "autocover_tool.autocover.style.get_palette",
-        "autocover_tool.autocover.style.get_template"
-      ],
-      "lines": [
-        23
-      ],
-      "to": "autocover_tool.autocover.style"
-    },
-    {
-      "from": "autocover_tool.autocover.workspace",
-      "imports": [
-        "autocover_tool.autocover.titles.load_title_map",
-        "autocover_tool.autocover.titles.match_title",
-        "autocover_tool.autocover.titles.recommend_visual_style"
-      ],
-      "lines": [
-        24
-      ],
-      "to": "autocover_tool.autocover.titles"
-    },
-    {
-      "from": "autocover_tool.autocover.workspace",
-      "imports": [
-        "autocover_tool.autocover.video.FrameCandidate",
-        "autocover_tool.autocover.video.FrameMetrics",
-        "autocover_tool.autocover.video.VideoMetadata",
-        "autocover_tool.autocover.video.extract_candidate_frames",
-        "autocover_tool.autocover.video.extract_frame_at_timestamp",
-        "autocover_tool.autocover.video.probe_video"
-      ],
-      "lines": [
-        25
-      ],
-      "to": "autocover_tool.autocover.video"
+      "to": "autocover_tool._compat"
     },
     {
       "from": "autocover_tool.启动",
       "imports": [
-        "autocover.cli.main"
+        "autoslice_cover.cli.main"
       ],
       "lines": [
-        5
+        12
       ],
-      "to": "autocover_tool.autocover.cli"
+      "to": "autoslice_cover.cli"
     },
     {
       "from": "autoslice.analysis.candidates",
@@ -614,18 +400,6 @@
     {
       "from": "autoslice.launcher",
       "imports": [
-        "autocover_tool.autocover.API_VERSION",
-        "autocover_tool.autocover.SERVICE_ID"
-      ],
-      "lines": [
-        21,
-        24
-      ],
-      "to": "autocover_tool.autocover"
-    },
-    {
-      "from": "autoslice.launcher",
-      "imports": [
         "autoslice.paths.APPLICATION_DATA_ROOT",
         "autoslice.paths.SOURCE_WORKSPACE_ROOT"
       ],
@@ -665,7 +439,7 @@
         "autoslice.topic_engine.funasr_public_status"
       ],
       "lines": [
-        461
+        468
       ],
       "to": "autoslice.topic_engine"
     },
@@ -675,9 +449,21 @@
         "autoslice.web.app.app"
       ],
       "lines": [
-        462
+        469
       ],
       "to": "autoslice.web.app"
+    },
+    {
+      "from": "autoslice.launcher",
+      "imports": [
+        "autoslice_cover.API_VERSION",
+        "autoslice_cover.SERVICE_ID"
+      ],
+      "lines": [
+        21,
+        24
+      ],
+      "to": "autoslice_cover"
     },
     {
       "from": "autoslice.llm.transport",
@@ -1443,6 +1229,336 @@
       "to": "autoslice.topic_engine"
     },
     {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice.security_policy.LOOPBACK_HOSTS",
+        "autoslice.security_policy.SecurityPolicy"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.security_policy"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.API_VERSION",
+        "autoslice_cover.SERVICE_ID"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice_cover"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.drafts.CoverDraftStore"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice_cover.drafts"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.fonts.get_default_font_status"
+      ],
+      "lines": [
+        24
+      ],
+      "to": "autoslice_cover.fonts"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.paths.STATIC_DIR",
+        "autoslice_cover.paths.TEMPLATE_DIR"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice_cover.paths"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.renderer.RenderResult",
+        "autoslice_cover.renderer.StickerOverlay",
+        "autoslice_cover.renderer.TextTransform",
+        "autoslice_cover.renderer.commit_output_transaction",
+        "autoslice_cover.renderer.render_cover"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice_cover.renderer"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.stickers.DEFAULT_STICKER_ROOT",
+        "autoslice_cover.stickers.StickerLibrary"
+      ],
+      "lines": [
+        33
+      ],
+      "to": "autoslice_cover.stickers"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.style.CANVAS_SPECS",
+        "autoslice_cover.style.PALETTES",
+        "autoslice_cover.style.TEMPLATES"
+      ],
+      "lines": [
+        34
+      ],
+      "to": "autoslice_cover.style"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.titles.recommend_layout_variants"
+      ],
+      "lines": [
+        35
+      ],
+      "to": "autoslice_cover.titles"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.workspace.CoverTask",
+        "autoslice_cover.workspace.CoverWorkspace",
+        "autoslice_cover.workspace.DEFAULT_INPUT_DIR",
+        "autoslice_cover.workspace.DEFAULT_OUTPUT_DIR"
+      ],
+      "lines": [
+        36
+      ],
+      "to": "autoslice_cover.workspace"
+    },
+    {
+      "from": "autoslice_cover.cli",
+      "imports": [
+        "autoslice_cover.API_VERSION",
+        "autoslice_cover.SERVICE_ID"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice_cover"
+    },
+    {
+      "from": "autoslice_cover.cli",
+      "imports": [
+        "autoslice_cover.app.create_app"
+      ],
+      "lines": [
+        123
+      ],
+      "to": "autoslice_cover.app"
+    },
+    {
+      "from": "autoslice_cover.cli",
+      "imports": [
+        "autoslice_cover.renderer.render_cover"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice_cover.renderer"
+    },
+    {
+      "from": "autoslice_cover.cli",
+      "imports": [
+        "autoslice_cover.workspace.CoverWorkspace"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice_cover.workspace"
+    },
+    {
+      "from": "autoslice_cover.drafts",
+      "imports": [
+        "autoslice_cover.renderer.RenderResult"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice_cover.renderer"
+    },
+    {
+      "from": "autoslice_cover.drafts",
+      "imports": [
+        "autoslice_cover.video.FrameCandidate"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice_cover.video"
+    },
+    {
+      "from": "autoslice_cover.drafts",
+      "imports": [
+        "autoslice_cover.workspace.CoverTask"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice_cover.workspace"
+    },
+    {
+      "from": "autoslice_cover.fonts",
+      "imports": [
+        "autoslice_cover.paths.LOCAL_FONT_PATH"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice_cover.paths"
+    },
+    {
+      "from": "autoslice_cover.renderer",
+      "imports": [
+        "autoslice_cover.emoji.get_emoji_font_path",
+        "autoslice_cover.emoji.is_emoji_character",
+        "autoslice_cover.emoji.render_emoji_image"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice_cover.emoji"
+    },
+    {
+      "from": "autoslice_cover.renderer",
+      "imports": [
+        "autoslice_cover.fonts.resolve_font_path",
+        "autoslice_cover.fonts.resolve_font_stack"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice_cover.fonts"
+    },
+    {
+      "from": "autoslice_cover.renderer",
+      "imports": [
+        "autoslice_cover.style.CanvasSpec",
+        "autoslice_cover.style.CoverPalette",
+        "autoslice_cover.style.CoverTemplate",
+        "autoslice_cover.style.MELODY_STYLE",
+        "autoslice_cover.style.get_canvas_spec",
+        "autoslice_cover.style.get_palette",
+        "autoslice_cover.style.get_template"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice_cover.style"
+    },
+    {
+      "from": "autoslice_cover.renderer",
+      "imports": [
+        "autoslice_cover.titles.CoverLine",
+        "autoslice_cover.titles.create_cover_copy",
+        "autoslice_cover.titles.recommend_visual_style"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice_cover.titles"
+    },
+    {
+      "from": "autoslice_cover.stickers",
+      "imports": [
+        "autoslice_cover.paths.DEFAULT_IMPORTED_STICKER_ROOT",
+        "autoslice_cover.paths.DEFAULT_STICKER_ROOT"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice_cover.paths"
+    },
+    {
+      "from": "autoslice_cover.titles",
+      "imports": [
+        "autoslice_cover.style.MELODY_STYLE",
+        "autoslice_cover.style.VisualStyleRecommendation",
+        "autoslice_cover.style.get_template"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice_cover.style"
+    },
+    {
+      "from": "autoslice_cover.video",
+      "imports": [
+        "autoslice_cover.paths.CACHE_DIR"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice_cover.paths"
+    },
+    {
+      "from": "autoslice_cover.workspace",
+      "imports": [
+        "autoslice_cover.paths.CACHE_DIR",
+        "autoslice_cover.paths.DEFAULT_INPUT_DIR",
+        "autoslice_cover.paths.DEFAULT_OUTPUT_DIR"
+      ],
+      "lines": [
+        14,
+        17,
+        20
+      ],
+      "to": "autoslice_cover.paths"
+    },
+    {
+      "from": "autoslice_cover.workspace",
+      "imports": [
+        "autoslice_cover.style.get_palette",
+        "autoslice_cover.style.get_template"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice_cover.style"
+    },
+    {
+      "from": "autoslice_cover.workspace",
+      "imports": [
+        "autoslice_cover.titles.load_title_map",
+        "autoslice_cover.titles.match_title",
+        "autoslice_cover.titles.recommend_visual_style"
+      ],
+      "lines": [
+        24
+      ],
+      "to": "autoslice_cover.titles"
+    },
+    {
+      "from": "autoslice_cover.workspace",
+      "imports": [
+        "autoslice_cover.video.FrameCandidate",
+        "autoslice_cover.video.FrameMetrics",
+        "autoslice_cover.video.VideoMetadata",
+        "autoslice_cover.video.extract_candidate_frames",
+        "autoslice_cover.video.extract_frame_at_timestamp",
+        "autoslice_cover.video.probe_video"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice_cover.video"
+    },
+    {
       "from": "core",
       "imports": [
         "_autoslice_compat.alias_module"
@@ -1515,20 +1631,10 @@
     {
       "from": "scripts.smoke_packaging",
       "imports": [
-        "autocover_tool.autocover"
-      ],
-      "lines": [
-        27
-      ],
-      "to": "autocover_tool.autocover"
-    },
-    {
-      "from": "scripts.smoke_packaging",
-      "imports": [
         "autoslice"
       ],
       "lines": [
-        28
+        34
       ],
       "to": "autoslice"
     },
@@ -1538,7 +1644,7 @@
         "autoslice.launcher"
       ],
       "lines": [
-        29
+        35
       ],
       "to": "autoslice.launcher"
     },
@@ -1548,7 +1654,7 @@
         "autoslice.runtime_config"
       ],
       "lines": [
-        30
+        36
       ],
       "to": "autoslice.runtime_config"
     },
@@ -1558,9 +1664,39 @@
         "autoslice.web.app"
       ],
       "lines": [
-        31
+        37
       ],
       "to": "autoslice.web.app"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice_cover"
+      ],
+      "lines": [
+        38
+      ],
+      "to": "autoslice_cover"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice_cover.app"
+      ],
+      "lines": [
+        39
+      ],
+      "to": "autoslice_cover.app"
+    },
+    {
+      "from": "scripts.smoke_startup",
+      "imports": [
+        "autoslice_cover.API_VERSION"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice_cover"
     },
     {
       "from": "security_policy",
@@ -1664,12 +1800,12 @@
       "qualname": "retry_clip_review_from_artifacts_impl"
     },
     {
-      "end_line": 1004,
+      "end_line": 977,
       "kind": "function",
-      "line": 597,
+      "line": 570,
       "line_count": 408,
-      "module": "autocover_tool.app",
-      "path": "autocover_tool/app.py",
+      "module": "autoslice_cover.app",
+      "path": "src/autoslice_cover/app.py",
       "qualname": "create_app"
     },
     {
@@ -1758,8 +1894,8 @@
       "kind": "function",
       "line": 1100,
       "line_count": 146,
-      "module": "autocover_tool.autocover.renderer",
-      "path": "autocover_tool/autocover/renderer.py",
+      "module": "autoslice_cover.renderer",
+      "path": "src/autoslice_cover/renderer.py",
       "qualname": "render_cover"
     },
     {
@@ -1853,6 +1989,15 @@
       "qualname": "_merge_expanded_clip_marks"
     },
     {
+      "end_line": 238,
+      "kind": "function",
+      "line": 132,
+      "line_count": 107,
+      "module": "scripts.smoke_startup",
+      "path": "scripts/smoke_startup.py",
+      "qualname": "main"
+    },
+    {
       "end_line": 4230,
       "kind": "function",
       "line": 4126,
@@ -1869,15 +2014,6 @@
       "module": "autoslice.subtitle_workflow",
       "path": "src/autoslice/subtitle_workflow.py",
       "qualname": "burn_subtitles"
-    },
-    {
-      "end_line": 2102,
-      "kind": "function",
-      "line": 1999,
-      "line_count": 104,
-      "module": "autoslice.web.app",
-      "path": "src/autoslice/web/app.py",
-      "qualname": "start_pipeline"
     }
   ],
   "modules": [
@@ -1936,1157 +2072,164 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1011,
+      "line_count": 20,
       "longest_function": {
-        "end_line": 1004,
+        "end_line": 20,
         "kind": "function",
-        "line": 597,
-        "line_count": 408,
-        "qualname": "create_app"
+        "line": 13,
+        "line_count": 8,
+        "qualname": "alias_module"
       },
-      "module": "autocover_tool.app",
-      "path": "autocover_tool/app.py",
-      "sha256": "17bef239cdd58a43855e2365248adb4099a48ee96b0cbfe9f0d0c90b9052a219",
-      "top_level_classes": [
-        {
-          "end_line": 88,
-          "kind": "class",
-          "line": 82,
-          "name": "ApiError"
-        }
-      ],
+      "module": "autocover_tool._compat",
+      "path": "autocover_tool/_compat.py",
+      "sha256": "e8cbfbb53f81f04fa8f1db61fad676848bc67837ebf9091eec1f6f6766b7f332",
+      "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 98,
+          "end_line": 20,
           "kind": "function",
-          "line": 91,
-          "name": "_mark_deprecated_endpoint"
-        },
-        {
-          "end_line": 107,
-          "kind": "function",
-          "line": 101,
-          "name": "_json_body"
-        },
-        {
-          "end_line": 114,
-          "kind": "function",
-          "line": 110,
-          "name": "_workspace"
-        },
-        {
-          "end_line": 121,
-          "kind": "function",
-          "line": 117,
-          "name": "_sticker_library"
-        },
-        {
-          "end_line": 128,
-          "kind": "function",
-          "line": 124,
-          "name": "_draft_store"
-        },
-        {
-          "end_line": 193,
-          "kind": "function",
-          "line": 131,
-          "name": "_draft_settings"
-        },
-        {
-          "end_line": 238,
-          "kind": "function",
-          "line": 196,
-          "name": "_load_disk_drafts"
-        },
-        {
-          "end_line": 259,
-          "kind": "function",
-          "line": 241,
-          "name": "_optional_list"
-        },
-        {
-          "end_line": 278,
-          "kind": "function",
-          "line": 262,
-          "name": "_optional_string"
-        },
-        {
-          "end_line": 288,
-          "kind": "function",
-          "line": 281,
-          "name": "_focus_value"
-        },
-        {
-          "end_line": 305,
-          "kind": "function",
-          "line": 291,
-          "name": "_number_value"
-        },
-        {
-          "end_line": 317,
-          "kind": "function",
-          "line": 308,
-          "name": "_canvas_layout"
-        },
-        {
-          "end_line": 329,
-          "kind": "function",
-          "line": 320,
-          "name": "_boolean_value"
-        },
-        {
-          "end_line": 356,
-          "kind": "function",
-          "line": 332,
-          "name": "_text_transforms"
-        },
-        {
-          "end_line": 393,
-          "kind": "function",
-          "line": 359,
-          "name": "_sticker_overlays"
-        },
-        {
-          "end_line": 447,
-          "kind": "function",
-          "line": 396,
-          "name": "_render_options"
-        },
-        {
-          "end_line": 459,
-          "kind": "function",
-          "line": 450,
-          "name": "_apply_task_edits"
-        },
-        {
-          "end_line": 473,
-          "kind": "function",
-          "line": 462,
-          "name": "_render_result_payload"
-        },
-        {
-          "end_line": 511,
-          "kind": "function",
-          "line": 476,
-          "name": "_render_task_result"
-        },
-        {
-          "end_line": 533,
-          "kind": "function",
-          "line": 514,
-          "name": "_render_task"
-        },
-        {
-          "end_line": 594,
-          "kind": "function",
-          "line": 536,
-          "name": "_save_task"
-        },
-        {
-          "end_line": 1004,
-          "kind": "function",
-          "line": 597,
-          "name": "create_app"
+          "line": 13,
+          "name": "alias_module"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 5,
+      "line_count": 10,
+      "longest_function": null,
+      "module": "autocover_tool.app",
+      "path": "autocover_tool/app.py",
+      "sha256": "7b59b5d093445c009478e9ffa784eb876c80374c75bfb51ded63c0470f2a2b94",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 14,
       "longest_function": null,
       "module": "autocover_tool.autocover",
       "path": "autocover_tool/autocover/__init__.py",
-      "sha256": "bdc754974a6d5ee0494db48d6ec8049afbbbc62789bbaa06649bed533088ba3e",
+      "sha256": "10aa527be2664972e253c026e7b04c27136335440ff50793aa5024fe197d6d22",
       "top_level_classes": [],
       "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 211,
-      "longest_function": {
-        "end_line": 188,
-        "kind": "function",
-        "line": 143,
-        "line_count": 46,
-        "qualname": "run_batch"
-      },
+      "line_count": 10,
+      "longest_function": null,
       "module": "autocover_tool.autocover.cli",
       "path": "autocover_tool/autocover/cli.py",
-      "sha256": "8a32d9d13ec0ef91ffccad680c86a783a9b7242c02f36fa130d4ab3bea7ac967",
+      "sha256": "1e82918ba514ea9c994ec7b2ecdbc49149b717e4ac82c640c7d768c99ad72a98",
       "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 27,
-          "kind": "function",
-          "line": 22,
-          "name": "_configure_text_stream"
-        },
-        {
-          "end_line": 57,
-          "kind": "function",
-          "line": 30,
-          "name": "build_parser"
-        },
-        {
-          "end_line": 72,
-          "kind": "function",
-          "line": 60,
-          "name": "find_available_port"
-        },
-        {
-          "end_line": 87,
-          "kind": "function",
-          "line": 75,
-          "name": "_probe_service"
-        },
-        {
-          "end_line": 97,
-          "kind": "function",
-          "line": 90,
-          "name": "_is_compatible_service"
-        },
-        {
-          "end_line": 106,
-          "kind": "function",
-          "line": 100,
-          "name": "_open_browser_later"
-        },
-        {
-          "end_line": 136,
-          "kind": "function",
-          "line": 109,
-          "name": "run_server"
-        },
-        {
-          "end_line": 140,
-          "kind": "function",
-          "line": 139,
-          "name": "_canvas_keys"
-        },
-        {
-          "end_line": 188,
-          "kind": "function",
-          "line": 143,
-          "name": "run_batch"
-        },
-        {
-          "end_line": 207,
-          "kind": "function",
-          "line": 191,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 342,
-      "longest_function": {
-        "end_line": 249,
-        "kind": "function",
-        "line": 168,
-        "line_count": 82,
-        "qualname": "CoverDraftStore.save_preview"
-      },
-      "module": "autocover_tool.autocover.drafts",
-      "path": "autocover_tool/autocover/drafts.py",
-      "sha256": "6c83e5e181efb65edfeb473e63745309808368c72c070ec66c31ccc0d29b0ac4",
-      "top_level_classes": [
-        {
-          "end_line": 342,
-          "kind": "class",
-          "line": 79,
-          "name": "CoverDraftStore"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 28,
-          "kind": "function",
-          "line": 27,
-          "name": "_normalized_path"
-        },
-        {
-          "end_line": 33,
-          "kind": "function",
-          "line": 31,
-          "name": "_safe_workspace_name"
-        },
-        {
-          "end_line": 38,
-          "kind": "function",
-          "line": 36,
-          "name": "_source_identity"
-        },
-        {
-          "end_line": 53,
-          "kind": "function",
-          "line": 41,
-          "name": "_epoch_milliseconds"
-        },
-        {
-          "end_line": 76,
-          "kind": "function",
-          "line": 56,
-          "name": "_preview_fingerprint"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 225,
-      "longest_function": {
-        "end_line": 225,
-        "kind": "function",
-        "line": 152,
-        "line_count": 74,
-        "qualname": "render_emoji_image"
-      },
-      "module": "autocover_tool.autocover.emoji",
-      "path": "autocover_tool/autocover/emoji.py",
-      "sha256": "43de047cd0e04621c6cd174f037a27ea007f10c86367e98871a8785e43150e22",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 28,
-          "kind": "function",
-          "line": 26,
-          "name": "_forget_pending_cleanup"
-        },
-        {
-          "end_line": 41,
-          "kind": "function",
-          "line": 31,
-          "name": "_cleanup_pending_trees"
-        },
-        {
-          "end_line": 60,
-          "kind": "function",
-          "line": 47,
-          "name": "_remove_temporary_tree"
-        },
-        {
-          "end_line": 87,
-          "kind": "function",
-          "line": 63,
-          "name": "_schedule_temporary_tree_cleanup"
-        },
-        {
-          "end_line": 95,
-          "kind": "function",
-          "line": 90,
-          "name": "get_emoji_font_path"
-        },
-        {
-          "end_line": 111,
-          "kind": "function",
-          "line": 98,
-          "name": "is_emoji_character"
-        },
-        {
-          "end_line": 148,
-          "kind": "function",
-          "line": 114,
-          "name": "get_chromium_path"
-        },
-        {
-          "end_line": 225,
-          "kind": "function",
-          "line": 152,
-          "name": "render_emoji_image"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 184,
-      "longest_function": {
-        "end_line": 136,
-        "kind": "function",
-        "line": 93,
-        "line_count": 44,
-        "qualname": "get_default_font_status"
-      },
-      "module": "autocover_tool.autocover.fonts",
-      "path": "autocover_tool/autocover/fonts.py",
-      "sha256": "d494c75fd73f52696ec8498b87a999a4e0fc351bb892c84118274f8a7f5470a1",
-      "top_level_classes": [
-        {
-          "end_line": 52,
-          "kind": "class",
-          "line": 19,
-          "name": "FontStatus"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 57,
-          "kind": "function",
-          "line": 55,
-          "name": "_expanded_path"
-        },
-        {
-          "end_line": 65,
-          "kind": "function",
-          "line": 60,
-          "name": "_font_family"
-        },
-        {
-          "end_line": 78,
-          "kind": "function",
-          "line": 68,
-          "name": "_system_font_candidates"
-        },
-        {
-          "end_line": 90,
-          "kind": "function",
-          "line": 81,
-          "name": "_first_valid_font"
-        },
-        {
-          "end_line": 136,
-          "kind": "function",
-          "line": 93,
-          "name": "get_default_font_status"
-        },
-        {
-          "end_line": 153,
-          "kind": "function",
-          "line": 139,
-          "name": "resolve_font_path"
-        },
-        {
-          "end_line": 184,
-          "kind": "function",
-          "line": 156,
-          "name": "resolve_font_stack"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 92,
-      "longest_function": {
-        "end_line": 39,
-        "kind": "function",
-        "line": 24,
-        "line_count": 16,
-        "qualname": "default_user_data_dir"
-      },
-      "module": "autocover_tool.autocover.paths",
-      "path": "autocover_tool/autocover/paths.py",
-      "sha256": "2e5efa379d4f6098ef9d5cf0056f3c0a92b7b3dc4eb35a5306fa4c9917a5171a",
-      "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 21,
-          "kind": "function",
-          "line": 13,
-          "name": "discover_workspace_root"
-        },
-        {
-          "end_line": 39,
-          "kind": "function",
-          "line": 24,
-          "name": "default_user_data_dir"
-        },
-        {
-          "end_line": 54,
-          "kind": "function",
-          "line": 42,
-          "name": "application_data_root"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 1245,
-      "longest_function": {
-        "end_line": 1245,
-        "kind": "function",
-        "line": 1100,
-        "line_count": 146,
-        "qualname": "render_cover"
-      },
-      "module": "autocover_tool.autocover.renderer",
-      "path": "autocover_tool/autocover/renderer.py",
-      "sha256": "7646bc4ce55a28b11fb4cb2814e27250b54410208e013446dbd7cfec45c70da4",
-      "top_level_classes": [
-        {
-          "end_line": 68,
-          "kind": "class",
-          "line": 54,
-          "name": "TextPlacement"
-        },
-        {
-          "end_line": 80,
-          "kind": "class",
-          "line": 72,
-          "name": "TextTransform"
-        },
-        {
-          "end_line": 90,
-          "kind": "class",
-          "line": 84,
-          "name": "_FontRun"
-        },
-        {
-          "end_line": 100,
-          "kind": "class",
-          "line": 94,
-          "name": "_TextFontLayout"
-        },
-        {
-          "end_line": 114,
-          "kind": "class",
-          "line": 104,
-          "name": "StickerOverlay"
-        },
-        {
-          "end_line": 128,
-          "kind": "class",
-          "line": 118,
-          "name": "StickerPlacement"
-        },
-        {
-          "end_line": 162,
-          "kind": "class",
-          "line": 132,
-          "name": "RenderResult"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 177,
-          "kind": "function",
-          "line": 165,
-          "name": "_load_font"
-        },
-        {
-          "end_line": 182,
-          "kind": "function",
-          "line": 180,
-          "name": "_glyph_signature"
-        },
-        {
-          "end_line": 197,
-          "kind": "function",
-          "line": 186,
-          "name": "_font_supports_character"
-        },
-        {
-          "end_line": 214,
-          "kind": "function",
-          "line": 201,
-          "name": "_font_path_for_character"
-        },
-        {
-          "end_line": 230,
-          "kind": "function",
-          "line": 217,
-          "name": "_font_run_specs"
-        },
-        {
-          "end_line": 282,
-          "kind": "function",
-          "line": 233,
-          "name": "_measure_font_layout"
-        },
-        {
-          "end_line": 313,
-          "kind": "function",
-          "line": 285,
-          "name": "_draw_emoji_run"
-        },
-        {
-          "end_line": 358,
-          "kind": "function",
-          "line": 316,
-          "name": "_draw_text_layout"
-        },
-        {
-          "end_line": 367,
-          "kind": "function",
-          "line": 361,
-          "name": "_focus_from_template"
-        },
-        {
-          "end_line": 378,
-          "kind": "function",
-          "line": 370,
-          "name": "_side_edge_energy"
-        },
-        {
-          "end_line": 392,
-          "kind": "function",
-          "line": 381,
-          "name": "_third_edge_energy"
-        },
-        {
-          "end_line": 452,
-          "kind": "function",
-          "line": 395,
-          "name": "_auto_adjust_text_side"
-        },
-        {
-          "end_line": 469,
-          "kind": "function",
-          "line": 455,
-          "name": "_blurred_backdrop"
-        },
-        {
-          "end_line": 494,
-          "kind": "function",
-          "line": 472,
-          "name": "_zoom_background"
-        },
-        {
-          "end_line": 555,
-          "kind": "function",
-          "line": 497,
-          "name": "compose_background"
-        },
-        {
-          "end_line": 582,
-          "kind": "function",
-          "line": 558,
-          "name": "_text_area"
-        },
-        {
-          "end_line": 591,
-          "kind": "function",
-          "line": 585,
-          "name": "_role_scale"
-        },
-        {
-          "end_line": 601,
-          "kind": "function",
-          "line": 594,
-          "name": "_measure_text"
-        },
-        {
-          "end_line": 621,
-          "kind": "function",
-          "line": 604,
-          "name": "_measure_text_at_size"
-        },
-        {
-          "end_line": 653,
-          "kind": "function",
-          "line": 624,
-          "name": "_manual_measurement"
-        },
-        {
-          "end_line": 674,
-          "kind": "function",
-          "line": 656,
-          "name": "_fit_text"
-        },
-        {
-          "end_line": 706,
-          "kind": "function",
-          "line": 677,
-          "name": "_fit_independent_text"
-        },
-        {
-          "end_line": 737,
-          "kind": "function",
-          "line": 709,
-          "name": "_stack_positions"
-        },
-        {
-          "end_line": 768,
-          "kind": "function",
-          "line": 740,
-          "name": "_edge_positions"
-        },
-        {
-          "end_line": 801,
-          "kind": "function",
-          "line": 771,
-          "name": "_portrait_latest_positions"
-        },
-        {
-          "end_line": 825,
-          "kind": "function",
-          "line": 804,
-          "name": "_positions_for_template"
-        },
-        {
-          "end_line": 851,
-          "kind": "function",
-          "line": 828,
-          "name": "_manual_position"
-        },
-        {
-          "end_line": 906,
-          "kind": "function",
-          "line": 854,
-          "name": "draw_stickers"
-        },
-        {
-          "end_line": 910,
-          "kind": "function",
-          "line": 909,
-          "name": "_rgb"
-        },
-        {
-          "end_line": 998,
-          "kind": "function",
-          "line": 913,
-          "name": "draw_cover_text"
-        },
-        {
-          "end_line": 1008,
-          "kind": "function",
-          "line": 1001,
-          "name": "_save_jpeg"
-        },
-        {
-          "end_line": 1014,
-          "kind": "function",
-          "line": 1011,
-          "name": "_temporary_output_path"
-        },
-        {
-          "end_line": 1021,
-          "kind": "function",
-          "line": 1017,
-          "name": "_cleanup_file"
-        },
-        {
-          "end_line": 1028,
-          "kind": "function",
-          "line": 1024,
-          "name": "commit_output_transaction"
-        },
-        {
-          "end_line": 1062,
-          "kind": "function",
-          "line": 1031,
-          "name": "_commit_output_transaction_locked"
-        },
-        {
-          "end_line": 1087,
-          "kind": "function",
-          "line": 1065,
-          "name": "_save_jpeg_batch"
-        },
-        {
-          "end_line": 1097,
-          "kind": "function",
-          "line": 1090,
-          "name": "_jpeg_output_path"
-        },
-        {
-          "end_line": 1245,
-          "kind": "function",
-          "line": 1100,
-          "name": "render_cover"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 241,
-      "longest_function": {
-        "end_line": 157,
-        "kind": "function",
-        "line": 82,
-        "line_count": 76,
-        "qualname": "StickerLibrary.scan"
-      },
-      "module": "autocover_tool.autocover.stickers",
-      "path": "autocover_tool/autocover/stickers.py",
-      "sha256": "46767ccfb0e30ff1a435cdf4cf48e90445d3260d543e66f5bd8f052fa037acfe",
-      "top_level_classes": [
-        {
-          "end_line": 34,
-          "kind": "class",
-          "line": 21,
-          "name": "StickerAsset"
-        },
-        {
-          "end_line": 241,
-          "kind": "class",
-          "line": 37,
-          "name": "StickerLibrary"
-        }
-      ],
       "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 464,
-      "longest_function": {
-        "end_line": 79,
-        "kind": "function",
-        "line": 66,
-        "line_count": 14,
-        "qualname": "CoverPalette.color_for_role"
-      },
+      "line_count": 8,
+      "longest_function": null,
+      "module": "autocover_tool.autocover.drafts",
+      "path": "autocover_tool/autocover/drafts.py",
+      "sha256": "3e6ca2a0f7fe4a2f2853b2c7b83a27d27d1e69c0bb40b8a66fb55d63eea00044",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 8,
+      "longest_function": null,
+      "module": "autocover_tool.autocover.emoji",
+      "path": "autocover_tool/autocover/emoji.py",
+      "sha256": "81dbf1c76362843a50b8fcaf4a13cfdb3249121189f6b3bb31f2154b80fca2e9",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 8,
+      "longest_function": null,
+      "module": "autocover_tool.autocover.fonts",
+      "path": "autocover_tool/autocover/fonts.py",
+      "sha256": "fe8683c05922bbe5572c6aa7a8d397c669700362fe4651b9b491d939c460d6f9",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 8,
+      "longest_function": null,
+      "module": "autocover_tool.autocover.paths",
+      "path": "autocover_tool/autocover/paths.py",
+      "sha256": "813bf924f17282a53cbc31a318d32c6caf71f1dcb0d331ab9392b147ee24c299",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 8,
+      "longest_function": null,
+      "module": "autocover_tool.autocover.renderer",
+      "path": "autocover_tool/autocover/renderer.py",
+      "sha256": "1b2c97ae8fd889efe02425d97a5001213a375fa56a8010a7579d3adf3a76a444",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 8,
+      "longest_function": null,
+      "module": "autocover_tool.autocover.stickers",
+      "path": "autocover_tool/autocover/stickers.py",
+      "sha256": "1f594ac926146b4ac30668f7886bc99e5eb2d221fb4b3e6b5c0183607002edc4",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 8,
+      "longest_function": null,
       "module": "autocover_tool.autocover.style",
       "path": "autocover_tool/autocover/style.py",
-      "sha256": "1cc35105126a291fee1ee0fa1d86aa25607ccff0cbb56a4390027e6731de9213",
-      "top_level_classes": [
-        {
-          "end_line": 30,
-          "kind": "class",
-          "line": 9,
-          "name": "CanvasSpec"
-        },
-        {
-          "end_line": 99,
-          "kind": "class",
-          "line": 34,
-          "name": "CoverPalette"
-        },
-        {
-          "end_line": 122,
-          "kind": "class",
-          "line": 103,
-          "name": "CoverTemplate"
-        },
-        {
-          "end_line": 136,
-          "kind": "class",
-          "line": 126,
-          "name": "VisualStyleRecommendation"
-        },
-        {
-          "end_line": 159,
-          "kind": "class",
-          "line": 140,
-          "name": "CoverStyle"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 444,
-          "kind": "function",
-          "line": 433,
-          "name": "get_canvas_spec"
-        },
-        {
-          "end_line": 454,
-          "kind": "function",
-          "line": 447,
-          "name": "get_palette"
-        },
-        {
-          "end_line": 464,
-          "kind": "function",
-          "line": 457,
-          "name": "get_template"
-        }
-      ]
+      "sha256": "4787040249eeb365ee8d0d054febd35ca14b1ce7ddf18642495ea97f5b6c7c84",
+      "top_level_classes": [],
+      "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 467,
-      "longest_function": {
-        "end_line": 311,
-        "kind": "function",
-        "line": 242,
-        "line_count": 70,
-        "qualname": "recommend_visual_style"
-      },
+      "line_count": 8,
+      "longest_function": null,
       "module": "autocover_tool.autocover.titles",
       "path": "autocover_tool/autocover/titles.py",
-      "sha256": "54922a89f7ef58b8610cc06cb6a14eeaf81ccfd7d67eef3cc0b7ee3a01f49943",
-      "top_level_classes": [
-        {
-          "end_line": 37,
-          "kind": "class",
-          "line": 33,
-          "name": "CoverLine"
-        },
-        {
-          "end_line": 61,
-          "kind": "class",
-          "line": 41,
-          "name": "LayoutVariant"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 76,
-          "kind": "function",
-          "line": 64,
-          "name": "read_text"
-        },
-        {
-          "end_line": 97,
-          "kind": "function",
-          "line": 79,
-          "name": "parse_title_markdown"
-        },
-        {
-          "end_line": 108,
-          "kind": "function",
-          "line": 100,
-          "name": "load_title_map"
-        },
-        {
-          "end_line": 115,
-          "kind": "function",
-          "line": 111,
-          "name": "strip_title_prefix"
-        },
-        {
-          "end_line": 123,
-          "kind": "function",
-          "line": 118,
-          "name": "title_from_filename"
-        },
-        {
-          "end_line": 146,
-          "kind": "function",
-          "line": 126,
-          "name": "match_title"
-        },
-        {
-          "end_line": 160,
-          "kind": "function",
-          "line": 149,
-          "name": "visual_units"
-        },
-        {
-          "end_line": 204,
-          "kind": "function",
-          "line": 163,
-          "name": "_wrap_visual"
-        },
-        {
-          "end_line": 239,
-          "kind": "function",
-          "line": 207,
-          "name": "_split_clauses"
-        },
-        {
-          "end_line": 311,
-          "kind": "function",
-          "line": 242,
-          "name": "recommend_visual_style"
-        },
-        {
-          "end_line": 338,
-          "kind": "function",
-          "line": 314,
-          "name": "_assign_line_roles"
-        },
-        {
-          "end_line": 357,
-          "kind": "function",
-          "line": 341,
-          "name": "create_cover_copy"
-        },
-        {
-          "end_line": 414,
-          "kind": "function",
-          "line": 360,
-          "name": "create_cover_lines"
-        },
-        {
-          "end_line": 467,
-          "kind": "function",
-          "line": 417,
-          "name": "recommend_layout_variants"
-        }
-      ]
+      "sha256": "e7ebf301a344190bfefd512baf4b8e7eec372b12a7b84e3a0b5886b83dc007c7",
+      "top_level_classes": [],
+      "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 692,
-      "longest_function": {
-        "end_line": 598,
-        "kind": "function",
-        "line": 502,
-        "line_count": 97,
-        "qualname": "extract_candidate_frames"
-      },
+      "line_count": 8,
+      "longest_function": null,
       "module": "autocover_tool.autocover.video",
       "path": "autocover_tool/autocover/video.py",
-      "sha256": "adba22aa56fd67107ee5aedd9c6cc5fd94783b0ba12ec36c5793acacd388e92d",
-      "top_level_classes": [
-        {
-          "end_line": 42,
-          "kind": "class",
-          "line": 30,
-          "name": "VideoMetadata"
-        },
-        {
-          "end_line": 59,
-          "kind": "class",
-          "line": 46,
-          "name": "FrameMetrics"
-        },
-        {
-          "end_line": 77,
-          "kind": "class",
-          "line": 63,
-          "name": "FrameCandidate"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 92,
-          "kind": "function",
-          "line": 80,
-          "name": "find_media_binary"
-        },
-        {
-          "end_line": 104,
-          "kind": "function",
-          "line": 95,
-          "name": "_parse_frame_rate"
-        },
-        {
-          "end_line": 171,
-          "kind": "function",
-          "line": 107,
-          "name": "probe_video"
-        },
-        {
-          "end_line": 199,
-          "kind": "function",
-          "line": 174,
-          "name": "plan_candidate_timestamps"
-        },
-        {
-          "end_line": 203,
-          "kind": "function",
-          "line": 202,
-          "name": "_clamp"
-        },
-        {
-          "end_line": 236,
-          "kind": "function",
-          "line": 206,
-          "name": "_subtitle_risk"
-        },
-        {
-          "end_line": 278,
-          "kind": "function",
-          "line": 239,
-          "name": "score_frame"
-        },
-        {
-          "end_line": 287,
-          "kind": "function",
-          "line": 281,
-          "name": "_cache_key"
-        },
-        {
-          "end_line": 293,
-          "kind": "function",
-          "line": 290,
-          "name": "_cache_lock"
-        },
-        {
-          "end_line": 298,
-          "kind": "function",
-          "line": 296,
-          "name": "_short_process_error"
-        },
-        {
-          "end_line": 316,
-          "kind": "function",
-          "line": 301,
-          "name": "_valid_metric_values"
-        },
-        {
-          "end_line": 385,
-          "kind": "function",
-          "line": 319,
-          "name": "_read_cached_candidates"
-        },
-        {
-          "end_line": 429,
-          "kind": "function",
-          "line": 388,
-          "name": "_extract_frame"
-        },
-        {
-          "end_line": 436,
-          "kind": "function",
-          "line": 432,
-          "name": "_subtitle_candidate_key"
-        },
-        {
-          "end_line": 499,
-          "kind": "function",
-          "line": 439,
-          "name": "_improve_subtitle_candidates"
-        },
-        {
-          "end_line": 598,
-          "kind": "function",
-          "line": 502,
-          "name": "extract_candidate_frames"
-        },
-        {
-          "end_line": 670,
-          "kind": "function",
-          "line": 601,
-          "name": "extract_frame_at_timestamp"
-        },
-        {
-          "end_line": 692,
-          "kind": "function",
-          "line": 673,
-          "name": "_replace_cache_directory"
-        }
-      ]
+      "sha256": "50d3a147cf709da6a2ab96e210c13cf16f545717093d55596b6ee1f4999efeba",
+      "top_level_classes": [],
+      "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 636,
-      "longest_function": {
-        "end_line": 266,
-        "kind": "function",
-        "line": 173,
-        "line_count": 94,
-        "qualname": "CoverWorkspace.scan"
-      },
+      "line_count": 8,
+      "longest_function": null,
       "module": "autocover_tool.autocover.workspace",
       "path": "autocover_tool/autocover/workspace.py",
-      "sha256": "cdb5db74ff3d109bba61ea5f21be5b0e6a301f8c94de79b2d214e404250486ab",
-      "top_level_classes": [
-        {
-          "end_line": 87,
-          "kind": "class",
-          "line": 65,
-          "name": "CoverTask"
-        },
-        {
-          "end_line": 636,
-          "kind": "class",
-          "line": 90,
-          "name": "CoverWorkspace"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 52,
-          "kind": "function",
-          "line": 45,
-          "name": "_is_ignored_video"
-        },
-        {
-          "end_line": 61,
-          "kind": "function",
-          "line": 55,
-          "name": "_path_timestamps"
-        }
-      ]
+      "sha256": "195b557568cb886baa4ef4f553e0b86fc58f68028d8f4fd491fcf4700b1af967",
+      "top_level_classes": [],
+      "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 9,
+      "line_count": 16,
       "longest_function": null,
       "module": "autocover_tool.启动",
       "path": "autocover_tool/启动.py",
-      "sha256": "b1dfb9c890146805873ed5bb810c794699fbadb4d8ee1d62c2ec94b7422dff3c",
+      "sha256": "bb66e96152c95402c7b6d9f69baa3294922e3dfb2d55030fad2c7b8c0a58933b",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -4548,149 +3691,149 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 488,
+      "line_count": 495,
       "longest_function": {
-        "end_line": 484,
+        "end_line": 491,
         "kind": "function",
-        "line": 408,
+        "line": 415,
         "line_count": 77,
         "qualname": "main"
       },
       "module": "autoslice.launcher",
       "path": "src/autoslice/launcher.py",
-      "sha256": "7a79886aed415618189647aec074729e46143178e210df73aaf5b57256e07e1d",
+      "sha256": "40a205a63c4e1c20a54e0a5efdb270cc745ed058d0ca2347b4c4c5be074a7a65",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 56,
+          "end_line": 57,
           "kind": "function",
-          "line": 52,
+          "line": 53,
           "name": "_gpu_runtime_python"
         },
         {
-          "end_line": 65,
+          "end_line": 66,
           "kind": "function",
-          "line": 59,
+          "line": 60,
           "name": "_same_executable"
         },
         {
-          "end_line": 86,
+          "end_line": 87,
           "kind": "function",
-          "line": 68,
+          "line": 69,
           "name": "_gpu_runtime_is_healthy"
         },
         {
-          "end_line": 102,
+          "end_line": 103,
           "kind": "function",
-          "line": 89,
+          "line": 90,
           "name": "_select_gpu_runtime"
         },
         {
-          "end_line": 129,
+          "end_line": 130,
           "kind": "function",
-          "line": 105,
+          "line": 106,
           "name": "_run_gpu_child"
         },
         {
-          "end_line": 134,
+          "end_line": 135,
           "kind": "function",
-          "line": 132,
+          "line": 133,
           "name": "_version_tuple"
         },
         {
-          "end_line": 151,
+          "end_line": 152,
           "kind": "function",
-          "line": 137,
+          "line": 138,
           "name": "_missing_dependencies"
         },
         {
-          "end_line": 174,
+          "end_line": 175,
           "kind": "function",
-          "line": 154,
+          "line": 155,
           "name": "_install_dependencies"
         },
         {
-          "end_line": 182,
+          "end_line": 183,
           "kind": "function",
-          "line": 177,
+          "line": 178,
           "name": "_is_compatible_autocover_service"
         },
         {
-          "end_line": 195,
+          "end_line": 196,
           "kind": "function",
-          "line": 185,
+          "line": 186,
           "name": "_probe_autocover_service"
         },
         {
-          "end_line": 208,
+          "end_line": 209,
           "kind": "function",
-          "line": 198,
+          "line": 199,
           "name": "_probe_autoslice_service"
         },
         {
-          "end_line": 220,
+          "end_line": 221,
           "kind": "function",
-          "line": 211,
+          "line": 212,
           "name": "_is_compatible_autoslice_service"
         },
         {
-          "end_line": 264,
+          "end_line": 265,
           "kind": "function",
-          "line": 223,
+          "line": 224,
           "name": "_existing_unified_services"
         },
         {
-          "end_line": 277,
+          "end_line": 278,
           "kind": "function",
-          "line": 267,
+          "line": 268,
           "name": "_find_available_local_port"
         },
         {
-          "end_line": 286,
+          "end_line": 287,
           "kind": "function",
-          "line": 280,
+          "line": 281,
           "name": "_autocover_python"
         },
         {
-          "end_line": 311,
+          "end_line": 312,
           "kind": "function",
-          "line": 289,
+          "line": 290,
           "name": "_ensure_autocover_dependencies"
         },
         {
-          "end_line": 322,
+          "end_line": 323,
           "kind": "function",
-          "line": 314,
+          "line": 315,
           "name": "_wait_for_autocover"
         },
         {
-          "end_line": 333,
+          "end_line": 334,
           "kind": "function",
-          "line": 325,
+          "line": 326,
           "name": "_stop_autocover"
         },
         {
-          "end_line": 349,
+          "end_line": 350,
           "kind": "function",
-          "line": 336,
+          "line": 337,
           "name": "_autoslice_bind_host"
         },
         {
-          "end_line": 394,
+          "end_line": 401,
           "kind": "function",
-          "line": 352,
+          "line": 353,
           "name": "_start_autocover"
         },
         {
-          "end_line": 405,
+          "end_line": 412,
           "kind": "function",
-          "line": 397,
+          "line": 404,
           "name": "_print_help"
         },
         {
-          "end_line": 484,
+          "end_line": 491,
           "kind": "function",
-          "line": 408,
+          "line": 415,
           "name": "main"
         }
       ]
@@ -7849,6 +6992,1152 @@
       "duplicate_top_level_definitions": [],
       "line_count": 5,
       "longest_function": null,
+      "module": "autoslice_cover",
+      "path": "src/autoslice_cover/__init__.py",
+      "sha256": "bdc754974a6d5ee0494db48d6ec8049afbbbc62789bbaa06649bed533088ba3e",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 984,
+      "longest_function": {
+        "end_line": 977,
+        "kind": "function",
+        "line": 570,
+        "line_count": 408,
+        "qualname": "create_app"
+      },
+      "module": "autoslice_cover.app",
+      "path": "src/autoslice_cover/app.py",
+      "sha256": "2d0ce38ffe0aa9b89a22f9e78a44f962412b96fc4fa03c4a407733fa49f6daf8",
+      "top_level_classes": [
+        {
+          "end_line": 61,
+          "kind": "class",
+          "line": 55,
+          "name": "ApiError"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 71,
+          "kind": "function",
+          "line": 64,
+          "name": "_mark_deprecated_endpoint"
+        },
+        {
+          "end_line": 80,
+          "kind": "function",
+          "line": 74,
+          "name": "_json_body"
+        },
+        {
+          "end_line": 87,
+          "kind": "function",
+          "line": 83,
+          "name": "_workspace"
+        },
+        {
+          "end_line": 94,
+          "kind": "function",
+          "line": 90,
+          "name": "_sticker_library"
+        },
+        {
+          "end_line": 101,
+          "kind": "function",
+          "line": 97,
+          "name": "_draft_store"
+        },
+        {
+          "end_line": 166,
+          "kind": "function",
+          "line": 104,
+          "name": "_draft_settings"
+        },
+        {
+          "end_line": 211,
+          "kind": "function",
+          "line": 169,
+          "name": "_load_disk_drafts"
+        },
+        {
+          "end_line": 232,
+          "kind": "function",
+          "line": 214,
+          "name": "_optional_list"
+        },
+        {
+          "end_line": 251,
+          "kind": "function",
+          "line": 235,
+          "name": "_optional_string"
+        },
+        {
+          "end_line": 261,
+          "kind": "function",
+          "line": 254,
+          "name": "_focus_value"
+        },
+        {
+          "end_line": 278,
+          "kind": "function",
+          "line": 264,
+          "name": "_number_value"
+        },
+        {
+          "end_line": 290,
+          "kind": "function",
+          "line": 281,
+          "name": "_canvas_layout"
+        },
+        {
+          "end_line": 302,
+          "kind": "function",
+          "line": 293,
+          "name": "_boolean_value"
+        },
+        {
+          "end_line": 329,
+          "kind": "function",
+          "line": 305,
+          "name": "_text_transforms"
+        },
+        {
+          "end_line": 366,
+          "kind": "function",
+          "line": 332,
+          "name": "_sticker_overlays"
+        },
+        {
+          "end_line": 420,
+          "kind": "function",
+          "line": 369,
+          "name": "_render_options"
+        },
+        {
+          "end_line": 432,
+          "kind": "function",
+          "line": 423,
+          "name": "_apply_task_edits"
+        },
+        {
+          "end_line": 446,
+          "kind": "function",
+          "line": 435,
+          "name": "_render_result_payload"
+        },
+        {
+          "end_line": 484,
+          "kind": "function",
+          "line": 449,
+          "name": "_render_task_result"
+        },
+        {
+          "end_line": 506,
+          "kind": "function",
+          "line": 487,
+          "name": "_render_task"
+        },
+        {
+          "end_line": 567,
+          "kind": "function",
+          "line": 509,
+          "name": "_save_task"
+        },
+        {
+          "end_line": 977,
+          "kind": "function",
+          "line": 570,
+          "name": "create_app"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 208,
+      "longest_function": {
+        "end_line": 185,
+        "kind": "function",
+        "line": 140,
+        "line_count": 46,
+        "qualname": "run_batch"
+      },
+      "module": "autoslice_cover.cli",
+      "path": "src/autoslice_cover/cli.py",
+      "sha256": "cb508cf3c8753d034c4945ef581129065d73e7e1e9529402052669c934f416e5",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 27,
+          "kind": "function",
+          "line": 22,
+          "name": "_configure_text_stream"
+        },
+        {
+          "end_line": 57,
+          "kind": "function",
+          "line": 30,
+          "name": "build_parser"
+        },
+        {
+          "end_line": 72,
+          "kind": "function",
+          "line": 60,
+          "name": "find_available_port"
+        },
+        {
+          "end_line": 87,
+          "kind": "function",
+          "line": 75,
+          "name": "_probe_service"
+        },
+        {
+          "end_line": 97,
+          "kind": "function",
+          "line": 90,
+          "name": "_is_compatible_service"
+        },
+        {
+          "end_line": 106,
+          "kind": "function",
+          "line": 100,
+          "name": "_open_browser_later"
+        },
+        {
+          "end_line": 133,
+          "kind": "function",
+          "line": 109,
+          "name": "run_server"
+        },
+        {
+          "end_line": 137,
+          "kind": "function",
+          "line": 136,
+          "name": "_canvas_keys"
+        },
+        {
+          "end_line": 185,
+          "kind": "function",
+          "line": 140,
+          "name": "run_batch"
+        },
+        {
+          "end_line": 204,
+          "kind": "function",
+          "line": 188,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 342,
+      "longest_function": {
+        "end_line": 249,
+        "kind": "function",
+        "line": 168,
+        "line_count": 82,
+        "qualname": "CoverDraftStore.save_preview"
+      },
+      "module": "autoslice_cover.drafts",
+      "path": "src/autoslice_cover/drafts.py",
+      "sha256": "6c83e5e181efb65edfeb473e63745309808368c72c070ec66c31ccc0d29b0ac4",
+      "top_level_classes": [
+        {
+          "end_line": 342,
+          "kind": "class",
+          "line": 79,
+          "name": "CoverDraftStore"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 28,
+          "kind": "function",
+          "line": 27,
+          "name": "_normalized_path"
+        },
+        {
+          "end_line": 33,
+          "kind": "function",
+          "line": 31,
+          "name": "_safe_workspace_name"
+        },
+        {
+          "end_line": 38,
+          "kind": "function",
+          "line": 36,
+          "name": "_source_identity"
+        },
+        {
+          "end_line": 53,
+          "kind": "function",
+          "line": 41,
+          "name": "_epoch_milliseconds"
+        },
+        {
+          "end_line": 76,
+          "kind": "function",
+          "line": 56,
+          "name": "_preview_fingerprint"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 225,
+      "longest_function": {
+        "end_line": 225,
+        "kind": "function",
+        "line": 152,
+        "line_count": 74,
+        "qualname": "render_emoji_image"
+      },
+      "module": "autoslice_cover.emoji",
+      "path": "src/autoslice_cover/emoji.py",
+      "sha256": "43de047cd0e04621c6cd174f037a27ea007f10c86367e98871a8785e43150e22",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 28,
+          "kind": "function",
+          "line": 26,
+          "name": "_forget_pending_cleanup"
+        },
+        {
+          "end_line": 41,
+          "kind": "function",
+          "line": 31,
+          "name": "_cleanup_pending_trees"
+        },
+        {
+          "end_line": 60,
+          "kind": "function",
+          "line": 47,
+          "name": "_remove_temporary_tree"
+        },
+        {
+          "end_line": 87,
+          "kind": "function",
+          "line": 63,
+          "name": "_schedule_temporary_tree_cleanup"
+        },
+        {
+          "end_line": 95,
+          "kind": "function",
+          "line": 90,
+          "name": "get_emoji_font_path"
+        },
+        {
+          "end_line": 111,
+          "kind": "function",
+          "line": 98,
+          "name": "is_emoji_character"
+        },
+        {
+          "end_line": 148,
+          "kind": "function",
+          "line": 114,
+          "name": "get_chromium_path"
+        },
+        {
+          "end_line": 225,
+          "kind": "function",
+          "line": 152,
+          "name": "render_emoji_image"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 184,
+      "longest_function": {
+        "end_line": 136,
+        "kind": "function",
+        "line": 93,
+        "line_count": 44,
+        "qualname": "get_default_font_status"
+      },
+      "module": "autoslice_cover.fonts",
+      "path": "src/autoslice_cover/fonts.py",
+      "sha256": "d494c75fd73f52696ec8498b87a999a4e0fc351bb892c84118274f8a7f5470a1",
+      "top_level_classes": [
+        {
+          "end_line": 52,
+          "kind": "class",
+          "line": 19,
+          "name": "FontStatus"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 57,
+          "kind": "function",
+          "line": 55,
+          "name": "_expanded_path"
+        },
+        {
+          "end_line": 65,
+          "kind": "function",
+          "line": 60,
+          "name": "_font_family"
+        },
+        {
+          "end_line": 78,
+          "kind": "function",
+          "line": 68,
+          "name": "_system_font_candidates"
+        },
+        {
+          "end_line": 90,
+          "kind": "function",
+          "line": 81,
+          "name": "_first_valid_font"
+        },
+        {
+          "end_line": 136,
+          "kind": "function",
+          "line": 93,
+          "name": "get_default_font_status"
+        },
+        {
+          "end_line": 153,
+          "kind": "function",
+          "line": 139,
+          "name": "resolve_font_path"
+        },
+        {
+          "end_line": 184,
+          "kind": "function",
+          "line": 156,
+          "name": "resolve_font_stack"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 92,
+      "longest_function": {
+        "end_line": 39,
+        "kind": "function",
+        "line": 24,
+        "line_count": 16,
+        "qualname": "default_user_data_dir"
+      },
+      "module": "autoslice_cover.paths",
+      "path": "src/autoslice_cover/paths.py",
+      "sha256": "6c910b0eb0f18971c9714eb213063e4d8234f517f427f0c7ca821cc8bfe901db",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 21,
+          "kind": "function",
+          "line": 13,
+          "name": "discover_workspace_root"
+        },
+        {
+          "end_line": 39,
+          "kind": "function",
+          "line": 24,
+          "name": "default_user_data_dir"
+        },
+        {
+          "end_line": 54,
+          "kind": "function",
+          "line": 42,
+          "name": "application_data_root"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1245,
+      "longest_function": {
+        "end_line": 1245,
+        "kind": "function",
+        "line": 1100,
+        "line_count": 146,
+        "qualname": "render_cover"
+      },
+      "module": "autoslice_cover.renderer",
+      "path": "src/autoslice_cover/renderer.py",
+      "sha256": "7646bc4ce55a28b11fb4cb2814e27250b54410208e013446dbd7cfec45c70da4",
+      "top_level_classes": [
+        {
+          "end_line": 68,
+          "kind": "class",
+          "line": 54,
+          "name": "TextPlacement"
+        },
+        {
+          "end_line": 80,
+          "kind": "class",
+          "line": 72,
+          "name": "TextTransform"
+        },
+        {
+          "end_line": 90,
+          "kind": "class",
+          "line": 84,
+          "name": "_FontRun"
+        },
+        {
+          "end_line": 100,
+          "kind": "class",
+          "line": 94,
+          "name": "_TextFontLayout"
+        },
+        {
+          "end_line": 114,
+          "kind": "class",
+          "line": 104,
+          "name": "StickerOverlay"
+        },
+        {
+          "end_line": 128,
+          "kind": "class",
+          "line": 118,
+          "name": "StickerPlacement"
+        },
+        {
+          "end_line": 162,
+          "kind": "class",
+          "line": 132,
+          "name": "RenderResult"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 177,
+          "kind": "function",
+          "line": 165,
+          "name": "_load_font"
+        },
+        {
+          "end_line": 182,
+          "kind": "function",
+          "line": 180,
+          "name": "_glyph_signature"
+        },
+        {
+          "end_line": 197,
+          "kind": "function",
+          "line": 186,
+          "name": "_font_supports_character"
+        },
+        {
+          "end_line": 214,
+          "kind": "function",
+          "line": 201,
+          "name": "_font_path_for_character"
+        },
+        {
+          "end_line": 230,
+          "kind": "function",
+          "line": 217,
+          "name": "_font_run_specs"
+        },
+        {
+          "end_line": 282,
+          "kind": "function",
+          "line": 233,
+          "name": "_measure_font_layout"
+        },
+        {
+          "end_line": 313,
+          "kind": "function",
+          "line": 285,
+          "name": "_draw_emoji_run"
+        },
+        {
+          "end_line": 358,
+          "kind": "function",
+          "line": 316,
+          "name": "_draw_text_layout"
+        },
+        {
+          "end_line": 367,
+          "kind": "function",
+          "line": 361,
+          "name": "_focus_from_template"
+        },
+        {
+          "end_line": 378,
+          "kind": "function",
+          "line": 370,
+          "name": "_side_edge_energy"
+        },
+        {
+          "end_line": 392,
+          "kind": "function",
+          "line": 381,
+          "name": "_third_edge_energy"
+        },
+        {
+          "end_line": 452,
+          "kind": "function",
+          "line": 395,
+          "name": "_auto_adjust_text_side"
+        },
+        {
+          "end_line": 469,
+          "kind": "function",
+          "line": 455,
+          "name": "_blurred_backdrop"
+        },
+        {
+          "end_line": 494,
+          "kind": "function",
+          "line": 472,
+          "name": "_zoom_background"
+        },
+        {
+          "end_line": 555,
+          "kind": "function",
+          "line": 497,
+          "name": "compose_background"
+        },
+        {
+          "end_line": 582,
+          "kind": "function",
+          "line": 558,
+          "name": "_text_area"
+        },
+        {
+          "end_line": 591,
+          "kind": "function",
+          "line": 585,
+          "name": "_role_scale"
+        },
+        {
+          "end_line": 601,
+          "kind": "function",
+          "line": 594,
+          "name": "_measure_text"
+        },
+        {
+          "end_line": 621,
+          "kind": "function",
+          "line": 604,
+          "name": "_measure_text_at_size"
+        },
+        {
+          "end_line": 653,
+          "kind": "function",
+          "line": 624,
+          "name": "_manual_measurement"
+        },
+        {
+          "end_line": 674,
+          "kind": "function",
+          "line": 656,
+          "name": "_fit_text"
+        },
+        {
+          "end_line": 706,
+          "kind": "function",
+          "line": 677,
+          "name": "_fit_independent_text"
+        },
+        {
+          "end_line": 737,
+          "kind": "function",
+          "line": 709,
+          "name": "_stack_positions"
+        },
+        {
+          "end_line": 768,
+          "kind": "function",
+          "line": 740,
+          "name": "_edge_positions"
+        },
+        {
+          "end_line": 801,
+          "kind": "function",
+          "line": 771,
+          "name": "_portrait_latest_positions"
+        },
+        {
+          "end_line": 825,
+          "kind": "function",
+          "line": 804,
+          "name": "_positions_for_template"
+        },
+        {
+          "end_line": 851,
+          "kind": "function",
+          "line": 828,
+          "name": "_manual_position"
+        },
+        {
+          "end_line": 906,
+          "kind": "function",
+          "line": 854,
+          "name": "draw_stickers"
+        },
+        {
+          "end_line": 910,
+          "kind": "function",
+          "line": 909,
+          "name": "_rgb"
+        },
+        {
+          "end_line": 998,
+          "kind": "function",
+          "line": 913,
+          "name": "draw_cover_text"
+        },
+        {
+          "end_line": 1008,
+          "kind": "function",
+          "line": 1001,
+          "name": "_save_jpeg"
+        },
+        {
+          "end_line": 1014,
+          "kind": "function",
+          "line": 1011,
+          "name": "_temporary_output_path"
+        },
+        {
+          "end_line": 1021,
+          "kind": "function",
+          "line": 1017,
+          "name": "_cleanup_file"
+        },
+        {
+          "end_line": 1028,
+          "kind": "function",
+          "line": 1024,
+          "name": "commit_output_transaction"
+        },
+        {
+          "end_line": 1062,
+          "kind": "function",
+          "line": 1031,
+          "name": "_commit_output_transaction_locked"
+        },
+        {
+          "end_line": 1087,
+          "kind": "function",
+          "line": 1065,
+          "name": "_save_jpeg_batch"
+        },
+        {
+          "end_line": 1097,
+          "kind": "function",
+          "line": 1090,
+          "name": "_jpeg_output_path"
+        },
+        {
+          "end_line": 1245,
+          "kind": "function",
+          "line": 1100,
+          "name": "render_cover"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 241,
+      "longest_function": {
+        "end_line": 157,
+        "kind": "function",
+        "line": 82,
+        "line_count": 76,
+        "qualname": "StickerLibrary.scan"
+      },
+      "module": "autoslice_cover.stickers",
+      "path": "src/autoslice_cover/stickers.py",
+      "sha256": "46767ccfb0e30ff1a435cdf4cf48e90445d3260d543e66f5bd8f052fa037acfe",
+      "top_level_classes": [
+        {
+          "end_line": 34,
+          "kind": "class",
+          "line": 21,
+          "name": "StickerAsset"
+        },
+        {
+          "end_line": 241,
+          "kind": "class",
+          "line": 37,
+          "name": "StickerLibrary"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 464,
+      "longest_function": {
+        "end_line": 79,
+        "kind": "function",
+        "line": 66,
+        "line_count": 14,
+        "qualname": "CoverPalette.color_for_role"
+      },
+      "module": "autoslice_cover.style",
+      "path": "src/autoslice_cover/style.py",
+      "sha256": "1cc35105126a291fee1ee0fa1d86aa25607ccff0cbb56a4390027e6731de9213",
+      "top_level_classes": [
+        {
+          "end_line": 30,
+          "kind": "class",
+          "line": 9,
+          "name": "CanvasSpec"
+        },
+        {
+          "end_line": 99,
+          "kind": "class",
+          "line": 34,
+          "name": "CoverPalette"
+        },
+        {
+          "end_line": 122,
+          "kind": "class",
+          "line": 103,
+          "name": "CoverTemplate"
+        },
+        {
+          "end_line": 136,
+          "kind": "class",
+          "line": 126,
+          "name": "VisualStyleRecommendation"
+        },
+        {
+          "end_line": 159,
+          "kind": "class",
+          "line": 140,
+          "name": "CoverStyle"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 444,
+          "kind": "function",
+          "line": 433,
+          "name": "get_canvas_spec"
+        },
+        {
+          "end_line": 454,
+          "kind": "function",
+          "line": 447,
+          "name": "get_palette"
+        },
+        {
+          "end_line": 464,
+          "kind": "function",
+          "line": 457,
+          "name": "get_template"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 467,
+      "longest_function": {
+        "end_line": 311,
+        "kind": "function",
+        "line": 242,
+        "line_count": 70,
+        "qualname": "recommend_visual_style"
+      },
+      "module": "autoslice_cover.titles",
+      "path": "src/autoslice_cover/titles.py",
+      "sha256": "54922a89f7ef58b8610cc06cb6a14eeaf81ccfd7d67eef3cc0b7ee3a01f49943",
+      "top_level_classes": [
+        {
+          "end_line": 37,
+          "kind": "class",
+          "line": 33,
+          "name": "CoverLine"
+        },
+        {
+          "end_line": 61,
+          "kind": "class",
+          "line": 41,
+          "name": "LayoutVariant"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 76,
+          "kind": "function",
+          "line": 64,
+          "name": "read_text"
+        },
+        {
+          "end_line": 97,
+          "kind": "function",
+          "line": 79,
+          "name": "parse_title_markdown"
+        },
+        {
+          "end_line": 108,
+          "kind": "function",
+          "line": 100,
+          "name": "load_title_map"
+        },
+        {
+          "end_line": 115,
+          "kind": "function",
+          "line": 111,
+          "name": "strip_title_prefix"
+        },
+        {
+          "end_line": 123,
+          "kind": "function",
+          "line": 118,
+          "name": "title_from_filename"
+        },
+        {
+          "end_line": 146,
+          "kind": "function",
+          "line": 126,
+          "name": "match_title"
+        },
+        {
+          "end_line": 160,
+          "kind": "function",
+          "line": 149,
+          "name": "visual_units"
+        },
+        {
+          "end_line": 204,
+          "kind": "function",
+          "line": 163,
+          "name": "_wrap_visual"
+        },
+        {
+          "end_line": 239,
+          "kind": "function",
+          "line": 207,
+          "name": "_split_clauses"
+        },
+        {
+          "end_line": 311,
+          "kind": "function",
+          "line": 242,
+          "name": "recommend_visual_style"
+        },
+        {
+          "end_line": 338,
+          "kind": "function",
+          "line": 314,
+          "name": "_assign_line_roles"
+        },
+        {
+          "end_line": 357,
+          "kind": "function",
+          "line": 341,
+          "name": "create_cover_copy"
+        },
+        {
+          "end_line": 414,
+          "kind": "function",
+          "line": 360,
+          "name": "create_cover_lines"
+        },
+        {
+          "end_line": 467,
+          "kind": "function",
+          "line": 417,
+          "name": "recommend_layout_variants"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 692,
+      "longest_function": {
+        "end_line": 598,
+        "kind": "function",
+        "line": 502,
+        "line_count": 97,
+        "qualname": "extract_candidate_frames"
+      },
+      "module": "autoslice_cover.video",
+      "path": "src/autoslice_cover/video.py",
+      "sha256": "adba22aa56fd67107ee5aedd9c6cc5fd94783b0ba12ec36c5793acacd388e92d",
+      "top_level_classes": [
+        {
+          "end_line": 42,
+          "kind": "class",
+          "line": 30,
+          "name": "VideoMetadata"
+        },
+        {
+          "end_line": 59,
+          "kind": "class",
+          "line": 46,
+          "name": "FrameMetrics"
+        },
+        {
+          "end_line": 77,
+          "kind": "class",
+          "line": 63,
+          "name": "FrameCandidate"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 92,
+          "kind": "function",
+          "line": 80,
+          "name": "find_media_binary"
+        },
+        {
+          "end_line": 104,
+          "kind": "function",
+          "line": 95,
+          "name": "_parse_frame_rate"
+        },
+        {
+          "end_line": 171,
+          "kind": "function",
+          "line": 107,
+          "name": "probe_video"
+        },
+        {
+          "end_line": 199,
+          "kind": "function",
+          "line": 174,
+          "name": "plan_candidate_timestamps"
+        },
+        {
+          "end_line": 203,
+          "kind": "function",
+          "line": 202,
+          "name": "_clamp"
+        },
+        {
+          "end_line": 236,
+          "kind": "function",
+          "line": 206,
+          "name": "_subtitle_risk"
+        },
+        {
+          "end_line": 278,
+          "kind": "function",
+          "line": 239,
+          "name": "score_frame"
+        },
+        {
+          "end_line": 287,
+          "kind": "function",
+          "line": 281,
+          "name": "_cache_key"
+        },
+        {
+          "end_line": 293,
+          "kind": "function",
+          "line": 290,
+          "name": "_cache_lock"
+        },
+        {
+          "end_line": 298,
+          "kind": "function",
+          "line": 296,
+          "name": "_short_process_error"
+        },
+        {
+          "end_line": 316,
+          "kind": "function",
+          "line": 301,
+          "name": "_valid_metric_values"
+        },
+        {
+          "end_line": 385,
+          "kind": "function",
+          "line": 319,
+          "name": "_read_cached_candidates"
+        },
+        {
+          "end_line": 429,
+          "kind": "function",
+          "line": 388,
+          "name": "_extract_frame"
+        },
+        {
+          "end_line": 436,
+          "kind": "function",
+          "line": 432,
+          "name": "_subtitle_candidate_key"
+        },
+        {
+          "end_line": 499,
+          "kind": "function",
+          "line": 439,
+          "name": "_improve_subtitle_candidates"
+        },
+        {
+          "end_line": 598,
+          "kind": "function",
+          "line": 502,
+          "name": "extract_candidate_frames"
+        },
+        {
+          "end_line": 670,
+          "kind": "function",
+          "line": 601,
+          "name": "extract_frame_at_timestamp"
+        },
+        {
+          "end_line": 692,
+          "kind": "function",
+          "line": 673,
+          "name": "_replace_cache_directory"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 636,
+      "longest_function": {
+        "end_line": 266,
+        "kind": "function",
+        "line": 173,
+        "line_count": 94,
+        "qualname": "CoverWorkspace.scan"
+      },
+      "module": "autoslice_cover.workspace",
+      "path": "src/autoslice_cover/workspace.py",
+      "sha256": "cdb5db74ff3d109bba61ea5f21be5b0e6a301f8c94de79b2d214e404250486ab",
+      "top_level_classes": [
+        {
+          "end_line": 87,
+          "kind": "class",
+          "line": 65,
+          "name": "CoverTask"
+        },
+        {
+          "end_line": 636,
+          "kind": "class",
+          "line": 90,
+          "name": "CoverWorkspace"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 52,
+          "kind": "function",
+          "line": 45,
+          "name": "_is_ignored_video"
+        },
+        {
+          "end_line": 61,
+          "kind": "function",
+          "line": 55,
+          "name": "_path_timestamps"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 5,
+      "longest_function": null,
       "module": "core",
       "path": "core.py",
       "sha256": "cec388866e21d574c4d9412821f75461fad328573194f4d5dce1ba5ac61dd10c",
@@ -7897,7 +8186,7 @@
       },
       "module": "scripts.architecture_snapshot",
       "path": "scripts/architecture_snapshot.py",
-      "sha256": "42e566f55fd7d8d1af730e8678ef4bd76a5455b1a34b507787645b0a8c0b2c6a",
+      "sha256": "a8bd72d1f28178c60a91f2dd0defaa3960f96fc012d32ab14e1999dde41f49b1",
       "top_level_classes": [
         {
           "end_line": 157,
@@ -8343,148 +8632,88 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 63,
+      "line_count": 81,
       "longest_function": {
-        "end_line": 59,
+        "end_line": 77,
         "kind": "function",
-        "line": 13,
-        "line_count": 47,
+        "line": 14,
+        "line_count": 64,
         "qualname": "main"
       },
       "module": "scripts.smoke_packaging",
       "path": "scripts/smoke_packaging.py",
-      "sha256": "4d576114c028137f7170d2af6dd99bad6e9b46072cae46dc1a2b436e678149b3",
+      "sha256": "5254e0cd6a6829fbadc3fbb2f69433dfe946f255cc8140ff8ef5e86f5163feac",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 59,
+          "end_line": 77,
           "kind": "function",
-          "line": 13,
+          "line": 14,
           "name": "main"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 217,
+      "line_count": 242,
       "longest_function": {
-        "end_line": 213,
+        "end_line": 238,
         "kind": "function",
-        "line": 120,
-        "line_count": 94,
+        "line": 132,
+        "line_count": 107,
         "qualname": "main"
       },
       "module": "scripts.smoke_startup",
       "path": "scripts/smoke_startup.py",
-      "sha256": "282a2ad2316513476c3c99614e7fc7ab287964f8b76363c1acf585d0c9c4d9c6",
+      "sha256": "dba1c0d06e3a603a90336e93f955f10b36261891b67d85ed14f957fdc14bc576",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 30,
+          "end_line": 36,
           "kind": "function",
-          "line": 22,
+          "line": 28,
           "name": "_release_files"
         },
         {
-          "end_line": 37,
+          "end_line": 43,
           "kind": "function",
-          "line": 33,
+          "line": 39,
           "name": "_copy_release"
         },
         {
-          "end_line": 46,
+          "end_line": 52,
           "kind": "function",
-          "line": 40,
+          "line": 46,
           "name": "_port_is_free"
         },
         {
-          "end_line": 55,
+          "end_line": 61,
           "kind": "function",
-          "line": 49,
+          "line": 55,
           "name": "_read_json"
         },
         {
-          "end_line": 75,
+          "end_line": 81,
           "kind": "function",
-          "line": 58,
+          "line": 64,
           "name": "_wait_for_services"
         },
         {
-          "end_line": 102,
+          "end_line": 108,
           "kind": "function",
-          "line": 78,
+          "line": 84,
           "name": "_stop_process_tree"
         },
         {
-          "end_line": 117,
+          "end_line": 129,
           "kind": "function",
-          "line": 105,
+          "line": 111,
           "name": "_run_checked"
         },
         {
-          "end_line": 213,
+          "end_line": 238,
           "kind": "function",
-          "line": 120,
-          "name": "main"
-        }
-      ]
-    },
-    {
-      "duplicate_top_level_definitions": [],
-      "line_count": 178,
-      "longest_function": {
-        "end_line": 174,
-        "kind": "function",
-        "line": 145,
-        "line_count": 30,
-        "qualname": "main"
-      },
-      "module": "scripts.sync_autocover",
-      "path": "scripts/sync_autocover.py",
-      "sha256": "253ff5334e9137a03f329bd5e1f13b5376dccb5a05b8c934326d37223d68837f",
-      "top_level_classes": [
-        {
-          "end_line": 30,
-          "kind": "class",
-          "line": 26,
-          "name": "SyncDifference"
-        }
-      ],
-      "top_level_functions": [
-        {
-          "end_line": 43,
-          "kind": "function",
-          "line": 33,
-          "name": "_validate_source"
-        },
-        {
-          "end_line": 67,
-          "kind": "function",
-          "line": 46,
-          "name": "managed_files"
-        },
-        {
-          "end_line": 89,
-          "kind": "function",
-          "line": 70,
-          "name": "compare_trees"
-        },
-        {
-          "end_line": 112,
-          "kind": "function",
-          "line": 92,
-          "name": "apply_sync"
-        },
-        {
-          "end_line": 142,
-          "kind": "function",
-          "line": 115,
-          "name": "build_parser"
-        },
-        {
-          "end_line": 174,
-          "kind": "function",
-          "line": 145,
+          "line": 132,
           "name": "main"
         }
       ]
@@ -8657,6 +8886,7 @@
       "topic_engine.py",
       "启动.py",
       "autocover_tool/__init__.py",
+      "autocover_tool/_compat.py",
       "autocover_tool/app.py",
       "autocover_tool/启动.py",
       "autocover_tool/autocover/__init__.py",
@@ -8678,7 +8908,6 @@
       "scripts/scan_public_release.py",
       "scripts/smoke_packaging.py",
       "scripts/smoke_startup.py",
-      "scripts/sync_autocover.py",
       "scripts/validate_public_docs.py",
       "scripts/manual/__init__.py",
       "scripts/manual/run_real_pipeline_smoke.py",
@@ -8714,13 +8943,27 @@
       "src/autoslice/transcription/contracts.py",
       "src/autoslice/transcription/service.py",
       "src/autoslice/web/__init__.py",
-      "src/autoslice/web/app.py"
+      "src/autoslice/web/app.py",
+      "src/autoslice_cover/__init__.py",
+      "src/autoslice_cover/app.py",
+      "src/autoslice_cover/cli.py",
+      "src/autoslice_cover/drafts.py",
+      "src/autoslice_cover/emoji.py",
+      "src/autoslice_cover/fonts.py",
+      "src/autoslice_cover/paths.py",
+      "src/autoslice_cover/renderer.py",
+      "src/autoslice_cover/stickers.py",
+      "src/autoslice_cover/style.py",
+      "src/autoslice_cover/titles.py",
+      "src/autoslice_cover/video.py",
+      "src/autoslice_cover/workspace.py"
     ],
     "root": ".",
     "test_files": [
       "autocover_tool/tests/__init__.py",
       "autocover_tool/tests/test_app.py",
       "autocover_tool/tests/test_cli.py",
+      "autocover_tool/tests/test_compatibility.py",
       "autocover_tool/tests/test_end_to_end.py",
       "autocover_tool/tests/test_fonts.py",
       "autocover_tool/tests/test_paths.py",
@@ -8752,26 +8995,25 @@
       "tests/unit/test_security_policy.py",
       "tests/unit/test_setup_asr_model.py",
       "tests/unit/test_streamer_profiles.py",
-      "tests/unit/test_sync_autocover.py",
       "tests/unit/test_task_registry.py",
       "tests/unit/test_task_store.py"
     ]
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 135,
-    "production_line_count": 33200,
-    "production_module_count": 75,
+    "import_edge_count": 149,
+    "production_line_count": 33183,
+    "production_module_count": 88,
     "test_private_patch_count": 17,
-    "top_level_class_count": 83,
-    "top_level_function_count": 852
+    "top_level_class_count": 82,
+    "top_level_function_count": 847
   },
   "test_private_patches": {
     "by_target_module": {
       "app_module": 8,
-      "autocover.cli": 2,
-      "autocover.fonts": 1,
-      "autocover.video": 5,
+      "autoslice_cover.cli": 2,
+      "autoslice_cover.fonts": 1,
+      "autoslice_cover.video": 5,
       "builtins": 1
     },
     "by_test_file": {
@@ -8808,19 +9050,19 @@
       },
       {
         "count": 1,
-        "target": "autocover.cli._open_browser_later"
+        "target": "autoslice_cover.cli._open_browser_later"
       },
       {
         "count": 1,
-        "target": "autocover.cli._probe_service"
+        "target": "autoslice_cover.cli._probe_service"
       },
       {
         "count": 1,
-        "target": "autocover.fonts._system_font_candidates"
+        "target": "autoslice_cover.fonts._system_font_candidates"
       },
       {
         "count": 5,
-        "target": "autocover.video._extract_frame"
+        "target": "autoslice_cover.video._extract_frame"
       },
       {
         "count": 1,

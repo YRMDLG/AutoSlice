@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from PIL import ImageFont
 
-from autocover import fonts
+from autoslice_cover import fonts
 
 
 class FontTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class FontTests(unittest.TestCase):
         missing_local = self.root / "missing-local.ttf"
         with (
             patch.dict(os.environ, {fonts.FONT_PATH_ENV: str(self.existing_font)}),
-            patch("autocover.fonts.LOCAL_FONT_PATH", missing_local),
+            patch("autoslice_cover.fonts.LOCAL_FONT_PATH", missing_local),
         ):
             status = fonts.get_default_font_status()
 
@@ -45,7 +45,7 @@ class FontTests(unittest.TestCase):
         missing_environment = self.root / "missing-environment.ttf"
         with (
             patch.dict(os.environ, {fonts.FONT_PATH_ENV: str(missing_environment)}),
-            patch("autocover.fonts.LOCAL_FONT_PATH", self.existing_font),
+            patch("autoslice_cover.fonts.LOCAL_FONT_PATH", self.existing_font),
         ):
             status = fonts.get_default_font_status()
 
@@ -56,8 +56,8 @@ class FontTests(unittest.TestCase):
     def test_missing_preferred_font_uses_system_fallback(self) -> None:
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("autocover.fonts.LOCAL_FONT_PATH", self.root / "missing.ttf"),
-            patch("autocover.fonts._system_font_candidates", return_value=(self.existing_font,)),
+            patch("autoslice_cover.fonts.LOCAL_FONT_PATH", self.root / "missing.ttf"),
+            patch("autoslice_cover.fonts._system_font_candidates", return_value=(self.existing_font,)),
         ):
             status = fonts.get_default_font_status()
 

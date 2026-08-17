@@ -16,6 +16,12 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_DIR = ROOT / "src"
+if str(SOURCE_DIR) not in sys.path:
+    sys.path.insert(0, str(SOURCE_DIR))
+
+from autoslice_cover import API_VERSION as AUTOCOVER_API_VERSION  # noqa: E402
+
 PORTS = (5002, 5010)
 
 
@@ -68,7 +74,7 @@ def _wait_for_services(process: subprocess.Popen[str], timeout: float = 45.0) ->
             and autoslice.get("api_version") == 1
             and autocover
             and autocover.get("service") == "autocover"
-            and autocover.get("api_version") == 5
+            and autocover.get("api_version") == AUTOCOVER_API_VERSION
         ):
             return
         time.sleep(0.2)
@@ -102,10 +108,16 @@ def _stop_process_tree(process: subprocess.Popen[str]) -> None:
         pass
 
 
-def _run_checked(command: list[str], cwd: Path) -> None:
+def _run_checked(
+    command: list[str],
+    cwd: Path,
+    *,
+    env: dict[str, str] | None = None,
+) -> None:
     result = subprocess.run(
         command,
         cwd=cwd,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -150,10 +162,23 @@ def main() -> int:
             return 1
 
         _run_checked([sys.executable, "-B", "scripts/validate_public_docs.py"], clean_root)
-        _run_checked([sys.executable, "-B", "scripts/compile_public.py"], clean_root)
         _run_checked(
-            [sys.executable, "-B", "-m", "autocover_tool.autocover.cli", "--help"],
+            [sys.executable, "-B", "-m", "compileall", "-q", "."],
             clean_root,
+        )
+        cli_env = os.environ.copy()
+        cli_env["PYTHONPATH"] = os.pathsep.join(
+            part
+            for part in (
+                str(clean_root / "src"),
+                str(cli_env.get("PYTHONPATH", "")).strip(),
+            )
+            if part
+        )
+        _run_checked(
+            [sys.executable, "-B", "-m", "autoslice_cover.cli", "--help"],
+            clean_root,
+            env=cli_env,
         )
 
         env = os.environ.copy()

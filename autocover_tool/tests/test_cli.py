@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from autocover import API_VERSION, SERVICE_ID
-from autocover.cli import (
+from autoslice_cover import API_VERSION, SERVICE_ID
+from autoslice_cover.cli import (
     _configure_text_stream,
     _is_compatible_service,
     build_parser,
@@ -20,7 +20,7 @@ from autocover.cli import (
     main,
     run_server,
 )
-from autocover.video import FrameCandidate, FrameMetrics
+from autoslice_cover.video import FrameCandidate, FrameMetrics
 
 
 class CliTests(unittest.TestCase):
@@ -67,8 +67,8 @@ class CliTests(unittest.TestCase):
             )
         )
 
-    @patch("autocover.cli._open_browser_later")
-    @patch("autocover.cli._probe_service")
+    @patch("autoslice_cover.cli._open_browser_later")
+    @patch("autoslice_cover.cli._probe_service")
     def test_server_reuses_compatible_preferred_port(self, probe, open_browser) -> None:
         probe.return_value = {"service": SERVICE_ID, "api_version": API_VERSION}
 
@@ -104,7 +104,7 @@ class CliTests(unittest.TestCase):
                 metrics=FrameMetrics(0.5, 1.0, 0.6, 0.7, 0.4, 0.0),
             )
             output = root / "output"
-            with patch("autocover.workspace.extract_candidate_frames", return_value=[candidate]):
+            with patch("autoslice_cover.workspace.extract_candidate_frames", return_value=[candidate]):
                 result = main([
                     "batch",
                     str(clips),

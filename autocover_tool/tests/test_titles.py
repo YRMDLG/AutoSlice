@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autocover.style import (
+from autoslice_cover.style import (
     HOME_4_3,
     MELODY_STYLE,
     PALETTES,
@@ -16,7 +16,7 @@ from autocover.style import (
     get_palette,
     get_template,
 )
-from autocover.titles import (
+from autoslice_cover.titles import (
     create_cover_copy,
     create_cover_lines,
     load_title_map,

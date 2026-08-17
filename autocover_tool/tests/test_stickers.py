@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from autocover.stickers import StickerLibrary
+from autoslice_cover.stickers import StickerLibrary
 
 
 class StickerLibraryTests(unittest.TestCase):

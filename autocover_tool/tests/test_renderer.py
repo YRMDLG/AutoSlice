@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw, ImageFont
 
-from autocover.emoji import (
+from autoslice_cover.emoji import (
     get_chromium_path,
     get_emoji_font_path,
     render_emoji_image,
 )
-from autocover.renderer import (
+from autoslice_cover.renderer import (
     StickerOverlay,
     TextTransform,
     compose_background,
@@ -22,9 +22,9 @@ from autocover.renderer import (
     render_cover,
     resolve_font_path,
 )
-from autocover.fonts import LOCAL_FONT_PATH
-from autocover.style import HOME_4_3, TEMPLATES, get_canvas_spec, get_palette, get_template
-from autocover.titles import CoverLine
+from autoslice_cover.fonts import LOCAL_FONT_PATH
+from autoslice_cover.style import HOME_4_3, TEMPLATES, get_canvas_spec, get_palette, get_template
+from autoslice_cover.titles import CoverLine
 
 
 class RendererTests(unittest.TestCase):
@@ -527,7 +527,7 @@ class RendererTests(unittest.TestCase):
 
         with (
             patch(
-                "autocover.renderer.draw_cover_text",
+                "autoslice_cover.renderer.draw_cover_text",
                 side_effect=RuntimeError("模拟文字绘制失败"),
             ),
             self.assertRaisesRegex(RuntimeError, "文字绘制失败"),

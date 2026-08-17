@@ -18,10 +18,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from autocover_tool.autocover import (
+from autoslice_cover import (
     API_VERSION as AUTOCOVER_API_VERSION,
 )
-from autocover_tool.autocover import (
+from autoslice_cover import (
     SERVICE_ID as AUTOCOVER_SERVICE_ID,
 )
 from autoslice.paths import APPLICATION_DATA_ROOT, SOURCE_WORKSPACE_ROOT
@@ -35,6 +35,7 @@ from autoslice.runtime_config import (
 from autoslice.security_policy import SecurityConfigurationError, SecurityPolicy
 
 PROJECT_DIR = APPLICATION_DATA_ROOT
+PACKAGE_SOURCE_ROOT = Path(__file__).resolve().parents[1]
 GPU_RUNTIME_RELATIVE_PATH = Path("AutoSlice") / "gpu-py310-cu130" / "Scripts" / "python.exe"
 REQUIRED_IMPORTS = ("flask", "funasr", "soxr", "docx", "requests")
 MINIMUM_PACKAGE_VERSIONS = {"funasr": "1.4.1"}
@@ -373,12 +374,18 @@ def _start_autocover(
     factory = process_factory or subprocess.Popen
     child_env = dict(env)
     child_env["PYTHONUTF8"] = "1"
+    existing_python_path = str(child_env.get("PYTHONPATH", "")).strip()
+    child_env["PYTHONPATH"] = os.pathsep.join(
+        part
+        for part in (str(PACKAGE_SOURCE_ROOT), existing_python_path)
+        if part
+    )
     child_env.setdefault("AUTOCOVER_INPUT_DIR", str(AUTOCOVER_INPUT_DIR))
     child_env.setdefault("AUTOCOVER_OUTPUT_DIR", str(COVER_OUTPUT_DIR))
     child_env.setdefault("AUTOCOVER_STICKER_DIR", str(STICKER_DIR))
     process = factory(
         [
-            str(python_executable), "-m", "autocover.cli", "serve",
+            str(python_executable), "-m", "autoslice_cover.cli", "serve",
             "--port", str(selected_port), "--no-browser",
         ],
         cwd=str(cover_dir),
