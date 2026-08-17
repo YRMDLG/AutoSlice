@@ -106,6 +106,161 @@ def make_http_error(status):
     return requests.HTTPError(response=response)
 
 
+class PromptContractTests(unittest.TestCase):
+    """业务 prompt 只消费显式证据，并由中立模块唯一实现。"""
+
+    @staticmethod
+    def _context():
+        from autoslice.llm.prompts import PromptContext
+
+        return PromptContext(
+            streamer_display_name="测试主播",
+            prompt_streamer_name="测试主播",
+            editor_subject="测试主播",
+            title_prefix_rule="固定以【测试】开头",
+            title_prefix_rule_quoted="固定以“【测试】”开头",
+            publish_title_example="【测试】具体事件👀真正后果",
+            title_style="- 规则：保留具体结果",
+            streamer_aliases=("小测", "测试主播"),
+        )
+
+    def test_topic_engine_prompt_facade_keeps_new_implementation_identity(self):
+        from autoslice.llm import prompts
+        import topic_engine
+
+        expected = {
+            "_render_clip_candidate_review_prompt": "build_clip_candidate_review_prompt",
+            "_render_final_title_generation_prompt": "build_final_title_generation_prompt",
+            "_render_final_title_judge_prompt": "build_final_title_judge_prompt",
+            "_render_manual_topic_enrichment_prompt": "build_manual_topic_enrichment_prompt",
+            "_render_system_prompt": "build_system_prompt",
+            "_render_title_hook_guide": "build_title_hook_guide",
+            "_render_title_style_prompt": "build_title_style_prompt",
+            "_render_topic_analysis_prompt": "build_topic_analysis_prompt",
+        }
+        for facade_name, implementation_name in expected.items():
+            with self.subTest(facade_name=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(prompts, implementation_name),
+                )
+        self.assertIs(topic_engine.SYSTEM_PROMPT, prompts.SYSTEM_PROMPT)
+        self.assertIs(
+            topic_engine.TITLE_HOOK_PROMPT_GUIDE,
+            prompts.TITLE_HOOK_PROMPT_GUIDE,
+        )
+
+    def test_prompt_snapshots_keep_business_rules_and_explicit_evidence(self):
+        import hashlib
+        from autoslice.llm import prompts
+
+        context = self._context()
+        rendered = {
+            "topic": prompts.build_topic_analysis_prompt(
+                prompts.TopicAnalysisPromptEvidence(
+                    context=context,
+                    compact=True,
+                    chunk_index=2,
+                    chunk_total=3,
+                    start_label="0:10:00",
+                    end_label="0:20:00",
+                    danmaku_info="峰值 24 条/分钟",
+                    danmaku_evidence=({
+                        "peak_start": 720,
+                        "representative_messages": ["像红色雨衣"],
+                    },),
+                    subtitle_text="[0:12:00] 测试主播发现红色雨衣最后破了",
+                )
+            ),
+            "manual": prompts.build_manual_topic_enrichment_prompt(
+                prompts.ManualTopicPromptEvidence(
+                    context=context,
+                    candidates=({
+                        "id": 1,
+                        "subtitle_evidence": ["诱因和后果"],
+                    },),
+                )
+            ),
+            "clip": prompts.build_clip_candidate_review_prompt(
+                prompts.ClipCandidatePromptEvidence(
+                    context=context,
+                    candidates=({
+                        "id": 1,
+                        "core_subtitle_evidence": ["诱因和后果"],
+                    },),
+                    focus_max_seconds=420,
+                    minimum_interest_score=75,
+                )
+            ),
+            "generate": prompts.build_final_title_generation_prompt(
+                prompts.FinalTitlePromptEvidence(
+                    context=context,
+                    topics=({
+                        "id": 1,
+                        "subtitle_evidence": ["诱因和后果"],
+                    },),
+                )
+            ),
+            "judge": prompts.build_final_title_judge_prompt(
+                prompts.FinalTitlePromptEvidence(
+                    context=context,
+                    topics=({
+                        "id": 1,
+                        "title_options": ["【测试】诱因后果"],
+                    },),
+                )
+            ),
+        }
+        expected_snapshots = {
+            "topic": "59bd3172933c60124ceb2fb98d7a4c551a29756bae3d6454f70c5844dfb5b7f8",
+            "manual": "5f2193df5c30f356598745dd7201b728b023e74c40b6097d7801d9d58d939730",
+            "clip": "cadc61372832854780a4ddd9732d301c39fb13cb12c48274041d8c2c2dc2c673",
+            "generate": "8f8f338cc07550ada225b52df1153b6ecb59c219f1b8fbd4ec203c495012508b",
+            "judge": "513224b197a65870ecd265942268772f7a51351bf308f6e23fe551306a764fba",
+        }
+        actual_snapshots = {
+            name: hashlib.sha256(value.encode("utf-8")).hexdigest()
+            for name, value in rendered.items()
+        }
+
+        self.assertEqual(actual_snapshots, expected_snapshots)
+        self.assertIn("最后一轮回应", rendered["topic"])
+        self.assertIn("人工时间轴只是线索", rendered["manual"])
+        self.assertIn("没有每小时数量目标", rendered["clip"])
+        self.assertIn("真正后果、反转、代价或收尾原话", rendered["generate"])
+        self.assertIn("若所有选项都只写前半段", rendered["judge"])
+        self.assertIn("红色雨衣最后破了", rendered["topic"])
+        for name in ("manual", "clip", "generate"):
+            self.assertIn("诱因和后果", rendered[name])
+        self.assertIn("【测试】诱因后果", rendered["judge"])
+
+    def test_prompt_module_has_no_hidden_config_or_transport_dependency(self):
+        import ast
+        import inspect
+        from autoslice.llm import prompts
+
+        source = inspect.getsource(prompts)
+        tree = ast.parse(source)
+        imported_roots = {
+            alias.name.split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        imported_roots.update(
+            (node.module or "").split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+        )
+
+        self.assertTrue(imported_roots <= {"dataclasses", "json", "typing"})
+        self.assertNotIn("api_config.json", source)
+        self.assertNotIn("os.environ", source)
+        self.assertNotIn("requests", source)
+        self.assertNotIn("topic_engine", source)
+        self.assertNotIn("subtitle_workflow", source)
+
+
 class DanmakuContentEvidenceTests(unittest.TestCase):
     """弹幕峰值原文只作为受限证据，不影响旧密度接口。"""
 
