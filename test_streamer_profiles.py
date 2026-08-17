@@ -8,13 +8,62 @@ from streamer_profiles import (
     active_streamer_profile,
     current_streamer_profile,
     infer_streamer_name_from_filename,
+    merge_profile_subtitle_glossary,
     public_streamer_profiles,
     resolve_streamer_profile,
     streamer_profile_context,
 )
 
 
+ZEYIN_REQUESTED_GLOSSARY = {
+    "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音", "音姐",
+    "音妈", "露露", "四禧丸子", "沐霂", "又一", "梨安", "恬豆", "七海",
+    "小孩梓", "阿梓", "柚恩", "露早", "EOE", "篮筐", "小沐标", "酥酥又",
+    "向心梨", "恬豆包", "柚恩蜜", "gogo队", "小星星", "星瞳", "宣小纸",
+    "真纸棒", "脆鲨",
+}
+GENERIC_SUBTITLE_GLOSSARY = {"SC", "提督", "舰长", "娃衣", "bangumi"}
+
+
 class StreamerProfileTests(unittest.TestCase):
+
+    def test_generic_glossary_is_neutral_and_zeyin_keeps_requested_terms(self):
+        generic = resolve_streamer_profile("generic")
+        zeyin = resolve_streamer_profile("zeyin")
+
+        self.assertEqual(set(generic.subtitle_glossary), GENERIC_SUBTITLE_GLOSSARY)
+        self.assertTrue(ZEYIN_REQUESTED_GLOSSARY.isdisjoint(generic.subtitle_glossary))
+        self.assertTrue(ZEYIN_REQUESTED_GLOSSARY.issubset(zeyin.subtitle_glossary))
+        self.assertEqual(len(zeyin.subtitle_glossary), len(set(zeyin.subtitle_glossary)))
+
+    def test_zeyin_keeps_existing_fixed_replacements(self):
+        zeyin = resolve_streamer_profile("zeyin")
+
+        self.assertEqual(zeyin.asr_replacements, (
+            ("英英", "音音"),
+            ("莹莹", "音音"),
+            ("盈盈", "音音"),
+            ("应应", "音音"),
+            ("音乐生", "音悦生"),
+            ("英悦生", "音悦生"),
+            ("音悦声", "音悦生"),
+            ("音乐声们", "音悦生们"),
+            ("晚安音乐声", "晚安音悦生"),
+            ("感谢音乐声", "感谢音悦生"),
+            ("见音乐声", "见音悦生"),
+        ))
+
+    def test_extra_glossary_only_appends_without_replacing_defaults(self):
+        zeyin = resolve_streamer_profile("zeyin")
+        merged = merge_profile_subtitle_glossary(
+            zeyin,
+            ["额外专名", "音音", "额外专名"],
+        )
+
+        self.assertEqual(merged[:len(zeyin.subtitle_glossary)], zeyin.subtitle_glossary)
+        self.assertEqual(merged[-1], "额外专名")
+        self.assertEqual(merged.count("音音"), 1)
+        self.assertEqual(merged.count("额外专名"), 1)
 
     def test_auto_matching_and_public_payload_are_generic_by_default(self):
         zeyin = resolve_streamer_profile(

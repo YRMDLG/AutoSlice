@@ -7,7 +7,7 @@ import os
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterator
 
@@ -53,6 +53,7 @@ class StreamerProfile:
     title_prefix: str
     aliases: tuple[str, ...]
     path_keywords: tuple[str, ...]
+    subtitle_glossary: tuple[str, ...]
     asr_replacements: tuple[tuple[str, str], ...]
     title_style_profile: Path | None
     outro_clip: OutroClipConfig | None
@@ -216,6 +217,11 @@ def load_streamer_profiles(
             title_prefix=title_prefix.strip(),
             aliases=_string_list(item, "aliases", maximum=30),
             path_keywords=_string_list(item, "path_keywords", maximum=30),
+            subtitle_glossary=_string_list(
+                item,
+                "subtitle_glossary",
+                maximum=200,
+            ),
             asr_replacements=_replacement_pairs(item),
             title_style_profile=_title_style_path(config_path, item),
             outro_clip=_outro_clip_config(item),
@@ -229,6 +235,19 @@ def load_streamer_profiles(
     ).casefold()
     if default_profile_id not in profiles:
         raise ValueError("主播配置 default_profile_id 不存在")
+
+    generic_profile = profiles.get("generic")
+    if generic_profile is not None:
+        for profile_id, profile in tuple(profiles.items()):
+            if profile_id == generic_profile.id:
+                continue
+            profiles[profile_id] = replace(
+                profile,
+                subtitle_glossary=tuple(dict.fromkeys((
+                    *generic_profile.subtitle_glossary,
+                    *profile.subtitle_glossary,
+                ))),
+            )
     return profiles, default_profile_id
 
 
@@ -329,6 +348,7 @@ def _dynamic_filename_profile(
         title_prefix=f"【{streamer_name}】",
         aliases=aliases,
         path_keywords=base_profile.path_keywords,
+        subtitle_glossary=base_profile.subtitle_glossary,
         asr_replacements=base_profile.asr_replacements,
         title_style_profile=base_profile.title_style_profile,
         outro_clip=base_profile.outro_clip,
@@ -376,6 +396,19 @@ def resolve_streamer_profile(
     if filename_streamer:
         return _dynamic_filename_profile(default_profile, filename_streamer)
     return default_profile
+
+
+def merge_profile_subtitle_glossary(
+        profile: StreamerProfile,
+        extra_terms: tuple[str, ...] | list[str] | None = None,
+) -> tuple[str, ...]:
+    """在 profile 默认词表后追加本次任务词条，默认项不可被覆盖。"""
+
+    return tuple(dict.fromkeys(
+        str(item).strip()
+        for item in (*profile.subtitle_glossary, *(extra_terms or ()))
+        if str(item).strip()
+    ))
 
 
 def active_streamer_profile() -> StreamerProfile | None:

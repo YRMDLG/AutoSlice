@@ -1654,6 +1654,7 @@ def _funasr_hotwords(video_path=None, streamer_name=""):
     values.extend(re.split(r"[,，、;；\n\r\t ]+", configured))
     values.extend(DEFAULT_SUBTITLE_GLOSSARY)
     profile = current_streamer_profile()
+    values.extend(profile.subtitle_glossary)
     values.extend((streamer_name, profile.canonical_name, profile.report_name, *profile.aliases))
     values.extend(source for source, _ in profile.asr_replacements)
     values.extend(target for _, target in profile.asr_replacements)
