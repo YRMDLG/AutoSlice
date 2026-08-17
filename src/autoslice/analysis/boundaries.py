@@ -9,6 +9,7 @@ from collections import defaultdict
 from autoslice.analysis import clip_policy
 from autoslice.streamer_profiles import current_streamer_profile
 from autoslice.transcription import service as transcription_service
+from autoslice.transcription import segments as transcription_segments
 
 FACADE_EXPORTS = {
     "_BOUNDARY_EVIDENCE_STOP_TERMS": "_BOUNDARY_EVIDENCE_STOP_TERMS",
@@ -73,7 +74,7 @@ FACADE_EXPORTS = {
 
 _profile_identity_names = transcription_service.profile_identity_names
 _load_repaired_srt_segments = transcription_service._load_repaired_srt_segments
-TOPIC_CONTEXT_GAP = transcription_service.TOPIC_CONTEXT_GAP
+TOPIC_CONTEXT_GAP = transcription_segments.TOPIC_CONTEXT_GAP
 
 TOPIC_PRE_CONTEXT_SEC = clip_policy.TOPIC_PRE_CONTEXT_SEC
 TOPIC_POST_CONTEXT_SEC = clip_policy.TOPIC_POST_CONTEXT_SEC

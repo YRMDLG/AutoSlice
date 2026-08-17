@@ -19,6 +19,7 @@ from autoslice.llm.prompts import (
     build_title_style_prompt as _render_title_style_prompt,
 )
 from autoslice.transcription import service as transcription_service
+from autoslice.transcription import segments as transcription_segments
 from autoslice.transcription.contracts import DEFAULT_MAX_PUBLISH_TITLE_CHARS
 from autoslice.streamer_profiles import (
     active_streamer_profile,
@@ -83,7 +84,7 @@ FACADE_EXPORTS = {
 
 
 _profile_matches_streamer = transcription_service.profile_matches_streamer
-_normalise_streamer_terms = transcription_service._normalise_streamer_terms
+_normalise_streamer_terms = transcription_segments.normalise_streamer_terms
 _danmaku_prompt_evidence = danmaku_analysis._danmaku_prompt_evidence
 format_elapsed_time = danmaku_analysis.format_elapsed_time
 DANMAKU_WINDOW = danmaku_analysis.DANMAKU_WINDOW

@@ -28,6 +28,7 @@ from autoslice.llm.prompts import (
     build_topic_analysis_prompt as _render_topic_analysis_prompt,
 )
 from autoslice.transcription import service as transcription_service
+from autoslice.transcription import segments as transcription_segments
 from autoslice.streamer_profiles import (
     current_streamer_profile,
     streamer_profile_context,
@@ -142,19 +143,19 @@ _profile_identity_names = transcription_service.profile_identity_names
 _profile_matches_streamer = transcription_service.profile_matches_streamer
 
 
-SRT_ESTIMATED_CHARS_PER_SEC = transcription_service.SRT_ESTIMATED_CHARS_PER_SEC
+SRT_ESTIMATED_CHARS_PER_SEC = transcription_segments.SRT_ESTIMATED_CHARS_PER_SEC
 
 
-TOPIC_CONTEXT_GAP = transcription_service.TOPIC_CONTEXT_GAP
+TOPIC_CONTEXT_GAP = transcription_segments.TOPIC_CONTEXT_GAP
 
 
-_text_len_for_timing = transcription_service._text_len_for_timing
+_text_len_for_timing = transcription_segments.text_len_for_timing
 
 
-_normalise_streamer_terms = transcription_service._normalise_streamer_terms
+_normalise_streamer_terms = transcription_segments.normalise_streamer_terms
 
 
-_subtitle_text_size = transcription_service._subtitle_text_size
+_subtitle_text_size = transcription_segments.subtitle_text_size
 
 
 _load_repaired_srt_segments = transcription_service._load_repaired_srt_segments

@@ -43,6 +43,7 @@ from autoslice.llm.prompts import (
 from autoslice.transcription import checkpoints as transcription_checkpoints
 from autoslice.transcription import model_runtime as transcription_model_runtime
 from autoslice.transcription import results as transcription_results
+from autoslice.transcription import segments as transcription_segments
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
@@ -110,23 +111,33 @@ FUNASR_SPK_MODEL = transcription_model_runtime.FUNASR_SPK_MODEL
 FUNASR_SPK_WEIGHT_FILES = transcription_model_runtime.FUNASR_SPK_WEIGHT_FILES
 FUNASR_VAD_CACHE_MODEL_DIR = transcription_model_runtime.FUNASR_VAD_CACHE_MODEL_DIR
 FUNASR_VAD_MODEL = transcription_model_runtime.FUNASR_VAD_MODEL
-SRT_ABNORMAL_CHARS_PER_SEC = transcription_service.SRT_ABNORMAL_CHARS_PER_SEC
-SRT_MAX_ESTIMATED_SEG_SEC = transcription_service.SRT_MAX_ESTIMATED_SEG_SEC
-SRT_REPEAT_REPAIR_MIN_ENTRIES = transcription_service.SRT_REPEAT_REPAIR_MIN_ENTRIES
-SUBTITLE_LEGACY_REPAIR_MAX_CHARS = transcription_service.SUBTITLE_LEGACY_REPAIR_MAX_CHARS
-SUBTITLE_MAX_CHARS = transcription_service.SUBTITLE_MAX_CHARS
-SUBTITLE_MAX_DURATION_SEC = transcription_service.SUBTITLE_MAX_DURATION_SEC
-SUBTITLE_PAUSE_BREAK_SEC = transcription_service.SUBTITLE_PAUSE_BREAK_SEC
-SUBTITLE_TARGET_CHARS = transcription_service.SUBTITLE_TARGET_CHARS
-_repair_srt_end_time = transcription_service._repair_srt_end_time
-_join_asr_tokens = transcription_service._join_asr_tokens
-_strip_asr_subtitle_punctuation = transcription_service._strip_asr_subtitle_punctuation
-_normalise_asr_text = transcription_service._normalise_asr_text
-_split_subtitle_text_for_display = transcription_service._split_subtitle_text_for_display
-_split_timed_subtitle_segment = transcription_service._split_timed_subtitle_segment
-_should_hold_subtitle_for_short_clause = transcription_service._should_hold_subtitle_for_short_clause
-_segment_timed_tokens = transcription_service._segment_timed_tokens
-_segments_from_funasr_result = transcription_service._segments_from_funasr_result
+SRT_ABNORMAL_CHARS_PER_SEC = transcription_segments.SRT_ABNORMAL_CHARS_PER_SEC
+SRT_MAX_ESTIMATED_SEG_SEC = transcription_segments.SRT_MAX_ESTIMATED_SEG_SEC
+SRT_REPEAT_REPAIR_MIN_ENTRIES = transcription_segments.SRT_REPEAT_REPAIR_MIN_ENTRIES
+SUBTITLE_LEGACY_REPAIR_MAX_CHARS = (
+    transcription_segments.SUBTITLE_LEGACY_REPAIR_MAX_CHARS
+)
+SUBTITLE_MAX_CHARS = transcription_segments.SUBTITLE_MAX_CHARS
+SUBTITLE_MAX_DURATION_SEC = transcription_segments.SUBTITLE_MAX_DURATION_SEC
+SUBTITLE_PAUSE_BREAK_SEC = transcription_segments.SUBTITLE_PAUSE_BREAK_SEC
+SUBTITLE_TARGET_CHARS = transcription_segments.SUBTITLE_TARGET_CHARS
+_repair_srt_end_time = transcription_segments.repair_srt_end_time
+_join_asr_tokens = transcription_segments.join_asr_tokens
+_strip_asr_subtitle_punctuation = (
+    transcription_segments.strip_asr_subtitle_punctuation
+)
+_normalise_asr_text = transcription_segments.normalise_asr_text
+_split_subtitle_text_for_display = (
+    transcription_segments.split_subtitle_text_for_display
+)
+_split_timed_subtitle_segment = (
+    transcription_segments.split_timed_subtitle_segment
+)
+_should_hold_subtitle_for_short_clause = (
+    transcription_segments.should_hold_subtitle_for_short_clause
+)
+_segment_timed_tokens = transcription_segments.segment_timed_tokens
+_segments_from_funasr_result = transcription_segments.segments_from_funasr_result
 _read_srt_entries = transcription_service._read_srt_entries
 export_corrected_srt = transcription_service.export_corrected_srt
 _probe_video_duration = transcription_service.probe_video_duration
@@ -161,14 +172,18 @@ _is_close_number = transcription_checkpoints.is_close_number
 _prepare_funasr_checkpoint = transcription_checkpoints.prepare_funasr_checkpoint
 _write_funasr_checkpoint = transcription_checkpoints.write_funasr_checkpoint
 _clear_funasr_cuda_cache = transcription_model_runtime.clear_funasr_cuda_cache
-_dedupe_overlapping_funasr_segments = transcription_service._dedupe_overlapping_funasr_segments
-_is_funasr_punctuation = transcription_service._is_funasr_punctuation
-_attach_funasr_punctuation_to_tokens = transcription_service._attach_funasr_punctuation_to_tokens
-_align_funasr_tokens = transcription_service._align_funasr_tokens
-_trim_funasr_tokens_to_core = transcription_service._trim_funasr_tokens_to_core
+_dedupe_overlapping_funasr_segments = (
+    transcription_segments.dedupe_overlapping_funasr_segments
+)
+_is_funasr_punctuation = transcription_segments.is_funasr_punctuation
+_attach_funasr_punctuation_to_tokens = (
+    transcription_segments.attach_funasr_punctuation_to_tokens
+)
+_align_funasr_tokens = transcription_segments.align_funasr_tokens
+_trim_funasr_tokens_to_core = transcription_segments.trim_funasr_tokens_to_core
 ensure_srt = transcription_service.ensure_srt
-_srt_time = transcription_service.srt_time
-_parse_srt_timestamp = transcription_service.parse_srt_timestamp
+_srt_time = transcription_segments.srt_time
+_parse_srt_timestamp = transcription_segments.parse_srt_timestamp
 
 
 # 弹幕兼容 façade：解析、峰值和刷屏降权只保留唯一实现。
@@ -314,7 +329,7 @@ OUTRO_VARIANT_FAREWELL_BEFORE_SEC = clip_policy.OUTRO_VARIANT_FAREWELL_BEFORE_SE
 SC_CONTEXT_LOOKBACK_SEC = clip_policy.SC_CONTEXT_LOOKBACK_SEC
 SC_FALLBACK_GIFT_LOOKBACK_SEC = clip_policy.SC_FALLBACK_GIFT_LOOKBACK_SEC
 SC_TRIGGER_KEYWORDS = clip_policy.SC_TRIGGER_KEYWORDS
-SRT_ESTIMATED_CHARS_PER_SEC = transcription_service.SRT_ESTIMATED_CHARS_PER_SEC
+SRT_ESTIMATED_CHARS_PER_SEC = transcription_segments.SRT_ESTIMATED_CHARS_PER_SEC
 THANKS_TRIGGER_RE = clip_policy.THANKS_TRIGGER_RE
 TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC = clip_policy.TOPIC_AI_FOCUS_EDGE_POST_CONTEXT_SEC
 TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC = clip_policy.TOPIC_AI_FOCUS_EDGE_PRE_CONTEXT_SEC
@@ -328,7 +343,7 @@ TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEC = clip_policy.TOPIC_BOUNDARY_EVIDENCE_FORWAR
 TOPIC_BOUNDARY_EVIDENCE_LOOKBACK_SEC = clip_policy.TOPIC_BOUNDARY_EVIDENCE_LOOKBACK_SEC
 TOPIC_BOUNDARY_EVIDENCE_MIN_SCORE = clip_policy.TOPIC_BOUNDARY_EVIDENCE_MIN_SCORE
 TOPIC_BOUNDARY_FORWARD_SHIFT_MAX_SEC = clip_policy.TOPIC_BOUNDARY_FORWARD_SHIFT_MAX_SEC
-TOPIC_CONTEXT_GAP = transcription_service.TOPIC_CONTEXT_GAP
+TOPIC_CONTEXT_GAP = transcription_segments.TOPIC_CONTEXT_GAP
 TOPIC_DIRECT_SLICE_MAX_SEC = clip_policy.TOPIC_DIRECT_SLICE_MAX_SEC
 TOPIC_FOCUS_POST_SEC = clip_policy.TOPIC_FOCUS_POST_SEC
 TOPIC_FOCUS_PRE_SEC = clip_policy.TOPIC_FOCUS_PRE_SEC
@@ -463,7 +478,7 @@ _next_report_topic_safe_boundary = boundary_analysis._next_report_topic_safe_bou
 _normalise_body_line = candidate_analysis._normalise_body_line
 _normalise_boundary_evidence_text = boundary_analysis._normalise_boundary_evidence_text
 _normalise_outro_trigger_text = boundary_analysis._normalise_outro_trigger_text
-_normalise_streamer_terms = transcription_service._normalise_streamer_terms
+_normalise_streamer_terms = transcription_segments.normalise_streamer_terms
 _optimized_entry_semantic_text = candidate_analysis._optimized_entry_semantic_text
 _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
 _overlap_ratio = boundary_analysis._overlap_ratio
@@ -493,8 +508,8 @@ _srt_video_duration = boundary_analysis._srt_video_duration
 _strip_code_fence = candidate_analysis._strip_code_fence
 _strip_prompt_time_labels = candidate_analysis._strip_prompt_time_labels
 _subtitle_speech_chains = boundary_analysis._subtitle_speech_chains
-_subtitle_text_size = transcription_service._subtitle_text_size
-_text_len_for_timing = transcription_service._text_len_for_timing
+_subtitle_text_size = transcription_segments.subtitle_text_size
+_text_len_for_timing = transcription_segments.text_len_for_timing
 _topic_analysis_prompt_fingerprint = candidate_analysis._topic_analysis_prompt_fingerprint
 _topic_danmaku_reference_lines = candidate_analysis._topic_danmaku_reference_lines
 _topic_index_label = candidate_analysis._topic_index_label

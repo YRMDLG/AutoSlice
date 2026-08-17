@@ -874,6 +874,39 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertTrue(recognition_functions)
         self.assertTrue(recognition_functions.isdisjoint(service_functions))
 
+    def test_funasr_segments_have_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import boundaries, candidates, titles
+        from autoslice.transcription import segments, service
+
+        self.assertIs(service.subtitle_segments, segments)
+        self.assertIs(candidates.transcription_segments, segments)
+        self.assertIs(titles.transcription_segments, segments)
+        self.assertIs(boundaries.transcription_segments, segments)
+
+        for facade_name, owner_name in segments.FACADE_EXPORTS.items():
+            with self.subTest(name=facade_name):
+                owner = getattr(segments, owner_name)
+                self.assertIs(getattr(service, facade_name), owner)
+                self.assertIs(getattr(topic_engine, facade_name), owner)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        service_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.service"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.segments"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(owner_functions)
+        self.assertTrue(owner_functions.isdisjoint(service_functions))
+
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import slice_reuse, slicing
