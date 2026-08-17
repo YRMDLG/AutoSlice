@@ -11,7 +11,6 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "architecture_baseline.json"
 SCHEMA_VERSION = 1
@@ -36,6 +35,7 @@ EXCLUDED_DIRECTORY_NAMES = frozenset({
     "stickers",
     "submissions",
     "timelines",
+    "video-topic-analyzer",
     "venv",
 })
 EXCLUDED_DIRECTORY_PREFIXES = (".codex-tmp-",)

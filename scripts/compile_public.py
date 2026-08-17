@@ -2,20 +2,36 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED_PARTS = {".git", ".venv", "venv", "__pycache__"}
+
+
+def discover_public_python_files(root: Path = ROOT) -> list[Path]:
+    """返回 Git 会纳入公开发布候选的 Python 文件。"""
+
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    names = result.stdout.decode("utf-8", errors="strict").split("\0")
+    return sorted(
+        root / name
+        for name in names
+        if (
+            name
+            and Path(name).suffix.casefold() == ".py"
+            and (root / name).is_file()
+        )
+    )
 
 
 def main() -> int:
-    files = sorted(
-        path
-        for path in ROOT.rglob("*.py")
-        if not EXCLUDED_PARTS.intersection(path.relative_to(ROOT).parts)
-    )
+    files = discover_public_python_files()
     failures: list[str] = []
     for path in files:
         try:

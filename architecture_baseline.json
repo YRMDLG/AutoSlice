@@ -1555,7 +1555,7 @@
       },
       "module": "app",
       "path": "app.py",
-      "sha256": "51197f015236c667f85328e6f0a6feaab1b92106021479b23f2ce24747758748",
+      "sha256": "fe2a39e2752b9b2de785755ec2a66ed47293ac7cd3677d87cb7329ccfacc7352",
       "top_level_classes": [
         {
           "end_line": 266,
@@ -2140,7 +2140,7 @@
       },
       "module": "autocover_tool.app",
       "path": "autocover_tool/app.py",
-      "sha256": "d86874cb7bf8a24714e7d147b5070181eb05c5fb4e80414377f056e3cfc355ef",
+      "sha256": "62e98bd572f829b1bf07d90f98f49feb57e079b89d30bb0c0ba4780c5dc26ca8",
       "top_level_classes": [
         {
           "end_line": 86,
@@ -2290,7 +2290,7 @@
       "longest_function": null,
       "module": "autocover_tool.autocover",
       "path": "autocover_tool/autocover/__init__.py",
-      "sha256": "f2b2cfa6b17e162b5ca56b0784e7bb12f18596f5d85f46bab1ad9b4f13aa21c8",
+      "sha256": "bdc754974a6d5ee0494db48d6ec8049afbbbc62789bbaa06649bed533088ba3e",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -2306,7 +2306,7 @@
       },
       "module": "autocover_tool.autocover.cli",
       "path": "autocover_tool/autocover/cli.py",
-      "sha256": "7be24d04b22df3d0554817990219983c30bfd41dc05a2eb24b09306ed5c5310b",
+      "sha256": "8a32d9d13ec0ef91ffccad680c86a783a9b7242c02f36fa130d4ab3bea7ac967",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -2383,7 +2383,7 @@
       },
       "module": "autocover_tool.autocover.drafts",
       "path": "autocover_tool/autocover/drafts.py",
-      "sha256": "8600f373129c7f6ab18d063785e6f6e84fad0deed65bfc93840215b9787b6391",
+      "sha256": "6c83e5e181efb65edfeb473e63745309808368c72c070ec66c31ccc0d29b0ac4",
       "top_level_classes": [
         {
           "end_line": 342,
@@ -2437,7 +2437,7 @@
       },
       "module": "autocover_tool.autocover.emoji",
       "path": "autocover_tool/autocover/emoji.py",
-      "sha256": "16d49b56509644da13466f2301f7ee6748c4a8bfe1faa2301c66603458e71bfd",
+      "sha256": "43de047cd0e04621c6cd174f037a27ea007f10c86367e98871a8785e43150e22",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -2502,7 +2502,7 @@
       },
       "module": "autocover_tool.autocover.fonts",
       "path": "autocover_tool/autocover/fonts.py",
-      "sha256": "537ccd88e8db6e4d31a5d6f447b93b951f6fa5726c240fa011c88d8b578043e1",
+      "sha256": "4c654353c5bbb2c89e508c453fdc35115cd23994f5f90c9206d759e2f9304825",
       "top_level_classes": [
         {
           "end_line": 53,
@@ -2568,7 +2568,7 @@
       },
       "module": "autocover_tool.autocover.renderer",
       "path": "autocover_tool/autocover/renderer.py",
-      "sha256": "51b38e71171d0958a7f5e5e70d5f386f8b375acabd5ae78113824c9d077f3838",
+      "sha256": "7646bc4ce55a28b11fb4cb2814e27250b54410208e013446dbd7cfec45c70da4",
       "top_level_classes": [
         {
           "end_line": 68,
@@ -2856,7 +2856,7 @@
       },
       "module": "autocover_tool.autocover.stickers",
       "path": "autocover_tool/autocover/stickers.py",
-      "sha256": "71ba0b1a894a73da310a760af982700a7e71e4fba062f73e9e312471db8a5f35",
+      "sha256": "f0f2a7c077f0f48ea3eafb0707260a83adb28ba92b3c53f3836ec0748bd716b5",
       "top_level_classes": [
         {
           "end_line": 43,
@@ -2885,7 +2885,7 @@
       },
       "module": "autocover_tool.autocover.style",
       "path": "autocover_tool/autocover/style.py",
-      "sha256": "620eec7d5705bf5705357a2e624dd944e6ac5ee6b3ae643ad8c2031237aef12c",
+      "sha256": "1cc35105126a291fee1ee0fa1d86aa25607ccff0cbb56a4390027e6731de9213",
       "top_level_classes": [
         {
           "end_line": 30,
@@ -2951,7 +2951,7 @@
       },
       "module": "autocover_tool.autocover.titles",
       "path": "autocover_tool/autocover/titles.py",
-      "sha256": "9683793d37899c8eaa862fa4b4243bbd5cd213258405dc4a29765c12e90f006a",
+      "sha256": "54922a89f7ef58b8610cc06cb6a14eeaf81ccfd7d67eef3cc0b7ee3a01f49943",
       "top_level_classes": [
         {
           "end_line": 37,
@@ -3065,7 +3065,7 @@
       },
       "module": "autocover_tool.autocover.video",
       "path": "autocover_tool/autocover/video.py",
-      "sha256": "c6c05d0aa91804baf86e73063e599a71aea34f76019ed5b97ffb6311e4e230f9",
+      "sha256": "493f5f5ca5b8b7b57a1a92cedc3f963e06df6a4587cbf6c7536b6f769344a9c6",
       "top_level_classes": [
         {
           "end_line": 41,
@@ -3209,7 +3209,7 @@
       },
       "module": "autocover_tool.autocover.workspace",
       "path": "autocover_tool/autocover/workspace.py",
-      "sha256": "0e3dae3035f0c51e46b7c35f2032aa87d0a7a866b31f7d2b89c6e09b863533bc",
+      "sha256": "d3ab0032580e35b946269077066df7b46186116f0652a8f7193bd833fd5aba78",
       "top_level_classes": [
         {
           "end_line": 84,
@@ -3255,7 +3255,7 @@
       "longest_function": null,
       "module": "autoslice",
       "path": "autoslice/__init__.py",
-      "sha256": "2bebe5ec005fc63b78fa579122ef4b6ef0aa8f199f0d9c46b84c32da3625a305",
+      "sha256": "30014d3d3ae15e0b7c1abced4806e3d23b9d8fcf255a98a4451396cb40ad4bb5",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -3265,7 +3265,7 @@
       "longest_function": null,
       "module": "autoslice.analysis",
       "path": "autoslice/analysis/__init__.py",
-      "sha256": "6b12a35de8176b2032652d852989fbeea5ffdbe3ab7045b6ce224de5b4967708",
+      "sha256": "ae35f9dbbc1031062e8480fe6eadec7f7b8f2333e190795d70af9e6db4d48b42",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -3281,7 +3281,7 @@
       },
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
-      "sha256": "f48d953ded114954a88ba2afc8dd98525c8e264efe0f68ed1b240165a83badc6",
+      "sha256": "c7d514df42025b69aff3d52af059c8e126295cfc8a83ef0039283586d83fb88e",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -4048,7 +4048,7 @@
       },
       "module": "autoslice.analysis.danmaku",
       "path": "autoslice/analysis/danmaku.py",
-      "sha256": "f5b02b236591b18a1e295a4eea7fd14bde34e205eaa6a5589c7a9b104c8e86df",
+      "sha256": "08a353309d2027e1c58d2f9b69b7ea81dfa647c4764bff9071e88dd67b74b409",
       "top_level_classes": [
         {
           "end_line": 179,
@@ -4216,7 +4216,7 @@
       },
       "module": "autoslice.analysis.timeline",
       "path": "autoslice/analysis/timeline.py",
-      "sha256": "85c5361d227060640ff70e8453143476348d3ee38cc86a9b8f433769fd5475e2",
+      "sha256": "657acb3cda033f8b59aa058cec3a14d4dd34176bbca7cb54869a4eb8a0d21d1c",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -4329,7 +4329,7 @@
       },
       "module": "autoslice.analysis.titles",
       "path": "autoslice/analysis/titles.py",
-      "sha256": "2f48bac9929670977ac600466144a503285c385087df9e21497d7dd0ec8a8f01",
+      "sha256": "638e6f94a44cf37e3fd60dbefb6c43f012387d6c9de1ea2eb5dbf713f6fdc010",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -4592,7 +4592,7 @@
       "longest_function": null,
       "module": "autoslice.llm",
       "path": "autoslice/llm/__init__.py",
-      "sha256": "bcb013063710a1922012e4d30d6cfe283dfea4b2650a702627c2e46444316f2f",
+      "sha256": "3fe739e22316d69560b66566bf38b65a75b04a0273c6c3e80ba9b957a161d6a9",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -4608,7 +4608,7 @@
       },
       "module": "autoslice.llm.contracts",
       "path": "autoslice/llm/contracts.py",
-      "sha256": "6c5c8806ef4654a661171e359e71eb7cb590dd43ec1ecc1984c6295ef1c5dc04",
+      "sha256": "c7410cd3b8cc41050873b4ac6653608112bdba65c47d1ff6090340c4a31e393b",
       "top_level_classes": [
         {
           "end_line": 20,
@@ -4782,7 +4782,7 @@
       },
       "module": "autoslice.llm.prompts",
       "path": "autoslice/llm/prompts.py",
-      "sha256": "991c1ace75457ebeb49a164f4376517cf4f95bfd4e195fa6c9e2b58e2b4cffc5",
+      "sha256": "9253750eefadc149969c8dd8ecc911105506d9065efe73090c36af65ddb33b12",
       "top_level_classes": [
         {
           "end_line": 23,
@@ -4890,7 +4890,7 @@
       },
       "module": "autoslice.llm.transport",
       "path": "autoslice/llm/transport.py",
-      "sha256": "e8587727ee89c8ded4d30ad21130bfb0dc62ce1123c8aa8e2c30e4019d411b20",
+      "sha256": "f084dea059c8f71234ba5ed3389c0f6eeccabcd2be1f3a4e735499224f6095b3",
       "top_level_classes": [
         {
           "end_line": 63,
@@ -5082,7 +5082,7 @@
       },
       "module": "autoslice.pipeline",
       "path": "autoslice/pipeline.py",
-      "sha256": "d7e2a69dcdbf27be26e883f9f0202684b0b3305942d55f70f9ccd8fd712369d9",
+      "sha256": "16ee014ff73fe0fc2cdff096ae4d886dc0301cbd905d16a8226f84750181c83b",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5261,7 +5261,7 @@
       },
       "module": "autoslice.reporting",
       "path": "autoslice/reporting.py",
-      "sha256": "3619bdc26dbee63c6cd5d88488c1964163b2953f645b8b7575d5158737e57241",
+      "sha256": "abdc22e4553d2d9b0d45d9d0762a2610166b1a4cde55e7dc4aef416f3c6344ad",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5422,7 +5422,7 @@
       },
       "module": "autoslice.slicing",
       "path": "autoslice/slicing.py",
-      "sha256": "81e7324c7d65d5a458acafc703174625f1ea31a58aa5f7bee650a1a4fd3d47c1",
+      "sha256": "a7daaf28209700d99ae5a65e23e04da28ce0210d8cb8bb3172164b2429a409b0",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5511,7 +5511,7 @@
       "longest_function": null,
       "module": "autoslice.transcription",
       "path": "autoslice/transcription/__init__.py",
-      "sha256": "114dca9da6fa0aea12b340d1e29c5c6142b78820c35dbe84ecb356280580a1e6",
+      "sha256": "ad54a5eaa52c7cc7393ebdbf9d89ed85e4943a9b65b6f427b0a509e74a751a3a",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -5527,7 +5527,7 @@
       },
       "module": "autoslice.transcription.contracts",
       "path": "autoslice/transcription/contracts.py",
-      "sha256": "495a8ed8a7b2f06e283345fcad70fd6ccf482542a4966ad947e43d9a208529ba",
+      "sha256": "5fec3c41da557d7d1110a180c6dee7bbec1a14424b2b79c4914a961313f88dee",
       "top_level_classes": [
         {
           "end_line": 30,
@@ -5575,7 +5575,7 @@
       },
       "module": "autoslice.transcription.service",
       "path": "autoslice/transcription/service.py",
-      "sha256": "a5d4f20a652edb24b51fcea7ed789fd67e48e4a6ed53a7e04870fbf7e6b8f14b",
+      "sha256": "23827bd9de4f28ea1a6e7ad261e2e018f32aa792a4a25734e4a41748113611c3",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5886,7 +5886,7 @@
       },
       "module": "core",
       "path": "core.py",
-      "sha256": "c85549f8adc0c72121652b0e616feda03e8c86e67d26d2a1fb43999451abbf30",
+      "sha256": "d6dac900c6384458f45d315ab4bad52acf9abae2ce56af6fe92c6999cfcd99f5",
       "top_level_classes": [
         {
           "end_line": 21,
@@ -5922,7 +5922,7 @@
       "longest_function": null,
       "module": "llm_client",
       "path": "llm_client.py",
-      "sha256": "8754607a4a859e38b2d13bbc402ebe39560fba71069deb3107270bfb1e835d76",
+      "sha256": "e82305858789fa23bdc2948295317cbf9ea0681837ca851c85d99b57e785143b",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -5938,7 +5938,7 @@
       },
       "module": "media_formats",
       "path": "media_formats.py",
-      "sha256": "820afa73f92237e0e3740955492935a0d6d374d1110cbe7d7504a9fe9dfa4f8d",
+      "sha256": "6ed6079b72b30757cbc6daeb0ee3a2b10132748a9c2885487c74032099e28b36",
       "top_level_classes": [
         {
           "end_line": 24,
@@ -6016,7 +6016,7 @@
       },
       "module": "runtime_config",
       "path": "runtime_config.py",
-      "sha256": "f03641dbf0d7775b49a6312ba8d431f69c42e9606ee8b2acca8264adda910fa8",
+      "sha256": "b18759f1621b6d929d5c89849a981bb8541aa73b706e68aed5f6453d1f957636",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6063,7 +6063,7 @@
       },
       "module": "scripts.architecture_snapshot",
       "path": "scripts/architecture_snapshot.py",
-      "sha256": "04558b57fe8d5e4644e70d38fef349bc9723531c383c31f5e502243affe9a3ff",
+      "sha256": "7a448aea04dd62140a0ed0dc0440160c01d2dbcf5b0e9e47b24b62e8ba66af21",
       "top_level_classes": [
         {
           "end_line": 141,
@@ -6215,23 +6215,29 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 34,
+      "line_count": 50,
       "longest_function": {
         "end_line": 30,
         "kind": "function",
-        "line": 13,
-        "line_count": 18,
-        "qualname": "main"
+        "line": 12,
+        "line_count": 19,
+        "qualname": "discover_public_python_files"
       },
       "module": "scripts.compile_public",
       "path": "scripts/compile_public.py",
-      "sha256": "f3ac042152fc35d20b0c9a58f08fcdabc7894bed0cf5fbe29452c7fcc2ceba78",
+      "sha256": "f8a9c9763fcda7ac69a812c05a274c3ad00a7b18050873062630141dd111c5a0",
       "top_level_classes": [],
       "top_level_functions": [
         {
           "end_line": 30,
           "kind": "function",
-          "line": 13,
+          "line": 12,
+          "name": "discover_public_python_files"
+        },
+        {
+          "end_line": 46,
+          "kind": "function",
+          "line": 33,
           "name": "main"
         }
       ]
@@ -6242,7 +6248,7 @@
       "longest_function": null,
       "module": "scripts.manual",
       "path": "scripts/manual/__init__.py",
-      "sha256": "2abac72a8fb00e81611fd8116bf14e481aac7dc2dd86ba8588124b5759085ffb",
+      "sha256": "6405cfd2ac0d06828da978f707436b905ff575f00cb10416000155302daa725d",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -6258,7 +6264,7 @@
       },
       "module": "scripts.manual.run_real_pipeline_smoke",
       "path": "scripts/manual/run_real_pipeline_smoke.py",
-      "sha256": "a5b6bf78befe35e12b5612327ca982312e3fac17ddd1158c6e986982295a27c1",
+      "sha256": "ed6c5b5dd42516b4ded05dc1f4590a3b5b53935b5cca8521be20dd683e2a8c9c",
       "top_level_classes": [
         {
           "end_line": 32,
@@ -6420,7 +6426,7 @@
       },
       "module": "scripts.run_hermetic_tests",
       "path": "scripts/run_hermetic_tests.py",
-      "sha256": "0d1c1de37c7699ba609bd858769d10ce2810a317b0308d86f6aaf17b3a270a2d",
+      "sha256": "c31c849e495e0a5d2611c91b5919746cb1a30b2ba59dd8a94ea4d985963e9be3",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6443,7 +6449,7 @@
       },
       "module": "scripts.run_linux_logic_tests",
       "path": "scripts/run_linux_logic_tests.py",
-      "sha256": "f6dc8373f3d46fe0936e3ed449e881b4959ea2e08b7fd0b24c548bf48100d665",
+      "sha256": "f8d7440816d33961666d047e7b274dd2df45d50b4685078983f35155705c5e66",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6466,7 +6472,7 @@
       },
       "module": "scripts.scan_public_release",
       "path": "scripts/scan_public_release.py",
-      "sha256": "180cfd9f5f25a439749b627716225eba1692165e96e036c4624e9cd52e9f68f1",
+      "sha256": "afbcd052efb6802e517b9de99b9ad46f425db2665f9ca33ee1bda1c0585a013e",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6513,7 +6519,7 @@
       },
       "module": "scripts.smoke_startup",
       "path": "scripts/smoke_startup.py",
-      "sha256": "24763e7667bb710d6c0d7c76d71624f05935ce2bb381db347e117da4711e1957",
+      "sha256": "282a2ad2316513476c3c99614e7fc7ab287964f8b76363c1acf585d0c9c4d9c6",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6673,7 +6679,7 @@
       },
       "module": "security_policy",
       "path": "security_policy.py",
-      "sha256": "b42a5b8f27bf17c3b353b638561e72c94f2b51599630386a735515e83bcf4b9f",
+      "sha256": "fb631d0b263aa43de2475a7c17754943fe43a22850f32f3721a14c522054be54",
       "top_level_classes": [
         {
           "end_line": 61,
@@ -6769,7 +6775,7 @@
       },
       "module": "setup_asr_model",
       "path": "setup_asr_model.py",
-      "sha256": "4138da52e266aab409793fc400fd2a3e38033e60e81dd7395337b96b597bec98",
+      "sha256": "072e9be88286dea30d7c037c9f004e3762d002f9dd5a4c228d492ff03f674f44",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6816,7 +6822,7 @@
       },
       "module": "setup_gpu_runtime",
       "path": "setup_gpu_runtime.py",
-      "sha256": "bfa3dcecf39777af24341ad0e418b27b9f09b062ff3174c11523a22c5c962a97",
+      "sha256": "49421b03cded2f59da61daa574164a01d58a7616bb5630c78869f803f7466589",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6869,7 +6875,7 @@
       },
       "module": "streamer_profiles",
       "path": "streamer_profiles.py",
-      "sha256": "96e6c608536eb6a34c93792b82e841c3bb08db661e32c897c35be15d298b70d7",
+      "sha256": "5edae43fd75ca205219b5554bbf0b55b5f45de9f5e4ed6474bc47f3ad1f86762",
       "top_level_classes": [
         {
           "end_line": 43,
@@ -7031,7 +7037,7 @@
       },
       "module": "subtitle_workflow",
       "path": "subtitle_workflow.py",
-      "sha256": "55918ec17e8f976c4c9f2464bcc3c9492e77d1d3c0ac3d3b1b573f6378e2b8b1",
+      "sha256": "c79f525d2183d394ccceff5c2eee3cac49b267079f22e5f267cda9821cd9e96d",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -7528,7 +7534,7 @@
       },
       "module": "task_registry",
       "path": "task_registry.py",
-      "sha256": "847a4513a26f17123dfe0c59ce77b98e00b4aaa783339ce1423f71b2c19ae4e6",
+      "sha256": "d8a8baaf6161cec732ef0f0f8ba687844ae56a23efa50974c818f4b07bcc536a",
       "top_level_classes": [
         {
           "end_line": 52,
@@ -7630,7 +7636,7 @@
       },
       "module": "task_store",
       "path": "task_store.py",
-      "sha256": "ba23a4509f5e8d16de797f395d70df1fa79cb02bb21268c6cf6ccdf3d057258d",
+      "sha256": "f89b929c0e484955d42d52070d1272f9b214e1d56733685ce9d29a50070a378c",
       "top_level_classes": [
         {
           "end_line": 147,
@@ -7798,7 +7804,7 @@
       "longest_function": null,
       "module": "topic_engine",
       "path": "topic_engine.py",
-      "sha256": "8fbf26f5ad248ce3e71aa191d6259e2bbbc6a0c9e795ebe2b44394dc1f431a50",
+      "sha256": "68cb2c104446e7589f8cbc72679aed0de74daad1c0af471308bc69ba1ee9c3ea",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -7814,7 +7820,7 @@
       },
       "module": "启动",
       "path": "启动.py",
-      "sha256": "4836e6569a729396c5b6abb1399825bedfee37238a32847a8ed87aa5e43397b4",
+      "sha256": "475968280bafdb6a1d4a72a5daaf0a97094481b9ac6a5448dede7c0aedaf93ca",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -7964,7 +7970,8 @@
       "stickers",
       "submissions",
       "timelines",
-      "venv"
+      "venv",
+      "video-topic-analyzer"
     ],
     "excluded_directory_prefixes": [
       ".codex-tmp-"
@@ -8062,11 +8069,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 104,
-    "production_line_count": 32615,
+    "production_line_count": 32631,
     "production_module_count": 55,
     "test_private_patch_count": 17,
     "top_level_class_count": 83,
-    "top_level_function_count": 836
+    "top_level_function_count": 837
   },
   "test_private_patches": {
     "by_target_module": {

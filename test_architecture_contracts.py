@@ -1,13 +1,13 @@
 import json
 import socket
+import subprocess
 import tempfile
 import unittest
 import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import architecture_snapshot
-
+from scripts import architecture_snapshot, compile_public
 
 ROOT = Path(__file__).resolve().parent
 BASELINE_PATH = ROOT / "architecture_baseline.json"
@@ -29,6 +29,51 @@ CURRENT_LLM_IDENTITY_DEBT = {
 
 
 class ArchitectureSnapshotTests(unittest.TestCase):
+
+    def test_private_video_topic_analyzer_is_outside_architecture_scope(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "product.py").write_text("VALUE = 1\n", encoding="utf-8")
+            private_dir = root / "video-topic-analyzer" / "scripts"
+            private_dir.mkdir(parents=True)
+            (private_dir / "private.py").write_text(
+                "raise RuntimeError('不得扫描')\n",
+                encoding="utf-8",
+            )
+
+            snapshot = architecture_snapshot.build_snapshot(root)
+
+        self.assertEqual(snapshot["scope"]["production_files"], ["product.py"])
+        self.assertIn(
+            "video-topic-analyzer",
+            snapshot["scope"]["excluded_directory_names"],
+        )
+
+    def test_public_compile_uses_git_release_candidates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            tracked = root / "tracked.py"
+            ignored = root / "video-topic-analyzer" / "private.py"
+            tracked.write_text("VALUE = 1\n", encoding="utf-8")
+            ignored.parent.mkdir(parents=True)
+            ignored.write_text("VALUE = 2\n", encoding="utf-8")
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=b"tracked.py\0",
+            )
+
+            with patch.object(
+                compile_public.subprocess,
+                "run",
+                return_value=completed,
+            ) as run_mock:
+                files = compile_public.discover_public_python_files(root)
+
+        self.assertEqual(files, [tracked])
+        command = run_mock.call_args.args[0]
+        self.assertIn("--exclude-standard", command)
+        self.assertEqual(run_mock.call_args.kwargs["cwd"], root)
 
     def test_ast_snapshot_reports_source_facts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -287,8 +332,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                     )
 
     def test_topic_engine_compatibility_constants_follow_unique_owner(self):
-        from autoslice.llm import transport
         import topic_engine
+        from autoslice.llm import transport
 
         self.assertIs(
             topic_engine.LLM_RETRY_DELAYS,
@@ -354,9 +399,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
 
     def test_topic_engine_llm_imports_keep_transport_object_identity(self):
-        from autoslice.llm import transport
         import llm_client
         import topic_engine
+        from autoslice.llm import transport
 
         expected_identities = {
             "_LLMApiConfig": "LLMApiConfig",
