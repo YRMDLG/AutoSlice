@@ -294,7 +294,7 @@ class AutoCoverIntegrationTests(unittest.TestCase):
         self.assertEqual(response.get_json(), {
             "service": "autoslice",
             "api_version": 1,
-            "subtitle_review_version": 4,
+            "subtitle_review_version": 5,
             "subtitle_asr_version": 2,
             "autocover_url": "http://localhost:5013",
         })
@@ -401,6 +401,7 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
             "renderReviewDictionary(result)",
             "renderReferenceTitles();renderReviewDictionary();",
             "replacement_count",
+            "streamer_profile_id",
         ):
             self.assertIn(marker, script)
         self.assertIn("重新检查", html)
@@ -1872,10 +1873,12 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         result = json.loads(app_module.tasks[task_id]["result"])
         self.assertEqual(result["default_corrections"][0]["corrected"], "娃衣")
         self.assertEqual(review.call_args.kwargs["context_title"], "【泽音】测试投稿")
-        self.assertEqual(review.call_args.kwargs["streamer_profile_id"], "zeyin")
-        self.assertEqual(review.call_args.kwargs["streamer_profile_label"], "泽音 Melody")
-        self.assertIn("朱鹮", review.call_args.kwargs["glossary"])
-        self.assertIn(("英英", "音音"), review.call_args.kwargs["replacements"])
+        snapshot = review.call_args.kwargs["streamer_profile"]
+        self.assertEqual(snapshot.id, "zeyin")
+        self.assertEqual(snapshot.label, "泽音 Melody")
+        self.assertIn("朱鹮", snapshot.subtitle_glossary)
+        self.assertIn(("英英", "音音"), snapshot.asr_replacements)
+        self.assertIsNone(review.call_args.kwargs["glossary"])
         profile = response.get_json()["review_profile"]
         self.assertEqual(profile["id"], "zeyin")
         self.assertGreaterEqual(profile["glossary_count"], 40)
@@ -1913,8 +1916,9 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["review_profile"]["id"], "generic")
-        self.assertEqual(review.call_args.kwargs["streamer_profile_id"], "generic")
-        self.assertEqual(review.call_args.kwargs["replacements"], ())
+        snapshot = review.call_args.kwargs["streamer_profile"]
+        self.assertEqual(snapshot.id, "generic")
+        self.assertEqual(snapshot.asr_replacements, ())
 
     def test_reference_title_runs_in_background_with_corrected_subtitle(self):
         with TemporaryDirectory() as td:

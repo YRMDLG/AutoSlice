@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -69,6 +70,37 @@ class StreamerProfile:
             "title_prefix": self.title_prefix,
             "aliases": list(self.aliases),
         }
+
+    def subtitle_review_fingerprint(self) -> str:
+        """返回覆盖完整冻结 profile 的稳定摘要，供字幕缓存隔离。"""
+
+        outro_clip = None
+        if self.outro_clip is not None:
+            outro_clip = {
+                "series_title": self.outro_clip.series_title,
+                "search_tail_sec": self.outro_clip.search_tail_sec,
+                "triggers": list(self.outro_clip.triggers),
+            }
+        payload = {
+            "id": self.id,
+            "label": self.label,
+            "canonical_name": self.canonical_name,
+            "report_name": self.report_name,
+            "title_prefix": self.title_prefix,
+            "aliases": list(self.aliases),
+            "path_keywords": list(self.path_keywords),
+            "subtitle_glossary": list(self.subtitle_glossary),
+            "asr_replacements": [list(pair) for pair in self.asr_replacements],
+            "title_style_profile": str(self.title_style_profile or ""),
+            "outro_clip": outro_clip,
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
 
 def _config_path(path: str | os.PathLike[str] | None = None) -> Path:

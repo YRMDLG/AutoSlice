@@ -531,6 +531,14 @@ def _request_streamer_profile(data, video_path):
     return resolve_streamer_profile(profile_id, video_path)
 
 
+def _subtitle_review_rules(streamer_profile, extra_glossary=None):
+    """统一计算请求响应与后台实际使用的字幕校对规则。"""
+
+    from subtitle_workflow import subtitle_review_profile_rules
+
+    return subtitle_review_profile_rules(streamer_profile, extra_glossary)
+
+
 def _topic_task_output_paths(flv_path, output_dir):
     base_name = os.path.splitext(os.path.basename(flv_path))[0]
     return (
@@ -764,30 +772,20 @@ def run_subtitle_review_task(
 
     try:
         from subtitle_workflow import (
-            normalise_subtitle_review_dictionary,
             high_confidence_corrections,
             suggest_subtitle_corrections,
         )
 
-        profile_glossary = (
-            streamer_profile.canonical_name,
-            streamer_profile.report_name,
-            *streamer_profile.aliases,
-            *(target for _, target in streamer_profile.asr_replacements),
-            *(glossary or ()),
-        )
-        active_glossary, active_replacements = normalise_subtitle_review_dictionary(
-            profile_glossary,
-            streamer_profile.asr_replacements,
+        active_glossary, active_replacements = _subtitle_review_rules(
+            streamer_profile,
+            glossary,
         )
 
         result = suggest_subtitle_corrections(
             srt_path,
             context_title=context_title,
-            glossary=active_glossary,
-            replacements=active_replacements,
-            streamer_profile_id=streamer_profile.id,
-            streamer_profile_label=streamer_profile.label,
+            glossary=glossary,
+            streamer_profile=streamer_profile,
             use_cache=not force,
             progress_callback=callback,
         )
@@ -1401,17 +1399,9 @@ def subtitle_review():
             video_path,
             context_hint=context_title,
         )
-        from subtitle_workflow import normalise_subtitle_review_dictionary
-
-        review_glossary, review_replacements = normalise_subtitle_review_dictionary(
-            (
-                streamer_profile.canonical_name,
-                streamer_profile.report_name,
-                *streamer_profile.aliases,
-                *(target for _, target in streamer_profile.asr_replacements),
-                *(glossary or ()),
-            ),
-            streamer_profile.asr_replacements,
+        review_glossary, review_replacements = _subtitle_review_rules(
+            streamer_profile,
+            glossary,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

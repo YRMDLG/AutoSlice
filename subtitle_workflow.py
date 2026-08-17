@@ -26,9 +26,10 @@ from autoslice.transcription.contracts import (
     normalise_generic_publish_title,
     srt_timestamp_seconds as _srt_timestamp_seconds,
 )
+from streamer_profiles import StreamerProfile, merge_profile_subtitle_glossary
 
 
-SUBTITLE_REVIEW_VERSION = 4
+SUBTITLE_REVIEW_VERSION = 5
 SUBTITLE_ASR_VERSION = 2
 SUBTITLE_EDIT_STATE_VERSION = 1
 SUBTITLE_REVIEW_BATCH_SIZE = 30
@@ -951,15 +952,38 @@ def normalise_subtitle_review_dictionary(glossary=None, replacements=None):
     return active_glossary, tuple(active_replacements)
 
 
+def subtitle_review_profile_rules(streamer_profile, extra_glossary=None):
+    """合并通用词表、冻结 profile 词表、身份词、映射目标与追加词条。"""
+
+    if not isinstance(streamer_profile, StreamerProfile):
+        raise TypeError("字幕校对主播配置必须是冻结的 StreamerProfile")
+    profile_terms = merge_profile_subtitle_glossary(
+        streamer_profile,
+        (
+            streamer_profile.canonical_name,
+            streamer_profile.report_name,
+            *streamer_profile.aliases,
+            *(target for _, target in streamer_profile.asr_replacements),
+        ),
+    )
+    return normalise_subtitle_review_dictionary(
+        (*profile_terms, *(extra_glossary or ())),
+        streamer_profile.asr_replacements,
+    )
+
+
 def _subtitle_source_fingerprint(
         srt_path, context_title, glossary, replacements=(),
-        streamer_profile_id=""):
+        streamer_profile_id="", streamer_profile_label="",
+        streamer_profile_fingerprint=""):
     digest = hashlib.sha256()
     digest.update(Path(srt_path).read_bytes())
     digest.update(str(context_title or "").encode("utf-8"))
     digest.update(json.dumps(list(glossary), ensure_ascii=False).encode("utf-8"))
     digest.update(json.dumps(list(replacements), ensure_ascii=False).encode("utf-8"))
     digest.update(str(streamer_profile_id or "").encode("utf-8"))
+    digest.update(str(streamer_profile_label or "").encode("utf-8"))
+    digest.update(str(streamer_profile_fingerprint or "").encode("utf-8"))
     digest.update(str(SUBTITLE_REVIEW_VERSION).encode("ascii"))
     return digest.hexdigest()
 
@@ -971,7 +995,8 @@ def _review_cache_path(srt_path):
 
 def _validated_cached_review(
         cached, srt_path, cues, fingerprint, context_title, glossary,
-        replacements, streamer_profile_id, streamer_profile_label, cache_path):
+        replacements, streamer_profile_id, streamer_profile_label,
+        streamer_profile_fingerprint, cache_path):
     """只接受由当前规则和当前字幕生成的完整缓存。"""
     if not isinstance(cached, dict):
         return None
@@ -991,6 +1016,11 @@ def _validated_cached_review(
     if cached.get("replacements") != [list(pair) for pair in replacements]:
         return None
     if str(cached.get("streamer_profile_id", "")) != str(streamer_profile_id or ""):
+        return None
+    if str(cached.get("streamer_profile_label", "")) != str(streamer_profile_label or ""):
+        return None
+    if str(cached.get("streamer_profile_fingerprint", "")) != str(
+            streamer_profile_fingerprint or ""):
         return None
     cached_source = cached.get("source_srt_path")
     if not cached_source or os.path.normcase(os.path.abspath(cached_source)) != os.path.normcase(
@@ -1021,6 +1051,7 @@ def _validated_cached_review(
         "replacements": [list(pair) for pair in replacements],
         "streamer_profile_id": str(streamer_profile_id or ""),
         "streamer_profile_label": str(streamer_profile_label or ""),
+        "streamer_profile_fingerprint": str(streamer_profile_fingerprint or ""),
         "glossary_count": len(glossary),
         "replacement_count": len(replacements),
         "suggestions": sorted(suggestions, key=lambda item: item["index"]),
@@ -1264,19 +1295,33 @@ def _fixed_replacement_suggestions(cues, replacements):
 def suggest_subtitle_corrections(
         srt_path, context_title="", glossary=None, llm_runner=None,
         use_cache=True, progress_callback=None, replacements=None,
-        streamer_profile_id="", streamer_profile_label=""):
+        streamer_profile_id="", streamer_profile_label="",
+        streamer_profile_fingerprint="", streamer_profile=None):
     """逐批检查字幕并返回建议；不修改原始字幕。"""
     cues = parse_srt_document(srt_path)
-    active_glossary, active_replacements = normalise_subtitle_review_dictionary(
-        glossary,
-        replacements,
-    )
+    if streamer_profile is not None:
+        if replacements:
+            raise ValueError("指定主播 profile 时固定纠错只能来自该 profile")
+        active_glossary, active_replacements = subtitle_review_profile_rules(
+            streamer_profile,
+            glossary,
+        )
+        streamer_profile_id = streamer_profile.id
+        streamer_profile_label = streamer_profile.label
+        streamer_profile_fingerprint = streamer_profile.subtitle_review_fingerprint()
+    else:
+        active_glossary, active_replacements = normalise_subtitle_review_dictionary(
+            glossary,
+            replacements,
+        )
     fingerprint = _subtitle_source_fingerprint(
         srt_path,
         context_title,
         active_glossary,
         active_replacements,
         streamer_profile_id,
+        streamer_profile_label,
+        streamer_profile_fingerprint,
     )
     cache_path = _review_cache_path(srt_path)
     if use_cache and cache_path.is_file():
@@ -1292,6 +1337,7 @@ def suggest_subtitle_corrections(
                 active_replacements,
                 streamer_profile_id,
                 streamer_profile_label,
+                streamer_profile_fingerprint,
                 cache_path,
             )
             if validated:
@@ -1378,6 +1424,7 @@ def suggest_subtitle_corrections(
         "replacements": [list(pair) for pair in active_replacements],
         "streamer_profile_id": str(streamer_profile_id or ""),
         "streamer_profile_label": str(streamer_profile_label or ""),
+        "streamer_profile_fingerprint": str(streamer_profile_fingerprint or ""),
         "glossary_count": len(active_glossary),
         "replacement_count": len(active_replacements),
         "suggestions": [suggestions_by_index[index] for index in sorted(suggestions_by_index)],
@@ -1386,7 +1433,8 @@ def suggest_subtitle_corrections(
     }
     if _subtitle_source_fingerprint(
             srt_path, context_title, active_glossary, active_replacements,
-            streamer_profile_id) != fingerprint:
+            streamer_profile_id, streamer_profile_label,
+            streamer_profile_fingerprint) != fingerprint:
         raise RuntimeError("源字幕在 AI 检查期间已变化，请重新检查")
     _atomic_write_text(
         cache_path,

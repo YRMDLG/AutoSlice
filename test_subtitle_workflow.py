@@ -5,12 +5,14 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import subtitle_workflow
 from autoslice.llm import transport as llm_gateway
 from autoslice.transcription import contracts as transcription_contracts
+from streamer_profiles import resolve_streamer_profile
 from subtitle_workflow import (
     DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_STYLE,
@@ -36,11 +38,21 @@ from subtitle_workflow import (
     scan_submission_pairs,
     serialise_srt,
     normalise_subtitle_review_dictionary,
+    subtitle_review_profile_rules,
     suggest_subtitle_corrections,
     transcribe_submission_video,
     verify_exact_subtitle_font,
     write_ass_from_srt,
 )
+
+
+ACCOUNT_SPECIFIC_GLOSSARY = {
+    "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音", "音姐",
+    "音妈", "露露", "四禧丸子", "沐霂", "又一", "梨安", "恬豆", "七海",
+    "小孩梓", "阿梓", "柚恩", "露早", "EOE", "篮筐", "小沐标", "酥酥又",
+    "向心梨", "恬豆包", "柚恩蜜", "gogo队", "小星星", "星瞳", "宣小纸",
+    "真纸棒", "脆鲨",
+}
 
 
 SAMPLE_SRT = """1
@@ -94,6 +106,131 @@ def _temporary_path_suffix(path):
     return None
 
 
+class SubtitleGlossaryTests(unittest.TestCase):
+
+    @staticmethod
+    def _successful_runner(calls):
+        def runner(prompt, _compact_prompt):
+            calls.append(prompt)
+            indices = json.loads(
+                prompt.split("待检查序号：", 1)[1].split("\n", 1)[0]
+            )
+            return {"reviewed_indices": indices, "corrections": []}
+
+        return runner
+
+    def test_profile_rules_merge_generic_zeyin_mapping_and_extra_terms(self):
+        generic = resolve_streamer_profile("generic")
+        zeyin = resolve_streamer_profile("zeyin")
+        glossary, replacements = subtitle_review_profile_rules(
+            zeyin,
+            ["额外专名", "音音", "额外专名"],
+        )
+
+        self.assertEqual(
+            set(DEFAULT_SUBTITLE_GLOSSARY),
+            {"SC", "提督", "舰长", "娃衣", "bangumi"},
+        )
+        self.assertTrue(ACCOUNT_SPECIFIC_GLOSSARY.isdisjoint(generic.subtitle_glossary))
+        self.assertTrue(ACCOUNT_SPECIFIC_GLOSSARY.issubset(glossary))
+        self.assertEqual(glossary[-1], "额外专名")
+        self.assertEqual(glossary.count("额外专名"), 1)
+        self.assertEqual(glossary.count("音音"), 1)
+        self.assertEqual(replacements, zeyin.asr_replacements)
+
+    def test_profile_rules_reach_prompt_result_and_fixed_corrections(self):
+        calls = []
+        zeyin = resolve_streamer_profile("zeyin")
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "主播字幕.srt"
+            source.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\n英英提到额外专名\n",
+                encoding="utf-8",
+            )
+            result = suggest_subtitle_corrections(
+                source,
+                glossary=["额外专名"],
+                streamer_profile=zeyin,
+                llm_runner=self._successful_runner(calls),
+            )
+            cached = suggest_subtitle_corrections(
+                source,
+                glossary=["额外专名"],
+                streamer_profile=zeyin,
+                llm_runner=lambda *_: self.fail("相同 profile 规则应复用缓存"),
+            )
+
+        self.assertIn("朱鹮", calls[0])
+        self.assertIn("额外专名", calls[0])
+        self.assertIn('"错误词": "英英"', calls[0])
+        self.assertIn('"正确词": "音音"', calls[0])
+        self.assertEqual(result["streamer_profile_id"], "zeyin")
+        self.assertEqual(result["streamer_profile_label"], "泽音 Melody")
+        self.assertEqual(result["glossary_count"], len(result["glossary"]))
+        self.assertEqual(result["replacement_count"], 11)
+        self.assertEqual(len(result["streamer_profile_fingerprint"]), 64)
+        self.assertEqual(result["suggestions"][0]["corrected"], "音音提到额外专名")
+        self.assertTrue(cached["cache_hit"])
+
+    def test_cache_invalidates_for_profile_glossary_mapping_and_extra_changes(self):
+        calls = []
+        runner = self._successful_runner(calls)
+        zeyin = resolve_streamer_profile("zeyin")
+        glossary_changed = replace(
+            zeyin,
+            subtitle_glossary=(*zeyin.subtitle_glossary, "规则变化词"),
+        )
+        mapping_changed = replace(
+            zeyin,
+            asr_replacements=(*zeyin.asr_replacements, ("测试错词", "测试正词")),
+        )
+        profile_changed = replace(zeyin, label="泽音 Melody 新标签")
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "缓存字幕.srt"
+            source.write_text(SAMPLE_SRT, encoding="utf-8")
+            first = suggest_subtitle_corrections(
+                source,
+                glossary=["额外甲"],
+                streamer_profile=zeyin,
+                llm_runner=runner,
+            )
+            repeated = suggest_subtitle_corrections(
+                source,
+                glossary=["额外甲"],
+                streamer_profile=zeyin,
+                llm_runner=lambda *_: self.fail("未变化规则应复用缓存"),
+            )
+            suggest_subtitle_corrections(
+                source,
+                glossary=["额外乙"],
+                streamer_profile=zeyin,
+                llm_runner=runner,
+            )
+            suggest_subtitle_corrections(
+                source,
+                glossary=["额外乙"],
+                streamer_profile=glossary_changed,
+                llm_runner=runner,
+            )
+            suggest_subtitle_corrections(
+                source,
+                glossary=["额外乙"],
+                streamer_profile=mapping_changed,
+                llm_runner=runner,
+            )
+            final = suggest_subtitle_corrections(
+                source,
+                glossary=["额外乙"],
+                streamer_profile=profile_changed,
+                llm_runner=runner,
+            )
+
+        self.assertFalse(first["cache_hit"])
+        self.assertTrue(repeated["cache_hit"])
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(final["streamer_profile_label"], "泽音 Melody 新标签")
+
+
 class SubtitleParsingAndReviewTests(unittest.TestCase):
     def test_shared_srt_contracts_keep_object_identity(self):
         self.assertIs(subtitle_workflow.llm_gateway, llm_gateway)
@@ -126,14 +263,7 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             cues = parse_srt_document(path)
         self.assertEqual(cues[0].text, "音音晚上好")
 
-    def test_default_glossary_contains_requested_names_and_reaches_prompt(self):
-        requested_terms = {
-            "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音",
-            "音姐", "音妈", "露露", "四禧丸子", "沐霂", "又一", "梨安",
-            "恬豆", "七海", "小孩梓", "阿梓", "柚恩", "露早", "EOE", "篮筐",
-            "小沐标", "酥酥又", "向心梨", "恬豆包", "柚恩蜜", "gogo队",
-            "小星星", "星瞳", "宣小纸", "真纸棒", "脆鲨",
-        }
+    def test_default_glossary_is_generic_and_reaches_prompt(self):
         prompts = []
 
         def runner(prompt, _compact_prompt):
@@ -152,14 +282,15 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
                 use_cache=False,
             )
 
-        self.assertTrue(requested_terms.issubset(DEFAULT_SUBTITLE_GLOSSARY))
+        self.assertTrue(ACCOUNT_SPECIFIC_GLOSSARY.isdisjoint(DEFAULT_SUBTITLE_GLOSSARY))
         self.assertEqual(
             len(DEFAULT_SUBTITLE_GLOSSARY),
             len(set(DEFAULT_SUBTITLE_GLOSSARY)),
         )
-        self.assertTrue(requested_terms.issubset(result["glossary"]))
+        self.assertTrue(set(DEFAULT_SUBTITLE_GLOSSARY).issubset(result["glossary"]))
+        self.assertTrue(ACCOUNT_SPECIFIC_GLOSSARY.isdisjoint(result["glossary"]))
         self.assertTrue(prompts[0].startswith("你是直播切片的字幕校对员。"))
-        for term in requested_terms:
+        for term in DEFAULT_SUBTITLE_GLOSSARY:
             self.assertIn(term, prompts[0])
 
     def test_extra_glossary_and_streamer_replacements_are_merged_and_applied(self):
@@ -181,18 +312,14 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             result = suggest_subtitle_corrections(
                 source,
                 glossary=["额外专名"],
-                replacements=[("英英", "音音")],
-                streamer_profile_id="zeyin",
-                streamer_profile_label="泽音 Melody",
+                streamer_profile=resolve_streamer_profile("zeyin"),
                 llm_runner=runner,
                 use_cache=False,
             )
             cached = suggest_subtitle_corrections(
                 source,
                 glossary=["额外专名"],
-                replacements=[("英英", "音音")],
-                streamer_profile_id="zeyin",
-                streamer_profile_label="泽音 Melody",
+                streamer_profile=resolve_streamer_profile("zeyin"),
                 llm_runner=lambda *_: self.fail("固定映射缓存不应重新调用 AI"),
             )
 
