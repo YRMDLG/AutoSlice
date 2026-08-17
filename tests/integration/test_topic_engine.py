@@ -2978,7 +2978,10 @@ class TranscriptionTests(unittest.TestCase):
             checkpoint_path.write_text('{"old": true}', encoding="utf-8")
 
             with (
-                patch("autoslice.transcription.service.replace_file_atomically", side_effect=OSError("disk busy")),
+                patch(
+                    "autoslice.transcription.checkpoints.replace_file_atomically",
+                    side_effect=OSError("disk busy"),
+                ),
                 self.assertRaises(OSError),
             ):
                 _write_funasr_checkpoint(

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import bisect
 import difflib
-import hashlib
 import html
-import json
 import math
 import os
 import re
@@ -15,7 +13,11 @@ import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
 
-from autoslice.transcription import model_runtime, results as result_contracts
+from autoslice.transcription import (
+    checkpoints as checkpoint_store,
+    model_runtime,
+    results as result_contracts,
+)
 from autoslice.transcription.contracts import (
     DEFAULT_SUBTITLE_MAX_CHARS,
 )
@@ -79,13 +81,26 @@ FACADE_EXPORTS = {
 }
 
 
-# 公开原子替换 seam：测试可替换该对象，而不再 patch 高层 façade。
-replace_file_atomically = os.replace
-
 # 旧调用方仍可从 service 导入这些对象；唯一实现位于 transcription.results。
 _normalise_funasr_result = result_contracts.normalise_funasr_result
 _is_valid_funasr_result = result_contracts.is_valid_funasr_result
 _primary_speaker_segments = result_contracts.primary_speaker_segments
+
+# 旧调用方仍可从 service 导入这些对象；唯一实现位于 transcription.checkpoints。
+FUNASR_CHECKPOINT_VERSION = checkpoint_store.FUNASR_CHECKPOINT_VERSION
+FUNASR_CHUNK_PRE_CONTEXT_SEC = checkpoint_store.FUNASR_CHUNK_PRE_CONTEXT_SEC
+FUNASR_CHUNK_SEC = checkpoint_store.FUNASR_CHUNK_SEC
+replace_file_atomically = checkpoint_store.replace_file_atomically
+_funasr_model_runtime_signature = checkpoint_store.funasr_model_runtime_signature
+funasr_checkpoint_path = checkpoint_store.funasr_checkpoint_path
+_funasr_source_fingerprint = checkpoint_store.funasr_source_fingerprint
+_funasr_chunk_fingerprint = checkpoint_store.funasr_chunk_fingerprint
+_funasr_chunk_input_window = checkpoint_store.funasr_chunk_input_window
+_is_close_number = checkpoint_store.is_close_number
+_prepare_funasr_checkpoint = checkpoint_store.prepare_funasr_checkpoint
+write_funasr_checkpoint = checkpoint_store.write_funasr_checkpoint
+_existing_srt_is_reusable = checkpoint_store.existing_srt_is_reusable
+_quarantine_incomplete_srt = checkpoint_store.quarantine_incomplete_srt
 
 FUNASR_MODEL = model_runtime.FUNASR_MODEL
 FUNASR_CONTEXTUAL_MODEL = model_runtime.FUNASR_CONTEXTUAL_MODEL
@@ -124,12 +139,6 @@ resolve_funasr_device = model_runtime.resolve_funasr_device
 funasr_public_status = model_runtime.funasr_public_status
 load_funasr_model = model_runtime.load_funasr_model
 clear_funasr_cuda_cache = model_runtime.clear_funasr_cuda_cache
-
-FUNASR_CHUNK_SEC = 120.0
-
-FUNASR_CHUNK_PRE_CONTEXT_SEC = 20.0
-
-FUNASR_CHECKPOINT_VERSION = 3
 
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
 
@@ -551,237 +560,6 @@ def probe_video_duration(video_path):
         return None
 
 
-def _funasr_model_runtime_signature(foreground_only=False):
-    """让旧 ASR 检查点在模型/标点配置变化后自动失效。"""
-    model_source = model_runtime.resolve_funasr_model_source()
-    contextual_active = "contextual" in str(model_source).casefold()
-    vad_source = model_runtime.resolve_funasr_aux_model_source(
-        model_runtime.FUNASR_VAD_MODEL,
-        model_runtime.FUNASR_VAD_CACHE_MODEL_DIR,
-    )
-    punc_source = model_runtime.resolve_funasr_aux_model_source(
-        model_runtime.FUNASR_PUNC_MODEL,
-        model_runtime.FUNASR_PUNC_CACHE_MODEL_DIR,
-    )
-    speaker_source = (
-        model_runtime.resolve_funasr_speaker_model_source()
-        if foreground_only else None
-    )
-    return {
-        "asr_model": os.path.normcase(os.path.abspath(model_source)),
-        "contextual_hotwords": contextual_active,
-        "vad_model": os.path.normcase(os.path.abspath(vad_source)) if vad_source else None,
-        "punc_model": os.path.normcase(os.path.abspath(punc_source)) if punc_source else None,
-        "speaker_model": (
-            os.path.normcase(os.path.abspath(speaker_source))
-            if speaker_source else None
-        ),
-        "foreground_only": bool(foreground_only),
-        "foreground_audio_filter": (
-            model_runtime.FUNASR_FOREGROUND_AUDIO_FILTER
-            if foreground_only else None
-        ),
-        "funasr_chunk_sec": FUNASR_CHUNK_SEC,
-        "funasr_chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
-    }
-
-
-def funasr_checkpoint_path(video_path):
-    return os.path.splitext(video_path)[0] + "_asr_checkpoint.json"
-
-
-def _funasr_source_fingerprint(
-        video_path, duration, hotwords="", foreground_only=False):
-    stat = os.stat(video_path)
-    payload = {
-        "path": os.path.normcase(os.path.abspath(video_path)),
-        "size": stat.st_size,
-        "mtime_ns": stat.st_mtime_ns,
-        "duration": round(float(duration), 3),
-        "sample_rate": 16000,
-        "channels": 1,
-        "chunk_sec": FUNASR_CHUNK_SEC,
-        "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
-        "runtime_signature": _funasr_model_runtime_signature(
-            foreground_only=foreground_only
-        ),
-        "hotword_digest": hashlib.sha256(
-            str(hotwords or "").encode("utf-8")
-        ).hexdigest(),
-    }
-    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _funasr_chunk_fingerprint(source_fingerprint, index, start, duration):
-    value = f"{source_fingerprint}:{index}:{start:.3f}:{duration:.3f}"
-    return hashlib.sha256(value.encode("ascii")).hexdigest()
-
-
-def _funasr_chunk_input_window(index, duration):
-    """返回主体时间段及带前置语境的实际识别时间段。"""
-    core_start = index * FUNASR_CHUNK_SEC
-    core_duration = min(FUNASR_CHUNK_SEC, max(0.0, duration - core_start))
-    pre_context = min(FUNASR_CHUNK_PRE_CONTEXT_SEC, core_start)
-    input_start = core_start - pre_context
-    input_duration = core_duration + pre_context
-    return core_start, core_duration, input_start, input_duration
-
-
-def _is_close_number(value, expected):
-    try:
-        return math.isclose(float(value), expected, abs_tol=0.001)
-    except (TypeError, ValueError):
-        return False
-
-
-def _prepare_funasr_checkpoint(
-        video_path, duration, chunk_count, checkpoint_path=None, hotwords="",
-        foreground_only=False):
-    checkpoint_path = os.path.abspath(
-        checkpoint_path or funasr_checkpoint_path(video_path)
-    )
-    source_fingerprint = _funasr_source_fingerprint(
-        video_path,
-        duration,
-        hotwords=hotwords,
-        foreground_only=foreground_only,
-    )
-    payload = {
-        "version": FUNASR_CHECKPOINT_VERSION,
-        "source_fingerprint": source_fingerprint,
-        "runtime_signature": _funasr_model_runtime_signature(
-            foreground_only=foreground_only
-        ),
-        "video_path": os.path.abspath(video_path),
-        "duration": float(duration),
-        "chunk_sec": FUNASR_CHUNK_SEC,
-        "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
-        "chunk_count": int(chunk_count),
-        "status": "pending",
-        "foreground_only": bool(foreground_only),
-        "foreground_filter_mode": (
-            "speaker_diarization"
-            if foreground_only
-            and model_runtime.resolve_funasr_speaker_model_source()
-            else "adaptive_gate" if foreground_only
-            else "off"
-        ),
-        "chunks": {},
-    }
-    try:
-        with open(checkpoint_path, encoding="utf-8") as handle:
-            existing = json.load(handle)
-    except (OSError, ValueError, TypeError):
-        existing = None
-    if not isinstance(existing, dict):
-        return checkpoint_path, payload
-    if (
-            existing.get("version") != FUNASR_CHECKPOINT_VERSION
-            or existing.get("source_fingerprint") != source_fingerprint
-            or existing.get("chunk_count") != chunk_count):
-        return checkpoint_path, payload
-
-    existing_chunks = existing.get("chunks")
-    if not isinstance(existing_chunks, dict):
-        return checkpoint_path, payload
-    if isinstance(existing.get("last_failure"), dict):
-        payload["last_failure"] = existing["last_failure"]
-    for index in range(chunk_count):
-        start, chunk_duration, input_start, input_duration = (
-            _funasr_chunk_input_window(index, duration)
-        )
-        expected_fingerprint = _funasr_chunk_fingerprint(
-            source_fingerprint,
-            index,
-            start,
-            chunk_duration,
-        )
-        entry = existing_chunks.get(str(index))
-        if (
-                isinstance(entry, dict)
-                and entry.get("fingerprint") == expected_fingerprint
-                and _is_close_number(entry.get("input_start"), input_start)
-                and _is_close_number(entry.get("input_duration"), input_duration)
-                and result_contracts.is_valid_funasr_result(entry.get("result"))):
-            payload["chunks"][str(index)] = entry
-    return checkpoint_path, payload
-
-
-def write_funasr_checkpoint(path, payload):
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    temp_path = path + ".tmp"
-    try:
-        with open(temp_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-        replace_file_atomically(temp_path, path)
-    except Exception:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        raise
-
-
-def _existing_srt_is_reusable(srt_path, checkpoint_path):
-    """只复用结构完整且未被失败 ASR 检查点标记为残缺的正式字幕。"""
-
-    entries = _read_srt_entries(srt_path)
-    if not entries:
-        return False
-    try:
-        with open(checkpoint_path, encoding="utf-8") as handle:
-            checkpoint = json.load(handle)
-    except (OSError, ValueError, TypeError):
-        # 没有 ASR 检查点时视为用户提供的完整 SRT，保持旧入口兼容。
-        return not os.path.exists(checkpoint_path)
-    if not isinstance(checkpoint, dict):
-        return False
-
-    if checkpoint.get("status") != "completed":
-        # 用户可在失败后自行提供字幕；只有比失败检查点更新的文件才可复用。
-        try:
-            return os.stat(srt_path).st_mtime_ns > os.stat(checkpoint_path).st_mtime_ns
-        except OSError:
-            return False
-
-    chunks = checkpoint.get("chunks")
-    chunk_count = checkpoint.get("chunk_count")
-    coverage = checkpoint.get("coverage")
-    duration = checkpoint.get("duration")
-    try:
-        complete_chunks = (
-            isinstance(chunks, dict)
-            and int(chunk_count) > 0
-            and len(chunks) == int(chunk_count)
-            and all(
-                result_contracts.is_valid_funasr_result(
-                    chunks[str(index)].get("result")
-                )
-                for index in range(int(chunk_count))
-            )
-        )
-        complete_coverage = (
-            isinstance(coverage, dict)
-            and _is_close_number(coverage.get("start"), 0.0)
-            and _is_close_number(coverage.get("end"), float(duration))
-        )
-        expected_segments = int(checkpoint.get("segment_count"))
-    except (KeyError, TypeError, ValueError):
-        return False
-    return (
-        complete_chunks
-        and complete_coverage
-        and expected_segments == len(entries)
-    )
-
-
-def _quarantine_incomplete_srt(srt_path):
-    """把失败检查点对应的旧正式字幕移出可复用路径。"""
-
-    quarantine_path = srt_path + ".incomplete"
-    replace_file_atomically(srt_path, quarantine_path)
-    return quarantine_path
-
-
 def _dedupe_overlapping_funasr_segments(segments):
     """合并分块边界处“半句 + 完整句”的重叠识别结果。"""
     deduped = []
@@ -962,14 +740,18 @@ def ensure_srt(
     srt_path = os.path.splitext(video_path)[0] + ".srt"
     srt_temp_path = srt_path + ".tmp"
     checkpoint_path = os.path.abspath(
-        checkpoint_path or funasr_checkpoint_path(video_path)
+        checkpoint_path or checkpoint_store.funasr_checkpoint_path(video_path)
     )
     if os.path.exists(srt_path) and os.path.getsize(srt_path) > 0:
-        if _existing_srt_is_reusable(srt_path, checkpoint_path):
+        if checkpoint_store.existing_srt_is_reusable(
+            srt_path,
+            checkpoint_path,
+            read_srt_entries=_read_srt_entries,
+        ):
             if progress_callback:
                 progress_callback("SRT 已存在，跳过转录", 5, 100)
             return srt_path
-        _quarantine_incomplete_srt(srt_path)
+        checkpoint_store.quarantine_incomplete_srt(srt_path)
         if progress_callback:
             progress_callback("检测到残缺正式 SRT，已隔离并继续恢复转录", 5, 100)
 
@@ -984,8 +766,11 @@ def ensure_srt(
         video_path,
         streamer_name=streamer_name,
     )
-    chunk_count = max(1, int(math.ceil(duration / FUNASR_CHUNK_SEC)))
-    checkpoint_path, checkpoint = _prepare_funasr_checkpoint(
+    chunk_count = max(
+        1,
+        int(math.ceil(duration / checkpoint_store.FUNASR_CHUNK_SEC)),
+    )
+    checkpoint_path, checkpoint = checkpoint_store.prepare_funasr_checkpoint(
         video_path,
         duration,
         chunk_count,
@@ -996,7 +781,7 @@ def ensure_srt(
     checkpoint["status"] = "running"
     checkpoint["updated_at"] = datetime.now().isoformat(timespec="seconds")
     checkpoint.pop("last_failure", None)
-    write_funasr_checkpoint(checkpoint_path, checkpoint)
+    checkpoint_store.write_funasr_checkpoint(checkpoint_path, checkpoint)
     missing_indices = [
         index for index in range(chunk_count)
         if str(index) not in checkpoint["chunks"]
@@ -1073,7 +858,7 @@ def ensure_srt(
             for index in missing_indices:
                 active_chunk_index = index
                 start, chunk_duration, input_start, input_duration = (
-                    _funasr_chunk_input_window(index, duration)
+                    checkpoint_store.funasr_chunk_input_window(index, duration)
                 )
                 if progress_callback:
                     pct = 10 + int((index / chunk_count) * 80)
@@ -1143,7 +928,7 @@ def ensure_srt(
                         ) from retry_error
 
                 normalised_result = result_contracts.normalise_funasr_result(result)
-                chunk_fingerprint = _funasr_chunk_fingerprint(
+                chunk_fingerprint = checkpoint_store.funasr_chunk_fingerprint(
                     checkpoint["source_fingerprint"],
                     index,
                     start,
@@ -1160,7 +945,7 @@ def ensure_srt(
                 }
                 checkpoint["completed_chunk_count"] = len(checkpoint["chunks"])
                 checkpoint["updated_at"] = datetime.now().isoformat(timespec="seconds")
-                write_funasr_checkpoint(checkpoint_path, checkpoint)
+                checkpoint_store.write_funasr_checkpoint(checkpoint_path, checkpoint)
                 if active_chunk_path != wav_path and os.path.exists(active_chunk_path):
                     os.remove(active_chunk_path)
                 active_chunk_path = None
@@ -1175,7 +960,7 @@ def ensure_srt(
                 raise RuntimeError(
                     f"FunASR 第 {index + 1}/{chunk_count} 块缺失，未生成残缺 SRT。"
                 )
-            start, chunk_duration, input_start, _ = _funasr_chunk_input_window(
+            start, chunk_duration, input_start, _ = checkpoint_store.funasr_chunk_input_window(
                 index, duration
             )
             core_end = start + chunk_duration
@@ -1268,7 +1053,7 @@ def ensure_srt(
             checkpoint["status"] = "completed_empty"
             checkpoint["segment_count"] = 0
             checkpoint["completed_at"] = datetime.now().isoformat(timespec="seconds")
-            write_funasr_checkpoint(checkpoint_path, checkpoint)
+            checkpoint_store.write_funasr_checkpoint(checkpoint_path, checkpoint)
             if progress_callback:
                 progress_callback("未识别到有效语音，未生成空 SRT", 0, 100)
             return None
@@ -1291,14 +1076,14 @@ def ensure_srt(
             checkpoint["status"] = "completed_empty"
             checkpoint["segment_count"] = 0
             checkpoint["completed_at"] = datetime.now().isoformat(timespec="seconds")
-            write_funasr_checkpoint(checkpoint_path, checkpoint)
+            checkpoint_store.write_funasr_checkpoint(checkpoint_path, checkpoint)
             return None
-        replace_file_atomically(srt_temp_path, srt_path)
+        checkpoint_store.commit_file_atomically(srt_temp_path, srt_path)
         checkpoint["status"] = "completed"
         checkpoint["segment_count"] = written_count
         checkpoint["coverage"] = {"start": 0.0, "end": float(duration)}
         checkpoint["completed_at"] = datetime.now().isoformat(timespec="seconds")
-        write_funasr_checkpoint(checkpoint_path, checkpoint)
+        checkpoint_store.write_funasr_checkpoint(checkpoint_path, checkpoint)
         if progress_callback:
             progress_callback(f"转录完成 ({written_count} 条)", 90, 100)
         return srt_path
@@ -1311,7 +1096,7 @@ def ensure_srt(
         }
         checkpoint["completed_chunk_count"] = len(checkpoint.get("chunks") or {})
         try:
-            write_funasr_checkpoint(checkpoint_path, checkpoint)
+            checkpoint_store.write_funasr_checkpoint(checkpoint_path, checkpoint)
         except OSError:
             pass
         raise

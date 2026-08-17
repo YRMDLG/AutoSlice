@@ -794,6 +794,60 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             }.isdisjoint(service_functions)
         )
 
+    def test_funasr_checkpoints_have_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.transcription import checkpoints, service
+
+        aliases = {
+            "FUNASR_CHECKPOINT_VERSION": "FUNASR_CHECKPOINT_VERSION",
+            "FUNASR_CHUNK_PRE_CONTEXT_SEC": "FUNASR_CHUNK_PRE_CONTEXT_SEC",
+            "FUNASR_CHUNK_SEC": "FUNASR_CHUNK_SEC",
+            "_funasr_model_runtime_signature": "funasr_model_runtime_signature",
+            "funasr_checkpoint_path": "funasr_checkpoint_path",
+            "_funasr_source_fingerprint": "funasr_source_fingerprint",
+            "_funasr_chunk_fingerprint": "funasr_chunk_fingerprint",
+            "_funasr_chunk_input_window": "funasr_chunk_input_window",
+            "_is_close_number": "is_close_number",
+            "_prepare_funasr_checkpoint": "prepare_funasr_checkpoint",
+            "write_funasr_checkpoint": "write_funasr_checkpoint",
+            "_existing_srt_is_reusable": "existing_srt_is_reusable",
+            "_quarantine_incomplete_srt": "quarantine_incomplete_srt",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                self.assertIs(
+                    getattr(service, compatibility_name),
+                    getattr(checkpoints, owner_name),
+                )
+
+        for facade_name, owner_name in checkpoints.FACADE_EXPORTS.items():
+            with self.subTest(facade=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(checkpoints, owner_name),
+                )
+        self.assertIs(service.checkpoint_store, checkpoints)
+        self.assertIs(
+            pipeline._funasr_checkpoint_path,
+            checkpoints.funasr_checkpoint_path,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        service_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.service"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = set(checkpoints.FACADE_EXPORTS.values()) | {
+            "commit_file_atomically",
+            "existing_srt_is_reusable",
+            "quarantine_incomplete_srt",
+        }
+        self.assertTrue(owner_functions.isdisjoint(service_functions))
+
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import slice_reuse, slicing

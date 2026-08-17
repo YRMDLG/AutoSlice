@@ -25,6 +25,7 @@ from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
 from autoslice.llm.prompts import build_title_hook_guide as _render_title_hook_guide
+from autoslice.transcription import checkpoints as transcription_checkpoints
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription.contracts import SubtitleTitleServices
 from autoslice.streamer_profiles import (
@@ -87,7 +88,7 @@ _sanitize_optimized_manual_entry = candidate_analysis._sanitize_optimized_manual
 _extract_video_start_datetime = timeline_analysis._extract_video_start_datetime
 _filter_manual_timeline_entries = timeline_analysis._filter_manual_timeline_entries
 _manual_timeline_summary = timeline_analysis._manual_timeline_summary
-_funasr_checkpoint_path = transcription_service.funasr_checkpoint_path
+_funasr_checkpoint_path = transcription_checkpoints.funasr_checkpoint_path
 
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 _apply_danmaku_slice_decisions = candidate_analysis._apply_danmaku_slice_decisions
