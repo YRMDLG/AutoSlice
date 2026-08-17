@@ -1893,13 +1893,23 @@ class SlicingServiceTests(unittest.TestCase):
     """视频输入、报告契约和模拟切片共用同一容器策略。"""
 
     def test_topic_engine_slicing_facade_keeps_service_object_identity(self):
-        self.assertGreater(len(slicing_service.FACADE_EXPORTS), 20)
-        for facade_name, slicing_name in slicing_service.FACADE_EXPORTS.items():
-            with self.subTest(facade_name=facade_name):
-                self.assertIs(
-                    getattr(topic_engine, facade_name),
-                    getattr(slicing_service, slicing_name),
-                )
+        from autoslice import slice_reuse
+
+        owners = (slice_reuse, slicing_service)
+        self.assertGreater(
+            sum(len(owner.FACADE_EXPORTS) for owner in owners),
+            20,
+        )
+        for owner in owners:
+            for facade_name, implementation_name in owner.FACADE_EXPORTS.items():
+                with self.subTest(
+                    owner=owner.__name__,
+                    facade_name=facade_name,
+                ):
+                    self.assertIs(
+                        getattr(topic_engine, facade_name),
+                        getattr(owner, implementation_name),
+                    )
 
     VIDEO_EXTENSIONS = (".flv", ".mp4", ".mkv", ".mov", ".avi")
 
@@ -2056,7 +2066,7 @@ class SlicingServiceTests(unittest.TestCase):
             legacy_path.write_bytes(b"historical-flv")
 
             with (
-                patch("autoslice.slicing.probe_video_duration", return_value=80.0),
+                patch("autoslice.slice_reuse.probe_video_duration", return_value=80.0),
                 patch("subprocess.run") as ffmpeg_run,
             ):
                 count, actual_report_dir = slice_from_marks(
@@ -4822,7 +4832,10 @@ class TopicEngineParseTests(unittest.TestCase):
             progress = []
 
             with (
-                patch("autoslice.slicing.probe_video_duration", return_value=80.035) as probe,
+                patch(
+                    "autoslice.slice_reuse.probe_video_duration",
+                    return_value=80.035,
+                ) as probe,
                 patch("autoslice.slicing.prepare_seekable_slice_source") as prepare_source,
                 patch("subprocess.run") as run,
             ):
@@ -4870,7 +4883,7 @@ class TopicEngineParseTests(unittest.TestCase):
             progress = []
 
             with (
-                patch("autoslice.slicing.probe_video_duration", return_value=80.03),
+                patch("autoslice.slice_reuse.probe_video_duration", return_value=80.03),
                 patch("autoslice.slicing.prepare_seekable_slice_source") as prepare_source,
                 patch("subprocess.run") as run,
             ):
@@ -4908,9 +4921,12 @@ class TopicEngineParseTests(unittest.TestCase):
             }
 
             with (
-                patch("autoslice.slicing.is_reusable_topic_clip", return_value=True),
-                patch("autoslice.slicing.os.replace", side_effect=PermissionError("占用")),
-                patch("autoslice.slicing.shutil.copy2", side_effect=PermissionError("禁止读取")),
+                patch("autoslice.slice_reuse.is_reusable_topic_clip", return_value=True),
+                patch("autoslice.slice_reuse.os.replace", side_effect=PermissionError("占用")),
+                patch(
+                    "autoslice.slice_reuse.shutil.copy2",
+                    side_effect=PermissionError("禁止读取"),
+                ),
             ):
                 reused = _reuse_topic_clip_after_title_change(
                     job,
@@ -4939,8 +4955,8 @@ class TopicEngineParseTests(unittest.TestCase):
             }
 
             with (
-                patch("autoslice.slicing.is_reusable_topic_clip", return_value=True),
-                patch("autoslice.slicing.os.replace", side_effect=PermissionError("占用")),
+                patch("autoslice.slice_reuse.is_reusable_topic_clip", return_value=True),
+                patch("autoslice.slice_reuse.os.replace", side_effect=PermissionError("占用")),
             ):
                 reused = _reuse_topic_clip_after_title_change(
                     job,
@@ -4958,7 +4974,10 @@ class TopicEngineParseTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             stale_path = Path(tmp) / "01_10s_旧标题.flv"
             stale_path.write_bytes(b"locked")
-            with patch("autoslice.slicing.os.remove", side_effect=PermissionError("占用")):
+            with patch(
+                "autoslice.slice_reuse.os.remove",
+                side_effect=PermissionError("占用"),
+            ):
                 removed = _cleanup_stale_topic_clips(tmp)
             still_exists = stale_path.exists()
 
@@ -5003,6 +5022,10 @@ class TopicEngineParseTests(unittest.TestCase):
                 return Mock(returncode=0)
 
             with (
+                patch(
+                    "autoslice.slice_reuse.probe_video_duration",
+                    side_effect=fake_probe,
+                ),
                 patch("autoslice.slicing.probe_video_duration", side_effect=fake_probe),
                 patch(
                     "autoslice.slicing.prepare_seekable_slice_source",

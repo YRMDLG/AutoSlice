@@ -20,6 +20,7 @@ from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
+from autoslice import slice_reuse
 from autoslice import slicing as slicing_service
 from autoslice import pipeline as pipeline_service
 from autoslice.llm import transport as llm_gateway
@@ -528,21 +529,21 @@ _update_refinement_manifest_after_slice = reporting_service.update_refinement_ma
 _build_timeline_report = reporting_service.build_timeline_report
 
 
-# 切片兼容 façade：容器策略、复用和 FFmpeg 命令只保留唯一实现。
-_GENERATED_VIDEO_SUFFIX_PATTERN = slicing_service._GENERATED_VIDEO_SUFFIX_PATTERN
+# 切片兼容 façade：产物复用与 FFmpeg 执行分别绑定唯一实现。
+_GENERATED_VIDEO_SUFFIX_PATTERN = slice_reuse._GENERATED_VIDEO_SUFFIX_PATTERN
 SLICE_DEFAULT_CONCURRENCY = slicing_service.SLICE_DEFAULT_CONCURRENCY
-_GENERATED_TOPIC_TEMP_RE = slicing_service._GENERATED_TOPIC_TEMP_RE
-SLICE_DURATION_TOLERANCE_SEC = slicing_service.SLICE_DURATION_TOLERANCE_SEC
+_GENERATED_TOPIC_TEMP_RE = slice_reuse._GENERATED_TOPIC_TEMP_RE
+SLICE_DURATION_TOLERANCE_SEC = slice_reuse.SLICE_DURATION_TOLERANCE_SEC
 SLICE_EXACT_SEEK_PREROLL_SEC = slicing_service.SLICE_EXACT_SEEK_PREROLL_SEC
-_GENERATED_TOPIC_ARTIFACT_RE = slicing_service._GENERATED_TOPIC_ARTIFACT_RE
+_GENERATED_TOPIC_ARTIFACT_RE = slice_reuse._GENERATED_TOPIC_ARTIFACT_RE
 SLICE_MAX_CONCURRENCY = slicing_service.SLICE_MAX_CONCURRENCY
 SLICE_INDEX_MIN_CLIPS = slicing_service.SLICE_INDEX_MIN_CLIPS
 _validated_video_path = slicing_service.validate_video_path
-_cleanup_stale_topic_clips = slicing_service.cleanup_stale_topic_clips
+_cleanup_stale_topic_clips = slice_reuse.cleanup_stale_topic_clips
 _format_ffmpeg_seconds = slicing_service.format_ffmpeg_seconds
-_is_reusable_topic_clip = slicing_service.is_reusable_topic_clip
-_reuse_compatible_topic_clip = slicing_service.reuse_compatible_topic_clip
-_reuse_topic_clip_after_title_change = slicing_service.reuse_topic_clip_after_title_change
+_is_reusable_topic_clip = slice_reuse.is_reusable_topic_clip
+_reuse_compatible_topic_clip = slice_reuse.reuse_compatible_topic_clip
+_reuse_topic_clip_after_title_change = slice_reuse.reuse_topic_clip_after_title_change
 _preferred_slice_video_encoder_args = slicing_service.preferred_slice_video_encoder_args
 _software_slice_video_encoder_args = slicing_service.software_slice_video_encoder_args
 _configured_slice_concurrency = slicing_service.configured_slice_concurrency

@@ -544,7 +544,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_phase6_facades_keep_every_owner_object_identity(self):
         import topic_engine
-        from autoslice import pipeline, reporting, slicing
+        from autoslice import pipeline, reporting, slice_reuse, slicing
         from autoslice.analysis import (
             boundaries,
             candidates,
@@ -570,6 +570,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             candidates,
             titles,
             reporting,
+            slice_reuse,
             slicing,
             pipeline,
         )
@@ -722,6 +723,50 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         self.assertTrue(
             set(results.FACADE_EXPORTS.values()).isdisjoint(service_functions)
+        )
+
+    def test_slice_reuse_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import slice_reuse, slicing
+
+        aliases = {
+            "_GENERATED_VIDEO_SUFFIX_PATTERN": "_GENERATED_VIDEO_SUFFIX_PATTERN",
+            "_GENERATED_TOPIC_TEMP_RE": "_GENERATED_TOPIC_TEMP_RE",
+            "SLICE_DURATION_TOLERANCE_SEC": "SLICE_DURATION_TOLERANCE_SEC",
+            "_GENERATED_TOPIC_ARTIFACT_RE": "_GENERATED_TOPIC_ARTIFACT_RE",
+            "cleanup_stale_topic_clips": "cleanup_stale_topic_clips",
+            "is_reusable_topic_clip": "is_reusable_topic_clip",
+            "reuse_compatible_topic_clip": "reuse_compatible_topic_clip",
+            "reuse_topic_clip_after_title_change": (
+                "reuse_topic_clip_after_title_change"
+            ),
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(slice_reuse, owner_name)
+                self.assertIs(getattr(slicing, compatibility_name), owner)
+
+        for facade_name, owner_name in slice_reuse.FACADE_EXPORTS.items():
+            with self.subTest(facade=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(slice_reuse, owner_name),
+                )
+
+        self.assertIs(slicing.slice_reuse, slice_reuse)
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        slicing_functions = {
+            item["name"]
+            for item in modules["autoslice.slicing"]["top_level_functions"]
+        }
+        self.assertTrue(
+            {
+                "cleanup_stale_topic_clips",
+                "is_reusable_topic_clip",
+                "reuse_compatible_topic_clip",
+                "reuse_topic_clip_after_title_change",
+            }.isdisjoint(slicing_functions)
         )
 
     def test_clip_boundaries_have_one_owner_and_direct_consumers(self):
