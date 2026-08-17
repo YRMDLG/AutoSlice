@@ -7,7 +7,12 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import architecture_snapshot, compile_public, scan_public_release
+from scripts import (
+    architecture_snapshot,
+    compile_public,
+    scan_public_release,
+    validate_public_docs,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = ROOT / "architecture_baseline.json"
@@ -29,6 +34,13 @@ CURRENT_LLM_IDENTITY_DEBT = {
 
 
 class ArchitectureSnapshotTests(unittest.TestCase):
+
+    def test_unified_dependency_manifests_match_public_contract(self):
+        errors = []
+
+        validate_public_docs._validate_dependency_contract(errors)
+
+        self.assertEqual(errors, [])
 
     def test_private_video_topic_analyzer_is_outside_architecture_scope(self):
         with tempfile.TemporaryDirectory() as temp_dir:

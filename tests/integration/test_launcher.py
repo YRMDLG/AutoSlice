@@ -1,10 +1,11 @@
 import importlib.util
-from pathlib import Path
+import io
 import socket
-from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import Mock
-
+from contextlib import redirect_stdout
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER_PATH = REPOSITORY_ROOT / "启动.py"
@@ -14,6 +15,22 @@ SPEC.loader.exec_module(launcher)
 
 
 class LauncherTests(unittest.TestCase):
+    def test_help_is_side_effect_free_and_documents_both_entry_points(self):
+        output = io.StringIO()
+        with (
+            redirect_stdout(output),
+            patch.object(
+                launcher,
+                "apply_local_environment",
+                side_effect=AssertionError("帮助命令不得加载本机配置"),
+            ),
+        ):
+            result = launcher.main(["--help"])
+
+        self.assertEqual(result, 0)
+        self.assertIn("python 启动.py", output.getvalue())
+        self.assertIn("autoslice", output.getvalue())
+
     def test_autoslice_binds_loopback_unless_secured_lan_mode_is_explicit(self):
         self.assertEqual(launcher._autoslice_bind_host({}), "127.0.0.1")
         with self.assertRaisesRegex(RuntimeError, "强随机令牌"):
@@ -129,19 +146,24 @@ class LauncherTests(unittest.TestCase):
 
         self.assertEqual(missing, ["funasr"])
 
-    def test_dependency_contract_keeps_root_autocover_and_gpu_packages_separate(self):
+    def test_dependency_contract_unifies_cover_but_keeps_gpu_packages_separate(self):
         root_requirements = (
             LAUNCHER_PATH.with_name("requirements.txt").read_text(encoding="utf-8")
+        )
+        pyproject = (
+            LAUNCHER_PATH.with_name("pyproject.toml").read_text(encoding="utf-8")
         )
         autocover_requirements = (
             LAUNCHER_PATH.parent / "autocover_tool" / "requirements.txt"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("requests>=2.31", root_requirements.splitlines())
+        self.assertIn("requests>=2.31,<3.0", root_requirements.splitlines())
         self.assertIn("requests", launcher.REQUIRED_IMPORTS)
-        self.assertNotIn("Pillow", root_requirements)
+        self.assertIn("Pillow>=10.0,<13.0", root_requirements.splitlines())
+        self.assertIn('"Pillow>=10.0,<13.0"', pyproject)
         self.assertIn("Pillow", autocover_requirements)
         self.assertNotIn("torch", root_requirements.casefold())
+        self.assertNotIn('"torch', pyproject.casefold())
         self.assertNotIn("PIL", launcher.REQUIRED_IMPORTS)
         self.assertNotIn("torch", launcher.REQUIRED_IMPORTS)
 

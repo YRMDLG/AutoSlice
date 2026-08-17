@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=69,<82", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoslice"
+version = "0.1.0"
+description = "面向中文直播录播的话题分析、智能切片、字幕与封面工作台"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+  "Flask>=3.0,<4.0",
+  "Pillow>=10.0,<13.0",
+  "funasr>=1.4.1",
+  "python-docx>=1.1,<2.0",
+  "requests>=2.31,<3.0",
+  "soxr>=1.0",
+]
+
+[project.optional-dependencies]
+test = ["ruff>=0.9,<1.0"]
+
+[project.scripts]
+autoslice = "autoslice.launcher:main"
+
+[project.urls]
+Repository = "https://github.com/YRMDLG/AutoSlice"
+Issues = "https://github.com/YRMDLG/AutoSlice/issues"
+
+[tool.setuptools]
+include-package-data = true
+py-modules = [
+  "app",
+  "artifact_store",
+  "core",
+  "llm_client",
+  "media_formats",
+  "runtime_config",
+  "security_policy",
+  "setup_asr_model",
+  "setup_gpu_runtime",
+  "streamer_profiles",
+  "subtitle_workflow",
+  "task_registry",
+  "task_store",
+  "topic_engine",
+  "启动",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["autoslice*", "autocover_tool*"]
+exclude = ["autocover_tool.tests*"]
+
+[tool.setuptools.package-data]
+autocover_tool = ["README.md", "static/*", "templates/*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+  ".autoslice-state",
+  ".codex-tmp-*",
+  ".test-tmp",
+  "video-topic-analyzer",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F", "I"]

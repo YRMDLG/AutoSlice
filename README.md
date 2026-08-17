@@ -16,11 +16,11 @@ AutoSlice 是面向 B 站录播的本机工作流工具：结合语音字幕、�
 完整功能以 **Windows 10/11、Python 3.10** 为主平台。先在项目根目录执行：
 
 ```powershell
-# AutoSlice 根依赖
-python -m pip install -r requirements.txt
+# Python 3.10 自带的旧 pip 可能不支持 pyproject editable 安装
+python -m pip install --upgrade pip
 
-# AutoCover 独立依赖
-python -m pip install -r autocover_tool/requirements.txt
+# 推荐：安装统一项目及 AutoSlice/AutoCover 依赖
+python -m pip install -e .
 
 # 首次使用：下载推荐的 ASR/VAD/标点/CAM++ 模型
 python setup_asr_model.py
@@ -30,6 +30,9 @@ python setup_gpu_runtime.py
 
 # 启动 AutoSlice 与 AutoCover
 python 启动.py
+
+# 安装后也可使用同一入口
+autoslice
 ```
 
 然后打开 `http://127.0.0.1:5002`。`启动.py` 会同时管理 AutoSlice 和仓库内的 AutoCover；AutoCover 默认从 5010 端口开始，端口冲突时可能顺延。按 `Ctrl+C` 会停止本次启动的服务。
@@ -57,12 +60,14 @@ LLM API、代理、目录、模型和 LAN 设置见[配置说明](docs/配置说
 
 AutoSlice 的录播扫描、分析和切片支持大小写不敏感的 `.flv`、`.mp4`、`.mkv`、`.mov`、`.avi`。codec-copy 自动切片默认保留源容器，例如 MP4 输入输出 MP4；为兼容旧版本，读取既有结果时仍会识别历史 FLV 切片。字幕工作台仍以剪映等工具导出的精剪 MP4/SRT 流程为主。
 
-依赖按职责拆分：
+`pyproject.toml` 是统一项目的依赖和命令行入口声明；
+`requirements.txt` 保留给现有脚本和不使用 editable 安装的用户，内容与统一依赖同步。
+AutoCover 仍可用自己的依赖文件单独运行：
 
 | 来源 | 内容 |
 |---|---|
-| `requirements.txt` | `Flask`、`FunASR`、`soxr`、`python-docx`、`requests` |
-| `autocover_tool/requirements.txt` | `Flask`、`Pillow` |
+| `pyproject.toml` / `requirements.txt` | `Flask`、`Pillow`、`FunASR`、`soxr`、`python-docx`、`requests` |
+| `autocover_tool/requirements.txt` | 只单独运行 AutoCover 时使用的 `Flask`、`Pillow` |
 | `setup_gpu_runtime.py` | Windows 隔离 GPU 运行时使用的 `torch`/`torchaudio` 范畴依赖；不属于通用根依赖 |
 | 系统外部依赖 | `ffmpeg`、`ffprobe`，必须单独安装并加入 `PATH` |
 
@@ -97,6 +102,7 @@ AutoSlice 的录播扫描、分析和切片支持大小写不敏感的 `.flv`、
 
 ```text
 AutoSlice/
+├── pyproject.toml             # 安装元数据、统一依赖与 autoslice 命令
 ├── 启动.py                    # 管理 AutoSlice/AutoCover 与 Windows GPU 运行时
 ├── app.py                     # Flask 路由、任务接口与 SSE
 ├── autoslice/                 # 分析、转录、LLM、切片、报告和编排模块
@@ -105,6 +111,7 @@ AutoSlice/
 ├── security_policy.py         # Host、Origin、会话与 LAN 路径策略
 ├── subtitle_workflow.py       # 字幕生成、校对、ASS 与压制
 ├── autocover_tool/            # AutoCover 服务与独立依赖
+├── tests/                     # unit/integration/architecture/support 测试
 ├── requirements.txt           # AutoSlice 根依赖
 └── docs/                      # 配置、工作流、排错与架构文档
 ```

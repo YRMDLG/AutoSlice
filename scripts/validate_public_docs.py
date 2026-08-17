@@ -48,26 +48,64 @@ PRIVATE_MARKER_RE = re.compile(r"(?i)(?:api[_ -]?key|secret|private[_ -]?key)\s*
 
 def _validate_dependency_contract(errors: list[str]) -> None:
     root_path = ROOT / "requirements.txt"
+    pyproject_path = ROOT / "pyproject.toml"
     autocover_path = ROOT / "autocover_tool" / "requirements.txt"
     root_lines = {
         line.strip().casefold()
         for line in root_path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     }
-    required_root = {
-        "flask>=3.0",
-        "funasr>=1.4.1",
-        "soxr>=1.0",
+    pyproject_text = pyproject_path.read_text(encoding="utf-8")
+    dependency_block = re.search(
+        r"(?ms)^dependencies\s*=\s*\[(.*?)^\]",
+        pyproject_text,
+    )
+    if dependency_block is None:
+        errors.append("pyproject.toml 缺少 [project].dependencies")
+        project_dependencies: set[str] = set()
+    else:
+        project_dependencies = {
+            value.casefold()
+            for value in re.findall(r'["\']([^"\']+)["\']', dependency_block.group(1))
+        }
+
+    def dependency_names(specifications: set[str]) -> set[str]:
+        names: set[str] = set()
+        for specification in specifications:
+            match = re.match(r"[a-z0-9_.-]+", specification)
+            if match:
+                names.add(match.group(0).replace("_", "-"))
+        return names
+
+    required_names = {
+        "flask",
+        "pillow",
+        "funasr",
+        "soxr",
         "python-docx",
-        "requests>=2.31",
+        "requests",
     }
-    missing = sorted(required_root - root_lines)
-    if missing:
-        errors.append(f"requirements.txt 缺少公开根依赖：{', '.join(missing)}")
-    forbidden_root = ("pillow", "torch", "torchaudio")
-    for dependency in forbidden_root:
-        if any(re.match(rf"{dependency}(?:$|[<>=!~;\[])", line) for line in root_lines):
-            errors.append(f"requirements.txt 不应包含隔离依赖：{dependency}")
+    root_names = dependency_names(root_lines)
+    project_names = dependency_names(project_dependencies)
+    missing_root = sorted(required_names - root_names)
+    if missing_root:
+        errors.append(f"requirements.txt 缺少公开根依赖：{', '.join(missing_root)}")
+    missing_project = sorted(required_names - project_names)
+    if missing_project:
+        errors.append(f"pyproject.toml 缺少统一依赖：{', '.join(missing_project)}")
+    if root_lines != project_dependencies:
+        only_requirements = sorted(root_lines - project_dependencies)
+        only_pyproject = sorted(project_dependencies - root_lines)
+        details = []
+        if only_requirements:
+            details.append("仅 requirements.txt: " + ", ".join(only_requirements))
+        if only_pyproject:
+            details.append("仅 pyproject.toml: " + ", ".join(only_pyproject))
+        errors.append("统一依赖声明不一致（" + "；".join(details) + "）")
+
+    for dependency in ("torch", "torchaudio"):
+        if dependency in root_names or dependency in project_names:
+            errors.append(f"通用依赖不应包含隔离 GPU 依赖：{dependency}")
 
     autocover_text = autocover_path.read_text(encoding="utf-8").casefold()
     for dependency in ("flask", "pillow"):

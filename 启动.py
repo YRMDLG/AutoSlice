@@ -8,7 +8,6 @@ import importlib.metadata
 import importlib.util
 import json
 import os
-from pathlib import Path
 import re
 import socket
 import subprocess
@@ -17,7 +16,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
+from autocover_tool.autocover import (
+    API_VERSION as AUTOCOVER_API_VERSION,
+)
+from autocover_tool.autocover import (
+    SERVICE_ID as AUTOCOVER_SERVICE_ID,
+)
 from runtime_config import (
     AUTOCOVER_DIR,
     AUTOCOVER_INPUT_DIR,
@@ -26,11 +32,6 @@ from runtime_config import (
     apply_local_environment,
 )
 from security_policy import SecurityConfigurationError, SecurityPolicy
-from autocover_tool.autocover import (
-    API_VERSION as AUTOCOVER_API_VERSION,
-    SERVICE_ID as AUTOCOVER_SERVICE_ID,
-)
-
 
 PROJECT_DIR = Path(__file__).resolve().parent
 GPU_RUNTIME_RELATIVE_PATH = Path("AutoSlice") / "gpu-py310-cu130" / "Scripts" / "python.exe"
@@ -380,7 +381,23 @@ def _start_autocover(
     return process, url, False
 
 
-def main():
+def _print_help():
+    print(
+        "AutoSlice 智能切片\n\n"
+        "用法:\n"
+        "  python 启动.py\n"
+        "  autoslice\n\n"
+        "两个命令都会启动 AutoSlice 与仓库内的 AutoCover；"
+        "按 Ctrl+C 停止本次启动的服务。"
+    )
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    if any(argument in {"-h", "--help"} for argument in args):
+        _print_help()
+        return 0
+
     apply_local_environment()
     os.chdir(PROJECT_DIR)
     print("=" * 50)
@@ -401,7 +418,7 @@ def main():
     runtime_python = _select_gpu_runtime()
     if runtime_python:
         print("\n检测到隔离 CUDA 运行时，正在切换 RTX 语音转录...")
-        return _run_gpu_child(runtime_python)
+        return _run_gpu_child(runtime_python, argv=args)
 
     os.environ.setdefault("MODELSCOPE_LOCAL_ONLY", "1")
     local_gpu_python = _gpu_runtime_python()
