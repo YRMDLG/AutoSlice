@@ -7036,6 +7036,162 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 1119,
+      "longest_function": {
+        "end_line": 1099,
+        "kind": "function",
+        "line": 1009,
+        "line_count": 91,
+        "qualname": "TaskStoreTransaction._prepare_changes"
+      },
+      "module": "task_store",
+      "path": "task_store.py",
+      "sha256": "460cb7090e64cf15a7b92a410d4f1cd5cace431942092aae8d2585934c07214f",
+      "top_level_classes": [
+        {
+          "end_line": 129,
+          "kind": "class",
+          "line": 128,
+          "name": "TaskStoreError"
+        },
+        {
+          "end_line": 133,
+          "kind": "class",
+          "line": 132,
+          "name": "TaskStoreSchemaError"
+        },
+        {
+          "end_line": 137,
+          "kind": "class",
+          "line": 136,
+          "name": "TaskStoreCorruptionError"
+        },
+        {
+          "end_line": 141,
+          "kind": "class",
+          "line": 140,
+          "name": "TaskNotFoundError"
+        },
+        {
+          "end_line": 145,
+          "kind": "class",
+          "line": 144,
+          "name": "TaskConflictError"
+        },
+        {
+          "end_line": 149,
+          "kind": "class",
+          "line": 148,
+          "name": "SensitiveTaskDataError"
+        },
+        {
+          "end_line": 153,
+          "kind": "class",
+          "line": 152,
+          "name": "_DetectedCorruption"
+        },
+        {
+          "end_line": 165,
+          "kind": "class",
+          "line": 157,
+          "name": "TaskStoreRecovery"
+        },
+        {
+          "end_line": 201,
+          "kind": "class",
+          "line": 169,
+          "name": "TaskRecord"
+        },
+        {
+          "end_line": 843,
+          "kind": "class",
+          "line": 343,
+          "name": "TaskStore"
+        },
+        {
+          "end_line": 1099,
+          "kind": "class",
+          "line": 846,
+          "name": "TaskStoreTransaction"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 218,
+          "kind": "function",
+          "line": 204,
+          "name": "normalize_task_path"
+        },
+        {
+          "end_line": 230,
+          "kind": "function",
+          "line": 221,
+          "name": "_validate_task_id"
+        },
+        {
+          "end_line": 242,
+          "kind": "function",
+          "line": 233,
+          "name": "_validate_task_type"
+        },
+        {
+          "end_line": 249,
+          "kind": "function",
+          "line": 245,
+          "name": "_validate_status"
+        },
+        {
+          "end_line": 255,
+          "kind": "function",
+          "line": 252,
+          "name": "_validate_counter"
+        },
+        {
+          "end_line": 264,
+          "kind": "function",
+          "line": 258,
+          "name": "_validate_timestamp"
+        },
+        {
+          "end_line": 284,
+          "kind": "function",
+          "line": 267,
+          "name": "_validate_safe_text"
+        },
+        {
+          "end_line": 288,
+          "kind": "function",
+          "line": 287,
+          "name": "_normalised_sensitive_key"
+        },
+        {
+          "end_line": 305,
+          "kind": "function",
+          "line": 291,
+          "name": "_check_json_secrets"
+        },
+        {
+          "end_line": 322,
+          "kind": "function",
+          "line": 308,
+          "name": "_encode_json"
+        },
+        {
+          "end_line": 331,
+          "kind": "function",
+          "line": 325,
+          "name": "_decode_json"
+        },
+        {
+          "end_line": 340,
+          "kind": "function",
+          "line": 334,
+          "name": "_is_sqlite_corruption"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 688,
       "longest_function": null,
       "module": "topic_engine",
@@ -7222,6 +7378,7 @@
       "setup_gpu_runtime.py",
       "streamer_profiles.py",
       "subtitle_workflow.py",
+      "task_store.py",
       "topic_engine.py",
       "启动.py",
       "autocover_tool/__init__.py",
@@ -7278,6 +7435,7 @@
       "test_streamer_profiles.py",
       "test_subtitle_workflow.py",
       "test_sync_autocover.py",
+      "test_task_store.py",
       "test_topic_engine.py",
       "autocover_tool/tests/__init__.py",
       "autocover_tool/tests/test_app.py",
@@ -7294,11 +7452,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 94,
-    "production_line_count": 28556,
-    "production_module_count": 49,
+    "production_line_count": 29675,
+    "production_module_count": 50,
     "test_private_patch_count": 12,
-    "top_level_class_count": 55,
-    "top_level_function_count": 774
+    "top_level_class_count": 66,
+    "top_level_function_count": 786
   },
   "test_private_patches": {
     "by_target_module": {

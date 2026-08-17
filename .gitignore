@@ -28,6 +28,7 @@ test_engine.py
 .test-tmp/
 .codex-tmp-*/
 .codex/
+.autoslice-state/
 video-topic-analyzer/
 项目总结.*
 对话总结.*
