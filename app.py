@@ -1171,41 +1171,31 @@ def slice_start():
     if not _legacy_direct_slice_enabled():
         return jsonify({"error": "旧版高级重新切片功能未启用"}), 404
     data = request.get_json(silent=True) or {}
+    mode = data.get("mode", "")
+    if mode != "timeline-json":
+        return jsonify({
+            "error": (
+                "旧版弹幕、DOCX 时间轴和混合直切模式已退役；"
+                "请先运行智能分析生成 clip_marks.json，再使用 timeline-json 模式重新切片"
+            )
+        }), 400
+
     flv_path = data.get("flv_path", "")
     output_dir = os.path.abspath(data.get("output_dir") or DEFAULT_OUTPUT_DIR)
-    mode = data.get("mode", "danmaku")
-    timeline_path = data.get("timeline_path", "")
+    timeline_json = data.get("timeline_json", "")
 
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
+    if not os.path.isfile(timeline_json):
+        return jsonify({"error": "JSON 标记文件不存在"}), 400
     try:
         streamer_profile = _request_streamer_profile(data, flv_path)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
     ass_path = flv_path[:-4] + ".ass"
-    if mode == "danmaku" and not os.path.isfile(ass_path):
-        return jsonify({"error": "缺少对应的 .ass 弹幕文件"}), 400
-
-    # 时间轴/混合模式：自动复制到项目文件夹
-    if timeline_path and os.path.isfile(timeline_path):
-        import shutil
-        dest = os.path.join(PROJECT_TL_DIR, os.path.basename(timeline_path))
-        if not os.path.exists(dest) or os.path.getmtime(timeline_path) > os.path.getmtime(dest):
-            shutil.copy2(timeline_path, dest)
-        timeline_path = dest
-
-    timeline_json = data.get("timeline_json", "")
-    if mode == "timeline-json":
-        if not os.path.isfile(timeline_json):
-            return jsonify({"error": "JSON 标记文件不存在"}), 400
-        mode = "timeline"
-        timeline_path = ""
     base_name = os.path.splitext(os.path.basename(flv_path))[0]
-    direct_output = os.path.join(
-        output_dir,
-        base_name + "_话题切片" if timeline_json else base_name,
-    )
+    direct_output = os.path.join(output_dir, base_name + "_话题切片")
     task_id, active_task_id = _reserve_source_task(
         "direct_slice",
         "direct_slice",
@@ -1237,7 +1227,7 @@ def slice_start():
                 ass_path,
                 output_dir,
                 mode,
-                timeline_path,
+                "",
                 timeline_json,
                 streamer_profile,
             ),

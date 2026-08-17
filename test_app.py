@@ -574,6 +574,139 @@ class DeferredThread(ImmediateThread):
         pass
 
 
+class DirectSliceApiTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        app_module.tasks.clear()
+        self.legacy_flag = patch.dict(
+            os.environ,
+            {app_module.LEGACY_DIRECT_SLICE_ENV: "1"},
+            clear=False,
+        )
+        self.legacy_flag.start()
+        self.addCleanup(self.legacy_flag.stop)
+        self.client = app_module.app.test_client()
+
+    def test_json_timeline_reslice_uses_existing_slice_from_marks_path(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            flv_path = root / "录播.flv"
+            json_path = root / "clip_marks.json"
+            output_dir = root / "自动切片"
+            flv_path.write_bytes(b"video")
+            json_path.write_text(
+                json.dumps(
+                    {
+                        "expanded_with_context": True,
+                        "time_basis": "video_elapsed_seconds",
+                        "clip_marks": [
+                            {"start": 100, "end": 120, "title": "测试片段"}
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "topic_engine.slice_from_marks",
+                    return_value=(1, str(output_dir / "录播_话题切片")),
+                ) as slicer,
+            ):
+                response = self.client.post(
+                    "/api/slice",
+                    json={
+                        "flv_path": str(flv_path),
+                        "output_dir": str(output_dir),
+                        "mode": "timeline-json",
+                        "timeline_json": str(json_path),
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        slicer.assert_called_once()
+        self.assertEqual(
+            slicer.call_args.args,
+            (str(flv_path), str(json_path), str(output_dir)),
+        )
+        self.assertTrue(callable(slicer.call_args.kwargs["progress_callback"]))
+        self.assertEqual(
+            slicer.call_args.kwargs["streamer_profile_id"].id,
+            "generic",
+        )
+        task = app_module.tasks[response.get_json()["task_id"]]
+        self.assertEqual(task["status"], "done")
+        self.assertIn("1 个片段", task["progress"])
+
+    def test_non_json_modes_are_rejected_before_reservation_or_thread_start(self):
+        migration_text = "请先运行智能分析生成 clip_marks.json"
+        with (
+            patch.object(app_module, "_reserve_source_task") as reserve,
+            patch.object(app_module.threading, "Thread") as thread,
+        ):
+            responses = [
+                self.client.post("/api/slice", json={"mode": mode})
+                for mode in ("danmaku", "timeline", "hybrid", "")
+            ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(migration_text, response.get_json()["error"])
+        reserve.assert_not_called()
+        thread.assert_not_called()
+        self.assertEqual(app_module.tasks, {})
+
+    def test_json_reslice_blocks_different_sources_targeting_same_output(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            first_dir = root / "来源一"
+            second_dir = root / "来源二"
+            output_dir = root / "输出"
+            first_dir.mkdir()
+            second_dir.mkdir()
+            first_video = first_dir / "same.flv"
+            second_video = second_dir / "same.flv"
+            first_json = first_dir / "marks.json"
+            second_json = second_dir / "marks.json"
+            for video in (first_video, second_video):
+                video.write_bytes(b"video")
+            for json_path in (first_json, second_json):
+                json_path.write_text(
+                    '{"expanded_with_context":true,"clip_marks":[]}',
+                    encoding="utf-8",
+                )
+
+            with patch.object(app_module.threading, "Thread", DeferredThread):
+                first = self.client.post(
+                    "/api/slice",
+                    json={
+                        "flv_path": str(first_video),
+                        "output_dir": str(output_dir),
+                        "mode": "timeline-json",
+                        "timeline_json": str(first_json),
+                    },
+                )
+                conflict = self.client.post(
+                    "/api/slice",
+                    json={
+                        "flv_path": str(second_video),
+                        "output_dir": str(output_dir),
+                        "mode": "timeline-json",
+                        "timeline_json": str(second_json),
+                    },
+                )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(
+            conflict.get_json()["task_id"],
+            first.get_json()["task_id"],
+        )
+
+
 class TopicPipelineApiTests(unittest.TestCase):
 
     def setUp(self):
