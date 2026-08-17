@@ -3426,6 +3426,73 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(expanded[0]["natural_boundary_pre_sec"], 14)
         self.assertGreater(expanded[0]["start"], 30)
 
+    def test_semantic_boundary_keeps_delayed_symptom_conclusion_before_next_topic(self):
+        marks = [{
+            "start": 796,
+            "end": 886,
+            "title": "抽卡日弹幕快到想吐",
+            "publish_title": "抽卡日只睡两小时，最后快吐了",
+            "semantic_focus_validated": True,
+            "reference_start": 668,
+            "reference_end": 1056,
+            "next_report_topic_start": 1001,
+            "boundary_evidence": [
+                "只睡两个小时后整个人发晕",
+                "弹幕太快让人想吐",
+            ],
+        }]
+        srt_segments = [
+            (796, 886, "抽卡只睡两个小时弹幕太快让我想吐"),
+            (896, 955, "后来我发现不能连续玩身体受不了"),
+            (955, 976, "弹幕刷得太快而且本来就没有休息好"),
+            (991.12, 996.16, "真的快晕了像低血糖当时有种眩晕的感觉"),
+            (1001.7, 1006.3, "感谢下一位观众送的礼物"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=1120,
+        )
+
+        self.assertEqual(expanded[0]["end"], 997)
+        self.assertEqual(expanded[0]["required_context_end"], 997)
+        self.assertNotIn("hard_context_end", expanded[0])
+        self.assertLess(expanded[0]["end"], 1001)
+
+    def test_semantic_boundary_does_not_absorb_same_signal_at_next_topic_start(self):
+        marks = [{
+            "start": 796,
+            "end": 886,
+            "title": "抽卡日弹幕快到想吐",
+            "publish_title": "抽卡日只睡两小时，最后快吐了",
+            "semantic_focus_validated": True,
+            "reference_start": 668,
+            "reference_end": 1056,
+            "next_report_topic_start": 1001,
+            "boundary_evidence": [
+                "只睡两个小时后整个人发晕",
+                "弹幕太快让人想吐",
+            ],
+        }]
+        srt_segments = [
+            (796, 886, "抽卡只睡两个小时弹幕太快让我想吐"),
+            (896, 976, "后来一直没有休息好"),
+            (991.12, 996.16, "真的快晕了像低血糖当时有种眩晕的感觉"),
+            (1001, 1008, "下一个话题说坐车时也会头晕想吐"),
+            (1008, 1014, "继续解释下一件事"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=srt_segments,
+            video_duration=1120,
+        )
+
+        self.assertEqual(expanded[0]["end"], 997)
+        self.assertEqual(expanded[0]["hard_context_end"], 1001)
+        self.assertLess(expanded[0]["end"], 1001)
+
     def test_semantic_topic_stops_before_explicit_next_topic_trigger(self):
         marks = [{
             "start": 708,

@@ -2695,6 +2695,16 @@ _TOPIC_DISCOURSE_CONTINUATION_RE = re.compile(
 )
 
 
+_BOUNDARY_SEMANTIC_SIGNAL_PATTERNS = {
+    # 直播口语常用不同词重复同一种身体反应；只靠二字以上字面重合会把
+    # “想吐/发晕”之后的“低血糖/眩晕”误判成新话题并提前截断。
+    "physical_distress": re.compile(
+        r'(?:想吐|恶心|反胃|发晕|晕眩|眩晕|头晕|低血糖|站不稳|'
+        r'身体受不住|身体受不了|吃不消)'
+    ),
+}
+
+
 _VISUAL_CASE_SHIFT_RE = re.compile(
     r'(?:左边|右边).{0,30}(?:赠品|原厂|非原装|遥控器|商品|图片)|'
     r'(?:原厂|非原装).{0,20}(?:遥控器|商品)|'
@@ -2774,6 +2784,30 @@ def _boundary_evidence_text_is_relevant(text, term_counts):
     return any(
         len(term) >= 2 and count >= 4 and term in normalised
         for term, count in term_counts.items()
+    )
+
+
+def _boundary_semantic_signals(mark):
+    """提取少量高置信同义概念，弥补 ASR 边界处的字面词形变化。"""
+
+    evidence = " ".join([
+        str(mark.get("title", "")),
+        str(mark.get("publish_title", "")),
+        *[str(item) for item in mark.get("boundary_evidence") or []],
+    ])
+    return {
+        name
+        for name, pattern in _BOUNDARY_SEMANTIC_SIGNAL_PATTERNS.items()
+        if pattern.search(evidence)
+    }
+
+
+def _boundary_text_has_semantic_signal(text, semantic_signals):
+    """判断后续语链是否延续候选已经明确出现的高置信概念。"""
+
+    return any(
+        _BOUNDARY_SEMANTIC_SIGNAL_PATTERNS[name].search(str(text or ""))
+        for name in semantic_signals
     )
 
 
@@ -2927,6 +2961,7 @@ def _find_relevant_topic_context_end(mark, topic_end, search_end, srt_segments):
         return topic_end, None, None
 
     term_counts = _boundary_evidence_term_counts(mark)
+    semantic_signals = _boundary_semantic_signals(mark)
     chains = _subtitle_speech_chains(srt_segments, topic_end, search_end)
     if not chains:
         return topic_end, None, None
@@ -3010,10 +3045,14 @@ def _find_relevant_topic_context_end(mark, topic_end, search_end, srt_segments):
             )
 
         starts_inside_core = record["chain"][0][0] <= topic_end + 1
+        record_text = " ".join(segment[2] for segment in record["chain"])
         evidence_relevant = (
-            _boundary_evidence_text_is_relevant(
-                " ".join(segment[2] for segment in record["chain"]),
-                term_counts,
+            (
+                _boundary_evidence_text_is_relevant(record_text, term_counts)
+                or _boundary_text_has_semantic_signal(
+                    record_text,
+                    semantic_signals,
+                )
             )
             and record["start"] - context_end <= TOPIC_RELEVANT_CONTINUATION_GAP_SEC
         )
@@ -3058,9 +3097,13 @@ def _find_relevant_topic_context_end(mark, topic_end, search_end, srt_segments):
                 break
             if future["start"] - context_end > TOPIC_RELEVANT_CONTINUATION_GAP_SEC:
                 break
-            if _boundary_evidence_text_is_relevant(
-                    " ".join(segment[2] for segment in future["chain"]),
-                    term_counts):
+            future_text = " ".join(segment[2] for segment in future["chain"])
+            if (
+                    _boundary_evidence_text_is_relevant(future_text, term_counts)
+                    or _boundary_text_has_semantic_signal(
+                        future_text,
+                        semantic_signals,
+                    )):
                 future_relevant = True
                 break
             if relevant_context_seen and future["conclusion"]:

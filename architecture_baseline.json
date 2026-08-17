@@ -1362,27 +1362,27 @@
       "qualname": "slice_from_marks_impl"
     },
     {
-      "end_line": 3451,
+      "end_line": 3494,
       "kind": "function",
-      "line": 3188,
+      "line": 3231,
       "line_count": 264,
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
       "qualname": "_expand_clip_mark_with_context"
     },
     {
-      "end_line": 4692,
+      "end_line": 4735,
       "kind": "function",
-      "line": 4446,
+      "line": 4489,
       "line_count": 247,
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
       "qualname": "analyze_topic_chunks"
     },
     {
-      "end_line": 5276,
+      "end_line": 5319,
       "kind": "function",
-      "line": 5031,
+      "line": 5074,
       "line_count": 246,
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
@@ -1398,10 +1398,10 @@
       "qualname": "organize_existing_artifacts"
     },
     {
-      "end_line": 3077,
+      "end_line": 3120,
       "kind": "function",
-      "line": 2924,
-      "line_count": 154,
+      "line": 2958,
+      "line_count": 163,
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
       "qualname": "_find_relevant_topic_context_end"
@@ -1461,9 +1461,9 @@
       "qualname": "call_compatible_api"
     },
     {
-      "end_line": 4311,
+      "end_line": 4354,
       "kind": "function",
-      "line": 4190,
+      "line": 4233,
       "line_count": 122,
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
@@ -1515,9 +1515,9 @@
       "qualname": "_merge_expanded_clip_marks"
     },
     {
-      "end_line": 4187,
+      "end_line": 4230,
       "kind": "function",
-      "line": 4083,
+      "line": 4126,
       "line_count": 105,
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
@@ -3271,17 +3271,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 5320,
+      "line_count": 5363,
       "longest_function": {
-        "end_line": 3451,
+        "end_line": 3494,
         "kind": "function",
-        "line": 3188,
+        "line": 3231,
         "line_count": 264,
         "qualname": "_expand_clip_mark_with_context"
       },
       "module": "autoslice.analysis.candidates",
       "path": "autoslice/analysis/candidates.py",
-      "sha256": "200e97cd2f1177493a33e60e4234bc4500b97f5b8d1d81689ddc9df491e2a3ed",
+      "sha256": "f48d953ded114954a88ba2afc8dd98525c8e264efe0f68ed1b240165a83badc6",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -3621,405 +3621,417 @@
           "name": "_clip_context_requires_trigger"
         },
         {
-          "end_line": 2727,
+          "end_line": 2737,
           "kind": "function",
-          "line": 2726,
+          "line": 2736,
           "name": "_normalise_boundary_evidence_text"
         },
         {
-          "end_line": 2755,
+          "end_line": 2765,
           "kind": "function",
-          "line": 2730,
+          "line": 2740,
           "name": "_boundary_evidence_term_counts"
         },
         {
-          "end_line": 2766,
+          "end_line": 2776,
           "kind": "function",
-          "line": 2758,
+          "line": 2768,
           "name": "_score_boundary_evidence_text"
         },
         {
-          "end_line": 2777,
+          "end_line": 2787,
           "kind": "function",
-          "line": 2769,
+          "line": 2779,
           "name": "_boundary_evidence_text_is_relevant"
         },
         {
-          "end_line": 2791,
+          "end_line": 2802,
           "kind": "function",
-          "line": 2780,
+          "line": 2790,
+          "name": "_boundary_semantic_signals"
+        },
+        {
+          "end_line": 2811,
+          "kind": "function",
+          "line": 2805,
+          "name": "_boundary_text_has_semantic_signal"
+        },
+        {
+          "end_line": 2825,
+          "kind": "function",
+          "line": 2814,
           "name": "_subtitle_speech_chains"
         },
         {
-          "end_line": 2803,
+          "end_line": 2837,
           "kind": "function",
-          "line": 2794,
+          "line": 2828,
           "name": "_split_chain_crossing_topic_end"
         },
         {
-          "end_line": 2846,
+          "end_line": 2880,
           "kind": "function",
-          "line": 2806,
+          "line": 2840,
           "name": "_find_relevant_topic_context_start"
         },
         {
-          "end_line": 2855,
+          "end_line": 2889,
           "kind": "function",
-          "line": 2849,
+          "line": 2883,
           "name": "_boundary_context_has_speech"
         },
         {
-          "end_line": 2868,
+          "end_line": 2902,
           "kind": "function",
-          "line": 2858,
+          "line": 2892,
           "name": "_boundary_context_is_relevant"
-        },
-        {
-          "end_line": 2874,
-          "kind": "function",
-          "line": 2871,
-          "name": "_looks_like_next_case_transition"
-        },
-        {
-          "end_line": 2891,
-          "kind": "function",
-          "line": 2877,
-          "name": "_looks_like_delayed_topic_conclusion"
-        },
-        {
-          "end_line": 2898,
-          "kind": "function",
-          "line": 2894,
-          "name": "_looks_like_discourse_continuation"
         },
         {
           "end_line": 2908,
           "kind": "function",
-          "line": 2901,
+          "line": 2905,
+          "name": "_looks_like_next_case_transition"
+        },
+        {
+          "end_line": 2925,
+          "kind": "function",
+          "line": 2911,
+          "name": "_looks_like_delayed_topic_conclusion"
+        },
+        {
+          "end_line": 2932,
+          "kind": "function",
+          "line": 2928,
+          "name": "_looks_like_discourse_continuation"
+        },
+        {
+          "end_line": 2942,
+          "kind": "function",
+          "line": 2935,
           "name": "_looks_like_low_score_visual_case_shift"
         },
         {
-          "end_line": 2921,
+          "end_line": 2955,
           "kind": "function",
-          "line": 2911,
+          "line": 2945,
           "name": "_next_report_topic_safe_boundary"
         },
         {
-          "end_line": 3077,
+          "end_line": 3120,
           "kind": "function",
-          "line": 2924,
+          "line": 2958,
           "name": "_find_relevant_topic_context_end"
         },
         {
-          "end_line": 3104,
+          "end_line": 3147,
           "kind": "function",
-          "line": 3080,
+          "line": 3123,
           "name": "_find_topic_lead_in_start"
         },
         {
-          "end_line": 3135,
+          "end_line": 3178,
           "kind": "function",
-          "line": 3107,
+          "line": 3150,
           "name": "_find_visual_reaction_context_start"
         },
         {
-          "end_line": 3143,
+          "end_line": 3186,
           "kind": "function",
-          "line": 3138,
+          "line": 3181,
           "name": "_is_explicit_sc_topic"
         },
         {
-          "end_line": 3185,
+          "end_line": 3228,
           "kind": "function",
-          "line": 3146,
+          "line": 3189,
           "name": "_find_next_topic_hard_end"
         },
         {
-          "end_line": 3451,
+          "end_line": 3494,
           "kind": "function",
-          "line": 3188,
+          "line": 3231,
           "name": "_expand_clip_mark_with_context"
         },
         {
-          "end_line": 3500,
+          "end_line": 3543,
           "kind": "function",
-          "line": 3454,
+          "line": 3497,
           "name": "_expand_clip_marks_with_context"
         },
         {
-          "end_line": 3513,
+          "end_line": 3556,
           "kind": "function",
-          "line": 3506,
+          "line": 3549,
           "name": "_format_report_time"
         },
         {
-          "end_line": 3519,
+          "end_line": 3562,
           "kind": "function",
-          "line": 3516,
+          "line": 3559,
           "name": "_topic_index_label"
         },
         {
-          "end_line": 3534,
+          "end_line": 3577,
           "kind": "function",
-          "line": 3524,
+          "line": 3567,
           "name": "_format_topic_block"
         },
         {
-          "end_line": 3551,
+          "end_line": 3594,
           "kind": "function",
-          "line": 3537,
+          "line": 3580,
           "name": "_topic_peak_candidates"
         },
         {
-          "end_line": 3571,
+          "end_line": 3614,
           "kind": "function",
-          "line": 3554,
+          "line": 3597,
           "name": "_topic_peak_focus_window"
         },
         {
-          "end_line": 3606,
+          "end_line": 3649,
           "kind": "function",
-          "line": 3574,
+          "line": 3617,
           "name": "_assign_topic_slice_window"
-        },
-        {
-          "end_line": 3625,
-          "kind": "function",
-          "line": 3609,
-          "name": "_is_content_cuttable_topic"
-        },
-        {
-          "end_line": 3640,
-          "kind": "function",
-          "line": 3628,
-          "name": "_topic_semantic_text"
         },
         {
           "end_line": 3668,
           "kind": "function",
-          "line": 3643,
+          "line": 3652,
+          "name": "_is_content_cuttable_topic"
+        },
+        {
+          "end_line": 3683,
+          "kind": "function",
+          "line": 3671,
+          "name": "_topic_semantic_text"
+        },
+        {
+          "end_line": 3711,
+          "kind": "function",
+          "line": 3686,
           "name": "_danmaku_topic_alignment"
         },
         {
-          "end_line": 3685,
+          "end_line": 3728,
           "kind": "function",
-          "line": 3671,
+          "line": 3714,
           "name": "_manual_entry_meaningfully_overlaps_topic"
         },
         {
-          "end_line": 3786,
+          "end_line": 3829,
           "kind": "function",
-          "line": 3688,
+          "line": 3731,
           "name": "_reconcile_topic_manual_evidence"
         },
         {
-          "end_line": 3802,
+          "end_line": 3845,
           "kind": "function",
-          "line": 3789,
+          "line": 3832,
           "name": "_report_fact_lines"
         },
         {
-          "end_line": 3844,
+          "end_line": 3887,
           "kind": "function",
-          "line": 3805,
+          "line": 3848,
           "name": "_trim_report_topic_around_reviewed_topic"
         },
         {
-          "end_line": 3895,
+          "end_line": 3938,
           "kind": "function",
-          "line": 3847,
+          "line": 3890,
           "name": "_resolve_reviewed_report_overlaps"
         },
         {
-          "end_line": 3965,
+          "end_line": 4008,
           "kind": "function",
-          "line": 3898,
+          "line": 3941,
           "name": "_clean_topics_for_report"
-        },
-        {
-          "end_line": 3993,
-          "kind": "function",
-          "line": 3968,
-          "name": "_refresh_topic_danmaku_evidence"
-        },
-        {
-          "end_line": 4006,
-          "kind": "function",
-          "line": 3996,
-          "name": "_append_clip_candidate_source"
         },
         {
           "end_line": 4036,
           "kind": "function",
-          "line": 4009,
+          "line": 4011,
+          "name": "_refresh_topic_danmaku_evidence"
+        },
+        {
+          "end_line": 4049,
+          "kind": "function",
+          "line": 4039,
+          "name": "_append_clip_candidate_source"
+        },
+        {
+          "end_line": 4079,
+          "kind": "function",
+          "line": 4052,
           "name": "_has_high_star_manual_evidence"
         },
         {
-          "end_line": 4060,
+          "end_line": 4103,
           "kind": "function",
-          "line": 4039,
+          "line": 4082,
           "name": "_manual_review_anchor"
         },
         {
-          "end_line": 4068,
+          "end_line": 4111,
           "kind": "function",
-          "line": 4063,
+          "line": 4106,
           "name": "_reviewed_topic_has_required_interest"
         },
         {
-          "end_line": 4080,
+          "end_line": 4123,
           "kind": "function",
-          "line": 4071,
+          "line": 4114,
           "name": "_assign_reviewed_semantic_slice_window"
         },
         {
-          "end_line": 4187,
+          "end_line": 4230,
           "kind": "function",
-          "line": 4083,
+          "line": 4126,
           "name": "_apply_reviewed_slice_decisions"
         },
         {
-          "end_line": 4311,
+          "end_line": 4354,
           "kind": "function",
-          "line": 4190,
+          "line": 4233,
           "name": "_apply_danmaku_slice_decisions"
-        },
-        {
-          "end_line": 4361,
-          "kind": "function",
-          "line": 4314,
-          "name": "_clip_marks_from_topics"
-        },
-        {
-          "end_line": 4374,
-          "kind": "function",
-          "line": 4364,
-          "name": "_configured_llm_concurrency"
-        },
-        {
-          "end_line": 4387,
-          "kind": "function",
-          "line": 4377,
-          "name": "_topic_analysis_prompt_fingerprint"
         },
         {
           "end_line": 4404,
           "kind": "function",
-          "line": 4390,
-          "name": "_load_topic_analysis_checkpoint"
+          "line": 4357,
+          "name": "_clip_marks_from_topics"
+        },
+        {
+          "end_line": 4417,
+          "kind": "function",
+          "line": 4407,
+          "name": "_configured_llm_concurrency"
         },
         {
           "end_line": 4430,
           "kind": "function",
-          "line": 4407,
+          "line": 4420,
+          "name": "_topic_analysis_prompt_fingerprint"
+        },
+        {
+          "end_line": 4447,
+          "kind": "function",
+          "line": 4433,
+          "name": "_load_topic_analysis_checkpoint"
+        },
+        {
+          "end_line": 4473,
+          "kind": "function",
+          "line": 4450,
           "name": "_write_topic_analysis_checkpoint"
         },
         {
-          "end_line": 4443,
+          "end_line": 4486,
           "kind": "function",
-          "line": 4433,
+          "line": 4476,
           "name": "_serialized_progress_callback"
         },
         {
-          "end_line": 4692,
+          "end_line": 4735,
           "kind": "function",
-          "line": 4446,
+          "line": 4489,
           "name": "analyze_topic_chunks"
         },
         {
-          "end_line": 4716,
+          "end_line": 4759,
           "kind": "function",
-          "line": 4695,
+          "line": 4738,
           "name": "_fresh_manual_topic_evidence"
         },
         {
-          "end_line": 4769,
+          "end_line": 4812,
           "kind": "function",
-          "line": 4719,
+          "line": 4762,
           "name": "_clip_review_candidate"
         },
         {
-          "end_line": 4782,
+          "end_line": 4825,
           "kind": "function",
-          "line": 4774,
+          "line": 4817,
           "name": "_parse_clip_interest_score"
         },
         {
-          "end_line": 4790,
+          "end_line": 4833,
           "kind": "function",
-          "line": 4785,
+          "line": 4828,
           "name": "_parse_clip_star_bonus"
         },
         {
-          "end_line": 4805,
+          "end_line": 4848,
           "kind": "function",
-          "line": 4793,
+          "line": 4836,
           "name": "_clip_star_bonus_cap"
         },
         {
-          "end_line": 4813,
+          "end_line": 4856,
           "kind": "function",
-          "line": 4808,
+          "line": 4851,
           "name": "_clip_manual_star_count"
         },
         {
-          "end_line": 4821,
+          "end_line": 4864,
           "kind": "function",
-          "line": 4816,
+          "line": 4859,
           "name": "_clip_interest_reason"
         },
         {
-          "end_line": 4876,
+          "end_line": 4919,
           "kind": "function",
-          "line": 4826,
+          "line": 4869,
           "name": "_build_clip_candidate_review_prompt"
         },
         {
-          "end_line": 4939,
+          "end_line": 4982,
           "kind": "function",
-          "line": 4890,
+          "line": 4933,
           "name": "_build_clip_candidate_review_audit"
         },
         {
-          "end_line": 4948,
+          "end_line": 4991,
           "kind": "function",
-          "line": 4942,
+          "line": 4985,
           "name": "_analysis_topics_snapshot"
         },
         {
-          "end_line": 4967,
+          "end_line": 5010,
           "kind": "function",
-          "line": 4951,
+          "line": 4994,
           "name": "write_clip_review_checkpoint"
-        },
-        {
-          "end_line": 4985,
-          "kind": "function",
-          "line": 4970,
-          "name": "_clip_review_checkpoint_matches_policy"
-        },
-        {
-          "end_line": 5009,
-          "kind": "function",
-          "line": 4988,
-          "name": "_clip_review_checkpoint_is_complete"
         },
         {
           "end_line": 5028,
           "kind": "function",
-          "line": 5012,
+          "line": 5013,
+          "name": "_clip_review_checkpoint_matches_policy"
+        },
+        {
+          "end_line": 5052,
+          "kind": "function",
+          "line": 5031,
+          "name": "_clip_review_checkpoint_is_complete"
+        },
+        {
+          "end_line": 5071,
+          "kind": "function",
+          "line": 5055,
           "name": "_write_completed_clip_review_checkpoint"
         },
         {
-          "end_line": 5276,
+          "end_line": 5319,
           "kind": "function",
-          "line": 5031,
+          "line": 5074,
           "name": "_review_peak_selected_topics"
         },
         {
-          "end_line": 5320,
+          "end_line": 5363,
           "kind": "function",
-          "line": 5279,
+          "line": 5322,
           "name": "_validate_unmatched_manual_topics"
         }
       ]
@@ -8050,11 +8062,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 104,
-    "production_line_count": 32572,
+    "production_line_count": 32615,
     "production_module_count": 55,
     "test_private_patch_count": 17,
     "top_level_class_count": 83,
-    "top_level_function_count": 834
+    "top_level_function_count": 836
   },
   "test_private_patches": {
     "by_target_module": {
