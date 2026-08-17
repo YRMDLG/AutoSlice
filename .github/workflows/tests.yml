@@ -54,6 +54,10 @@ jobs:
           $ffmpeg.DirectoryName | Add-Content -Path $env:GITHUB_PATH
           & $ffmpeg.FullName -version
 
+      - name: Run architecture and external boundary guards
+        shell: pwsh
+        run: python -B -m unittest test_architecture_contracts test_external_boundaries -q
+
       - name: Run unified test suite
         shell: pwsh
         run: python -B -m unittest discover -q
