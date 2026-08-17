@@ -25,7 +25,9 @@ install_test_external_boundary_guard()
 
 from autoslice import topic_engine
 from autoslice.analysis import candidates as candidate_analysis
+from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -723,7 +725,12 @@ class CandidateReviewTests(unittest.TestCase):
         self.addCleanup(self.profile_context.__exit__, None, None, None)
 
     def test_topic_engine_candidate_facade_keeps_analysis_object_identity(self):
-        owners = (checkpoint_store, candidate_analysis)
+        owners = (
+            checkpoint_store,
+            clip_policy,
+            boundary_analysis,
+            candidate_analysis,
+        )
         self.assertGreater(
             sum(len(owner.FACADE_EXPORTS) for owner in owners),
             200,

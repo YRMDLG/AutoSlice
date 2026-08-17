@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 
 from autoslice.analysis import candidates as candidate_analysis
+from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
     ARTIFACT_QUEUE_DIRNAME,
@@ -68,7 +69,7 @@ _parse_hms = candidate_analysis._parse_hms
 fmt_time = candidate_analysis.fmt_time
 _replace_streamer_role = candidate_analysis._replace_streamer_role
 _format_report_time = candidate_analysis._format_report_time
-_dedupe_clip_marks = candidate_analysis._dedupe_clip_marks
+_dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
 _normalise_publish_title = candidate_analysis._normalise_publish_title
 _format_topic_block = candidate_analysis._format_topic_block
 LLM_ANALYSIS_MODEL = candidate_analysis.LLM_ANALYSIS_MODEL

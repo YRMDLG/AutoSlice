@@ -16,7 +16,9 @@ from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice.analysis import candidates as candidate_analysis
+from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -67,7 +69,7 @@ export_corrected_srt = transcription_service.export_corrected_srt
 probe_video_duration = transcription_service.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = candidate_analysis.parse_srt_text
-parse_srt_segments = candidate_analysis.parse_srt_segments
+parse_srt_segments = boundary_analysis.parse_srt_segments
 chunk_srt = candidate_analysis.chunk_srt
 fmt_time = candidate_analysis.fmt_time
 load_manual_timeline = timeline_analysis.load_manual_timeline
@@ -81,16 +83,16 @@ MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC = timeline_analysis.MANUAL_TIMELINE_OPTIM
 MANUAL_TIMELINE_OPTIMIZATION_VERSION = timeline_analysis.MANUAL_TIMELINE_OPTIMIZATION_VERSION
 MAX_PUBLISH_TITLE_CHARS = title_analysis.MAX_PUBLISH_TITLE_CHARS
 CLIP_LOCAL_PEAK_RADIUS_SEC = danmaku_analysis.CLIP_LOCAL_PEAK_RADIUS_SEC
-CLIP_MANUAL_REVIEW_MIN_STARS = candidate_analysis.CLIP_MANUAL_REVIEW_MIN_STARS
-CLIP_MIN_INTEREST_SCORE = candidate_analysis.CLIP_MIN_INTEREST_SCORE
+CLIP_MANUAL_REVIEW_MIN_STARS = clip_policy.CLIP_MANUAL_REVIEW_MIN_STARS
+CLIP_MIN_INTEREST_SCORE = clip_policy.CLIP_MIN_INTEREST_SCORE
 LLM_ANALYSIS_MODEL = candidate_analysis.LLM_ANALYSIS_MODEL
 LLM_MODEL = reporting_service.LLM_REVIEW_MODEL
-TOPIC_MAX_CLIP_SEC = candidate_analysis.TOPIC_MAX_CLIP_SEC
-TOPIC_MIN_CLIP_SEC = candidate_analysis.TOPIC_MIN_CLIP_SEC
-TOPIC_POST_CONTEXT_SEC = candidate_analysis.TOPIC_POST_CONTEXT_SEC
-TOPIC_PRE_CONTEXT_SEC = candidate_analysis.TOPIC_PRE_CONTEXT_SEC
-TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC = candidate_analysis.TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC
-TOPIC_REVIEW_FOCUS_MAX_SEC = candidate_analysis.TOPIC_REVIEW_FOCUS_MAX_SEC
+TOPIC_MAX_CLIP_SEC = clip_policy.TOPIC_MAX_CLIP_SEC
+TOPIC_MIN_CLIP_SEC = clip_policy.TOPIC_MIN_CLIP_SEC
+TOPIC_POST_CONTEXT_SEC = clip_policy.TOPIC_POST_CONTEXT_SEC
+TOPIC_PRE_CONTEXT_SEC = clip_policy.TOPIC_PRE_CONTEXT_SEC
+TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC = clip_policy.TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC
+TOPIC_REVIEW_FOCUS_MAX_SEC = clip_policy.TOPIC_REVIEW_FOCUS_MAX_SEC
 
 _strip_body_prefix = title_analysis._strip_body_prefix
 _prompt_context = title_analysis._prompt_context
@@ -116,12 +118,12 @@ _build_clip_candidate_review_audit = candidate_analysis._build_clip_candidate_re
 _clean_topics_for_report = candidate_analysis._clean_topics_for_report
 _clip_marks_from_topics = candidate_analysis._clip_marks_from_topics
 _danmaku_clip_threshold = danmaku_analysis._danmaku_clip_threshold
-_detect_stream_outro_clip = candidate_analysis._detect_stream_outro_clip
-_expand_clip_marks_with_context = candidate_analysis._expand_clip_marks_with_context
+_detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
+_expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _high_energy_danmaku_peaks = candidate_analysis._high_energy_danmaku_peaks
-_outro_topic_from_mark = candidate_analysis._outro_topic_from_mark
+_outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
 _review_peak_selected_topics = candidate_analysis._review_peak_selected_topics
-_srt_video_duration = candidate_analysis._srt_video_duration
+_srt_video_duration = boundary_analysis._srt_video_duration
 _validate_unmatched_manual_topics = candidate_analysis._validate_unmatched_manual_topics
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
 _append_clip_candidate_source = candidate_analysis._append_clip_candidate_source

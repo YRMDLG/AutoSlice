@@ -9,6 +9,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from autoslice import reporting as reporting_service
+from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.transcription import service as transcription_service
 from autoslice.media_formats import (
@@ -45,11 +46,11 @@ FACADE_EXPORTS = {
 }
 
 
-_dedupe_clip_marks = candidate_analysis._dedupe_clip_marks
-_expand_clip_marks_with_context = candidate_analysis._expand_clip_marks_with_context
+_dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
+_expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _serialized_progress_callback = candidate_analysis._serialized_progress_callback
-_srt_video_duration = candidate_analysis._srt_video_duration
-parse_srt_segments = candidate_analysis.parse_srt_segments
+_srt_video_duration = boundary_analysis._srt_video_duration
+parse_srt_segments = boundary_analysis.parse_srt_segments
 probe_video_duration = transcription_service.probe_video_duration
 
 

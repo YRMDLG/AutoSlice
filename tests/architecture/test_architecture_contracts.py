@@ -545,7 +545,15 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_phase6_facades_keep_every_owner_object_identity(self):
         import topic_engine
         from autoslice import pipeline, reporting, slicing
-        from autoslice.analysis import candidates, checkpoints, danmaku, timeline, titles
+        from autoslice.analysis import (
+            boundaries,
+            candidates,
+            checkpoints,
+            clip_policy,
+            danmaku,
+            timeline,
+            titles,
+        )
         from autoslice.transcription import service as transcription
 
         owners = (
@@ -553,6 +561,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             danmaku,
             timeline,
             checkpoints,
+            boundaries,
+            clip_policy,
             candidates,
             titles,
             reporting,
@@ -637,6 +647,71 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "clip_review_checkpoint_is_complete",
             "write_completed_clip_review_checkpoint",
         }.isdisjoint(candidate_functions))
+
+    def test_clip_boundaries_have_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline, reporting, slicing
+        from autoslice.analysis import boundaries, candidates
+
+        compatibility_names = (
+            "_dedupe_clip_marks",
+            "_detect_stream_outro_clip",
+            "_expand_clip_mark_with_context",
+            "_expand_clip_marks_with_context",
+            "_fit_final_clip_to_safe_srt_boundaries",
+            "_outro_topic_from_mark",
+            "_srt_video_duration",
+            "parse_srt_segments",
+        )
+        for name in compatibility_names:
+            with self.subTest(name=name):
+                owner = getattr(boundaries, name)
+                self.assertIs(getattr(candidates, name), owner)
+                self.assertIs(getattr(topic_engine, name), owner)
+
+        self.assertIs(pipeline.boundary_analysis, boundaries)
+        self.assertIs(slicing.boundary_analysis, boundaries)
+        self.assertIs(reporting.boundary_analysis, boundaries)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"]["top_level_functions"]
+        }
+        self.assertTrue(
+            set(boundaries.FACADE_EXPORTS.values()).isdisjoint(candidate_functions)
+        )
+
+    def test_clip_policy_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import candidates, clip_policy
+
+        compatibility_names = (
+            "CLIP_MANUAL_REVIEW_MIN_STARS",
+            "CLIP_MIN_INTEREST_SCORE",
+            "SC_TRIGGER_KEYWORDS",
+            "THANKS_TRIGGER_RE",
+            "TOPIC_MAX_CLIP_SEC",
+            "TOPIC_PRE_CONTEXT_SEC",
+            "TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC",
+        )
+        for name in compatibility_names:
+            with self.subTest(name=name):
+                owner = getattr(clip_policy, name)
+                self.assertIs(getattr(candidates, name), owner)
+                self.assertIs(getattr(topic_engine, name), owner)
+
+        self.assertIs(pipeline.clip_policy, clip_policy)
+        self.assertIs(
+            pipeline.CLIP_MIN_INTEREST_SCORE,
+            clip_policy.CLIP_MIN_INTEREST_SCORE,
+        )
+        self.assertIs(
+            pipeline.TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
+            clip_policy.TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
+        )
 
     def test_topic_engine_compatibility_constants_follow_unique_owner(self):
         import topic_engine
