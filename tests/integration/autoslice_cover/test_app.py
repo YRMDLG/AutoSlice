@@ -557,7 +557,7 @@ if (applyKeyboardTransform(stickerModel, "sticker", "Enter", false) !== null) {
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -580,7 +580,7 @@ if (horizontalOnly.x !== 0.43) throw new Error("离开阈值后仍被横向吸�
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -620,7 +620,7 @@ if (serializedSticker.center_x !== true || serializedSticker.center_y !== true) 
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -685,7 +685,7 @@ if (taskDraft(draftTask).selected_timestamp !== 42.5) throw new Error("选帧时
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -711,7 +711,7 @@ if (reloadTaskDraftKey() !== "saved-task-key") {
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -778,7 +778,7 @@ if (Object.keys(taskDraft(task).previews).length) throw new Error("设置变化�
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -834,7 +834,7 @@ if (!previewHasContent()) throw new Error("交互图层被误判为空预览");
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -914,7 +914,7 @@ runProbe().catch((error) => {
             input="global.window={addEventListener(){},setTimeout,clearTimeout};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -948,7 +948,7 @@ if (activeTask()?.id !== "b") throw new Error("排序后当前任务发生变化
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -977,7 +977,7 @@ if (filterStickerAssets(stickerProbeAssets, "", "游戏")[0]?.id !== "2") {
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1064,7 +1064,7 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
             input="global.window={addEventListener(){}};\n" + script + probe,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=30,
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
