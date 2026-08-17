@@ -1,11 +1,10 @@
 import io
 import os
-import socket
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from autoslice import launcher
 
@@ -224,14 +223,20 @@ class LauncherTests(unittest.TestCase):
             "api_version": 1,
         }))
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
-            occupied.bind(("127.0.0.1", 0))
-            occupied.listen(1)
-            port = occupied.getsockname()[1]
+        occupied_probe = MagicMock()
+        occupied_probe.__enter__.return_value.bind.side_effect = OSError("占用")
+        available_probe = MagicMock()
+        with patch(
+            "autoslice.launcher.socket.socket",
+            side_effect=(occupied_probe, available_probe),
+        ):
             self.assertEqual(
-                launcher._find_available_local_port(port, attempts=2),
-                port + 1,
+                launcher._find_available_local_port(5010, attempts=2),
+                5011,
             )
+        available_probe.__enter__.return_value.bind.assert_called_once_with(
+            ("127.0.0.1", 5011)
+        )
 
     def test_autocover_reuses_compatible_service_without_starting_process(self):
         env = {}
