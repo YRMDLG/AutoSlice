@@ -25,6 +25,7 @@ install_test_external_boundary_guard()
 
 from autoslice import topic_engine
 from autoslice.analysis import candidates as candidate_analysis
+from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -722,13 +723,18 @@ class CandidateReviewTests(unittest.TestCase):
         self.addCleanup(self.profile_context.__exit__, None, None, None)
 
     def test_topic_engine_candidate_facade_keeps_analysis_object_identity(self):
-        self.assertGreater(len(candidate_analysis.FACADE_EXPORTS), 200)
-        for facade_name, candidate_name in candidate_analysis.FACADE_EXPORTS.items():
-            with self.subTest(facade_name=facade_name):
-                self.assertIs(
-                    getattr(topic_engine, facade_name),
-                    getattr(candidate_analysis, candidate_name),
-                )
+        owners = (checkpoint_store, candidate_analysis)
+        self.assertGreater(
+            sum(len(owner.FACADE_EXPORTS) for owner in owners),
+            200,
+        )
+        for owner in owners:
+            for facade_name, implementation_name in owner.FACADE_EXPORTS.items():
+                with self.subTest(owner=owner.__name__, facade_name=facade_name):
+                    self.assertIs(
+                        getattr(topic_engine, facade_name),
+                        getattr(owner, implementation_name),
+                    )
 
     def test_reviewed_candidates_keep_context_without_overlap(self):
         marks = [
@@ -9218,7 +9224,7 @@ class HybridModelRoutingTests(unittest.TestCase):
                     return_value=prepared,
                 ) as prepare,
                 patch("autoslice.analysis.candidates.analyze_topic_chunks", return_value=([], [], None)),
-                patch("autoslice.analysis.candidates.write_clip_review_checkpoint"),
+                patch("autoslice.analysis.checkpoints.write_clip_review_checkpoint"),
                 patch("autoslice.reporting.build_refinement_manifest", return_value={}),
                 patch("autoslice.reporting.write_refinement_manifest_files"),
                 patch("autoslice.reporting.upsert_unified_refinement_queue"),
@@ -9345,7 +9351,7 @@ class PipelineProgressTests(unittest.TestCase):
                 patch("autoslice.pipeline.probe_video_duration", return_value=5),
                 patch("autoslice.pipeline.prepare_optimized_manual_timeline", side_effect=fake_prepare),
                 patch("autoslice.analysis.candidates.analyze_topic_chunks", side_effect=fake_analyze),
-                patch("autoslice.analysis.candidates.write_clip_review_checkpoint"),
+                patch("autoslice.analysis.checkpoints.write_clip_review_checkpoint"),
                 patch("autoslice.reporting.build_timeline_report", return_value="# 测试报告\n"),
                 patch("autoslice.reporting.build_refinement_manifest", return_value={}),
                 patch("autoslice.reporting.write_refinement_manifest_files"),

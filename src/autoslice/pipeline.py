@@ -16,6 +16,7 @@ from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice.analysis import candidates as candidate_analysis
+from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -108,7 +109,7 @@ _filter_manual_timeline_entries = timeline_analysis._filter_manual_timeline_entr
 _manual_timeline_summary = timeline_analysis._manual_timeline_summary
 _funasr_checkpoint_path = transcription_service.funasr_checkpoint_path
 
-_analysis_topics_snapshot = candidate_analysis._analysis_topics_snapshot
+_analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 _apply_danmaku_slice_decisions = candidate_analysis._apply_danmaku_slice_decisions
 _average_danmaku_density = candidate_analysis._average_danmaku_density
 _build_clip_candidate_review_audit = candidate_analysis._build_clip_candidate_review_audit
@@ -122,10 +123,10 @@ _outro_topic_from_mark = candidate_analysis._outro_topic_from_mark
 _review_peak_selected_topics = candidate_analysis._review_peak_selected_topics
 _srt_video_duration = candidate_analysis._srt_video_duration
 _validate_unmatched_manual_topics = candidate_analysis._validate_unmatched_manual_topics
-_write_completed_clip_review_checkpoint = candidate_analysis._write_completed_clip_review_checkpoint
+_write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
 _append_clip_candidate_source = candidate_analysis._append_clip_candidate_source
-_clip_review_checkpoint_is_complete = candidate_analysis._clip_review_checkpoint_is_complete
-_clip_review_checkpoint_matches_policy = candidate_analysis._clip_review_checkpoint_matches_policy
+_clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
+_clip_review_checkpoint_matches_policy = checkpoint_store.clip_review_checkpoint_matches_policy
 
 
 
@@ -986,7 +987,7 @@ def run_pipeline_impl(
         clip_review_checkpoint_path,
         base + "_clip_review_checkpoint.json",
     )
-    candidate_analysis.write_clip_review_checkpoint(
+    checkpoint_store.write_clip_review_checkpoint(
         clip_review_checkpoint_path,
         analysis_topics,
         stage="ready",
@@ -1003,7 +1004,7 @@ def run_pipeline_impl(
         streamer_name=streamer_display_name,
         progress_callback=progress_callback,
         checkpoint_callback=lambda current, pending, round_label, batch_index, total_batches: (
-            candidate_analysis.write_clip_review_checkpoint(
+            checkpoint_store.write_clip_review_checkpoint(
                 clip_review_checkpoint_path,
                 current,
                 stage="reviewing",
@@ -1030,7 +1031,7 @@ def run_pipeline_impl(
         streamer_name=streamer_display_name,
         progress_callback=progress_callback,
         checkpoint_callback=lambda current, batch_index, total_batches: (
-            candidate_analysis.write_clip_review_checkpoint(
+            checkpoint_store.write_clip_review_checkpoint(
                 clip_review_checkpoint_path,
                 current,
                 stage="title_reviewing",
@@ -1455,7 +1456,7 @@ def retry_clip_review_from_artifacts_impl(
             100,
         )
 
-    candidate_analysis.write_clip_review_checkpoint(
+    checkpoint_store.write_clip_review_checkpoint(
         clip_review_checkpoint_path,
         accepted_topics if (resume_review or reuse_completed_review) else analysis_topics,
         stage=(
@@ -1489,7 +1490,7 @@ def retry_clip_review_from_artifacts_impl(
             streamer_name=streamer_profile.report_name,
             progress_callback=progress_callback,
             checkpoint_callback=lambda current, pending, round_label, batch_index, total_batches: (
-                candidate_analysis.write_clip_review_checkpoint(
+                checkpoint_store.write_clip_review_checkpoint(
                     clip_review_checkpoint_path,
                     current,
                     stage="reviewing",
@@ -1514,7 +1515,7 @@ def retry_clip_review_from_artifacts_impl(
         streamer_name=streamer_profile.report_name,
         progress_callback=progress_callback,
         checkpoint_callback=lambda current, batch_index, total_batches: (
-            candidate_analysis.write_clip_review_checkpoint(
+            checkpoint_store.write_clip_review_checkpoint(
                 clip_review_checkpoint_path,
                 current,
                 stage="title_reviewing",

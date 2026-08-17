@@ -545,13 +545,14 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_phase6_facades_keep_every_owner_object_identity(self):
         import topic_engine
         from autoslice import pipeline, reporting, slicing
-        from autoslice.analysis import candidates, danmaku, timeline, titles
+        from autoslice.analysis import candidates, checkpoints, danmaku, timeline, titles
         from autoslice.transcription import service as transcription
 
         owners = (
             transcription,
             danmaku,
             timeline,
+            checkpoints,
             candidates,
             titles,
             reporting,
@@ -590,6 +591,52 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                             f"{owner.__name__}.{implementation_name}"
                         ),
                     )
+
+    def test_analysis_checkpoints_have_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import candidates, checkpoints
+
+        aliases = {
+            "analysis_topics_snapshot": candidates._analysis_topics_snapshot,
+            "clip_review_checkpoint_matches_policy": (
+                candidates._clip_review_checkpoint_matches_policy
+            ),
+            "clip_review_checkpoint_is_complete": (
+                candidates._clip_review_checkpoint_is_complete
+            ),
+            "write_completed_clip_review_checkpoint": (
+                candidates._write_completed_clip_review_checkpoint
+            ),
+        }
+        for name, compatibility_alias in aliases.items():
+            with self.subTest(name=name):
+                owner = getattr(checkpoints, name)
+                self.assertIs(compatibility_alias, owner)
+                self.assertIs(getattr(pipeline, f"_{name}"), owner)
+
+        self.assertIs(
+            candidates.write_clip_review_checkpoint,
+            checkpoints.write_clip_review_checkpoint,
+        )
+        self.assertIs(pipeline.checkpoint_store, checkpoints)
+        self.assertIs(
+            topic_engine._write_clip_review_checkpoint,
+            checkpoints.write_clip_review_checkpoint,
+        )
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"]["top_level_functions"]
+        }
+        self.assertTrue({
+            "analysis_topics_snapshot",
+            "write_clip_review_checkpoint",
+            "clip_review_checkpoint_matches_policy",
+            "clip_review_checkpoint_is_complete",
+            "write_completed_clip_review_checkpoint",
+        }.isdisjoint(candidate_functions))
 
     def test_topic_engine_compatibility_constants_follow_unique_owner(self):
         import topic_engine

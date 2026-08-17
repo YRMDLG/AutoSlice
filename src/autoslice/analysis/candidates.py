@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import bisect
 import difflib
-import hashlib
 import html
 import json
 import math
@@ -16,7 +15,9 @@ import unicodedata
 from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timedelta
+from functools import partial
 
+from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -50,7 +51,6 @@ FACADE_EXPORTS = {
     'CLIP_MANUAL_REVIEW_MIN_STARS': 'CLIP_MANUAL_REVIEW_MIN_STARS',
     'CLIP_MIN_INTEREST_SCORE': 'CLIP_MIN_INTEREST_SCORE',
     'CLIP_REVIEW_BATCH_SIZE': 'CLIP_REVIEW_BATCH_SIZE',
-    'CLIP_REVIEW_POLICY_VERSION': 'CLIP_REVIEW_POLICY_VERSION',
     'CLIP_REVIEW_RETRY_BATCH_SIZE': 'CLIP_REVIEW_RETRY_BATCH_SIZE',
     'LLMProviderUnavailableError': 'LLMProviderUnavailableError',
     'LLMStructuredOutputError': 'LLMStructuredOutputError',
@@ -75,7 +75,6 @@ FACADE_EXPORTS = {
     'TOPIC_AI_FOCUS_NATURAL_PRE_BOUNDARY_SEC': 'TOPIC_AI_FOCUS_NATURAL_PRE_BOUNDARY_SEC',
     'TOPIC_AI_FOCUS_POST_CONTEXT_SEC': 'TOPIC_AI_FOCUS_POST_CONTEXT_SEC',
     'TOPIC_AI_FOCUS_PRE_CONTEXT_SEC': 'TOPIC_AI_FOCUS_PRE_CONTEXT_SEC',
-    'TOPIC_ANALYSIS_CHECKPOINT_VERSION': 'TOPIC_ANALYSIS_CHECKPOINT_VERSION',
     'TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEARCH_SEC': 'TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEARCH_SEC',
     'TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEC': 'TOPIC_BOUNDARY_EVIDENCE_FORWARD_SEC',
     'TOPIC_BOUNDARY_EVIDENCE_LOOKBACK_SEC': 'TOPIC_BOUNDARY_EVIDENCE_LOOKBACK_SEC',
@@ -116,14 +115,12 @@ FACADE_EXPORTS = {
     '_TOPIC_DISCOURSE_CONTINUATION_RE': '_TOPIC_DISCOURSE_CONTINUATION_RE',
     '_TOPIC_LEAD_IN_TRIGGER_RE': '_TOPIC_LEAD_IN_TRIGGER_RE',
     '_TOPIC_REFUND_RE': '_TOPIC_REFUND_RE',
-    '_TOPIC_REVIEW_TRANSIENT_KEYS': '_TOPIC_REVIEW_TRANSIENT_KEYS',
     '_TRIGGER_CONTEXT_TOPIC_RE': '_TRIGGER_CONTEXT_TOPIC_RE',
     '_UNCUTTABLE_CONTENT_KEYWORDS': '_UNCUTTABLE_CONTENT_KEYWORDS',
     '_UNSUPPORTED_AI_AUDIENCE_REACTION_RE': '_UNSUPPORTED_AI_AUDIENCE_REACTION_RE',
     '_VISUAL_CASE_SHIFT_RE': '_VISUAL_CASE_SHIFT_RE',
     '_VISUAL_REACTION_LEAD_IN_RE': '_VISUAL_REACTION_LEAD_IN_RE',
     '_VISUAL_REVIEW_TOPIC_RE': '_VISUAL_REVIEW_TOPIC_RE',
-    '_analysis_topics_snapshot': '_analysis_topics_snapshot',
     '_analyze_topic_chunks': 'analyze_topic_chunks',
     '_append_clip_candidate_source': '_append_clip_candidate_source',
     '_apply_danmaku_slice_decisions': '_apply_danmaku_slice_decisions',
@@ -147,8 +144,6 @@ FACADE_EXPORTS = {
     '_clip_manual_star_count': '_clip_manual_star_count',
     '_clip_marks_from_topics': '_clip_marks_from_topics',
     '_clip_review_candidate': '_clip_review_candidate',
-    '_clip_review_checkpoint_is_complete': '_clip_review_checkpoint_is_complete',
-    '_clip_review_checkpoint_matches_policy': '_clip_review_checkpoint_matches_policy',
     '_clip_star_bonus_cap': '_clip_star_bonus_cap',
     '_configured_llm_concurrency': '_configured_llm_concurrency',
     '_danmaku_topic_alignment': '_danmaku_topic_alignment',
@@ -242,8 +237,6 @@ FACADE_EXPORTS = {
     '_trim_report_topic_around_reviewed_topic': '_trim_report_topic_around_reviewed_topic',
     '_validate_unmatched_manual_topics': '_validate_unmatched_manual_topics',
     '_validated_ai_focus_range': '_validated_ai_focus_range',
-    '_write_clip_review_checkpoint': 'write_clip_review_checkpoint',
-    '_write_completed_clip_review_checkpoint': '_write_completed_clip_review_checkpoint',
     '_write_topic_analysis_checkpoint': '_write_topic_analysis_checkpoint',
     'chunk_srt': 'chunk_srt',
     'fmt_time': 'fmt_time',
@@ -414,10 +407,10 @@ LLM_DEFAULT_CONCURRENCY = 3
 LLM_MAX_CONCURRENCY = 4
 
 
-TOPIC_ANALYSIS_CHECKPOINT_VERSION = 1
+TOPIC_ANALYSIS_CHECKPOINT_VERSION = checkpoint_store.TOPIC_ANALYSIS_CHECKPOINT_VERSION
 
 
-CLIP_REVIEW_POLICY_VERSION = 6
+CLIP_REVIEW_POLICY_VERSION = checkpoint_store.CLIP_REVIEW_POLICY_VERSION
 
 
 CLIP_MIN_INTEREST_SCORE = 75  # 独立候选达到投稿价值门槛才值得投入二次剪辑
@@ -4417,60 +4410,26 @@ def _configured_llm_concurrency():
     return max(1, min(LLM_MAX_CONCURRENCY, value))
 
 
-def _topic_analysis_prompt_fingerprint(prompt, compact_prompt):
-    """提示、模型或输出上限变化时自动让对应分块缓存失效。"""
-    payload = "\n".join((
-        str(TOPIC_ANALYSIS_CHECKPOINT_VERSION),
-        LLM_ANALYSIS_MODEL,
-        str(LLM_MAX_TOKENS),
-        str(LLM_COMPACT_MAX_TOKENS),
-        prompt,
-        compact_prompt,
-    ))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+_topic_analysis_prompt_fingerprint = partial(
+    checkpoint_store.topic_analysis_prompt_fingerprint,
+    schema_version=TOPIC_ANALYSIS_CHECKPOINT_VERSION,
+    model=LLM_ANALYSIS_MODEL,
+    max_tokens=LLM_MAX_TOKENS,
+    compact_max_tokens=LLM_COMPACT_MAX_TOKENS,
+)
 
 
-def _load_topic_analysis_checkpoint(path):
-    """容错读取首轮原始响应检查点；损坏文件按空缓存处理。"""
-    if not path or not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            payload = json.load(f)
-    except (OSError, ValueError, TypeError):
-        return {}
-    if (
-            not isinstance(payload, dict)
-            or payload.get("schema_version") != TOPIC_ANALYSIS_CHECKPOINT_VERSION
-            or not isinstance(payload.get("responses"), dict)):
-        return {}
-    return payload["responses"]
+_load_topic_analysis_checkpoint = partial(
+    checkpoint_store.load_topic_analysis_checkpoint,
+    schema_version=TOPIC_ANALYSIS_CHECKPOINT_VERSION,
+)
 
 
-def _write_topic_analysis_checkpoint(path, responses, chunk_count):
-    """原子保存原始模型响应；写入失败时保留上一个完整检查点。"""
-    if not path:
-        return True
-    payload = {
-        "schema_version": TOPIC_ANALYSIS_CHECKPOINT_VERSION,
-        "model": LLM_ANALYSIS_MODEL,
-        "chunk_count": int(chunk_count),
-        "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "responses": responses,
-    }
-    temp_path = path + ".tmp"
-    try:
-        with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        os.replace(temp_path, path)
-        return True
-    except OSError:
-        try:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        except OSError:
-            pass
-        return False
+_write_topic_analysis_checkpoint = partial(
+    checkpoint_store.write_topic_analysis_checkpoint,
+    schema_version=TOPIC_ANALYSIS_CHECKPOINT_VERSION,
+    model=LLM_ANALYSIS_MODEL,
+)
 
 
 def _serialized_progress_callback(progress_callback):
@@ -4919,15 +4878,7 @@ def _build_clip_candidate_review_prompt(candidates, streamer_name=None, compact=
     )
 
 
-_TOPIC_REVIEW_TRANSIENT_KEYS = {
-    "can_slice", "slice_start", "slice_end", "slice_anchor",
-    "slice_anchor_source", "slice_peak_density", "peak_density", "density_ratio",
-    "clip_review_validated", "clip_review_rejection", "clip_review_attempts",
-    "clip_interest_base_score", "clip_timeline_star_bonus",
-    "clip_interest_score", "clip_interest_reason",
-    "title_review_validated", "title_review_candidates",
-    "title_review_reason", "title_review_attempts",
-}
+_TOPIC_REVIEW_TRANSIENT_KEYS = checkpoint_store.TOPIC_REVIEW_TRANSIENT_KEYS
 
 
 def _build_clip_candidate_review_audit(topics):
@@ -4982,93 +4933,25 @@ def _build_clip_candidate_review_audit(topics):
     }
 
 
-def _analysis_topics_snapshot(topics):
-    """保存可重复执行候选复核的首轮话题快照，不带上一次筛选状态。"""
-    snapshot = json.loads(json.dumps(topics or [], ensure_ascii=False))
-    for topic in snapshot:
-        for key in _TOPIC_REVIEW_TRANSIENT_KEYS:
-            topic.pop(key, None)
-    return snapshot
+_analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 
 
-def write_clip_review_checkpoint(path, topics, **status):
-    """原子写入候选复核检查点，API 中断后无需重跑整场首轮分析。"""
-    if not path:
-        return None
-    payload = {
-        "schema_version": 1,
-        "review_policy_version": CLIP_REVIEW_POLICY_VERSION,
-        "streamer_profile_id": current_streamer_profile().id,
-        "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "topics": topics,
-    }
-    payload.update(status)
-    temp_path = path + ".tmp"
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-    os.replace(temp_path, path)
-    return path
+write_clip_review_checkpoint = checkpoint_store.write_clip_review_checkpoint
 
 
-def _clip_review_checkpoint_matches_policy(checkpoint):
-    """只有当前复核策略生成的检查点才能续跑或复用旧标题。"""
-    if not isinstance(checkpoint, dict):
-        return False
-    try:
-        version = int(checkpoint.get("review_policy_version"))
-    except (TypeError, ValueError):
-        return False
-    if version != CLIP_REVIEW_POLICY_VERSION:
-        return False
-    profile_id = checkpoint.get("streamer_profile_id")
-    current_profile_id = current_streamer_profile().id
-    return (
-        profile_id == current_profile_id
-        or (not profile_id and current_profile_id == "zeyin")
-    )
+_clip_review_checkpoint_matches_policy = (
+    checkpoint_store.clip_review_checkpoint_matches_policy
+)
 
 
-def _clip_review_checkpoint_is_complete(checkpoint, topics):
-    """兼容旧版最后一批已完成、但 stage 仍停在 reviewing 的检查点。"""
-    if not isinstance(checkpoint, dict) or not isinstance(topics, list):
-        return False
-    stage = checkpoint.get("stage")
-    legacy_final_batch = (
-        stage == "reviewing"
-        and int(checkpoint.get("pending_count", -1) or 0) == 0
-        and int(checkpoint.get("total_batches", 0) or 0) > 0
-        and int(checkpoint.get("batch_index", 0) or 0)
-        >= int(checkpoint.get("total_batches", 0) or 0)
-    )
-    if stage not in {"completed", "title_reviewing"} and not legacy_final_batch:
-        return False
-    reviewed_topics = [
-        topic for topic in topics
-        if topic.get("clip_review_attempts") is not None
-    ]
-    return bool(reviewed_topics) and all(
-        topic.get("clip_review_validated") is not None
-        for topic in reviewed_topics
-    )
+_clip_review_checkpoint_is_complete = (
+    checkpoint_store.clip_review_checkpoint_is_complete
+)
 
 
-def _write_completed_clip_review_checkpoint(
-        path, topics, warning=None, source="pipeline", completed_at=None):
-    """统一写入完整流水线和产物重建的最终复核状态。"""
-    return write_clip_review_checkpoint(
-        path,
-        topics,
-        stage="completed" if not warning else "completed_with_warning",
-        source=source,
-        pending_count=sum(
-            1 for topic in topics or []
-            if (
-                topic.get("can_slice")
-                and topic.get("clip_review_rejection") == "等待独立字幕复核"
-            )
-        ),
-        completed_at=completed_at or datetime.now().isoformat(timespec="seconds"),
-    )
+_write_completed_clip_review_checkpoint = (
+    checkpoint_store.write_completed_clip_review_checkpoint
+)
 
 
 def _review_peak_selected_topics(
