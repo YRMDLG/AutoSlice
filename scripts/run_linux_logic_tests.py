@@ -13,23 +13,25 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from test_external_boundaries import install_test_external_boundary_guard
+from tests.support.external_boundary_guard import (
+    install_test_external_boundary_guard,
+)
 
 # 仅列入不需要 FFmpeg、字体、模型、GPU、Flask 服务、真实 LLM/网络、
 # 私人配置或用户媒体的测试。这里刻意不使用 discover，避免新增重测试被
 # 无意纳入，也明确排除人工调试入口 test_engine.py。
 LINUX_LOGIC_TEST_TARGETS = (
-    "test_architecture_contracts",
-    "test_external_boundaries",
-    "test_media_formats",
-    "test_topic_engine.DanmakuAnalysisTests",
-    "test_topic_engine.DanmakuPeakScoringTests",
-    "test_topic_engine.CandidateReviewTests",
-    "test_topic_engine.TitleReviewTests",
-    "test_topic_engine.TitleStyleEvidenceTests",
-    "test_topic_engine.ManualTimelineTests",
-    "test_task_store",
-    "test_task_registry",
+    "tests.architecture.test_architecture_contracts",
+    "tests.architecture.test_external_boundaries",
+    "tests.unit.test_media_formats",
+    "tests.integration.test_topic_engine.DanmakuAnalysisTests",
+    "tests.integration.test_topic_engine.DanmakuPeakScoringTests",
+    "tests.integration.test_topic_engine.CandidateReviewTests",
+    "tests.integration.test_topic_engine.TitleReviewTests",
+    "tests.integration.test_topic_engine.TitleStyleEvidenceTests",
+    "tests.integration.test_topic_engine.ManualTimelineTests",
+    "tests.unit.test_task_store",
+    "tests.unit.test_task_registry",
     "autocover_tool.tests.test_titles",
 )
 

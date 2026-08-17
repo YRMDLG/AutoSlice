@@ -56,7 +56,11 @@ jobs:
 
       - name: Run architecture and external boundary guards
         shell: pwsh
-        run: python -B -m unittest test_architecture_contracts test_external_boundaries -q
+        run: >-
+          python -B -m unittest
+          tests.architecture.test_architecture_contracts
+          tests.architecture.test_external_boundaries
+          -q
 
       - name: Run unified test suite
         shell: pwsh

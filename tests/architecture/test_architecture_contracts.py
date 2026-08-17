@@ -7,9 +7,9 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import architecture_snapshot, compile_public
+from scripts import architecture_snapshot, compile_public, scan_public_release
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = ROOT / "architecture_baseline.json"
 
 # Phase 4 已把以下实现全部迁入唯一 gateway；债务记录保留为回归护栏，
@@ -74,6 +74,22 @@ class ArchitectureSnapshotTests(unittest.TestCase):
         command = run_mock.call_args.args[0]
         self.assertIn("--exclude-standard", command)
         self.assertEqual(run_mock.call_args.kwargs["cwd"], root)
+
+    def test_release_scan_recognises_nested_test_packages_as_fixtures(self):
+        fixture_path = ROOT / "tests" / "integration" / "test_fixture.py"
+        fixture_text = (
+            'VIDEO = r"X:\\personal\\recording.flv"\n'
+            'URL = "file:///X:/personal/recording.flv"\n'
+        )
+        product_path = ROOT / "autoslice" / "unsafe_fixture.py"
+
+        self.assertEqual(
+            scan_public_release._text_errors(fixture_path, fixture_text),
+            [],
+        )
+        self.assertTrue(
+            scan_public_release._text_errors(product_path, fixture_text),
+        )
 
     def test_ast_snapshot_reports_source_facts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -158,7 +174,10 @@ class ArchitectureSnapshotTests(unittest.TestCase):
         self.assertEqual(baseline["generator"], "scripts/architecture_snapshot.py")
         self.assertEqual(baseline["scope"]["root"], ".")
         self.assertIn("topic_engine.py", baseline["scope"]["production_files"])
-        self.assertIn("test_topic_engine.py", baseline["scope"]["test_files"])
+        self.assertIn(
+            "tests/integration/test_topic_engine.py",
+            baseline["scope"]["test_files"],
+        )
         self.assertGreater(baseline["summary"]["production_module_count"], 0)
         self.assertEqual(
             baseline["summary"]["duplicate_top_level_definition_count"],

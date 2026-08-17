@@ -391,7 +391,7 @@ class TaskStoreTests(unittest.TestCase):
                 )
 
     def test_default_database_lives_in_ignored_local_state_directory(self):
-        project_root = Path(__file__).resolve().parent
+        project_root = Path(__file__).resolve().parents[2]
         ignore_lines = {
             line.strip()
             for line in (project_root / ".gitignore").read_text(encoding="utf-8").splitlines()

@@ -96,9 +96,10 @@ def _text_errors(path: Path, text: str) -> list[str]:
     relative = path.relative_to(ROOT).as_posix()
     if relative == "scripts/scan_public_release.py":
         return errors
+    relative_parts = PurePosixPath(relative).parts
     is_security_fixture = (
         relative.startswith("test_")
-        or "/tests/" in relative
+        or "tests" in relative_parts
         or relative == "scripts/validate_public_docs.py"
     )
     is_path_fixture = is_security_fixture or relative in {

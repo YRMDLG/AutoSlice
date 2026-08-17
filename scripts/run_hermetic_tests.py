@@ -13,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from test_external_boundaries import install_test_external_boundary_guard
+from tests.support.external_boundary_guard import (
+    install_test_external_boundary_guard,
+)
 
 
 def main(argv: list[str] | None = None) -> int:

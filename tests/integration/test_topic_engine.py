@@ -15,7 +15,11 @@ from unittest.mock import Mock, mock_open, patch
 
 import requests
 
-from test_external_boundaries import install_test_external_boundary_guard
+from tests.support.external_boundary_guard import (
+    install_test_external_boundary_guard,
+)
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 install_test_external_boundary_guard()
 
@@ -73,12 +77,12 @@ from topic_engine import (
     _load_title_style_profile,
     _load_optimized_timeline_artifact, _make_fallback_topic_from_chunk,
     _merge_manual_timeline_topics,
-    _load_funasr_model, _manual_timeline_info_for_chunk, _manual_timeline_summary, _parse_llm_response,
+    _load_funasr_model, _manual_timeline_summary, _parse_llm_response,
     _optimize_manual_timeline, _prepare_funasr_checkpoint,
     _prepare_optimized_manual_timeline,
     _parse_elapsed_timeline_report_lines, _parse_generated_topic_report,
     _parse_manual_timeline_lines,
-    _render_unified_refinement_queue_markdown, _render_refinement_manifest_markdown,
+    _render_refinement_manifest_markdown,
     _resolve_funasr_device,
     _replace_streamer_role, _resolve_funasr_model_source,
     _resolve_funasr_speaker_model_source,
@@ -8423,7 +8427,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
     @streamer_profile_context("zeyin")
     def test_chunk_prompt_requests_full_timeline_and_fan_aliases(self):
         public_profile = _load_title_style_profile(
-            str(Path(__file__).with_name("title_style_profile.example.json"))
+            str(REPOSITORY_ROOT / "title_style_profile.example.json")
         )
         with patch(
                 "autoslice.analysis.titles.load_title_style_profile",
@@ -8511,7 +8515,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
     @streamer_profile_context("zeyin")
     def test_manual_enrichment_prompt_uses_relevant_historical_title_style(self):
         public_profile = _load_title_style_profile(
-            str(Path(__file__).with_name("title_style_profile.example.json"))
+            str(REPOSITORY_ROOT / "title_style_profile.example.json")
         )
         with patch(
                 "autoslice.analysis.titles.load_title_style_profile",

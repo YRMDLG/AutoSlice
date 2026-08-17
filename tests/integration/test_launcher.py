@@ -1,13 +1,13 @@
 import importlib.util
-import os
 from pathlib import Path
 import socket
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 
-LAUNCHER_PATH = Path(__file__).with_name("启动.py")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+LAUNCHER_PATH = REPOSITORY_ROOT / "启动.py"
 SPEC = importlib.util.spec_from_file_location("autoslice_launcher", LAUNCHER_PATH)
 launcher = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(launcher)

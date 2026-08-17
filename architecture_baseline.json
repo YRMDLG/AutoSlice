@@ -6427,63 +6427,63 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 55,
+      "line_count": 57,
       "longest_function": {
-        "end_line": 51,
+        "end_line": 53,
         "kind": "function",
-        "line": 19,
+        "line": 21,
         "line_count": 33,
         "qualname": "main"
       },
       "module": "scripts.run_hermetic_tests",
       "path": "scripts/run_hermetic_tests.py",
-      "sha256": "e45f1e97bf28e4eb2d0deb3170145d7838df6ed4b54a8b36a9cc99fec9018553",
+      "sha256": "d29d57fb16a67d220e44f84defd941ed7176cb06a99a8e6853dc754a045cdcc6",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 51,
+          "end_line": 53,
           "kind": "function",
-          "line": 19,
+          "line": 21,
           "name": "main"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 92,
+      "line_count": 94,
       "longest_function": {
-        "end_line": 88,
+        "end_line": 90,
         "kind": "function",
-        "line": 53,
+        "line": 55,
         "line_count": 36,
         "qualname": "main"
       },
       "module": "scripts.run_linux_logic_tests",
       "path": "scripts/run_linux_logic_tests.py",
-      "sha256": "3f068ef4412ed863ab0ef050340c333d7e47cd43ebd994a307415cc83142d59a",
+      "sha256": "30a59287ab7e892af55f7a5ebf01c90927b81fb9aa1dde48dd7ffb54647259d4",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 88,
+          "end_line": 90,
           "kind": "function",
-          "line": 53,
+          "line": 55,
           "name": "main"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 177,
+      "line_count": 178,
       "longest_function": {
-        "end_line": 147,
+        "end_line": 120,
         "kind": "function",
-        "line": 122,
-        "line_count": 26,
-        "qualname": "_ignore_errors"
+        "line": 94,
+        "line_count": 27,
+        "qualname": "_text_errors"
       },
       "module": "scripts.scan_public_release",
       "path": "scripts/scan_public_release.py",
-      "sha256": "afbcd052efb6802e517b9de99b9ad46f425db2665f9ca33ee1bda1c0585a013e",
+      "sha256": "06549c78c24dcc585def2b076508f15a313684d3f555408077e705ffdfd02bb8",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6499,21 +6499,21 @@
           "name": "_path_errors"
         },
         {
-          "end_line": 119,
+          "end_line": 120,
           "kind": "function",
           "line": 94,
           "name": "_text_errors"
         },
         {
-          "end_line": 147,
+          "end_line": 148,
           "kind": "function",
-          "line": 122,
+          "line": 123,
           "name": "_ignore_errors"
         },
         {
-          "end_line": 173,
+          "end_line": 174,
           "kind": "function",
-          "line": 150,
+          "line": 151,
           "name": "main"
         }
       ]
@@ -8046,25 +8046,6 @@
     ],
     "root": ".",
     "test_files": [
-      "test_app.py",
-      "test_architecture_contracts.py",
-      "test_artifact_store.py",
-      "test_core_compat.py",
-      "test_external_boundaries.py",
-      "test_launcher.py",
-      "test_llm_client.py",
-      "test_llm_contracts.py",
-      "test_manual_smoke.py",
-      "test_media_formats.py",
-      "test_runtime_config.py",
-      "test_security_policy.py",
-      "test_setup_asr_model.py",
-      "test_streamer_profiles.py",
-      "test_subtitle_workflow.py",
-      "test_sync_autocover.py",
-      "test_task_registry.py",
-      "test_task_store.py",
-      "test_topic_engine.py",
       "autocover_tool/tests/__init__.py",
       "autocover_tool/tests/test_app.py",
       "autocover_tool/tests/test_cli.py",
@@ -8074,13 +8055,38 @@
       "autocover_tool/tests/test_stickers.py",
       "autocover_tool/tests/test_titles.py",
       "autocover_tool/tests/test_video.py",
-      "autocover_tool/tests/test_workspace.py"
+      "autocover_tool/tests/test_workspace.py",
+      "tests/__init__.py",
+      "tests/architecture/__init__.py",
+      "tests/architecture/test_architecture_contracts.py",
+      "tests/architecture/test_external_boundaries.py",
+      "tests/integration/__init__.py",
+      "tests/integration/test_app.py",
+      "tests/integration/test_core_compat.py",
+      "tests/integration/test_launcher.py",
+      "tests/integration/test_manual_smoke.py",
+      "tests/integration/test_subtitle_workflow.py",
+      "tests/integration/test_topic_engine.py",
+      "tests/support/__init__.py",
+      "tests/support/external_boundary_guard.py",
+      "tests/unit/__init__.py",
+      "tests/unit/test_artifact_store.py",
+      "tests/unit/test_llm_client.py",
+      "tests/unit/test_llm_contracts.py",
+      "tests/unit/test_media_formats.py",
+      "tests/unit/test_runtime_config.py",
+      "tests/unit/test_security_policy.py",
+      "tests/unit/test_setup_asr_model.py",
+      "tests/unit/test_streamer_profiles.py",
+      "tests/unit/test_sync_autocover.py",
+      "tests/unit/test_task_registry.py",
+      "tests/unit/test_task_store.py"
     ]
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 104,
-    "production_line_count": 32657,
+    "production_line_count": 32662,
     "production_module_count": 55,
     "test_private_patch_count": 17,
     "top_level_class_count": 83,
@@ -8098,8 +8104,8 @@
       "autocover_tool/tests/test_cli.py": 2,
       "autocover_tool/tests/test_fonts.py": 1,
       "autocover_tool/tests/test_video.py": 5,
-      "test_app.py": 8,
-      "test_external_boundaries.py": 1
+      "tests/integration/test_app.py": 8,
+      "tests/support/external_boundary_guard.py": 1
     },
     "targets": [
       {
