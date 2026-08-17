@@ -2,5 +2,8 @@
   "base_url": "https://api.example.com/v1",
   "token": "YOUR_API_TOKEN",
   "model": "YOUR_REVIEW_MODEL",
-  "api_type": "openai"
+  "api_type": "openai",
+  "proxy_mode": "direct",
+  "http_proxy": null,
+  "https_proxy": null
 }

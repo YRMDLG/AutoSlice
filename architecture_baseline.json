@@ -646,6 +646,7 @@
     {
       "from": "autoslice.llm.transport",
       "imports": [
+        "autoslice.llm.contracts.DEFAULT_PROXY_MODE",
         "autoslice.llm.contracts.DEFAULT_REASONING_EFFORT",
         "autoslice.llm.contracts.LLMApiConfig",
         "autoslice.llm.contracts.LLMProviderUnavailableError",
@@ -654,13 +655,17 @@
         "autoslice.llm.contracts.LLMResponseTruncatedError",
         "autoslice.llm.contracts.LLMStructuredOutputError",
         "autoslice.llm.contracts.LLMTimeout",
+        "autoslice.llm.contracts.LLMTransportError",
         "autoslice.llm.contracts.RetryCategory",
         "autoslice.llm.contracts.classify_retry",
         "autoslice.llm.contracts.is_retryable_error",
         "autoslice.llm.contracts.normalise_protocol",
+        "autoslice.llm.contracts.normalise_proxy_mode",
+        "autoslice.llm.contracts.normalise_proxy_url",
         "autoslice.llm.contracts.normalise_reasoning_effort",
         "autoslice.llm.contracts.normalise_reasoning_stage",
-        "autoslice.llm.contracts.normalise_timeout"
+        "autoslice.llm.contracts.normalise_timeout",
+        "autoslice.llm.contracts.redact_url_credentials"
       ],
       "lines": [
         18
@@ -1417,6 +1422,15 @@
       "qualname": "_is_meta_body_line"
     },
     {
+      "end_line": 623,
+      "kind": "function",
+      "line": 500,
+      "line_count": 124,
+      "module": "autoslice.llm.transport",
+      "path": "autoslice/llm/transport.py",
+      "qualname": "call_compatible_api"
+    },
+    {
       "end_line": 4311,
       "kind": "function",
       "line": 4190,
@@ -1453,9 +1467,9 @@
       "qualname": "build_timeline_report"
     },
     {
-      "end_line": 729,
+      "end_line": 878,
       "kind": "function",
-      "line": 618,
+      "line": 767,
       "line_count": 112,
       "module": "autoslice.llm.transport",
       "path": "autoslice/llm/transport.py",
@@ -1496,15 +1510,6 @@
       "module": "app",
       "path": "app.py",
       "qualname": "start_pipeline"
-    },
-    {
-      "end_line": 474,
-      "kind": "function",
-      "line": 371,
-      "line_count": 104,
-      "module": "autoslice.llm.transport",
-      "path": "autoslice/llm/transport.py",
-      "qualname": "call_compatible_api"
     }
   ],
   "modules": [
@@ -4551,150 +4556,174 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 387,
+      "line_count": 455,
       "longest_function": {
-        "end_line": 252,
+        "end_line": 263,
         "kind": "function",
         "line": 226,
-        "line_count": 27,
-        "qualname": "LLMRequest.__post_init__"
+        "line_count": 38,
+        "qualname": "LLMApiConfig.__post_init__"
       },
       "module": "autoslice.llm.contracts",
       "path": "autoslice/llm/contracts.py",
-      "sha256": "f8193159add4c1499350048f3b9c998896ce471c71e0fa2ee1d8fc92b86366ef",
+      "sha256": "6c5c8806ef4654a661171e359e71eb7cb590dd43ec1ecc1984c6295ef1c5dc04",
       "top_level_classes": [
         {
-          "end_line": 18,
+          "end_line": 20,
           "kind": "class",
-          "line": 14,
+          "line": 16,
           "name": "LLMProtocol"
         },
         {
-          "end_line": 28,
+          "end_line": 30,
           "kind": "class",
-          "line": 21,
+          "line": 23,
           "name": "ReasoningEffort"
         },
         {
-          "end_line": 35,
+          "end_line": 37,
           "kind": "class",
-          "line": 31,
+          "line": 33,
           "name": "ReasoningStage"
         },
         {
-          "end_line": 48,
+          "end_line": 50,
           "kind": "class",
-          "line": 38,
+          "line": 40,
           "name": "RetryCategory"
         },
         {
-          "end_line": 131,
+          "end_line": 82,
           "kind": "class",
-          "line": 117,
+          "line": 78,
+          "name": "_RedactedProxyUrl"
+        },
+        {
+          "end_line": 182,
+          "kind": "class",
+          "line": 168,
           "name": "LLMTimeout"
         },
         {
-          "end_line": 210,
+          "end_line": 278,
           "kind": "class",
-          "line": 158,
+          "line": 209,
           "name": "LLMApiConfig"
         },
         {
-          "end_line": 252,
+          "end_line": 320,
           "kind": "class",
-          "line": 214,
+          "line": 282,
           "name": "LLMRequest"
         },
         {
-          "end_line": 273,
+          "end_line": 341,
           "kind": "class",
-          "line": 256,
+          "line": 324,
           "name": "LLMResponse"
         },
         {
-          "end_line": 310,
+          "end_line": 378,
           "kind": "class",
-          "line": 276,
+          "line": 344,
           "name": "LLMGatewayError"
         },
         {
-          "end_line": 323,
+          "end_line": 391,
           "kind": "class",
-          "line": 313,
+          "line": 381,
           "name": "LLMTransportError"
         },
         {
-          "end_line": 330,
+          "end_line": 398,
           "kind": "class",
-          "line": 326,
+          "line": 394,
           "name": "LLMResponseFormatError"
         },
         {
-          "end_line": 337,
+          "end_line": 405,
           "kind": "class",
-          "line": 333,
+          "line": 401,
           "name": "LLMResponseTruncatedError"
         },
         {
-          "end_line": 344,
+          "end_line": 412,
           "kind": "class",
-          "line": 340,
+          "line": 408,
           "name": "LLMStructuredOutputError"
         },
         {
-          "end_line": 351,
+          "end_line": 419,
           "kind": "class",
-          "line": 347,
+          "line": 415,
           "name": "LLMProviderUnavailableError"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 82,
+          "end_line": 92,
           "kind": "function",
-          "line": 75,
+          "line": 85,
+          "name": "redact_url_credentials"
+        },
+        {
+          "end_line": 100,
+          "kind": "function",
+          "line": 95,
+          "name": "normalise_proxy_mode"
+        },
+        {
+          "end_line": 123,
+          "kind": "function",
+          "line": 103,
+          "name": "normalise_proxy_url"
+        },
+        {
+          "end_line": 133,
+          "kind": "function",
+          "line": 126,
           "name": "normalise_protocol"
         },
         {
-          "end_line": 101,
+          "end_line": 152,
           "kind": "function",
-          "line": 85,
+          "line": 136,
           "name": "normalise_reasoning_effort"
         },
         {
-          "end_line": 113,
+          "end_line": 164,
           "kind": "function",
-          "line": 104,
+          "line": 155,
           "name": "normalise_reasoning_stage"
         },
         {
-          "end_line": 143,
+          "end_line": 194,
           "kind": "function",
-          "line": 134,
+          "line": 185,
           "name": "_positive_seconds"
         },
         {
-          "end_line": 154,
+          "end_line": 205,
           "kind": "function",
-          "line": 146,
+          "line": 197,
           "name": "normalise_timeout"
         },
         {
-          "end_line": 366,
+          "end_line": 434,
           "kind": "function",
-          "line": 354,
+          "line": 422,
           "name": "http_retry_category"
         },
         {
-          "end_line": 382,
+          "end_line": 450,
           "kind": "function",
-          "line": 369,
+          "line": 437,
           "name": "classify_retry"
         },
         {
-          "end_line": 387,
+          "end_line": 455,
           "kind": "function",
-          "line": 385,
+          "line": 453,
           "name": "is_retryable_error"
         }
       ]
@@ -4809,156 +4838,192 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 766,
+      "line_count": 915,
       "longest_function": {
-        "end_line": 729,
+        "end_line": 623,
         "kind": "function",
-        "line": 618,
-        "line_count": 112,
-        "qualname": "call_llm_with_retry"
+        "line": 500,
+        "line_count": 124,
+        "qualname": "call_compatible_api"
       },
       "module": "autoslice.llm.transport",
       "path": "autoslice/llm/transport.py",
-      "sha256": "7417b7ecc06d345cecadee590d2920a0a84194a7cb4c9a55043f82808d21dcea",
+      "sha256": "e8587727ee89c8ded4d30ad21130bfb0dc62ce1123c8aa8e2c30e4019d411b20",
       "top_level_classes": [
         {
-          "end_line": 615,
+          "end_line": 63,
           "kind": "class",
-          "line": 534,
+          "line": 59,
+          "name": "_RedactedHeaderValue"
+        },
+        {
+          "end_line": 764,
+          "kind": "class",
+          "line": 683,
           "name": "LLMProviderRetryCoordinator"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 53,
+          "end_line": 69,
           "kind": "function",
-          "line": 50,
+          "line": 66,
           "name": "reset_reasoning_effort_capability_cache"
         },
         {
-          "end_line": 57,
+          "end_line": 73,
           "kind": "function",
-          "line": 56,
+          "line": 72,
           "name": "_reasoning_effort_capability_key"
-        },
-        {
-          "end_line": 62,
-          "kind": "function",
-          "line": 60,
-          "name": "_reasoning_effort_is_disabled"
-        },
-        {
-          "end_line": 67,
-          "kind": "function",
-          "line": 65,
-          "name": "_disable_reasoning_effort"
         },
         {
           "end_line": 78,
           "kind": "function",
-          "line": 70,
+          "line": 76,
+          "name": "_reasoning_effort_is_disabled"
+        },
+        {
+          "end_line": 83,
+          "kind": "function",
+          "line": 81,
+          "name": "_disable_reasoning_effort"
+        },
+        {
+          "end_line": 94,
+          "kind": "function",
+          "line": 86,
           "name": "_response_rejects_reasoning_effort"
         },
         {
-          "end_line": 93,
+          "end_line": 109,
           "kind": "function",
-          "line": 81,
+          "line": 97,
           "name": "infer_api_type"
         },
         {
-          "end_line": 155,
+          "end_line": 174,
           "kind": "function",
-          "line": 96,
+          "line": 112,
           "name": "normalise_api_config"
         },
         {
-          "end_line": 165,
+          "end_line": 184,
           "kind": "function",
-          "line": 158,
+          "line": 177,
           "name": "read_json_config"
         },
         {
-          "end_line": 235,
+          "end_line": 193,
           "kind": "function",
-          "line": 168,
+          "line": 187,
+          "name": "_apply_proxy_environment"
+        },
+        {
+          "end_line": 266,
+          "kind": "function",
+          "line": 196,
           "name": "load_api_config"
         },
         {
-          "end_line": 263,
+          "end_line": 294,
           "kind": "function",
-          "line": 238,
+          "line": 269,
           "name": "extract_json_payload"
         },
         {
-          "end_line": 268,
+          "end_line": 299,
           "kind": "function",
-          "line": 266,
+          "line": 297,
           "name": "response_has_complete_json"
         },
         {
-          "end_line": 283,
+          "end_line": 314,
           "kind": "function",
-          "line": 271,
+          "line": 302,
           "name": "decode_response_json"
         },
         {
-          "end_line": 309,
+          "end_line": 340,
           "kind": "function",
-          "line": 286,
+          "line": 317,
           "name": "_openai_content_text"
         },
         {
-          "end_line": 339,
+          "end_line": 370,
           "kind": "function",
-          "line": 312,
+          "line": 343,
           "name": "parse_openai_response"
         },
         {
-          "end_line": 368,
+          "end_line": 399,
           "kind": "function",
-          "line": 342,
+          "line": 373,
           "name": "parse_anthropic_response"
         },
         {
-          "end_line": 474,
+          "end_line": 435,
           "kind": "function",
-          "line": 371,
+          "line": 402,
+          "name": "_select_http_transport"
+        },
+        {
+          "end_line": 462,
+          "kind": "function",
+          "line": 438,
+          "name": "_safe_transport_error"
+        },
+        {
+          "end_line": 482,
+          "kind": "function",
+          "line": 465,
+          "name": "_post_http_request"
+        },
+        {
+          "end_line": 497,
+          "kind": "function",
+          "line": 485,
+          "name": "_raise_for_status"
+        },
+        {
+          "end_line": 623,
+          "kind": "function",
+          "line": 500,
           "name": "call_compatible_api"
         },
         {
-          "end_line": 494,
+          "end_line": 643,
           "kind": "function",
-          "line": 477,
+          "line": 626,
           "name": "call_llm"
         },
         {
-          "end_line": 506,
+          "end_line": 655,
           "kind": "function",
-          "line": 497,
+          "line": 646,
           "name": "llm_http_status"
         },
         {
-          "end_line": 514,
+          "end_line": 663,
           "kind": "function",
-          "line": 509,
+          "line": 658,
           "name": "short_llm_error"
         },
         {
-          "end_line": 524,
+          "end_line": 673,
           "kind": "function",
-          "line": 517,
+          "line": 666,
           "name": "is_provider_service_unavailable"
         },
         {
-          "end_line": 531,
+          "end_line": 680,
           "kind": "function",
-          "line": 527,
+          "line": 676,
           "name": "is_retryable_llm_error"
         },
         {
-          "end_line": 729,
+          "end_line": 878,
           "kind": "function",
-          "line": 618,
+          "line": 767,
           "name": "call_llm_with_retry"
         }
       ]
@@ -5899,47 +5964,47 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 117,
+      "line_count": 119,
       "longest_function": {
-        "end_line": 56,
+        "end_line": 58,
         "kind": "function",
-        "line": 38,
+        "line": 40,
         "line_count": 19,
         "qualname": "_read_local_environment"
       },
       "module": "runtime_config",
       "path": "runtime_config.py",
-      "sha256": "bbf073eabf6113ddc7c5989532b8dcd97a28a3f44d8579bf4dc72a7337dec75e",
+      "sha256": "f03641dbf0d7775b49a6312ba8d431f69c42e9606ee8b2acca8264adda910fa8",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 56,
+          "end_line": 58,
           "kind": "function",
-          "line": 38,
+          "line": 40,
           "name": "_read_local_environment"
         },
         {
-          "end_line": 69,
+          "end_line": 71,
           "kind": "function",
-          "line": 62,
+          "line": 64,
           "name": "configured_value"
         },
         {
-          "end_line": 75,
+          "end_line": 77,
           "kind": "function",
-          "line": 72,
+          "line": 74,
           "name": "configured_path"
         },
         {
-          "end_line": 84,
+          "end_line": 86,
           "kind": "function",
-          "line": 78,
+          "line": 80,
           "name": "apply_local_environment"
         },
         {
-          "end_line": 117,
+          "end_line": 119,
           "kind": "function",
-          "line": 110,
+          "line": 112,
           "name": "template_defaults"
         }
       ]
@@ -6201,65 +6266,65 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 199,
+      "line_count": 217,
       "longest_function": {
-        "end_line": 195,
+        "end_line": 213,
         "kind": "function",
-        "line": 121,
-        "line_count": 75,
+        "line": 120,
+        "line_count": 94,
         "qualname": "main"
       },
       "module": "scripts.smoke_startup",
       "path": "scripts/smoke_startup.py",
-      "sha256": "98db1eef2199db43ea4d0ff3caba7515ce6fd383a91deb970bd9925ef104572f",
+      "sha256": "24763e7667bb710d6c0d7c76d71624f05935ce2bb381db347e117da4711e1957",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 31,
+          "end_line": 30,
           "kind": "function",
-          "line": 23,
+          "line": 22,
           "name": "_release_files"
         },
         {
-          "end_line": 38,
+          "end_line": 37,
           "kind": "function",
-          "line": 34,
+          "line": 33,
           "name": "_copy_release"
         },
         {
-          "end_line": 47,
+          "end_line": 46,
           "kind": "function",
-          "line": 41,
+          "line": 40,
           "name": "_port_is_free"
         },
         {
-          "end_line": 56,
+          "end_line": 55,
           "kind": "function",
-          "line": 50,
+          "line": 49,
           "name": "_read_json"
         },
         {
-          "end_line": 76,
+          "end_line": 75,
           "kind": "function",
-          "line": 59,
+          "line": 58,
           "name": "_wait_for_services"
         },
         {
-          "end_line": 103,
+          "end_line": 102,
           "kind": "function",
-          "line": 79,
+          "line": 78,
           "name": "_stop_process_tree"
         },
         {
-          "end_line": 118,
+          "end_line": 117,
           "kind": "function",
-          "line": 106,
+          "line": 105,
           "name": "_run_checked"
         },
         {
-          "end_line": 195,
+          "end_line": 213,
           "kind": "function",
-          "line": 121,
+          "line": 120,
           "name": "main"
         }
       ]
@@ -7744,11 +7809,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 101,
-    "production_line_count": 31574,
+    "production_line_count": 31811,
     "production_module_count": 52,
     "test_private_patch_count": 17,
-    "top_level_class_count": 78,
-    "top_level_function_count": 802
+    "top_level_class_count": 80,
+    "top_level_function_count": 810
   },
   "test_private_patches": {
     "by_target_module": {

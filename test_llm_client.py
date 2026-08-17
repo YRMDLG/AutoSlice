@@ -1,10 +1,12 @@
 import ast
 import inspect
 import json
+import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from unittest.mock import Mock
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import requests
 
@@ -85,6 +87,279 @@ class LLMConfigTransportTests(unittest.TestCase):
             )
 
         self.assertNotIn("do-not-leak", str(raised.exception))
+
+
+class ProxyModeTests(unittest.TestCase):
+
+    @staticmethod
+    def _config(api_type="openai", **proxy_config):
+        return LLMApiConfig(
+            "https://gateway.example/v1",
+            "test-token",
+            "gpt-5.6-terra",
+            api_type,
+            **proxy_config,
+        )
+
+    def tearDown(self):
+        transport.reset_reasoning_effort_capability_cache()
+
+    def test_direct_default_uses_dedicated_session_without_environment_proxy(self):
+        response = make_response({
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": "完成"},
+            }],
+        })
+        session = Mock()
+        session.post.return_value = response
+
+        with patch.object(transport.requests, "Session", return_value=session):
+            result = transport.call_compatible_api(
+                "explicit evidence",
+                max_tokens=100,
+                json_mode=False,
+                model_override=None,
+                request_timeout=(1, 2),
+                load_config=self._config,
+            )
+
+        self.assertEqual(result, "完成")
+        self.assertIs(session.trust_env, False)
+        self.assertNotIn("proxies", session.post.call_args.kwargs)
+        session.close.assert_called_once_with()
+
+    def test_system_mode_uses_requests_environment_semantics_for_anthropic(self):
+        response = make_response({
+            "content": [{"type": "text", "text": "完成"}],
+            "stop_reason": "end_turn",
+        })
+        session = Mock()
+        session.post.return_value = response
+        config = self._config(api_type="anthropic", proxy_mode="system")
+
+        with patch.object(transport.requests, "Session", return_value=session):
+            result = transport.call_compatible_api(
+                "explicit evidence",
+                max_tokens=100,
+                json_mode=False,
+                model_override=None,
+                request_timeout=(1, 2),
+                load_config=lambda: config,
+            )
+
+        self.assertEqual(result, "完成")
+        self.assertIs(session.trust_env, True)
+        self.assertNotIn("proxies", session.post.call_args.kwargs)
+        self.assertTrue(session.post.call_args.args[0].endswith("/messages"))
+        session.close.assert_called_once_with()
+
+    def test_custom_mode_uses_same_explicit_proxies_for_both_protocols(self):
+        proxy_config = {
+            "proxy_mode": "custom",
+            "http_proxy": "http://proxy.example:8080",
+            "https_proxy": "https://proxy.example:8443",
+        }
+        cases = {
+            "openai": {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": "完成"},
+                }],
+            },
+            "anthropic": {
+                "content": [{"type": "text", "text": "完成"}],
+                "stop_reason": "end_turn",
+            },
+        }
+
+        for api_type, payload in cases.items():
+            with self.subTest(api_type=api_type):
+                post = Mock(return_value=make_response(payload))
+                config = self._config(api_type=api_type, **proxy_config)
+
+                result = transport.call_compatible_api(
+                    "explicit evidence",
+                    max_tokens=100,
+                    json_mode=False,
+                    model_override=None,
+                    request_timeout=(1, 2),
+                    load_config=lambda config=config: config,
+                    request_post=post,
+                )
+
+                self.assertEqual(result, "完成")
+                self.assertEqual(post.call_args.kwargs["proxies"], {
+                    "http": "http://proxy.example:8080",
+                    "https": "https://proxy.example:8443",
+                })
+
+    def test_custom_session_ignores_environment_and_uses_only_explicit_proxy(self):
+        response = make_response({
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": "完成"},
+            }],
+        })
+        session = Mock()
+        session.post.return_value = response
+        config = self._config(
+            proxy_mode="custom",
+            https_proxy="http://explicit-proxy.example:8080",
+        )
+
+        with patch.object(transport.requests, "Session", return_value=session):
+            transport.call_compatible_api(
+                "explicit evidence",
+                max_tokens=100,
+                json_mode=False,
+                model_override=None,
+                request_timeout=(1, 2),
+                load_config=lambda: config,
+            )
+
+        self.assertIs(session.trust_env, False)
+        self.assertEqual(session.post.call_args.kwargs["proxies"], {
+            "https": "http://explicit-proxy.example:8080",
+        })
+        session.close.assert_called_once_with()
+
+    def test_explicit_proxy_environment_overrides_project_proxy_fields(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "api_config.json"
+            config_path.write_text(json.dumps({
+                "base_url": "https://gateway.example/v1",
+                "token": "test-token",
+                "model": "gpt-5.6-terra",
+                "api_type": "openai",
+                "proxy_mode": "custom",
+                "http_proxy": "http://file-proxy.example:8080",
+                "https_proxy": "https://file-proxy.example:8443",
+            }), encoding="utf-8")
+
+            config = transport.load_api_config(
+                project_dir=temp_dir,
+                environ={
+                    "HTTP_PROXY": "http://ignored-system-proxy.example:3128",
+                    "AUTOSLICE_LLM_PROXY_MODE": "custom",
+                    "AUTOSLICE_LLM_PROXY_HTTP": (
+                        "http://explicit-proxy.example:9080"
+                    ),
+                },
+            )
+
+        self.assertEqual(config.proxy_mode, "custom")
+        self.assertEqual(
+            config.http_proxy,
+            "http://explicit-proxy.example:9080",
+        )
+        self.assertEqual(
+            config.https_proxy,
+            "https://file-proxy.example:8443",
+        )
+
+    def test_custom_mode_rejects_missing_or_invalid_proxy_urls(self):
+        invalid_configs = (
+            {"proxy_mode": "custom"},
+            {"proxy_mode": "custom", "http_proxy": "socks5://proxy.example:1080"},
+            {"proxy_mode": "custom", "http_proxy": "file:///tmp/proxy"},
+            {"proxy_mode": "custom", "https_proxy": "https://proxy.example:bad"},
+            {"proxy_mode": "custom", "https_proxy": "https://proxy.example/path"},
+            {"proxy_mode": "automatic", "http_proxy": "http://proxy.example:8080"},
+        )
+
+        for proxy_config in invalid_configs:
+            with (
+                self.subTest(proxy_config=proxy_config),
+                self.assertRaises(ValueError),
+            ):
+                self._config(**proxy_config)
+
+    def test_proxy_credentials_are_redacted_from_repr_errors_and_mock_output(self):
+        credentialed_proxy = "http://proxy-user:proxy-password@proxy.example:8080"
+        config = self._config(
+            proxy_mode="custom",
+            http_proxy=credentialed_proxy,
+        )
+        response = make_response({
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": "完成"},
+            }],
+        })
+        post = Mock(return_value=response)
+
+        transport.call_compatible_api(
+            "explicit evidence",
+            max_tokens=100,
+            json_mode=False,
+            model_override=None,
+            request_timeout=(1, 2),
+            load_config=lambda: config,
+            request_post=post,
+        )
+
+        for public_text in (repr(config), repr(post.call_args)):
+            self.assertNotIn("proxy-user", public_text)
+            self.assertNotIn("proxy-password", public_text)
+            self.assertNotIn("test-token", public_text)
+
+        raw_error = requests.exceptions.ProxyError(
+            f"cannot connect through {credentialed_proxy}"
+        )
+        self.assertNotIn("proxy-user", transport.short_llm_error(raw_error))
+        self.assertNotIn("proxy-password", transport.short_llm_error(raw_error))
+
+        with self.assertRaises(transport.LLMTransportError) as raised:
+            transport.call_compatible_api(
+                "explicit evidence",
+                max_tokens=100,
+                json_mode=False,
+                model_override=None,
+                request_timeout=(1, 2),
+                load_config=lambda: config,
+                request_post=Mock(side_effect=raw_error),
+            )
+
+        exception_text = repr(raised.exception)
+        self.assertNotIn("proxy-user", exception_text)
+        self.assertNotIn("proxy-password", exception_text)
+        self.assertNotIn(credentialed_proxy, exception_text)
+
+    def test_proxy_redaction_covers_raw_at_sign_inside_password(self):
+        credentialed_proxy = "http://proxy-user:p@ssword@proxy.example:8080"
+
+        redacted = transport.redact_url_credentials(
+            f"cannot connect through {credentialed_proxy}"
+        )
+
+        self.assertEqual(
+            redacted,
+            "cannot connect through http://***:***@proxy.example:8080",
+        )
+        self.assertNotIn("proxy-user", redacted)
+        self.assertNotIn("p@ssword", redacted)
+
+    def test_owned_session_closes_after_transport_error(self):
+        session = Mock()
+        session.post.side_effect = requests.exceptions.ProxyError(
+            "cannot connect through http://user:secret@proxy.example:8080"
+        )
+
+        with (
+            patch.object(transport.requests, "Session", return_value=session),
+            self.assertRaises(transport.LLMTransportError),
+        ):
+            transport.call_compatible_api(
+                "explicit evidence",
+                max_tokens=100,
+                json_mode=False,
+                model_override=None,
+                request_timeout=(1, 2),
+                load_config=self._config,
+            )
+
+        session.close.assert_called_once_with()
 
 
 class LLMHttpTransportTests(unittest.TestCase):

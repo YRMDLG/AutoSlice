@@ -6,10 +6,9 @@
 
 from __future__ import annotations
 
-import os
 import json
+import os
 from pathlib import Path
-
 
 PROJECT_DIR = Path(__file__).resolve().parent
 LOCAL_CONFIG_PATH = PROJECT_DIR / "autoslice.local.json"
@@ -28,6 +27,9 @@ _LOCAL_ENVIRONMENT_KEYS = frozenset({
     "AUTOSLICE_FUNASR_MODEL_DIR",
     "AUTOSLICE_FUNASR_VAD_DIR",
     "AUTOSLICE_FUNASR_PUNC_DIR",
+    "AUTOSLICE_LLM_PROXY_MODE",
+    "AUTOSLICE_LLM_PROXY_HTTP",
+    "AUTOSLICE_LLM_PROXY_HTTPS",
     "AUTOCOVER_INPUT_DIR",
     "AUTOCOVER_OUTPUT_DIR",
     "AUTOCOVER_STICKER_DIR",

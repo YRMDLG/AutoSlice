@@ -3,12 +3,14 @@
 本模块只描述协议边界，不读取运行配置、不构造业务提示词，也不执行 HTTP。
 """
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
-
+from urllib.parse import urlsplit
 
 DEFAULT_REASONING_EFFORT = "xhigh"
+DEFAULT_PROXY_MODE = "direct"
 
 
 class LLMProtocol(str, Enum):
@@ -70,6 +72,55 @@ _RETRYABLE_CATEGORIES = {
     RetryCategory.RESPONSE_TRUNCATED,
     RetryCategory.STRUCTURED_OUTPUT,
 }
+_PROXY_MODES = {"direct", "system", "custom"}
+
+
+class _RedactedProxyUrl(str):
+    """保留真实 URL 供 requests 使用，但在容器和 mock repr 中隐藏凭据。"""
+
+    def __repr__(self) -> str:
+        return repr(redact_url_credentials(self))
+
+
+def redact_url_credentials(value: Any) -> str:
+    """隐藏任意文本内 HTTP(S) URL 的 userinfo。"""
+    text = str(value or "")
+    return re.sub(
+        r"(?i)(https?://)[^\s/?#]*@",
+        r"\1***:***@",
+        text,
+    )
+
+
+def normalise_proxy_mode(value: Any) -> str:
+    """归一化 LLM 代理策略，缺省时保持历史上的直连语义。"""
+    mode = str(value or DEFAULT_PROXY_MODE).strip().casefold()
+    if mode not in _PROXY_MODES:
+        raise ValueError("LLM proxy_mode 只支持 direct、system 或 custom")
+    return mode
+
+
+def normalise_proxy_url(value: Any, label: str) -> Optional[str]:
+    """校验显式代理 URL，不允许非 HTTP(S) 协议或代理端点路径。"""
+    if value is None or not str(value).strip():
+        return None
+    proxy_url = str(value).strip()
+    if any(character.isspace() for character in proxy_url):
+        raise ValueError(f"{label} 必须是有效的 HTTP(S) 代理 URL")
+    try:
+        parsed = urlsplit(proxy_url)
+        valid_port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} 必须是有效的 HTTP(S) 代理 URL") from exc
+    if (
+            parsed.scheme.casefold() not in {"http", "https"}
+            or not parsed.hostname
+            or (valid_port is not None and not 1 <= valid_port <= 65535)
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment):
+        raise ValueError(f"{label} 必须是有效的 HTTP(S) 代理 URL")
+    return _RedactedProxyUrl(proxy_url)
 
 
 def normalise_protocol(value: Any) -> str:
@@ -163,11 +214,14 @@ class LLMApiConfig:
     """
 
     base_url: str
-    token: str
+    token: str = field(repr=False)
     model: str
     api_type: str
     analysis_reasoning_effort: Optional[str] = DEFAULT_REASONING_EFFORT
     review_reasoning_effort: Optional[str] = DEFAULT_REASONING_EFFORT
+    proxy_mode: str = DEFAULT_PROXY_MODE
+    http_proxy: Optional[str] = field(default=None, repr=False)
+    https_proxy: Optional[str] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         base_url = str(self.base_url or "").strip().rstrip("/")
@@ -193,6 +247,20 @@ class LLMApiConfig:
             "review_reasoning_effort",
             normalise_reasoning_effort(self.review_reasoning_effort),
         )
+        proxy_mode = normalise_proxy_mode(self.proxy_mode)
+        object.__setattr__(self, "proxy_mode", proxy_mode)
+        if proxy_mode == "custom":
+            http_proxy = normalise_proxy_url(self.http_proxy, "http_proxy")
+            https_proxy = normalise_proxy_url(self.https_proxy, "https_proxy")
+            if http_proxy is None and https_proxy is None:
+                raise ValueError(
+                    "custom 代理模式必须配置 http_proxy 或 https_proxy"
+                )
+        else:
+            http_proxy = None
+            https_proxy = None
+        object.__setattr__(self, "http_proxy", http_proxy)
+        object.__setattr__(self, "https_proxy", https_proxy)
 
     def __iter__(self):
         return iter((self.base_url, self.token, self.model))

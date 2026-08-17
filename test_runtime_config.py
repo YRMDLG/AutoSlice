@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import runtime_config
@@ -16,6 +18,39 @@ class RuntimeConfigTests(unittest.TestCase):
             "AUTOSLICE_FUNASR_PUNC_DIR",
         ):
             self.assertIn(key, runtime_config._LOCAL_ENVIRONMENT_KEYS)
+
+    def test_local_config_accepts_only_explicit_llm_proxy_keys_not_tokens(self):
+        proxy_keys = {
+            "AUTOSLICE_LLM_PROXY_MODE",
+            "AUTOSLICE_LLM_PROXY_HTTP",
+            "AUTOSLICE_LLM_PROXY_HTTPS",
+        }
+
+        self.assertTrue(proxy_keys <= runtime_config._LOCAL_ENVIRONMENT_KEYS)
+        self.assertNotIn(
+            "AUTOSLICE_API_TOKEN",
+            runtime_config._LOCAL_ENVIRONMENT_KEYS,
+        )
+        self.assertNotIn("HTTP_PROXY", runtime_config._LOCAL_ENVIRONMENT_KEYS)
+
+    def test_local_environment_filters_tokens_but_keeps_proxy_selection(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "autoslice.local.json"
+            config_path.write_text(
+                '{\n'
+                '  "AUTOSLICE_LLM_PROXY_MODE": "custom",\n'
+                '  "AUTOSLICE_LLM_PROXY_HTTP": "http://proxy.example:8080",\n'
+                '  "AUTOSLICE_API_TOKEN": "must-not-be-loaded"\n'
+                '}\n',
+                encoding="utf-8",
+            )
+            with patch.object(runtime_config, "LOCAL_CONFIG_PATH", config_path):
+                environment = runtime_config._read_local_environment()
+
+        self.assertEqual(environment, {
+            "AUTOSLICE_LLM_PROXY_MODE": "custom",
+            "AUTOSLICE_LLM_PROXY_HTTP": "http://proxy.example:8080",
+        })
 
     def test_configured_value_prioritizes_environment_then_local_then_default(self):
         key = "AUTOSLICE_TEST_DIRECTORY"

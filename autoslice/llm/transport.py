@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import requests
 
 from autoslice.llm.contracts import (
+    DEFAULT_PROXY_MODE,
     DEFAULT_REASONING_EFFORT,
     LLMApiConfig,
     LLMProviderUnavailableError,
@@ -24,15 +25,18 @@ from autoslice.llm.contracts import (
     LLMResponseTruncatedError,
     LLMStructuredOutputError,
     LLMTimeout,
+    LLMTransportError,
     RetryCategory,
     classify_retry,
     is_retryable_error,
     normalise_protocol,
+    normalise_proxy_mode,
+    normalise_proxy_url,
     normalise_reasoning_effort,
     normalise_reasoning_stage,
     normalise_timeout,
+    redact_url_credentials,
 )
-
 
 DEFAULT_MODEL = "gpt-5.6-terra"
 DEFAULT_MAX_TOKENS = 16000
@@ -45,6 +49,18 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 _UNSUPPORTED_REASONING_EFFORT_KEYS = set()
 _REASONING_EFFORT_LOCK = threading.Lock()
 _RETRY_AFTER_SHARED_RECOVERY = object()
+_PROXY_ENVIRONMENT_FIELDS = {
+    "AUTOSLICE_LLM_PROXY_MODE": "proxy_mode",
+    "AUTOSLICE_LLM_PROXY_HTTP": "http_proxy",
+    "AUTOSLICE_LLM_PROXY_HTTPS": "https_proxy",
+}
+
+
+class _RedactedHeaderValue(str):
+    """保持真实认证头值，同时避免 repr 和 mock 失败输出泄漏凭据。"""
+
+    def __repr__(self) -> str:
+        return repr("***")
 
 
 def reset_reasoning_effort_capability_cache() -> None:
@@ -152,6 +168,9 @@ def normalise_api_config(
         api_type,
         analysis_reasoning_effort=analysis_reasoning_effort,
         review_reasoning_effort=review_reasoning_effort,
+        proxy_mode=payload.get("proxy_mode", DEFAULT_PROXY_MODE),
+        http_proxy=payload.get("http_proxy"),
+        https_proxy=payload.get("https_proxy"),
     )
 
 
@@ -163,6 +182,15 @@ def read_json_config(path: Any, *, json_loader: Optional[Callable] = None) -> An
             return json_loader(file)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"无法读取 API 配置文件：{path}") from exc
+
+
+def _apply_proxy_environment(payload: dict, environ: dict) -> dict:
+    """只应用 AutoSlice 明确命名的代理变量，绝不读取通用代理或外部密钥。"""
+    merged = dict(payload)
+    for env_name, field_name in _PROXY_ENVIRONMENT_FIELDS.items():
+        if env_name in environ:
+            merged[field_name] = environ.get(env_name)
+    return merged
 
 
 def load_api_config(
@@ -188,7 +216,7 @@ def load_api_config(
     env_analysis_effort = environ.get("AUTOSLICE_ANALYSIS_REASONING_EFFORT")
     env_review_effort = environ.get("AUTOSLICE_REVIEW_REASONING_EFFORT")
     if any(key in environ for key in env_keys):
-        return normalise_api_config(
+        payload = _apply_proxy_environment(
             {
                 "base_url": environ.get("AUTOSLICE_API_BASE_URL"),
                 "token": environ.get("AUTOSLICE_API_TOKEN"),
@@ -205,6 +233,10 @@ def load_api_config(
                     else DEFAULT_REASONING_EFFORT
                 ),
             },
+            environ,
+        )
+        return normalise_api_config(
+            payload,
             "环境变量 AUTOSLICE_API_*",
             default_model=default_model,
         )
@@ -212,16 +244,15 @@ def load_api_config(
     auto_cfg = path_module.join(project_dir, "api_config.json")
     if path_module.exists(auto_cfg):
         payload = read_json_config(auto_cfg, json_loader=json_loader)
-        if env_model and isinstance(payload, dict):
-            payload = dict(payload)
-            payload["model"] = env_model
         if isinstance(payload, dict):
+            payload = dict(payload)
+            if env_model:
+                payload["model"] = env_model
             if "AUTOSLICE_ANALYSIS_REASONING_EFFORT" in environ:
-                payload = dict(payload)
                 payload["analysis_reasoning_effort"] = env_analysis_effort
             if "AUTOSLICE_REVIEW_REASONING_EFFORT" in environ:
-                payload = dict(payload)
                 payload["review_reasoning_effort"] = env_review_effort
+            payload = _apply_proxy_environment(payload, environ)
         return normalise_api_config(
             payload,
             auto_cfg,
@@ -368,6 +399,104 @@ def parse_anthropic_response(data: dict, model: str, max_tokens: int) -> str:
     return content
 
 
+def _select_http_transport(config: Any, request_post: Optional[Callable]):
+    """为三种代理策略选择唯一的 requests 发送边界。"""
+    proxy_mode = normalise_proxy_mode(
+        getattr(config, "proxy_mode", DEFAULT_PROXY_MODE)
+    )
+    request_kwargs = {}
+    if proxy_mode == "custom":
+        http_proxy = normalise_proxy_url(
+            getattr(config, "http_proxy", None),
+            "http_proxy",
+        )
+        https_proxy = normalise_proxy_url(
+            getattr(config, "https_proxy", None),
+            "https_proxy",
+        )
+        if http_proxy is None and https_proxy is None:
+            raise ValueError(
+                "custom 代理模式必须配置 http_proxy 或 https_proxy"
+            )
+        request_kwargs["proxies"] = {
+            scheme: proxy_url
+            for scheme, proxy_url in (
+                ("http", http_proxy),
+                ("https", https_proxy),
+            )
+            if proxy_url is not None
+        }
+
+    if request_post is not None:
+        return request_post, request_kwargs, None
+
+    session = requests.Session()
+    session.trust_env = proxy_mode == "system"
+    return session.post, request_kwargs, session.close
+
+
+def _safe_transport_error(
+        error: requests.RequestException, *, protocol: str,
+        model: str) -> LLMTransportError:
+    """把 requests 异常转换成不含 URL、token 或代理凭据的稳定错误。"""
+    status = llm_http_status(error)
+    if isinstance(error, requests.Timeout):
+        message = "LLM HTTP 请求超时"
+        category = RetryCategory.TRANSIENT_NETWORK
+    elif isinstance(error, requests.ConnectionError):
+        message = "LLM HTTP 连接失败"
+        category = RetryCategory.TRANSIENT_NETWORK
+    else:
+        message = (
+            f"LLM HTTP 请求失败（HTTP {status}）"
+            if status
+            else "LLM HTTP 请求失败"
+        )
+        category = classify_retry(error)
+    return LLMTransportError(
+        message,
+        retry_category=category,
+        protocol=protocol,
+        model=model,
+        status_code=status,
+    )
+
+
+def _post_http_request(
+        request_post: Callable, request_url: str, *, protocol: str,
+        model: str, request_kwargs: dict, **kwargs: Any):
+    """OpenAI 与 Anthropic 共用的 HTTP POST 和异常脱敏边界。"""
+    safe_error = None
+    try:
+        return request_post(
+            request_url,
+            **kwargs,
+            **request_kwargs,
+        )
+    except requests.RequestException as exc:
+        safe_error = _safe_transport_error(
+            exc,
+            protocol=protocol,
+            model=model,
+        )
+    raise safe_error
+
+
+def _raise_for_status(response: Any, *, protocol: str, model: str) -> None:
+    """执行统一状态检查，同时阻止 requests 异常回显代理 URL。"""
+    safe_error = None
+    try:
+        response.raise_for_status()
+        return
+    except requests.RequestException as exc:
+        safe_error = _safe_transport_error(
+            exc,
+            protocol=protocol,
+            model=model,
+        )
+    raise safe_error
+
+
 def call_compatible_api(
         prompt: str, *, max_tokens: int, json_mode: bool,
         model_override: Optional[str], request_timeout: Any,
@@ -404,74 +533,94 @@ def call_compatible_api(
     decode_response = decode_response or decode_response_json
     parse_openai = parse_openai or parse_openai_response
     parse_anthropic = parse_anthropic or parse_anthropic_response
-    request_post = request_post or requests.post
+    request_post, proxy_request_kwargs, close_transport = _select_http_transport(
+        config,
+        request_post,
+    )
+    try:
+        if request.protocol == "openai":
+            request_payload = {
+                "model": request.model,
+                "messages": [{"role": "user", "content": request.prompt}],
+                "max_tokens": request.max_tokens,
+                "temperature": request.temperature,
+            }
+            capability_key = _reasoning_effort_capability_key(base_url, request.model)
+            send_reasoning_effort = bool(
+                request.reasoning_effort
+                and not _reasoning_effort_is_disabled(capability_key)
+            )
+            if send_reasoning_effort:
+                request_payload["reasoning_effort"] = request.reasoning_effort
+            if request.json_mode:
+                request_payload["response_format"] = {"type": "json_object"}
+            request_url = f"{str(base_url).strip().rstrip('/')}/chat/completions"
+            request_headers = {
+                "Authorization": _RedactedHeaderValue(f"Bearer {token}"),
+                "Content-Type": "application/json",
+            }
 
-    if request.protocol == "openai":
-        request_payload = {
-            "model": request.model,
-            "messages": [{"role": "user", "content": request.prompt}],
-            "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
-        }
-        capability_key = _reasoning_effort_capability_key(base_url, request.model)
-        send_reasoning_effort = bool(
-            request.reasoning_effort
-            and not _reasoning_effort_is_disabled(capability_key)
-        )
-        if send_reasoning_effort:
-            request_payload["reasoning_effort"] = request.reasoning_effort
-        if request.json_mode:
-            request_payload["response_format"] = {"type": "json_object"}
-        request_url = f"{str(base_url).strip().rstrip('/')}/chat/completions"
-        request_headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
+            def post_openai(payload):
+                return _post_http_request(
+                    request_post,
+                    request_url,
+                    protocol=request.protocol,
+                    model=request.model,
+                    request_kwargs=proxy_request_kwargs,
+                    headers=request_headers,
+                    json=dict(payload),
+                    timeout=request.timeout.as_requests_timeout(),
+                )
 
-        def post_openai(payload):
-            return request_post(
-                request_url,
-                headers=request_headers,
-                json=dict(payload),
-                timeout=request.timeout.as_requests_timeout(),
-                proxies={"http": None, "https": None},
+            response = post_openai(request_payload)
+            if send_reasoning_effort and _response_rejects_reasoning_effort(response):
+                _disable_reasoning_effort(capability_key)
+                fallback_payload = dict(request_payload)
+                fallback_payload.pop("reasoning_effort", None)
+                response = post_openai(fallback_payload)
+            _raise_for_status(
+                response,
+                protocol=request.protocol,
+                model=request.model,
+            )
+            return parse_openai(
+                decode_response(response, "OpenAI"),
+                request.model,
+                request.max_tokens,
             )
 
-        response = post_openai(request_payload)
-        if send_reasoning_effort and _response_rejects_reasoning_effort(response):
-            _disable_reasoning_effort(capability_key)
-            fallback_payload = dict(request_payload)
-            fallback_payload.pop("reasoning_effort", None)
-            response = post_openai(fallback_payload)
-        response.raise_for_status()
-        return parse_openai(
-            decode_response(response, "OpenAI"),
+        response = _post_http_request(
+            request_post,
+            f"{str(base_url).strip().rstrip('/')}/messages",
+            protocol=request.protocol,
+            model=request.model,
+            request_kwargs=proxy_request_kwargs,
+            headers={
+                "x-api-key": _RedactedHeaderValue(token),
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": request.model,
+                "messages": [{"role": "user", "content": request.prompt}],
+                "max_tokens": request.max_tokens,
+                "temperature": request.temperature,
+            },
+            timeout=request.timeout.as_requests_timeout(),
+        )
+        _raise_for_status(
+            response,
+            protocol=request.protocol,
+            model=request.model,
+        )
+        return parse_anthropic(
+            decode_response(response, "Anthropic"),
             request.model,
             request.max_tokens,
         )
-
-    response = request_post(
-        f"{str(base_url).strip().rstrip('/')}/messages",
-        headers={
-            "x-api-key": token,
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01",
-        },
-        json={
-            "model": request.model,
-            "messages": [{"role": "user", "content": request.prompt}],
-            "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
-        },
-        timeout=request.timeout.as_requests_timeout(),
-        proxies={"http": None, "https": None},
-    )
-    response.raise_for_status()
-    return parse_anthropic(
-        decode_response(response, "Anthropic"),
-        request.model,
-        request.max_tokens,
-    )
+    finally:
+        if close_transport is not None:
+            close_transport()
 
 
 def call_llm(
@@ -511,7 +660,7 @@ def short_llm_error(error: BaseException) -> str:
     status = llm_http_status(error)
     if status is not None:
         return f"HTTP {status}"
-    return str(error).replace("\n", " ")[:200]
+    return redact_url_credentials(str(error)).replace("\n", " ")[:200]
 
 
 def is_provider_service_unavailable(error: BaseException) -> bool:

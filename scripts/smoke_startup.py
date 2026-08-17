@@ -15,7 +15,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PORTS = (5002, 5010)
 
@@ -128,11 +127,26 @@ def main() -> int:
         clean_root.mkdir()
         _copy_release(clean_root)
         config = json.loads((clean_root / "api_config.example.json").read_text(encoding="utf-8"))
-        if set(config) != {"base_url", "token", "model", "api_type"}:
+        expected_config_fields = {
+            "base_url",
+            "token",
+            "model",
+            "api_type",
+            "proxy_mode",
+            "http_proxy",
+            "https_proxy",
+        }
+        if set(config) != expected_config_fields:
             print("启动冒烟测试失败：API 示例字段不完整", file=sys.stderr)
             return 1
         if config["token"] != "YOUR_API_TOKEN":
             print("启动冒烟测试失败：API 示例不是占位 token", file=sys.stderr)
+            return 1
+        if (
+                config["proxy_mode"] != "direct"
+                or config["http_proxy"] is not None
+                or config["https_proxy"] is not None):
+            print("启动冒烟测试失败：API 示例代理默认值不安全", file=sys.stderr)
             return 1
 
         _run_checked([sys.executable, "-B", "scripts/validate_public_docs.py"], clean_root)
@@ -144,7 +158,10 @@ def main() -> int:
 
         env = os.environ.copy()
         for name in tuple(env):
-            if name.startswith("AUTOSLICE_API_") or name in {
+            if (
+                    name.startswith("AUTOSLICE_API_")
+                    or name.startswith("AUTOSLICE_LLM_PROXY_")
+                    or name in {
                 "AUTOSLICE_AUTOCOVER_DIR",
                 "AUTOSLICE_VIDEO_DIR",
                 "AUTOSLICE_OUTPUT_DIR",
@@ -155,7 +172,8 @@ def main() -> int:
                 "AUTOCOVER_STICKER_DIR",
                 "AUTOCOVER_FONT_PATH",
                 "AUTOCOVER_URL",
-            }:
+                    }
+            ):
                 env.pop(name, None)
         env.update({
             "PYTHONUTF8": "1",

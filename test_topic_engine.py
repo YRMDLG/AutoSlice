@@ -5594,7 +5594,7 @@ class TopicEngineParseTests(unittest.TestCase):
 
         with (
             patch("autoslice.llm.transport.load_api_config", return_value=("https://example.test/v1", "sk-test", "deepseek-v4-pro")),
-            patch("autoslice.llm.transport.requests.post", return_value=response) as post,
+            patch("autoslice.llm.transport.requests.Session.post", return_value=response) as post,
         ):
             self.assertEqual(
                 call_llm("测试", max_tokens=12000, json_mode=True),
@@ -9413,7 +9413,7 @@ class LLMApiContractTests(unittest.TestCase):
         ]
         with (
             patch("autoslice.llm.transport.load_api_config", return_value=config),
-            patch("autoslice.llm.transport.requests.post", side_effect=responses) as post,
+            patch("autoslice.llm.transport.requests.Session.post", side_effect=responses) as post,
         ):
             self.assertEqual(call_llm("复核", reasoning_stage="review"), "复核")
             self.assertEqual(call_llm("分析", reasoning_stage="analysis"), "分析")
@@ -9450,7 +9450,7 @@ class LLMApiContractTests(unittest.TestCase):
             with (
                 patch("autoslice.llm.transport.load_api_config", return_value=config),
                 patch(
-                    "autoslice.llm.transport.requests.post",
+                    "autoslice.llm.transport.requests.Session.post",
                     side_effect=[rejected, valid, valid],
                 ) as post,
             ):
@@ -9575,7 +9575,7 @@ class LLMApiContractTests(unittest.TestCase):
                 "autoslice.llm.transport.load_api_config",
                 return_value=("https://example.test/v1", "sk-ant-test", "model"),
             ),
-            patch("autoslice.llm.transport.requests.post", return_value=response) as post,
+            patch("autoslice.llm.transport.requests.Session.post", return_value=response) as post,
         ):
             result = call_llm("测试")
 
@@ -9602,7 +9602,7 @@ class LLMApiContractTests(unittest.TestCase):
         })
         with (
             patch("autoslice.llm.transport.load_api_config", return_value=config),
-            patch("autoslice.llm.transport.requests.post", return_value=response) as post,
+            patch("autoslice.llm.transport.requests.Session.post", return_value=response) as post,
         ):
             result = call_llm("测试")
 
@@ -9629,7 +9629,7 @@ class LLMApiContractTests(unittest.TestCase):
                         "autoslice.llm.transport.load_api_config",
                         return_value=("https://example.test/v1", "sk-test", "model"),
                     ),
-                    patch("autoslice.llm.transport.requests.post", return_value=self._response(payload)),
+                    patch("autoslice.llm.transport.requests.Session.post", return_value=self._response(payload)),
                     self.assertRaises(LLMResponseFormatError) as raised,
                 ):
                     call_llm("含个人信息的提示")
@@ -9647,7 +9647,7 @@ class LLMApiContractTests(unittest.TestCase):
                 "autoslice.llm.transport.load_api_config",
                 return_value=("https://example.test/v1", "sk-test", "model"),
             ),
-            patch("autoslice.llm.transport.requests.post", side_effect=[invalid, valid]) as post,
+            patch("autoslice.llm.transport.requests.Session.post", side_effect=[invalid, valid]) as post,
         ):
             result = _call_llm_with_retry(
                 "测试",
@@ -9673,7 +9673,7 @@ class LLMApiContractTests(unittest.TestCase):
                         "autoslice.llm.transport.load_api_config",
                         return_value=("https://example.test", "sk-ant-test", "model"),
                     ),
-                    patch("autoslice.llm.transport.requests.post", return_value=self._response(payload)),
+                    patch("autoslice.llm.transport.requests.Session.post", return_value=self._response(payload)),
                     self.assertRaises(LLMResponseFormatError),
                 ):
                     call_llm("测试")
