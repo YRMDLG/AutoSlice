@@ -12,6 +12,33 @@ import core
 
 
 class CoreCompatibilityTests(unittest.TestCase):
+    def test_module_exposes_only_documented_compatibility_surface(self):
+        self.assertEqual(
+            core.__all__,
+            [
+                "LegacyCoreDeprecatedError",
+                "generate_srt",
+                "parse_timeline_json",
+                "process_video",
+            ],
+        )
+        retired_helpers = {
+            "seconds_to_srt_time",
+            "parse_srt",
+            "extract_danmaku_timestamps",
+            "find_dense_periods",
+            "find_context_boundaries",
+            "merge_overlapping_periods",
+            "detect_video_watching_segments",
+            "parse_timeline_docx",
+            "slice_video",
+            "get_video_duration",
+            "is_file_locked",
+        }
+        for name in retired_helpers:
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(core, name))
+
     def test_parse_timeline_json_preserves_complete_mark_contract(self):
         with TemporaryDirectory() as td:
             json_path = Path(td) / "clip_marks.json"
@@ -170,6 +197,18 @@ class CoreCompatibilityTests(unittest.TestCase):
         self.assertEqual(updates[-1][1]["status"], "done")
         self.assertEqual(updates[-1][1]["step"], 100)
         self.assertIn(r"X:\output\录播_话题切片", updates[-1][1]["result"])
+
+    def test_process_video_is_a_deprecation_tombstone(self):
+        with self.assertRaisesRegex(
+            core.LegacyCoreDeprecatedError,
+            r"core\.process_video\(\) 已退役.*slice_from_marks",
+        ):
+            core.process_video(
+                r"X:\input\录播.flv",
+                r"X:\input\录播.ass",
+                r"X:\output",
+                mode="danmaku",
+            )
 
 
 if __name__ == "__main__":
