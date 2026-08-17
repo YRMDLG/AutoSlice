@@ -6414,23 +6414,35 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 67,
+      "line_count": 156,
       "longest_function": {
-        "end_line": 63,
+        "end_line": 152,
         "kind": "function",
-        "line": 28,
-        "line_count": 36,
+        "line": 107,
+        "line_count": 46,
         "qualname": "main"
       },
       "module": "scripts.validate_public_docs",
       "path": "scripts/validate_public_docs.py",
-      "sha256": "078253bd41193ed76fabc1d3e89abfab8884c1459d767d32a6eb6a75c1158975",
+      "sha256": "2dd2670c8345bdd03968e0281c80e03fd2d370e8dce02c06f2a757b19364ddc3",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 63,
+          "end_line": 75,
           "kind": "function",
-          "line": 28,
+          "line": 49,
+          "name": "_validate_dependency_contract"
+        },
+        {
+          "end_line": 104,
+          "kind": "function",
+          "line": 78,
+          "name": "_validate_examples"
+        },
+        {
+          "end_line": 152,
+          "kind": "function",
+          "line": 107,
           "name": "main"
         }
       ]
@@ -7833,11 +7845,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 101,
-    "production_line_count": 31899,
+    "production_line_count": 31988,
     "production_module_count": 53,
     "test_private_patch_count": 17,
     "top_level_class_count": 80,
-    "top_level_function_count": 811
+    "top_level_function_count": 813
   },
   "test_private_patches": {
     "by_target_module": {

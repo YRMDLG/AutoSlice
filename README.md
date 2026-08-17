@@ -1,176 +1,126 @@
 # AutoSlice - 录播智能切片
 
-自动识别 B 站录播中的精彩片段，基于弹幕密度分析 + AI 语音字幕上下文，切出完整的高光时刻。
+AutoSlice 是面向 B 站录播的本机工作流工具：结合语音字幕、弹幕和可选人工时间轴生成话题报告与高光候选，再衔接字幕校对、硬字幕压制和 AutoCover 封面制作。
 
 ## 功能
 
-- **弹幕密度模式**：分析 .ass 弹幕文件，滑动窗口找弹幕密度峰值，配合 SRT 语音字幕追溯前因后果
-- **时间轴模式**：导入朋友手动标记的 .docx 时间轴，按标记时刻精确切片
-- **看视频检测**：自动识别主播看视频的时间段，确保切片不截断
-- **Web 界面**：浏览器操作，选路径、选模式、一键切片，SSE 实时进度
-- **语音识别**：优先使用 Fun-ASR-Nano-2512 + FSMN-VAD，自动生成带时间戳 SRT；旧 Paraformer 作为回退
-- **字幕校对与压制**：扫描精剪成片；缺少 SRT 时默认先过滤低音量背景声并用 CAM++ 区分主要说话人，再确认 AI 错字建议并生成硬字幕 MP4
-- **自动封面联动**：同一个启动脚本管理 AutoCover，并从 AutoSlice 顶部导航直接进入封面工作台
-
-## 完整工作流
-
-`录播 → 字幕/弹幕分析 → 话题报告 → 自动切片 → 字幕校对与压制 → 自动封面 → 投稿`
-
-AutoSlice 负责前四步和字幕工作台，AutoCover 负责成片封面。人工时间轴只作为分析线索，
-实际切点仍由字幕上下文、弹幕互动和最终复核共同决定；程序不会按每小时固定数量凑切片。
+- **话题与弹幕分析**：用字幕理解内容，用 ASS/XML 弹幕峰值发现线索；弹幕不会单独决定切片。
+- **人工时间轴辅助**：导入 DOCX 时间轴并按北京时间校准；时间轴是证据，不是机械剪切指令。
+- **高光候选与切片**：复核触发、前因后果、SC 起点、自然收尾和投稿价值，不按小时凑数量。
+- **FunASR 字幕**：优先使用 Fun-ASR-Nano-2512、FSMN-VAD、标点和可选 CAM++，缺少推荐模型时可回退。
+- **字幕校对与压制**：为精剪成片生成或配对 SRT，人工确认 AI 错字建议后输出硬字幕 MP4。
+- **AutoCover 联动**：由同一个启动器管理封面工作台，并保存可恢复的本地编辑草稿。
 
 ## 快速开始
 
+完整功能以 **Windows 10/11、Python 3.10** 为主平台。先在项目根目录执行：
+
 ```powershell
-# 推荐：一次安装当前推荐的高精度中文模型（Fun-ASR-Nano + VAD + 标点 + CAM++）
+# AutoSlice 根依赖
+python -m pip install -r requirements.txt
+
+# AutoCover 独立依赖
+python -m pip install -r autocover_tool/requirements.txt
+
+# 首次使用：下载推荐的 ASR/VAD/标点/CAM++ 模型
 python setup_asr_model.py
 
-# 推荐：NVIDIA 显卡首次运行时安装隔离 GPU 环境（约 1.9 GB）
+# 可选：64 位 Windows + NVIDIA 显卡安装隔离 CUDA 运行时（约 1.9 GB）
 python setup_gpu_runtime.py
 
-# 启动；隔离环境健康时自动使用 GPU，否则使用 CPU
+# 启动 AutoSlice 与 AutoCover
 python 启动.py
-
-# 浏览器打开
-http://localhost:5002
 ```
 
-`启动.py` 会同时启动 AutoSlice（默认 5002）和仓库内的 AutoCover
-（默认 5010）。AutoCover 已运行时会直接复用；端口冲突时会自动顺延，
-顶部“自动封面”入口始终跳转到本次实际地址。按 `Ctrl+C` 会同时停止本次
-启动的两个服务，不会关闭原本已经独立运行的 AutoCover。
+然后打开 `http://127.0.0.1:5002`。`启动.py` 会同时管理 AutoSlice 和仓库内的 AutoCover；AutoCover 默认从 5010 端口开始，端口冲突时可能顺延。按 `Ctrl+C` 会停止本次启动的服务。
 
-语音模型安装脚本使用免费的开源 Fun-ASR-Nano-2512，并安装 VAD、标点和 CAM++
-主要说话人模型；只需成功执行一次，之后会优先使用本地缓存和字幕热词。下载失败时
-原有 Paraformer 缓存仍可回退使用。GPU 安装脚本只写入
-`%LOCALAPPDATA%\AutoSlice`，不会替换系统 Python 的 CPU PyTorch。
-启动后，智能分析和字幕校对页面会直接提示当前 FunASR 模型、设备、是否回退，以及热词与
-固定专名纠错的调整位置；无需靠控制台猜测实际用了哪个模型。
-
-所有公开默认目录都位于仓库内。需要继续使用自己已有的录播、投稿、封面或贴图库时，
-复制 `autoslice.local.example.json` 为本机的 `autoslice.local.json`，再填入自己的目录。
-该文件已被 Git 忽略，且显式设置的同名环境变量优先于它：
+需要使用自己的录播、投稿、封面或贴图库时，复制本机配置示例；该文件已被 Git 忽略：
 
 ```powershell
 Copy-Item autoslice.local.example.json autoslice.local.json
 notepad autoslice.local.json
 ```
 
-更多 API、模型、目录和局域网配置请见 [配置说明](docs/配置说明.md)，日常操作步骤请见
-[日常工作流](docs/日常工作流.md)，常见问题请见 [故障排查](docs/故障排查.md)。
+LLM API、代理、目录、模型和 LAN 设置见[配置说明](docs/配置说明.md)。
 
-## 字幕校对与压制
+## 平台与能力边界
 
-启动 AutoSlice 后，从顶部导航进入“字幕校对+压制”，或直接打开：
+| 平台 | 支持级别 | 能力边界 |
+|---|---|---|
+| Windows 10/11 | 完整主平台 | 支持启动器、Windows 隔离 CUDA 运行时、FFmpeg/ffprobe、本机字体、剪映衔接、字幕压制和 AutoCover 完整媒体工作流。|
+| Linux | 纯逻辑 CI / 部分 CPU 代码路径 | GitHub Actions 只运行显式白名单的架构、解析、评分、标题、路径和任务存储测试；不验证 Windows CUDA 隔离运行时、剪映、本机字体、FFmpeg 媒体处理或完整端到端工作流。|
+| macOS | 未验证 | 没有 CI 和完整媒体验收，不承诺 GPU、字体、启动器或端到端媒体兼容性。|
 
-```text
-http://localhost:5002/subtitle-workflow
-```
+**Linux logic-only GitHub Actions 不代表完整 Linux 支持。** 如果需要生成正式媒体、使用剪映或复现默认字体效果，请使用 Windows 10/11。
 
-默认扫描 `submissions/`。每个投稿子目录可以只放精剪后的 MP4；已有 SRT
-时会自动配对，没有 SRT 时也会进入队列并显示“待识别”。剪映导出的 MP4/SRT
-文件名可以不同，只要同一目录中各有一个源文件即可自动配对。
+## 输入、输出与依赖
 
-推荐流程：
+AutoSlice 的录播扫描、分析和切片支持大小写不敏感的 `.flv`、`.mp4`、`.mkv`、`.mov`、`.avi`。codec-copy 自动切片默认保留源容器，例如 MP4 输入输出 MP4；为兼容旧版本，读取既有结果时仍会识别历史 FLV 切片。字幕工作台仍以剪映等工具导出的精剪 MP4/SRT 流程为主。
 
-1. 点击“扫描”，从左侧选择精剪成片。
-2. 如果显示“待识别”，默认保持“排除背景音”勾选，再点击“自动识别字幕”，等待同名 SRT 生成并自动加载。取消勾选可恢复完整音轨识别。
-3. 点击“AI 检查错字”。模型只给出建议，不会直接覆盖字幕。
-4. 对照原文、理由和置信度逐条确认，也可直接修改正文。
-5. 点击“预览字幕”，检查字体、描边和位置。
-6. 点击“开始压制”，等待后台任务完成。
+依赖按职责拆分：
 
-默认字幕样式严格对应当前剪映参数：
+| 来源 | 内容 |
+|---|---|
+| `requirements.txt` | `Flask`、`FunASR`、`soxr`、`python-docx`、`requests` |
+| `autocover_tool/requirements.txt` | `Flask`、`Pillow` |
+| `setup_gpu_runtime.py` | Windows 隔离 GPU 运行时使用的 `torch`/`torchaudio` 范畴依赖；不属于通用根依赖 |
+| 系统外部依赖 | `ffmpeg`、`ffprobe`，必须单独安装并加入 `PATH` |
 
-| 参数 | 默认值 |
-|------|--------|
-| 字体 | Noto Sans S Chinese Black |
-| 剪映字号 | 20 |
-| 字体颜色 | `#ffffff` |
-| 描边颜色 | `#d06e95` |
-| 描边粗细 | 100 |
-| 位置 | X=0，Y=-788 |
+## 完整工作流
 
-默认视频参数为 `1920x1080`、VBR 8000 Kbps、H.264、MP4、60fps、
-Rec.709 SDR。优先使用 NVIDIA NVENC，探针或压制失败时自动回退
-`libx264`。视频保留原内嵌音轨；剪映导出页底部未勾选“音频导出”只表示
-不额外导出 MP3，不表示视频应当静音。
+`录播 → 字幕/弹幕分析 → 话题报告 → 自动切片 → 剪映精调 → 字幕校对与压制 → AutoCover → 投稿`
 
-所有产物都写入原投稿子目录，并且不会覆盖源 MP4/SRT：
+1. **准备录播**：放入受支持的视频；同名前缀的 SRT、ASS/XML 和可选 DOCX 时间轴会作为证据。
+2. **分析与切片**：先生成逐话题报告，再对达到投稿价值的候选复核边界并切片。人工星标只能辅助，不能强行制造候选。
+3. **字幕工作台**：精剪成片可配对现有 SRT，也可重新运行 FunASR；AI 校对只给建议，确认后才保存新字幕并压制，不覆盖源视频或源 SRT。
+4. **AutoCover**：从切片或精调成片选帧，调整标题、贴图、比例和构图；磁盘草稿用于刷新或重启后的继续编辑。
 
-```text
-原视频.srt
-原字幕_字幕校对建议.json
-原字幕_校对.srt
-原字幕_校对_字幕样式.ass
-原字幕_校对_字幕样式.json
-原视频_字幕版.mp4
-```
+详细操作见[日常工作流](docs/日常工作流.md)，错误处理见[故障排查](docs/故障排查.md)。
 
-AI 校对按最多 30 条字幕一批、最多两路并行执行。只有置信度至少 0.95、
-且不增删有效字符的建议会默认勾选；其他建议仍会显示，必须人工确认。
+## 通用配置、任务历史与安全默认值
+
+- 未识别到专属主播时使用 `generic` 通用配置，不会串用泽音的词表、错词映射、收播规则或标题风格；主播专属能力由 `streamer_profiles.json` 中的 profile 提供。
+- 任务历史保存在 Git 忽略的本地 `.autoslice-state/tasks.sqlite3`。服务重启后，遗留的 `queued`/`running` 任务会被标记为 `interrupted`；后台线程不会跨进程继续运行，但兼容的 ASR、话题分析和候选复核检查点可在重新发起任务时续跑。
+- Web 服务默认仅绑定 loopback，并校验 Host、同源 Origin/Referer 或本机会话。LAN 模式必须显式配置至少 32 字符的强随机 token、允许的 Host、完整 Origin 和绝对路径根目录。
+- LLM 代理默认为 `direct`，不会继承 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`；需要系统代理或专用代理时再选择 `system` 或 `custom`。
+
+## 文档入口
+
+| 文档 | 适合谁 | 用途 |
+|---|---|---|
+| [配置说明](docs/配置说明.md) | 安装者、维护者 | 查询平台、依赖、LLM 代理、目录、profile、GPU、任务和安全配置 |
+| [日常工作流](docs/日常工作流.md) | 切片与投稿人员 | 完成录播分析、人工时间轴、切片、字幕、AutoCover 和投稿检查 |
+| [故障排查](docs/故障排查.md) | 操作人员、维护者 | 处理任务、HTTP、代理、安全、FFmpeg、FunASR、字幕和 AutoCover 错误 |
+| [架构重构说明](docs/架构重构.md) | 开发者 | 了解渐进式模块化边界与当前架构状态 |
 
 ## 项目结构
 
-```
+```text
 AutoSlice/
-├── 启动.py              # 一键启动，自动选择隔离 GPU/CPU 运行时
-├── setup_asr_model.py   # 一次性安装推荐的高精度中文 ASR/VAD/标点模型
-├── setup_gpu_runtime.py # 一次性安装并校验 CUDA PyTorch
-├── app.py               # Flask Web 服务 + SSE 实时推送
-├── core.py              # 切片核心引擎
-├── subtitle_workflow.py # 字幕配对、AI 校对、ASS 样式与硬字幕压制
-├── requirements.txt     # Python 依赖
-├── templates/
-│   ├── index.html       # Web 操作界面
-│   └── subtitle_workflow.html # 字幕校对与压制页面
-└── static/              # 静态资源
+├── 启动.py                    # 管理 AutoSlice/AutoCover 与 Windows GPU 运行时
+├── app.py                     # Flask 路由、任务接口与 SSE
+├── autoslice/                 # 分析、转录、LLM、切片、报告和编排模块
+├── topic_engine.py            # 兼容 façade
+├── task_store.py              # SQLite 任务历史
+├── security_policy.py         # Host、Origin、会话与 LAN 路径策略
+├── subtitle_workflow.py       # 字幕生成、校对、ASS 与压制
+├── autocover_tool/            # AutoCover 服务与独立依赖
+├── requirements.txt           # AutoSlice 根依赖
+└── docs/                      # 配置、工作流、排错与架构文档
 ```
-
-## 切片模式
-
-### 弹幕密度模式
-- 扫描 .ass 弹幕 → 滑动窗口找峰值 → 自适应阈值过滤 → SRT 字幕上下文扩展 → 合并重叠 → 切片
-- 密度阈值：峰值 × 0.45（只切真正高密度爆点）
-
-### 时间轴模式
-- 导入朋友标记的 .docx 时间轴 → 解析时间戳 + ⭐ 评分 → 上下文扩展 → 切片
-
-## 依赖
-
-```
-flask >= 3.0
-funasr >= 1.4.1
-soxr >= 1.0
-python-docx
-torch
-torchaudio
-ffmpeg（系统安装）
-```
-
-## 配置参数
-
-核心参数在 `core.py` 顶部：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| DENSITY_RATIO | 0.45 | 密度阈值，峰值×比例 |
-| MAX_EXPAND | 60s | 前因后果最大扩展 |
-| CONTEXT_GAP | 4.0s | 字幕间隔断开阈值 |
-| DANMAKU_WINDOW | 60s | 弹幕密度窗口 |
 
 ## 已知限制
 
-- RTX 2060 6GB 已通过 FunASR CUDA 转录测试；GPU 模型加载失败会明确回退 CPU
-- 未安装隔离 CUDA 运行时也可正常使用，只是首次生成 SRT 会更慢
-- “排除背景音”只处理临时识别音轨，不修改源视频；单一混合音轨中同时出现且音量接近的多人声音无法保证 100% 分离，仍可在字幕工作台删除少量误识别字幕
-- Windows 终端需 UTF-8 编码，避免中文乱码
+- GPU 不是硬性要求；隔离 CUDA 运行时不可用时会回退 CPU，但转录更慢。
+- “排除背景音”只处理临时识别音轨，不修改源视频；单一混合音轨中的同时多人声无法保证完全分离。
+- 默认字幕与封面效果依赖本机合法字体，字体文件不随仓库分发。
+- 自动候选仍需在投稿前人工复核边界、字幕、标题和封面。
 
 ## 相关项目
 
-- [DanmakuRender-5](https://github.com/SmallPeaches/DanmakuRender) — 录播 + 弹幕渲染
+- [DanmakuRender-5](https://github.com/SmallPeaches/DanmakuRender) — 录播与弹幕渲染
 - [FunASR](https://github.com/modelscope/FunASR) — 语音识别引擎
-- [auto-slice-video](https://github.com/timerring/auto-slice-video) — 弹幕密度分析
+- [auto-slice-video](https://github.com/timerring/auto-slice-video) — 弹幕密度分析参考
 
 ## License (MIT License)
 

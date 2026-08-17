@@ -5,6 +5,12 @@ $env:AUTOSLICE_API_TYPE = "openai"
 $env:AUTOSLICE_ANALYSIS_MODEL = "YOUR_ANALYSIS_MODEL"
 $env:AUTOSLICE_LLM_MODEL = "YOUR_REVIEW_MODEL"
 
+# LLM 代理默认 direct：忽略 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY。
+# 使用 requests 环境代理时改为 system；使用 AutoSlice 专用代理时改为 custom，
+# 并至少配置 AUTOSLICE_LLM_PROXY_HTTP 或 AUTOSLICE_LLM_PROXY_HTTPS 之一。
+$env:AUTOSLICE_LLM_PROXY_MODE = "direct"
+# $env:AUTOSLICE_LLM_PROXY_HTTPS = "http://proxy.example.com:8080"
+
 # 以下目录使用项目内默认值；按需改为自己的本机目录。
 $env:AUTOSLICE_VIDEO_DIR = Join-Path $PSScriptRoot "recordings"
 $env:AUTOSLICE_OUTPUT_DIR = Join-Path $PSScriptRoot "output"
@@ -23,7 +29,7 @@ $env:AUTOSLICE_FUNASR_DEVICE = "cpu"
 # 默认只监听 127.0.0.1，无需配置下面这些变量。
 # 仅在明确需要局域网访问时取消注释，并替换主机、来源和长随机令牌。
 # $env:AUTOSLICE_LAN_MODE = "1"
-# $env:AUTOSLICE_LAN_TOKEN = "REPLACE_WITH_AT_LEAST_24_RANDOM_CHARACTERS"
+# $env:AUTOSLICE_LAN_TOKEN = "REPLACE_WITH_AT_LEAST_32_RANDOM_CHARACTERS"
 # $env:AUTOSLICE_LAN_HOSTS = "192.168.1.20"
 # $env:AUTOSLICE_LAN_ORIGINS = "http://192.168.1.20:5002"
 # $env:AUTOSLICE_ALLOWED_ROOTS = "$HOME\直播录播;$HOME\自动切片结果"
