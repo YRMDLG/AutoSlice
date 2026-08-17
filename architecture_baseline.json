@@ -364,6 +364,46 @@
       "to": "autoslice.analysis.danmaku"
     },
     {
+      "from": "autoslice.analysis.manual_timeline",
+      "imports": [
+        "autoslice.analysis.candidates"
+      ],
+      "lines": [
+        5
+      ],
+      "to": "autoslice.analysis.candidates"
+    },
+    {
+      "from": "autoslice.analysis.manual_timeline",
+      "imports": [
+        "autoslice.analysis.timeline"
+      ],
+      "lines": [
+        6
+      ],
+      "to": "autoslice.analysis.timeline"
+    },
+    {
+      "from": "autoslice.analysis.manual_timeline",
+      "imports": [
+        "autoslice.analysis.titles"
+      ],
+      "lines": [
+        7
+      ],
+      "to": "autoslice.analysis.titles"
+    },
+    {
+      "from": "autoslice.analysis.manual_timeline",
+      "imports": [
+        "autoslice.llm.transport"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.llm.transport"
+    },
+    {
       "from": "autoslice.analysis.timeline",
       "imports": [
         "autoslice.runtime_config.TIMELINE_DIR"
@@ -663,10 +703,20 @@
     {
       "from": "autoslice.pipeline",
       "imports": [
-        "autoslice.analysis.timeline"
+        "autoslice.analysis.manual_timeline"
       ],
       "lines": [
         23
+      ],
+      "to": "autoslice.analysis.manual_timeline"
+    },
+    {
+      "from": "autoslice.pipeline",
+      "imports": [
+        "autoslice.analysis.timeline"
+      ],
+      "lines": [
+        24
       ],
       "to": "autoslice.analysis.timeline"
     },
@@ -676,7 +726,7 @@
         "autoslice.analysis.titles"
       ],
       "lines": [
-        24
+        25
       ],
       "to": "autoslice.analysis.titles"
     },
@@ -709,16 +759,6 @@
         27
       ],
       "to": "autoslice.llm.prompts"
-    },
-    {
-      "from": "autoslice.pipeline",
-      "imports": [
-        "autoslice.llm.transport"
-      ],
-      "lines": [
-        25
-      ],
-      "to": "autoslice.llm.transport"
     },
     {
       "from": "autoslice.pipeline",
@@ -1053,10 +1093,20 @@
     {
       "from": "autoslice.topic_engine",
       "imports": [
-        "autoslice.analysis.timeline"
+        "autoslice.analysis.manual_timeline"
       ],
       "lines": [
         19
+      ],
+      "to": "autoslice.analysis.manual_timeline"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.analysis.timeline"
+      ],
+      "lines": [
+        20
       ],
       "to": "autoslice.analysis.timeline"
     },
@@ -1066,7 +1116,7 @@
         "autoslice.analysis.titles"
       ],
       "lines": [
-        20
+        21
       ],
       "to": "autoslice.analysis.titles"
     },
@@ -1091,7 +1141,7 @@
         "autoslice.artifact_store.write_artifact_text"
       ],
       "lines": [
-        48
+        49
       ],
       "to": "autoslice.artifact_store"
     },
@@ -1114,7 +1164,7 @@
         "autoslice.llm.prompts.build_topic_analysis_prompt"
       ],
       "lines": [
-        25
+        26
       ],
       "to": "autoslice.llm.prompts"
     },
@@ -1124,7 +1174,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        24
+        25
       ],
       "to": "autoslice.llm.transport"
     },
@@ -1134,7 +1184,7 @@
         "autoslice.pipeline"
       ],
       "lines": [
-        23
+        24
       ],
       "to": "autoslice.pipeline"
     },
@@ -1144,7 +1194,7 @@
         "autoslice.reporting"
       ],
       "lines": [
-        21
+        22
       ],
       "to": "autoslice.reporting"
     },
@@ -1155,7 +1205,7 @@
         "autoslice.runtime_config.TIMELINE_DIR"
       ],
       "lines": [
-        72
+        73
       ],
       "to": "autoslice.runtime_config"
     },
@@ -1165,7 +1215,7 @@
         "autoslice.slicing"
       ],
       "lines": [
-        22
+        23
       ],
       "to": "autoslice.slicing"
     },
@@ -1178,7 +1228,7 @@
         "autoslice.streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        66
+        67
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -1191,7 +1241,7 @@
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -1201,7 +1251,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.transcription.service"
     },
@@ -1935,9 +1985,9 @@
   ],
   "longest_functions": [
     {
-      "end_line": 1701,
+      "end_line": 1466,
       "kind": "function",
-      "line": 1287,
+      "line": 1052,
       "line_count": 415,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -1953,9 +2003,9 @@
       "qualname": "create_app"
     },
     {
-      "end_line": 1229,
+      "end_line": 994,
       "kind": "function",
-      "line": 827,
+      "line": 592,
       "line_count": 403,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -2025,6 +2075,15 @@
       "qualname": "_find_relevant_topic_context_end"
     },
     {
+      "end_line": 421,
+      "kind": "function",
+      "line": 271,
+      "line_count": 151,
+      "module": "autoslice.pipeline",
+      "path": "src/autoslice/pipeline.py",
+      "qualname": "prepare_optimized_manual_timeline"
+    },
+    {
       "end_line": 1445,
       "kind": "function",
       "line": 1295,
@@ -2041,15 +2100,6 @@
       "module": "autoslice_cover.renderer",
       "path": "src/autoslice_cover/renderer.py",
       "qualname": "render_cover"
-    },
-    {
-      "end_line": 656,
-      "kind": "function",
-      "line": 512,
-      "line_count": 145,
-      "module": "autoslice.pipeline",
-      "path": "src/autoslice/pipeline.py",
-      "qualname": "prepare_optimized_manual_timeline"
     },
     {
       "end_line": 624,
@@ -3378,6 +3428,83 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 309,
+      "longest_function": {
+        "end_line": 149,
+        "kind": "function",
+        "line": 89,
+        "line_count": 61,
+        "qualname": "optimized_manual_entries_from_topics"
+      },
+      "module": "autoslice.analysis.manual_timeline",
+      "path": "src/autoslice/analysis/manual_timeline.py",
+      "sha256": "9f30d567bc17a65e5944ba6442922ec478e50ad41535142c4dfc31d8cedc7f61",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 40,
+          "kind": "function",
+          "line": 24,
+          "name": "format_manual_entry_for_prompt"
+        },
+        {
+          "end_line": 61,
+          "kind": "function",
+          "line": 43,
+          "name": "manual_timeline_info_for_chunk"
+        },
+        {
+          "end_line": 72,
+          "kind": "function",
+          "line": 64,
+          "name": "attach_manual_timeline_to_chunks"
+        },
+        {
+          "end_line": 86,
+          "kind": "function",
+          "line": 75,
+          "name": "try_enrich_manual_topics"
+        },
+        {
+          "end_line": 149,
+          "kind": "function",
+          "line": 89,
+          "name": "optimized_manual_entries_from_topics"
+        },
+        {
+          "end_line": 163,
+          "kind": "function",
+          "line": 152,
+          "name": "optimized_entry_needs_retry"
+        },
+        {
+          "end_line": 213,
+          "kind": "function",
+          "line": 166,
+          "name": "topic_from_optimized_entry"
+        },
+        {
+          "end_line": 222,
+          "kind": "function",
+          "line": 216,
+          "name": "batch_warning_text"
+        },
+        {
+          "end_line": 277,
+          "kind": "function",
+          "line": 225,
+          "name": "retry_optimized_timeline_entries"
+        },
+        {
+          "end_line": 309,
+          "kind": "function",
+          "line": 280,
+          "name": "optimize_manual_timeline"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 528,
       "longest_function": {
         "end_line": 273,
@@ -4659,179 +4786,119 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1701,
+      "line_count": 1466,
       "longest_function": {
-        "end_line": 1701,
+        "end_line": 1466,
         "kind": "function",
-        "line": 1287,
+        "line": 1052,
         "line_count": 415,
         "qualname": "retry_clip_review_from_artifacts_impl"
       },
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
-      "sha256": "93843c7b54c555f05dbc35c9374faca65cad49213d2f4cf0d35c33cff99e7d56",
+      "sha256": "04f98573ffcfb3a57eb3913706ace85da0fcf9a6de4b0369e5ac97f99b6b3928",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 149,
+          "end_line": 130,
           "kind": "function",
-          "line": 135,
-          "name": "_format_manual_entry_for_prompt"
-        },
-        {
-          "end_line": 165,
-          "kind": "function",
-          "line": 152,
-          "name": "_manual_timeline_info_for_chunk"
-        },
-        {
-          "end_line": 174,
-          "kind": "function",
-          "line": 168,
-          "name": "attach_manual_timeline_to_chunks"
-        },
-        {
-          "end_line": 179,
-          "kind": "function",
-          "line": 177,
+          "line": 128,
           "name": "title_hook_prompt_guide"
         },
         {
-          "end_line": 184,
+          "end_line": 135,
           "kind": "function",
-          "line": 182,
+          "line": 133,
           "name": "build_system_prompt"
         },
         {
-          "end_line": 194,
+          "end_line": 145,
           "kind": "function",
-          "line": 187,
+          "line": 138,
           "name": "subtitle_title_services"
         },
         {
-          "end_line": 207,
+          "end_line": 154,
           "kind": "function",
-          "line": 197,
-          "name": "try_enrich_manual_topics"
-        },
-        {
-          "end_line": 263,
-          "kind": "function",
-          "line": 210,
-          "name": "optimized_manual_entries_from_topics"
-        },
-        {
-          "end_line": 275,
-          "kind": "function",
-          "line": 266,
-          "name": "optimized_entry_needs_retry"
-        },
-        {
-          "end_line": 314,
-          "kind": "function",
-          "line": 278,
-          "name": "topic_from_optimized_entry"
-        },
-        {
-          "end_line": 323,
-          "kind": "function",
-          "line": 317,
-          "name": "_batch_warning_text"
-        },
-        {
-          "end_line": 363,
-          "kind": "function",
-          "line": 326,
-          "name": "retry_optimized_timeline_entries"
-        },
-        {
-          "end_line": 386,
-          "kind": "function",
-          "line": 366,
-          "name": "optimize_manual_timeline"
-        },
-        {
-          "end_line": 395,
-          "kind": "function",
-          "line": 389,
+          "line": 148,
           "name": "optimized_timeline_paths"
         },
         {
-          "end_line": 455,
+          "end_line": 214,
           "kind": "function",
-          "line": 398,
+          "line": 157,
           "name": "write_optimized_timeline_files"
         },
         {
-          "end_line": 509,
+          "end_line": 268,
           "kind": "function",
-          "line": 458,
+          "line": 217,
           "name": "load_optimized_timeline_artifact"
         },
         {
-          "end_line": 656,
+          "end_line": 421,
           "kind": "function",
-          "line": 512,
+          "line": 271,
           "name": "prepare_optimized_manual_timeline"
         },
         {
-          "end_line": 674,
+          "end_line": 439,
           "kind": "function",
-          "line": 659,
+          "line": 424,
           "name": "optimize_manual_timeline_for_video"
         },
         {
-          "end_line": 764,
+          "end_line": 529,
           "kind": "function",
-          "line": 677,
+          "line": 442,
           "name": "optimize_manual_timeline_for_video_impl"
         },
         {
-          "end_line": 783,
+          "end_line": 548,
           "kind": "function",
-          "line": 767,
+          "line": 532,
           "name": "_scaled_progress_callback"
         },
         {
-          "end_line": 804,
+          "end_line": 569,
           "kind": "function",
-          "line": 786,
+          "line": 551,
           "name": "_monotonic_progress_callback"
         },
         {
-          "end_line": 824,
+          "end_line": 589,
           "kind": "function",
-          "line": 807,
+          "line": 572,
           "name": "run_pipeline"
         },
         {
-          "end_line": 1229,
+          "end_line": 994,
           "kind": "function",
-          "line": 827,
+          "line": 592,
           "name": "run_pipeline_impl"
         },
         {
-          "end_line": 1252,
+          "end_line": 1017,
           "kind": "function",
-          "line": 1232,
+          "line": 997,
           "name": "_manual_timeline_for_rebuilt_report"
         },
         {
-          "end_line": 1264,
+          "end_line": 1029,
           "kind": "function",
-          "line": 1255,
+          "line": 1020,
           "name": "_warning_without_previous_clip_review"
         },
         {
-          "end_line": 1284,
+          "end_line": 1049,
           "kind": "function",
-          "line": 1267,
+          "line": 1032,
           "name": "retry_clip_review_from_artifacts"
         },
         {
-          "end_line": 1701,
+          "end_line": 1466,
           "kind": "function",
-          "line": 1287,
+          "line": 1052,
           "name": "retry_clip_review_from_artifacts_impl"
         }
       ]
@@ -6278,23 +6345,23 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 698,
+      "line_count": 703,
       "longest_function": {
-        "end_line": 694,
+        "end_line": 699,
         "kind": "function",
-        "line": 673,
+        "line": 678,
         "line_count": 22,
         "qualname": "main"
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "672a442974281dcd14730219e9fa804000a80ad0a917470498b8f9065ba8e04c",
+      "sha256": "bcc93427d9005f8b7c50c758ca04c4e5a6fbed5f445db868d70298b56bd3f310",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 694,
+          "end_line": 699,
           "kind": "function",
-          "line": 673,
+          "line": 678,
           "name": "main"
         }
       ]
@@ -9220,6 +9287,7 @@
       "src/autoslice/analysis/checkpoints.py",
       "src/autoslice/analysis/clip_policy.py",
       "src/autoslice/analysis/danmaku.py",
+      "src/autoslice/analysis/manual_timeline.py",
       "src/autoslice/analysis/timeline.py",
       "src/autoslice/analysis/titles.py",
       "src/autoslice/llm/__init__.py",
@@ -9290,9 +9358,9 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 164,
-    "production_line_count": 33739,
-    "production_module_count": 92,
+    "import_edge_count": 169,
+    "production_line_count": 33818,
+    "production_module_count": 93,
     "test_private_patch_count": 17,
     "top_level_class_count": 82,
     "top_level_function_count": 860

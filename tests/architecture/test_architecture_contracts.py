@@ -551,6 +551,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             checkpoints,
             clip_policy,
             danmaku,
+            manual_timeline,
             timeline,
             titles,
         )
@@ -560,6 +561,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             transcription,
             danmaku,
             timeline,
+            manual_timeline,
             checkpoints,
             boundaries,
             clip_policy,
@@ -647,6 +649,50 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "clip_review_checkpoint_is_complete",
             "write_completed_clip_review_checkpoint",
         }.isdisjoint(candidate_functions))
+
+    def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import manual_timeline
+
+        aliases = {
+            "_format_manual_entry_for_prompt": "format_manual_entry_for_prompt",
+            "_manual_timeline_info_for_chunk": "manual_timeline_info_for_chunk",
+            "attach_manual_timeline_to_chunks": "attach_manual_timeline_to_chunks",
+            "try_enrich_manual_topics": "try_enrich_manual_topics",
+            "optimized_manual_entries_from_topics": (
+                "optimized_manual_entries_from_topics"
+            ),
+            "optimized_entry_needs_retry": "optimized_entry_needs_retry",
+            "topic_from_optimized_entry": "topic_from_optimized_entry",
+            "_batch_warning_text": "batch_warning_text",
+            "retry_optimized_timeline_entries": "retry_optimized_timeline_entries",
+            "optimize_manual_timeline": "optimize_manual_timeline",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(manual_timeline, owner_name)
+                self.assertIs(getattr(pipeline, compatibility_name), owner)
+
+        for facade_name, owner_name in manual_timeline.FACADE_EXPORTS.items():
+            with self.subTest(facade=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(manual_timeline, owner_name),
+                )
+
+        self.assertIs(pipeline.manual_timeline_analysis, manual_timeline)
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        pipeline_functions = {
+            item["name"]
+            for item in modules["autoslice.pipeline"]["top_level_functions"]
+        }
+        self.assertTrue(
+            set(manual_timeline.FACADE_EXPORTS.values()).isdisjoint(
+                pipeline_functions
+            )
+        )
 
     def test_clip_boundaries_have_one_owner_and_direct_consumers(self):
         import topic_engine

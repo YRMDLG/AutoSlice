@@ -4474,7 +4474,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 patch("autoslice.pipeline.load_manual_timeline", return_value=manual_timeline),
                 patch("autoslice.pipeline.probe_video_duration", return_value=600),
                 patch(
-                    "autoslice.pipeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
                     return_value=(timeline_entries, None),
                 ),
                 patch(
@@ -4482,7 +4482,7 @@ class TopicEngineParseTests(unittest.TestCase):
                     return_value=(str(Path(tmp) / "优化.json"), str(Path(tmp) / "优化.md")),
                 ),
                 patch(
-                    "autoslice.pipeline.attach_manual_timeline_to_chunks",
+                    "autoslice.analysis.manual_timeline.attach_manual_timeline_to_chunks",
                     side_effect=AssertionError("首轮分析不得挂载人工时间轴"),
                 ),
                 patch(
@@ -6912,11 +6912,11 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                     "video_start": datetime(2026, 7, 14, 19, 59, 0),
                 }),
                 patch(
-                    "autoslice.pipeline.retry_optimized_timeline_entries",
+                    "autoslice.analysis.manual_timeline.retry_optimized_timeline_entries",
                     return_value=(resumed_entries, None),
                 ) as retry,
                 patch(
-                    "autoslice.pipeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
                     side_effect=AssertionError("已有断点时不应全量重跑"),
                 ),
             ):
@@ -6973,11 +6973,11 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                     "video_start": datetime(2026, 7, 14, 19, 59, 0),
                 }),
                 patch(
-                    "autoslice.pipeline.retry_optimized_timeline_entries",
+                    "autoslice.analysis.manual_timeline.retry_optimized_timeline_entries",
                     side_effect=AssertionError("旧版本产物不应按断点复用"),
                 ),
                 patch(
-                    "autoslice.pipeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
                     return_value=(rebuilt_entries, None),
                 ) as rebuild,
             ):
@@ -9290,11 +9290,11 @@ class HybridModelRoutingTests(unittest.TestCase):
                     "entries": [{"start": 10, "text": "人工记录", "stars": 0}],
                 }),
                 patch(
-                    "autoslice.pipeline.retry_optimized_timeline_entries",
+                    "autoslice.analysis.manual_timeline.retry_optimized_timeline_entries",
                     side_effect=AssertionError("快速流水线不应重试部分产物"),
                 ) as retry,
                 patch(
-                    "autoslice.pipeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
                     side_effect=AssertionError("已有检查点时不应全量重跑"),
                 ),
             ):

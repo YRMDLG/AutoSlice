@@ -16,6 +16,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
@@ -551,19 +552,23 @@ slice_from_marks = slicing_service.slice_from_marks
 
 
 # 流水线兼容 façade：编排只保留 autoslice.pipeline 唯一实现。
-_format_manual_entry_for_prompt = pipeline_service._format_manual_entry_for_prompt
-_manual_timeline_info_for_chunk = pipeline_service._manual_timeline_info_for_chunk
-_attach_manual_timeline_to_chunks = pipeline_service.attach_manual_timeline_to_chunks
+_format_manual_entry_for_prompt = manual_timeline_analysis.format_manual_entry_for_prompt
+_manual_timeline_info_for_chunk = manual_timeline_analysis.manual_timeline_info_for_chunk
+_attach_manual_timeline_to_chunks = manual_timeline_analysis.attach_manual_timeline_to_chunks
 _title_hook_prompt_guide = pipeline_service.title_hook_prompt_guide
 _build_system_prompt = pipeline_service.build_system_prompt
 subtitle_title_services = pipeline_service.subtitle_title_services
-_try_enrich_manual_topics = pipeline_service.try_enrich_manual_topics
-_optimized_manual_entries_from_topics = pipeline_service.optimized_manual_entries_from_topics
-_optimized_entry_needs_retry = pipeline_service.optimized_entry_needs_retry
-_topic_from_optimized_entry = pipeline_service.topic_from_optimized_entry
-_batch_warning_text = pipeline_service._batch_warning_text
-_retry_optimized_timeline_entries = pipeline_service.retry_optimized_timeline_entries
-_optimize_manual_timeline = pipeline_service.optimize_manual_timeline
+_try_enrich_manual_topics = manual_timeline_analysis.try_enrich_manual_topics
+_optimized_manual_entries_from_topics = (
+    manual_timeline_analysis.optimized_manual_entries_from_topics
+)
+_optimized_entry_needs_retry = manual_timeline_analysis.optimized_entry_needs_retry
+_topic_from_optimized_entry = manual_timeline_analysis.topic_from_optimized_entry
+_batch_warning_text = manual_timeline_analysis.batch_warning_text
+_retry_optimized_timeline_entries = (
+    manual_timeline_analysis.retry_optimized_timeline_entries
+)
+_optimize_manual_timeline = manual_timeline_analysis.optimize_manual_timeline
 _optimized_timeline_paths = pipeline_service.optimized_timeline_paths
 _write_optimized_timeline_files = pipeline_service.write_optimized_timeline_files
 _load_optimized_timeline_artifact = pipeline_service.load_optimized_timeline_artifact
