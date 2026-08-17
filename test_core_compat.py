@@ -1,5 +1,6 @@
 """退役 ``core`` 期间必须保持的兼容契约。"""
 
+import ast
 import json
 import unittest
 from contextlib import nullcontext
@@ -12,6 +13,30 @@ import core
 
 
 class CoreCompatibilityTests(unittest.TestCase):
+    def test_product_module_does_not_import_or_call_core(self):
+        app_path = Path(app_module.__file__)
+        tree = ast.parse(app_path.read_text(encoding="utf-8"), str(app_path))
+        imported_modules = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        imported_from = {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+        }
+        called_names = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+
+        self.assertNotIn("core", imported_modules)
+        self.assertNotIn("core", imported_from)
+        self.assertNotIn("process_video", called_names)
+
     def test_module_exposes_only_documented_compatibility_surface(self):
         self.assertEqual(
             core.__all__,
@@ -161,20 +186,12 @@ class CoreCompatibilityTests(unittest.TestCase):
                 "topic_engine.slice_from_marks",
                 return_value=(1, r"X:\output\录播_话题切片"),
             ) as slice_from_marks,
-            patch.object(
-                app_module,
-                "process_video",
-                side_effect=AssertionError("JSON 重切不得进入旧 process_video"),
-            ),
         ):
             app_module.run_slice_task(
                 "direct_slice:test",
                 r"X:\input\录播.flv",
-                r"X:\input\录播.ass",
                 r"X:\output",
-                "timeline",
-                "",
-                timeline_json=r"X:\marks\clip_marks.json",
+                r"X:\marks\clip_marks.json",
                 streamer_profile="generic",
             )
 

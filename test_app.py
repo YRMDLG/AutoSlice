@@ -588,6 +588,16 @@ class DirectSliceApiTests(unittest.TestCase):
         self.addCleanup(self.legacy_flag.stop)
         self.client = app_module.app.test_client()
 
+    def test_explicit_compatibility_page_only_offers_json_reslicing(self):
+        response = self.client.get("/direct-slice")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("JSON 标记重新切片", html)
+        self.assertNotIn("人工时间轴 DOCX 重切", html)
+        self.assertNotIn("弹幕密度直切", html)
+        self.assertNotIn("时间轴 + 密度", html)
+
     def test_json_timeline_reslice_uses_existing_slice_from_marks_path(self):
         with TemporaryDirectory() as td:
             root = Path(td)
@@ -974,11 +984,6 @@ class TopicPipelineApiTests(unittest.TestCase):
                     "topic_engine.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
-                patch.object(
-                    app_module,
-                    "process_video",
-                    side_effect=AssertionError("JSON 标记不应再走旧时间轴切片"),
-                ),
             ):
                 response = self.client.post(
                     "/api/slice",

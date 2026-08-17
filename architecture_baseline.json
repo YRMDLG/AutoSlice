@@ -32,20 +32,10 @@
     {
       "from": "app",
       "imports": [
-        "core.process_video"
-      ],
-      "lines": [
-        12
-      ],
-      "to": "core"
-    },
-    {
-      "from": "app",
-      "imports": [
         "media_formats.is_scannable_video"
       ],
       "lines": [
-        13
+        12
       ],
       "to": "media_formats"
     },
@@ -58,7 +48,7 @@
         "runtime_config.VIDEO_DIR"
       ],
       "lines": [
-        20
+        19
       ],
       "to": "runtime_config"
     },
@@ -70,7 +60,7 @@
         "streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        15
+        14
       ],
       "to": "streamer_profiles"
     },
@@ -96,19 +86,19 @@
         "subtitle_workflow.verify_exact_subtitle_font"
       ],
       "lines": [
-        14,
-        767,
-        833,
-        873,
-        925,
-        1282,
-        1298,
-        1311,
-        1324,
-        1371,
-        1432,
-        1530,
-        1574
+        13,
+        766,
+        832,
+        872,
+        924,
+        1250,
+        1266,
+        1279,
+        1292,
+        1339,
+        1400,
+        1498,
+        1542
       ],
       "to": "subtitle_workflow"
     },
@@ -122,11 +112,11 @@
         "topic_engine.slice_from_marks"
       ],
       "lines": [
-        963,
-        1007,
-        1061,
-        1746,
-        1799
+        962,
+        1006,
+        1049,
+        1714,
+        1767
       ],
       "to": "topic_engine"
     },
@@ -446,7 +436,7 @@
         "topic_engine.ensure_srt"
       ],
       "lines": [
-        49
+        27
       ],
       "to": "topic_engine"
     },
@@ -659,15 +649,6 @@
       "qualname": "_slice_from_marks_impl"
     },
     {
-      "end_line": 652,
-      "kind": "function",
-      "line": 380,
-      "line_count": 273,
-      "module": "core",
-      "path": "core.py",
-      "qualname": "process_video"
-    },
-    {
       "end_line": 7721,
       "kind": "function",
       "line": 7458,
@@ -837,496 +818,505 @@
       "module": "topic_engine",
       "path": "topic_engine.py",
       "qualname": "_reconcile_topic_manual_evidence"
+    },
+    {
+      "end_line": 543,
+      "kind": "function",
+      "line": 446,
+      "line_count": 98,
+      "module": "scripts.architecture_snapshot",
+      "path": "scripts/architecture_snapshot.py",
+      "qualname": "build_snapshot"
     }
   ],
   "modules": [
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1936,
+      "line_count": 1904,
       "longest_function": {
-        "end_line": 1837,
+        "end_line": 1805,
         "kind": "function",
-        "line": 1752,
+        "line": 1720,
         "line_count": 86,
         "qualname": "start_pipeline"
       },
       "module": "app",
       "path": "app.py",
-      "sha256": "c2d1ea726e3fecbb16230f57a5ce364e8ace7b7e35299534b9d6e010c60bd717",
+      "sha256": "7728704ef62cdd89008366cb1f58928d2d594131803bab453c6f5e9642190061",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 36,
+          "end_line": 35,
           "kind": "function",
-          "line": 33,
+          "line": 32,
           "name": "_configured_directory"
         },
         {
-          "end_line": 119,
+          "end_line": 118,
           "kind": "function",
-          "line": 99,
+          "line": 98,
           "name": "_configured_autocover_url"
         },
         {
-          "end_line": 126,
+          "end_line": 125,
           "kind": "function",
-          "line": 122,
+          "line": 121,
           "name": "_env_flag"
         },
         {
-          "end_line": 131,
+          "end_line": 130,
           "kind": "function",
-          "line": 129,
+          "line": 128,
           "name": "_legacy_direct_slice_enabled"
         },
         {
-          "end_line": 138,
+          "end_line": 137,
           "kind": "function",
-          "line": 135,
+          "line": 134,
           "name": "_template_feature_flags"
         },
         {
-          "end_line": 150,
+          "end_line": 149,
           "kind": "function",
-          "line": 141,
+          "line": 140,
           "name": "_split_env_values"
         },
         {
-          "end_line": 157,
+          "end_line": 156,
           "kind": "function",
-          "line": 153,
+          "line": 152,
           "name": "_request_hostname"
         },
         {
-          "end_line": 167,
+          "end_line": 166,
           "kind": "function",
-          "line": 160,
+          "line": 159,
           "name": "_trusted_request_hosts"
         },
         {
-          "end_line": 192,
+          "end_line": 191,
           "kind": "function",
-          "line": 170,
+          "line": 169,
           "name": "_request_origin_is_trusted"
         },
         {
-          "end_line": 196,
+          "end_line": 195,
           "kind": "function",
-          "line": 195,
+          "line": 194,
           "name": "_lan_token"
         },
         {
-          "end_line": 209,
+          "end_line": 208,
           "kind": "function",
-          "line": 199,
+          "line": 198,
           "name": "_lan_request_is_authenticated"
         },
         {
-          "end_line": 226,
+          "end_line": 225,
           "kind": "function",
-          "line": 212,
+          "line": 211,
           "name": "_lan_allowed_roots"
         },
         {
-          "end_line": 240,
+          "end_line": 239,
           "kind": "function",
-          "line": 229,
+          "line": 228,
           "name": "_path_within"
         },
         {
-          "end_line": 255,
+          "end_line": 254,
           "kind": "function",
-          "line": 243,
+          "line": 242,
           "name": "_lan_payload_paths_are_allowed"
         },
         {
-          "end_line": 272,
+          "end_line": 271,
           "kind": "function",
-          "line": 259,
+          "line": 258,
           "name": "enforce_local_request_boundary"
         },
         {
-          "end_line": 288,
+          "end_line": 287,
           "kind": "function",
-          "line": 276,
+          "line": 275,
           "name": "persist_lan_session"
         },
         {
-          "end_line": 306,
+          "end_line": 305,
           "kind": "function",
-          "line": 291,
+          "line": 290,
           "name": "broadcast"
         },
         {
-          "end_line": 317,
+          "end_line": 316,
           "kind": "function",
-          "line": 309,
+          "line": 308,
           "name": "_task_history_timestamp"
         },
         {
-          "end_line": 343,
+          "end_line": 342,
           "kind": "function",
-          "line": 320,
+          "line": 319,
           "name": "_prune_tasks_locked"
         },
         {
-          "end_line": 366,
+          "end_line": 365,
           "kind": "function",
-          "line": 346,
+          "line": 345,
           "name": "_console_print"
         },
         {
-          "end_line": 393,
+          "end_line": 392,
           "kind": "function",
-          "line": 369,
+          "line": 368,
           "name": "update_task"
         },
         {
-          "end_line": 400,
+          "end_line": 399,
           "kind": "function",
-          "line": 396,
+          "line": 395,
           "name": "_pipeline_completion_progress"
         },
         {
-          "end_line": 408,
+          "end_line": 407,
           "kind": "function",
-          "line": 403,
+          "line": 402,
           "name": "_subtitle_task_id"
         },
         {
-          "end_line": 424,
+          "end_line": 423,
           "kind": "function",
-          "line": 411,
+          "line": 410,
           "name": "_normalized_task_paths"
         },
         {
-          "end_line": 439,
+          "end_line": 438,
           "kind": "function",
-          "line": 427,
+          "line": 426,
           "name": "_task_resource_set"
         },
         {
-          "end_line": 500,
+          "end_line": 499,
           "kind": "function",
-          "line": 442,
+          "line": 441,
           "name": "_reserve_task"
         },
         {
-          "end_line": 515,
+          "end_line": 514,
           "kind": "function",
-          "line": 503,
+          "line": 502,
           "name": "_reserve_source_task"
         },
         {
-          "end_line": 524,
+          "end_line": 523,
           "kind": "function",
-          "line": 518,
+          "line": 517,
           "name": "_set_task_output_dir"
         },
         {
-          "end_line": 532,
+          "end_line": 531,
           "kind": "function",
-          "line": 527,
+          "line": 526,
           "name": "_request_streamer_profile"
         },
         {
-          "end_line": 540,
+          "end_line": 539,
           "kind": "function",
-          "line": 535,
+          "line": 534,
           "name": "_topic_task_output_paths"
         },
         {
-          "end_line": 579,
+          "end_line": 578,
           "kind": "function",
-          "line": 543,
+          "line": 542,
           "name": "_completed_task_artifact_dir"
         },
         {
-          "end_line": 595,
+          "end_line": 594,
           "kind": "function",
-          "line": 582,
+          "line": 581,
           "name": "_safe_task_error"
         },
         {
-          "end_line": 609,
+          "end_line": 608,
           "kind": "function",
-          "line": 598,
+          "line": 597,
           "name": "_record_task_error"
         },
         {
-          "end_line": 622,
+          "end_line": 621,
           "kind": "function",
-          "line": 612,
+          "line": 611,
           "name": "_validated_upload_filename"
         },
         {
-          "end_line": 651,
+          "end_line": 650,
           "kind": "function",
-          "line": 625,
+          "line": 624,
           "name": "_save_uploaded_file"
         },
         {
-          "end_line": 665,
+          "end_line": 664,
           "kind": "function",
-          "line": 654,
+          "line": 653,
           "name": "_reserve_subtitle_review_task"
         },
         {
-          "end_line": 678,
+          "end_line": 677,
           "kind": "function",
-          "line": 668,
+          "line": 667,
           "name": "_reserve_subtitle_title_task"
         },
         {
-          "end_line": 686,
+          "end_line": 685,
           "kind": "function",
-          "line": 681,
+          "line": 680,
           "name": "_validate_subtitle_video"
         },
         {
-          "end_line": 703,
+          "end_line": 702,
           "kind": "function",
-          "line": 689,
+          "line": 688,
           "name": "_reserve_subtitle_transcription_task"
         },
         {
-          "end_line": 711,
+          "end_line": 710,
           "kind": "function",
-          "line": 706,
+          "line": 705,
           "name": "_validate_subtitle_path"
         },
         {
-          "end_line": 729,
+          "end_line": 728,
           "kind": "function",
-          "line": 714,
+          "line": 713,
           "name": "_validate_subtitle_pair"
         },
         {
-          "end_line": 742,
+          "end_line": 741,
           "kind": "function",
-          "line": 732,
+          "line": 731,
           "name": "_validate_subtitle_output_path"
         },
         {
-          "end_line": 809,
+          "end_line": 808,
           "kind": "function",
-          "line": 745,
+          "line": 744,
           "name": "run_subtitle_review_task"
         },
         {
-          "end_line": 850,
+          "end_line": 849,
           "kind": "function",
-          "line": 812,
+          "line": 811,
           "name": "run_subtitle_title_task"
         },
         {
-          "end_line": 900,
+          "end_line": 899,
           "kind": "function",
-          "line": 853,
+          "line": 852,
           "name": "run_subtitle_transcription_task"
         },
         {
-          "end_line": 944,
+          "end_line": 943,
           "kind": "function",
-          "line": 903,
+          "line": 902,
           "name": "run_subtitle_render_task"
         },
         {
-          "end_line": 982,
+          "end_line": 981,
           "kind": "function",
-          "line": 947,
+          "line": 946,
           "name": "run_timeline_optimization_task"
         },
         {
-          "end_line": 1036,
+          "end_line": 1035,
           "kind": "function",
-          "line": 985,
+          "line": 984,
           "name": "run_clip_review_retry_task"
         },
         {
-          "end_line": 1081,
+          "end_line": 1063,
           "kind": "function",
-          "line": 1039,
+          "line": 1038,
           "name": "run_slice_task"
         },
         {
-          "end_line": 1117,
+          "end_line": 1099,
           "kind": "function",
-          "line": 1087,
+          "line": 1069,
           "name": "sse_events"
         },
         {
-          "end_line": 1128,
+          "end_line": 1110,
           "kind": "function",
-          "line": 1123,
+          "line": 1105,
           "name": "index"
         },
         {
-          "end_line": 1139,
+          "end_line": 1121,
           "kind": "function",
-          "line": 1132,
+          "line": 1114,
           "name": "direct_slice_page"
         },
         {
-          "end_line": 1166,
+          "end_line": 1148,
           "kind": "function",
-          "line": 1143,
+          "line": 1125,
           "name": "scan"
         },
         {
-          "end_line": 1249,
+          "end_line": 1217,
           "kind": "function",
-          "line": 1170,
+          "line": 1152,
           "name": "slice_start"
         },
         {
-          "end_line": 1275,
+          "end_line": 1243,
           "kind": "function",
-          "line": 1253,
+          "line": 1221,
           "name": "open_result_directory"
         },
         {
-          "end_line": 1293,
+          "end_line": 1261,
           "kind": "function",
-          "line": 1281,
+          "line": 1249,
           "name": "subtitle_defaults"
         },
         {
-          "end_line": 1306,
+          "end_line": 1274,
           "kind": "function",
-          "line": 1297,
+          "line": 1265,
           "name": "subtitle_scan"
         },
         {
-          "end_line": 1319,
+          "end_line": 1287,
           "kind": "function",
-          "line": 1310,
+          "line": 1278,
           "name": "subtitle_cues"
         },
         {
-          "end_line": 1336,
+          "end_line": 1304,
           "kind": "function",
-          "line": 1323,
+          "line": 1291,
           "name": "subtitle_edit_state"
         },
         {
-          "end_line": 1365,
+          "end_line": 1333,
           "kind": "function",
-          "line": 1340,
+          "line": 1308,
           "name": "subtitle_transcribe"
         },
         {
-          "end_line": 1395,
+          "end_line": 1363,
           "kind": "function",
-          "line": 1369,
+          "line": 1337,
           "name": "subtitle_reflow"
         },
         {
-          "end_line": 1484,
+          "end_line": 1452,
           "kind": "function",
-          "line": 1399,
+          "line": 1367,
           "name": "subtitle_review"
         },
         {
-          "end_line": 1525,
+          "end_line": 1493,
           "kind": "function",
-          "line": 1488,
+          "line": 1456,
           "name": "subtitle_generate_title"
         },
         {
-          "end_line": 1569,
+          "end_line": 1537,
           "kind": "function",
-          "line": 1529,
+          "line": 1497,
           "name": "subtitle_save"
         },
         {
-          "end_line": 1594,
+          "end_line": 1562,
           "kind": "function",
-          "line": 1573,
+          "line": 1541,
           "name": "subtitle_preview"
         },
         {
-          "end_line": 1646,
+          "end_line": 1614,
           "kind": "function",
-          "line": 1598,
+          "line": 1566,
           "name": "subtitle_render"
         },
         {
-          "end_line": 1660,
+          "end_line": 1628,
           "kind": "function",
-          "line": 1650,
+          "line": 1618,
           "name": "list_json_timelines"
         },
         {
-          "end_line": 1675,
+          "end_line": 1643,
           "kind": "function",
-          "line": 1664,
+          "line": 1632,
           "name": "upload_json_timeline"
         },
         {
-          "end_line": 1684,
+          "end_line": 1652,
           "kind": "function",
-          "line": 1679,
+          "line": 1647,
           "name": "list_timelines"
         },
         {
-          "end_line": 1697,
+          "end_line": 1665,
           "kind": "function",
-          "line": 1688,
+          "line": 1656,
           "name": "upload_timeline"
         },
         {
-          "end_line": 1708,
+          "end_line": 1676,
           "kind": "function",
-          "line": 1703,
+          "line": 1671,
           "name": "topic_v2_page"
         },
         {
-          "end_line": 1713,
+          "end_line": 1681,
           "kind": "function",
-          "line": 1712,
+          "line": 1680,
           "name": "subtitle_workflow_page"
         },
         {
-          "end_line": 1718,
+          "end_line": 1686,
           "kind": "function",
-          "line": 1717,
+          "line": 1685,
           "name": "autocover_page"
         },
         {
-          "end_line": 1730,
+          "end_line": 1698,
           "kind": "function",
-          "line": 1722,
+          "line": 1690,
           "name": "service_contract"
         },
         {
-          "end_line": 1739,
+          "end_line": 1707,
           "kind": "function",
-          "line": 1734,
+          "line": 1702,
           "name": "streamer_profiles_contract"
         },
         {
-          "end_line": 1748,
+          "end_line": 1716,
           "kind": "function",
-          "line": 1743,
+          "line": 1711,
           "name": "asr_status_contract"
         },
         {
-          "end_line": 1837,
+          "end_line": 1805,
           "kind": "function",
-          "line": 1752,
+          "line": 1720,
           "name": "start_pipeline"
         },
         {
-          "end_line": 1880,
+          "end_line": 1848,
           "kind": "function",
-          "line": 1841,
+          "line": 1809,
           "name": "retry_clip_review"
         },
         {
-          "end_line": 1932,
+          "end_line": 1900,
           "kind": "function",
-          "line": 1884,
+          "line": 1852,
           "name": "optimize_manual_timeline"
         }
       ]
@@ -2553,107 +2543,42 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 652,
+      "line_count": 81,
       "longest_function": {
-        "end_line": 652,
+        "end_line": 70,
         "kind": "function",
-        "line": 380,
-        "line_count": 273,
-        "qualname": "process_video"
+        "line": 36,
+        "line_count": 35,
+        "qualname": "parse_timeline_json"
       },
       "module": "core",
       "path": "core.py",
-      "sha256": "6b9ffa8f00f3be140f708e98a82d9aed3cf6099b045b80c020244323b159da2f",
-      "top_level_classes": [],
+      "sha256": "c85549f8adc0c72121652b0e616feda03e8c86e67d26d2a1fb43999451abbf30",
+      "top_level_classes": [
+        {
+          "end_line": 21,
+          "kind": "class",
+          "line": 20,
+          "name": "LegacyCoreDeprecatedError"
+        }
+      ],
       "top_level_functions": [
         {
-          "end_line": 39,
+          "end_line": 33,
           "kind": "function",
-          "line": 34,
-          "name": "seconds_to_srt_time"
-        },
-        {
-          "end_line": 55,
-          "kind": "function",
-          "line": 46,
+          "line": 24,
           "name": "generate_srt"
         },
         {
-          "end_line": 79,
+          "end_line": 70,
           "kind": "function",
-          "line": 62,
-          "name": "parse_srt"
-        },
-        {
-          "end_line": 94,
-          "kind": "function",
-          "line": 82,
-          "name": "extract_danmaku_timestamps"
-        },
-        {
-          "end_line": 124,
-          "kind": "function",
-          "line": 101,
-          "name": "find_dense_periods"
-        },
-        {
-          "end_line": 157,
-          "kind": "function",
-          "line": 131,
-          "name": "find_context_boundaries"
-        },
-        {
-          "end_line": 185,
-          "kind": "function",
-          "line": 160,
-          "name": "merge_overlapping_periods"
-        },
-        {
-          "end_line": 228,
-          "kind": "function",
-          "line": 192,
-          "name": "detect_video_watching_segments"
-        },
-        {
-          "end_line": 274,
-          "kind": "function",
-          "line": 235,
-          "name": "parse_timeline_docx"
-        },
-        {
-          "end_line": 313,
-          "kind": "function",
-          "line": 277,
+          "line": 36,
           "name": "parse_timeline_json"
         },
         {
-          "end_line": 326,
+          "end_line": 81,
           "kind": "function",
-          "line": 320,
-          "name": "slice_video"
-        },
-        {
-          "end_line": 349,
-          "kind": "function",
-          "line": 329,
-          "name": "_extract_stream_start"
-        },
-        {
-          "end_line": 361,
-          "kind": "function",
-          "line": 352,
-          "name": "get_video_duration"
-        },
-        {
-          "end_line": 377,
-          "kind": "function",
-          "line": 368,
-          "name": "is_file_locked"
-        },
-        {
-          "end_line": 652,
-          "kind": "function",
-          "line": 380,
+          "line": 73,
           "name": "process_video"
         }
       ]
@@ -6223,6 +6148,7 @@
       "test_app.py",
       "test_architecture_contracts.py",
       "test_artifact_store.py",
+      "test_core_compat.py",
       "test_external_boundaries.py",
       "test_launcher.py",
       "test_media_formats.py",
@@ -6246,16 +6172,16 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 43,
-    "production_line_count": 26332,
+    "import_edge_count": 42,
+    "production_line_count": 25729,
     "production_module_count": 33,
-    "test_private_patch_count": 143,
-    "top_level_class_count": 37,
-    "top_level_function_count": 757
+    "test_private_patch_count": 144,
+    "top_level_class_count": 38,
+    "top_level_function_count": 745
   },
   "test_private_patches": {
     "by_target_module": {
-      "app_module": 2,
+      "app_module": 3,
       "autocover.cli": 2,
       "autocover.fonts": 1,
       "autocover.video": 5,
@@ -6266,7 +6192,7 @@
       "autocover_tool/tests/test_cli.py": 2,
       "autocover_tool/tests/test_fonts.py": 1,
       "autocover_tool/tests/test_video.py": 5,
-      "test_app.py": 2,
+      "test_app.py": 3,
       "test_external_boundaries.py": 1,
       "test_subtitle_workflow.py": 4,
       "test_topic_engine.py": 128
@@ -6279,6 +6205,10 @@
       {
         "count": 1,
         "target": "app_module._TASK_HISTORY_TTL_SEC"
+      },
+      {
+        "count": 1,
+        "target": "app_module._reserve_source_task"
       },
       {
         "count": 1,
@@ -6421,6 +6351,6 @@
         "target": "topic_engine._write_refinement_manifest_files"
       }
     ],
-    "total": 143
+    "total": 144
   }
 }

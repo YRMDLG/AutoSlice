@@ -9,7 +9,6 @@ from urllib.parse import urlsplit
 from flask import Flask, render_template, request, jsonify, Response, redirect, abort
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from core import process_video
 from media_formats import is_scannable_video
 from subtitle_workflow import SUBTITLE_ASR_VERSION, SUBTITLE_REVIEW_VERSION
 from streamer_profiles import (
@@ -1037,19 +1036,9 @@ def run_clip_review_retry_task(
 
 
 def run_slice_task(
-        task_id, flv_path, ass_path, output_dir, mode, timeline_path,
-        timeline_json=None, streamer_profile="auto"):
-    """后台切片任务"""
-    if timeline_path and os.path.isfile(timeline_path):
-        import shutil
-        dest = os.path.join(PROJECT_TL_DIR, os.path.basename(timeline_path))
-        try:
-            if not os.path.exists(dest) or os.path.getmtime(timeline_path) > os.path.getmtime(dest):
-                shutil.copy2(timeline_path, dest)
-            timeline_path = dest
-        except:
-            pass
-
+        task_id, flv_path, output_dir, timeline_json,
+        streamer_profile="auto"):
+    """使用智能分析 JSON 标记执行唯一受支持的后台重切任务。"""
     update_task(task_id, status="running", progress="准备中...", step=0)
 
     def callback(msg, step, total):
@@ -1057,21 +1046,14 @@ def run_slice_task(
 
     try:
         with streamer_profile_context(streamer_profile, flv_path):
-            if timeline_json:
-                from topic_engine import slice_from_marks
-                count, out_dir = slice_from_marks(
-                    flv_path,
-                    timeline_json,
-                    output_dir,
-                    progress_callback=callback,
-                    streamer_profile_id=streamer_profile,
-                )
-            else:
-                count, out_dir = process_video(
-                    flv_path, ass_path, output_dir,
-                    mode=mode, timeline_path=timeline_path,
-                    progress_callback=callback
-                )
+            from topic_engine import slice_from_marks
+            count, out_dir = slice_from_marks(
+                flv_path,
+                timeline_json,
+                output_dir,
+                progress_callback=callback,
+                streamer_profile_id=streamer_profile,
+            )
         update_task(task_id, status="done",
                     progress=f"完成！{count} 个片段",
                     result=f"共切出 {count} 个片段 → {out_dir}", step=100)
@@ -1193,7 +1175,6 @@ def slice_start():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    ass_path = flv_path[:-4] + ".ass"
     base_name = os.path.splitext(os.path.basename(flv_path))[0]
     direct_output = os.path.join(output_dir, base_name + "_话题切片")
     task_id, active_task_id = _reserve_source_task(
@@ -1224,10 +1205,7 @@ def slice_start():
             args=(
                 task_id,
                 flv_path,
-                ass_path,
                 output_dir,
-                mode,
-                "",
                 timeline_json,
                 streamer_profile,
             ),

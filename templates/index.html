@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>高级重新切片 · AutoSlice</title>
+<title>JSON 重新切片 · AutoSlice</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
 </head>
@@ -15,7 +15,7 @@
     </a>
     <nav class="topnav" aria-label="主要功能">
         <a href="/">智能分析</a>
-        <a href="/direct-slice" class="active" aria-current="page">高级重切</a>
+        <a href="/direct-slice" class="active" aria-current="page">JSON 重切</a>
         <a href="/subtitle-workflow">字幕校对</a>
         <a href="/autocover" target="_blank" rel="noopener">自动封面</a>
     </nav>
@@ -24,8 +24,8 @@
 <main class="page-shell">
     <div class="page-heading">
         <div>
-            <h1>高级重新切片</h1>
-            <p>复用已有 JSON 标记，或用人工时间轴重新生成视频片段。</p>
+            <h1>JSON 重新切片</h1>
+            <p>复用智能分析生成的 clip_marks.json，按已复核的起止范围重新生成视频片段。</p>
         </div>
         <div class="workflow-trail">选择录播　→　指定标记　→　重新切片</div>
     </div>
@@ -54,14 +54,11 @@
                 </div>
             </div>
             <div class="step-block">
-                <div class="step-heading"><span class="step-index">3</span><strong>切片依据</strong><span id="modeHint">推荐复用分析结果</span></div>
+                <div class="step-heading"><span class="step-index">3</span><strong>切片依据</strong><span id="modeHint">仅支持智能分析 JSON</span></div>
                 <div class="field-row">
                     <label for="mode">切片模式</label>
-                    <select id="mode" onchange="toggleTimeline()">
+                    <select id="mode" disabled>
                         <option value="timeline-json" selected>JSON 标记重新切片</option>
-                        <option value="timeline">人工时间轴 DOCX 重切</option>
-                        <option value="danmaku">弹幕密度直切（旧版）</option>
-                        <option value="hybrid">时间轴 + 密度（旧版）</option>
                     </select>
                 </div>
                 <div class="field-row" id="timelineRow">
@@ -99,25 +96,15 @@ function restoreWorkspacePaths(){try{byId('vd').value=localStorage.getItem(VIDEO
 function rememberWorkspacePaths(){try{localStorage.setItem(VIDEO_DIR_STORAGE_KEY,byId('vd').value);localStorage.setItem(OUTPUT_DIR_STORAGE_KEY,byId('od').value)}catch(error){}}
 async function jsonRequest(url,options={}){const response=await fetch(url,{headers:{'Content-Type':'application/json'},...options});const result=await response.json().catch(()=>({error:`服务返回了无效数据 (${response.status})`}));if(!response.ok||result.error)throw new Error(result.error||`请求失败 (${response.status})`);return result}
 
-function modeNeedsTimeline(){return ['timeline-json','timeline','hybrid'].includes(byId('mode').value)}
-function updateActions(){byId('sliceButton').disabled=!selectedVideo||taskBusy||(modeNeedsTimeline()&&!byId('timelinePath').value);byId('scanButton').disabled=scanBusy||taskBusy}
+function updateActions(){byId('sliceButton').disabled=!selectedVideo||taskBusy||!byId('timelinePath').value;byId('scanButton').disabled=scanBusy||taskBusy}
 
 function toggleTimeline(){
-    const mode=byId('mode').value;
-    byId('timelineRow').hidden=!modeNeedsTimeline();
     byId('timelinePath').value='';
     byId('timelineSelect').value='';
     byId('timelineUpload').value='';
     byId('uploadLabel').textContent='或从本机上传';
-    const hints={
-        'timeline-json':'使用智能分析生成的 clip_marks.json',
-        timeline:'按人工 DOCX 时间段重新切片',
-        danmaku:'旧版模式，仅按弹幕密度计算',
-        hybrid:'旧版模式，组合人工时间轴与密度'
-    };
-    byId('modeHint').textContent=hints[mode]||'';
-    if(mode==='timeline-json')loadJsonTimelines();
-    if(mode==='timeline'||mode==='hybrid')loadDocxTimelines();
+    byId('modeHint').textContent='使用智能分析生成的 clip_marks.json';
+    loadJsonTimelines();
     updateActions();
 }
 
@@ -176,18 +163,15 @@ function pick(element,video){document.querySelectorAll('.video-item').forEach(it
 
 async function sliceSelected(){
     if(!selectedVideo){setNotice('请先从列表选择录播','warning');return}
-    const mode=byId('mode').value;
-    if(modeNeedsTimeline()&&!byId('timelinePath').value){setNotice('请先选择或上传切片标记文件','warning');return}
+    if(!byId('timelinePath').value){setNotice('请先选择或上传 JSON 切片标记文件','warning');return}
     rememberWorkspacePaths();taskBusy=true;updateActions();setNotice('正在启动重新切片...');
-    const body={flv_path:selectedVideo,output_dir:byId('od').value,mode};
-    if(mode==='timeline-json')body.timeline_json=byId('timelinePath').value;else body.timeline_path=byId('timelinePath').value;
+    const body={flv_path:selectedVideo,output_dir:byId('od').value,mode:'timeline-json',timeline_json:byId('timelinePath').value};
     try{await jsonRequest('/api/slice',{method:'POST',body:JSON.stringify(body)});setNotice('切片任务已启动，可在右侧查看进度','success')}catch(error){taskBusy=false;updateActions();setNotice(`切片启动失败：${error.message}`,'error')}
 }
 
 async function populateTimelines(url,placeholder,accept){
     try{const result=await jsonRequest(url);const select=byId('timelineSelect');select.replaceChildren(new Option(placeholder,''));(result.files||[]).forEach(file=>select.add(new Option(file.name,file.path)));byId('timelineUpload').accept=accept}catch(error){setNotice(`标记文件列表加载失败：${error.message}`,'error')}
 }
-function loadDocxTimelines(){return populateTimelines('/api/timelines','选择 DOCX','.docx')}
 function loadJsonTimelines(){return populateTimelines('/api/list-json-timelines','选择 JSON','.json')}
 function onTimelineSelect(){byId('timelinePath').value=byId('timelineSelect').value;byId('timelineUpload').value='';byId('uploadLabel').textContent=byId('timelineSelect').selectedOptions[0]?.textContent||'或从本机上传';updateActions()}
 
@@ -195,8 +179,7 @@ async function onTimelineUpload(){
     const file=byId('timelineUpload').files[0];if(!file)return;
     byId('uploadLabel').textContent=file.name;
     const form=new FormData();form.append('file',file);
-    const mode=byId('mode').value;const url=mode==='timeline-json'?'/api/upload-json-timeline':'/api/upload-timeline';
-    try{const response=await fetch(url,{method:'POST',body:form});const result=await response.json();if(!response.ok||result.error)throw new Error(result.error||`上传失败 (${response.status})`);byId('timelinePath').value=result.path;byId('timelineSelect').value='';setNotice(`已载入标记文件：${file.name}`,'success');updateActions();mode==='timeline-json'?loadJsonTimelines():loadDocxTimelines()}catch(error){byId('timelinePath').value='';setNotice(`标记文件上传失败：${error.message}`,'error');updateActions()}
+    try{const response=await fetch('/api/upload-json-timeline',{method:'POST',body:form});const result=await response.json();if(!response.ok||result.error)throw new Error(result.error||`上传失败 (${response.status})`);byId('timelinePath').value=result.path;byId('timelineSelect').value='';setNotice(`已载入标记文件：${file.name}`,'success');updateActions();loadJsonTimelines()}catch(error){byId('timelinePath').value='';setNotice(`标记文件上传失败：${error.message}`,'error');updateActions()}
 }
 
 restoreWorkspacePaths();connectSSE();toggleTimeline();scan();
