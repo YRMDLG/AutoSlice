@@ -6219,6 +6219,29 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 88,
+      "longest_function": {
+        "end_line": 84,
+        "kind": "function",
+        "line": 53,
+        "line_count": 32,
+        "qualname": "main"
+      },
+      "module": "scripts.run_linux_logic_tests",
+      "path": "scripts/run_linux_logic_tests.py",
+      "sha256": "f6dc8373f3d46fe0936e3ed449e881b4959ea2e08b7fd0b24c548bf48100d665",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 84,
+          "kind": "function",
+          "line": 53,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 177,
       "longest_function": {
         "end_line": 147,
@@ -7769,6 +7792,7 @@
       "scripts/architecture_snapshot.py",
       "scripts/compile_public.py",
       "scripts/run_hermetic_tests.py",
+      "scripts/run_linux_logic_tests.py",
       "scripts/scan_public_release.py",
       "scripts/smoke_startup.py",
       "scripts/sync_autocover.py",
@@ -7809,11 +7833,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 101,
-    "production_line_count": 31811,
-    "production_module_count": 52,
+    "production_line_count": 31899,
+    "production_module_count": 53,
     "test_private_patch_count": 17,
     "top_level_class_count": 80,
-    "top_level_function_count": 810
+    "top_level_function_count": 811
   },
   "test_private_patches": {
     "by_target_module": {

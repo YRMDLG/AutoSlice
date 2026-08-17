@@ -22,7 +22,6 @@ from unittest.mock import Mock, patch
 import requests
 from flask import Flask
 
-
 BLOCKED_MODEL_PACKAGE_ROOTS = frozenset({
     "funasr",
     "huggingface_hub",
@@ -30,7 +29,19 @@ BLOCKED_MODEL_PACKAGE_ROOTS = frozenset({
     "torch",
     "transformers",
 })
+LINUX_LOGIC_ONLY_PACKAGE_ROOTS = frozenset({"PIL", "docx", "soxr"})
+LINUX_LOGIC_ONLY_EXECUTABLES = frozenset({
+    "ffmpeg",
+    "ffprobe",
+    "nvidia-smi",
+})
 BLOCKED_SERVICE_PORTS = frozenset({5002, 5010})
+PRIVATE_CONFIG_FILENAMES = frozenset({
+    ".env",
+    "api_config.json",
+    "autoslice.local.json",
+    "title_style_profile.json",
+})
 PRIVATE_MEDIA_SUFFIXES = frozenset({
     ".ass",
     ".avi",
@@ -126,6 +137,13 @@ def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
             raise ModelBoundaryViolation(
                 f"自动测试禁止未 mock 的模型/GPU 包加载：{name}"
             )
+    if (
+        package_root in LINUX_LOGIC_ONLY_PACKAGE_ROOTS
+        and EXTERNAL_BOUNDARY_GUARD.linux_logic_only
+    ):
+        raise ModelBoundaryViolation(
+            f"Linux 纯逻辑测试禁止可选媒体包加载：{name}"
+        )
     return _ORIGINAL_IMPORT(name, globals, locals, fromlist, level)
 
 
@@ -173,7 +191,7 @@ def _media_path_candidates(argument: str) -> tuple[str, ...]:
 
 
 def _guarded_path_open(path, *args, **kwargs):
-    EXTERNAL_BOUNDARY_GUARD.validate_media_path(path)
+    EXTERNAL_BOUNDARY_GUARD.validate_path(path)
     return _ORIGINAL_PATH_OPEN(path, *args, **kwargs)
 
 
@@ -183,6 +201,7 @@ class ExternalBoundaryGuard:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._installed = False
+        self._linux_logic_only = False
         self._patchers = []
         self._temporary_roots: dict[Path, int] = {
             Path(tempfile.gettempdir()).resolve(): 1,
@@ -191,11 +210,24 @@ class ExternalBoundaryGuard:
         self._saved_environment: dict[str, str | None] = {}
         self._isolated_environment: tempfile.TemporaryDirectory[str] | None = None
 
-    def _path_is_allowed(self, path: Path) -> bool:
+    @property
+    def linux_logic_only(self) -> bool:
         with self._lock:
-            roots = tuple(self._temporary_roots)
-        if any(path == root or root in path.parents for root in roots):
-            return True
+            return self._linux_logic_only
+
+    @contextmanager
+    def linux_logic_only_mode(self, enabled: bool = True):
+        """临时切换 Linux 纯逻辑约束，并在退出后恢复原模式。"""
+        with self._lock:
+            previous = self._linux_logic_only
+            self._linux_logic_only = enabled
+        try:
+            yield self
+        finally:
+            with self._lock:
+                self._linux_logic_only = previous
+
+    def _path_is_system_font(self, path: Path) -> bool:
         return (
             path.suffix.casefold() in SYSTEM_FONT_SUFFIXES
             and any(
@@ -204,12 +236,37 @@ class ExternalBoundaryGuard:
             )
         )
 
+    def _path_is_allowed(self, path: Path) -> bool:
+        with self._lock:
+            roots = tuple(self._temporary_roots)
+            linux_logic_only = self._linux_logic_only
+        if any(path == root or root in path.parents for root in roots):
+            return True
+        return not linux_logic_only and self._path_is_system_font(path)
+
     def validate_media_path(self, file: object) -> None:
         path = _resolved_path(file)
         if path is None or path.suffix.casefold() not in PRIVATE_MEDIA_SUFFIXES:
             return
+        if self.linux_logic_only and self._path_is_system_font(path):
+            raise _boundary_error(" Linux 纯逻辑字体访问", path)
         if not self._path_is_allowed(path):
             raise _boundary_error("用户媒体访问", path)
+
+    def validate_private_config_path(self, file: object) -> None:
+        path = _resolved_path(file)
+        if (
+            path is None
+            or path.name.casefold() not in PRIVATE_CONFIG_FILENAMES
+            or not self.linux_logic_only
+            or self._path_is_allowed(path)
+        ):
+            return
+        raise _boundary_error(" Linux 纯逻辑私人配置访问", path)
+
+    def validate_path(self, file: object) -> None:
+        self.validate_private_config_path(file)
+        self.validate_media_path(file)
 
     @contextmanager
     def allow_temporary_root(self, path: str | os.PathLike[str]):
@@ -244,9 +301,20 @@ class ExternalBoundaryGuard:
         for part in parts:
             for candidate in _media_path_candidates(part):
                 self.validate_media_path(candidate)
+        if parts and self.linux_logic_only:
+            executable = parts[0].strip('"\'').replace("\\", "/").rsplit("/", 1)[-1]
+            executable = executable.casefold().removesuffix(".exe")
+            if executable in LINUX_LOGIC_ONLY_EXECUTABLES:
+                raise _boundary_error(" Linux 纯逻辑外部命令", executable)
 
-    def install(self) -> "ExternalBoundaryGuard":
+    def install(
+            self,
+            *,
+            linux_logic_only: bool | None = None,
+    ) -> "ExternalBoundaryGuard":
         with self._lock:
+            if linux_logic_only is not None:
+                self._linux_logic_only = linux_logic_only
             if self._installed:
                 return self
             self._isolated_environment = tempfile.TemporaryDirectory(
@@ -303,7 +371,7 @@ class ExternalBoundaryGuard:
             self._installed = False
 
     def _guarded_open(self, file, *args, **kwargs):
-        self.validate_media_path(file)
+        self.validate_path(file)
         return _ORIGINAL_OPEN(file, *args, **kwargs)
 
     def _guarded_popen(self, args, *popen_args, **kwargs):
@@ -318,8 +386,13 @@ class ExternalBoundaryGuard:
 EXTERNAL_BOUNDARY_GUARD = ExternalBoundaryGuard()
 
 
-def install_test_external_boundary_guard() -> ExternalBoundaryGuard:
-    return EXTERNAL_BOUNDARY_GUARD.install()
+def install_test_external_boundary_guard(
+        *,
+        linux_logic_only: bool | None = None,
+) -> ExternalBoundaryGuard:
+    return EXTERNAL_BOUNDARY_GUARD.install(
+        linux_logic_only=linux_logic_only,
+    )
 
 
 install_test_external_boundary_guard()
@@ -378,17 +451,21 @@ class ExternalBoundaryTests(unittest.TestCase):
                 f"--screenshot={temporary_srt.with_suffix('.png')}",
             ])
             ffmpeg_path = str(temporary_srt).replace("\\", "/").replace(":", r"\:")
-            EXTERNAL_BOUNDARY_GUARD.validate_subprocess([
-                "ffmpeg",
-                "-vf",
-                f"ass='{ffmpeg_path}'",
-            ])
+            # 此处只验证滤镜参数的路径提取；Linux 纯逻辑模式另有断言确保
+            # 真正的 FFmpeg/ffprobe 命令在创建进程前被拒绝。
+            with EXTERNAL_BOUNDARY_GUARD.linux_logic_only_mode(False):
+                EXTERNAL_BOUNDARY_GUARD.validate_subprocess([
+                    "ffmpeg",
+                    "-vf",
+                    f"ass='{ffmpeg_path}'",
+                ])
 
     def test_public_system_font_is_allowed_without_allowing_user_font(self):
         if not EXTERNAL_BOUNDARY_GUARD._system_font_roots:
             self.skipTest("当前平台没有已声明的系统字体目录")
         system_font = EXTERNAL_BOUNDARY_GUARD._system_font_roots[0] / "fixture.ttf"
-        EXTERNAL_BOUNDARY_GUARD.validate_media_path(system_font)
+        with EXTERNAL_BOUNDARY_GUARD.linux_logic_only_mode(False):
+            EXTERNAL_BOUNDARY_GUARD.validate_media_path(system_font)
 
         private_font = Path(__file__).resolve().parent / "local" / "private.ttf"
         with self.assertRaisesRegex(AssertionError, "用户媒体访问"):
@@ -397,6 +474,47 @@ class ExternalBoundaryTests(unittest.TestCase):
     def test_package_install_command_is_rejected_before_process_creation(self):
         with self.assertRaisesRegex(AssertionError, "包/模型安装"):
             subprocess.run([sys.executable, "-m", "pip", "install", "funasr"], check=True)
+
+    def test_linux_logic_only_rejects_optional_media_capabilities(self):
+        private_config = Path(__file__).resolve().parent / "api_config.json"
+        system_font = (
+            EXTERNAL_BOUNDARY_GUARD._system_font_roots[0] / "fixture.ttf"
+            if EXTERNAL_BOUNDARY_GUARD._system_font_roots
+            else None
+        )
+        optional_packages = {
+            name: sys.modules.pop(name, None)
+            for name in LINUX_LOGIC_ONLY_PACKAGE_ROOTS
+        }
+        try:
+            with EXTERNAL_BOUNDARY_GUARD.linux_logic_only_mode():
+                with self.assertRaisesRegex(AssertionError, "Linux 纯逻辑外部命令"):
+                    subprocess.run(["ffmpeg", "-version"], check=True)
+                with self.assertRaisesRegex(AssertionError, "Linux 纯逻辑外部命令"):
+                    subprocess.run(["nvidia-smi"], check=True)
+                for package_name in LINUX_LOGIC_ONLY_PACKAGE_ROOTS:
+                    with (
+                        self.subTest(package_name=package_name),
+                        self.assertRaisesRegex(ImportError, "可选媒体包加载"),
+                    ):
+                        __import__(package_name)
+                with self.assertRaisesRegex(AssertionError, "Linux 纯逻辑私人配置访问"):
+                    private_config.read_text(encoding="utf-8")
+                if system_font is not None:
+                    with self.assertRaisesRegex(AssertionError, "Linux 纯逻辑字体访问"):
+                        EXTERNAL_BOUNDARY_GUARD.validate_media_path(system_font)
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    fixture_config = Path(temp_dir) / "api_config.json"
+                    fixture_config.write_text("{}", encoding="utf-8")
+                    self.assertEqual(
+                        fixture_config.read_text(encoding="utf-8"),
+                        "{}",
+                    )
+        finally:
+            for package_name, existing_module in optional_packages.items():
+                if existing_module is not None:
+                    sys.modules[package_name] = existing_module
 
 
 if __name__ == "__main__":
