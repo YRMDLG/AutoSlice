@@ -6077,6 +6077,7 @@
       "test_app.py",
       "test_architecture_contracts.py",
       "test_artifact_store.py",
+      "test_external_boundaries.py",
       "test_launcher.py",
       "test_runtime_config.py",
       "test_setup_asr_model.py",
@@ -6101,7 +6102,7 @@
     "import_edge_count": 41,
     "production_line_count": 26017,
     "production_module_count": 31,
-    "test_private_patch_count": 138,
+    "test_private_patch_count": 139,
     "top_level_class_count": 36,
     "top_level_function_count": 744
   },
@@ -6111,6 +6112,7 @@
       "autocover.cli": 2,
       "autocover.fonts": 1,
       "autocover.video": 5,
+      "builtins": 1,
       "topic_engine": 128
     },
     "by_test_file": {
@@ -6118,6 +6120,7 @@
       "autocover_tool/tests/test_fonts.py": 1,
       "autocover_tool/tests/test_video.py": 5,
       "test_app.py": 2,
+      "test_external_boundaries.py": 1,
       "test_subtitle_workflow.py": 4,
       "test_topic_engine.py": 124
     },
@@ -6145,6 +6148,10 @@
       {
         "count": 5,
         "target": "autocover.video._extract_frame"
+      },
+      {
+        "count": 1,
+        "target": "builtins.__import__"
       },
       {
         "count": 2,
@@ -6263,6 +6270,6 @@
         "target": "topic_engine._write_refinement_manifest_files"
       }
     ],
-    "total": 138
+    "total": 139
   }
 }

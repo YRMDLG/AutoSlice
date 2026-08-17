@@ -15,6 +15,10 @@ from unittest.mock import Mock, mock_open, patch
 
 import requests
 
+from test_external_boundaries import install_test_external_boundary_guard
+
+install_test_external_boundary_guard()
+
 from llm_client import (
     LLMApiConfig,
     reset_reasoning_effort_capability_cache,
