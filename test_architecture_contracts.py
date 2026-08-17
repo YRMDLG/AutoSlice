@@ -253,9 +253,24 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             slicing,
             pipeline,
         )
+        facade_owners = {}
+        for owner in owners:
+            for facade_name in owner.FACADE_EXPORTS:
+                previous_owner = facade_owners.setdefault(
+                    facade_name,
+                    owner.__name__,
+                )
+                self.assertEqual(
+                    previous_owner,
+                    owner.__name__,
+                    msg=(
+                        f"topic_engine.{facade_name} 同时由 "
+                        f"{previous_owner} 和 {owner.__name__} 声明所有权"
+                    ),
+                )
         self.assertGreater(
-            sum(len(owner.FACADE_EXPORTS) for owner in owners),
-            500,
+            len(facade_owners),
+            450,
         )
         for owner in owners:
             self.assertTrue(owner.FACADE_EXPORTS, owner.__name__)
@@ -270,6 +285,23 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                             f"{owner.__name__}.{implementation_name}"
                         ),
                     )
+
+    def test_topic_engine_compatibility_constants_follow_unique_owner(self):
+        from autoslice.llm import transport
+        import topic_engine
+
+        self.assertIs(
+            topic_engine.LLM_RETRY_DELAYS,
+            transport.DEFAULT_RETRY_DELAYS,
+        )
+        self.assertIs(
+            topic_engine.LLM_PROVIDER_UNAVAILABLE_RETRY_DELAYS,
+            transport.DEFAULT_PROVIDER_UNAVAILABLE_RETRY_DELAYS,
+        )
+        self.assertIs(
+            topic_engine.LLM_REQUEST_TIMEOUT,
+            transport.DEFAULT_REQUEST_TIMEOUT,
+        )
 
     def test_topic_engine_is_a_thin_definition_free_facade(self):
         current = architecture_snapshot.build_snapshot(ROOT)
