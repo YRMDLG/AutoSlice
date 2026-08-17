@@ -1668,14 +1668,14 @@ class ArtifactPipelineTests(unittest.TestCase):
                 "optimization_warning": None,
             }
             with (
-                patch("topic_engine.ensure_srt", side_effect=fake_ensure),
+                patch("autoslice.pipeline.ensure_srt", side_effect=fake_ensure),
                 patch(
-                    "topic_engine.export_corrected_srt",
+                    "autoslice.pipeline.export_corrected_srt",
                     side_effect=self._export_to_requested_path,
                 ),
-                patch("topic_engine.analyze_danmaku", return_value=DanmakuDensitySeries()),
-                patch("topic_engine._probe_video_duration", return_value=5),
-                patch("topic_engine._prepare_optimized_manual_timeline", return_value=prepared),
+                patch("autoslice.pipeline.analyze_danmaku", return_value=DanmakuDensitySeries()),
+                patch("autoslice.pipeline.probe_video_duration", return_value=5),
+                patch("autoslice.pipeline.prepare_optimized_manual_timeline", return_value=prepared),
                 patch("autoslice.analysis.candidates.analyze_topic_chunks", side_effect=fake_analyze),
             ):
                 result = run_pipeline(
@@ -1761,14 +1761,14 @@ class ArtifactPipelineTests(unittest.TestCase):
                 }
 
             with (
-                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
+                patch("autoslice.pipeline.ensure_srt", return_value=str(srt_path)),
                 patch(
-                    "topic_engine.export_corrected_srt",
+                    "autoslice.pipeline.export_corrected_srt",
                     side_effect=self._export_to_requested_path,
                 ),
-                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音说明生日答谢")]),
-                patch("topic_engine._probe_video_duration", return_value=5),
-                patch("topic_engine._prepare_optimized_manual_timeline", side_effect=fake_prepare),
+                patch("autoslice.pipeline.parse_srt_text", return_value=[(1, 5, "音音说明生日答谢")]),
+                patch("autoslice.pipeline.probe_video_duration", return_value=5),
+                patch("autoslice.pipeline.prepare_optimized_manual_timeline", side_effect=fake_prepare),
             ):
                 result = optimize_manual_timeline_for_video(
                     str(flv_path),
@@ -1908,7 +1908,7 @@ class SlicingServiceTests(unittest.TestCase):
             unsupported.write_bytes(b"not-video")
 
             with patch(
-                    "topic_engine._run_pipeline_impl",
+                    "autoslice.pipeline.run_pipeline_impl",
                     side_effect=lambda *_args, **_kwargs: {},
             ) as pipeline_impl:
                 for source in sources:
@@ -4384,22 +4384,22 @@ class TopicEngineParseTests(unittest.TestCase):
                 "mode": "manual",
             }
             with (
-                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
-                patch("topic_engine.analyze_danmaku", return_value=[]),
-                patch("topic_engine.parse_srt_text", return_value=[(0, 600, "有效字幕")]),
-                patch("topic_engine.chunk_srt", return_value=analysis_chunks),
-                patch("topic_engine.load_manual_timeline", return_value=manual_timeline),
-                patch("topic_engine._probe_video_duration", return_value=600),
+                patch("autoslice.pipeline.ensure_srt", return_value=str(srt_path)),
+                patch("autoslice.pipeline.analyze_danmaku", return_value=[]),
+                patch("autoslice.pipeline.parse_srt_text", return_value=[(0, 600, "有效字幕")]),
+                patch("autoslice.pipeline.chunk_srt", return_value=analysis_chunks),
+                patch("autoslice.pipeline.load_manual_timeline", return_value=manual_timeline),
+                patch("autoslice.pipeline.probe_video_duration", return_value=600),
                 patch(
-                    "topic_engine._optimize_manual_timeline",
+                    "autoslice.pipeline.optimize_manual_timeline",
                     return_value=(timeline_entries, None),
                 ),
                 patch(
-                    "topic_engine._write_optimized_timeline_files",
+                    "autoslice.pipeline.write_optimized_timeline_files",
                     return_value=(str(Path(tmp) / "优化.json"), str(Path(tmp) / "优化.md")),
                 ),
                 patch(
-                    "topic_engine._attach_manual_timeline_to_chunks",
+                    "autoslice.pipeline.attach_manual_timeline_to_chunks",
                     side_effect=AssertionError("首轮分析不得挂载人工时间轴"),
                 ),
                 patch(
@@ -4407,7 +4407,7 @@ class TopicEngineParseTests(unittest.TestCase):
                     return_value=(generated_topics, [], None),
                 ) as analyze_chunks,
                 patch("autoslice.analysis.candidates.merge_manual_timeline_topics"),
-                patch("topic_engine.parse_srt_segments", return_value=[]),
+                patch("autoslice.pipeline.parse_srt_segments", return_value=[]),
                 patch("autoslice.reporting.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
             ):
                 result = run_pipeline(str(flv_path), manual_timeline_path=manual_timeline["path"])
@@ -6652,18 +6652,18 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             }
 
             with (
-                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
-                patch("topic_engine.export_corrected_srt", return_value=None),
-                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音讲闹钟的事情")]),
-                patch("topic_engine.analyze_danmaku", return_value=[]),
-                patch("topic_engine._probe_video_duration", return_value=600),
-                patch("topic_engine._prepare_optimized_manual_timeline", return_value=prepared) as prepare,
+                patch("autoslice.pipeline.ensure_srt", return_value=str(srt_path)),
+                patch("autoslice.pipeline.export_corrected_srt", return_value=None),
+                patch("autoslice.pipeline.parse_srt_text", return_value=[(1, 5, "音音讲闹钟的事情")]),
+                patch("autoslice.pipeline.analyze_danmaku", return_value=[]),
+                patch("autoslice.pipeline.probe_video_duration", return_value=600),
+                patch("autoslice.pipeline.prepare_optimized_manual_timeline", return_value=prepared) as prepare,
                 patch(
                     "autoslice.analysis.candidates.analyze_topic_chunks",
                     side_effect=AssertionError("独立优化不应运行整场话题分析"),
                 ),
                 patch(
-                    "topic_engine.chunk_srt",
+                    "autoslice.pipeline.chunk_srt",
                     side_effect=AssertionError("独立优化不应生成分析分块"),
                 ),
             ):
@@ -6823,17 +6823,17 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             resumed_entries = [dict(item, ai_enriched=True, reference_only=False) for item in artifact_entries]
 
             with (
-                patch("topic_engine.load_manual_timeline", return_value={
+                patch("autoslice.pipeline.load_manual_timeline", return_value={
                     "path": str(timeline_path),
                     "entries": raw_entries,
                     "video_start": datetime(2026, 7, 14, 19, 59, 0),
                 }),
                 patch(
-                    "topic_engine._retry_optimized_timeline_entries",
+                    "autoslice.pipeline.retry_optimized_timeline_entries",
                     return_value=(resumed_entries, None),
                 ) as retry,
                 patch(
-                    "topic_engine._optimize_manual_timeline",
+                    "autoslice.pipeline.optimize_manual_timeline",
                     side_effect=AssertionError("已有断点时不应全量重跑"),
                 ),
             ):
@@ -6884,17 +6884,17 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             }]
 
             with (
-                patch("topic_engine.load_manual_timeline", return_value={
+                patch("autoslice.pipeline.load_manual_timeline", return_value={
                     "path": str(timeline_path),
                     "entries": raw_entries,
                     "video_start": datetime(2026, 7, 14, 19, 59, 0),
                 }),
                 patch(
-                    "topic_engine._retry_optimized_timeline_entries",
+                    "autoslice.pipeline.retry_optimized_timeline_entries",
                     side_effect=AssertionError("旧版本产物不应按断点复用"),
                 ),
                 patch(
-                    "topic_engine._optimize_manual_timeline",
+                    "autoslice.pipeline.optimize_manual_timeline",
                     return_value=(rebuilt_entries, None),
                 ) as rebuild,
             ):
@@ -9137,14 +9137,14 @@ class HybridModelRoutingTests(unittest.TestCase):
                 "optimization_warning": None,
             }
             with (
-                patch("topic_engine.ensure_srt", return_value=str(srt_path)),
-                patch("topic_engine.export_corrected_srt", return_value=str(srt_path)),
-                patch("topic_engine.analyze_danmaku", return_value=DanmakuDensitySeries()),
-                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音测试字幕")]),
-                patch("topic_engine.chunk_srt", return_value=[]),
-                patch("topic_engine._probe_video_duration", return_value=5),
+                patch("autoslice.pipeline.ensure_srt", return_value=str(srt_path)),
+                patch("autoslice.pipeline.export_corrected_srt", return_value=str(srt_path)),
+                patch("autoslice.pipeline.analyze_danmaku", return_value=DanmakuDensitySeries()),
+                patch("autoslice.pipeline.parse_srt_text", return_value=[(1, 5, "音音测试字幕")]),
+                patch("autoslice.pipeline.chunk_srt", return_value=[]),
+                patch("autoslice.pipeline.probe_video_duration", return_value=5),
                 patch(
-                    "topic_engine._prepare_optimized_manual_timeline",
+                    "autoslice.pipeline.prepare_optimized_manual_timeline",
                     return_value=prepared,
                 ) as prepare,
                 patch("autoslice.analysis.candidates.analyze_topic_chunks", return_value=([], [], None)),
@@ -9202,16 +9202,16 @@ class HybridModelRoutingTests(unittest.TestCase):
             }, ensure_ascii=False), encoding="utf-8")
 
             with (
-                patch("topic_engine.load_manual_timeline", return_value={
+                patch("autoslice.pipeline.load_manual_timeline", return_value={
                     "path": str(timeline_path),
                     "entries": [{"start": 10, "text": "人工记录", "stars": 0}],
                 }),
                 patch(
-                    "topic_engine._retry_optimized_timeline_entries",
+                    "autoslice.pipeline.retry_optimized_timeline_entries",
                     side_effect=AssertionError("快速流水线不应重试部分产物"),
                 ) as retry,
                 patch(
-                    "topic_engine._optimize_manual_timeline",
+                    "autoslice.pipeline.optimize_manual_timeline",
                     side_effect=AssertionError("已有检查点时不应全量重跑"),
                 ),
             ):
@@ -9267,13 +9267,13 @@ class PipelineProgressTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("topic_engine.ensure_srt", side_effect=fake_ensure_srt),
-                patch("topic_engine.export_corrected_srt", return_value=str(srt_path)),
-                patch("topic_engine.analyze_danmaku", return_value=DanmakuDensitySeries()),
-                patch("topic_engine.parse_srt_text", return_value=[(1, 5, "音音测试字幕")]),
-                patch("topic_engine.chunk_srt", return_value=[]),
-                patch("topic_engine._probe_video_duration", return_value=5),
-                patch("topic_engine._prepare_optimized_manual_timeline", side_effect=fake_prepare),
+                patch("autoslice.pipeline.ensure_srt", side_effect=fake_ensure_srt),
+                patch("autoslice.pipeline.export_corrected_srt", return_value=str(srt_path)),
+                patch("autoslice.pipeline.analyze_danmaku", return_value=DanmakuDensitySeries()),
+                patch("autoslice.pipeline.parse_srt_text", return_value=[(1, 5, "音音测试字幕")]),
+                patch("autoslice.pipeline.chunk_srt", return_value=[]),
+                patch("autoslice.pipeline.probe_video_duration", return_value=5),
+                patch("autoslice.pipeline.prepare_optimized_manual_timeline", side_effect=fake_prepare),
                 patch("autoslice.analysis.candidates.analyze_topic_chunks", side_effect=fake_analyze),
                 patch("autoslice.analysis.candidates.write_clip_review_checkpoint"),
                 patch("autoslice.reporting.build_timeline_report", return_value="# 测试报告\n"),

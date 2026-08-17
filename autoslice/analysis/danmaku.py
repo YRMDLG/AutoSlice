@@ -12,6 +12,47 @@ from datetime import timedelta
 from xml.etree import ElementTree
 
 
+FACADE_EXPORTS = {
+    'CLIP_DENSITY_PERCENTILE': 'CLIP_DENSITY_PERCENTILE',
+    'CLIP_DENSITY_RATIO': 'CLIP_DENSITY_RATIO',
+    'CLIP_LOCAL_PEAK_RADIUS_SEC': 'CLIP_LOCAL_PEAK_RADIUS_SEC',
+    'DANMAKU_EVIDENCE_MAX_ITEMS': 'DANMAKU_EVIDENCE_MAX_ITEMS',
+    'DANMAKU_LOCAL_BASELINE_EXCLUSION_SEC': 'DANMAKU_LOCAL_BASELINE_EXCLUSION_SEC',
+    'DANMAKU_LOCAL_BASELINE_RADIUS_SEC': 'DANMAKU_LOCAL_BASELINE_RADIUS_SEC',
+    'DANMAKU_MESSAGE_MAX_CHARS': 'DANMAKU_MESSAGE_MAX_CHARS',
+    '_ASS_OVERRIDE_TAG_RE': '_ASS_OVERRIDE_TAG_RE',
+    '_DANMAKU_BRACKET_EMOTE_RE': '_DANMAKU_BRACKET_EMOTE_RE',
+    '_DANMAKU_GENERIC_REACTIONS': '_DANMAKU_GENERIC_REACTIONS',
+    '_DANMAKU_PROMPT_INSTRUCTION_RE': '_DANMAKU_PROMPT_INSTRUCTION_RE',
+    '_DANMAKU_TITLE_CUE_GROUPS': '_DANMAKU_TITLE_CUE_GROUPS',
+    '_DANMAKU_TITLE_CUE_PRIORITY_PATTERNS': '_DANMAKU_TITLE_CUE_PRIORITY_PATTERNS',
+    '_DANMAKU_UPOWER_RE': '_DANMAKU_UPOWER_RE',
+    'DanmakuDensitySeries': 'DanmakuDensitySeries',
+    '_normalise_danmaku_message': '_normalise_danmaku_message',
+    '_display_danmaku_message': '_display_danmaku_message',
+    '_is_question_only_danmaku': '_is_question_only_danmaku',
+    '_danmaku_title_cue_messages': '_danmaku_title_cue_messages',
+    '_danmaku_title_cue_groups_for_context': '_danmaku_title_cue_groups_for_context',
+    '_danmaku_peak_content_evidence': '_danmaku_peak_content_evidence',
+    '_format_danmaku_peak_content': '_format_danmaku_peak_content',
+    '_danmaku_prompt_message_items': '_danmaku_prompt_message_items',
+    '_density_percentile': '_density_percentile',
+    '_danmaku_clip_threshold': '_danmaku_clip_threshold',
+    '_median_number': '_median_number',
+    '_danmaku_content_quality': '_danmaku_content_quality',
+    'analyze_danmaku': 'analyze_danmaku',
+    'DANMAKU_WINDOW': 'DANMAKU_WINDOW',
+    'DANMAKU_WINDOW_STEP': 'DANMAKU_WINDOW_STEP',
+    '_average_danmaku_density': '_average_danmaku_density',
+    '_clean_ass_danmaku_text': '_clean_ass_danmaku_text',
+    '_danmaku_peak_features': '_danmaku_peak_features',
+    '_danmaku_prompt_evidence': '_danmaku_prompt_evidence',
+    '_high_energy_danmaku_peaks': '_high_energy_danmaku_peaks',
+    '_is_generic_danmaku_reaction': '_is_generic_danmaku_reaction',
+    '_reviewed_danmaku_ranking_score': '_reviewed_danmaku_ranking_score',
+}
+
+
 DANMAKU_WINDOW = 60
 
 DANMAKU_WINDOW_STEP = 15  # 每 15 秒采样一个 60 秒窗口，兼顾峰值定位和全场覆盖

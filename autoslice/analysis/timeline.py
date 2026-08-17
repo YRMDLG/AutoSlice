@@ -14,6 +14,42 @@ from runtime_config import TIMELINE_DIR
 from streamer_profiles import current_streamer_profile, profile_identity_names
 
 
+FACADE_EXPORTS = {
+    'MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE': 'MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE',
+    'MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC': 'MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC',
+    'MANUAL_TIMELINE_ALIGNMENT_STEP_SEC': 'MANUAL_TIMELINE_ALIGNMENT_STEP_SEC',
+    'MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC': 'MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC',
+    'MANUAL_TIMELINE_CHUNK_MARGIN_SEC': 'MANUAL_TIMELINE_CHUNK_MARGIN_SEC',
+    'MANUAL_TIMELINE_DIR': 'MANUAL_TIMELINE_DIR',
+    'MANUAL_TIMELINE_END_MARGIN_SEC': 'MANUAL_TIMELINE_END_MARGIN_SEC',
+    'MANUAL_TIMELINE_GROUNDING_MIN_SCORE': 'MANUAL_TIMELINE_GROUNDING_MIN_SCORE',
+    'MANUAL_TIMELINE_OPTIMIZATION_VERSION': 'MANUAL_TIMELINE_OPTIMIZATION_VERSION',
+    'MANUAL_TIMELINE_OPTIMIZE_GAP_SEC': 'MANUAL_TIMELINE_OPTIMIZE_GAP_SEC',
+    'MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC': 'MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC',
+    '_MANUAL_SEMANTIC_BIGRAM_STOPWORDS': '_MANUAL_SEMANTIC_BIGRAM_STOPWORDS',
+    '_MANUAL_SEMANTIC_GENERIC_TERMS': '_MANUAL_SEMANTIC_GENERIC_TERMS',
+    '_extract_video_start_datetime': '_extract_video_start_datetime',
+    '_manual_timeline_doc_candidates': '_manual_timeline_doc_candidates',
+    '_find_manual_timeline_doc': '_find_manual_timeline_doc',
+    '_read_docx_lines': 'read_docx_lines',
+    '_parse_manual_timeline_lines': '_parse_manual_timeline_lines',
+    '_parse_elapsed_timeline_report_lines': '_parse_elapsed_timeline_report_lines',
+    '_filter_manual_timeline_entries': '_filter_manual_timeline_entries',
+    'load_manual_timeline': 'load_manual_timeline',
+    '_manual_timeline_summary': '_manual_timeline_summary',
+    '_manual_alignment_text': '_manual_alignment_text',
+    '_manual_semantic_core': '_manual_semantic_core',
+    '_srt_alignment_windows': '_srt_alignment_windows',
+    '_align_manual_timeline_entries_to_srt': '_align_manual_timeline_entries_to_srt',
+    'MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE': 'MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE',
+    'MANUAL_TIMELINE_TOPIC_POST_SEC': 'MANUAL_TIMELINE_TOPIC_POST_SEC',
+    'MANUAL_TIMELINE_TOPIC_PRE_SEC': 'MANUAL_TIMELINE_TOPIC_PRE_SEC',
+    '_manual_alignment_score': '_manual_alignment_score',
+    '_manual_text_supports_candidate': '_manual_text_supports_candidate',
+    '_parse_hms': 'parse_hms',
+}
+
+
 _TIMELINE_ACCOUNT_PREFIX_RE = re.compile(
     r"^\s*[【\[][^】\]\r\n]{1,32}[】\]]\s*",
     re.IGNORECASE,

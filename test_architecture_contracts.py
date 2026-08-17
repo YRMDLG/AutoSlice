@@ -222,8 +222,63 @@ class ArchitectureDependencyTests(unittest.TestCase):
             ["底层模块 autoslice.llm.transport 禁止反向导入高层模块 topic_engine"],
         )
 
+    def test_all_autoslice_modules_avoid_high_level_reverse_imports(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+        forbidden = {"app", "subtitle_workflow", "topic_engine"}
+
+        reverse_edges = [
+            edge
+            for edge in current["import_edges"]
+            if edge["from"].startswith("autoslice.") and edge["to"] in forbidden
+        ]
+
+        self.assertEqual(reverse_edges, [])
+
 
 class ArchitectureDefinitionTests(unittest.TestCase):
+
+    def test_phase6_facades_keep_every_owner_object_identity(self):
+        import topic_engine
+        from autoslice import pipeline, reporting, slicing
+        from autoslice.analysis import candidates, danmaku, timeline, titles
+        from autoslice.transcription import service as transcription
+
+        owners = (
+            transcription,
+            danmaku,
+            timeline,
+            candidates,
+            titles,
+            reporting,
+            slicing,
+            pipeline,
+        )
+        self.assertGreater(
+            sum(len(owner.FACADE_EXPORTS) for owner in owners),
+            500,
+        )
+        for owner in owners:
+            self.assertTrue(owner.FACADE_EXPORTS, owner.__name__)
+            for facade_name, implementation_name in owner.FACADE_EXPORTS.items():
+                with self.subTest(
+                        owner=owner.__name__, facade_name=facade_name):
+                    self.assertIs(
+                        getattr(topic_engine, facade_name),
+                        getattr(owner, implementation_name),
+                        msg=(
+                            f"topic_engine.{facade_name} 未直接绑定 "
+                            f"{owner.__name__}.{implementation_name}"
+                        ),
+                    )
+
+    def test_topic_engine_is_a_thin_definition_free_facade(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        topic_engine = modules["topic_engine"]
+
+        self.assertEqual(topic_engine["top_level_functions"], [])
+        self.assertEqual(topic_engine["top_level_classes"], [])
+        self.assertLess(topic_engine["line_count"], 1000)
 
     def test_current_modules_have_no_duplicate_top_level_definitions(self):
         current = architecture_snapshot.build_snapshot(ROOT)
