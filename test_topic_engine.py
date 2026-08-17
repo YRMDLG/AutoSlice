@@ -20,6 +20,7 @@ from test_external_boundaries import install_test_external_boundary_guard
 install_test_external_boundary_guard()
 
 import topic_engine
+from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.transcription import service as transcription_service
@@ -705,8 +706,71 @@ class DanmakuPeakScoringTests(unittest.TestCase):
         )
 
 
-class AdaptiveClipSelectionTests(unittest.TestCase):
+class CandidateReviewTests(unittest.TestCase):
     """最终切片按独立投稿价值过线，不按视频小时补满或截断。"""
+
+
+    def setUp(self):
+        self.profile_context = streamer_profile_context("zeyin")
+        self.profile_context.__enter__()
+        self.addCleanup(self.profile_context.__exit__, None, None, None)
+
+    def test_topic_engine_candidate_facade_keeps_analysis_object_identity(self):
+        self.assertGreater(len(candidate_analysis.FACADE_EXPORTS), 250)
+        for facade_name, candidate_name in candidate_analysis.FACADE_EXPORTS.items():
+            with self.subTest(facade_name=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(candidate_analysis, candidate_name),
+                )
+
+    def test_reviewed_candidates_keep_context_without_overlap(self):
+        marks = [
+            {"start": 100, "end": 150, "title": "first event"},
+            {"start": 170, "end": 220, "title": "second event"},
+        ]
+        segments = [
+            (60, 95, "first event trigger"),
+            (100, 150, "first event complete result"),
+            (155, 165, "natural pause"),
+            (170, 220, "second event complete result"),
+            (225, 250, "second event ending"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            marks,
+            srt_segments=segments,
+            video_duration=300,
+        )
+
+        self.assertEqual(len(expanded), 2)
+        self.assertLessEqual(expanded[0]["end"], expanded[1]["start"])
+        self.assertLessEqual(expanded[0]["start"], 100)
+        self.assertGreaterEqual(expanded[1]["end"], 220)
+
+    def test_sc_candidate_recovers_paid_message_trigger(self):
+        mark = {
+            "start": 200,
+            "end": 245,
+            "title": "SC reply to viewer question",
+            "body": ["SC viewer asks and streamer gives full response"],
+            "ai_focus_validated": True,
+            "reference_start": 200,
+            "reference_end": 245,
+        }
+        segments = [
+            (150, 158, "thank you for the SC"),
+            (158, 172, "viewer asks why that game is not streamed"),
+            (200, 245, "streamer gives the complete reason and conclusion"),
+        ]
+
+        expanded = _expand_clip_marks_with_context(
+            [mark],
+            srt_segments=segments,
+            video_duration=300,
+        )
+
+        self.assertEqual(expanded[0]["start"], 150)
 
     def test_default_selection_has_no_hourly_quota(self):
         peak_starts = [100, 500, 900, 1300, 1700, 2100]
@@ -1590,7 +1654,7 @@ class ArtifactPipelineTests(unittest.TestCase):
                 patch("topic_engine.analyze_danmaku", return_value=DanmakuDensitySeries()),
                 patch("topic_engine._probe_video_duration", return_value=5),
                 patch("topic_engine._prepare_optimized_manual_timeline", return_value=prepared),
-                patch("topic_engine._analyze_topic_chunks", side_effect=fake_analyze),
+                patch("autoslice.analysis.candidates.analyze_topic_chunks", side_effect=fake_analyze),
             ):
                 result = run_pipeline(
                     str(flv_path),
@@ -4308,10 +4372,10 @@ class TopicEngineParseTests(unittest.TestCase):
                     side_effect=AssertionError("首轮分析不得挂载人工时间轴"),
                 ),
                 patch(
-                    "topic_engine._analyze_topic_chunks",
+                    "autoslice.analysis.candidates.analyze_topic_chunks",
                     return_value=(generated_topics, [], None),
                 ) as analyze_chunks,
-                patch("topic_engine._merge_manual_timeline_topics"),
+                patch("autoslice.analysis.candidates.merge_manual_timeline_topics"),
                 patch("topic_engine.parse_srt_segments", return_value=[]),
                 patch("topic_engine.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
             ):
@@ -6492,7 +6556,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                 topic["ai_enriched"] = True
             return None
 
-        with patch("topic_engine._enrich_manual_topics_in_batches", side_effect=fake_enrich):
+        with patch("autoslice.analysis.candidates.enrich_manual_topics_in_batches", side_effect=fake_enrich):
             optimized, warning = _optimize_manual_timeline(
                 entries,
                 srt_segments=[
@@ -6564,7 +6628,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                 patch("topic_engine._probe_video_duration", return_value=600),
                 patch("topic_engine._prepare_optimized_manual_timeline", return_value=prepared) as prepare,
                 patch(
-                    "topic_engine._analyze_topic_chunks",
+                    "autoslice.analysis.candidates.analyze_topic_chunks",
                     side_effect=AssertionError("独立优化不应运行整场话题分析"),
                 ),
                 patch(
@@ -6848,7 +6912,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             candidates[0].pop("reference_only", None)
             return 1
 
-        with patch("topic_engine._enrich_manual_topics_with_llm", side_effect=fake_validate):
+        with patch("autoslice.analysis.candidates.enrich_manual_topics_with_llm", side_effect=fake_validate):
             warning = _validate_unmatched_manual_topics(
                 topics,
                 streamer_name="音音",
@@ -6888,7 +6952,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return len(candidates)
 
         with patch(
-            "topic_engine._enrich_manual_topics_with_llm",
+            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
             side_effect=fake_validate,
         ):
             warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
@@ -7046,7 +7110,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return 1
 
         with patch(
-            "topic_engine._enrich_manual_topics_with_llm",
+            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
             side_effect=enrich_first_only,
         ):
             warning = _enrich_manual_topics_in_batches(topics, batch_size=3)
@@ -7087,7 +7151,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("topic_engine._enrich_manual_topics_with_llm", side_effect=enrich_batch) as call,
+            patch("autoslice.analysis.candidates.enrich_manual_topics_with_llm", side_effect=enrich_batch) as call,
         ):
             warning = _enrich_manual_topics_in_batches(
                 topics,
@@ -7143,7 +7207,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return len(batch)
 
         with patch(
-            "topic_engine._enrich_manual_topics_with_llm",
+            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
             side_effect=enrich_all,
         ):
             optimized, warning = _retry_optimized_timeline_entries(
@@ -7287,7 +7351,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         }]
 
         with patch(
-            "topic_engine._enrich_manual_topics_with_llm",
+            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
             side_effect=RuntimeError("上游服务暂时不可用"),
         ):
             warning = _try_enrich_manual_topics(topics, streamer_name="音音")
@@ -7313,7 +7377,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         _merge_manual_timeline_topics(topics, entries)
         with patch(
-            "topic_engine._enrich_manual_topics_with_llm",
+            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
             side_effect=RuntimeError("上游服务暂时不可用"),
         ):
             warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
@@ -8264,7 +8328,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             str(Path(__file__).with_name("title_style_profile.example.json"))
         )
         with patch(
-                "topic_engine._load_title_style_profile",
+                "autoslice.analysis.candidates.load_title_style_profile",
                 return_value=public_profile):
             prompt, _, _ = _build_chunk_prompt(
                 {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
@@ -8337,7 +8401,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
             profile = _load_title_style_profile(str(profile_path))
             selected = _select_title_style_examples("音音开始念一条红SC", profile=profile, limit=1)
-            with patch("topic_engine.TITLE_STYLE_PROFILE_PATH", str(profile_path)):
+            with patch("autoslice.analysis.candidates.TITLE_STYLE_PROFILE_PATH", str(profile_path)):
                 style_prompt = _build_title_style_prompt("音音开始念一条红SC")
 
         self.assertEqual(profile["rules"], ["不要机械套模板"])
@@ -8352,7 +8416,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             str(Path(__file__).with_name("title_style_profile.example.json"))
         )
         with patch(
-                "topic_engine._load_title_style_profile",
+                "autoslice.analysis.candidates.load_title_style_profile",
                 return_value=public_profile):
             prompt = _build_manual_topic_enrichment_prompt([{
                 "start": 120,
@@ -9052,8 +9116,8 @@ class HybridModelRoutingTests(unittest.TestCase):
                     "topic_engine._prepare_optimized_manual_timeline",
                     return_value=prepared,
                 ) as prepare,
-                patch("topic_engine._analyze_topic_chunks", return_value=([], [], None)),
-                patch("topic_engine._write_clip_review_checkpoint"),
+                patch("autoslice.analysis.candidates.analyze_topic_chunks", return_value=([], [], None)),
+                patch("autoslice.analysis.candidates.write_clip_review_checkpoint"),
                 patch("topic_engine._build_refinement_manifest", return_value={}),
                 patch("topic_engine._write_refinement_manifest_files"),
                 patch("topic_engine._upsert_unified_refinement_queue"),
@@ -9179,8 +9243,8 @@ class PipelineProgressTests(unittest.TestCase):
                 patch("topic_engine.chunk_srt", return_value=[]),
                 patch("topic_engine._probe_video_duration", return_value=5),
                 patch("topic_engine._prepare_optimized_manual_timeline", side_effect=fake_prepare),
-                patch("topic_engine._analyze_topic_chunks", side_effect=fake_analyze),
-                patch("topic_engine._write_clip_review_checkpoint"),
+                patch("autoslice.analysis.candidates.analyze_topic_chunks", side_effect=fake_analyze),
+                patch("autoslice.analysis.candidates.write_clip_review_checkpoint"),
                 patch("topic_engine._build_timeline_report", return_value="# 测试报告\n"),
                 patch("topic_engine._build_refinement_manifest", return_value={}),
                 patch("topic_engine._write_refinement_manifest_files"),
@@ -9224,7 +9288,7 @@ class PipelineProgressTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("topic_engine._enrich_manual_topics_with_llm", side_effect=fake_enrich),
+            patch("autoslice.analysis.candidates.enrich_manual_topics_with_llm", side_effect=fake_enrich),
         ):
             warning = _enrich_manual_topics_in_batches(
                 topics,
@@ -9769,5 +9833,3 @@ class LLMRetryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
