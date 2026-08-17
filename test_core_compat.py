@@ -1,15 +1,34 @@
 """退役 ``core`` 期间必须保持的兼容契约。"""
 
+import atexit
 import ast
 import json
+import os
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import call, patch
 
+_TEST_TASK_DATABASE_DIR = TemporaryDirectory(prefix="autoslice-test-core-tasks-")
+_PREVIOUS_TASK_DATABASE = os.environ.get("AUTOSLICE_TASK_DB")
+os.environ["AUTOSLICE_TASK_DB"] = str(
+    Path(_TEST_TASK_DATABASE_DIR.name) / "tasks.sqlite3"
+)
+
 import app as app_module
 import core
+
+
+def _cleanup_test_task_database():
+    if _PREVIOUS_TASK_DATABASE is None:
+        os.environ.pop("AUTOSLICE_TASK_DB", None)
+    else:
+        os.environ["AUTOSLICE_TASK_DB"] = _PREVIOUS_TASK_DATABASE
+    _TEST_TASK_DATABASE_DIR.cleanup()
+
+
+atexit.register(_cleanup_test_task_database)
 
 
 class CoreCompatibilityTests(unittest.TestCase):
