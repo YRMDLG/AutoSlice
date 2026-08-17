@@ -2,3 +2,4 @@ flask>=3.0
 funasr>=1.4.1
 soxr>=1.0
 python-docx
+requests>=2.31

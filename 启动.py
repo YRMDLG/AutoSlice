@@ -33,7 +33,7 @@ from autocover_tool.autocover import (
 
 PROJECT_DIR = Path(__file__).resolve().parent
 GPU_RUNTIME_RELATIVE_PATH = Path("AutoSlice") / "gpu-py310-cu130" / "Scripts" / "python.exe"
-REQUIRED_IMPORTS = ("flask", "funasr", "soxr", "docx")
+REQUIRED_IMPORTS = ("flask", "funasr", "soxr", "docx", "requests")
 MINIMUM_PACKAGE_VERSIONS = {"funasr": "1.4.1"}
 AUTOCOVER_PROJECT_DIR = AUTOCOVER_DIR
 AUTOCOVER_PREFERRED_PORT = 5010

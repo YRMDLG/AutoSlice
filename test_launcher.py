@@ -120,11 +120,36 @@ class LauncherTests(unittest.TestCase):
             "funasr": None,
             "soxr": object(),
             "docx": object(),
+            "requests": object(),
         }
 
         missing = launcher._missing_dependencies(lambda name: available[name])
 
         self.assertEqual(missing, ["funasr"])
+
+    def test_dependency_contract_keeps_root_autocover_and_gpu_packages_separate(self):
+        root_requirements = (
+            LAUNCHER_PATH.with_name("requirements.txt").read_text(encoding="utf-8")
+        )
+        autocover_requirements = (
+            LAUNCHER_PATH.parent / "autocover_tool" / "requirements.txt"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("requests>=2.31", root_requirements.splitlines())
+        self.assertIn("requests", launcher.REQUIRED_IMPORTS)
+        self.assertNotIn("Pillow", root_requirements)
+        self.assertIn("Pillow", autocover_requirements)
+        self.assertNotIn("torch", root_requirements.casefold())
+        self.assertNotIn("PIL", launcher.REQUIRED_IMPORTS)
+        self.assertNotIn("torch", launcher.REQUIRED_IMPORTS)
+
+    def test_dependency_check_reports_missing_requests(self):
+        missing = launcher._missing_dependencies(
+            find_spec=lambda name: None if name == "requests" else object(),
+            version_reader=lambda _name: "99.0",
+        )
+
+        self.assertEqual(missing, ["requests"])
 
     def test_dependency_check_upgrades_outdated_funasr(self):
         missing = launcher._missing_dependencies(
