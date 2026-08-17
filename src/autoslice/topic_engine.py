@@ -39,6 +39,7 @@ from autoslice.llm.prompts import (
     build_title_style_prompt as _render_title_style_prompt,
     build_topic_analysis_prompt as _render_topic_analysis_prompt,
 )
+from autoslice.transcription import results as transcription_results
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
@@ -134,9 +135,9 @@ _funasr_checkpoint_path = transcription_service.funasr_checkpoint_path
 _funasr_source_fingerprint = transcription_service._funasr_source_fingerprint
 _funasr_chunk_fingerprint = transcription_service._funasr_chunk_fingerprint
 _funasr_chunk_input_window = transcription_service._funasr_chunk_input_window
-_normalise_funasr_result = transcription_service._normalise_funasr_result
-_is_valid_funasr_result = transcription_service._is_valid_funasr_result
-_primary_speaker_segments = transcription_service._primary_speaker_segments
+_normalise_funasr_result = transcription_results.normalise_funasr_result
+_is_valid_funasr_result = transcription_results.is_valid_funasr_result
+_primary_speaker_segments = transcription_results.primary_speaker_segments
 _is_close_number = transcription_service._is_close_number
 _prepare_funasr_checkpoint = transcription_service._prepare_funasr_checkpoint
 _write_funasr_checkpoint = transcription_service.write_funasr_checkpoint

@@ -555,9 +555,11 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             timeline,
             titles,
         )
+        from autoslice.transcription import results as transcription_results
         from autoslice.transcription import service as transcription
 
         owners = (
+            transcription_results,
             transcription,
             danmaku,
             timeline,
@@ -692,6 +694,34 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             set(manual_timeline.FACADE_EXPORTS.values()).isdisjoint(
                 pipeline_functions
             )
+        )
+
+    def test_funasr_results_have_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.transcription import results, service
+
+        aliases = {
+            "_normalise_funasr_result": "normalise_funasr_result",
+            "_is_valid_funasr_result": "is_valid_funasr_result",
+            "_primary_speaker_segments": "primary_speaker_segments",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(results, owner_name)
+                self.assertIs(getattr(service, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        self.assertIs(service.result_contracts, results)
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        service_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.service"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(
+            set(results.FACADE_EXPORTS.values()).isdisjoint(service_functions)
         )
 
     def test_clip_boundaries_have_one_owner_and_direct_consumers(self):
