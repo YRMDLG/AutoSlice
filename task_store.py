@@ -43,6 +43,7 @@ _MAX_PROGRESS_LENGTH = 2000
 _MAX_MESSAGE_LENGTH = 4000
 _MAX_ERROR_SUMMARY_LENGTH = 4000
 _MAX_RESULT_SUMMARY_BYTES = 64 * 1024
+_MAX_TASK_METADATA_BYTES = 256 * 1024
 _MAX_PROFILE_SNAPSHOT_BYTES = 256 * 1024
 _TASK_TYPE_RE = re.compile(r"^[a-z][a-z0-9_.-]*$")
 _TASK_ID_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f/\\]")
@@ -99,6 +100,7 @@ _MIGRATION_1 = (
         total INTEGER NOT NULL DEFAULT 100 CHECK (total >= 0),
         result_summary TEXT,
         error_summary TEXT,
+        metadata TEXT NOT NULL DEFAULT '{}',
         streamer_profile_snapshot TEXT NOT NULL DEFAULT '{}',
         created_at REAL NOT NULL,
         updated_at REAL NOT NULL,
@@ -133,6 +135,7 @@ _EXPECTED_COLUMNS = frozenset({
     "total",
     "result_summary",
     "error_summary",
+    "metadata",
     "streamer_profile_snapshot",
     "created_at",
     "updated_at",
@@ -197,6 +200,7 @@ class TaskRecord:
     total: int
     result_summary: Any
     error_summary: str | None
+    metadata: dict[str, Any]
     streamer_profile_snapshot: dict[str, Any]
     created_at: float
     updated_at: float
@@ -471,6 +475,7 @@ class TaskStore:
             total: int = 100,
             result_summary: Any = None,
             error_summary: str | None = None,
+            metadata: Mapping[str, Any] | None = None,
             streamer_profile_snapshot: Mapping[str, Any] | None = None,
             created_at: float | None = None,
             finished_at: float | None = None,
@@ -492,6 +497,7 @@ class TaskStore:
                 total=total,
                 result_summary=result_summary,
                 error_summary=error_summary,
+                metadata=metadata,
                 streamer_profile_snapshot=streamer_profile_snapshot,
                 created_at=created_at,
                 finished_at=finished_at,
@@ -749,6 +755,7 @@ class TaskStore:
             total: int,
             result_summary: Any,
             error_summary: str | None,
+            metadata: Mapping[str, Any] | None,
             streamer_profile_snapshot: Mapping[str, Any] | None,
             created_at: float | None,
             finished_at: float | None,
@@ -777,9 +784,14 @@ class TaskStore:
         if finished is not None and finished < created:
             raise ValueError("finished_at 不能早于 created_at")
         if (
+                metadata is not None
+                and not isinstance(metadata, Mapping)):
+            raise ValueError("metadata 必须是对象或 None")
+        if (
                 streamer_profile_snapshot is not None
                 and not isinstance(streamer_profile_snapshot, Mapping)):
             raise ValueError("streamer_profile_snapshot 必须是对象或 None")
+        task_metadata = dict(metadata or {})
         profile = dict(streamer_profile_snapshot or {})
         normalized_sources = normalize_task_paths(source_path, source_paths)
         normalized_outputs = normalize_task_paths(output_path, output_paths)
@@ -813,6 +825,11 @@ class TaskStore:
                 "error_summary",
                 maximum=_MAX_ERROR_SUMMARY_LENGTH,
                 optional=True,
+            ),
+            "metadata": _encode_json(
+                task_metadata,
+                "metadata",
+                maximum_bytes=_MAX_TASK_METADATA_BYTES,
             ),
             "streamer_profile_snapshot": _encode_json(
                 profile,
@@ -851,6 +868,9 @@ class TaskStore:
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> TaskRecord:
+        metadata = _decode_json(row["metadata"], "metadata", default={})
+        if not isinstance(metadata, dict):
+            raise TaskStoreSchemaError("metadata 必须是 JSON 对象")
         profile = _decode_json(
             row["streamer_profile_snapshot"],
             "streamer_profile_snapshot",
@@ -884,6 +904,7 @@ class TaskStore:
                 default=None,
             ),
             error_summary=row["error_summary"],
+            metadata=metadata,
             streamer_profile_snapshot=profile,
             created_at=float(row["created_at"]),
             updated_at=float(row["updated_at"]),
@@ -938,6 +959,7 @@ class TaskStoreTransaction:
         "total",
         "result_summary",
         "error_summary",
+        "metadata",
         "streamer_profile_snapshot",
         "finished_at",
     })
@@ -961,6 +983,7 @@ class TaskStoreTransaction:
             total=values.pop("total", 100),
             result_summary=values.pop("result_summary", None),
             error_summary=values.pop("error_summary", None),
+            metadata=values.pop("metadata", None),
             streamer_profile_snapshot=values.pop(
                 "streamer_profile_snapshot",
                 None,
@@ -1151,6 +1174,17 @@ class TaskStoreTransaction:
                 "error_summary",
                 maximum=_MAX_ERROR_SUMMARY_LENGTH,
                 optional=True,
+            )
+        if "metadata" in changes:
+            metadata = changes["metadata"]
+            if metadata is None:
+                metadata = {}
+            if not isinstance(metadata, Mapping):
+                raise ValueError("metadata 必须是对象或 None")
+            prepared["metadata"] = _encode_json(
+                dict(metadata),
+                "metadata",
+                maximum_bytes=_MAX_TASK_METADATA_BYTES,
             )
         if "streamer_profile_snapshot" in changes:
             profile = changes["streamer_profile_snapshot"]

@@ -37,6 +37,10 @@ class TaskStoreTests(unittest.TestCase):
                 progress="准备分析",
                 message="任务已预约",
                 result_summary={"topic_count": 0},
+                metadata={
+                    "artifact_dir": str(root / "输出" / "整理包"),
+                    "force": False,
+                },
                 streamer_profile_snapshot={
                     "id": "generic",
                     "aliases": ["测试主播"],
@@ -75,6 +79,8 @@ class TaskStoreTests(unittest.TestCase):
             {"topic_count": 3, "slice_count": 2},
         )
         self.assertEqual(restored.error_summary, None)
+        self.assertEqual(restored.metadata["force"], False)
+        self.assertIn("整理包", restored.metadata["artifact_dir"])
         self.assertEqual(restored.streamer_profile_snapshot["id"], "generic")
         self.assertEqual(restored.created_at, 100.0)
         self.assertGreaterEqual(restored.updated_at, restored.created_at)
@@ -187,6 +193,7 @@ class TaskStoreTests(unittest.TestCase):
                 message="保留此消息",
                 result_summary={"existing": True},
                 error_summary="旧错误摘要",
+                metadata={"output_dir": str(root / "输出"), "force": True},
                 streamer_profile_snapshot={"id": "zeyin", "label": "泽音"},
             )
 
@@ -199,6 +206,7 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(updated.message, "保留此消息")
         self.assertEqual(updated.result_summary, {"existing": True})
         self.assertEqual(updated.error_summary, "旧错误摘要")
+        self.assertEqual(updated.metadata["force"], True)
         self.assertEqual(updated.streamer_profile_snapshot["id"], "zeyin")
         self.assertEqual(updated.step, 30)
 
@@ -260,6 +268,7 @@ class TaskStoreTests(unittest.TestCase):
 
         self.assertEqual(version, TASK_STORE_SCHEMA_VERSION)
         self.assertIn("streamer_profile_snapshot", columns)
+        self.assertIn("metadata", columns)
         self.assertIn("finished_at", columns)
 
     def test_corrupt_database_raises_without_overwriting_original(self):
@@ -367,6 +376,12 @@ class TaskStoreTests(unittest.TestCase):
                     "secret_profile",
                     "topic_pipeline",
                     streamer_profile_snapshot={"id": "generic", "api_token": "secret"},
+                )
+            with self.assertRaisesRegex(SensitiveTaskDataError, "敏感字段"):
+                store.create_task(
+                    "secret_metadata",
+                    "topic_pipeline",
+                    metadata={"api_key": "secret"},
                 )
             with self.assertRaisesRegex(SensitiveTaskDataError, "疑似包含凭据"):
                 store.create_task(

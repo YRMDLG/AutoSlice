@@ -1406,22 +1406,22 @@
       "qualname": "call_compatible_api"
     },
     {
-      "end_line": 3786,
+      "end_line": 1223,
       "kind": "function",
-      "line": 3688,
-      "line_count": 99,
-      "module": "autoslice.analysis.candidates",
-      "path": "autoslice/analysis/candidates.py",
-      "qualname": "_reconcile_topic_manual_evidence"
+      "line": 1122,
+      "line_count": 102,
+      "module": "task_store",
+      "path": "task_store.py",
+      "qualname": "TaskStoreTransaction._prepare_changes"
     },
     {
-      "end_line": 543,
+      "end_line": 842,
       "kind": "function",
-      "line": 446,
-      "line_count": 98,
-      "module": "scripts.architecture_snapshot",
-      "path": "scripts/architecture_snapshot.py",
-      "qualname": "build_snapshot"
+      "line": 742,
+      "line_count": 101,
+      "module": "task_store",
+      "path": "task_store.py",
+      "qualname": "TaskStore._prepare_new_task"
     }
   ],
   "modules": [
@@ -7036,174 +7036,174 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1210,
+      "line_count": 1244,
       "longest_function": {
-        "end_line": 1189,
+        "end_line": 1223,
         "kind": "function",
-        "line": 1099,
-        "line_count": 91,
+        "line": 1122,
+        "line_count": 102,
         "qualname": "TaskStoreTransaction._prepare_changes"
       },
       "module": "task_store",
       "path": "task_store.py",
-      "sha256": "7e07e3aac55c95e9ed48010156f5f5f082616bbd2843311d90b7b8355bfb2a32",
+      "sha256": "ba23a4509f5e8d16de797f395d70df1fa79cb02bb21268c6cf6ccdf3d057258d",
       "top_level_classes": [
         {
-          "end_line": 144,
+          "end_line": 147,
           "kind": "class",
-          "line": 143,
+          "line": 146,
           "name": "TaskStoreError"
         },
         {
-          "end_line": 148,
+          "end_line": 151,
           "kind": "class",
-          "line": 147,
+          "line": 150,
           "name": "TaskStoreSchemaError"
         },
         {
-          "end_line": 152,
+          "end_line": 155,
           "kind": "class",
-          "line": 151,
+          "line": 154,
           "name": "TaskStoreCorruptionError"
         },
         {
-          "end_line": 156,
+          "end_line": 159,
           "kind": "class",
-          "line": 155,
+          "line": 158,
           "name": "TaskNotFoundError"
         },
         {
-          "end_line": 160,
+          "end_line": 163,
           "kind": "class",
-          "line": 159,
+          "line": 162,
           "name": "TaskConflictError"
         },
         {
-          "end_line": 164,
+          "end_line": 167,
           "kind": "class",
-          "line": 163,
+          "line": 166,
           "name": "SensitiveTaskDataError"
         },
         {
-          "end_line": 168,
+          "end_line": 171,
           "kind": "class",
-          "line": 167,
+          "line": 170,
           "name": "_DetectedCorruption"
         },
         {
-          "end_line": 180,
+          "end_line": 183,
           "kind": "class",
-          "line": 172,
+          "line": 175,
           "name": "TaskStoreRecovery"
         },
         {
-          "end_line": 218,
+          "end_line": 222,
           "kind": "class",
-          "line": 184,
+          "line": 187,
           "name": "TaskRecord"
         },
         {
-          "end_line": 927,
+          "end_line": 948,
           "kind": "class",
-          "line": 407,
+          "line": 411,
           "name": "TaskStore"
         },
         {
-          "end_line": 1189,
+          "end_line": 1223,
           "kind": "class",
-          "line": 930,
+          "line": 951,
           "name": "TaskStoreTransaction"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 235,
+          "end_line": 239,
           "kind": "function",
-          "line": 221,
+          "line": 225,
           "name": "normalize_task_path"
         },
         {
-          "end_line": 263,
+          "end_line": 267,
           "kind": "function",
-          "line": 238,
+          "line": 242,
           "name": "normalize_task_paths"
         },
         {
-          "end_line": 271,
+          "end_line": 275,
           "kind": "function",
-          "line": 266,
+          "line": 270,
           "name": "_encode_path_tuple"
         },
         {
-          "end_line": 282,
+          "end_line": 286,
           "kind": "function",
-          "line": 274,
+          "line": 278,
           "name": "_decode_path_tuple"
         },
         {
-          "end_line": 294,
+          "end_line": 298,
           "kind": "function",
-          "line": 285,
+          "line": 289,
           "name": "_validate_task_id"
         },
         {
-          "end_line": 306,
+          "end_line": 310,
           "kind": "function",
-          "line": 297,
+          "line": 301,
           "name": "_validate_task_type"
         },
         {
-          "end_line": 313,
+          "end_line": 317,
           "kind": "function",
-          "line": 309,
+          "line": 313,
           "name": "_validate_status"
         },
         {
-          "end_line": 319,
+          "end_line": 323,
           "kind": "function",
-          "line": 316,
+          "line": 320,
           "name": "_validate_counter"
         },
         {
-          "end_line": 328,
+          "end_line": 332,
           "kind": "function",
-          "line": 322,
+          "line": 326,
           "name": "_validate_timestamp"
-        },
-        {
-          "end_line": 348,
-          "kind": "function",
-          "line": 331,
-          "name": "_validate_safe_text"
         },
         {
           "end_line": 352,
           "kind": "function",
-          "line": 351,
+          "line": 335,
+          "name": "_validate_safe_text"
+        },
+        {
+          "end_line": 356,
+          "kind": "function",
+          "line": 355,
           "name": "_normalised_sensitive_key"
         },
         {
-          "end_line": 369,
+          "end_line": 373,
           "kind": "function",
-          "line": 355,
+          "line": 359,
           "name": "_check_json_secrets"
         },
         {
-          "end_line": 386,
+          "end_line": 390,
           "kind": "function",
-          "line": 372,
+          "line": 376,
           "name": "_encode_json"
         },
         {
-          "end_line": 395,
+          "end_line": 399,
           "kind": "function",
-          "line": 389,
+          "line": 393,
           "name": "_decode_json"
         },
         {
-          "end_line": 404,
+          "end_line": 408,
           "kind": "function",
-          "line": 398,
+          "line": 402,
           "name": "_is_sqlite_corruption"
         }
       ]
@@ -7470,7 +7470,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 94,
-    "production_line_count": 29766,
+    "production_line_count": 29800,
     "production_module_count": 50,
     "test_private_patch_count": 12,
     "top_level_class_count": 66,
