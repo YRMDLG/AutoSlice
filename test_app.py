@@ -142,7 +142,12 @@ class TopicPageContractTests(unittest.TestCase):
         )
 
         result = subprocess.run(
-            ["node", "-e", runtime],
+            [
+                "node",
+                "-e",
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=runtime,
             text=True,
             capture_output=True,
             timeout=10,
