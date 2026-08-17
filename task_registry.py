@@ -153,7 +153,9 @@ def _task_id_for_run(
     if not nonce:
         raise ValueError("token_factory/run_nonce 必须生成非空值")
     nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()[:16]
-    return f"{prefix}-{identity_digest}-{nonce_digest}"
+    # Web UI 长期按 ``pipeline_`` / ``subtitle_`` 等旧前缀筛选 SSE；
+    # 身份摘要与 nonce 保持不变，仅保留原有下划线分隔契约。
+    return f"{prefix}_{identity_digest}_{nonce_digest}"
 
 
 def _profile_public_payload(
@@ -642,6 +644,19 @@ class TaskRegistry:
         if record is None:
             raise TaskNotFoundError(f"任务不存在：{task_id}")
         return record.status == "cancelled"
+
+    def forget_cancellation_events(
+            self,
+            task_ids: Sequence[str] | None = None,
+    ) -> None:
+        """丢弃已删除任务的运行期 Event，不触碰持久任务数据。"""
+
+        with self._event_lock:
+            if task_ids is None:
+                self._cancellation_events.clear()
+                return
+            for task_id in task_ids:
+                self._cancellation_events.pop(str(task_id), None)
 
     def _transition(
             self,

@@ -1,3 +1,4 @@
+import atexit
 import io
 import json
 import os
@@ -5,13 +6,35 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+_TEST_TASK_DATABASE_DIR = TemporaryDirectory(prefix="autoslice-test-app-tasks-")
+_PREVIOUS_TASK_DATABASE = os.environ.get("AUTOSLICE_TASK_DB")
+os.environ["AUTOSLICE_TASK_DB"] = str(
+    Path(_TEST_TASK_DATABASE_DIR.name) / "tasks.sqlite3"
+)
+
 import app as app_module
 from subtitle_workflow import parse_srt_document
+from task_registry import TaskRegistry
+from task_store import TaskStore
+
+
+def _cleanup_test_task_database():
+    app_module.tasks.clear()
+    if _PREVIOUS_TASK_DATABASE is None:
+        os.environ.pop("AUTOSLICE_TASK_DB", None)
+    else:
+        os.environ["AUTOSLICE_TASK_DB"] = _PREVIOUS_TASK_DATABASE
+    _TEST_TASK_DATABASE_DIR.cleanup()
+
+
+atexit.register(_cleanup_test_task_database)
 
 
 def assert_same_path(testcase, actual, expected):
@@ -1358,6 +1381,459 @@ class TopicPipelineApiTests(unittest.TestCase):
         self.assertNotIn("Traceback", task["result"])
         self.assertIn("[已隐藏]", task["result"])
         logger.assert_called_once()
+
+
+class TaskLifecycleTests(unittest.TestCase):
+
+    def setUp(self):
+        self.original_store = app_module.task_store
+        self.original_registry = app_module.task_registry
+        self.database_dir = TemporaryDirectory(prefix="autoslice-lifecycle-")
+        self.database_path = Path(self.database_dir.name) / "tasks.sqlite3"
+        self._bind_registry(
+            TaskRegistry(
+                TaskStore(self.database_path),
+                recover_on_startup=False,
+            )
+        )
+        app_module.app.config.update(TESTING=True)
+        app_module.tasks.clear()
+        with app_module.event_queue_lock:
+            app_module.event_queues.clear()
+            app_module._event_history.clear()
+            app_module._event_sequence = 0
+        self.client = app_module.app.test_client()
+
+    def tearDown(self):
+        app_module.tasks.clear()
+        with app_module.event_queue_lock:
+            app_module.event_queues.clear()
+            app_module._event_history.clear()
+            app_module._event_sequence = 0
+        app_module.task_store = self.original_store
+        app_module.task_registry = self.original_registry
+        self.database_dir.cleanup()
+
+    @staticmethod
+    def _sse_payload(chunk):
+        text = chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
+        data_line = next(
+            line for line in text.splitlines() if line.startswith("data: ")
+        )
+        return json.loads(data_line.removeprefix("data: "))
+
+    def _bind_registry(self, registry):
+        app_module.task_registry = registry
+        app_module.task_store = registry.store
+
+    def _rebuild_registry(self, *, recover_on_startup=False):
+        registry = TaskRegistry(
+            TaskStore(self.database_path),
+            recover_on_startup=recover_on_startup,
+        )
+        self._bind_registry(registry)
+        return registry
+
+    def test_completed_task_survives_registry_and_app_binding_rebuild(self):
+        task_id, conflict = app_module._reserve_task(
+            "persist",
+            "topic_pipeline",
+            "等待处理",
+            source_paths=(Path(self.database_dir.name) / "source.flv",),
+        )
+        self.assertIsNone(conflict)
+        app_module.update_task(
+            task_id,
+            status="running",
+            progress="处理中",
+            step=25,
+            total=100,
+        )
+        app_module.update_task(
+            task_id,
+            status="done",
+            progress="完成",
+            result='{"topic_count": 2}',
+            step=100,
+            total=100,
+        )
+
+        self._rebuild_registry()
+
+        task = app_module.tasks[task_id]
+        self.assertEqual(task["status"], "done")
+        self.assertEqual(json.loads(task["result"])["topic_count"], 2)
+
+    def test_startup_recovers_active_tasks_once_and_init_shows_interrupted(self):
+        queued_id, _ = app_module._reserve_task(
+            "queued",
+            "topic_pipeline",
+            "排队中",
+            source_paths=(Path(self.database_dir.name) / "queued.flv",),
+        )
+        running_id, _ = app_module._reserve_task(
+            "running",
+            "subtitle_review",
+            "排队中",
+            source_paths=(Path(self.database_dir.name) / "running.srt",),
+        )
+        app_module.update_task(
+            running_id,
+            status="running",
+            progress="处理中",
+            step=3,
+            total=10,
+        )
+
+        recovered = self._rebuild_registry(recover_on_startup=True)
+        self.assertEqual(
+            set(recovered.recovered_task_ids),
+            {queued_id, running_id},
+        )
+        self.assertEqual(app_module.tasks[queued_id]["status"], "interrupted")
+        self.assertEqual(app_module.tasks[running_id]["status"], "interrupted")
+
+        second = self._rebuild_registry(recover_on_startup=True)
+        self.assertEqual(second.recovered_task_ids, ())
+        response = self.client.get("/api/events", buffered=False)
+        stream = iter(response.response)
+        payload = self._sse_payload(next(stream))
+        response.close()
+        self.assertEqual(payload[queued_id]["status"], "interrupted")
+        self.assertEqual(payload[running_id]["status"], "interrupted")
+
+    def test_same_basename_in_different_directories_has_distinct_ids(self):
+        root = Path(self.database_dir.name)
+        first, first_conflict = app_module._reserve_task(
+            "same-name",
+            "subtitle_review",
+            "等待",
+            source_paths=(root / "a" / "same.srt",),
+        )
+        second, second_conflict = app_module._reserve_task(
+            "same-name",
+            "subtitle_review",
+            "等待",
+            source_paths=(root / "b" / "same.srt",),
+        )
+
+        self.assertIsNone(first_conflict)
+        self.assertIsNone(second_conflict)
+        self.assertNotEqual(first, second)
+
+    def test_same_output_is_atomically_rejected_with_existing_task_id(self):
+        root = Path(self.database_dir.name)
+        shared_output = root / "output" / "same.mp4"
+        first, conflict = app_module._reserve_task(
+            "first",
+            "subtitle_render",
+            "等待",
+            source_paths=(root / "a.mp4",),
+            output_paths=(shared_output,),
+        )
+        blocked, active_task_id = app_module._reserve_task(
+            "second",
+            "subtitle_render",
+            "等待",
+            source_paths=(root / "b.mp4",),
+            output_paths=(shared_output,),
+        )
+
+        self.assertIsNone(conflict)
+        self.assertIsNone(blocked)
+        self.assertEqual(active_task_id, first)
+
+    def test_duplicate_subtitle_render_starts_only_one_thread(self):
+        folder = Path(self.database_dir.name) / "投稿"
+        folder.mkdir()
+        video = folder / "片段.mp4"
+        srt = folder / "片段.srt"
+        video.write_bytes(b"video")
+        srt.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n测试\n",
+            encoding="utf-8",
+        )
+        started = []
+
+        class CountingDeferredThread(DeferredThread):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                started.append(self)
+
+        with patch.object(
+                app_module.threading,
+                "Thread",
+                CountingDeferredThread):
+            first = self.client.post(
+                "/api/subtitles/render",
+                json={"video_path": str(video), "srt_path": str(srt)},
+            )
+            duplicate = self.client.post(
+                "/api/subtitles/render",
+                json={"video_path": str(video), "srt_path": str(srt)},
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(len(started), 1)
+        self.assertTrue(first.get_json()["task_id"].startswith("subtitle_render_"))
+        self.assertEqual(
+            duplicate.get_json()["task_id"],
+            first.get_json()["task_id"],
+        )
+
+    def test_cancel_is_idempotent_and_old_thread_cannot_overwrite_it(self):
+        task_id, _ = app_module._reserve_task(
+            "cancel",
+            "topic_pipeline",
+            "等待",
+            source_paths=(Path(self.database_dir.name) / "cancel.flv",),
+        )
+        app_module.update_task(
+            task_id,
+            status="running",
+            progress="处理中",
+            step=1,
+            total=100,
+        )
+
+        first = self.client.post(f"/api/tasks/{task_id}/cancel")
+        repeated = self.client.post(f"/api/tasks/{task_id}/cancel")
+        app_module.update_task(
+            task_id,
+            status="done",
+            result="旧线程完成",
+            step=100,
+            total=100,
+        )
+        app_module._record_task_error(task_id, "旧线程失败", RuntimeError("boom"))
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(app_module.tasks[task_id]["status"], "cancelled")
+        self.assertEqual(
+            self.client.post("/api/tasks/missing/cancel").status_code,
+            404,
+        )
+
+        done_id, _ = app_module._reserve_task(
+            "done",
+            "topic_pipeline",
+            "等待",
+            source_paths=(Path(self.database_dir.name) / "done.flv",),
+        )
+        app_module.update_task(done_id, status="done", result="完成")
+        illegal = self.client.post(f"/api/tasks/{done_id}/cancel")
+        self.assertEqual(illegal.status_code, 409)
+        self.assertIn("不能取消", illegal.get_json()["error"])
+
+    def test_metadata_and_artifact_directory_survive_restart(self):
+        root = Path(self.database_dir.name)
+        output_dir = root / "自动切片"
+        artifact_dir = output_dir / "录播_自动切片"
+        artifact_dir.mkdir(parents=True)
+        task_id, _ = app_module._reserve_task(
+            "artifact",
+            "topic_pipeline",
+            "等待",
+            source_paths=(root / "录播.flv",),
+            metadata={"source_srt_path": str(root / "录播.srt"), "force": True},
+        )
+        app_module._set_task_output_dir(task_id, output_dir)
+        app_module.update_task(
+            task_id,
+            status="done",
+            result=json.dumps(
+                {"artifact_dir": str(artifact_dir)},
+                ensure_ascii=False,
+            ),
+        )
+
+        self._rebuild_registry()
+
+        task = app_module.tasks[task_id]
+        self.assertEqual(task["source_srt_path"], str(root / "录播.srt"))
+        self.assertTrue(task["force"])
+        assert_same_path(self, task["output_dir"], output_dir)
+        assert_same_path(self, task["artifact_dir"], artifact_dir)
+        assert_same_path(
+            self,
+            app_module._completed_task_artifact_dir(task_id),
+            artifact_dir,
+        )
+
+    def test_mapping_metadata_cannot_override_core_fields(self):
+        app_module.tasks["real-id"] = {
+            "status": "done",
+            "task_type": "legacy",
+            "result": "ok",
+            "metadata": {
+                "status": "running",
+                "task_id": "forged-id",
+                "source_srt_path": "subtitle.srt",
+            },
+        }
+
+        task = app_module.tasks["real-id"]
+        self.assertEqual(task["task_id"], "real-id")
+        self.assertEqual(task["status"], "done")
+        self.assertEqual(task["source_srt_path"], "subtitle.srt")
+
+    def test_history_ttl_and_limit_never_delete_active_tasks(self):
+        app_module.tasks.update({
+            "active": {"status": "running", "created_at": 1},
+            "expired": {"status": "done", "completed_at": 80},
+            "recent-1": {"status": "done", "completed_at": 95},
+            "recent-2": {"status": "error", "completed_at": 96},
+            "recent-3": {"status": "done", "completed_at": 97},
+        })
+
+        deleted = app_module.task_registry.cleanup_history(
+            ttl_seconds=10,
+            keep_latest=2,
+            now=100,
+        )
+
+        self.assertEqual(deleted, 2)
+        self.assertEqual(
+            set(app_module.tasks),
+            {"active", "recent-2", "recent-3"},
+        )
+
+    def test_sse_init_snapshot_is_finite_and_includes_terminal_history(self):
+        now = time.time()
+        app_module.tasks.update({
+            f"done-{index}": {
+                "status": "interrupted" if index == 0 else "done",
+                "completed_at": now + index / 1000,
+            }
+            for index in range(6)
+        })
+
+        with patch.object(app_module, "_TASK_HISTORY_LIMIT", 3):
+            response = self.client.get("/api/events", buffered=False)
+            stream = iter(response.response)
+            first_chunk = next(stream)
+            payload = self._sse_payload(first_chunk)
+            response.close()
+
+        self.assertIn(b"event: init", first_chunk)
+        self.assertLessEqual(len(payload), 3)
+        self.assertTrue(
+            all(task["status"] in {"done", "interrupted"} for task in payload.values())
+        )
+
+    def test_sse_last_event_id_replays_only_missing_events(self):
+        first_id = app_module.broadcast("task_update", {"task_id": "first"})
+        second_id = app_module.broadcast("task_update", {"task_id": "second"})
+
+        response = self.client.get(
+            "/api/events",
+            headers={"Last-Event-ID": str(first_id)},
+            buffered=False,
+        )
+        stream = iter(response.response)
+        chunk = next(stream)
+        response.close()
+
+        self.assertIn(f"id: {second_id}".encode(), chunk)
+        self.assertNotIn(b"event: init", chunk)
+        self.assertEqual(self._sse_payload(chunk)["task_id"], "second")
+
+    def test_sse_too_old_or_invalid_id_falls_back_to_init(self):
+        with patch.object(app_module, "_SSE_EVENT_HISTORY_LIMIT", 2):
+            app_module.broadcast("task_update", {"task_id": "one"})
+            app_module.broadcast("task_update", {"task_id": "two"})
+            app_module.broadcast("task_update", {"task_id": "three"})
+
+        for last_event_id in ("0", "invalid"):
+            with self.subTest(last_event_id=last_event_id):
+                response = self.client.get(
+                    "/api/events",
+                    headers={"Last-Event-ID": last_event_id},
+                    buffered=False,
+                )
+                stream = iter(response.response)
+                chunk = next(stream)
+                response.close()
+                self.assertIn(b"event: init", chunk)
+
+    def test_sse_event_history_has_ttl_and_count_limits(self):
+        with (
+            patch.object(app_module, "_SSE_EVENT_HISTORY_LIMIT", 2),
+            patch.object(app_module, "_SSE_EVENT_HISTORY_TTL_SEC", 10),
+            patch.object(app_module.time, "time", side_effect=(0.0, 5.0, 20.0)),
+        ):
+            first_id = app_module.broadcast("test", {"value": 1})
+            second_id = app_module.broadcast("test", {"value": 2})
+            third_id = app_module.broadcast("test", {"value": 3})
+
+        self.assertEqual((first_id, second_id, third_id), (1, 2, 3))
+        self.assertEqual(
+            [event_id for event_id, _created, _message in app_module._event_history],
+            [third_id],
+        )
+
+    def test_sse_queue_overflow_removes_subscriber_and_stops_generator(self):
+        with patch.object(app_module, "_SSE_SUBSCRIBER_QUEUE_SIZE", 1):
+            response = self.client.get("/api/events", buffered=False)
+            stream = iter(response.response)
+            self.assertIn(b"event: init", next(stream))
+            app_module.broadcast("task_update", {"task_id": "one"})
+            app_module.broadcast("task_update", {"task_id": "two"})
+
+        with self.assertRaises(StopIteration):
+            next(stream)
+        response.close()
+        with app_module.event_queue_lock:
+            self.assertEqual(app_module.event_queues, [])
+
+    def test_concurrent_subscribers_receive_safe_consistent_snapshots(self):
+        app_module.tasks.update({
+            "done": {"status": "done", "result": "ok"},
+            "interrupted": {"status": "interrupted", "result": "retry"},
+        })
+
+        def read_snapshot():
+            client = app_module.app.test_client()
+            response = client.get("/api/events", buffered=False)
+            stream = iter(response.response)
+            chunk = next(stream)
+            response.close()
+            return self._sse_payload(chunk)
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            snapshots = list(executor.map(lambda _index: read_snapshot(), range(12)))
+
+        self.assertTrue(all(snapshot == snapshots[0] for snapshot in snapshots))
+        self.assertEqual(set(snapshots[0]), {"done", "interrupted"})
+        with app_module.event_queue_lock:
+            self.assertEqual(app_module.event_queues, [])
+
+    def test_sse_redacts_credentials_cookies_tracebacks_and_error_paths(self):
+        event_id = app_module.broadcast(
+            "task_update",
+            {
+                "status": "error",
+                "error": r"token=secret C:\private\api_config.json Traceback failed",
+                "cookie": "session=secret",
+                "traceback": "Traceback (most recent call last)",
+            },
+        )
+        response = self.client.get(
+            "/api/events",
+            headers={"Last-Event-ID": str(event_id - 1)},
+            buffered=False,
+        )
+        stream = iter(response.response)
+        chunk = next(stream)
+        response.close()
+        text = chunk.decode("utf-8")
+
+        self.assertNotIn("secret", text)
+        self.assertNotIn(r"C:\private", text)
+        self.assertNotIn("Traceback", text)
+        self.assertIn("[已隐藏]", text)
 
 
 class WebTransportSafetyTests(unittest.TestCase):

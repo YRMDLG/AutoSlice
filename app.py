@@ -2,7 +2,9 @@
 AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 """
 
-import os, sys, json, time, threading, queue, glob as glob_mod, hashlib, secrets, subprocess, re, traceback
+import os, sys, json, time, threading, queue, glob as glob_mod, secrets, subprocess, re, traceback
+from collections import deque
+from collections.abc import MutableMapping
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -17,14 +19,27 @@ from streamer_profiles import (
     streamer_profile_context,
 )
 from runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
+from task_registry import (
+    ACTIVE_TASK_STATUSES,
+    TaskLifecycleError,
+    TaskRegistry,
+)
+from task_store import (
+    DEFAULT_TASK_DATABASE_PATH,
+    MAX_LIST_LIMIT,
+    TERMINAL_TASK_STATUSES,
+    TaskNotFoundError,
+    TaskStore,
+)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
-tasks = {}
-task_lock = threading.Lock()
+task_lock = threading.RLock()
 event_queues = []
-event_queue_lock = threading.Lock()
+event_queue_lock = threading.RLock()
+_event_history = deque()
+_event_sequence = 0
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -64,15 +79,21 @@ AUTOSLICE_API_VERSION = 1
 LEGACY_DIRECT_SLICE_ENV = "AUTOSLICE_ENABLE_LEGACY_DIRECT_SLICE"
 JSON_TIMELINE_UPLOAD_DIR = Path(DEFAULT_OUTPUT_DIR)
 MANUAL_TIMELINE_UPLOAD_DIR = Path(DEFAULT_TIMELINE_DIR)
-_ACTIVE_TASK_STATUSES = {"queued", "running"}
 _TASK_HISTORY_LIMIT = 200
 _TASK_HISTORY_TTL_SEC = 24 * 60 * 60
+_SSE_EVENT_HISTORY_LIMIT = 500
+_SSE_EVENT_HISTORY_TTL_SEC = 60 * 60
+_SSE_SUBSCRIBER_QUEUE_SIZE = 50
 _OPENABLE_RESULT_TASK_TYPES = {
     "topic_pipeline",
     "timeline_optimization",
     "clip_review_retry",
 }
 _WINDOWS_PATH_RE = re.compile(r"(?i)(?<![\w])(?:[a-z]:\\)[^\r\n]+")
+_POSIX_PRIVATE_PATH_RE = re.compile(
+    r"(?<![\w])/(?:home|Users|tmp|var|etc|opt|mnt)/[^\s,;]+",
+    re.IGNORECASE,
+)
 _UPLOAD_INVALID_CHARS_RE = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -93,6 +114,178 @@ _LAN_PATH_FIELDS = {
     "video_path",
 }
 _LAN_COOKIE_NAME = "autoslice_lan_token"
+
+
+def _task_database_path(environ=None):
+    """返回本机任务数据库路径；环境变量只覆盖本地持久化位置。"""
+
+    env = environ if environ is not None else os.environ
+    configured = str(env.get("AUTOSLICE_TASK_DB", "")).strip()
+    return Path(configured or DEFAULT_TASK_DATABASE_PATH).expanduser().resolve()
+
+
+class _TaskMappingView(MutableMapping):
+    """旧 ``tasks`` 接口的实时 SQLite 视图，不保存第二份任务字典。"""
+
+    _CORE_FIELDS = frozenset({
+        "completed_at",
+        "created_at",
+        "error",
+        "error_summary",
+        "finished_at",
+        "message",
+        "metadata",
+        "output_path",
+        "output_paths",
+        "progress",
+        "result",
+        "result_summary",
+        "source_path",
+        "source_paths",
+        "status",
+        "step",
+        "streamer_profile",
+        "streamer_profile_snapshot",
+        "task_id",
+        "task_type",
+        "total",
+        "updated_at",
+    })
+
+    @staticmethod
+    def _registry():
+        return task_registry
+
+    def __getitem__(self, task_id):
+        snapshot = self._registry().snapshot(str(task_id))
+        if snapshot is None:
+            raise KeyError(task_id)
+        return snapshot
+
+    def __setitem__(self, task_id, value):
+        """把旧测试/外部赋值直接翻译成一次 store 替换。"""
+
+        if not isinstance(value, dict):
+            raise TypeError("任务值必须是字典")
+        task_id = str(task_id)
+        status = str(value.get("status") or "queued")
+        task_type = str(value.get("task_type") or "legacy")
+        step = value.get("step", 0)
+        total = value.get("total", 100)
+
+        raw_metadata = value.get("metadata") or {}
+        if not isinstance(raw_metadata, dict):
+            raise TypeError("metadata 必须是字典")
+        metadata = dict(raw_metadata)
+        metadata.update({
+            key: item
+            for key, item in value.items()
+            if key not in self._CORE_FIELDS
+        })
+
+        source_paths = value.get("source_paths")
+        if source_paths is None:
+            source_paths = tuple(
+                path
+                for path in (
+                    value.get("source_path"),
+                    value.get("source_srt_path"),
+                    value.get("source_video_path"),
+                )
+                if path
+            )
+        output_paths = value.get("output_paths")
+        if output_paths is None:
+            output_paths = tuple(
+                path for path in (value.get("output_path"),) if path
+            )
+
+        result = value.get("result_summary", value.get("result"))
+        error = value.get("error_summary", value.get("error"))
+        if status in {"error", "cancelled"} and error is None:
+            error = result
+            result = None
+
+        finished_at = value.get("finished_at", value.get("completed_at"))
+        created_at = value.get("created_at")
+        if status in TERMINAL_TASK_STATUSES:
+            if finished_at is None:
+                finished_at = time.time()
+            if created_at is None or float(created_at) > float(finished_at):
+                created_at = finished_at
+        elif created_at is None:
+            created_at = time.time()
+        else:
+            finished_at = None
+
+        profile = value.get(
+            "streamer_profile_snapshot",
+            value.get("streamer_profile"),
+        ) or {}
+        registry = self._registry()
+        with registry.store.transaction() as transaction:
+            transaction.delete_task(task_id)
+            transaction.create_task(
+                task_id,
+                task_type,
+                source_paths=source_paths,
+                output_paths=output_paths,
+                status=status,
+                progress=str(value.get("progress") or ""),
+                message=str(value.get("message") or ""),
+                step=step,
+                total=total,
+                result_summary=result,
+                error_summary=error,
+                metadata=metadata,
+                streamer_profile_snapshot=profile,
+                created_at=created_at,
+                finished_at=finished_at,
+            )
+
+    def __delitem__(self, task_id):
+        if not self._registry().store.delete_task(str(task_id)):
+            raise KeyError(task_id)
+
+    def __iter__(self):
+        records = self._registry().list(
+            limit=MAX_LIST_LIMIT,
+            order="created_asc",
+        )
+        return iter(tuple(record.task_id for record in records))
+
+    def __len__(self):
+        return len(self._registry().list(limit=MAX_LIST_LIMIT))
+
+    def clear(self):
+        registry = self._registry()
+        with registry.store.transaction() as transaction:
+            while True:
+                records = transaction.list_tasks(
+                    limit=MAX_LIST_LIMIT,
+                    order="created_asc",
+                )
+                for record in records:
+                    transaction.delete_task(record.task_id)
+                if len(records) < MAX_LIST_LIMIT:
+                    break
+        registry.forget_cancellation_events()
+
+
+# 生产进程只创建这一组持久任务后端。测试通过 AUTOSLICE_TASK_DB 在导入前隔离。
+TASK_DATABASE_PATH = _task_database_path()
+task_store = TaskStore(TASK_DATABASE_PATH, corruption_policy="quarantine")
+task_registry = TaskRegistry(
+    task_store,
+    history_ttl_seconds=_TASK_HISTORY_TTL_SEC,
+    history_limit=_TASK_HISTORY_LIMIT,
+)
+tasks = _TaskMappingView()
+
+if task_store.last_recovery is not None:
+    app.logger.warning(
+        "任务数据库损坏，已隔离原文件并重建；恢复审计已写入任务状态目录。"
+    )
 
 
 def _configured_autocover_url(environ=None):
@@ -287,59 +480,108 @@ def persist_lan_session(response):
     return response
 
 
+def _redact_task_error_text(value):
+    """脱敏可能进入任务历史或 SSE 的错误文本。"""
+
+    message = " ".join(str(value).split())
+    if "traceback" in message.casefold():
+        return "后台处理失败（详细信息仅写入服务日志）"
+    message = re.sub(
+        r"(?i)\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|token|"
+        r"authorization|cookie|password|client[_ -]?secret)\s*[:=]\s*[^\s,;]+",
+        "[已隐藏]",
+        message,
+    )
+    message = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer [已隐藏]", message)
+    message = re.sub(r"(?i)\bsk-[a-z0-9._-]{4,}", "[已隐藏]", message)
+    message = _WINDOWS_PATH_RE.sub("[本地路径已隐藏]", message)
+    message = _POSIX_PRIVATE_PATH_RE.sub("[本地路径已隐藏]", message)
+    return message or "后台处理失败"
+
+
+def _sanitize_sse_value(value, *, key="", task_status=""):
+    normalized_key = re.sub(r"[^a-z0-9]", "", str(key).casefold())
+    if any(marker in normalized_key for marker in (
+            "apikey", "accesstoken", "refreshtoken", "authorization",
+            "cookie", "password", "privatekey", "clientsecret",
+            "traceback")) or normalized_key == "token":
+        return "[已隐藏]"
+    if isinstance(value, dict):
+        nested_status = str(value.get("status") or task_status)
+        return {
+            str(item_key): _sanitize_sse_value(
+                item,
+                key=item_key,
+                task_status=nested_status,
+            )
+            for item_key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _sanitize_sse_value(item, key=key, task_status=task_status)
+            for item in value
+        ]
+    if isinstance(value, str) and (
+            normalized_key in {"error", "errorsummary"}
+            or (normalized_key == "result" and task_status == "error")):
+        return _redact_task_error_text(value)
+    return value
+
+
+def _format_sse_event(event_id, event_type, data):
+    return (
+        f"id: {event_id}\n"
+        f"event: {event_type}\n"
+        f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    )
+
+
+def _prune_event_history_locked(now=None):
+    now = time.time() if now is None else float(now)
+    while _event_history and (
+            now - _event_history[0][1] > _SSE_EVENT_HISTORY_TTL_SEC):
+        _event_history.popleft()
+    while len(_event_history) > _SSE_EVENT_HISTORY_LIMIT:
+        _event_history.popleft()
+
+
 def broadcast(event_type, data):
-    """向所有 SSE 订阅者推送事件"""
-    msg = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    """发布带递增 ID 的有限 SSE 事件，并剔除已积压的订阅者。"""
+
+    global _event_sequence
+    safe_data = _sanitize_sse_value(data)
+    now = time.time()
     with event_queue_lock:
+        _event_sequence += 1
+        event_id = _event_sequence
+        message = _format_sse_event(event_id, event_type, safe_data)
+        _event_history.append((event_id, now, message))
+        _prune_event_history_locked(now)
         subscribers = tuple(event_queues)
+
     dead = []
-    for q in subscribers:
+    for subscriber in subscribers:
         try:
-            q.put_nowait(msg)
+            subscriber.put_nowait(message)
         except queue.Full:
-            dead.append(q)
+            dead.append(subscriber)
     if dead:
         with event_queue_lock:
-            for q in dead:
-                if q in event_queues:
-                    event_queues.remove(q)
-
-
-def _task_history_timestamp(task):
-    for key in ("completed_at", "updated_at", "created_at"):
-        try:
-            value = float(task.get(key, 0))
-        except (TypeError, ValueError):
-            continue
-        if value > 0:
-            return value
-    return 0.0
+            for subscriber in dead:
+                if subscriber in event_queues:
+                    event_queues.remove(subscriber)
+    return event_id
 
 
 def _prune_tasks_locked(now=None):
-    """清理过期已完成任务；活动任务永不因历史上限被移除。"""
-    now = time.time() if now is None else float(now)
-    inactive = [
-        (task_id, task)
-        for task_id, task in tasks.items()
-        if task.get("status") not in _ACTIVE_TASK_STATUSES
-    ]
-    for task_id, task in inactive:
-        timestamp = _task_history_timestamp(task)
-        if timestamp and now - timestamp > _TASK_HISTORY_TTL_SEC:
-            tasks.pop(task_id, None)
+    """通过 TaskRegistry 清理终态历史；活动任务永不被删除。"""
 
-    retained = [
-        (task_id, task)
-        for task_id, task in tasks.items()
-        if task.get("status") not in _ACTIVE_TASK_STATUSES
-    ]
-    retained.sort(
-        key=lambda item: _task_history_timestamp(item[1]),
-        reverse=True,
+    current_time = time.time() if now is None else float(now)
+    return task_registry.cleanup_history(
+        ttl_seconds=_TASK_HISTORY_TTL_SEC,
+        keep_latest=_TASK_HISTORY_LIMIT,
+        now=current_time,
     )
-    for task_id, _ in retained[_TASK_HISTORY_LIMIT:]:
-        tasks.pop(task_id, None)
 
 
 def _console_print(message, stream=None):
@@ -366,30 +608,142 @@ def _console_print(message, stream=None):
 
 
 def update_task(task_id, **kwargs):
-    """更新任务状态并广播 + 控制台输出"""
-    now = time.time()
-    kwargs.setdefault("updated_at", now)
-    if kwargs.get("status") in {"done", "error", "cancelled"}:
-        kwargs.setdefault("completed_at", now)
-    with task_lock:
-        _prune_tasks_locked(now)
-        if task_id not in tasks:
-            tasks[task_id] = {}
-        tasks[task_id].update(kwargs)
-        _prune_tasks_locked(now)
+    """旧任务更新 façade：把字典参数翻译为显式 TaskRegistry 生命周期。"""
+
+    requested = dict(kwargs)
+    requested_status = requested.pop("status", None)
+    progress = requested.pop("progress", None)
+    message = requested.pop("message", None)
+    step = requested.pop("step", None)
+    total = requested.pop("total", None)
+    result = requested.pop("result", requested.pop("result_summary", None))
+    error = requested.pop("error", requested.pop("error_summary", None))
+    task_type = requested.pop("task_type", "legacy")
+    requested.pop("updated_at", None)
+    requested.pop("completed_at", None)
+    requested.pop("finished_at", None)
+    metadata = requested.pop("metadata", None)
+    if metadata is None:
+        metadata = {}
+    elif not isinstance(metadata, dict):
+        raise TypeError("metadata 必须是字典")
+    else:
+        metadata = dict(metadata)
+    metadata.update(requested)
+
+    if requested_status == "done":
+        parsed_result = result
+        if isinstance(parsed_result, str):
+            try:
+                parsed_result = json.loads(parsed_result)
+            except (TypeError, ValueError):
+                parsed_result = None
+        if isinstance(parsed_result, dict):
+            for key in ("artifact_dir", "output_dir"):
+                if parsed_result.get(key):
+                    metadata[key] = parsed_result[key]
+
+    current = task_registry.get(task_id)
+    if current is None:
+        # 大量旧测试直接调用 update_task；先创建 queued，再走同一生命周期。
+        task_registry.store.create_task(
+            task_id,
+            task_type,
+            status="queued",
+            progress="等待处理",
+            step=0,
+            total=total if total is not None else 100,
+        )
+        current = task_registry.get(task_id)
+
+    if current.status == "cancelled":
+        return tasks[task_id]
+
+    target_status = requested_status
+    if target_status is None and current.status == "queued":
+        target_status = "running"
+
+    if target_status == "running":
+        if current.status == "queued":
+            task_registry.mark_running(
+                task_id,
+                progress=progress,
+                message=message,
+                metadata=metadata or None,
+            )
+            current = task_registry.get(task_id)
+            progress = None
+            message = None
+            metadata = {}
+        if any(value is not None for value in (progress, message, step, total)) or metadata:
+            task_registry.update_progress(
+                task_id,
+                progress=progress,
+                message=message,
+                step=step,
+                total=total,
+                metadata=metadata or None,
+            )
+    elif target_status == "done":
+        if current.status == "done":
+            return tasks[task_id]
+        if current.status == "queued":
+            task_registry.mark_running(task_id)
+            current = task_registry.get(task_id)
+        if total is not None and total != current.total:
+            task_registry.update_progress(task_id, total=total)
+        task_registry.complete(
+            task_id,
+            result,
+            progress=progress or "完成",
+            message=message,
+            metadata=metadata or None,
+        )
+    elif target_status == "error":
+        if current.status == "error":
+            return tasks[task_id]
+        if step is not None or total is not None:
+            task_registry.update_progress(task_id, step=step, total=total)
+        task_registry.fail(
+            task_id,
+            error if error is not None else result or progress or "任务失败",
+            progress=progress or "失败",
+            message=message,
+            metadata=metadata or None,
+        )
+    elif target_status == "cancelled":
+        task_registry.cancel(
+            task_id,
+            reason=message or str(error or result or "用户已取消任务"),
+            metadata=metadata or None,
+        )
+    elif target_status in {None, "queued"}:
+        task_registry.update_progress(
+            task_id,
+            progress=progress,
+            message=message,
+            step=step,
+            total=total,
+            metadata=metadata or None,
+        )
+    else:
+        raise ValueError(f"不支持的任务状态：{target_status}")
+
+    _prune_tasks_locked()
+    snapshot = tasks[task_id]
 
     # 控制台同步输出（不用 \r，直接打印）
-    status = kwargs.get("status", "")
-    progress = kwargs.get("progress", "")
-    pct = kwargs.get("step", 0)
-    if progress:
-        _console_print(f"  [{task_id[:40]}] [{pct}%] {progress}")
+    status = snapshot.get("status", "")
+    current_progress = snapshot.get("progress", "")
+    pct = snapshot.get("step", 0)
+    if current_progress:
+        _console_print(f"  [{task_id[:40]}] [{pct}%] {current_progress}")
     if status in ("done", "error"):
-        result = kwargs.get("result", "")
-        _console_print(f"  [{task_id[:40]}] >>> {status}: {result}")
+        _console_print(f"  [{task_id[:40]}] >>> {status}: {snapshot.get('result', '')}")
 
     # SSE 广播
-    broadcast("task_update", {"task_id": task_id, **kwargs})
+    broadcast("task_update", {"task_id": task_id, **snapshot})
+    return snapshot
 
 
 def _pipeline_completion_progress(result):
@@ -399,127 +753,52 @@ def _pipeline_completion_progress(result):
     return f"完成! {topic_count} 个话题, {result.get('slice_count', 0)} 个切片"
 
 
-def _subtitle_task_id(prefix, path, nonce=None):
-    normalized = os.path.normcase(os.path.abspath(path))
-    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:10]
-    stem = os.path.splitext(os.path.basename(path))[0][:24]
-    run_nonce = str(nonce or secrets.token_hex(4))
-    return f"{prefix}_{stem}_{digest}_{run_nonce}"
-
-
-def _normalized_task_paths(paths):
-    """把任务资源路径规范化并去重，供并发冲突判定使用。"""
-    result = []
-    seen = set()
-    for path in paths or ():
-        if not path:
-            continue
-        absolute = os.path.abspath(os.fspath(path))
-        normalized = os.path.normcase(absolute)
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        result.append(absolute)
-    return tuple(result)
-
-
-def _task_resource_set(task, key, *legacy_keys):
-    raw_values = task.get(key) or ()
-    values = (
-        [raw_values]
-        if isinstance(raw_values, (str, os.PathLike))
-        else list(raw_values)
-    )
-    values.extend(task.get(name) for name in legacy_keys)
-    return {
-        os.path.normcase(os.path.abspath(value))
-        for value in values
-        if value
-    }
-
-
 def _reserve_task(
         prefix, task_type, waiting_progress, *, source_paths=(),
-        output_paths=(), conflict_types=None, metadata=None):
-    """原子预约后台任务；同源冲突或输出路径冲突均返回已有任务。"""
-    absolute_sources = _normalized_task_paths(source_paths)
-    absolute_outputs = _normalized_task_paths(output_paths)
-    normalized_sources = {
-        os.path.normcase(path) for path in absolute_sources
-    }
-    normalized_outputs = {
-        os.path.normcase(path) for path in absolute_outputs
-    }
-    active_types = set(conflict_types or (task_type,))
-    primary_path = (
-        absolute_sources[0]
-        if absolute_sources
-        else absolute_outputs[0] if absolute_outputs else task_type
+        output_paths=(), conflict_types=None, metadata=None,
+        streamer_profile=None):
+    """统一调用 TaskRegistry.reserve 预约后台任务。"""
+
+    _prune_tasks_locked()
+    task_id, active_task_id = task_registry.reserve(
+        task_type,
+        waiting_progress,
+        prefix=prefix,
+        source_paths=source_paths,
+        output_paths=output_paths,
+        conflict_types=conflict_types,
+        metadata=metadata,
+        streamer_profile=streamer_profile,
+        total=100,
     )
-
-    with task_lock:
-        _prune_tasks_locked()
-        for active_id, task in tasks.items():
-            if task.get("status") not in _ACTIVE_TASK_STATUSES:
-                continue
-            existing_sources = _task_resource_set(
-                task,
-                "source_paths",
-                "source_path",
-                "source_srt_path",
-            )
-            existing_outputs = _task_resource_set(
-                task,
-                "output_paths",
-                "output_path",
-            )
-            same_source = (
-                task.get("task_type") in active_types
-                and bool(normalized_sources & existing_sources)
-            )
-            same_output = bool(normalized_outputs & existing_outputs)
-            if same_source or same_output:
-                return None, active_id
-
-        task_id = _subtitle_task_id(prefix, primary_path)
-        task = {
-            "status": "queued",
-            "progress": waiting_progress,
-            "step": 0,
-            "total": 100,
-            "task_type": task_type,
-            "source_paths": list(absolute_sources),
-            "output_paths": list(absolute_outputs),
-            "created_at": time.time(),
-        }
-        if absolute_sources:
-            task["source_path"] = absolute_sources[0]
-        task.update(metadata or {})
-        tasks[task_id] = task
-    return task_id, None
+    if task_id is not None:
+        broadcast("task_update", {"task_id": task_id, **tasks[task_id]})
+    return task_id, active_task_id
 
 
 def _reserve_source_task(
         prefix, task_type, source_path, waiting_progress, conflict_types=None,
-        output_paths=(), metadata=None):
+        source_paths=(), output_paths=(), metadata=None, streamer_profile=None):
     """兼容单源任务调用，实际统一走资源预约器。"""
     return _reserve_task(
         prefix,
         task_type,
         waiting_progress,
-        source_paths=(source_path,),
+        source_paths=(source_path, *tuple(source_paths or ())),
         output_paths=output_paths,
         conflict_types=conflict_types,
         metadata=metadata,
+        streamer_profile=streamer_profile,
     )
 
 
 def _set_task_output_dir(task_id, output_dir):
     """记录任务实际输出根目录，供完成后安全打开整理包。"""
     absolute_output_dir = os.path.abspath(output_dir)
-    with task_lock:
-        if task_id in tasks:
-            tasks[task_id]["output_dir"] = absolute_output_dir
+    task_registry.update_progress(
+        task_id,
+        metadata={"output_dir": absolute_output_dir},
+    )
     return absolute_output_dir
 
 
@@ -549,10 +828,9 @@ def _topic_task_output_paths(flv_path, output_dir):
 
 def _completed_task_artifact_dir(task_id):
     """解析并校验已完成任务的整理包目录，拒绝任意路径打开。"""
-    with task_lock:
-        task = dict(tasks.get(task_id) or {})
+    task = task_registry.snapshot(task_id)
     if not task:
-        raise KeyError("任务不存在或服务已重启")
+        raise KeyError("任务不存在")
     if task.get("status") != "done":
         raise RuntimeError("任务尚未完成，不能打开结果目录")
     if task.get("task_type") not in _OPENABLE_RESULT_TASK_TYPES:
@@ -564,14 +842,17 @@ def _completed_task_artifact_dir(task_id):
             result = json.loads(result)
         except (TypeError, ValueError) as exc:
             raise ValueError("任务结果不是有效 JSON") from exc
-    if not isinstance(result, dict) or not result.get("artifact_dir"):
+    if not isinstance(result, dict):
+        result = {}
+    artifact_path = result.get("artifact_dir") or task.get("artifact_dir")
+    if not artifact_path:
         raise ValueError("任务结果中没有整理包路径")
 
     output_dir = task.get("output_dir")
     if not output_dir:
         raise PermissionError("任务没有记录输出目录，不能安全打开")
     output_root = Path(output_dir).expanduser().resolve(strict=True)
-    artifact_dir = Path(result["artifact_dir"]).expanduser().resolve(strict=True)
+    artifact_dir = Path(artifact_path).expanduser().resolve(strict=True)
     if not artifact_dir.is_dir():
         raise FileNotFoundError("整理包目录不存在")
     try:
@@ -588,25 +869,33 @@ def _completed_task_artifact_dir(task_id):
 
 def _safe_task_error(error):
     """生成可发给前端的单行错误，不包含凭据、路径或堆栈。"""
-    message = " ".join(str(error).split())
-    message = re.sub(
-        r"(?i)\b(?:api[_ -]?key|token)\s*[:=]\s*[^\s,;]+",
-        "[已隐藏]",
-        message,
-    )
-    message = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer [已隐藏]", message)
-    message = re.sub(r"(?i)\bsk-[a-z0-9._-]{4,}", "[已隐藏]", message)
-    message = _WINDOWS_PATH_RE.sub("[本地路径已隐藏]", message)
-    if not message:
-        message = "后台处理失败"
+    message = _redact_task_error_text(error)
     return f"{type(error).__name__}: {message}"[:500]
+
+
+class _TaskCancelled(RuntimeError):
+    """仅用于协作退出后台线程，不写入 error 状态。"""
+
+
+def _task_cancellation_requested(task_id):
+    try:
+        return task_registry.cancellation_requested(task_id)
+    except TaskNotFoundError:
+        return False
+
+
+def _raise_if_task_cancelled(task_id):
+    if _task_cancellation_requested(task_id):
+        raise _TaskCancelled("任务已取消")
 
 
 def _record_task_error(task_id, progress, error, *, total=100):
     """堆栈仅写服务日志，SSE 和任务结果只保存脱敏摘要。"""
+    if _task_cancellation_requested(task_id):
+        return tasks.get(task_id)
     stack = "".join(traceback.format_tb(error.__traceback__))
     app.logger.error("%s\n%s%s", progress, stack, _safe_task_error(error))
-    update_task(
+    return update_task(
         task_id,
         status="error",
         progress=progress,
@@ -658,7 +947,7 @@ def _save_uploaded_file(field_name, target_dir, allowed_suffixes, *, validate_js
     return destination
 
 
-def _reserve_subtitle_review_task(srt_path, force):
+def _reserve_subtitle_review_task(srt_path, force, streamer_profile=None):
     """原子登记检查任务；同一源字幕同时只允许一个检查。"""
     return _reserve_task(
         "subtitle_review",
@@ -669,10 +958,11 @@ def _reserve_subtitle_review_task(srt_path, force):
             "source_srt_path": os.path.abspath(srt_path),
             "force": bool(force),
         },
+        streamer_profile=streamer_profile,
     )
 
 
-def _reserve_subtitle_title_task(srt_path):
+def _reserve_subtitle_title_task(srt_path, streamer_profile=None):
     """同一份校对字幕同时只生成一组参考标题。"""
     return _reserve_task(
         "subtitle_title",
@@ -682,6 +972,7 @@ def _reserve_subtitle_title_task(srt_path):
         metadata={
             "source_srt_path": os.path.abspath(srt_path),
         },
+        streamer_profile=streamer_profile,
     )
 
 
@@ -753,6 +1044,8 @@ def run_subtitle_review_task(
         task_id, srt_path, context_title, streamer_profile,
         glossary=None, force=False):
     """后台生成字幕错字建议，不直接改文件。"""
+    if _task_cancellation_requested(task_id):
+        return
     update_task(
         task_id,
         status="running",
@@ -762,6 +1055,7 @@ def run_subtitle_review_task(
     )
 
     def callback(msg, step, total):
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="running",
@@ -781,6 +1075,7 @@ def run_subtitle_review_task(
             glossary,
         )
 
+        _raise_if_task_cancelled(task_id)
         result = suggest_subtitle_corrections(
             srt_path,
             context_title=context_title,
@@ -794,6 +1089,7 @@ def run_subtitle_review_task(
         result.setdefault("glossary_count", len(active_glossary))
         result.setdefault("replacement_count", len(active_replacements))
         result["default_corrections"] = high_confidence_corrections(result)
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="done",
@@ -809,6 +1105,8 @@ def run_subtitle_review_task(
 def run_subtitle_title_task(
         task_id, srt_path, context_title, streamer_profile):
     """后台根据已保存的校对字幕生成参考投稿标题。"""
+    if _task_cancellation_requested(task_id):
+        return
     update_task(
         task_id,
         status="running",
@@ -818,6 +1116,7 @@ def run_subtitle_title_task(
     )
 
     def callback(msg, step, total):
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="running",
@@ -831,12 +1130,14 @@ def run_subtitle_title_task(
         from topic_engine import subtitle_title_services
 
         with streamer_profile_context(streamer_profile):
+            _raise_if_task_cancelled(task_id)
             result = generate_subtitle_reference_titles(
                 srt_path,
                 context_title=context_title,
                 progress_callback=callback,
                 title_services=subtitle_title_services(),
             )
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="done",
@@ -851,6 +1152,8 @@ def run_subtitle_title_task(
 
 def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
     """后台为精剪成片生成同名 SRT，完成后可直接进入字幕校对。"""
+    if _task_cancellation_requested(task_id):
+        return
     update_task(
         task_id,
         status="running",
@@ -860,6 +1163,7 @@ def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
     )
 
     def callback(msg, step, total):
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="running",
@@ -872,6 +1176,7 @@ def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
         from subtitle_workflow import transcribe_submission_video
         from topic_engine import ensure_srt
 
+        _raise_if_task_cancelled(task_id)
         result = transcribe_submission_video(
             video_path,
             progress_callback=callback,
@@ -889,6 +1194,7 @@ def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
             filter_note = "，已应用基础背景音门限"
         else:
             filter_note = ""
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="done",
@@ -905,6 +1211,8 @@ def run_subtitle_render_task(
         task_id, video_path, srt_path, style, export_settings,
         output_path=None):
     """后台把确认后的字幕压制进新视频。"""
+    if _task_cancellation_requested(task_id):
+        return
     update_task(
         task_id,
         status="running",
@@ -914,6 +1222,7 @@ def run_subtitle_render_task(
     )
 
     def callback(msg, step, total):
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="running",
@@ -925,6 +1234,7 @@ def run_subtitle_render_task(
     try:
         from subtitle_workflow import burn_subtitles
 
+        _raise_if_task_cancelled(task_id)
         result = burn_subtitles(
             video_path,
             srt_path,
@@ -933,6 +1243,7 @@ def run_subtitle_render_task(
             output_path=output_path,
             progress_callback=callback,
         )
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="done",
@@ -949,9 +1260,12 @@ def run_timeline_optimization_task(
         task_id, flv_path, manual_timeline_path, ass_path=None, output_dir=None,
         streamer_profile="auto"):
     """后台仅优化人工时间轴，不启动话题分析和切片。"""
+    if _task_cancellation_requested(task_id):
+        return
     update_task(task_id, status="running", progress="准备校准人工时间轴...", step=0, total=100)
 
     def callback(msg, step, total):
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="running",
@@ -963,6 +1277,7 @@ def run_timeline_optimization_task(
     try:
         from topic_engine import optimize_manual_timeline_for_video
 
+        _raise_if_task_cancelled(task_id)
         result = optimize_manual_timeline_for_video(
             flv_path,
             manual_timeline_path,
@@ -971,6 +1286,7 @@ def run_timeline_optimization_task(
             output_dir=output_dir,
             streamer_profile_id=streamer_profile,
         )
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="done",
@@ -987,6 +1303,8 @@ def run_clip_review_retry_task(
         task_id, flv_path, ass_path=None, output_dir=None,
         streamer_profile="auto"):
     """复用现有话题产物，只重做候选复核并刷新实际切片。"""
+    if _task_cancellation_requested(task_id):
+        return
     update_task(
         task_id,
         status="running",
@@ -996,6 +1314,7 @@ def run_clip_review_retry_task(
     )
 
     def callback(msg, step, total):
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="running",
@@ -1007,6 +1326,7 @@ def run_clip_review_retry_task(
     try:
         from topic_engine import retry_clip_review_from_artifacts, slice_from_marks
 
+        _raise_if_task_cancelled(task_id)
         result = retry_clip_review_from_artifacts(
             flv_path,
             ass_path=ass_path if ass_path and os.path.isfile(ass_path) else None,
@@ -1016,6 +1336,7 @@ def run_clip_review_retry_task(
         )
         clip_marks = result.get("clip_marks") or []
         if clip_marks:
+            _raise_if_task_cancelled(task_id)
             count, out_dir = slice_from_marks(
                 flv_path,
                 result["json_path"],
@@ -1025,6 +1346,7 @@ def run_clip_review_retry_task(
             )
             result["slice_count"] = count
             result["slice_dir"] = out_dir
+        _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="done",
@@ -1041,14 +1363,18 @@ def run_slice_task(
         task_id, flv_path, output_dir, timeline_json,
         streamer_profile="auto"):
     """使用智能分析 JSON 标记执行唯一受支持的后台重切任务。"""
+    if _task_cancellation_requested(task_id):
+        return
     update_task(task_id, status="running", progress="准备中...", step=0)
 
     def callback(msg, step, total):
+        _raise_if_task_cancelled(task_id)
         update_task(task_id, status="running", progress=msg, step=step, total=total)
 
     try:
         with streamer_profile_context(streamer_profile, flv_path):
             from topic_engine import slice_from_marks
+            _raise_if_task_cancelled(task_id)
             count, out_dir = slice_from_marks(
                 flv_path,
                 timeline_json,
@@ -1056,37 +1382,80 @@ def run_slice_task(
                 progress_callback=callback,
                 streamer_profile_id=streamer_profile,
             )
+        _raise_if_task_cancelled(task_id)
         update_task(task_id, status="done",
                     progress=f"完成！{count} 个片段",
                     result=f"共切出 {count} 个片段 → {out_dir}", step=100)
-    except Exception as e:
-        update_task(task_id, status="error",
-                    progress="失败",
-                    result=str(e), step=0)
+    except Exception as exc:
+        _record_task_error(task_id, "高级重新切片失败", exc)
 
 
 # ==================== SSE 端点 ====================
 
+
+def _task_init_snapshot():
+    _prune_tasks_locked()
+    if _TASK_HISTORY_LIMIT <= 0:
+        return {}
+    snapshot = task_registry.snapshot(
+        limit=min(_TASK_HISTORY_LIMIT, MAX_LIST_LIMIT),
+        order="updated_desc",
+    )
+    return _sanitize_sse_value(snapshot)
+
+
+def _replay_events_locked(raw_last_event_id):
+    """返回缺失事件；``None`` 表示 ID 无效或已过期，应回退 init。"""
+
+    if raw_last_event_id is None:
+        return None
+    try:
+        last_event_id = int(str(raw_last_event_id).strip())
+    except (TypeError, ValueError):
+        return None
+    if last_event_id < 0 or last_event_id > _event_sequence:
+        return None
+    if last_event_id == _event_sequence:
+        return []
+    if not _event_history:
+        return None
+    oldest_id = _event_history[0][0]
+    if last_event_id < oldest_id - 1:
+        return None
+    return [
+        message
+        for event_id, _created_at, message in _event_history
+        if event_id > last_event_id
+    ]
+
+
 @app.route("/api/events")
 def sse_events():
-    """SSE 实时事件流"""
-    q = queue.Queue(maxsize=50)
+    """有限快照 + Last-Event-ID 重放的可恢复 SSE 事件流。"""
+
+    subscriber = queue.Queue(maxsize=max(1, _SSE_SUBSCRIBER_QUEUE_SIZE))
     with event_queue_lock:
-        event_queues.append(q)
+        _prune_event_history_locked()
+        replay = _replay_events_locked(request.headers.get("Last-Event-ID"))
+        event_queues.append(subscriber)
+        if replay is None:
+            current = _task_init_snapshot()
+            initial_messages = [
+                "event: init\n"
+                f"data: {json.dumps(current, ensure_ascii=False)}\n\n"
+            ]
+        else:
+            initial_messages = replay or [": connected\n\n"]
 
     def generate():
-        # 先发送当前所有任务状态
-        with task_lock:
-            _prune_tasks_locked()
-            current = dict(tasks)
-        yield f"event: init\ndata: {json.dumps(current, ensure_ascii=False)}\n\n"
         try:
+            yield from initial_messages
             while True:
                 with event_queue_lock:
-                    if q not in event_queues:
+                    if subscriber not in event_queues:
                         break
                 try:
-                    msg = q.get(timeout=15)
+                    msg = subscriber.get(timeout=15)
                     yield msg
                 except queue.Empty:
                     yield ": keepalive\n\n"
@@ -1094,11 +1463,36 @@ def sse_events():
             pass
         finally:
             with event_queue_lock:
-                if q in event_queues:
-                    event_queues.remove(q)
+                if subscriber in event_queues:
+                    event_queues.remove(subscriber)
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/tasks/<task_id>/cancel", methods=["POST"])
+def cancel_task(task_id):
+    """协作取消活动任务；重复取消幂等，其他终态明确返回 409。"""
+
+    current = task_registry.get(task_id)
+    if current is None:
+        return jsonify({"error": "任务不存在"}), 404
+    if current.status == "cancelled":
+        snapshot = tasks[task_id]
+        return jsonify({"task_id": task_id, "task": snapshot})
+    if current.status not in ACTIVE_TASK_STATUSES:
+        return jsonify({
+            "error": f"任务已处于终态 {current.status}，不能取消",
+            "task_id": task_id,
+            "status": current.status,
+        }), 409
+    try:
+        task_registry.cancel(task_id)
+    except TaskLifecycleError as exc:
+        return jsonify({"error": str(exc), "task_id": task_id}), 409
+    snapshot = tasks[task_id]
+    broadcast("task_update", {"task_id": task_id, **snapshot})
+    return jsonify({"task_id": task_id, "task": snapshot})
 
 
 # ==================== API 端点 ====================
@@ -1189,11 +1583,13 @@ def slice_start():
             "topic_pipeline",
             "clip_review_retry",
         },
+        source_paths=(timeline_json,),
         output_paths=(direct_output,),
         metadata={
             "streamer_profile_id": streamer_profile.id,
             "mode": mode,
         },
+        streamer_profile=streamer_profile,
     )
     if active_task_id:
         return jsonify({
@@ -1406,7 +1802,11 @@ def subtitle_review():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    task_id, active_task_id = _reserve_subtitle_review_task(srt_path, force)
+    task_id, active_task_id = _reserve_subtitle_review_task(
+        srt_path,
+        force,
+        streamer_profile,
+    )
     if active_task_id:
         return jsonify({
             "error": "该字幕正在检查，请等待当前任务完成",
@@ -1426,15 +1826,11 @@ def subtitle_review():
             daemon=True,
         ).start()
     except Exception as exc:
-        update_task(
-            task_id,
-            status="error",
-            progress="字幕检查启动失败",
-            result=str(exc),
-            step=0,
-            total=100,
-        )
-        return jsonify({"error": f"字幕检查启动失败: {exc}"}), 500
+        _record_task_error(task_id, "字幕检查启动失败", exc)
+        return jsonify({
+            "error": f"字幕检查启动失败: {_safe_task_error(exc)}",
+            "task_id": task_id,
+        }), 500
     return jsonify({
         "task_id": task_id,
         "review_profile": {
@@ -1466,7 +1862,10 @@ def subtitle_generate_title():
     if len(context_title) > 300:
         return jsonify({"error": "视频标题过长"}), 400
 
-    task_id, active_task_id = _reserve_subtitle_title_task(srt_path)
+    task_id, active_task_id = _reserve_subtitle_title_task(
+        srt_path,
+        streamer_profile,
+    )
     if active_task_id:
         return jsonify({
             "error": "该字幕正在生成参考标题，请等待当前任务完成",
@@ -1746,8 +2145,20 @@ def start_pipeline():
         flv_path,
         "完整分析等待启动...",
         conflict_types={"topic_pipeline", "clip_review_retry", "direct_slice"},
+        source_paths=tuple(
+            path
+            for path in (
+                ass_path if os.path.isfile(ass_path) else None,
+                manual_timeline_path
+                if manual_timeline_path not in {None, "__none__"}
+                else None,
+                optimized_timeline_path,
+            )
+            if path
+        ),
         output_paths=_topic_task_output_paths(flv_path, output_dir),
         metadata={"streamer_profile_id": streamer_profile.id},
+        streamer_profile=streamer_profile,
     )
     if active_task_id:
         return jsonify({
@@ -1757,12 +2168,16 @@ def start_pipeline():
     _set_task_output_dir(task_id, output_dir)
 
     def run():
+        if _task_cancellation_requested(task_id):
+            return
         try:
             from topic_engine import run_pipeline, slice_from_marks
 
             def cb(msg, step, total):
+                _raise_if_task_cancelled(task_id)
                 update_task(task_id, status="running", progress=msg, step=step, total=total)
 
+            _raise_if_task_cancelled(task_id)
             result = run_pipeline(
                 flv_path,
                 ass_path if os.path.exists(ass_path) else None,
@@ -1776,6 +2191,7 @@ def start_pipeline():
             # 用新的独立切片功能，不依赖现有切片模式
             clip_marks = result.get("clip_marks", [])
             if clip_marks:
+                _raise_if_task_cancelled(task_id)
                 count, out_dir = slice_from_marks(
                     flv_path, result["json_path"], output_dir,
                     progress_callback=cb,
@@ -1784,6 +2200,7 @@ def start_pipeline():
                 result["slice_count"] = count
                 result["slice_dir"] = out_dir
 
+            _raise_if_task_cancelled(task_id)
             update_task(task_id, status="done",
                         progress=_pipeline_completion_progress(result),
                         result=json.dumps(result, ensure_ascii=False),
@@ -1821,8 +2238,10 @@ def retry_clip_review():
         flv_path,
         "候选复核等待启动...",
         conflict_types={"topic_pipeline", "clip_review_retry", "direct_slice"},
+        source_paths=(ass_path,) if os.path.isfile(ass_path) else (),
         output_paths=_topic_task_output_paths(flv_path, output_dir),
         metadata={"streamer_profile_id": streamer_profile.id},
+        streamer_profile=streamer_profile,
     )
     if active_task_id:
         return jsonify({
@@ -1866,8 +2285,13 @@ def optimize_manual_timeline():
         "timeline_optimization",
         flv_path,
         "人工时间轴优化等待启动...",
+        source_paths=(
+            manual_timeline_path,
+            *((ass_path,) if os.path.isfile(ass_path) else ()),
+        ),
         output_paths=(_topic_task_output_paths(flv_path, output_dir)[0],),
         metadata={"streamer_profile_id": streamer_profile.id},
+        streamer_profile=streamer_profile,
     )
     if active_task_id:
         return jsonify({
