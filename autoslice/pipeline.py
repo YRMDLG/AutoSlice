@@ -6,7 +6,13 @@ import json
 import os
 import threading
 from datetime import datetime
+from pathlib import Path
 
+from artifact_store import ARTIFACT_LAYOUT_VERSION
+from artifact_store import copy_artifact_file as _copy_artifact_file
+from artifact_store import seed_artifact_from_legacy as _seed_artifact_from_legacy
+from artifact_store import write_artifact_json as _write_artifact_json
+from artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice.analysis import candidates as candidate_analysis
@@ -14,19 +20,10 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
-from autoslice.llm.prompts import (
-    build_system_prompt as _render_system_prompt,
-    build_title_hook_guide as _render_title_hook_guide,
-)
+from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
+from autoslice.llm.prompts import build_title_hook_guide as _render_title_hook_guide
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription.contracts import SubtitleTitleServices
-from artifact_store import (
-    ARTIFACT_LAYOUT_VERSION,
-    copy_artifact_file as _copy_artifact_file,
-    seed_artifact_from_legacy as _seed_artifact_from_legacy,
-    write_artifact_json as _write_artifact_json,
-    write_artifact_text as _write_artifact_text,
-)
 from streamer_profiles import (
     current_streamer_profile,
     streamer_profile_context,
@@ -404,12 +401,9 @@ def write_optimized_timeline_files(
     )
     os.makedirs(os.path.dirname(os.path.abspath(json_path)), exist_ok=True)
     os.makedirs(os.path.dirname(os.path.abspath(md_path)), exist_ok=True)
+    source_video_path = video_path or video_base + ".flv"
     payload = {
-        "video_path": (
-            os.path.abspath(video_path)
-            if video_path
-            else video_base + ".flv"
-        ),
+        "video_path": str(Path(source_video_path).expanduser().resolve()),
         "source_path": source_path,
         "streamer_profile_id": current_streamer_profile().id,
         "optimization_version": MANUAL_TIMELINE_OPTIMIZATION_VERSION,

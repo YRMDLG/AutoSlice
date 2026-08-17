@@ -682,7 +682,11 @@
         "artifact_store.write_artifact_text"
       ],
       "lines": [
-        23
+        11,
+        12,
+        13,
+        14,
+        15
       ],
       "to": "artifact_store"
     },
@@ -692,7 +696,7 @@
         "autoslice.analysis.candidates"
       ],
       "lines": [
-        12
+        18
       ],
       "to": "autoslice.analysis.candidates"
     },
@@ -702,7 +706,7 @@
         "autoslice.analysis.danmaku"
       ],
       "lines": [
-        13
+        19
       ],
       "to": "autoslice.analysis.danmaku"
     },
@@ -712,7 +716,7 @@
         "autoslice.analysis.timeline"
       ],
       "lines": [
-        14
+        20
       ],
       "to": "autoslice.analysis.timeline"
     },
@@ -722,7 +726,7 @@
         "autoslice.analysis.titles"
       ],
       "lines": [
-        15
+        21
       ],
       "to": "autoslice.analysis.titles"
     },
@@ -733,7 +737,8 @@
         "autoslice.llm.prompts.build_title_hook_guide"
       ],
       "lines": [
-        17
+        23,
+        24
       ],
       "to": "autoslice.llm.prompts"
     },
@@ -743,7 +748,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        16
+        22
       ],
       "to": "autoslice.llm.transport"
     },
@@ -753,7 +758,7 @@
         "autoslice.reporting"
       ],
       "lines": [
-        10
+        16
       ],
       "to": "autoslice.reporting"
     },
@@ -763,7 +768,7 @@
         "autoslice.slicing"
       ],
       "lines": [
-        11
+        17
       ],
       "to": "autoslice.slicing"
     },
@@ -773,7 +778,7 @@
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
-        22
+        26
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -783,7 +788,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        21
+        25
       ],
       "to": "autoslice.transcription.service"
     },
@@ -794,7 +799,7 @@
         "streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        30
+        27
       ],
       "to": "streamer_profiles"
     },
@@ -1317,9 +1322,9 @@
   ],
   "longest_functions": [
     {
-      "end_line": 1704,
+      "end_line": 1698,
       "kind": "function",
-      "line": 1290,
+      "line": 1284,
       "line_count": 415,
       "module": "autoslice.pipeline",
       "path": "autoslice/pipeline.py",
@@ -1335,9 +1340,9 @@
       "qualname": "create_app"
     },
     {
-      "end_line": 1232,
+      "end_line": 1226,
       "kind": "function",
-      "line": 830,
+      "line": 824,
       "line_count": 403,
       "module": "autoslice.pipeline",
       "path": "autoslice/pipeline.py",
@@ -1425,9 +1430,9 @@
       "qualname": "render_cover"
     },
     {
-      "end_line": 659,
+      "end_line": 653,
       "kind": "function",
-      "line": 515,
+      "line": 509,
       "line_count": 145,
       "module": "autoslice.pipeline",
       "path": "autoslice/pipeline.py",
@@ -5072,179 +5077,179 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1704,
+      "line_count": 1698,
       "longest_function": {
-        "end_line": 1704,
+        "end_line": 1698,
         "kind": "function",
-        "line": 1290,
+        "line": 1284,
         "line_count": 415,
         "qualname": "retry_clip_review_from_artifacts_impl"
       },
       "module": "autoslice.pipeline",
       "path": "autoslice/pipeline.py",
-      "sha256": "16ee014ff73fe0fc2cdff096ae4d886dc0301cbd905d16a8226f84750181c83b",
+      "sha256": "7a06a796deca2c6b6990c799e35ac9a63d12d09ea51c779e96b865887e031f5b",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 149,
+          "end_line": 146,
           "kind": "function",
-          "line": 135,
+          "line": 132,
           "name": "_format_manual_entry_for_prompt"
         },
         {
-          "end_line": 165,
+          "end_line": 162,
           "kind": "function",
-          "line": 152,
+          "line": 149,
           "name": "_manual_timeline_info_for_chunk"
         },
         {
-          "end_line": 174,
+          "end_line": 171,
           "kind": "function",
-          "line": 168,
+          "line": 165,
           "name": "attach_manual_timeline_to_chunks"
         },
         {
-          "end_line": 179,
+          "end_line": 176,
           "kind": "function",
-          "line": 177,
+          "line": 174,
           "name": "title_hook_prompt_guide"
         },
         {
-          "end_line": 184,
+          "end_line": 181,
           "kind": "function",
-          "line": 182,
+          "line": 179,
           "name": "build_system_prompt"
         },
         {
-          "end_line": 194,
+          "end_line": 191,
           "kind": "function",
-          "line": 187,
+          "line": 184,
           "name": "subtitle_title_services"
         },
         {
-          "end_line": 207,
+          "end_line": 204,
           "kind": "function",
-          "line": 197,
+          "line": 194,
           "name": "try_enrich_manual_topics"
         },
         {
-          "end_line": 263,
+          "end_line": 260,
           "kind": "function",
-          "line": 210,
+          "line": 207,
           "name": "optimized_manual_entries_from_topics"
         },
         {
-          "end_line": 275,
+          "end_line": 272,
           "kind": "function",
-          "line": 266,
+          "line": 263,
           "name": "optimized_entry_needs_retry"
         },
         {
-          "end_line": 314,
+          "end_line": 311,
           "kind": "function",
-          "line": 278,
+          "line": 275,
           "name": "topic_from_optimized_entry"
         },
         {
-          "end_line": 323,
+          "end_line": 320,
           "kind": "function",
-          "line": 317,
+          "line": 314,
           "name": "_batch_warning_text"
         },
         {
-          "end_line": 363,
+          "end_line": 360,
           "kind": "function",
-          "line": 326,
+          "line": 323,
           "name": "retry_optimized_timeline_entries"
         },
         {
-          "end_line": 386,
+          "end_line": 383,
           "kind": "function",
-          "line": 366,
+          "line": 363,
           "name": "optimize_manual_timeline"
         },
         {
-          "end_line": 395,
+          "end_line": 392,
           "kind": "function",
-          "line": 389,
+          "line": 386,
           "name": "optimized_timeline_paths"
         },
         {
-          "end_line": 458,
+          "end_line": 452,
           "kind": "function",
-          "line": 398,
+          "line": 395,
           "name": "write_optimized_timeline_files"
         },
         {
-          "end_line": 512,
+          "end_line": 506,
           "kind": "function",
-          "line": 461,
+          "line": 455,
           "name": "load_optimized_timeline_artifact"
         },
         {
-          "end_line": 659,
+          "end_line": 653,
           "kind": "function",
-          "line": 515,
+          "line": 509,
           "name": "prepare_optimized_manual_timeline"
         },
         {
-          "end_line": 677,
+          "end_line": 671,
           "kind": "function",
-          "line": 662,
+          "line": 656,
           "name": "optimize_manual_timeline_for_video"
         },
         {
-          "end_line": 767,
+          "end_line": 761,
           "kind": "function",
-          "line": 680,
+          "line": 674,
           "name": "optimize_manual_timeline_for_video_impl"
         },
         {
-          "end_line": 786,
+          "end_line": 780,
           "kind": "function",
-          "line": 770,
+          "line": 764,
           "name": "_scaled_progress_callback"
         },
         {
-          "end_line": 807,
+          "end_line": 801,
           "kind": "function",
-          "line": 789,
+          "line": 783,
           "name": "_monotonic_progress_callback"
         },
         {
-          "end_line": 827,
+          "end_line": 821,
           "kind": "function",
-          "line": 810,
+          "line": 804,
           "name": "run_pipeline"
         },
         {
-          "end_line": 1232,
+          "end_line": 1226,
           "kind": "function",
-          "line": 830,
+          "line": 824,
           "name": "run_pipeline_impl"
         },
         {
-          "end_line": 1255,
+          "end_line": 1249,
           "kind": "function",
-          "line": 1235,
+          "line": 1229,
           "name": "_manual_timeline_for_rebuilt_report"
         },
         {
-          "end_line": 1267,
+          "end_line": 1261,
           "kind": "function",
-          "line": 1258,
+          "line": 1252,
           "name": "_warning_without_previous_clip_review"
         },
         {
-          "end_line": 1287,
+          "end_line": 1281,
           "kind": "function",
-          "line": 1270,
+          "line": 1264,
           "name": "retry_clip_review_from_artifacts"
         },
         {
-          "end_line": 1704,
+          "end_line": 1698,
           "kind": "function",
-          "line": 1290,
+          "line": 1284,
           "name": "retry_clip_review_from_artifacts_impl"
         }
       ]
@@ -6006,47 +6011,53 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 119,
+      "line_count": 138,
       "longest_function": {
-        "end_line": 58,
+        "end_line": 77,
         "kind": "function",
-        "line": 40,
+        "line": 59,
         "line_count": 19,
         "qualname": "_read_local_environment"
       },
       "module": "runtime_config",
       "path": "runtime_config.py",
-      "sha256": "b18759f1621b6d929d5c89849a981bb8541aa73b706e68aed5f6453d1f957636",
+      "sha256": "b97bf6bbcd4adf031e507ea35e9ed074f95b3e944f31a2320a7ab89aa2e88db4",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 58,
+          "end_line": 30,
           "kind": "function",
-          "line": 40,
-          "name": "_read_local_environment"
-        },
-        {
-          "end_line": 71,
-          "kind": "function",
-          "line": 64,
-          "name": "configured_value"
+          "line": 18,
+          "name": "resolve_local_config_path"
         },
         {
           "end_line": 77,
           "kind": "function",
-          "line": 74,
+          "line": 59,
+          "name": "_read_local_environment"
+        },
+        {
+          "end_line": 90,
+          "kind": "function",
+          "line": 83,
+          "name": "configured_value"
+        },
+        {
+          "end_line": 96,
+          "kind": "function",
+          "line": 93,
           "name": "configured_path"
         },
         {
-          "end_line": 86,
+          "end_line": 105,
           "kind": "function",
-          "line": 80,
+          "line": 99,
           "name": "apply_local_environment"
         },
         {
-          "end_line": 119,
+          "end_line": 138,
           "kind": "function",
-          "line": 112,
+          "line": 131,
           "name": "template_defaults"
         }
       ]
@@ -6416,44 +6427,44 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 47,
+      "line_count": 55,
       "longest_function": {
-        "end_line": 43,
+        "end_line": 51,
         "kind": "function",
-        "line": 20,
-        "line_count": 24,
+        "line": 19,
+        "line_count": 33,
         "qualname": "main"
       },
       "module": "scripts.run_hermetic_tests",
       "path": "scripts/run_hermetic_tests.py",
-      "sha256": "c31c849e495e0a5d2611c91b5919746cb1a30b2ba59dd8a94ea4d985963e9be3",
+      "sha256": "e45f1e97bf28e4eb2d0deb3170145d7838df6ed4b54a8b36a9cc99fec9018553",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 43,
+          "end_line": 51,
           "kind": "function",
-          "line": 20,
+          "line": 19,
           "name": "main"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 88,
+      "line_count": 92,
       "longest_function": {
-        "end_line": 84,
+        "end_line": 88,
         "kind": "function",
         "line": 53,
-        "line_count": 32,
+        "line_count": 36,
         "qualname": "main"
       },
       "module": "scripts.run_linux_logic_tests",
       "path": "scripts/run_linux_logic_tests.py",
-      "sha256": "f8d7440816d33961666d047e7b274dd2df45d50b4685078983f35155705c5e66",
+      "sha256": "3f068ef4412ed863ab0ef050340c333d7e47cd43ebd994a307415cc83142d59a",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 84,
+          "end_line": 88,
           "kind": "function",
           "line": 53,
           "name": "main"
@@ -6865,162 +6876,162 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 540,
+      "line_count": 541,
       "longest_function": {
-        "end_line": 284,
+        "end_line": 283,
         "kind": "function",
-        "line": 211,
+        "line": 210,
         "line_count": 74,
         "qualname": "load_streamer_profiles"
       },
       "module": "streamer_profiles",
       "path": "streamer_profiles.py",
-      "sha256": "5edae43fd75ca205219b5554bbf0b55b5f45de9f5e4ed6474bc47f3ad1f86762",
+      "sha256": "965469473bb6750fc5deac8d7be22b4df3c1ef4869448751eb35528b3a70b366",
       "top_level_classes": [
         {
-          "end_line": 43,
+          "end_line": 42,
           "kind": "class",
-          "line": 38,
+          "line": 37,
           "name": "OutroClipConfig"
         },
         {
-          "end_line": 103,
+          "end_line": 102,
           "kind": "class",
-          "line": 47,
+          "line": 46,
           "name": "StreamerProfile"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 108,
+          "end_line": 107,
           "kind": "function",
-          "line": 106,
+          "line": 105,
           "name": "_config_path"
         },
         {
-          "end_line": 118,
+          "end_line": 117,
           "kind": "function",
-          "line": 111,
+          "line": 110,
           "name": "_required_text"
         },
         {
-          "end_line": 129,
+          "end_line": 128,
           "kind": "function",
-          "line": 121,
+          "line": 120,
           "name": "_string_list"
         },
         {
-          "end_line": 148,
+          "end_line": 147,
           "kind": "function",
-          "line": 132,
+          "line": 131,
           "name": "_replacement_pairs"
         },
         {
-          "end_line": 177,
+          "end_line": 176,
           "kind": "function",
-          "line": 151,
+          "line": 150,
           "name": "_title_style_path"
         },
         {
-          "end_line": 208,
+          "end_line": 207,
           "kind": "function",
-          "line": 180,
+          "line": 179,
           "name": "_outro_clip_config"
         },
         {
-          "end_line": 284,
+          "end_line": 283,
           "kind": "function",
-          "line": 211,
+          "line": 210,
           "name": "load_streamer_profiles"
         },
         {
-          "end_line": 303,
+          "end_line": 304,
           "kind": "function",
-          "line": 287,
+          "line": 286,
           "name": "infer_streamer_name_from_filename"
         },
         {
-          "end_line": 309,
+          "end_line": 310,
           "kind": "function",
-          "line": 306,
+          "line": 307,
           "name": "_normalise_profile_name"
         },
         {
-          "end_line": 320,
+          "end_line": 321,
           "kind": "function",
-          "line": 312,
+          "line": 313,
           "name": "_profile_filename_names"
         },
         {
-          "end_line": 335,
+          "end_line": 336,
           "kind": "function",
-          "line": 323,
+          "line": 324,
           "name": "_match_profile_by_filename_name"
         },
         {
-          "end_line": 363,
+          "end_line": 364,
           "kind": "function",
-          "line": 338,
+          "line": 339,
           "name": "_match_profile_by_context"
         },
         {
-          "end_line": 388,
+          "end_line": 389,
           "kind": "function",
-          "line": 366,
+          "line": 367,
           "name": "_dynamic_filename_profile"
         },
         {
-          "end_line": 431,
+          "end_line": 432,
           "kind": "function",
-          "line": 391,
+          "line": 392,
           "name": "resolve_streamer_profile"
         },
         {
-          "end_line": 452,
+          "end_line": 453,
           "kind": "function",
-          "line": 434,
+          "line": 435,
           "name": "profile_identity_names"
         },
         {
-          "end_line": 460,
+          "end_line": 461,
           "kind": "function",
-          "line": 455,
+          "line": 456,
           "name": "profile_matches_streamer"
         },
         {
-          "end_line": 469,
+          "end_line": 470,
           "kind": "function",
-          "line": 463,
+          "line": 464,
           "name": "infer_streamer_name"
         },
         {
-          "end_line": 482,
+          "end_line": 483,
           "kind": "function",
-          "line": 472,
+          "line": 473,
           "name": "merge_profile_subtitle_glossary"
         },
         {
-          "end_line": 488,
+          "end_line": 489,
           "kind": "function",
-          "line": 485,
+          "line": 486,
           "name": "active_streamer_profile"
         },
         {
-          "end_line": 498,
+          "end_line": 499,
           "kind": "function",
-          "line": 491,
+          "line": 492,
           "name": "current_streamer_profile"
         },
         {
-          "end_line": 523,
+          "end_line": 524,
           "kind": "function",
-          "line": 502,
+          "line": 503,
           "name": "streamer_profile_context"
         },
         {
-          "end_line": 540,
+          "end_line": 541,
           "kind": "function",
-          "line": 526,
+          "line": 527,
           "name": "public_streamer_profiles"
         }
       ]
@@ -8069,11 +8080,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 104,
-    "production_line_count": 32631,
+    "production_line_count": 32657,
     "production_module_count": 55,
     "test_private_patch_count": 17,
     "top_level_class_count": 83,
-    "top_level_function_count": 837
+    "top_level_function_count": 838
   },
   "test_private_patches": {
     "by_target_module": {

@@ -9,7 +9,6 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -22,9 +21,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-q", "--quiet", action="store_true", help="减少 unittest 输出")
     args = parser.parse_args(argv)
 
-    previous_task_database = os.environ.get("AUTOSLICE_TASK_DB")
     with TemporaryDirectory(prefix="autoslice-hermetic-tasks-") as directory:
-        os.environ["AUTOSLICE_TASK_DB"] = str(Path(directory) / "tasks.sqlite3")
+        isolated_root = Path(directory)
+        environment = {
+            "AUTOSLICE_LOCAL_CONFIG": str(isolated_root / "autoslice.local.json"),
+            "AUTOSLICE_TASK_DB": str(isolated_root / "tasks.sqlite3"),
+            "AUTOSLICE_TITLE_STYLE_PROFILE": str(
+                ROOT / "title_style_profile.example.json"
+            ),
+        }
+        previous = {name: os.environ.get(name) for name in environment}
+        os.environ.update(environment)
         try:
             install_test_external_boundary_guard()
             suite = unittest.defaultTestLoader.discover(
@@ -36,10 +43,11 @@ def main(argv: list[str] | None = None) -> int:
                 verbosity=0 if args.quiet else 2
             ).run(suite)
         finally:
-            if previous_task_database is None:
-                os.environ.pop("AUTOSLICE_TASK_DB", None)
-            else:
-                os.environ["AUTOSLICE_TASK_DB"] = previous_task_database
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
     return 0 if result.wasSuccessful() else 1
 
 

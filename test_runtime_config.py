@@ -9,6 +9,16 @@ import runtime_config
 
 class RuntimeConfigTests(unittest.TestCase):
 
+    def test_local_config_path_can_be_isolated_by_environment(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            configured = Path(temp_dir) / "isolated.json"
+            with patch.dict(os.environ, {
+                runtime_config.LOCAL_CONFIG_ENV_NAME: str(configured),
+            }):
+                resolved = runtime_config.resolve_local_config_path()
+
+        self.assertEqual(resolved, configured.resolve())
+
     def test_local_config_accepts_funasr_adjustment_keys(self):
         for key in (
             "AUTOSLICE_FUNASR_DEVICE",

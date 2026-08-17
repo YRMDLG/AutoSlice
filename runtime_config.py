@@ -8,10 +8,29 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
-LOCAL_CONFIG_PATH = PROJECT_DIR / "autoslice.local.json"
+LOCAL_CONFIG_ENV_NAME = "AUTOSLICE_LOCAL_CONFIG"
+
+
+def resolve_local_config_path(
+    environ: Mapping[str, str] | None = None,
+) -> Path:
+    """解析本机配置路径，便于测试和多实例显式隔离。"""
+
+    source = environ if environ is not None else os.environ
+    configured = str(source.get(LOCAL_CONFIG_ENV_NAME, "")).strip()
+    path = (
+        Path(configured).expanduser()
+        if configured
+        else PROJECT_DIR / "autoslice.local.json"
+    )
+    return path.resolve()
+
+
+LOCAL_CONFIG_PATH = resolve_local_config_path()
 
 
 _LOCAL_ENVIRONMENT_KEYS = frozenset({

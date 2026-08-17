@@ -9,9 +9,8 @@ import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Iterator
-
 
 PROFILE_SCHEMA_VERSION = 1
 AUTO_PROFILE_ID = "auto"
@@ -291,7 +290,9 @@ def infer_streamer_name_from_filename(
 
     if not video_path:
         return None
-    filename = Path(str(video_path)).stem.strip()
+    raw_path = str(video_path)
+    path_parser = PureWindowsPath if "\\" in raw_path else Path
+    filename = path_parser(raw_path).stem.strip()
     match = _FILENAME_STREAMER_RE.match(filename)
     if not match:
         return None

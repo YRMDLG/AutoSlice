@@ -58,9 +58,13 @@ def main(argv: list[str] | None = None) -> int:
     with TemporaryDirectory(prefix="autoslice-linux-logic-") as directory:
         isolated_root = Path(directory)
         environment = {
+            "AUTOSLICE_LOCAL_CONFIG": str(isolated_root / "autoslice.local.json"),
             "AUTOSLICE_TASK_DB": str(isolated_root / "tasks.sqlite3"),
             "AUTOSLICE_OUTPUT_DIR": str(isolated_root / "output"),
             "AUTOSLICE_TIMELINE_DIR": str(isolated_root / "timelines"),
+            "AUTOSLICE_TITLE_STYLE_PROFILE": str(
+                ROOT / "title_style_profile.example.json"
+            ),
         }
         managed_names = (*environment, *PRIVATE_ENVIRONMENT_NAMES)
         previous = {name: os.environ.get(name) for name in managed_names}
