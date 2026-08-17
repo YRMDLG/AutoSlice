@@ -24,6 +24,7 @@ from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
+from autoslice import reporting as reporting_service
 from autoslice.transcription import service as transcription_service
 from llm_client import (
     LLMApiConfig,
@@ -1364,6 +1365,15 @@ class TitleStyleEvidenceTests(unittest.TestCase):
 
 
 class ArtifactBundleTests(unittest.TestCase):
+
+    def test_topic_engine_reporting_facade_keeps_service_object_identity(self):
+        self.assertGreater(len(reporting_service.FACADE_EXPORTS), 25)
+        for facade_name, reporting_name in reporting_service.FACADE_EXPORTS.items():
+            with self.subTest(facade_name=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(reporting_service, reporting_name),
+                )
     """单场整理包只集中可读产物和运行数据，不破坏旧文件。"""
 
     def test_layout_uses_safe_distinct_bundle_names_for_recording_parts(self):
@@ -4388,7 +4398,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 ) as analyze_chunks,
                 patch("autoslice.analysis.candidates.merge_manual_timeline_topics"),
                 patch("topic_engine.parse_srt_segments", return_value=[]),
-                patch("topic_engine.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
+                patch("autoslice.reporting.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
             ):
                 result = run_pipeline(str(flv_path), manual_timeline_path=manual_timeline["path"])
             unified_queue = json.loads(Path(result["unified_queue_json_path"]).read_text(encoding="utf-8"))
@@ -9129,9 +9139,9 @@ class HybridModelRoutingTests(unittest.TestCase):
                 ) as prepare,
                 patch("autoslice.analysis.candidates.analyze_topic_chunks", return_value=([], [], None)),
                 patch("autoslice.analysis.candidates.write_clip_review_checkpoint"),
-                patch("topic_engine._build_refinement_manifest", return_value={}),
-                patch("topic_engine._write_refinement_manifest_files"),
-                patch("topic_engine._upsert_unified_refinement_queue"),
+                patch("autoslice.reporting.build_refinement_manifest", return_value={}),
+                patch("autoslice.reporting.write_refinement_manifest_files"),
+                patch("autoslice.reporting.upsert_unified_refinement_queue"),
             ):
                 result = run_pipeline(
                     str(flv_path),
@@ -9256,10 +9266,10 @@ class PipelineProgressTests(unittest.TestCase):
                 patch("topic_engine._prepare_optimized_manual_timeline", side_effect=fake_prepare),
                 patch("autoslice.analysis.candidates.analyze_topic_chunks", side_effect=fake_analyze),
                 patch("autoslice.analysis.candidates.write_clip_review_checkpoint"),
-                patch("topic_engine._build_timeline_report", return_value="# 测试报告\n"),
-                patch("topic_engine._build_refinement_manifest", return_value={}),
-                patch("topic_engine._write_refinement_manifest_files"),
-                patch("topic_engine._upsert_unified_refinement_queue"),
+                patch("autoslice.reporting.build_timeline_report", return_value="# 测试报告\n"),
+                patch("autoslice.reporting.build_refinement_manifest", return_value={}),
+                patch("autoslice.reporting.write_refinement_manifest_files"),
+                patch("autoslice.reporting.upsert_unified_refinement_queue"),
             ):
                 run_pipeline(
                     str(flv_path),
