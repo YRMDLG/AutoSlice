@@ -103,7 +103,7 @@ jobs:
       - name: Install minimal logic-test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "flask>=3.0,<4.0" "requests>=2.31,<3.0"
+          python -m pip install "flask>=3.0,<4.0" "requests>=2.31,<3.0" "Pillow>=10.0,<13.0"
 
       - name: Validate editable package metadata
         run: |
