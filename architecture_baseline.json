@@ -2957,6 +2957,29 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 34,
+      "longest_function": {
+        "end_line": 30,
+        "kind": "function",
+        "line": 18,
+        "line_count": 13,
+        "qualname": "main"
+      },
+      "module": "scripts.run_hermetic_tests",
+      "path": "scripts/run_hermetic_tests.py",
+      "sha256": "3f71734b535a27e29ee043e77ad3d82a50533c7b4b2db8d2342f34c4b263bb3c",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 30,
+          "kind": "function",
+          "line": 18,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 177,
       "longest_function": {
         "end_line": 147,
@@ -6067,6 +6090,7 @@
       "autocover_tool/autocover/workspace.py",
       "scripts/architecture_snapshot.py",
       "scripts/compile_public.py",
+      "scripts/run_hermetic_tests.py",
       "scripts/scan_public_release.py",
       "scripts/smoke_startup.py",
       "scripts/sync_autocover.py",
@@ -6100,11 +6124,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 41,
-    "production_line_count": 26017,
-    "production_module_count": 31,
+    "production_line_count": 26051,
+    "production_module_count": 32,
     "test_private_patch_count": 139,
     "top_level_class_count": 36,
-    "top_level_function_count": 744
+    "top_level_function_count": 745
   },
   "test_private_patches": {
     "by_target_module": {

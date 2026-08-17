@@ -60,7 +60,7 @@ jobs:
 
       - name: Run unified test suite
         shell: pwsh
-        run: python -B -m unittest discover -q
+        run: python -B scripts/run_hermetic_tests.py -q
 
       - name: Compile Python sources
         shell: pwsh

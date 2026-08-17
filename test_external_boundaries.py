@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import builtins
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -55,6 +56,17 @@ PRIVATE_MEDIA_SUFFIXES = frozenset({
     ".webp",
     ".xml",
 })
+SYSTEM_FONT_SUFFIXES = frozenset({".otf", ".ttc", ".ttf"})
+_MEDIA_SUFFIX_PATTERN = "|".join(
+    re.escape(suffix.removeprefix("."))
+    for suffix in sorted(PRIVATE_MEDIA_SUFFIXES, key=len, reverse=True)
+)
+_WINDOWS_MEDIA_PATH_RE = re.compile(
+    rf"(?i)([a-z]:[\\/][^'\";,|:]*?\.(?:{_MEDIA_SUFFIX_PATTERN}))"
+)
+_POSIX_MEDIA_PATH_RE = re.compile(
+    rf"(?i)(/[^'\";,|:]*?\.(?:{_MEDIA_SUFFIX_PATTERN}))"
+)
 
 
 _ORIGINAL_IMPORT = builtins.__import__
@@ -130,6 +142,36 @@ def _resolved_path(file: object) -> Path | None:
         return None
 
 
+def _system_font_roots() -> tuple[Path, ...]:
+    """返回可公开读取的系统字体目录，不包含用户字体或项目字体。"""
+    candidates = []
+    if os.name == "nt":
+        candidates.append(Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts")
+    else:
+        candidates.extend((Path("/usr/share/fonts"), Path("/usr/local/share/fonts")))
+    roots = []
+    for candidate in candidates:
+        try:
+            roots.append(candidate.resolve(strict=False))
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return tuple(roots)
+
+
+def _media_path_candidates(argument: str) -> tuple[str, ...]:
+    """从普通参数、``--key=path`` 和 FFmpeg 滤镜中提取媒体路径。"""
+    normalized = argument.strip("\"'").replace(r"\:", ":").replace(r"\'", "'")
+    windows_paths = _WINDOWS_MEDIA_PATH_RE.findall(normalized)
+    # Windows 路径本身含有 ``/Users/...`` 片段；命中盘符路径后不能再把
+    # 其中的斜杠部分当成第二条 POSIX 绝对路径。
+    absolute_paths = windows_paths or _POSIX_MEDIA_PATH_RE.findall(normalized)
+    if absolute_paths:
+        return tuple(dict.fromkeys(absolute_paths))
+    if normalized.startswith(("-", "/")) and "=" in normalized:
+        normalized = normalized.split("=", 1)[1].strip("\"'")
+    return (normalized,)
+
+
 def _guarded_path_open(path, *args, **kwargs):
     EXTERNAL_BOUNDARY_GUARD.validate_media_path(path)
     return _ORIGINAL_PATH_OPEN(path, *args, **kwargs)
@@ -145,12 +187,22 @@ class ExternalBoundaryGuard:
         self._temporary_roots: dict[Path, int] = {
             Path(tempfile.gettempdir()).resolve(): 1,
         }
-        self._saved_offline_environment: dict[str, str | None] = {}
+        self._system_font_roots = _system_font_roots()
+        self._saved_environment: dict[str, str | None] = {}
+        self._isolated_environment: tempfile.TemporaryDirectory[str] | None = None
 
     def _path_is_allowed(self, path: Path) -> bool:
         with self._lock:
             roots = tuple(self._temporary_roots)
-        return any(path == root or root in path.parents for root in roots)
+        if any(path == root or root in path.parents for root in roots):
+            return True
+        return (
+            path.suffix.casefold() in SYSTEM_FONT_SUFFIXES
+            and any(
+                path == root or root in path.parents
+                for root in self._system_font_roots
+            )
+        )
 
     def validate_media_path(self, file: object) -> None:
         path = _resolved_path(file)
@@ -190,19 +242,30 @@ class ExternalBoundaryGuard:
         if len(lowered) >= 3 and lowered[1:3] == ["-m", "pip"]:
             raise _boundary_error("包/模型安装", " ".join(parts[:3]))
         for part in parts:
-            self.validate_media_path(part)
+            for candidate in _media_path_candidates(part):
+                self.validate_media_path(candidate)
 
     def install(self) -> "ExternalBoundaryGuard":
         with self._lock:
             if self._installed:
                 return self
-            offline_values = {
+            self._isolated_environment = tempfile.TemporaryDirectory(
+                prefix="autoslice-test-boundary-"
+            )
+            isolated_root = Path(self._isolated_environment.name)
+            sticker_root = isolated_root / "stickers"
+            imported_sticker_root = isolated_root / "imported-stickers"
+            sticker_root.mkdir()
+            imported_sticker_root.mkdir()
+            environment_values = {
                 "HF_HUB_OFFLINE": "1",
                 "MODELSCOPE_LOCAL_ONLY": "1",
                 "TRANSFORMERS_OFFLINE": "1",
+                "AUTOCOVER_STICKER_DIR": str(sticker_root),
+                "AUTOCOVER_USER_ASSET_DIR": str(imported_sticker_root),
             }
-            for key, value in offline_values.items():
-                self._saved_offline_environment[key] = os.environ.get(key)
+            for key, value in environment_values.items():
+                self._saved_environment[key] = os.environ.get(key)
                 os.environ[key] = value
             self._patchers = [
                 patch.object(builtins, "__import__", new=_guarded_import),
@@ -227,13 +290,16 @@ class ExternalBoundaryGuard:
                 return
             for patcher in reversed(self._patchers):
                 patcher.stop()
-            for key, previous in self._saved_offline_environment.items():
+            for key, previous in self._saved_environment.items():
                 if previous is None:
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = previous
             self._patchers = []
-            self._saved_offline_environment = {}
+            self._saved_environment = {}
+            if self._isolated_environment is not None:
+                self._isolated_environment.cleanup()
+                self._isolated_environment = None
             self._installed = False
 
     def _guarded_open(self, file, *args, **kwargs):
@@ -304,6 +370,29 @@ class ExternalBoundaryTests(unittest.TestCase):
             temporary_srt = Path(temp_dir) / "fixture.srt"
             temporary_srt.write_text("1\n00:00:00,000 --> 00:00:01,000\n测试\n", encoding="utf-8")
             self.assertIn("测试", temporary_srt.read_text(encoding="utf-8"))
+
+            # Chromium 等命令使用 --option=path 传递临时输出，不能把整个
+            # 参数误解析为仓库下的相对媒体路径。
+            EXTERNAL_BOUNDARY_GUARD.validate_subprocess([
+                "browser",
+                f"--screenshot={temporary_srt.with_suffix('.png')}",
+            ])
+            ffmpeg_path = str(temporary_srt).replace("\\", "/").replace(":", r"\:")
+            EXTERNAL_BOUNDARY_GUARD.validate_subprocess([
+                "ffmpeg",
+                "-vf",
+                f"ass='{ffmpeg_path}'",
+            ])
+
+    def test_public_system_font_is_allowed_without_allowing_user_font(self):
+        if not EXTERNAL_BOUNDARY_GUARD._system_font_roots:
+            self.skipTest("当前平台没有已声明的系统字体目录")
+        system_font = EXTERNAL_BOUNDARY_GUARD._system_font_roots[0] / "fixture.ttf"
+        EXTERNAL_BOUNDARY_GUARD.validate_media_path(system_font)
+
+        private_font = Path(__file__).resolve().parent / "local" / "private.ttf"
+        with self.assertRaisesRegex(AssertionError, "用户媒体访问"):
+            EXTERNAL_BOUNDARY_GUARD.validate_media_path(private_font)
 
     def test_package_install_command_is_rejected_before_process_creation(self):
         with self.assertRaisesRegex(AssertionError, "包/模型安装"):

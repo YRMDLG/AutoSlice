@@ -53,7 +53,15 @@ class EndToEndTests(unittest.TestCase):
         )
         self.output = self.root / "输出"
         self.cache = self.root / "缓存"
-        self.client = create_app({"TESTING": True}).test_client()
+        self.stickers = self.root / "贴图"
+        self.imported_stickers = self.root / "导入贴图"
+        self.stickers.mkdir()
+        self.imported_stickers.mkdir()
+        self.client = create_app({
+            "TESTING": True,
+            "STICKER_DIR": str(self.stickers),
+            "IMPORTED_STICKER_DIR": str(self.imported_stickers),
+        }).test_client()
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
