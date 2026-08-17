@@ -24,11 +24,17 @@ DEFAULT_TASK_DATABASE_PATH = DEFAULT_TASK_STATE_DIR / "tasks.sqlite3"
 VALID_TASK_STATUSES = frozenset({
     "queued",
     "running",
+    "interrupted",
     "done",
     "error",
     "cancelled",
 })
-TERMINAL_TASK_STATUSES = frozenset({"done", "error", "cancelled"})
+TERMINAL_TASK_STATUSES = frozenset({
+    "interrupted",
+    "done",
+    "error",
+    "cancelled",
+})
 MAX_LIST_LIMIT = 1000
 
 _MAX_TASK_ID_LENGTH = 200
@@ -79,8 +85,13 @@ _MIGRATION_1 = (
         task_type TEXT NOT NULL,
         source_path TEXT,
         output_path TEXT,
+        source_paths TEXT NOT NULL DEFAULT '[]',
+        output_paths TEXT NOT NULL DEFAULT '[]',
         status TEXT NOT NULL CHECK (
-            status IN ('queued', 'running', 'done', 'error', 'cancelled')
+            status IN (
+                'queued', 'running', 'interrupted',
+                'done', 'error', 'cancelled'
+            )
         ),
         progress TEXT NOT NULL DEFAULT '',
         message TEXT NOT NULL DEFAULT '',
@@ -95,7 +106,9 @@ _MIGRATION_1 = (
         CHECK (step <= total),
         CHECK (finished_at IS NULL OR finished_at >= created_at),
         CHECK (
-            (status IN ('done', 'error', 'cancelled') AND finished_at IS NOT NULL)
+            (status IN (
+                'interrupted', 'done', 'error', 'cancelled'
+            ) AND finished_at IS NOT NULL)
             OR (status IN ('queued', 'running') AND finished_at IS NULL)
         )
     )
@@ -111,6 +124,8 @@ _EXPECTED_COLUMNS = frozenset({
     "task_type",
     "source_path",
     "output_path",
+    "source_paths",
+    "output_paths",
     "status",
     "progress",
     "message",
@@ -173,6 +188,8 @@ class TaskRecord:
     task_type: str
     source_path: str | None
     output_path: str | None
+    source_paths: tuple[str, ...]
+    output_paths: tuple[str, ...]
     status: str
     progress: str
     message: str
@@ -216,6 +233,53 @@ def normalize_task_path(path: str | os.PathLike[str] | None) -> str | None:
         raise ValueError("任务路径不能包含 NUL 字符")
     expanded = os.path.expandvars(os.path.expanduser(value))
     return os.path.normcase(os.path.abspath(os.path.normpath(expanded)))
+
+
+def normalize_task_paths(
+        primary_path: str | os.PathLike[str] | None,
+        paths: Sequence[str | os.PathLike[str]] | str | os.PathLike[str] | None,
+) -> tuple[str, ...]:
+    """规范并去重任务资源路径，同时保证主路径位于第一项。"""
+
+    raw_paths: list[str | os.PathLike[str]] = []
+    if primary_path is not None:
+        raw_paths.append(primary_path)
+    if paths is not None:
+        if isinstance(paths, (str, os.PathLike)):
+            raw_paths.append(paths)
+        else:
+            try:
+                raw_paths.extend(paths)
+            except TypeError as exc:
+                raise ValueError("任务路径集合必须是可迭代路径序列") from exc
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for path in raw_paths:
+        value = normalize_task_path(path)
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return tuple(normalized)
+
+
+def _encode_path_tuple(paths: Sequence[str]) -> str:
+    return json.dumps(
+        list(paths),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _decode_path_tuple(value: str, field: str) -> tuple[str, ...]:
+    decoded = _decode_json(value, field, default=[])
+    if not isinstance(decoded, list) or any(
+            not isinstance(item, str) or not item
+            for item in decoded):
+        raise TaskStoreSchemaError(f"数据库字段 {field} 必须是非空路径字符串数组")
+    if len(decoded) != len(set(decoded)):
+        raise TaskStoreSchemaError(f"数据库字段 {field} 不能包含重复路径")
+    return tuple(decoded)
 
 
 def _validate_task_id(task_id: str) -> str:
@@ -398,6 +462,8 @@ class TaskStore:
             *,
             source_path: str | os.PathLike[str] | None = None,
             output_path: str | os.PathLike[str] | None = None,
+            source_paths: Sequence[str | os.PathLike[str]] | None = None,
+            output_paths: Sequence[str | os.PathLike[str]] | None = None,
             status: str = "queued",
             progress: str = "",
             message: str = "",
@@ -417,6 +483,8 @@ class TaskStore:
                 task_type,
                 source_path=source_path,
                 output_path=output_path,
+                source_paths=source_paths,
+                output_paths=output_paths,
                 status=status,
                 progress=progress,
                 message=message,
@@ -672,6 +740,8 @@ class TaskStore:
             *,
             source_path: str | os.PathLike[str] | None,
             output_path: str | os.PathLike[str] | None,
+            source_paths: Sequence[str | os.PathLike[str]] | None,
+            output_paths: Sequence[str | os.PathLike[str]] | None,
             status: str,
             progress: str,
             message: str,
@@ -711,11 +781,15 @@ class TaskStore:
                 and not isinstance(streamer_profile_snapshot, Mapping)):
             raise ValueError("streamer_profile_snapshot 必须是对象或 None")
         profile = dict(streamer_profile_snapshot or {})
+        normalized_sources = normalize_task_paths(source_path, source_paths)
+        normalized_outputs = normalize_task_paths(output_path, output_paths)
         return {
             "task_id": task_id,
             "task_type": task_type,
-            "source_path": normalize_task_path(source_path),
-            "output_path": normalize_task_path(output_path),
+            "source_path": normalized_sources[0] if normalized_sources else None,
+            "output_path": normalized_outputs[0] if normalized_outputs else None,
+            "source_paths": _encode_path_tuple(normalized_sources),
+            "output_paths": _encode_path_tuple(normalized_outputs),
             "status": status,
             "progress": _validate_safe_text(
                 progress,
@@ -784,11 +858,21 @@ class TaskStore:
         )
         if not isinstance(profile, dict):
             raise TaskStoreSchemaError("streamer_profile_snapshot 必须是 JSON 对象")
+        source_paths = _decode_path_tuple(row["source_paths"], "source_paths")
+        output_paths = _decode_path_tuple(row["output_paths"], "output_paths")
+        source_path = row["source_path"]
+        output_path = row["output_path"]
+        if source_path != (source_paths[0] if source_paths else None):
+            raise TaskStoreSchemaError("source_path 与 source_paths 主路径不一致")
+        if output_path != (output_paths[0] if output_paths else None):
+            raise TaskStoreSchemaError("output_path 与 output_paths 主路径不一致")
         return TaskRecord(
             task_id=str(row["task_id"]),
             task_type=str(row["task_type"]),
-            source_path=row["source_path"],
-            output_path=row["output_path"],
+            source_path=source_path,
+            output_path=output_path,
+            source_paths=source_paths,
+            output_paths=output_paths,
             status=str(row["status"]),
             progress=str(row["progress"]),
             message=str(row["message"]),
@@ -868,6 +952,8 @@ class TaskStoreTransaction:
             task_type,
             source_path=values.pop("source_path", None),
             output_path=values.pop("output_path", None),
+            source_paths=values.pop("source_paths", None),
+            output_paths=values.pop("output_paths", None),
             status=values.pop("status", "queued"),
             progress=values.pop("progress", ""),
             message=values.pop("message", ""),
@@ -888,11 +974,15 @@ class TaskStoreTransaction:
         record = self._store._select_task(self._connection, prepared["task_id"])
         if record is None:
             raise TaskStoreError("任务写入后无法读取")
-        identity = (record.task_type, record.source_path, record.output_path)
+        identity = (
+            record.task_type,
+            record.source_paths,
+            record.output_paths,
+        )
         requested_identity = (
             prepared["task_type"],
-            prepared["source_path"],
-            prepared["output_path"],
+            _decode_path_tuple(prepared["source_paths"], "source_paths"),
+            _decode_path_tuple(prepared["output_paths"], "output_paths"),
         )
         if not inserted and identity != requested_identity:
             raise TaskConflictError(
@@ -1116,4 +1206,5 @@ __all__ = [
     "TaskStoreSchemaError",
     "VALID_TASK_STATUSES",
     "normalize_task_path",
+    "normalize_task_paths",
 ]

@@ -15,6 +15,7 @@ from task_store import (
     TaskStore,
     TaskStoreCorruptionError,
     normalize_task_path,
+    normalize_task_paths,
 )
 
 
@@ -31,6 +32,8 @@ class TaskStoreTests(unittest.TestCase):
                 "topic_pipeline",
                 source_path=source / ".." / source.name,
                 output_path=output,
+                source_paths=(source, root / "录播" / "主播.ass"),
+                output_paths=(output, root / "输出" / "主播_话题切片"),
                 progress="准备分析",
                 message="任务已预约",
                 result_summary={"topic_count": 0},
@@ -55,6 +58,14 @@ class TaskStoreTests(unittest.TestCase):
         self.assertIsNotNone(restored)
         self.assertEqual(restored.source_path, normalize_task_path(source))
         self.assertEqual(restored.output_path, normalize_task_path(output))
+        self.assertEqual(
+            restored.source_paths,
+            normalize_task_paths(source, (source, root / "录播" / "主播.ass")),
+        )
+        self.assertEqual(
+            restored.output_paths,
+            normalize_task_paths(output, (output, root / "输出" / "主播_话题切片")),
+        )
         self.assertEqual(restored.status, "done")
         self.assertEqual(restored.progress, "完成")
         self.assertEqual(restored.message, "分析完成")
@@ -103,6 +114,7 @@ class TaskStoreTests(unittest.TestCase):
                 "stable_task",
                 "subtitle_review",
                 source_path=root / "字幕.srt",
+                source_paths=(root / "字幕.srt", root / "成片.mp4"),
                 progress="等待",
             )
             store.update_task(
@@ -116,6 +128,7 @@ class TaskStoreTests(unittest.TestCase):
                 "stable_task",
                 "subtitle_review",
                 source_path=root / "." / "字幕.srt",
+                source_paths=(root / "字幕.srt", root / "成片.mp4"),
                 progress="不应覆盖",
             )
 
@@ -128,6 +141,38 @@ class TaskStoreTests(unittest.TestCase):
                     "subtitle_review",
                     source_path=root / "另一份字幕.srt",
                 )
+            with self.assertRaisesRegex(TaskConflictError, "不同的类型或路径"):
+                store.create_task(
+                    "stable_task",
+                    "subtitle_review",
+                    source_path=root / "字幕.srt",
+                    source_paths=(root / "字幕.srt", root / "另一份成片.mp4"),
+                )
+
+    def test_interrupted_is_persisted_as_recoverable_terminal_state(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "tasks.sqlite3"
+            store = TaskStore(database)
+            store.create_task(
+                "interrupted_task",
+                "topic_pipeline",
+                source_paths=(root / "录播.flv", root / "弹幕.ass"),
+                output_paths=(root / "自动切片", root / "话题切片"),
+                status="running",
+            )
+            interrupted = store.update_task(
+                "interrupted_task",
+                status="interrupted",
+                message="服务重启，可从检查点重试",
+            )
+            reopened = TaskStore(database).get_task("interrupted_task")
+
+        self.assertEqual(interrupted.status, "interrupted")
+        self.assertIsNotNone(interrupted.finished_at)
+        self.assertEqual(reopened.status, "interrupted")
+        self.assertEqual(len(reopened.source_paths), 2)
+        self.assertEqual(len(reopened.output_paths), 2)
 
     def test_partial_update_does_not_erase_old_fields(self):
         with TemporaryDirectory() as temporary:
