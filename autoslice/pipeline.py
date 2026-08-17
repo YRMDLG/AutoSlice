@@ -189,7 +189,7 @@ def subtitle_title_services():
     return SubtitleTitleServices(
         max_publish_title_chars=MAX_PUBLISH_TITLE_CHARS,
         build_title_style_prompt=_build_title_style_prompt,
-        build_title_hook_prompt_guide=_title_hook_prompt_guide,
+        build_title_hook_prompt_guide=title_hook_prompt_guide,
         normalise_publish_title=_normalise_publish_title,
     )
 

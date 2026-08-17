@@ -4903,7 +4903,7 @@
       },
       "module": "autoslice.pipeline",
       "path": "autoslice/pipeline.py",
-      "sha256": "d3807945275c93fa1e1c68e129028d10533121f1ef55e3924c7e7145793ed090",
+      "sha256": "d7e2a69dcdbf27be26e883f9f0202684b0b3305942d55f70f9ccd8fd712369d9",
       "top_level_classes": [],
       "top_level_functions": [
         {
