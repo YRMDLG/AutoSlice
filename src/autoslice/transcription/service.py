@@ -15,9 +15,8 @@ import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
 
-from autoslice.transcription import results as result_contracts
+from autoslice.transcription import model_runtime, results as result_contracts
 from autoslice.transcription.contracts import (
-    DEFAULT_SUBTITLE_GLOSSARY,
     DEFAULT_SUBTITLE_MAX_CHARS,
 )
 from autoslice.streamer_profiles import (
@@ -30,29 +29,9 @@ from autoslice.streamer_profiles import (
 
 FACADE_EXPORTS = {
     '_infer_streamer_name': 'infer_streamer_name',
-    'FUNASR_BATCH_SIZE_SEC': 'FUNASR_BATCH_SIZE_SEC',
-    'FUNASR_CACHE_MODEL_DIR': 'FUNASR_CACHE_MODEL_DIR',
     'FUNASR_CHECKPOINT_VERSION': 'FUNASR_CHECKPOINT_VERSION',
     'FUNASR_CHUNK_PRE_CONTEXT_SEC': 'FUNASR_CHUNK_PRE_CONTEXT_SEC',
     'FUNASR_CHUNK_SEC': 'FUNASR_CHUNK_SEC',
-    'FUNASR_CONTEXTUAL_CACHE_MODEL_DIR': 'FUNASR_CONTEXTUAL_CACHE_MODEL_DIR',
-    'FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC': 'FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC',
-    'FUNASR_CONTEXTUAL_MODEL': 'FUNASR_CONTEXTUAL_MODEL',
-    'FUNASR_CPU_RETRY_DELAY_SEC': 'FUNASR_CPU_RETRY_DELAY_SEC',
-    'FUNASR_DEFAULT_DEVICE': 'FUNASR_DEFAULT_DEVICE',
-    'FUNASR_FOREGROUND_AUDIO_FILTER': 'FUNASR_FOREGROUND_AUDIO_FILTER',
-    'FUNASR_HOTWORD_MAX_CHARS': 'FUNASR_HOTWORD_MAX_CHARS',
-    'FUNASR_HOTWORD_MAX_COUNT': 'FUNASR_HOTWORD_MAX_COUNT',
-    'FUNASR_MODEL': 'FUNASR_MODEL',
-    'FUNASR_NANO_CACHE_ROOTS': 'FUNASR_NANO_CACHE_ROOTS',
-    'FUNASR_NANO_MODEL': 'FUNASR_NANO_MODEL',
-    'FUNASR_PUNC_CACHE_MODEL_DIR': 'FUNASR_PUNC_CACHE_MODEL_DIR',
-    'FUNASR_PUNC_MODEL': 'FUNASR_PUNC_MODEL',
-    'FUNASR_SPK_CACHE_MODEL_DIR': 'FUNASR_SPK_CACHE_MODEL_DIR',
-    'FUNASR_SPK_MODEL': 'FUNASR_SPK_MODEL',
-    'FUNASR_SPK_WEIGHT_FILES': 'FUNASR_SPK_WEIGHT_FILES',
-    'FUNASR_VAD_CACHE_MODEL_DIR': 'FUNASR_VAD_CACHE_MODEL_DIR',
-    'FUNASR_VAD_MODEL': 'FUNASR_VAD_MODEL',
     'SRT_ABNORMAL_CHARS_PER_SEC': 'SRT_ABNORMAL_CHARS_PER_SEC',
     'SRT_MAX_ESTIMATED_SEG_SEC': 'SRT_MAX_ESTIMATED_SEG_SEC',
     'SRT_REPEAT_REPAIR_MIN_ENTRIES': 'SRT_REPEAT_REPAIR_MIN_ENTRIES',
@@ -73,18 +52,7 @@ FACADE_EXPORTS = {
     '_read_srt_entries': '_read_srt_entries',
     'export_corrected_srt': 'export_corrected_srt',
     '_probe_video_duration': 'probe_video_duration',
-    '_prepare_funasr_environment': '_prepare_funasr_environment',
-    '_funasr_model_cache_candidates': 'funasr_model_cache_candidates',
-    '_funasr_nano_cache_candidates': '_funasr_nano_cache_candidates',
-    '_resolve_funasr_model_source': 'resolve_funasr_model_source',
-    '_resolve_funasr_aux_model_source': 'resolve_funasr_aux_model_source',
-    '_resolve_funasr_speaker_model_source': 'resolve_funasr_speaker_model_source',
     '_funasr_model_runtime_signature': '_funasr_model_runtime_signature',
-    '_funasr_hotwords': '_funasr_hotwords',
-    '_funasr_generate_kwargs': '_funasr_generate_kwargs',
-    '_resolve_funasr_device': 'resolve_funasr_device',
-    'funasr_public_status': 'funasr_public_status',
-    '_load_funasr_model': 'load_funasr_model',
     '_funasr_checkpoint_path': 'funasr_checkpoint_path',
     '_funasr_source_fingerprint': '_funasr_source_fingerprint',
     '_funasr_chunk_fingerprint': '_funasr_chunk_fingerprint',
@@ -92,7 +60,6 @@ FACADE_EXPORTS = {
     '_is_close_number': '_is_close_number',
     '_prepare_funasr_checkpoint': '_prepare_funasr_checkpoint',
     '_write_funasr_checkpoint': 'write_funasr_checkpoint',
-    '_clear_funasr_cuda_cache': 'clear_funasr_cuda_cache',
     '_dedupe_overlapping_funasr_segments': '_dedupe_overlapping_funasr_segments',
     '_is_funasr_punctuation': '_is_funasr_punctuation',
     '_attach_funasr_punctuation_to_tokens': '_attach_funasr_punctuation_to_tokens',
@@ -120,96 +87,49 @@ _normalise_funasr_result = result_contracts.normalise_funasr_result
 _is_valid_funasr_result = result_contracts.is_valid_funasr_result
 _primary_speaker_segments = result_contracts.primary_speaker_segments
 
-
-FUNASR_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_MODEL", "").strip()
-    or "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+FUNASR_MODEL = model_runtime.FUNASR_MODEL
+FUNASR_CONTEXTUAL_MODEL = model_runtime.FUNASR_CONTEXTUAL_MODEL
+FUNASR_VAD_MODEL = model_runtime.FUNASR_VAD_MODEL
+FUNASR_PUNC_MODEL = model_runtime.FUNASR_PUNC_MODEL
+FUNASR_SPK_MODEL = model_runtime.FUNASR_SPK_MODEL
+FUNASR_DEFAULT_DEVICE = model_runtime.FUNASR_DEFAULT_DEVICE
+FUNASR_BATCH_SIZE_SEC = model_runtime.FUNASR_BATCH_SIZE_SEC
+FUNASR_CPU_RETRY_DELAY_SEC = model_runtime.FUNASR_CPU_RETRY_DELAY_SEC
+FUNASR_CACHE_MODEL_DIR = model_runtime.FUNASR_CACHE_MODEL_DIR
+FUNASR_CONTEXTUAL_CACHE_MODEL_DIR = model_runtime.FUNASR_CONTEXTUAL_CACHE_MODEL_DIR
+FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC = (
+    model_runtime.FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC
 )
+FUNASR_NANO_MODEL = model_runtime.FUNASR_NANO_MODEL
+FUNASR_NANO_CACHE_ROOTS = model_runtime.FUNASR_NANO_CACHE_ROOTS
+FUNASR_VAD_CACHE_MODEL_DIR = model_runtime.FUNASR_VAD_CACHE_MODEL_DIR
+FUNASR_PUNC_CACHE_MODEL_DIR = model_runtime.FUNASR_PUNC_CACHE_MODEL_DIR
+FUNASR_SPK_CACHE_MODEL_DIR = model_runtime.FUNASR_SPK_CACHE_MODEL_DIR
+FUNASR_SPK_WEIGHT_FILES = model_runtime.FUNASR_SPK_WEIGHT_FILES
+FUNASR_FOREGROUND_AUDIO_FILTER = model_runtime.FUNASR_FOREGROUND_AUDIO_FILTER
+FUNASR_HOTWORD_MAX_COUNT = model_runtime.FUNASR_HOTWORD_MAX_COUNT
+FUNASR_HOTWORD_MAX_CHARS = model_runtime.FUNASR_HOTWORD_MAX_CHARS
 
-FUNASR_CONTEXTUAL_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_CONTEXTUAL_MODEL", "").strip()
-    or "damo/speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
+_prepare_funasr_environment = model_runtime.prepare_funasr_environment
+funasr_model_cache_candidates = model_runtime.funasr_model_cache_candidates
+_funasr_nano_cache_candidates = model_runtime.funasr_nano_cache_candidates
+resolve_funasr_model_source = model_runtime.resolve_funasr_model_source
+resolve_funasr_aux_model_source = model_runtime.resolve_funasr_aux_model_source
+resolve_funasr_speaker_model_source = (
+    model_runtime.resolve_funasr_speaker_model_source
 )
-
-FUNASR_VAD_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_VAD_MODEL", "").strip()
-    or "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"
-)
-
-FUNASR_PUNC_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_PUNC_MODEL", "").strip()
-    or "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
-)
-
-FUNASR_SPK_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_SPK_MODEL", "").strip()
-    or "iic/speech_campplus_sv_zh-cn_16k-common"
-)
-
-FUNASR_DEFAULT_DEVICE = os.environ.get("AUTOSLICE_FUNASR_DEVICE", "auto")
+_funasr_hotwords = model_runtime.funasr_hotwords
+_funasr_generate_kwargs = model_runtime.funasr_generate_kwargs
+resolve_funasr_device = model_runtime.resolve_funasr_device
+funasr_public_status = model_runtime.funasr_public_status
+load_funasr_model = model_runtime.load_funasr_model
+clear_funasr_cuda_cache = model_runtime.clear_funasr_cuda_cache
 
 FUNASR_CHUNK_SEC = 120.0
 
 FUNASR_CHUNK_PRE_CONTEXT_SEC = 20.0
 
-FUNASR_BATCH_SIZE_SEC = 60
-
 FUNASR_CHECKPOINT_VERSION = 3
-
-FUNASR_CPU_RETRY_DELAY_SEC = 1
-
-FUNASR_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-)
-
-FUNASR_CONTEXTUAL_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\damo\speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
-)
-
-FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404"
-)
-
-FUNASR_NANO_MODEL = (
-    os.environ.get("AUTOSLICE_FUNASR_NANO_MODEL", "").strip()
-    or "FunAudioLLM/Fun-ASR-Nano-2512"
-)
-
-FUNASR_NANO_CACHE_ROOTS = (
-    os.path.expanduser(
-        r"~\.cache\modelscope\hub\models\FunAudioLLM\Fun-ASR-Nano-2512"
-    ),
-    os.path.expanduser(
-        r"~\.cache\huggingface\hub\models--FunAudioLLM--Fun-ASR-Nano-2512\snapshots"
-    ),
-)
-
-FUNASR_VAD_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\speech_fsmn_vad_zh-cn-16k-common-pytorch"
-)
-
-FUNASR_PUNC_CACHE_MODEL_DIR = os.path.expanduser(
-    r"~\.cache\modelscope\hub\models\iic\punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
-)
-
-FUNASR_SPK_CACHE_MODEL_DIR = os.path.expanduser(
-    os.path.join(
-        r"~\.cache\modelscope\hub\models",
-        *FUNASR_SPK_MODEL.split("/"),
-    )
-)
-
-FUNASR_SPK_WEIGHT_FILES = ("campplus_cn_common.bin", "model.pt")
-
-FUNASR_FOREGROUND_AUDIO_FILTER = (
-    "highpass=f=80,lowpass=f=12000,"
-    "afftdn=nf=-32,"
-    "agate=threshold=0.012:ratio=6:attack=8:release=220"
-)
-
-FUNASR_HOTWORD_MAX_COUNT = 80
-
-FUNASR_HOTWORD_MAX_CHARS = 2400
 
 TOPIC_CONTEXT_GAP = 4.0         # SRT 语句间隔边界
 
@@ -631,88 +551,21 @@ def probe_video_duration(video_path):
         return None
 
 
-def _prepare_funasr_environment():
-    """FunASR 模型只使用本地缓存，避免 Web 任务在网络下载失败时长时间卡住。"""
-    os.environ.setdefault("MODELSCOPE_LOCAL_ONLY", "1")
-
-
-def funasr_model_cache_candidates():
-    configured = os.environ.get("AUTOSLICE_FUNASR_MODEL_DIR", "").strip()
-    candidates = []
-    if configured:
-        candidates.append(os.path.abspath(os.path.expanduser(configured)))
-    # contextual 模型只在完整缓存存在时启用；否则继续使用已有普通模型。
-    candidates.extend(_funasr_nano_cache_candidates())
-    candidates.extend((
-        FUNASR_CONTEXTUAL_CACHE_MODEL_DIR,
-        FUNASR_CONTEXTUAL_CACHE_MODEL_DIR_IIC,
-        FUNASR_CACHE_MODEL_DIR,
-    ))
-    return list(dict.fromkeys(candidates))
-
-
-def _funasr_nano_cache_candidates():
-    candidates = []
-    for root in FUNASR_NANO_CACHE_ROOTS:
-        if os.path.isfile(os.path.join(root, "model.pt")):
-            candidates.append(root)
-        elif os.path.isdir(root):
-            candidates.extend(
-                os.path.join(root, name)
-                for name in sorted(os.listdir(root), reverse=True)
-                if os.path.isfile(os.path.join(root, name, "model.pt"))
-            )
-    return candidates
-
-
-def resolve_funasr_model_source():
-    """优先返回本地缓存目录，避免 AutoModel 用模型 ID 访问 ModelScope API。"""
-    for model_dir in funasr_model_cache_candidates():
-        if model_dir and os.path.isfile(os.path.join(model_dir, "model.pt")):
-            return model_dir
-    return FUNASR_MODEL
-
-
-def resolve_funasr_aux_model_source(model_id, cache_dir):
-    """只返回完整的本地辅助模型，避免启动时因网络问题隐式下载。"""
-    configured = os.environ.get(
-        "AUTOSLICE_FUNASR_VAD_DIR" if model_id == FUNASR_VAD_MODEL else "AUTOSLICE_FUNASR_PUNC_DIR",
-        "",
-    ).strip()
-    candidates = []
-    if configured:
-        candidates.append(os.path.abspath(os.path.expanduser(configured)))
-    candidates.append(cache_dir)
-    for model_dir in dict.fromkeys(candidates):
-        if model_dir and os.path.isfile(os.path.join(model_dir, "model.pt")):
-            return model_dir
-    return None
-
-
-def resolve_funasr_speaker_model_source():
-    """只启用已完整下载到本机的 CAM++，日常识别绝不隐式联网。"""
-
-    configured = os.environ.get("AUTOSLICE_FUNASR_SPK_DIR", "").strip()
-    candidates = []
-    if configured:
-        candidates.append(os.path.abspath(os.path.expanduser(configured)))
-    candidates.append(FUNASR_SPK_CACHE_MODEL_DIR)
-    for model_dir in dict.fromkeys(candidates):
-        if model_dir and any(
-                os.path.isfile(os.path.join(model_dir, filename))
-                for filename in FUNASR_SPK_WEIGHT_FILES):
-            return model_dir
-    return None
-
-
 def _funasr_model_runtime_signature(foreground_only=False):
     """让旧 ASR 检查点在模型/标点配置变化后自动失效。"""
-    model_source = resolve_funasr_model_source()
+    model_source = model_runtime.resolve_funasr_model_source()
     contextual_active = "contextual" in str(model_source).casefold()
-    vad_source = resolve_funasr_aux_model_source(FUNASR_VAD_MODEL, FUNASR_VAD_CACHE_MODEL_DIR)
-    punc_source = resolve_funasr_aux_model_source(FUNASR_PUNC_MODEL, FUNASR_PUNC_CACHE_MODEL_DIR)
+    vad_source = model_runtime.resolve_funasr_aux_model_source(
+        model_runtime.FUNASR_VAD_MODEL,
+        model_runtime.FUNASR_VAD_CACHE_MODEL_DIR,
+    )
+    punc_source = model_runtime.resolve_funasr_aux_model_source(
+        model_runtime.FUNASR_PUNC_MODEL,
+        model_runtime.FUNASR_PUNC_CACHE_MODEL_DIR,
+    )
     speaker_source = (
-        resolve_funasr_speaker_model_source() if foreground_only else None
+        model_runtime.resolve_funasr_speaker_model_source()
+        if foreground_only else None
     )
     return {
         "asr_model": os.path.normcase(os.path.abspath(model_source)),
@@ -725,263 +578,12 @@ def _funasr_model_runtime_signature(foreground_only=False):
         ),
         "foreground_only": bool(foreground_only),
         "foreground_audio_filter": (
-            FUNASR_FOREGROUND_AUDIO_FILTER if foreground_only else None
+            model_runtime.FUNASR_FOREGROUND_AUDIO_FILTER
+            if foreground_only else None
         ),
         "funasr_chunk_sec": FUNASR_CHUNK_SEC,
         "funasr_chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
     }
-
-
-def _funasr_hotwords(video_path=None, streamer_name=""):
-    """构造受限的 ASR 热词串；普通 Paraformer 会忽略它，contextual 模型才使用。"""
-    values = []
-    configured = os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")
-    values.extend(re.split(r"[,，、;；\n\r\t ]+", configured))
-    values.extend(DEFAULT_SUBTITLE_GLOSSARY)
-    profile = current_streamer_profile()
-    values.extend(profile.subtitle_glossary)
-    values.extend((streamer_name, profile.canonical_name, profile.report_name, *profile.aliases))
-    values.extend(source for source, _ in profile.asr_replacements)
-    values.extend(target for _, target in profile.asr_replacements)
-    result = []
-    seen = set()
-    for value in values:
-        value = str(value or "").strip()
-        if not value or len(value) < 2 or len(value) > 40:
-            continue
-        key = value.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(value)
-        if len(result) >= FUNASR_HOTWORD_MAX_COUNT:
-            break
-    return " ".join(result)[:FUNASR_HOTWORD_MAX_CHARS]
-
-
-def _funasr_generate_kwargs(model, hotwords=""):
-    kwargs = {
-        "batch_size_s": FUNASR_BATCH_SIZE_SEC,
-        "disable_pbar": True,
-        "return_raw_text": True,
-    }
-    model_class = type(getattr(model, "model", model)).__name__.casefold()
-    if "funasrnano" in model_class:
-        kwargs.update({
-            "hotwords": str(hotwords or "").split(),
-            # Nano 的音频编码器包含只支持 fp32 的算子。让 FunASR
-            # 按模型配置选择解码精度，避免 RTX 20 系列强制 fp16 后出现
-            # Float/Half 混算错误或整段感叹号文本。
-            "language": "中文",
-            "itn": True,
-            "max_length": 1024,
-        })
-        kwargs.pop("return_raw_text", None)
-        if getattr(model, "_autoslice_spk_source", None):
-            kwargs["return_spk_res"] = True
-        return kwargs
-    supports_hotwords = "contextual" in model_class
-    if hotwords and supports_hotwords:
-        kwargs["hotword"] = hotwords
-    if getattr(model, "_autoslice_spk_source", None):
-        kwargs["return_spk_res"] = True
-    return kwargs
-
-
-def resolve_funasr_device(requested_device=None):
-    """优先使用可用的 CUDA；显卡运行时缺失时保持 CPU 路径。"""
-    requested = str(
-        requested_device
-        or os.environ.get("AUTOSLICE_FUNASR_DEVICE", FUNASR_DEFAULT_DEVICE)
-        or "auto"
-    ).strip().lower()
-    if requested == "cuda":
-        return "cuda:0"
-    if requested not in {"", "auto"}:
-        return requested
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return "cuda:0"
-    except (ImportError, OSError, RuntimeError):
-        pass
-    return "cpu"
-
-
-def funasr_public_status():
-    """返回不含本机模型路径的 FunASR 状态和可执行调整提示。"""
-
-    model_source = resolve_funasr_model_source()
-    source_text = str(model_source or "")
-    source_key = source_text.replace("\\", "/").casefold()
-    is_nano = "fun-asr-nano" in source_key
-    is_contextual = "contextual" in source_key
-    is_local_model = os.path.isfile(os.path.join(source_text, "model.pt"))
-    selected_device = resolve_funasr_device()
-    custom_hotwords = bool(
-        str(os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")).strip()
-    )
-    speaker_filter_ready = bool(resolve_funasr_speaker_model_source())
-
-    if is_nano:
-        model_key = "nano"
-        display_name = "Fun-ASR-Nano-2512"
-        hotword_mode = "native"
-    elif is_contextual:
-        model_key = "contextual_paraformer"
-        display_name = "Contextual Paraformer"
-        hotword_mode = "native"
-    else:
-        model_key = "paraformer"
-        display_name = "Paraformer（兼容回退）"
-        hotword_mode = "post_correction_only"
-
-    needs_setup = not is_nano
-    model_ready = is_local_model
-    if not model_ready:
-        summary = f"未检测到可用的本地 {display_name} 模型缓存"
-        recommendation = "关闭服务后运行 python setup_asr_model.py，再重新启动。"
-    elif needs_setup:
-        summary = f"当前使用 {display_name}，可以识别，但不是推荐模型"
-        recommendation = "建议关闭服务后运行 python setup_asr_model.py，安装推荐 Nano 模型。"
-    else:
-        summary = f"当前使用 {display_name}（推荐）"
-        recommendation = "识别专名不准时，调整热词或主播专名纠错规则。"
-
-    if hotword_mode == "native":
-        hotword_hint = (
-            "已读取自定义热词；长期错字仍建议写入主播专名纠错规则。"
-            if custom_hotwords
-            else "可在 autoslice.local.json 设置 AUTOSLICE_FUNASR_HOTWORDS 追加临时热词。"
-        )
-    else:
-        hotword_hint = (
-            "普通 Paraformer 不直接接收热词；当前只应用识别后的主播专名纠错规则。"
-        )
-
-    return {
-        "model_key": model_key,
-        "display_name": display_name,
-        "device": selected_device,
-        "model_ready": model_ready,
-        "recommended": is_nano and model_ready,
-        "needs_setup": needs_setup or not model_ready,
-        "hotword_mode": hotword_mode,
-        "custom_hotwords": custom_hotwords,
-        "summary": summary,
-        "recommendation": recommendation,
-        "hotword_hint": hotword_hint,
-        "correction_hint": (
-            "长期固定纠错：编辑 streamer_profiles.json 中对应主播的 asr_replacements。"
-        ),
-        "foreground_filter_available": True,
-        "speaker_filter_ready": speaker_filter_ready,
-        "foreground_filter_mode": (
-            "speaker_diarization" if speaker_filter_ready else "adaptive_gate"
-        ),
-        "foreground_filter_hint": (
-            "字幕工作台可用 CAM++ 主要说话人识别，能进一步排除背景对白。"
-            if speaker_filter_ready
-            else "字幕工作台已启用基础背景音门限；重新运行 python setup_asr_model.py "
-                 "可安装 CAM++，进一步区分主要说话人与背景对白。"
-        ),
-    }
-
-
-def load_funasr_model(
-        AutoModel, progress_callback=None, device=None, foreground_only=False):
-    """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
-    _prepare_funasr_environment()
-    selected_device = resolve_funasr_device(device)
-    model_source = resolve_funasr_model_source()
-    is_nano = "fun-asr-nano" in str(model_source).casefold()
-    vad_source = resolve_funasr_aux_model_source(
-        FUNASR_VAD_MODEL,
-        FUNASR_VAD_CACHE_MODEL_DIR,
-    )
-    punc_source = None if is_nano else resolve_funasr_aux_model_source(
-        FUNASR_PUNC_MODEL,
-        FUNASR_PUNC_CACHE_MODEL_DIR,
-    )
-    speaker_source = (
-        resolve_funasr_speaker_model_source() if foreground_only else None
-    )
-    model_kwargs = {
-        "model": model_source,
-        "device": selected_device,
-        "disable_update": True,
-        "disable_pbar": True,
-    }
-    if is_nano:
-        # Fun-ASR-Nano 的音频编码器必须保持 fp32；低精度只应由
-        # generate 阶段按模型配置处理，不能在 AutoModel 初始化时整模 half。
-        model_kwargs.update({"trust_remote_code": True})
-    if vad_source:
-        model_kwargs["vad_model"] = vad_source
-        model_kwargs["vad_kwargs"] = {
-            # Nano 官方长音频模式要求先按 30 秒切段；直接输入 1-2 分钟
-            # 音频会让 LLM 解码退化为无标点的 CTC 文本。
-            "max_single_segment_time": 30000 if is_nano else 60000
-        }
-    if punc_source:
-        model_kwargs["punc_model"] = punc_source
-    if speaker_source:
-        model_kwargs.update({
-            "spk_model": speaker_source,
-            # Nano 内置标点但没有独立 punc_model；vad_segment 对两类模型都可用。
-            "spk_mode": "vad_segment",
-        })
-    try:
-        model = AutoModel(**model_kwargs)
-        try:
-            model._autoslice_device = selected_device
-            model._autoslice_model_source = model_source
-            model._autoslice_vad_source = vad_source
-            model._autoslice_punc_source = punc_source
-            model._autoslice_spk_source = speaker_source
-            model._autoslice_foreground_filter = (
-                "speaker_diarization" if speaker_source
-                else "adaptive_gate" if foreground_only
-                else "off"
-            )
-        except (AttributeError, TypeError):
-            pass
-        return model
-    except Exception as exc:
-        if selected_device.startswith("cuda"):
-            if progress_callback:
-                progress_callback(
-                    f"FunASR GPU 加载失败，自动改用 CPU: {exc}",
-                    10,
-                    100,
-            )
-            try:
-                cpu_kwargs = dict(model_kwargs)
-                cpu_kwargs["device"] = "cpu"
-                model = AutoModel(**cpu_kwargs)
-                try:
-                    model._autoslice_device = "cpu"
-                    model._autoslice_model_source = model_source
-                    model._autoslice_vad_source = vad_source
-                    model._autoslice_punc_source = punc_source
-                    model._autoslice_spk_source = speaker_source
-                    model._autoslice_foreground_filter = (
-                        "speaker_diarization" if speaker_source
-                        else "adaptive_gate" if foreground_only
-                        else "off"
-                    )
-                except (AttributeError, TypeError):
-                    pass
-                return model
-            except Exception as cpu_exc:
-                exc = cpu_exc
-        message = (
-            "FunASR 模型加载失败：本地 ModelScope 缓存不可用，或模型下载被网络/SSL 中断。"
-            "请先生成同名 SRT，或在网络正常时预下载 FunASR 模型后重试。"
-        )
-        if progress_callback:
-            progress_callback(f"{message} 原始错误: {exc}", 0, 100)
-        raise RuntimeError(message) from exc
 
 
 def funasr_checkpoint_path(video_path):
@@ -1060,7 +662,8 @@ def _prepare_funasr_checkpoint(
         "foreground_only": bool(foreground_only),
         "foreground_filter_mode": (
             "speaker_diarization"
-            if foreground_only and resolve_funasr_speaker_model_source()
+            if foreground_only
+            and model_runtime.resolve_funasr_speaker_model_source()
             else "adaptive_gate" if foreground_only
             else "off"
         ),
@@ -1177,17 +780,6 @@ def _quarantine_incomplete_srt(srt_path):
     quarantine_path = srt_path + ".incomplete"
     replace_file_atomically(srt_path, quarantine_path)
     return quarantine_path
-
-
-def clear_funasr_cuda_cache():
-    try:
-        import gc
-        import torch
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except (ImportError, OSError, RuntimeError):
-        pass
 
 
 def _dedupe_overlapping_funasr_segments(segments):
@@ -1388,7 +980,10 @@ def ensure_srt(
     if not duration:
         raise RuntimeError("无法读取录播时长，FunASR 转录未启动。")
     streamer_name = infer_streamer_name(video_path)
-    hotwords = _funasr_hotwords(video_path, streamer_name=streamer_name)
+    hotwords = model_runtime.funasr_hotwords(
+        video_path,
+        streamer_name=streamer_name,
+    )
     chunk_count = max(1, int(math.ceil(duration / FUNASR_CHUNK_SEC)))
     checkpoint_path, checkpoint = _prepare_funasr_checkpoint(
         video_path,
@@ -1432,7 +1027,7 @@ def ensure_srt(
             ]
             if foreground_only:
                 audio_extract_command.extend([
-                    "-af", FUNASR_FOREGROUND_AUDIO_FILTER,
+                    "-af", model_runtime.FUNASR_FOREGROUND_AUDIO_FILTER,
                 ])
             audio_extract_command.extend(["-y", wav_path])
             sp.run(
@@ -1443,11 +1038,11 @@ def ensure_srt(
                 encoding="utf-8",
                 errors="replace",
             )
-            requested_device = resolve_funasr_device()
+            requested_device = model_runtime.resolve_funasr_device()
             if progress_callback:
                 progress_callback(f"加载 FunASR 模型({requested_device})...", 10, 100)
             model_load_options = {"foreground_only": True} if foreground_only else {}
-            model = load_funasr_model(
+            model = model_runtime.load_funasr_model(
                 AutoModel,
                 progress_callback=progress_callback,
                 device=requested_device,
@@ -1470,7 +1065,10 @@ def ensure_srt(
                     12,
                     100,
                 )
-            generate_kwargs = _funasr_generate_kwargs(model, hotwords=hotwords)
+            generate_kwargs = model_runtime.funasr_generate_kwargs(
+                model,
+                hotwords=hotwords,
+            )
 
             for index in missing_indices:
                 active_chunk_index = index
@@ -1518,21 +1116,21 @@ def ensure_srt(
                                 100,
                             )
                         model = None
-                        clear_funasr_cuda_cache()
-                        model = load_funasr_model(
+                        model_runtime.clear_funasr_cuda_cache()
+                        model = model_runtime.load_funasr_model(
                             AutoModel,
                             progress_callback=progress_callback,
                             device="cpu",
                             **model_load_options,
                         )
                         current_device = "cpu"
-                        generate_kwargs = _funasr_generate_kwargs(
+                        generate_kwargs = model_runtime.funasr_generate_kwargs(
                             model,
                             hotwords=hotwords,
                         )
                     else:
-                        if FUNASR_CPU_RETRY_DELAY_SEC:
-                            time.sleep(FUNASR_CPU_RETRY_DELAY_SEC)
+                        if model_runtime.FUNASR_CPU_RETRY_DELAY_SEC:
+                            time.sleep(model_runtime.FUNASR_CPU_RETRY_DELAY_SEC)
                     try:
                         result = model.generate(
                             input=active_chunk_path,

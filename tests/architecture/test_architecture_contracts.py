@@ -561,10 +561,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             timeline,
             titles,
         )
+        from autoslice.transcription import model_runtime as transcription_model_runtime
         from autoslice.transcription import results as transcription_results
         from autoslice.transcription import service as transcription
 
         owners = (
+            transcription_model_runtime,
             transcription_results,
             transcription,
             danmaku,
@@ -730,6 +732,66 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         self.assertTrue(
             set(results.FACADE_EXPORTS.values()).isdisjoint(service_functions)
+        )
+
+    def test_funasr_model_runtime_has_one_owner_and_direct_service_consumer(self):
+        import topic_engine
+        from autoslice.transcription import model_runtime, service
+
+        self.assertIs(service.model_runtime, model_runtime)
+        aliases = {
+            "_prepare_funasr_environment": "prepare_funasr_environment",
+            "funasr_model_cache_candidates": "funasr_model_cache_candidates",
+            "_funasr_nano_cache_candidates": "funasr_nano_cache_candidates",
+            "resolve_funasr_model_source": "resolve_funasr_model_source",
+            "resolve_funasr_aux_model_source": "resolve_funasr_aux_model_source",
+            "resolve_funasr_speaker_model_source": (
+                "resolve_funasr_speaker_model_source"
+            ),
+            "_funasr_hotwords": "funasr_hotwords",
+            "_funasr_generate_kwargs": "funasr_generate_kwargs",
+            "resolve_funasr_device": "resolve_funasr_device",
+            "funasr_public_status": "funasr_public_status",
+            "load_funasr_model": "load_funasr_model",
+            "clear_funasr_cuda_cache": "clear_funasr_cuda_cache",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                self.assertIs(
+                    getattr(service, compatibility_name),
+                    getattr(model_runtime, owner_name),
+                )
+
+        for facade_name, owner_name in model_runtime.FACADE_EXPORTS.items():
+            with self.subTest(facade=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(model_runtime, owner_name),
+                )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        service_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.service"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(
+            {
+                "prepare_funasr_environment",
+                "funasr_model_cache_candidates",
+                "funasr_nano_cache_candidates",
+                "resolve_funasr_model_source",
+                "resolve_funasr_aux_model_source",
+                "resolve_funasr_speaker_model_source",
+                "funasr_hotwords",
+                "funasr_generate_kwargs",
+                "resolve_funasr_device",
+                "funasr_public_status",
+                "load_funasr_model",
+                "clear_funasr_cuda_cache",
+            }.isdisjoint(service_functions)
         )
 
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):

@@ -2236,7 +2236,10 @@ class TranscriptionTests(unittest.TestCase):
         with TemporaryDirectory() as td:
             model_dir = Path(td)
             (model_dir / "model.pt").write_bytes(b"fake")
-            with patch("autoslice.transcription.service.funasr_model_cache_candidates", return_value=[str(model_dir)]):
+            with patch(
+                "autoslice.transcription.model_runtime.funasr_model_cache_candidates",
+                return_value=[str(model_dir)],
+            ):
                 self.assertEqual(_resolve_funasr_model_source(), str(model_dir))
 
     def test_funasr_speaker_model_source_uses_configured_local_directory(self):
@@ -2258,8 +2261,14 @@ class TranscriptionTests(unittest.TestCase):
             model_dir.mkdir()
             (model_dir / "model.pt").write_bytes(b"fake")
             with (
-                patch("autoslice.transcription.service.resolve_funasr_model_source", return_value=str(model_dir)),
-                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cuda:0"),
+                patch(
+                    "autoslice.transcription.model_runtime.resolve_funasr_model_source",
+                    return_value=str(model_dir),
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.resolve_funasr_device",
+                    return_value="cuda:0",
+                ),
                 patch.dict(
                     "os.environ",
                     {"AUTOSLICE_FUNASR_HOTWORDS": "音音 朱鹮"},
@@ -2280,8 +2289,14 @@ class TranscriptionTests(unittest.TestCase):
             model_dir.mkdir()
             (model_dir / "model.pt").write_bytes(b"fake")
             with (
-                patch("autoslice.transcription.service.resolve_funasr_model_source", return_value=str(model_dir)),
-                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
+                patch(
+                    "autoslice.transcription.model_runtime.resolve_funasr_model_source",
+                    return_value=str(model_dir),
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.resolve_funasr_device",
+                    return_value="cpu",
+                ),
                 patch.dict("os.environ", {}, clear=True),
             ):
                 status = funasr_public_status()
@@ -2303,9 +2318,12 @@ class TranscriptionTests(unittest.TestCase):
             return LoadedModel()
 
         with (
-            patch("autoslice.transcription.service.resolve_funasr_model_source", return_value="asr-cache"),
             patch(
-                "autoslice.transcription.service.resolve_funasr_aux_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_model_source",
+                return_value="asr-cache",
+            ),
+            patch(
+                "autoslice.transcription.model_runtime.resolve_funasr_aux_model_source",
                 side_effect=("vad-cache", "punc-cache"),
             ),
         ):
@@ -2329,13 +2347,16 @@ class TranscriptionTests(unittest.TestCase):
             return LoadedModel()
 
         with (
-            patch("autoslice.transcription.service.resolve_funasr_model_source", return_value="asr-cache"),
             patch(
-                "autoslice.transcription.service.resolve_funasr_aux_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_model_source",
+                return_value="asr-cache",
+            ),
+            patch(
+                "autoslice.transcription.model_runtime.resolve_funasr_aux_model_source",
                 side_effect=("vad-cache", "punc-cache"),
             ),
             patch(
-                "autoslice.transcription.service.resolve_funasr_speaker_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_speaker_model_source",
                 return_value="speaker-cache",
             ),
         ):
@@ -2359,13 +2380,16 @@ class TranscriptionTests(unittest.TestCase):
             pass
 
         with (
-            patch("autoslice.transcription.service.resolve_funasr_model_source", return_value="asr-cache"),
             patch(
-                "autoslice.transcription.service.resolve_funasr_aux_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_model_source",
+                return_value="asr-cache",
+            ),
+            patch(
+                "autoslice.transcription.model_runtime.resolve_funasr_aux_model_source",
                 return_value=None,
             ),
             patch(
-                "autoslice.transcription.service.resolve_funasr_speaker_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_speaker_model_source",
                 return_value=None,
             ),
         ):
@@ -2391,11 +2415,11 @@ class TranscriptionTests(unittest.TestCase):
 
         with (
             patch(
-                "autoslice.transcription.service.resolve_funasr_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_model_source",
                 return_value="C:/models/Fun-ASR-Nano-2512",
             ),
             patch(
-                "autoslice.transcription.service.resolve_funasr_aux_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_aux_model_source",
                 return_value="vad-cache",
             ),
         ):
@@ -2633,7 +2657,7 @@ class TranscriptionTests(unittest.TestCase):
             video_path = Path(td) / "recording.flv"
             video_path.write_bytes(b"source")
             with patch(
-                "autoslice.transcription.service.resolve_funasr_speaker_model_source",
+                "autoslice.transcription.model_runtime.resolve_funasr_speaker_model_source",
                 return_value=None,
             ):
                 ordinary = _funasr_source_fingerprint(
@@ -2762,7 +2786,7 @@ class TranscriptionTests(unittest.TestCase):
             with (
                 patch("autoslice.transcription.service.probe_video_duration", return_value=duration),
                 patch(
-                    "autoslice.transcription.service.load_funasr_model",
+                    "autoslice.transcription.model_runtime.load_funasr_model",
                     side_effect=AssertionError("完整检查点不应加载模型"),
                 ),
                 patch("subprocess.run") as run,
@@ -2847,8 +2871,14 @@ class TranscriptionTests(unittest.TestCase):
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
                 patch("autoslice.transcription.service.probe_video_duration", return_value=240.0),
-                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
-                patch("autoslice.transcription.service.load_funasr_model", return_value=model),
+                patch(
+                    "autoslice.transcription.model_runtime.resolve_funasr_device",
+                    return_value="cpu",
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.load_funasr_model",
+                    return_value=model,
+                ),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 srt_path = ensure_srt(str(video_path))
@@ -2894,9 +2924,12 @@ class TranscriptionTests(unittest.TestCase):
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
                 patch("autoslice.transcription.service.probe_video_duration", return_value=120.0),
-                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
                 patch(
-                    "autoslice.transcription.service.load_funasr_model",
+                    "autoslice.transcription.model_runtime.resolve_funasr_device",
+                    return_value="cpu",
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.load_funasr_model",
                     return_value=ForegroundModel(),
                 ) as load_model,
                 patch("subprocess.run", side_effect=fake_ffmpeg),
@@ -2990,9 +3023,17 @@ class TranscriptionTests(unittest.TestCase):
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
                 patch("autoslice.transcription.service.probe_video_duration", return_value=120.0),
-                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cuda:0"),
-                patch("autoslice.transcription.service.load_funasr_model", side_effect=fake_load),
-                patch("autoslice.transcription.service.clear_funasr_cuda_cache"),
+                patch(
+                    "autoslice.transcription.model_runtime.resolve_funasr_device",
+                    return_value="cuda:0",
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.load_funasr_model",
+                    side_effect=fake_load,
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.clear_funasr_cuda_cache"
+                ),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 srt_path = ensure_srt(
@@ -3047,9 +3088,18 @@ class TranscriptionTests(unittest.TestCase):
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
                 patch("autoslice.transcription.service.probe_video_duration", return_value=240.0),
-                patch("autoslice.transcription.service.resolve_funasr_device", return_value="cpu"),
-                patch("autoslice.transcription.service.load_funasr_model", return_value=model),
-                patch("autoslice.transcription.service.FUNASR_CPU_RETRY_DELAY_SEC", 0),
+                patch(
+                    "autoslice.transcription.model_runtime.resolve_funasr_device",
+                    return_value="cpu",
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.load_funasr_model",
+                    return_value=model,
+                ),
+                patch(
+                    "autoslice.transcription.model_runtime.FUNASR_CPU_RETRY_DELAY_SEC",
+                    0,
+                ),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
                 self.assertRaisesRegex(RuntimeError, "连续失败"),
             ):
