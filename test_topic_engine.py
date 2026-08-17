@@ -25,6 +25,7 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
+from autoslice import slicing as slicing_service
 from autoslice.transcription import service as transcription_service
 from llm_client import (
     LLMApiConfig,
@@ -1845,7 +1846,7 @@ class RefinementManifestTests(unittest.TestCase):
                 return Mock(returncode=0, stdout="")
 
             with (
-                patch("topic_engine._probe_video_duration", return_value=80),
+                patch("autoslice.slicing.probe_video_duration", return_value=80),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 count, slice_dir = slice_from_marks(
@@ -1872,8 +1873,17 @@ class RefinementManifestTests(unittest.TestCase):
         self.assertEqual(queue["ready_count"], 1)
 
 
-class SliceOutputFormatTests(unittest.TestCase):
+class SlicingServiceTests(unittest.TestCase):
     """视频输入、报告契约和模拟切片共用同一容器策略。"""
+
+    def test_topic_engine_slicing_facade_keeps_service_object_identity(self):
+        self.assertGreater(len(slicing_service.FACADE_EXPORTS), 20)
+        for facade_name, slicing_name in slicing_service.FACADE_EXPORTS.items():
+            with self.subTest(facade_name=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(slicing_service, slicing_name),
+                )
 
     VIDEO_EXTENSIONS = (".flv", ".mp4", ".mkv", ".mov", ".avi")
 
@@ -1967,10 +1977,10 @@ class SliceOutputFormatTests(unittest.TestCase):
 
                 with (
                     patch(
-                        "topic_engine._preferred_slice_video_encoder_args",
+                        "autoslice.slicing.preferred_slice_video_encoder_args",
                         return_value=["-c:v", "libx264"],
                     ),
-                    patch("topic_engine._probe_video_duration", return_value=80.0),
+                    patch("autoslice.slicing.probe_video_duration", return_value=80.0),
                     patch("subprocess.run", side_effect=fake_ffmpeg),
                 ):
                     count, report_dir = slice_from_marks(
@@ -2030,7 +2040,7 @@ class SliceOutputFormatTests(unittest.TestCase):
             legacy_path.write_bytes(b"historical-flv")
 
             with (
-                patch("topic_engine._probe_video_duration", return_value=80.0),
+                patch("autoslice.slicing.probe_video_duration", return_value=80.0),
                 patch("subprocess.run") as ffmpeg_run,
             ):
                 count, actual_report_dir = slice_from_marks(
@@ -4686,7 +4696,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 return Mock(returncode=0)
 
             with (
-                patch("topic_engine._probe_video_duration", side_effect=fake_probe),
+                patch("autoslice.slicing.probe_video_duration", side_effect=fake_probe),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 count, _ = slice_from_marks(
@@ -4729,8 +4739,8 @@ class TopicEngineParseTests(unittest.TestCase):
             progress = []
 
             with (
-                patch("topic_engine._probe_video_duration", return_value=80.035) as probe,
-                patch("topic_engine._prepare_seekable_slice_source") as prepare_source,
+                patch("autoslice.slicing.probe_video_duration", return_value=80.035) as probe,
+                patch("autoslice.slicing.prepare_seekable_slice_source") as prepare_source,
                 patch("subprocess.run") as run,
             ):
                 count, actual_report_dir = slice_from_marks(
@@ -4777,8 +4787,8 @@ class TopicEngineParseTests(unittest.TestCase):
             progress = []
 
             with (
-                patch("topic_engine._probe_video_duration", return_value=80.03),
-                patch("topic_engine._prepare_seekable_slice_source") as prepare_source,
+                patch("autoslice.slicing.probe_video_duration", return_value=80.03),
+                patch("autoslice.slicing.prepare_seekable_slice_source") as prepare_source,
                 patch("subprocess.run") as run,
             ):
                 count, _ = slice_from_marks(
@@ -4815,9 +4825,9 @@ class TopicEngineParseTests(unittest.TestCase):
             }
 
             with (
-                patch("topic_engine._is_reusable_topic_clip", return_value=True),
-                patch("topic_engine.os.replace", side_effect=PermissionError("占用")),
-                patch("topic_engine.shutil.copy2", side_effect=PermissionError("禁止读取")),
+                patch("autoslice.slicing.is_reusable_topic_clip", return_value=True),
+                patch("autoslice.slicing.os.replace", side_effect=PermissionError("占用")),
+                patch("autoslice.slicing.shutil.copy2", side_effect=PermissionError("禁止读取")),
             ):
                 reused = _reuse_topic_clip_after_title_change(
                     job,
@@ -4846,8 +4856,8 @@ class TopicEngineParseTests(unittest.TestCase):
             }
 
             with (
-                patch("topic_engine._is_reusable_topic_clip", return_value=True),
-                patch("topic_engine.os.replace", side_effect=PermissionError("占用")),
+                patch("autoslice.slicing.is_reusable_topic_clip", return_value=True),
+                patch("autoslice.slicing.os.replace", side_effect=PermissionError("占用")),
             ):
                 reused = _reuse_topic_clip_after_title_change(
                     job,
@@ -4865,7 +4875,7 @@ class TopicEngineParseTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             stale_path = Path(tmp) / "01_10s_旧标题.flv"
             stale_path.write_bytes(b"locked")
-            with patch("topic_engine.os.remove", side_effect=PermissionError("占用")):
+            with patch("autoslice.slicing.os.remove", side_effect=PermissionError("占用")):
                 removed = _cleanup_stale_topic_clips(tmp)
             still_exists = stale_path.exists()
 
@@ -4910,9 +4920,9 @@ class TopicEngineParseTests(unittest.TestCase):
                 return Mock(returncode=0)
 
             with (
-                patch("topic_engine._probe_video_duration", side_effect=fake_probe),
+                patch("autoslice.slicing.probe_video_duration", side_effect=fake_probe),
                 patch(
-                    "topic_engine._prepare_seekable_slice_source",
+                    "autoslice.slicing.prepare_seekable_slice_source",
                     wraps=_prepare_seekable_slice_source,
                 ) as prepare_source,
                 patch("subprocess.run", side_effect=fake_ffmpeg),
@@ -4992,7 +5002,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 return Mock(returncode=0)
 
             with (
-                patch("topic_engine._probe_video_duration", side_effect=fake_probe) as probe,
+                patch("autoslice.slicing.probe_video_duration", side_effect=fake_probe) as probe,
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 count, _ = slice_from_marks(
@@ -5046,14 +5056,14 @@ class TopicEngineParseTests(unittest.TestCase):
 
             with (
                 patch(
-                    "topic_engine._prepare_seekable_slice_source",
+                    "autoslice.slicing.prepare_seekable_slice_source",
                     return_value=(str(seek_index), str(seek_index)),
                 ),
                 patch(
-                    "topic_engine._preferred_slice_video_encoder_args",
+                    "autoslice.slicing.preferred_slice_video_encoder_args",
                     return_value=["-c:v", "h264_nvenc"],
                 ),
-                patch("topic_engine._probe_video_duration", return_value=80.03),
+                patch("autoslice.slicing.probe_video_duration", return_value=80.03),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 count, report_dir = slice_from_marks(
@@ -5120,14 +5130,14 @@ class TopicEngineParseTests(unittest.TestCase):
 
                 with (
                     patch(
-                        "topic_engine._prepare_seekable_slice_source",
+                        "autoslice.slicing.prepare_seekable_slice_source",
                         return_value=prepared_source,
                     ),
                     patch(
-                        "topic_engine._preferred_slice_video_encoder_args",
+                        "autoslice.slicing.preferred_slice_video_encoder_args",
                         return_value=encoder_args,
                     ),
-                    patch("topic_engine._probe_video_duration", return_value=80.03),
+                    patch("autoslice.slicing.probe_video_duration", return_value=80.03),
                     patch("subprocess.run", side_effect=fake_ffmpeg),
                 ):
                     count, _ = slice_from_marks(
@@ -5157,7 +5167,7 @@ class TopicEngineParseTests(unittest.TestCase):
 
             with (
                 patch(
-                    "topic_engine._preferred_slice_video_encoder_args",
+                    "autoslice.slicing.preferred_slice_video_encoder_args",
                     return_value=["-c:v", "libx264"],
                 ),
                 patch("subprocess.run", side_effect=fail_ffmpeg),
@@ -5216,7 +5226,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 return Mock(returncode=0)
 
             with (
-                patch("topic_engine._preferred_slice_video_encoder_args", return_value=["-c:v", "h264_nvenc"]),
+                patch("autoslice.slicing.preferred_slice_video_encoder_args", return_value=["-c:v", "h264_nvenc"]),
                 patch("subprocess.run", side_effect=fake_ffmpeg),
             ):
                 count, report_dir = slice_from_marks(
