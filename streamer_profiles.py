@@ -14,7 +14,7 @@ from typing import Iterator
 
 PROFILE_SCHEMA_VERSION = 1
 AUTO_PROFILE_ID = "auto"
-LEGACY_PROFILE_ID = "zeyin"
+GENERIC_PROFILE_ID = "generic"
 DEFAULT_PROFILE_PATH = Path(__file__).with_name("streamer_profiles.json")
 _PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _FILENAME_STREAMER_RE = re.compile(
@@ -236,18 +236,19 @@ def load_streamer_profiles(
     if default_profile_id not in profiles:
         raise ValueError("主播配置 default_profile_id 不存在")
 
-    generic_profile = profiles.get("generic")
-    if generic_profile is not None:
-        for profile_id, profile in tuple(profiles.items()):
-            if profile_id == generic_profile.id:
-                continue
-            profiles[profile_id] = replace(
-                profile,
-                subtitle_glossary=tuple(dict.fromkeys((
-                    *generic_profile.subtitle_glossary,
-                    *profile.subtitle_glossary,
-                ))),
-            )
+    generic_profile = profiles.get(GENERIC_PROFILE_ID)
+    if generic_profile is None:
+        raise ValueError("主播配置必须包含 generic profile")
+    for profile_id, profile in tuple(profiles.items()):
+        if profile_id == generic_profile.id:
+            continue
+        profiles[profile_id] = replace(
+            profile,
+            subtitle_glossary=tuple(dict.fromkeys((
+                *generic_profile.subtitle_glossary,
+                *profile.subtitle_glossary,
+            ))),
+        )
     return profiles, default_profile_id
 
 
@@ -364,7 +365,7 @@ def resolve_streamer_profile(
 ) -> StreamerProfile:
     """解析显式配置，或按录播路径自动匹配最具体的主播。"""
 
-    profiles, default_profile_id = load_streamer_profiles(config_path)
+    profiles, _default_profile_id = load_streamer_profiles(config_path)
     selected_id = str(profile_id or AUTO_PROFILE_ID).strip().casefold()
     if selected_id != AUTO_PROFILE_ID:
         try:
@@ -392,7 +393,7 @@ def resolve_streamer_profile(
     context_profile = _match_profile_by_context(profiles, context_hint)
     if context_profile is not None:
         return context_profile
-    default_profile = profiles[default_profile_id]
+    default_profile = profiles[GENERIC_PROFILE_ID]
     if filename_streamer:
         return _dynamic_filename_profile(default_profile, filename_streamer)
     return default_profile
@@ -423,8 +424,8 @@ def current_streamer_profile() -> StreamerProfile:
     active = active_streamer_profile()
     if active is not None:
         return active
-    profiles, default_profile_id = load_streamer_profiles()
-    return profiles[default_profile_id]
+    profiles, _default_profile_id = load_streamer_profiles()
+    return profiles[GENERIC_PROFILE_ID]
 
 
 @contextmanager

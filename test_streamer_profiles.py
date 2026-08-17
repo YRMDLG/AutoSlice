@@ -1,6 +1,7 @@
 import json
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -201,6 +202,98 @@ class StreamerProfileTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "default_profile_id"):
                 resolve_streamer_profile("auto", config_path=path)
+
+
+class StreamerResolutionTests(unittest.TestCase):
+
+    def test_unknown_streamer_uses_generic_even_if_config_default_is_zeyin(self):
+        with TemporaryDirectory() as td:
+            path = Path(td) / "profiles.json"
+            path.write_text(json.dumps({
+                "schema_version": 1,
+                "default_profile_id": "zeyin",
+                "profiles": [
+                    {
+                        "id": "generic",
+                        "label": "通用主播",
+                        "canonical_name": "主播",
+                        "report_name": "主播",
+                        "subtitle_glossary": ["SC"],
+                    },
+                    {
+                        "id": "zeyin",
+                        "label": "泽音 Melody",
+                        "canonical_name": "泽音Melody",
+                        "report_name": "音音",
+                        "title_prefix": "【泽音】",
+                        "path_keywords": ["泽音Melody"],
+                        "subtitle_glossary": ["朱鹮", "音音"],
+                        "asr_replacements": [["英英", "音音"]],
+                        "outro_clip": {
+                            "series_title": "晚安小音音",
+                            "search_tail_sec": 1200,
+                            "triggers": ["今天就直播到这里"],
+                        },
+                    },
+                ],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            plain = resolve_streamer_profile(
+                "auto",
+                r"X:\fixtures\普通投稿\剪映导出.mp4",
+                config_path=path,
+            )
+            named = resolve_streamer_profile(
+                "auto",
+                r"X:\fixtures\未知主播-2026-08-17 20_00-歌杂.flv",
+                config_path=path,
+            )
+
+        for profile in (plain, named):
+            self.assertEqual(profile.id, "generic")
+            self.assertEqual(profile.subtitle_glossary, ("SC",))
+            self.assertEqual(profile.asr_replacements, ())
+            self.assertIsNone(profile.outro_clip)
+            self.assertNotIn("泽音", profile.title_prefix)
+        self.assertEqual(plain.title_prefix, "")
+        self.assertEqual(named.title_prefix, "【未知主播】")
+
+    def test_parallel_workers_use_explicit_immutable_profile_snapshots(self):
+        unknown = resolve_streamer_profile(
+            "auto",
+            r"X:\fixtures\未知主播-2026-08-17 20_00-歌杂.flv",
+        )
+        zeyin = resolve_streamer_profile("zeyin")
+
+        def read_snapshot(profile):
+            with streamer_profile_context(profile):
+                active = current_streamer_profile()
+                return (
+                    active.id,
+                    active.label,
+                    active.title_prefix,
+                    active.subtitle_glossary,
+                    active.asr_replacements,
+                    active.outro_clip,
+                )
+
+        with streamer_profile_context(zeyin):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                implicit = executor.submit(current_streamer_profile).result()
+                explicit = list(executor.map(read_snapshot, (unknown, zeyin)))
+
+        self.assertEqual(implicit.id, "generic")
+        self.assertEqual(explicit[0][0], "generic")
+        self.assertEqual(explicit[0][2], "【未知主播】")
+        self.assertEqual(explicit[0][4], ())
+        self.assertIsNone(explicit[0][5])
+        self.assertEqual(explicit[1][0], "zeyin")
+        self.assertEqual(explicit[1][2], "【泽音】")
+        self.assertIn("朱鹮", explicit[1][3])
+        self.assertIn(("英英", "音音"), explicit[1][4])
+        self.assertIsNotNone(explicit[1][5])
+        with self.assertRaises(FrozenInstanceError):
+            unknown.title_prefix = "【被篡改】"
 
 
 if __name__ == "__main__":

@@ -4714,15 +4714,18 @@ def _enrich_manual_topics_in_batches(
             "batch": batch,
         })
 
+    profile_snapshot = current_streamer_profile()
+
     def enrich_job(job):
-        return _enrich_manual_topics_with_llm(
-            job["batch"],
-            streamer_name=streamer_name,
-            progress_callback=report_progress,
-            retry_coordinator=provider_retry_coordinator,
-            progress_label=f"{progress_label} AI 复核",
-            progress_step=progress_start,
-        )
+        with streamer_profile_context(profile_snapshot):
+            return _enrich_manual_topics_with_llm(
+                job["batch"],
+                streamer_name=streamer_name,
+                progress_callback=report_progress,
+                retry_coordinator=provider_retry_coordinator,
+                progress_label=f"{progress_label} AI 复核",
+                progress_step=progress_start,
+            )
 
     provider_retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
     concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
@@ -9861,10 +9864,10 @@ def _review_selected_publish_titles(
     ]
     report_progress = _serialized_progress_callback(progress_callback)
     retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
-    profile_id = current_streamer_profile().id
+    profile_snapshot = current_streamer_profile()
 
     def review_batch(batch_index, batch):
-        with streamer_profile_context(profile_id):
+        with streamer_profile_context(profile_snapshot):
             if report_progress:
                 report_progress(
                     f"投稿标题候选生成 ({batch_index}/{len(batches)})...",
