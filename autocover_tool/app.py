@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -16,6 +17,12 @@ from urllib.parse import urlsplit
 
 from flask import Flask, after_this_request, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from security_policy import LOOPBACK_HOSTS, SecurityPolicy
 
 if __package__ == "autocover_tool":
     from .autocover import API_VERSION, SERVICE_ID
@@ -67,8 +74,7 @@ MAX_TASK_ID_LENGTH = 128
 MAX_STICKER_UPLOAD_BYTES = 16_000_000
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 DEPRECATION_WARNING = '299 AutoCover "Deprecated compatibility endpoint"'
-LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+SESSION_BOOTSTRAP_PATHS = frozenset({"/", "/api/security/session"})
 
 
 class ApiError(Exception):
@@ -97,30 +103,6 @@ def _json_body() -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ApiError("请求内容必须是 JSON 对象")
     return payload
-
-
-def _request_hostname() -> str:
-    try:
-        return (urlsplit(f"//{request.host}").hostname or "").casefold()
-    except ValueError:
-        return ""
-
-
-def _origin_is_local() -> bool:
-    origin = request.headers.get("Origin")
-    if not origin:
-        referer = request.headers.get("Referer")
-        if not referer:
-            return True
-        origin = referer
-    try:
-        parsed = urlsplit(origin)
-    except ValueError:
-        return False
-    return (
-        parsed.scheme in {"http", "https"}
-        and (parsed.hostname or "").casefold() in LOCAL_HOSTS
-    )
 
 
 def _workspace(app: Flask) -> CoverWorkspace:
@@ -628,6 +610,12 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         app.config.update(test_config)
     app.extensions["cover_workspace"] = None
     app.extensions["cover_draft_store"] = None
+    security_policy = SecurityPolicy(
+        env_prefix="AUTOCOVER",
+        cookie_name="autocover_local_session",
+        access_header="X-AutoCover-Token",
+    )
+    app.extensions["security_policy"] = security_policy
     sticker_library = StickerLibrary(
         app.config["STICKER_DIR"],
         import_root=app.config.get("IMPORTED_STICKER_DIR"),
@@ -637,13 +625,31 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.before_request
     def enforce_local_request_boundary():
-        if not app.config.get("ENFORCE_LOCAL_REQUESTS", True):
-            return None
-        if _request_hostname() not in LOCAL_HOSTS:
-            return jsonify({"ok": False, "error": "拒绝不受信任的 Host"}), 403
-        if request.method in WRITE_METHODS and not _origin_is_local():
-            return jsonify({"ok": False, "error": "拒绝跨站写请求"}), 403
+        decision = security_policy.authorize_flask_request(request)
+        if not decision.allowed:
+            return jsonify({"ok": False, "error": decision.message}), decision.status_code
+        path_decision = security_policy.validate_flask_request_paths(request)
+        if not path_decision.allowed:
+            return (
+                jsonify({"ok": False, "error": path_decision.message}),
+                path_decision.status_code,
+            )
         return None
+
+    @app.after_request
+    def issue_local_browser_session(response):
+        if (
+            request.method == "GET"
+            and request.path in SESSION_BOOTSTRAP_PATHS
+            and response.status_code < 400
+        ):
+            security_policy.attach_session_cookie(
+                response,
+                scheme=request.scheme,
+                host_header=request.host,
+                secure=request.is_secure,
+            )
+        return response
 
     @app.errorhandler(ApiError)
     def handle_api_error(error: ApiError):
@@ -668,6 +674,13 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def handle_unexpected_error(error: Exception):
         app.logger.exception("API 请求处理失败")
         return jsonify({"ok": False, "error": "处理失败，请查看服务日志"}), 500
+
+    @app.get("/api/security/session")
+    def bootstrap_security_session():
+        """建立 HttpOnly 会话，响应正文不包含令牌或 Cookie 值。"""
+
+        mode = "lan" if security_policy.settings().lan_mode else "local"
+        return jsonify({"ok": True, "mode": mode})
 
     @app.get("/api/options")
     def options():
@@ -755,7 +768,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             parsed = urlsplit(base_url)
             if (
                 parsed.scheme not in {"http", "https"}
-                or (parsed.hostname or "").casefold() not in LOCAL_HOSTS
+                or (parsed.hostname or "").casefold() not in LOOPBACK_HOSTS
             ):
                 raise ValueError
         except ValueError:

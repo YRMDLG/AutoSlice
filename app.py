@@ -19,6 +19,7 @@ from streamer_profiles import (
     streamer_profile_context,
 )
 from runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
+from security_policy import SecurityPolicy
 from task_registry import (
     ACTIVE_TASK_STATUSES,
     TaskLifecycleError,
@@ -95,25 +96,18 @@ _POSIX_PRIVATE_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 _UPLOAD_INVALID_CHARS_RE = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
-_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
-_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_LAN_PATH_FIELDS = {
-    "artifact_dir",
-    "ass_path",
-    "flv_path",
-    "json_path",
-    "manual_timeline_path",
-    "optimized_timeline_path",
-    "output_dir",
-    "output_path",
-    "report_path",
-    "root_dir",
-    "srt_path",
-    "timeline_path",
-    "video_dir",
-    "video_path",
-}
-_LAN_COOKIE_NAME = "autoslice_lan_token"
+_SESSION_BOOTSTRAP_PATHS = frozenset({
+    "/",
+    "/direct-slice",
+    "/subtitle-workflow",
+    "/topic-v2",
+    "/api/security/session",
+})
+security_policy = SecurityPolicy(
+    env_prefix="AUTOSLICE",
+    cookie_name="autoslice_local_session",
+    access_header="X-AutoSlice-Token",
+)
 
 
 def _task_database_path(environ=None):
@@ -330,152 +324,32 @@ def _template_feature_flags():
     }
 
 
-def _split_env_values(name, environ=None):
-    env = environ if environ is not None else os.environ
-    raw = str(env.get(name, "")).strip()
-    if not raw:
-        return ()
-    return tuple(
-        item.strip()
-        for item in re.split(r"[;,]", raw)
-        if item.strip()
-    )
-
-
-def _request_hostname():
-    try:
-        return (urlsplit(f"//{request.host}").hostname or "").casefold()
-    except ValueError:
-        return ""
-
-
-def _trusted_request_hosts(environ=None):
-    hosts = set(_LOCAL_HOSTS)
-    if _env_flag("AUTOSLICE_LAN_MODE", environ):
-        hosts.update(
-            host.casefold()
-            for host in _split_env_values("AUTOSLICE_LAN_HOSTS", environ)
-        )
-    return hosts
-
-
-def _request_origin_is_trusted():
-    origin = request.headers.get("Origin")
-    if not origin:
-        referer = request.headers.get("Referer")
-        if not referer:
-            return True
-        origin = referer
-    try:
-        parsed = urlsplit(origin)
-    except ValueError:
-        return False
-    if parsed.scheme not in {"http", "https"}:
-        return False
-    origin_host = (parsed.hostname or "").casefold()
-    if origin_host == _request_hostname():
-        return True
-    if not _env_flag("AUTOSLICE_LAN_MODE"):
-        return origin_host in _LOCAL_HOSTS
-    allowed_origins = {
-        value.rstrip("/").casefold()
-        for value in _split_env_values("AUTOSLICE_LAN_ORIGINS")
-    }
-    return origin.rstrip("/").casefold() in allowed_origins
-
-
-def _lan_token():
-    return str(os.environ.get("AUTOSLICE_LAN_TOKEN", "")).strip()
-
-
-def _lan_request_is_authenticated():
-    token = _lan_token()
-    if len(token) < 24:
-        return False
-    presented = (
-        request.headers.get("X-AutoSlice-Token")
-        or request.cookies.get(_LAN_COOKIE_NAME)
-        or request.args.get("token")
-        or ""
-    )
-    return secrets.compare_digest(str(presented), token)
-
-
-def _lan_allowed_roots():
-    roots = {
-        PROJECT_DIR,
-        PROJECT_TL_DIR,
-        DEFAULT_VIDEO_DIR,
-        DEFAULT_OUTPUT_DIR,
-        DEFAULT_TIMELINE_DIR,
-        DEFAULT_SUBMISSION_DIR,
-    }
-    roots.update(_split_env_values("AUTOSLICE_ALLOWED_ROOTS"))
-    return tuple(
-        Path(root).expanduser().resolve(strict=False)
-        for root in roots
-        if str(root).strip()
-    )
-
-
-def _path_within(path, roots):
-    try:
-        candidate = Path(path).expanduser().resolve(strict=False)
-    except (OSError, RuntimeError, ValueError):
-        return False
-    for root in roots:
-        try:
-            candidate.relative_to(root)
-            return True
-        except ValueError:
-            continue
-    return False
-
-
-def _lan_payload_paths_are_allowed():
-    if not request.is_json:
-        return True
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return True
-    roots = _lan_allowed_roots()
-    for key, value in payload.items():
-        if key not in _LAN_PATH_FIELDS or value in (None, ""):
-            continue
-        if not isinstance(value, str) or not _path_within(value, roots):
-            return False
-    return True
-
-
 @app.before_request
 def enforce_local_request_boundary():
-    """阻止 DNS rebinding、跨站写请求和未授权的局域网访问。"""
+    """统一阻止 DNS rebinding、跨站写入和 LAN 路径逃逸。"""
 
-    if _request_hostname() not in _trusted_request_hosts():
-        return jsonify({"error": "拒绝不受信任的 Host"}), 403
-    if request.method in _WRITE_METHODS and not _request_origin_is_trusted():
-        return jsonify({"error": "拒绝跨站写请求"}), 403
-    if not _env_flag("AUTOSLICE_LAN_MODE"):
-        return None
-    if not _lan_request_is_authenticated():
-        return jsonify({"error": "局域网模式需要有效访问令牌"}), 401
-    if not _lan_payload_paths_are_allowed():
-        return jsonify({"error": "请求路径不在局域网允许目录内"}), 403
+    decision = security_policy.authorize_flask_request(request)
+    if not decision.allowed:
+        return jsonify({"error": decision.message}), decision.status_code
+    path_decision = security_policy.validate_flask_request_paths(request)
+    if not path_decision.allowed:
+        return jsonify({"error": path_decision.message}), path_decision.status_code
     return None
 
 
 @app.after_request
-def persist_lan_session(response):
+def issue_local_browser_session(response):
+    """页面或显式 bootstrap GET 仅通过 HttpOnly Cookie 建立本机会话。"""
+
     if (
-            _env_flag("AUTOSLICE_LAN_MODE")
-            and request.args.get("token")
-            and _lan_request_is_authenticated()):
-        response.set_cookie(
-            _LAN_COOKIE_NAME,
-            _lan_token(),
-            httponly=True,
-            samesite="Strict",
-            max_age=12 * 60 * 60,
+            request.method == "GET"
+            and request.path in _SESSION_BOOTSTRAP_PATHS
+            and response.status_code < 400):
+        security_policy.attach_session_cookie(
+            response,
+            scheme=request.scheme,
+            host_header=request.host,
+            secure=request.is_secure,
         )
     return response
 
@@ -2077,6 +1951,14 @@ def subtitle_workflow_page():
 @app.route("/autocover")
 def autocover_page():
     return redirect(_configured_autocover_url())
+
+
+@app.route("/api/security/session", methods=["GET"])
+def bootstrap_security_session():
+    """建立 HttpOnly 本机会话；公开 JSON 不包含令牌或 Cookie 值。"""
+
+    mode = "lan" if security_policy.settings().lan_mode else "local"
+    return jsonify({"ok": True, "mode": mode})
 
 
 @app.route("/api/service")

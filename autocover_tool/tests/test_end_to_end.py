@@ -62,6 +62,8 @@ class EndToEndTests(unittest.TestCase):
             "STICKER_DIR": str(self.stickers),
             "IMPORTED_STICKER_DIR": str(self.imported_stickers),
         }).test_client()
+        session = self.client.get("/api/security/session")
+        self.assertEqual(session.status_code, 200)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()

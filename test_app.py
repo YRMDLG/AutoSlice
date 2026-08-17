@@ -37,6 +37,16 @@ def _cleanup_test_task_database():
 atexit.register(_cleanup_test_task_database)
 
 
+def _bootstrapped_client():
+    """模拟浏览器先加载会话端点，再调用既有写 API。"""
+
+    client = app_module.app.test_client()
+    response = client.get("/api/security/session")
+    if response.status_code != 200:
+        raise RuntimeError("测试客户端无法建立本机会话")
+    return client
+
+
 def assert_same_path(testcase, actual, expected):
     """Windows 可能为同一临时路径返回 8.3 短路径，不能做字符串比较。"""
 
@@ -77,7 +87,7 @@ class ScanApiTests(unittest.TestCase):
 
     def setUp(self):
         app_module.app.config.update(TESTING=True)
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def test_scan_supports_declared_formats_and_excludes_non_video_files(self):
         with TemporaryDirectory() as directory:
@@ -122,7 +132,7 @@ class TopicPageContractTests(unittest.TestCase):
 
     def setUp(self):
         app_module.app.config.update(TESTING=True)
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def _page_script(self):
         response = self.client.get("/topic-v2")
@@ -180,6 +190,255 @@ class TopicPageContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class SecurityBoundaryTests(unittest.TestCase):
+    """覆盖 Host、同源写证明、内存会话和显式 LAN 路径边界。"""
+
+    STRONG_LAN_TOKEN = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0"
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+
+    @classmethod
+    def _lan_environment(cls, allowed_root, **overrides):
+        environment = {
+            "AUTOSLICE_LAN_MODE": "1",
+            "AUTOSLICE_LAN_TOKEN": cls.STRONG_LAN_TOKEN,
+            "AUTOSLICE_LAN_HOSTS": "192.168.1.20",
+            "AUTOSLICE_LAN_ORIGINS": "http://192.168.1.20:5002",
+            "AUTOSLICE_ALLOWED_ROOTS": str(allowed_root),
+        }
+        environment.update(overrides)
+        return environment
+
+    def test_default_mode_accepts_only_all_three_loopback_host_forms(self):
+        client = app_module.app.test_client()
+
+        for host in ("localhost:5002", "127.0.0.1:5002", "[::1]:5002"):
+            with self.subTest(host=host):
+                response = client.get("/api/service", headers={"Host": host})
+                self.assertEqual(response.status_code, 200)
+
+        for host in (
+            "attacker.example",
+            "127.0.0.1.attacker.example",
+            "0.0.0.0:5002",
+        ):
+            with self.subTest(host=host):
+                response = client.get("/api/service", headers={"Host": host})
+                self.assertEqual(response.status_code, 403)
+                self.assertIn("Host", response.get_json()["error"])
+
+    def test_same_origin_origin_or_referer_allows_write_and_cross_site_is_rejected(self):
+        with TemporaryDirectory() as directory:
+            by_origin = app_module.app.test_client().post(
+                "/api/scan",
+                json={"video_dir": directory},
+                headers={
+                    "Host": "127.0.0.1:5002",
+                    "Origin": "http://127.0.0.1:5002",
+                },
+            )
+            by_referer = app_module.app.test_client().post(
+                "/api/scan",
+                json={"video_dir": directory},
+                headers={
+                    "Host": "[::1]:5002",
+                    "Referer": "http://[::1]:5002/topic-v2",
+                },
+            )
+            cross_site_client = app_module.app.test_client()
+            cross_site_client.get("/api/security/session")
+            cross_site = cross_site_client.post(
+                "/api/scan",
+                json={"video_dir": directory},
+                headers={"Origin": "https://attacker.example"},
+            )
+            cross_port = app_module.app.test_client().post(
+                "/api/scan",
+                json={"video_dir": directory},
+                headers={
+                    "Host": "localhost:5002",
+                    "Origin": "http://localhost:5010",
+                },
+            )
+
+        self.assertEqual(by_origin.status_code, 200)
+        self.assertEqual(by_referer.status_code, 200)
+        self.assertEqual(cross_site.status_code, 403)
+        self.assertEqual(cross_port.status_code, 403)
+
+    def test_missing_origin_and_referer_requires_non_url_session_token(self):
+        with TemporaryDirectory() as directory:
+            fresh_client = app_module.app.test_client()
+            rejected = fresh_client.post(
+                "/api/scan",
+                json={"video_dir": directory},
+            )
+            query_token = fresh_client.post(
+                "/api/scan",
+                query_string={"token": self.STRONG_LAN_TOKEN},
+                json={"video_dir": directory},
+            )
+
+            browser_client = app_module.app.test_client()
+            bootstrap = browser_client.get("/api/security/session")
+            accepted = browser_client.post(
+                "/api/scan",
+                json={"video_dir": directory},
+            )
+
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(query_token.status_code, 403)
+        self.assertEqual(bootstrap.get_json(), {"ok": True, "mode": "local"})
+        self.assertEqual(bootstrap.headers["Cache-Control"], "no-store")
+        cookie = bootstrap.headers["Set-Cookie"]
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Strict", cookie)
+        self.assertNotIn(self.STRONG_LAN_TOKEN, cookie)
+        self.assertNotIn("token", bootstrap.get_data(as_text=True).casefold())
+        self.assertEqual(accepted.status_code, 200)
+
+    def test_lan_mode_rejects_weak_or_incomplete_security_configuration(self):
+        with TemporaryDirectory() as allowed_dir:
+            complete = self._lan_environment(allowed_dir)
+            weak = {**complete, "AUTOSLICE_LAN_TOKEN": "x" * 64}
+            missing_origins = {**complete, "AUTOSLICE_LAN_ORIGINS": ""}
+            headers = {
+                "Host": "192.168.1.20:5002",
+                "X-AutoSlice-Token": self.STRONG_LAN_TOKEN,
+            }
+            for environment in (weak, missing_origins):
+                with self.subTest(environment=environment):
+                    with patch.dict(os.environ, environment, clear=False):
+                        response = app_module.app.test_client().get(
+                            "/api/service",
+                            headers=headers,
+                        )
+                    self.assertEqual(response.status_code, 503)
+                    self.assertNotIn(
+                        environment["AUTOSLICE_LAN_TOKEN"],
+                        response.get_data(as_text=True),
+                    )
+
+    def test_lan_mode_requires_header_or_session_and_explicit_origin(self):
+        with TemporaryDirectory() as allowed_dir:
+            environment = self._lan_environment(
+                allowed_dir,
+                AUTOSLICE_LAN_HOSTS="192.168.1.20;192.168.1.21",
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                unauthenticated = app_module.app.test_client().get(
+                    "/api/service",
+                    headers={"Host": "192.168.1.20:5002"},
+                )
+                url_token = app_module.app.test_client().get(
+                    "/api/service",
+                    query_string={"token": self.STRONG_LAN_TOKEN},
+                    headers={"Host": "192.168.1.20:5002"},
+                )
+                cross_site = app_module.app.test_client().post(
+                    "/api/subtitles/scan",
+                    json={"root_dir": allowed_dir},
+                    headers={
+                        "Host": "192.168.1.21:5002",
+                        "Origin": "http://192.168.1.21:5002",
+                        "X-AutoSlice-Token": self.STRONG_LAN_TOKEN,
+                    },
+                )
+
+                browser_client = app_module.app.test_client()
+                bootstrap = browser_client.get(
+                    "/api/security/session",
+                    headers={
+                        "Host": "192.168.1.20:5002",
+                        "X-AutoSlice-Token": self.STRONG_LAN_TOKEN,
+                    },
+                )
+                session_write = browser_client.post(
+                    "/api/subtitles/scan",
+                    json={"root_dir": allowed_dir},
+                    headers={"Host": "192.168.1.20:5002"},
+                )
+
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.assertEqual(url_token.status_code, 401)
+        self.assertEqual(cross_site.status_code, 403)
+        self.assertEqual(bootstrap.status_code, 200)
+        self.assertNotIn(
+            self.STRONG_LAN_TOKEN,
+            bootstrap.headers.get("Set-Cookie", ""),
+        )
+        self.assertEqual(session_write.status_code, 200)
+
+    def test_lan_paths_cover_json_form_query_and_upload_inputs(self):
+        with TemporaryDirectory() as allowed_dir, TemporaryDirectory() as blocked_dir:
+            allowed_root = Path(allowed_dir)
+            blocked_root = Path(blocked_dir)
+            environment = self._lan_environment(allowed_root)
+            read_headers = {
+                "Host": "192.168.1.20:5002",
+                "X-AutoSlice-Token": self.STRONG_LAN_TOKEN,
+            }
+            write_headers = {
+                **read_headers,
+                "Origin": "http://192.168.1.20:5002",
+            }
+            with patch.dict(os.environ, environment, clear=False):
+                client = app_module.app.test_client()
+                allowed_json = client.post(
+                    "/api/subtitles/scan",
+                    json={"root_dir": str(allowed_root)},
+                    headers=write_headers,
+                )
+                blocked_json = client.post(
+                    "/api/subtitles/scan",
+                    json={"nested": {"root_dir": str(blocked_root)}},
+                    headers=write_headers,
+                )
+                allowed_query = client.get(
+                    "/api/service",
+                    query_string={"output_path": str(allowed_root / "result.json")},
+                    headers=read_headers,
+                )
+                blocked_query = client.get(
+                    "/api/service",
+                    query_string={"output_path": str(blocked_root / "result.json")},
+                    headers=read_headers,
+                )
+                allowed_form = client.post(
+                    "/api/service",
+                    data={"output_dir": str(allowed_root)},
+                    headers=write_headers,
+                )
+                blocked_form = client.post(
+                    "/api/service",
+                    data={"output_dir": str(blocked_root)},
+                    headers=write_headers,
+                )
+                blocked_upload = client.post(
+                    "/api/not-found",
+                    data={"file": (io.BytesIO(b"docx"), "../escape.docx")},
+                    headers=write_headers,
+                )
+                safe_upload = client.post(
+                    "/api/not-found",
+                    data={
+                        "target_path": str(allowed_root / "safe.docx"),
+                        "file": (io.BytesIO(b"docx"), "safe.docx"),
+                    },
+                    headers=write_headers,
+                )
+
+        self.assertEqual(allowed_json.status_code, 200)
+        self.assertEqual(blocked_json.status_code, 403)
+        self.assertEqual(allowed_query.status_code, 200)
+        self.assertEqual(blocked_query.status_code, 403)
+        self.assertEqual(allowed_form.status_code, 405)
+        self.assertEqual(blocked_form.status_code, 403)
+        self.assertEqual(blocked_upload.status_code, 403)
+        self.assertEqual(safe_upload.status_code, 404)
+
+
 class AutoCoverIntegrationTests(unittest.TestCase):
 
     def setUp(self):
@@ -191,7 +450,7 @@ class AutoCoverIntegrationTests(unittest.TestCase):
         )
         self.legacy_flag.start()
         self.addCleanup(self.legacy_flag.stop)
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def test_autocover_redirect_uses_only_configured_local_service(self):
         with patch.dict(
@@ -210,69 +469,6 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             rejected = self.client.get("/autocover")
 
         self.assertEqual(rejected.headers["Location"], "http://127.0.0.1:5010")
-
-    def test_request_boundary_rejects_untrusted_host_and_cross_site_write(self):
-        self.assertEqual(
-            self.client.get(
-                "/api/service",
-                headers={"Host": "attacker.example"},
-            ).status_code,
-            403,
-        )
-        self.assertEqual(
-            self.client.post(
-                "/api/scan",
-                json={"video_dir": "missing"},
-                headers={"Origin": "https://attacker.example"},
-            ).status_code,
-            403,
-        )
-        self.assertEqual(
-            self.client.get(
-                "/api/service",
-                headers={"Host": "127.0.0.1:5002"},
-            ).status_code,
-            200,
-        )
-
-    def test_lan_mode_requires_token_and_restricts_paths(self):
-        with TemporaryDirectory() as allowed_dir, TemporaryDirectory() as blocked_dir:
-            env = {
-                "AUTOSLICE_LAN_MODE": "1",
-                "AUTOSLICE_LAN_TOKEN": "secure-token-" + "x" * 24,
-                "AUTOSLICE_LAN_HOSTS": "192.168.1.20",
-                "AUTOSLICE_ALLOWED_ROOTS": allowed_dir,
-            }
-            headers = {
-                "Host": "192.168.1.20:5002",
-                "Origin": "http://192.168.1.20:5002",
-            }
-            with patch.dict(os.environ, env, clear=False):
-                unauthenticated = self.client.post(
-                    "/api/subtitles/scan",
-                    json={"root_dir": allowed_dir},
-                    headers=headers,
-                )
-                blocked = self.client.post(
-                    "/api/subtitles/scan",
-                    json={"root_dir": blocked_dir},
-                    headers={
-                        **headers,
-                        "X-AutoSlice-Token": env["AUTOSLICE_LAN_TOKEN"],
-                    },
-                )
-                allowed = self.client.post(
-                    "/api/subtitles/scan",
-                    json={"root_dir": allowed_dir},
-                    headers={
-                        **headers,
-                        "X-AutoSlice-Token": env["AUTOSLICE_LAN_TOKEN"],
-                    },
-                )
-
-        self.assertEqual(unauthenticated.status_code, 401)
-        self.assertEqual(blocked.status_code, 403)
-        self.assertEqual(allowed.status_code, 200)
 
     def test_all_primary_pages_link_to_autocover(self):
         for path in ("/", "/topic-v2", "/subtitle-workflow"):
@@ -370,7 +566,7 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
 
     def setUp(self):
         app_module.app.config.update(TESTING=True)
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def _page_script(self):
         response = self.client.get("/subtitle-workflow")
@@ -610,7 +806,7 @@ class DirectSliceApiTests(unittest.TestCase):
         )
         self.legacy_flag.start()
         self.addCleanup(self.legacy_flag.stop)
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def test_explicit_compatibility_page_only_offers_json_reslicing(self):
         response = self.client.get("/direct-slice")
@@ -753,7 +949,7 @@ class TopicPipelineApiTests(unittest.TestCase):
         )
         self.legacy_flag.start()
         self.addCleanup(self.legacy_flag.stop)
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def test_update_task_does_not_fail_when_gbk_console_cannot_encode_emoji(self):
         raw_output = io.BytesIO()
@@ -1402,7 +1598,7 @@ class TaskLifecycleTests(unittest.TestCase):
             app_module.event_queues.clear()
             app_module._event_history.clear()
             app_module._event_sequence = 0
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def tearDown(self):
         app_module.tasks.clear()
@@ -1846,7 +2042,7 @@ class WebTransportSafetyTests(unittest.TestCase):
                 app_module.event_queues.clear()
         else:
             app_module.event_queues.clear()
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     def tearDown(self):
         if hasattr(app_module, "event_queue_lock"):
@@ -1971,7 +2167,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config.update(TESTING=True)
         app_module.tasks.clear()
-        self.client = app_module.app.test_client()
+        self.client = _bootstrapped_client()
 
     @staticmethod
     def _write_pair(root):

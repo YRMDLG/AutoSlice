@@ -25,6 +25,7 @@ from runtime_config import (
     STICKER_DIR,
     apply_local_environment,
 )
+from security_policy import SecurityConfigurationError, SecurityPolicy
 from autocover_tool.autocover import (
     API_VERSION as AUTOCOVER_API_VERSION,
     SERVICE_ID as AUTOCOVER_SERVICE_ID,
@@ -319,23 +320,19 @@ def _stop_autocover(process):
 
 
 def _autoslice_bind_host(environ=None):
-    """默认只监听本机；显式局域网模式必须配置足够长的访问令牌。"""
+    """使用与 Flask 请求边界相同的 LAN 配置决定监听地址。"""
 
     env = environ if environ is not None else os.environ
-    lan_mode = str(env.get("AUTOSLICE_LAN_MODE", "")).strip().casefold()
-    if lan_mode not in {"1", "true", "yes", "on"}:
-        return "127.0.0.1"
-    token = str(env.get("AUTOSLICE_LAN_TOKEN", "")).strip()
-    if len(token) < 24:
-        raise RuntimeError(
-            "局域网模式要求 AUTOSLICE_LAN_TOKEN 至少 24 个字符"
-        )
-    hosts = str(env.get("AUTOSLICE_LAN_HOSTS", "")).strip()
-    if not hosts:
-        raise RuntimeError(
-            "局域网模式要求 AUTOSLICE_LAN_HOSTS 配置允许访问的主机名或 IP"
-        )
-    return "0.0.0.0"
+    policy = SecurityPolicy(
+        env_prefix="AUTOSLICE",
+        cookie_name="autoslice_local_session",
+        access_header="X-AutoSlice-Token",
+        environ=env,
+    )
+    try:
+        return policy.bind_host()
+    except SecurityConfigurationError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def _start_autocover(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -31,6 +32,215 @@ else:
 
     APP_MODULE = "app"
     WORKSPACE_MODULE = "autocover.workspace"
+
+
+def _bootstrapped_client(flask_app):
+    client = flask_app.test_client()
+    response = client.get("/api/security/session")
+    if response.status_code != 200:
+        raise RuntimeError("AutoCover 测试客户端无法建立本机会话")
+    return client
+
+
+class SecurityBoundaryTests(unittest.TestCase):
+    """验证 AutoCover 与 AutoSlice 使用同一套 Host/Origin/路径策略。"""
+
+    STRONG_LAN_TOKEN = "R8s6T4u2V9w7X5y3Z1a8B6c4D2e9F7g5"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.allowed = self.root / "允许"
+        self.allowed.mkdir()
+        self.blocked = self.root / "越界"
+        self.blocked.mkdir()
+        self.app = create_app({
+            "TESTING": True,
+            "STICKER_DIR": str(self.root / "贴图"),
+            "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
+        })
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _lan_environment(self, **overrides) -> dict[str, str]:
+        environment = {
+            "AUTOCOVER_LAN_MODE": "1",
+            "AUTOCOVER_LAN_TOKEN": self.STRONG_LAN_TOKEN,
+            "AUTOCOVER_LAN_HOSTS": "192.168.1.30",
+            "AUTOCOVER_LAN_ORIGINS": "http://192.168.1.30:5010",
+            "AUTOCOVER_ALLOWED_ROOTS": str(self.allowed),
+        }
+        environment.update(overrides)
+        return environment
+
+    def test_loopback_ipv4_localhost_ipv6_and_forged_host(self) -> None:
+        client = self.app.test_client()
+        for host in ("127.0.0.1:5010", "localhost:5010", "[::1]:5010"):
+            with self.subTest(host=host):
+                self.assertEqual(
+                    client.get("/api/options", headers={"Host": host}).status_code,
+                    200,
+                )
+        for host in ("attacker.example", "localhost.attacker.example"):
+            with self.subTest(host=host):
+                self.assertEqual(
+                    client.get("/api/options", headers={"Host": host}).status_code,
+                    403,
+                )
+
+    def test_write_needs_same_origin_referer_or_http_only_session(self) -> None:
+        missing = self.app.test_client().post(
+            "/api/layout-variants",
+            json={"title": "缺少写证明"},
+        )
+        by_origin = self.app.test_client().post(
+            "/api/layout-variants",
+            json={"title": "同源 Origin"},
+            headers={
+                "Host": "127.0.0.1:5010",
+                "Origin": "http://127.0.0.1:5010",
+            },
+        )
+        by_referer = self.app.test_client().post(
+            "/api/layout-variants",
+            json={"title": "同源 Referer"},
+            headers={
+                "Host": "[::1]:5010",
+                "Referer": "http://[::1]:5010/editor",
+            },
+        )
+        browser = self.app.test_client()
+        bootstrap = browser.get("/api/security/session")
+        by_session = browser.post(
+            "/api/layout-variants",
+            json={"title": "会话写入"},
+        )
+        cross_site = browser.post(
+            "/api/layout-variants",
+            json={"title": "跨站写入"},
+            headers={"Origin": "https://attacker.example"},
+        )
+
+        self.assertEqual(missing.status_code, 403)
+        self.assertEqual(by_origin.status_code, 200)
+        self.assertEqual(by_referer.status_code, 200)
+        self.assertEqual(by_session.status_code, 200)
+        self.assertEqual(cross_site.status_code, 403)
+        self.assertEqual(bootstrap.get_json(), {"ok": True, "mode": "local"})
+        self.assertIn("HttpOnly", bootstrap.headers["Set-Cookie"])
+        self.assertIn("SameSite=Strict", bootstrap.headers["Set-Cookie"])
+        self.assertNotIn("token", bootstrap.get_data(as_text=True).casefold())
+
+    def test_lan_mode_requires_strong_non_url_token_and_explicit_origin(self) -> None:
+        valid = self._lan_environment()
+        weak = {**valid, "AUTOCOVER_LAN_TOKEN": "x" * 64}
+        request_headers = {"Host": "192.168.1.30:5010"}
+        with patch.dict(os.environ, weak, clear=False):
+            weak_response = self.app.test_client().get(
+                "/api/options",
+                headers={
+                    **request_headers,
+                    "X-AutoCover-Token": weak["AUTOCOVER_LAN_TOKEN"],
+                },
+            )
+        with patch.dict(os.environ, valid, clear=False):
+            unauthenticated = self.app.test_client().get(
+                "/api/options",
+                headers=request_headers,
+            )
+            url_token = self.app.test_client().get(
+                "/api/options",
+                query_string={"token": self.STRONG_LAN_TOKEN},
+                headers=request_headers,
+            )
+            wrong_origin = self.app.test_client().post(
+                "/api/layout-variants",
+                json={"title": "不允许的来源"},
+                headers={
+                    **request_headers,
+                    "Origin": "http://192.168.1.31:5010",
+                    "X-AutoCover-Token": self.STRONG_LAN_TOKEN,
+                },
+            )
+
+        self.assertEqual(weak_response.status_code, 503)
+        self.assertNotIn(
+            weak["AUTOCOVER_LAN_TOKEN"],
+            weak_response.get_data(as_text=True),
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.assertEqual(url_token.status_code, 401)
+        self.assertEqual(wrong_origin.status_code, 403)
+
+    def test_lan_paths_cover_json_form_query_and_upload_inputs(self) -> None:
+        environment = self._lan_environment()
+        read_headers = {
+            "Host": "192.168.1.30:5010",
+            "X-AutoCover-Token": self.STRONG_LAN_TOKEN,
+        }
+        write_headers = {
+            **read_headers,
+            "Origin": "http://192.168.1.30:5010",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            client = self.app.test_client()
+            allowed_json = client.post(
+                "/api/workspace/scan",
+                json={
+                    "root": str(self.allowed),
+                    "cache_dir": str(self.allowed / "缓存"),
+                    "output_dir": str(self.allowed / "输出"),
+                },
+                headers=write_headers,
+            )
+            blocked_json = client.post(
+                "/api/workspace/scan",
+                json={"root": str(self.blocked)},
+                headers=write_headers,
+            )
+            allowed_query = client.get(
+                "/api/options",
+                query_string={"output_path": str(self.allowed / "cover.jpg")},
+                headers=read_headers,
+            )
+            blocked_query = client.get(
+                "/api/options",
+                query_string={"output_path": str(self.blocked / "cover.jpg")},
+                headers=read_headers,
+            )
+            allowed_form = client.post(
+                "/api/options",
+                data={"output_dir": str(self.allowed)},
+                headers=write_headers,
+            )
+            blocked_form = client.post(
+                "/api/options",
+                data={"output_dir": str(self.blocked)},
+                headers=write_headers,
+            )
+            blocked_upload = client.post(
+                "/api/not-found",
+                data={"file": (io.BytesIO(b"png"), "../escape.png")},
+                headers=write_headers,
+            )
+            safe_upload = client.post(
+                "/api/not-found",
+                data={
+                    "target_path": str(self.allowed / "safe.png"),
+                    "file": (io.BytesIO(b"png"), "safe.png"),
+                },
+                headers=write_headers,
+            )
+
+        self.assertEqual(allowed_json.status_code, 200)
+        self.assertEqual(blocked_json.status_code, 403)
+        self.assertEqual(allowed_query.status_code, 200)
+        self.assertEqual(blocked_query.status_code, 403)
+        self.assertEqual(allowed_form.status_code, 405)
+        self.assertEqual(blocked_form.status_code, 403)
+        self.assertEqual(blocked_upload.status_code, 403)
+        self.assertEqual(safe_upload.status_code, 404)
 
 
 class AppTests(unittest.TestCase):
@@ -63,7 +273,7 @@ class AppTests(unittest.TestCase):
             "STICKER_DIR": str(self.sticker_root),
             "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
         })
-        self.client = self.app.test_client()
+        self.client = _bootstrapped_client(self.app)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -1149,7 +1359,7 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
             "STICKER_DIR": str(self.sticker_root),
             "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
         })
-        fresh_client = fresh_app.test_client()
+        fresh_client = _bootstrapped_client(fresh_app)
         restored_response = fresh_client.post(
             "/api/workspace/scan",
             json={
@@ -1196,7 +1406,8 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
             "STICKER_DIR": str(self.sticker_root),
             "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
         })
-        invalidated_response = invalidated_app.test_client().post(
+        invalidated_client = _bootstrapped_client(invalidated_app)
+        invalidated_response = invalidated_client.post(
             "/api/workspace/scan",
             json={
                 "root": str(self.clips),

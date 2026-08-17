@@ -16,18 +16,20 @@ SPEC.loader.exec_module(launcher)
 class LauncherTests(unittest.TestCase):
     def test_autoslice_binds_loopback_unless_secured_lan_mode_is_explicit(self):
         self.assertEqual(launcher._autoslice_bind_host({}), "127.0.0.1")
-        with self.assertRaisesRegex(RuntimeError, "LAN_TOKEN"):
+        with self.assertRaisesRegex(RuntimeError, "强随机令牌"):
             launcher._autoslice_bind_host({"AUTOSLICE_LAN_MODE": "1"})
-        with self.assertRaisesRegex(RuntimeError, "LAN_HOSTS"):
+        with self.assertRaisesRegex(RuntimeError, "Host、Origin"):
             launcher._autoslice_bind_host({
                 "AUTOSLICE_LAN_MODE": "1",
-                "AUTOSLICE_LAN_TOKEN": "x" * 24,
+                "AUTOSLICE_LAN_TOKEN": "A1b2C3d4E5f6G7h8J9k0L1m2N3p4Q5r6",
             })
         self.assertEqual(
             launcher._autoslice_bind_host({
                 "AUTOSLICE_LAN_MODE": "1",
-                "AUTOSLICE_LAN_TOKEN": "x" * 24,
+                "AUTOSLICE_LAN_TOKEN": "A1b2C3d4E5f6G7h8J9k0L1m2N3p4Q5r6",
                 "AUTOSLICE_LAN_HOSTS": "192.168.1.20",
+                "AUTOSLICE_LAN_ORIGINS": "http://192.168.1.20:5002",
+                "AUTOSLICE_ALLOWED_ROOTS": str(Path.cwd()),
             }),
             "0.0.0.0",
         )
