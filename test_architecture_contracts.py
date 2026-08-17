@@ -118,5 +118,86 @@ class ArchitectureSnapshotTests(unittest.TestCase):
         )
 
 
+class ArchitectureDependencyTests(unittest.TestCase):
+
+    def test_cycle_detection_is_derived_from_import_edges(self):
+        edges = [
+            {"from": "alpha", "to": "beta"},
+            {"from": "beta", "to": "alpha"},
+            {"from": "beta", "to": "gamma"},
+        ]
+
+        cycles = architecture_snapshot.find_dependency_cycles(
+            {"alpha", "beta", "gamma"},
+            edges,
+        )
+
+        self.assertEqual(cycles, [{
+            "modules": ["alpha", "beta"],
+            "internal_edges": [
+                {"from": "alpha", "to": "beta"},
+                {"from": "beta", "to": "alpha"},
+            ],
+            "debt_status": "present",
+        }])
+
+    def test_current_cycles_are_limited_to_recorded_debt(self):
+        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        current = architecture_snapshot.build_snapshot(ROOT)
+
+        violations = architecture_snapshot.dependency_contract_violations(
+            current,
+            baseline,
+        )
+
+        self.assertEqual(violations, [])
+        self.assertTrue(baseline["dependency_cycles"])
+        for cycle in baseline["dependency_cycles"]:
+            self.assertEqual(cycle["debt_status"], "present")
+            self.assertTrue(cycle["modules"])
+            self.assertFalse(any("*" in module for module in cycle["modules"]))
+
+    def test_new_cycle_is_rejected_without_expanding_debt_baseline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "new_left.py").write_text("import new_right\n", encoding="utf-8")
+            (root / "new_right.py").write_text("import new_left\n", encoding="utf-8")
+            current = architecture_snapshot.build_snapshot(root)
+
+        violations = architecture_snapshot.dependency_contract_violations(
+            current,
+            {"dependency_cycles": []},
+        )
+
+        self.assertEqual(
+            violations,
+            ["检测到基线外模块依赖环：new_left -> new_right"],
+        )
+
+    def test_autoslice_module_cannot_import_high_level_facades(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "topic_engine.py").write_text("VALUE = 1\n", encoding="utf-8")
+            transport_dir = root / "autoslice" / "llm"
+            transport_dir.mkdir(parents=True)
+            (root / "autoslice" / "__init__.py").write_text("", encoding="utf-8")
+            (transport_dir / "__init__.py").write_text("", encoding="utf-8")
+            (transport_dir / "transport.py").write_text(
+                "from topic_engine import VALUE\n",
+                encoding="utf-8",
+            )
+            current = architecture_snapshot.build_snapshot(root)
+
+        violations = architecture_snapshot.dependency_contract_violations(
+            current,
+            {"dependency_cycles": []},
+        )
+
+        self.assertEqual(
+            violations,
+            ["底层模块 autoslice.llm.transport 禁止反向导入高层模块 topic_engine"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

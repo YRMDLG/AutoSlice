@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "architecture_baseline.json"
 SCHEMA_VERSION = 1
 LONGEST_FUNCTION_LIMIT = 25
+LOW_LEVEL_MODULE_PREFIX = "autoslice"
+FORBIDDEN_LOW_LEVEL_TARGETS = ("app", "subtitle_workflow", "topic_engine")
 
 # 这些目录只保存本地环境、用户媒体或生成产物，不属于源码扫描范围。
 EXCLUDED_DIRECTORY_NAMES = frozenset({
@@ -337,6 +339,110 @@ def _test_private_patch_snapshot(
     }
 
 
+def find_dependency_cycles(
+        module_names: set[str],
+        import_edges: list[dict[str, object]]) -> list[dict[str, object]]:
+    """以强连通分量返回真实 import 环；结果不依赖文件遍历顺序。"""
+    graph = {module: set() for module in module_names}
+    for edge in import_edges:
+        source = str(edge["from"])
+        target = str(edge["to"])
+        if source in graph and target in graph:
+            graph[source].add(target)
+
+    next_index = 0
+    indexes: dict[str, int] = {}
+    low_links: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    components: list[list[str]] = []
+
+    def visit(module: str) -> None:
+        nonlocal next_index
+        indexes[module] = next_index
+        low_links[module] = next_index
+        next_index += 1
+        stack.append(module)
+        on_stack.add(module)
+
+        for dependency in sorted(graph[module]):
+            if dependency not in indexes:
+                visit(dependency)
+                low_links[module] = min(low_links[module], low_links[dependency])
+            elif dependency in on_stack:
+                low_links[module] = min(low_links[module], indexes[dependency])
+
+        if low_links[module] != indexes[module]:
+            return
+        component: list[str] = []
+        while stack:
+            dependency = stack.pop()
+            on_stack.remove(dependency)
+            component.append(dependency)
+            if dependency == module:
+                break
+        components.append(sorted(component))
+
+    for module in sorted(module_names):
+        if module not in indexes:
+            visit(module)
+
+    cycles: list[dict[str, object]] = []
+    for component in components:
+        component_set = set(component)
+        if len(component) == 1 and component[0] not in graph[component[0]]:
+            continue
+        internal_edges = sorted(
+            (
+                {"from": str(edge["from"]), "to": str(edge["to"])}
+                for edge in import_edges
+                if str(edge["from"]) in component_set
+                and str(edge["to"]) in component_set
+            ),
+            key=lambda edge: (edge["from"], edge["to"]),
+        )
+        cycles.append({
+            "modules": component,
+            "internal_edges": internal_edges,
+            "debt_status": "present",
+        })
+    cycles.sort(key=lambda cycle: tuple(cycle["modules"]))
+    return cycles
+
+
+def dependency_contract_violations(
+        current_snapshot: dict[str, object],
+        debt_baseline: dict[str, object]) -> list[str]:
+    """拒绝基线外的新环及 ``autoslice`` 底层模块的反向导入。"""
+    violations: list[str] = []
+    known_cycle_keys: set[tuple[str, ...]] = set()
+    for cycle in debt_baseline.get("dependency_cycles", []):
+        modules = tuple(str(module) for module in cycle.get("modules", []))
+        if not modules or any("*" in module for module in modules):
+            violations.append(f"循环依赖债务基线不是有限模块集合：{modules!r}")
+            continue
+        known_cycle_keys.add(modules)
+
+    for cycle in current_snapshot.get("dependency_cycles", []):
+        modules = tuple(str(module) for module in cycle.get("modules", []))
+        if modules not in known_cycle_keys:
+            violations.append(f"检测到基线外模块依赖环：{' -> '.join(modules)}")
+
+    forbidden_targets = set(FORBIDDEN_LOW_LEVEL_TARGETS)
+    for edge in current_snapshot.get("import_edges", []):
+        source = str(edge["from"])
+        target = str(edge["to"])
+        is_low_level = (
+            source == LOW_LEVEL_MODULE_PREFIX
+            or source.startswith(f"{LOW_LEVEL_MODULE_PREFIX}.")
+        )
+        if is_low_level and target in forbidden_targets:
+            violations.append(
+                f"底层模块 {source} 禁止反向导入高层模块 {target}"
+            )
+    return violations
+
+
 def build_snapshot(root: Path = ROOT) -> dict[str, object]:
     root = root.resolve()
     production_files, test_files = discover_python_files(root)
@@ -395,6 +501,7 @@ def build_snapshot(root: Path = ROOT) -> dict[str, object]:
         str(item["name"]),
     ))
     private_patches = _test_private_patch_snapshot(test_files, root)
+    dependency_cycles = find_dependency_cycles(known_modules, import_edges)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -425,6 +532,11 @@ def build_snapshot(root: Path = ROOT) -> dict[str, object]:
         },
         "modules": modules,
         "import_edges": import_edges,
+        "dependency_cycles": dependency_cycles,
+        "dependency_policy": {
+            "low_level_module_prefix": LOW_LEVEL_MODULE_PREFIX,
+            "forbidden_reverse_import_targets": list(FORBIDDEN_LOW_LEVEL_TARGETS),
+        },
         "duplicate_top_level_definitions": duplicate_definitions,
         "longest_functions": longest_functions[:LONGEST_FUNCTION_LIMIT],
         "test_private_patches": private_patches,

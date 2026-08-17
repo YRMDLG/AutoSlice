@@ -1,4 +1,31 @@
 {
+  "dependency_cycles": [
+    {
+      "debt_status": "present",
+      "internal_edges": [
+        {
+          "from": "subtitle_workflow",
+          "to": "topic_engine"
+        },
+        {
+          "from": "topic_engine",
+          "to": "subtitle_workflow"
+        }
+      ],
+      "modules": [
+        "subtitle_workflow",
+        "topic_engine"
+      ]
+    }
+  ],
+  "dependency_policy": {
+    "forbidden_reverse_import_targets": [
+      "app",
+      "subtitle_workflow",
+      "topic_engine"
+    ],
+    "low_level_module_prefix": "autoslice"
+  },
   "duplicate_top_level_definitions": [],
   "generator": "scripts/architecture_snapshot.py",
   "import_edges": [
@@ -2745,150 +2772,162 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 477,
+      "line_count": 589,
       "longest_function": {
-        "end_line": 431,
+        "end_line": 543,
         "kind": "function",
-        "line": 340,
-        "line_count": 92,
+        "line": 446,
+        "line_count": 98,
         "qualname": "build_snapshot"
       },
       "module": "scripts.architecture_snapshot",
       "path": "scripts/architecture_snapshot.py",
-      "sha256": "f2fbde64bc6c79ec905a15178932281b6ee5b7072ed28970c4346cb2c7efe2e1",
+      "sha256": "04558b57fe8d5e4644e70d38fef349bc9723531c383c31f5e502243affe9a3ff",
       "top_level_classes": [
         {
-          "end_line": 139,
+          "end_line": 141,
           "kind": "class",
-          "line": 111,
+          "line": 113,
           "name": "_FunctionCollector"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 43,
+          "end_line": 45,
           "kind": "function",
-          "line": 42,
+          "line": 44,
           "name": "_normalise_path"
         },
         {
-          "end_line": 50,
+          "end_line": 52,
           "kind": "function",
-          "line": 46,
+          "line": 48,
           "name": "_is_excluded_directory"
         },
         {
-          "end_line": 79,
+          "end_line": 81,
           "kind": "function",
-          "line": 53,
+          "line": 55,
           "name": "discover_python_files"
         },
         {
-          "end_line": 87,
+          "end_line": 89,
           "kind": "function",
-          "line": 82,
+          "line": 84,
           "name": "module_name_for_path"
         },
         {
-          "end_line": 91,
+          "end_line": 93,
           "kind": "function",
-          "line": 90,
+          "line": 92,
           "name": "_read_python_source"
         },
         {
-          "end_line": 99,
+          "end_line": 101,
           "kind": "function",
-          "line": 94,
+          "line": 96,
           "name": "_definition_kind"
         },
         {
-          "end_line": 108,
+          "end_line": 110,
           "kind": "function",
-          "line": 102,
+          "line": 104,
           "name": "_definition_record"
         },
         {
-          "end_line": 152,
+          "end_line": 154,
           "kind": "function",
-          "line": 142,
+          "line": 144,
           "name": "_absolute_from_import"
         },
         {
-          "end_line": 170,
+          "end_line": 172,
           "kind": "function",
-          "line": 155,
+          "line": 157,
           "name": "_candidate_local_module"
         },
         {
-          "end_line": 201,
+          "end_line": 203,
           "kind": "function",
-          "line": 173,
+          "line": 175,
           "name": "_raw_imports"
         },
         {
-          "end_line": 214,
+          "end_line": 216,
           "kind": "function",
-          "line": 204,
+          "line": 206,
           "name": "_resolve_import_target"
         },
         {
-          "end_line": 278,
+          "end_line": 280,
           "kind": "function",
-          "line": 217,
+          "line": 219,
           "name": "analyse_module"
         },
         {
-          "end_line": 287,
+          "end_line": 289,
           "kind": "function",
-          "line": 281,
+          "line": 283,
           "name": "_expression_name"
         },
         {
-          "end_line": 291,
+          "end_line": 293,
           "kind": "function",
-          "line": 290,
+          "line": 292,
           "name": "_constant_string"
         },
         {
-          "end_line": 313,
+          "end_line": 315,
           "kind": "function",
-          "line": 294,
+          "line": 296,
           "name": "_private_patch_targets"
         },
         {
-          "end_line": 337,
+          "end_line": 339,
           "kind": "function",
-          "line": 316,
+          "line": 318,
           "name": "_test_private_patch_snapshot"
         },
         {
-          "end_line": 431,
+          "end_line": 410,
           "kind": "function",
-          "line": 340,
+          "line": 342,
+          "name": "find_dependency_cycles"
+        },
+        {
+          "end_line": 443,
+          "kind": "function",
+          "line": 413,
+          "name": "dependency_contract_violations"
+        },
+        {
+          "end_line": 543,
+          "kind": "function",
+          "line": 446,
           "name": "build_snapshot"
         },
         {
-          "end_line": 435,
+          "end_line": 547,
           "kind": "function",
-          "line": 434,
+          "line": 546,
           "name": "serialise_snapshot"
         },
         {
-          "end_line": 440,
+          "end_line": 552,
           "kind": "function",
-          "line": 438,
+          "line": 550,
           "name": "write_snapshot"
         },
         {
-          "end_line": 456,
+          "end_line": 568,
           "kind": "function",
-          "line": 443,
+          "line": 555,
           "name": "_check_snapshot"
         },
         {
-          "end_line": 473,
+          "end_line": 585,
           "kind": "function",
-          "line": 459,
+          "line": 571,
           "name": "main"
         }
       ]
@@ -6060,11 +6099,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 41,
-    "production_line_count": 25905,
+    "production_line_count": 26017,
     "production_module_count": 31,
     "test_private_patch_count": 138,
     "top_level_class_count": 36,
-    "top_level_function_count": 742
+    "top_level_function_count": 744
   },
   "test_private_patches": {
     "by_target_module": {
