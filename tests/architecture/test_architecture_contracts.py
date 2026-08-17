@@ -848,6 +848,32 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         self.assertTrue(owner_functions.isdisjoint(service_functions))
 
+    def test_funasr_recognition_has_one_owner_and_direct_service_consumer(self):
+        from autoslice.transcription import checkpoints, model_runtime, recognition, service
+        from autoslice.transcription import results
+
+        self.assertIs(service.recognition, recognition)
+        self.assertIs(recognition.checkpoint_store, checkpoints)
+        self.assertIs(recognition.model_runtime, model_runtime)
+        self.assertIs(recognition.result_contracts, results)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        service_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.service"][
+                "top_level_functions"
+            ]
+        }
+        recognition_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.recognition"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(recognition_functions)
+        self.assertTrue(recognition_functions.isdisjoint(service_functions))
+
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import slice_reuse, slicing

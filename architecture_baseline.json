@@ -1436,6 +1436,36 @@
       "to": "autoslice.transcription.contracts"
     },
     {
+      "from": "autoslice.transcription.recognition",
+      "imports": [
+        "autoslice.transcription.checkpoints"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.transcription.checkpoints"
+    },
+    {
+      "from": "autoslice.transcription.recognition",
+      "imports": [
+        "autoslice.transcription.model_runtime"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.transcription.model_runtime"
+    },
+    {
+      "from": "autoslice.transcription.recognition",
+      "imports": [
+        "autoslice.transcription.results"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.transcription.results"
+    },
+    {
       "from": "autoslice.transcription.service",
       "imports": [
         "autoslice.streamer_profiles.current_streamer_profile",
@@ -1454,7 +1484,7 @@
         "autoslice.transcription.checkpoints"
       ],
       "lines": [
-        16
+        15
       ],
       "to": "autoslice.transcription.checkpoints"
     },
@@ -1474,9 +1504,19 @@
         "autoslice.transcription.model_runtime"
       ],
       "lines": [
-        16
+        15
       ],
       "to": "autoslice.transcription.model_runtime"
+    },
+    {
+      "from": "autoslice.transcription.service",
+      "imports": [
+        "autoslice.transcription.recognition"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.transcription.recognition"
     },
     {
       "from": "autoslice.transcription.service",
@@ -1484,7 +1524,7 @@
         "autoslice.transcription.results"
       ],
       "lines": [
-        16
+        15
       ],
       "to": "autoslice.transcription.results"
     },
@@ -2221,15 +2261,6 @@
       "qualname": "run_pipeline_impl"
     },
     {
-      "end_line": 1109,
-      "kind": "function",
-      "line": 733,
-      "line_count": 377,
-      "module": "autoslice.transcription.service",
-      "path": "src/autoslice/transcription/service.py",
-      "qualname": "ensure_srt"
-    },
-    {
       "end_line": 1703,
       "kind": "function",
       "line": 1440,
@@ -2255,6 +2286,15 @@
       "module": "autoslice.analysis.candidates",
       "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_review_peak_selected_topics"
+    },
+    {
+      "end_line": 963,
+      "kind": "function",
+      "line": 733,
+      "line_count": 231,
+      "module": "autoslice.transcription.service",
+      "path": "src/autoslice/transcription/service.py",
+      "qualname": "ensure_srt"
     },
     {
       "end_line": 611,
@@ -2347,6 +2387,15 @@
       "qualname": "call_compatible_api"
     },
     {
+      "end_line": 365,
+      "kind": "function",
+      "line": 243,
+      "line_count": 123,
+      "module": "autoslice.transcription.recognition",
+      "path": "src/autoslice/transcription/recognition.py",
+      "qualname": "recognize_missing_chunks"
+    },
+    {
       "end_line": 2596,
       "kind": "function",
       "line": 2475,
@@ -2408,15 +2457,6 @@
       "module": "autoslice.slice_encoding",
       "path": "src/autoslice/slice_encoding.py",
       "qualname": "execute_slice_jobs"
-    },
-    {
-      "end_line": 2472,
-      "kind": "function",
-      "line": 2368,
-      "line_count": 105,
-      "module": "autoslice.analysis.candidates",
-      "path": "src/autoslice/analysis/candidates.py",
-      "qualname": "_apply_reviewed_slice_decisions"
     }
   ],
   "modules": [
@@ -6914,6 +6954,78 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 365,
+      "longest_function": {
+        "end_line": 365,
+        "kind": "function",
+        "line": 243,
+        "line_count": 123,
+        "qualname": "recognize_missing_chunks"
+      },
+      "module": "autoslice.transcription.recognition",
+      "path": "src/autoslice/transcription/recognition.py",
+      "sha256": "272f121514bd73cb5feb15f3681140e8627200b67a52724a60a97baa5c3d1508",
+      "top_level_classes": [
+        {
+          "end_line": 23,
+          "kind": "class",
+          "line": 18,
+          "name": "FunASRChunkRecognitionError"
+        },
+        {
+          "end_line": 127,
+          "kind": "class",
+          "line": 27,
+          "name": "FunASRRecognitionSession"
+        },
+        {
+          "end_line": 133,
+          "kind": "class",
+          "line": 131,
+          "name": "FunASRRecognitionResult"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 145,
+          "kind": "function",
+          "line": 136,
+          "name": "_run_ffmpeg"
+        },
+        {
+          "end_line": 170,
+          "kind": "function",
+          "line": 148,
+          "name": "extract_source_audio"
+        },
+        {
+          "end_line": 200,
+          "kind": "function",
+          "line": 173,
+          "name": "extract_chunk_audio"
+        },
+        {
+          "end_line": 210,
+          "kind": "function",
+          "line": 203,
+          "name": "_resolve_auto_model_type"
+        },
+        {
+          "end_line": 240,
+          "kind": "function",
+          "line": 213,
+          "name": "_record_completed_chunk"
+        },
+        {
+          "end_line": 365,
+          "kind": "function",
+          "line": 243,
+          "name": "recognize_missing_chunks"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 232,
       "longest_function": {
         "end_line": 144,
@@ -6949,17 +7061,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1123,
+      "line_count": 977,
       "longest_function": {
-        "end_line": 1109,
+        "end_line": 963,
         "kind": "function",
         "line": 733,
-        "line_count": 377,
+        "line_count": 231,
         "qualname": "ensure_srt"
       },
       "module": "autoslice.transcription.service",
       "path": "src/autoslice/transcription/service.py",
-      "sha256": "7f00466bcc6cddbd5d853e0528fac93c865196821416b0d3e018c4074abf9e07",
+      "sha256": "3f19202f45a266474586866dd946165a6f7d0426f39d2a0a6e87899aa746a1ef",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -7089,21 +7201,21 @@
           "name": "_trim_funasr_tokens_to_core"
         },
         {
-          "end_line": 1109,
+          "end_line": 963,
           "kind": "function",
           "line": 733,
           "name": "ensure_srt"
         },
         {
-          "end_line": 1116,
+          "end_line": 970,
           "kind": "function",
-          "line": 1112,
+          "line": 966,
           "name": "srt_time"
         },
         {
-          "end_line": 1123,
+          "end_line": 977,
           "kind": "function",
-          "line": 1119,
+          "line": 973,
           "name": "parse_srt_timestamp"
         }
       ]
@@ -9674,6 +9786,7 @@
       "src/autoslice/transcription/checkpoints.py",
       "src/autoslice/transcription/contracts.py",
       "src/autoslice/transcription/model_runtime.py",
+      "src/autoslice/transcription/recognition.py",
       "src/autoslice/transcription/results.py",
       "src/autoslice/transcription/service.py",
       "src/autoslice/web/__init__.py",
@@ -9730,6 +9843,7 @@
       "tests/unit/test_task_store.py",
       "tests/unit/test_transcription_checkpoints.py",
       "tests/unit/test_transcription_model_runtime.py",
+      "tests/unit/test_transcription_recognition.py",
       "tests/unit/autoslice_cover/__init__.py",
       "tests/unit/autoslice_cover/test_fonts.py",
       "tests/unit/autoslice_cover/test_paths.py",
@@ -9742,12 +9856,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 190,
-    "production_line_count": 34233,
-    "production_module_count": 99,
+    "import_edge_count": 194,
+    "production_line_count": 34452,
+    "production_module_count": 100,
     "test_private_patch_count": 17,
-    "top_level_class_count": 84,
-    "top_level_function_count": 868
+    "top_level_class_count": 87,
+    "top_level_function_count": 874
   },
   "test_private_patches": {
     "by_target_module": {

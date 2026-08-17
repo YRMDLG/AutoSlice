@@ -8,7 +8,6 @@ import html
 import math
 import os
 import re
-import time
 import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -16,6 +15,7 @@ from datetime import datetime
 from autoslice.transcription import (
     checkpoints as checkpoint_store,
     model_runtime,
+    recognition,
     results as result_contracts,
 )
 from autoslice.transcription.contracts import (
@@ -734,9 +734,6 @@ def ensure_srt(
         video_path, progress_callback=None, checkpoint_path=None,
         foreground_only=False):
     """确保 SRT 存在；分块检查点可恢复，全部成功后才原子写入正式字幕。"""
-    import subprocess as sp
-    import uuid
-
     srt_path = os.path.splitext(video_path)[0] + ".srt"
     srt_temp_path = srt_path + ".tmp"
     checkpoint_path = os.path.abspath(
@@ -793,163 +790,24 @@ def ensure_srt(
             100,
         )
 
-    wav_path = None
-    active_chunk_path = None
-    model = None
-    current_device = None
     active_chunk_index = None
     try:
         if missing_indices:
             try:
-                from funasr import AutoModel
-            except ImportError as exc:
-                raise RuntimeError("FunASR 未安装，无法生成字幕。") from exc
-
-            wav_path = os.path.splitext(video_path)[0] + f"_asr_{uuid.uuid4().hex[:6]}.wav"
-            audio_extract_command = [
-                "ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-                "-ar", "16000", "-ac", "1",
-            ]
-            if foreground_only:
-                audio_extract_command.extend([
-                    "-af", model_runtime.FUNASR_FOREGROUND_AUDIO_FILTER,
-                ])
-            audio_extract_command.extend(["-y", wav_path])
-            sp.run(
-                audio_extract_command,
-                check=True,
-                stdout=sp.PIPE,
-                stderr=sp.DEVNULL,
-                encoding="utf-8",
-                errors="replace",
-            )
-            requested_device = model_runtime.resolve_funasr_device()
-            if progress_callback:
-                progress_callback(f"加载 FunASR 模型({requested_device})...", 10, 100)
-            model_load_options = {"foreground_only": True} if foreground_only else {}
-            model = model_runtime.load_funasr_model(
-                AutoModel,
-                progress_callback=progress_callback,
-                device=requested_device,
-                **model_load_options,
-            )
-            current_device = getattr(model, "_autoslice_device", requested_device)
-            foreground_filter_mode = getattr(
-                model,
-                "_autoslice_foreground_filter",
-                "adaptive_gate" if foreground_only else "off",
-            )
-            checkpoint["foreground_filter_mode"] = foreground_filter_mode
-            if progress_callback and foreground_only:
-                progress_callback(
-                    (
-                        "已启用主要说话人识别，将排除其他说话人与低音量背景声"
-                        if foreground_filter_mode == "speaker_diarization"
-                        else "未安装 CAM++，已启用基础背景音门限；仍可能保留较响的背景对白"
-                    ),
-                    12,
-                    100,
+                recognition.recognize_missing_chunks(
+                    video_path,
+                    duration,
+                    chunk_count,
+                    missing_indices,
+                    checkpoint_path,
+                    checkpoint,
+                    hotwords=hotwords,
+                    foreground_only=foreground_only,
+                    progress_callback=progress_callback,
                 )
-            generate_kwargs = model_runtime.funasr_generate_kwargs(
-                model,
-                hotwords=hotwords,
-            )
-
-            for index in missing_indices:
-                active_chunk_index = index
-                start, chunk_duration, input_start, input_duration = (
-                    checkpoint_store.funasr_chunk_input_window(index, duration)
-                )
-                if progress_callback:
-                    pct = 10 + int((index / chunk_count) * 80)
-                    progress_callback(
-                        f"转录中 ({index + 1}/{chunk_count})...",
-                        pct,
-                        100,
-                    )
-
-                if chunk_count == 1:
-                    active_chunk_path = wav_path
-                else:
-                    active_chunk_path = (
-                        os.path.splitext(video_path)[0] + f"_chunk_{index}.wav"
-                    )
-                    sp.run(
-                        [
-                            "ffmpeg", "-y", "-ss", str(input_start), "-i", wav_path,
-                            "-t", str(input_duration), "-acodec", "pcm_s16le",
-                            "-ar", "16000", "-ac", "1", active_chunk_path,
-                        ],
-                        check=True,
-                        stdout=sp.PIPE,
-                        stderr=sp.DEVNULL,
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-
-                try:
-                    result = model.generate(
-                        input=active_chunk_path,
-                        **generate_kwargs,
-                    )
-                except Exception as first_error:
-                    if str(current_device).startswith("cuda"):
-                        if progress_callback:
-                            progress_callback(
-                                f"第 {index + 1} 块 GPU 转录失败，改用 CPU 重试: {first_error}",
-                                10 + int((index / chunk_count) * 80),
-                                100,
-                            )
-                        model = None
-                        model_runtime.clear_funasr_cuda_cache()
-                        model = model_runtime.load_funasr_model(
-                            AutoModel,
-                            progress_callback=progress_callback,
-                            device="cpu",
-                            **model_load_options,
-                        )
-                        current_device = "cpu"
-                        generate_kwargs = model_runtime.funasr_generate_kwargs(
-                            model,
-                            hotwords=hotwords,
-                        )
-                    else:
-                        if model_runtime.FUNASR_CPU_RETRY_DELAY_SEC:
-                            time.sleep(model_runtime.FUNASR_CPU_RETRY_DELAY_SEC)
-                    try:
-                        result = model.generate(
-                            input=active_chunk_path,
-                            **generate_kwargs,
-                        )
-                    except Exception as retry_error:
-                        raise RuntimeError(
-                            f"FunASR 第 {index + 1}/{chunk_count} 块连续失败，"
-                            "已保留此前检查点，未生成残缺 SRT。"
-                        ) from retry_error
-
-                normalised_result = result_contracts.normalise_funasr_result(result)
-                chunk_fingerprint = checkpoint_store.funasr_chunk_fingerprint(
-                    checkpoint["source_fingerprint"],
-                    index,
-                    start,
-                    chunk_duration,
-                )
-                checkpoint["chunks"][str(index)] = {
-                    "fingerprint": chunk_fingerprint,
-                    "start": start,
-                    "duration": chunk_duration,
-                    "input_start": input_start,
-                    "input_duration": input_duration,
-                    "result": normalised_result,
-                    "completed_at": datetime.now().isoformat(timespec="seconds"),
-                }
-                checkpoint["completed_chunk_count"] = len(checkpoint["chunks"])
-                checkpoint["updated_at"] = datetime.now().isoformat(timespec="seconds")
-                checkpoint_store.write_funasr_checkpoint(checkpoint_path, checkpoint)
-                if active_chunk_path != wav_path and os.path.exists(active_chunk_path):
-                    os.remove(active_chunk_path)
-                active_chunk_path = None
-                active_chunk_index = None
+            except Exception as exc:
+                active_chunk_index = getattr(exc, "chunk_index", None)
+                raise
 
         all_segments = []
         speaker_filtered_count = 0
@@ -1101,10 +959,6 @@ def ensure_srt(
             pass
         raise
     finally:
-        if active_chunk_path and active_chunk_path != wav_path and os.path.exists(active_chunk_path):
-            os.remove(active_chunk_path)
-        if wav_path and os.path.exists(wav_path):
-            os.remove(wav_path)
         if os.path.exists(srt_temp_path):
             os.remove(srt_temp_path)
 
