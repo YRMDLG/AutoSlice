@@ -544,7 +544,13 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_phase6_facades_keep_every_owner_object_identity(self):
         import topic_engine
-        from autoslice import pipeline, reporting, slice_reuse, slicing
+        from autoslice import (
+            pipeline,
+            reporting,
+            slice_encoding,
+            slice_reuse,
+            slicing,
+        )
         from autoslice.analysis import (
             boundaries,
             candidates,
@@ -571,6 +577,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             titles,
             reporting,
             slice_reuse,
+            slice_encoding,
             slicing,
             pipeline,
         )
@@ -783,6 +790,60 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             {
                 "build_slice_jobs",
                 "partition_slice_jobs",
+            }.isdisjoint(slicing_functions)
+        )
+
+    def test_slice_encoding_has_one_owner_and_direct_slicing_consumer(self):
+        import topic_engine
+        from autoslice import slice_encoding, slicing
+
+        self.assertIs(slicing.slice_encoding, slice_encoding)
+        compatibility_aliases = {
+            "SLICE_DEFAULT_CONCURRENCY": "SLICE_DEFAULT_CONCURRENCY",
+            "SLICE_EXACT_SEEK_PREROLL_SEC": "SLICE_EXACT_SEEK_PREROLL_SEC",
+            "SLICE_MAX_CONCURRENCY": "SLICE_MAX_CONCURRENCY",
+            "SLICE_INDEX_MIN_CLIPS": "SLICE_INDEX_MIN_CLIPS",
+            "format_ffmpeg_seconds": "format_ffmpeg_seconds",
+            "preferred_slice_video_encoder_args": (
+                "preferred_slice_video_encoder_args"
+            ),
+            "software_slice_video_encoder_args": (
+                "software_slice_video_encoder_args"
+            ),
+            "configured_slice_concurrency": "configured_slice_concurrency",
+            "build_precise_slice_ffmpeg_command": (
+                "build_precise_slice_ffmpeg_command"
+            ),
+            "prepare_seekable_slice_source": "prepare_seekable_slice_source",
+        }
+        for compatibility_name, owner_name in compatibility_aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(slice_encoding, owner_name)
+                self.assertIs(getattr(slicing, compatibility_name), owner)
+
+        for facade_name, owner_name in slice_encoding.FACADE_EXPORTS.items():
+            with self.subTest(facade=facade_name):
+                self.assertIs(
+                    getattr(topic_engine, facade_name),
+                    getattr(slice_encoding, owner_name),
+                )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        slicing_functions = {
+            item["name"]
+            for item in modules["autoslice.slicing"]["top_level_functions"]
+        }
+        self.assertTrue(
+            {
+                "format_ffmpeg_seconds",
+                "preferred_slice_video_encoder_args",
+                "software_slice_video_encoder_args",
+                "configured_slice_concurrency",
+                "build_precise_slice_ffmpeg_command",
+                "prepare_seekable_slice_source",
+                "encode_slice_job",
+                "execute_slice_jobs",
             }.isdisjoint(slicing_functions)
         )
 

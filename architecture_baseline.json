@@ -884,6 +884,26 @@
       "to": "autoslice.paths"
     },
     {
+      "from": "autoslice.slice_encoding",
+      "imports": [
+        "autoslice.media_formats.normalise_video_extension"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.media_formats"
+    },
+    {
+      "from": "autoslice.slice_encoding",
+      "imports": [
+        "autoslice.slice_reuse.SLICE_DURATION_TOLERANCE_SEC"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.slice_reuse"
+    },
+    {
       "from": "autoslice.slice_planning",
       "imports": [
         "autoslice.reporting"
@@ -931,30 +951,19 @@
         "autoslice.analysis.boundaries"
       ],
       "lines": [
-        12
+        10
       ],
       "to": "autoslice.analysis.boundaries"
     },
     {
       "from": "autoslice.slicing",
       "imports": [
-        "autoslice.analysis.candidates"
-      ],
-      "lines": [
-        13
-      ],
-      "to": "autoslice.analysis.candidates"
-    },
-    {
-      "from": "autoslice.slicing",
-      "imports": [
         "autoslice.media_formats.SUPPORTED_VIDEO_EXTENSIONS",
         "autoslice.media_formats.is_analyzable_video",
-        "autoslice.media_formats.is_sliceable_video",
-        "autoslice.media_formats.normalise_video_extension"
+        "autoslice.media_formats.is_sliceable_video"
       ],
       "lines": [
-        14
+        11
       ],
       "to": "autoslice.media_formats"
     },
@@ -964,9 +973,19 @@
         "autoslice.reporting"
       ],
       "lines": [
-        10
+        8
       ],
       "to": "autoslice.reporting"
+    },
+    {
+      "from": "autoslice.slicing",
+      "imports": [
+        "autoslice.slice_encoding"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.slice_encoding"
     },
     {
       "from": "autoslice.slicing",
@@ -974,7 +993,7 @@
         "autoslice.slice_planning"
       ],
       "lines": [
-        11
+        9
       ],
       "to": "autoslice.slice_planning"
     },
@@ -984,7 +1003,7 @@
         "autoslice.slice_reuse"
       ],
       "lines": [
-        11
+        9
       ],
       "to": "autoslice.slice_reuse"
     },
@@ -994,7 +1013,7 @@
         "autoslice.streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        20
+        16
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -1004,7 +1023,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        21
+        17
       ],
       "to": "autoslice.transcription.service"
     },
@@ -1269,6 +1288,16 @@
         75
       ],
       "to": "autoslice.runtime_config"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.slice_encoding"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.slice_encoding"
     },
     {
       "from": "autoslice.topic_engine",
@@ -2112,15 +2141,6 @@
       "qualname": "ensure_srt"
     },
     {
-      "end_line": 458,
-      "kind": "function",
-      "line": 191,
-      "line_count": 268,
-      "module": "autoslice.slicing",
-      "path": "src/autoslice/slicing.py",
-      "qualname": "slice_from_marks_impl"
-    },
-    {
       "end_line": 1703,
       "kind": "function",
       "line": 1440,
@@ -2200,6 +2220,15 @@
       "module": "autoslice.web.app",
       "path": "src/autoslice/web/app.py",
       "qualname": "update_task"
+    },
+    {
+      "end_line": 204,
+      "kind": "function",
+      "line": 70,
+      "line_count": 135,
+      "module": "autoslice.slicing",
+      "path": "src/autoslice/slicing.py",
+      "qualname": "slice_from_marks_impl"
     },
     {
       "end_line": 1092,
@@ -2283,6 +2312,15 @@
       "qualname": "main"
     },
     {
+      "end_line": 344,
+      "kind": "function",
+      "line": 239,
+      "line_count": 106,
+      "module": "autoslice.slice_encoding",
+      "path": "src/autoslice/slice_encoding.py",
+      "qualname": "execute_slice_jobs"
+    },
+    {
       "end_line": 2472,
       "kind": "function",
       "line": 2368,
@@ -2290,15 +2328,6 @@
       "module": "autoslice.analysis.candidates",
       "path": "src/autoslice/analysis/candidates.py",
       "qualname": "_apply_reviewed_slice_decisions"
-    },
-    {
-      "end_line": 2366,
-      "kind": "function",
-      "line": 2262,
-      "line_count": 105,
-      "module": "autoslice.subtitle_workflow",
-      "path": "src/autoslice/subtitle_workflow.py",
-      "qualname": "burn_subtitles"
     }
   ],
   "modules": [
@@ -5406,6 +5435,84 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 344,
+      "longest_function": {
+        "end_line": 344,
+        "kind": "function",
+        "line": 239,
+        "line_count": 106,
+        "qualname": "execute_slice_jobs"
+      },
+      "module": "autoslice.slice_encoding",
+      "path": "src/autoslice/slice_encoding.py",
+      "sha256": "246cabd03e864b7a9cfb53854af0e62b48f8826eeb0125c0adb66efb135e0a71",
+      "top_level_classes": [
+        {
+          "end_line": 40,
+          "kind": "class",
+          "line": 34,
+          "name": "SliceEncodingResult"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 45,
+          "kind": "function",
+          "line": 43,
+          "name": "format_ffmpeg_seconds"
+        },
+        {
+          "end_line": 59,
+          "kind": "function",
+          "line": 48,
+          "name": "preferred_slice_video_encoder_args"
+        },
+        {
+          "end_line": 66,
+          "kind": "function",
+          "line": 62,
+          "name": "software_slice_video_encoder_args"
+        },
+        {
+          "end_line": 79,
+          "kind": "function",
+          "line": 69,
+          "name": "configured_slice_concurrency"
+        },
+        {
+          "end_line": 102,
+          "kind": "function",
+          "line": 82,
+          "name": "build_precise_slice_ffmpeg_command"
+        },
+        {
+          "end_line": 143,
+          "kind": "function",
+          "line": 105,
+          "name": "prepare_seekable_slice_source"
+        },
+        {
+          "end_line": 155,
+          "kind": "function",
+          "line": 146,
+          "name": "_serialized_progress_callback"
+        },
+        {
+          "end_line": 236,
+          "kind": "function",
+          "line": 158,
+          "name": "encode_slice_job"
+        },
+        {
+          "end_line": 344,
+          "kind": "function",
+          "line": 239,
+          "name": "execute_slice_jobs"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 85,
       "longest_function": {
         "end_line": 54,
@@ -5483,71 +5590,35 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 472,
+      "line_count": 218,
       "longest_function": {
-        "end_line": 458,
+        "end_line": 204,
         "kind": "function",
-        "line": 191,
-        "line_count": 268,
+        "line": 70,
+        "line_count": 135,
         "qualname": "slice_from_marks_impl"
       },
       "module": "autoslice.slicing",
       "path": "src/autoslice/slicing.py",
-      "sha256": "4fea40e9f78b980d3fd007b46331c0461b69bf3e331d5149ffb4fb05ec450805",
+      "sha256": "72ff3167ba8fee3b1280b56661a2faaff461919d7bcfc567f0791fb06ac88da5",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 82,
+          "end_line": 67,
           "kind": "function",
-          "line": 68,
+          "line": 53,
           "name": "validate_video_path"
         },
         {
-          "end_line": 87,
+          "end_line": 204,
           "kind": "function",
-          "line": 85,
-          "name": "format_ffmpeg_seconds"
-        },
-        {
-          "end_line": 104,
-          "kind": "function",
-          "line": 90,
-          "name": "preferred_slice_video_encoder_args"
-        },
-        {
-          "end_line": 111,
-          "kind": "function",
-          "line": 107,
-          "name": "software_slice_video_encoder_args"
-        },
-        {
-          "end_line": 124,
-          "kind": "function",
-          "line": 114,
-          "name": "configured_slice_concurrency"
-        },
-        {
-          "end_line": 147,
-          "kind": "function",
-          "line": 127,
-          "name": "build_precise_slice_ffmpeg_command"
-        },
-        {
-          "end_line": 188,
-          "kind": "function",
-          "line": 150,
-          "name": "prepare_seekable_slice_source"
-        },
-        {
-          "end_line": 458,
-          "kind": "function",
-          "line": 191,
+          "line": 70,
           "name": "slice_from_marks_impl"
         },
         {
-          "end_line": 472,
+          "end_line": 218,
           "kind": "function",
-          "line": 461,
+          "line": 207,
           "name": "slice_from_marks"
         }
       ]
@@ -6499,7 +6570,7 @@
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "d3390b8b683adba313442cbd0551b443f72ea1cfd3d6818a2f5dbf94c029a6ac",
+      "sha256": "d7cf8cc6709acc89419aa49e23da1c5f6be31e996fc0d302889723430abcf4b0",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -9436,6 +9507,7 @@
       "src/autoslice/security_policy.py",
       "src/autoslice/setup_asr_model.py",
       "src/autoslice/setup_gpu_runtime.py",
+      "src/autoslice/slice_encoding.py",
       "src/autoslice/slice_planning.py",
       "src/autoslice/slice_reuse.py",
       "src/autoslice/slicing.py",
@@ -9507,6 +9579,7 @@
       "tests/unit/test_runtime_config.py",
       "tests/unit/test_security_policy.py",
       "tests/unit/test_setup_asr_model.py",
+      "tests/unit/test_slice_encoding.py",
       "tests/unit/test_slice_planning.py",
       "tests/unit/test_slice_reuse.py",
       "tests/unit/test_streamer_profiles.py",
@@ -9524,12 +9597,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 178,
-    "production_line_count": 33954,
-    "production_module_count": 96,
+    "import_edge_count": 181,
+    "production_line_count": 34044,
+    "production_module_count": 97,
     "test_private_patch_count": 17,
-    "top_level_class_count": 83,
-    "top_level_function_count": 862
+    "top_level_class_count": 84,
+    "top_level_function_count": 865
   },
   "test_private_patches": {
     "by_target_module": {
