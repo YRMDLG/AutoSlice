@@ -15,9 +15,9 @@ from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
-from autoslice.analysis import manual_enrichment
-from autoslice.analysis import manual_review
 from autoslice.analysis.manual import candidates as manual_candidates
+from autoslice.analysis.manual import enrichment as manual_enrichment
+from autoslice.analysis.manual import review as manual_review
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting

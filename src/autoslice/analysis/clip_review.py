@@ -9,10 +9,10 @@ from autoslice.analysis import (
     clip_review_prompt,
     clip_scoring,
     llm_execution,
-    manual_enrichment,
     response_parsing,
 )
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis.manual import enrichment as manual_enrichment
 from autoslice.llm import transport as llm_gateway
 
 FACADE_EXPORTS = {

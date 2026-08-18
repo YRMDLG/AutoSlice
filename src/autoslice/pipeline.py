@@ -25,10 +25,10 @@ from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import danmaku as danmaku_analysis
-from autoslice.analysis import manual_timeline as manual_timeline_analysis
-from autoslice.analysis import manual_review
 from autoslice.analysis.manual import candidates as manual_candidates
+from autoslice.analysis.manual import review as manual_review
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.manual import workflow as manual_timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import topic_analysis
@@ -118,7 +118,7 @@ _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
 _clip_review_checkpoint_matches_policy = checkpoint_store.clip_review_checkpoint_matches_policy
 
-# 旧调用方仍可从 pipeline 导入这些对象；唯一实现位于 analysis.manual_timeline。
+# 旧调用方仍可从 pipeline 导入这些对象；唯一实现位于 analysis.manual.workflow。
 _format_manual_entry_for_prompt = manual_timeline_analysis.format_manual_entry_for_prompt
 _manual_timeline_info_for_chunk = manual_timeline_analysis.manual_timeline_info_for_chunk
 attach_manual_timeline_to_chunks = manual_timeline_analysis.attach_manual_timeline_to_chunks

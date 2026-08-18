@@ -71,6 +71,9 @@ DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
     "task_store",
     "topic_engine",
     "启动",
+    "autoslice.analysis.manual_enrichment",
+    "autoslice.analysis.manual_review",
+    "autoslice.analysis.manual_timeline",
     "autocover_tool",
     "autocover_tool.app",
     "autocover_tool.启动",
@@ -564,7 +567,6 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             danmaku,
             evidence,
             llm_execution,
-            manual_timeline,
             response_parsing,
             slice_decisions,
             timeline,
@@ -572,6 +574,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         from autoslice.analysis.report import cleanup as report_cleanup
         from autoslice.analysis.report import formatting as topic_formatting
+        from autoslice.analysis.manual import workflow as manual_workflow
         from autoslice.transcription import model_runtime as transcription_model_runtime
         from autoslice.transcription import results as transcription_results
         from autoslice.transcription import service as transcription
@@ -589,7 +592,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             llm_execution,
             response_parsing,
             timeline,
-            manual_timeline,
+            manual_workflow,
             checkpoints,
             clip_scoring,
             content_normalization,
@@ -867,12 +870,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_manual_enrichment_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import (
-            candidates,
-            manual_enrichment,
-            manual_review,
-            manual_timeline,
-        )
+        from autoslice.analysis import candidates, clip_review
+        from autoslice.analysis import manual_enrichment as legacy_enrichment
+        from autoslice.analysis.manual import enrichment, review, workflow
 
         aliases = {
             "_MANUAL_AI_PLACEHOLDER_PHRASES": "MANUAL_AI_PLACEHOLDER_PHRASES",
@@ -880,50 +880,48 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "_is_manual_ai_placeholder": "is_manual_ai_placeholder",
             "_validated_ai_focus_range": "validated_ai_focus_range",
         }
+        self.assertEqual(enrichment.FACADE_EXPORTS, aliases)
+        self.assertIs(legacy_enrichment.FACADE_EXPORTS, enrichment.FACADE_EXPORTS)
+        for owner_name in aliases.values():
+            with self.subTest(legacy=owner_name):
+                self.assertIs(
+                    getattr(legacy_enrichment, owner_name),
+                    getattr(enrichment, owner_name),
+                )
         for compatibility_name, owner_name in aliases.items():
             with self.subTest(name=compatibility_name):
-                owner = getattr(manual_enrichment, owner_name)
+                owner = getattr(enrichment, owner_name)
                 self.assertIs(getattr(candidates, compatibility_name), owner)
                 self.assertIs(getattr(topic_engine, compatibility_name), owner)
 
-        self.assertIs(candidates.manual_enrichment, manual_enrichment)
-        self.assertIs(manual_review.manual_enrichment, manual_enrichment)
-        self.assertIs(manual_timeline.manual_enrichment, manual_enrichment)
+        for consumer in (candidates, clip_review, review, workflow, topic_engine):
+            with self.subTest(consumer=consumer.__name__):
+                self.assertIs(consumer.manual_enrichment, enrichment)
 
-        candidate_source = (
-            ROOT / "src/autoslice/analysis/candidates.py"
-        ).read_text(encoding="utf-8")
         review_source = (
-            ROOT / "src/autoslice/analysis/manual_review.py"
+            ROOT / "src/autoslice/analysis/manual/review.py"
         ).read_text(encoding="utf-8")
-        manual_source = (
-            ROOT / "src/autoslice/analysis/manual_timeline.py"
+        workflow_source = (
+            ROOT / "src/autoslice/analysis/manual/workflow.py"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "manual_enrichment.enrich_manual_topic_from_item(",
             review_source,
         )
-        self.assertNotIn("\ndef _enriched_manual_topic_from_item(", candidate_source)
         self.assertIn(
             "manual_enrichment.is_manual_ai_placeholder(",
-            manual_source,
-        )
-        self.assertNotIn(
-            "candidate_analysis._is_manual_ai_placeholder(",
-            manual_source,
+            workflow_source,
         )
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
-        candidate_functions = {
-            item["name"]
-            for item in modules["autoslice.analysis.candidates"][
-                "top_level_functions"
-            ]
-        }
+        self.assertEqual(
+            modules["autoslice.analysis.manual_enrichment"]["top_level_functions"],
+            [],
+        )
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.manual_enrichment"][
+            for item in modules["autoslice.analysis.manual.enrichment"][
                 "top_level_functions"
             ]
         }
@@ -935,7 +933,32 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "validated_ai_focus_range",
             },
         )
-        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.analysis.manual.enrichment"
+        legacy_module = "autoslice.analysis.manual_enrichment"
+        for consumer in {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.clip_review",
+            "autoslice.analysis.manual.review",
+            "autoslice.analysis.manual.workflow",
+            "autoslice.topic_engine",
+        }:
+            with self.subTest(direct_consumer=consumer):
+                self.assertIn((consumer, owner_module), import_edges)
+                self.assertNotIn((consumer, legacy_module), import_edges)
+        self.assertIn((legacy_module, owner_module), import_edges)
+        for forbidden_target in {
+            legacy_module,
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual_review",
+            "autoslice.analysis.manual_timeline",
+            "autoslice.pipeline",
+            "autoslice.reporting",
+            "autoslice.topic_engine",
+        }:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
 
     def test_clip_review_candidates_have_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -961,7 +984,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             ROOT / "src/autoslice/analysis/clip_review.py"
         ).read_text(encoding="utf-8")
         manual_review_source = (
-            ROOT / "src/autoslice/analysis/manual_review.py"
+            ROOT / "src/autoslice/analysis/manual/review.py"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "clip_review_candidates.build_clip_review_candidate(",
@@ -1084,21 +1107,38 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_manual_review_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline
-        from autoslice.analysis import candidates, manual_review, manual_timeline
+        from autoslice.analysis import candidates
+        from autoslice.analysis import manual_review as legacy_review
+        from autoslice.analysis.manual import review, workflow
 
-        aliases = {
+        owner_aliases = {
             "_build_manual_topic_enrichment_prompt": (
                 "build_manual_topic_enrichment_prompt"
             ),
-            "enrich_manual_topics_with_llm": "enrich_manual_topics_with_llm",
-            "enrich_manual_topics_in_batches": "enrich_manual_topics_in_batches",
+            "_enrich_manual_topics_with_llm": "enrich_manual_topics_with_llm",
+            "_enrich_manual_topics_in_batches": "enrich_manual_topics_in_batches",
             "_validate_unmatched_manual_topics": (
                 "validate_unmatched_manual_topics"
             ),
         }
-        for compatibility_name, owner_name in aliases.items():
+        self.assertEqual(review.FACADE_EXPORTS, owner_aliases)
+        self.assertIs(legacy_review.FACADE_EXPORTS, review.FACADE_EXPORTS)
+        for owner_name in owner_aliases.values():
+            with self.subTest(legacy=owner_name):
+                self.assertIs(
+                    getattr(legacy_review, owner_name),
+                    getattr(review, owner_name),
+                )
+        candidate_aliases = dict(owner_aliases)
+        candidate_aliases["enrich_manual_topics_with_llm"] = (
+            candidate_aliases.pop("_enrich_manual_topics_with_llm")
+        )
+        candidate_aliases["enrich_manual_topics_in_batches"] = (
+            candidate_aliases.pop("_enrich_manual_topics_in_batches")
+        )
+        for compatibility_name, owner_name in candidate_aliases.items():
             with self.subTest(name=compatibility_name):
-                owner = getattr(manual_review, owner_name)
+                owner = getattr(review, owner_name)
                 self.assertIs(getattr(candidates, compatibility_name), owner)
                 topic_engine_name = (
                     compatibility_name
@@ -1109,17 +1149,17 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertIs(
             pipeline._validate_unmatched_manual_topics,
-            manual_review.validate_unmatched_manual_topics,
+            review.validate_unmatched_manual_topics,
         )
-        self.assertIs(candidates.manual_review, manual_review)
-        self.assertIs(manual_timeline.manual_review, manual_review)
-        self.assertIs(pipeline.manual_review, manual_review)
+        for consumer in (candidates, workflow, pipeline, topic_engine):
+            with self.subTest(consumer=consumer.__name__):
+                self.assertIs(consumer.manual_review, review)
 
         candidate_source = (
             ROOT / "src/autoslice/analysis/candidates.py"
         ).read_text(encoding="utf-8")
         manual_timeline_source = (
-            ROOT / "src/autoslice/analysis/manual_timeline.py"
+            ROOT / "src/autoslice/analysis/manual/workflow.py"
         ).read_text(encoding="utf-8")
         pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
             encoding="utf-8"
@@ -1146,15 +1186,13 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
-        candidate_functions = {
-            item["name"]
-            for item in modules["autoslice.analysis.candidates"][
-                "top_level_functions"
-            ]
-        }
+        self.assertEqual(
+            modules["autoslice.analysis.manual_review"]["top_level_functions"],
+            [],
+        )
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.manual_review"][
+            for item in modules["autoslice.analysis.manual.review"][
                 "top_level_functions"
             ]
         }
@@ -1167,7 +1205,39 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "validate_unmatched_manual_topics",
             },
         )
-        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.analysis.manual.review"
+        legacy_module = "autoslice.analysis.manual_review"
+        for consumer in {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual.workflow",
+            "autoslice.pipeline",
+            "autoslice.topic_engine",
+        }:
+            with self.subTest(direct_consumer=consumer):
+                self.assertIn((consumer, owner_module), import_edges)
+                self.assertNotIn((consumer, legacy_module), import_edges)
+        self.assertIn((legacy_module, owner_module), import_edges)
+        self.assertIn(
+            (owner_module, "autoslice.analysis.manual.enrichment"),
+            import_edges,
+        )
+        self.assertIn(
+            (owner_module, "autoslice.analysis.manual.timebase"),
+            import_edges,
+        )
+        for forbidden_target in {
+            legacy_module,
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual_enrichment",
+            "autoslice.analysis.manual_timeline",
+            "autoslice.pipeline",
+            "autoslice.reporting",
+            "autoslice.topic_engine",
+        }:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
 
     def test_timecode_has_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -1530,12 +1600,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             candidates,
             clip_policy,
             manual_candidates as legacy_manual_candidates,
-            manual_review,
-            manual_timeline,
             timeline as legacy_timeline,
         )
         from autoslice.analysis.manual import candidates as manual_candidates
+        from autoslice.analysis.manual import review as manual_review
         from autoslice.analysis.manual import timebase
+        from autoslice.analysis.manual import workflow as manual_timeline
         from autoslice.analysis.report import cleanup as report_cleanup
 
         timebase_aliases = {
@@ -1763,6 +1833,21 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 for node in manual_package_tree.body
             )
         )
+        self.assertEqual(
+            {
+                node.value
+                for node in ast.walk(manual_package_tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            },
+            {
+                "人工时间轴的时间基准、候选、富化、复核与优化工作流。",
+                "candidates",
+                "enrichment",
+                "review",
+                "timebase",
+                "workflow",
+            },
+        )
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
@@ -1834,7 +1919,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "manual_alignment_score",
                 "manual_text_supports_candidate",
             },
-            "src/autoslice/analysis/manual_timeline.py": {
+            "src/autoslice/analysis/manual/workflow.py": {
                 "align_manual_timeline_entries_to_srt",
             },
             "src/autoslice/analysis/report/cleanup.py": {
@@ -1885,8 +1970,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         timebase_consumer_names = {
             "autoslice.analysis.candidate_reconciliation",
             "autoslice.analysis.candidates",
-            "autoslice.analysis.manual_review",
-            "autoslice.analysis.manual_timeline",
+            "autoslice.analysis.manual.review",
+            "autoslice.analysis.manual.workflow",
             "autoslice.analysis.report.cleanup",
             "autoslice.pipeline",
             "autoslice.topic_engine",
@@ -1894,7 +1979,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         candidate_consumer_names = {
             "autoslice.analysis.candidate_reconciliation",
             "autoslice.analysis.candidates",
-            "autoslice.analysis.manual_timeline",
+            "autoslice.analysis.manual.workflow",
             "autoslice.pipeline",
             "autoslice.topic_engine",
         }
@@ -1941,9 +2026,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline
-        from autoslice.analysis import manual_timeline
+        from autoslice.analysis import manual_timeline as legacy_workflow
+        from autoslice.analysis.manual import workflow
 
-        aliases = {
+        pipeline_aliases = {
             "_format_manual_entry_for_prompt": "format_manual_entry_for_prompt",
             "_manual_timeline_info_for_chunk": "manual_timeline_info_for_chunk",
             "attach_manual_timeline_to_chunks": "attach_manual_timeline_to_chunks",
@@ -1957,30 +2043,93 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "retry_optimized_timeline_entries": "retry_optimized_timeline_entries",
             "optimize_manual_timeline": "optimize_manual_timeline",
         }
-        for compatibility_name, owner_name in aliases.items():
+        workflow_aliases = {
+            "_attach_manual_timeline_to_chunks": "attach_manual_timeline_to_chunks",
+            "_batch_warning_text": "batch_warning_text",
+            "_format_manual_entry_for_prompt": "format_manual_entry_for_prompt",
+            "_manual_timeline_info_for_chunk": "manual_timeline_info_for_chunk",
+            "_optimize_manual_timeline": "optimize_manual_timeline",
+            "_optimized_entry_needs_retry": "optimized_entry_needs_retry",
+            "_optimized_manual_entries_from_topics": (
+                "optimized_manual_entries_from_topics"
+            ),
+            "_retry_optimized_timeline_entries": (
+                "retry_optimized_timeline_entries"
+            ),
+            "_topic_from_optimized_entry": "topic_from_optimized_entry",
+            "_try_enrich_manual_topics": "try_enrich_manual_topics",
+        }
+        self.assertEqual(workflow.FACADE_EXPORTS, workflow_aliases)
+        self.assertIs(legacy_workflow.FACADE_EXPORTS, workflow.FACADE_EXPORTS)
+        for owner_name in workflow.FACADE_EXPORTS.values():
+            with self.subTest(legacy=owner_name):
+                self.assertIs(
+                    getattr(legacy_workflow, owner_name),
+                    getattr(workflow, owner_name),
+                )
+        for compatibility_name, owner_name in pipeline_aliases.items():
             with self.subTest(name=compatibility_name):
-                owner = getattr(manual_timeline, owner_name)
+                owner = getattr(workflow, owner_name)
                 self.assertIs(getattr(pipeline, compatibility_name), owner)
 
-        for facade_name, owner_name in manual_timeline.FACADE_EXPORTS.items():
+        for facade_name, owner_name in workflow.FACADE_EXPORTS.items():
             with self.subTest(facade=facade_name):
                 self.assertIs(
                     getattr(topic_engine, facade_name),
-                    getattr(manual_timeline, owner_name),
+                    getattr(workflow, owner_name),
                 )
 
-        self.assertIs(pipeline.manual_timeline_analysis, manual_timeline)
+        self.assertIs(pipeline.manual_timeline_analysis, workflow)
+        self.assertIs(topic_engine.manual_timeline_analysis, workflow)
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
+        self.assertEqual(
+            modules["autoslice.analysis.manual_timeline"]["top_level_functions"],
+            [],
+        )
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.manual.workflow"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(owner_functions, set(workflow.FACADE_EXPORTS.values()))
         pipeline_functions = {
             item["name"]
             for item in modules["autoslice.pipeline"]["top_level_functions"]
         }
         self.assertTrue(
-            set(manual_timeline.FACADE_EXPORTS.values()).isdisjoint(
+            set(workflow.FACADE_EXPORTS.values()).isdisjoint(
                 pipeline_functions
             )
         )
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.analysis.manual.workflow"
+        legacy_module = "autoslice.analysis.manual_timeline"
+        for consumer in {"autoslice.pipeline", "autoslice.topic_engine"}:
+            with self.subTest(direct_consumer=consumer):
+                self.assertIn((consumer, owner_module), import_edges)
+                self.assertNotIn((consumer, legacy_module), import_edges)
+        self.assertIn((legacy_module, owner_module), import_edges)
+        for dependency in {
+            "autoslice.analysis.manual.candidates",
+            "autoslice.analysis.manual.enrichment",
+            "autoslice.analysis.manual.review",
+            "autoslice.analysis.manual.timebase",
+        }:
+            self.assertIn((owner_module, dependency), import_edges)
+        for forbidden_target in {
+            legacy_module,
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual_enrichment",
+            "autoslice.analysis.manual_review",
+            "autoslice.pipeline",
+            "autoslice.reporting",
+            "autoslice.topic_engine",
+        }:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
 
     def test_media_probe_has_one_owner_and_direct_consumers(self):
         import topic_engine

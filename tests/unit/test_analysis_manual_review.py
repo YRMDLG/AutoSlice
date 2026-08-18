@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from autoslice.analysis import manual_review
+from autoslice.analysis.manual import review as manual_review
 from autoslice.llm.transport import LLMStructuredOutputError
 from autoslice.streamer_profiles import streamer_profile_context
 
@@ -105,7 +105,7 @@ class ManualReviewTests(unittest.TestCase):
         progress = []
 
         with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual.review.enrich_manual_topics_with_llm",
             side_effect=RuntimeError("上游暂不可用"),
         ):
             warning = manual_review.enrich_manual_topics_in_batches(
@@ -114,8 +114,8 @@ class ManualReviewTests(unittest.TestCase):
                 progress_callback=lambda message, step, total: progress.append(
                     (message, step, total)
                 ),
-                batch_result_callback=lambda completed, remaining, warnings: (
-                    checkpoints.append((completed, remaining, warnings))
+                batch_result_callback=lambda completed, remaining, warnings: checkpoints.append(
+                    (completed, remaining, warnings)
                 ),
             )
 
@@ -136,9 +136,7 @@ class ManualReviewTests(unittest.TestCase):
             "body": ["·旧 AI 摘要：不应继续作为证据"],
             "source": "optimized_manual_timeline",
             "postcheck_pending": True,
-            "manual_timeline": [
-                {"start": 120, "text": "袜子破了", "stars": 2}
-            ],
+            "manual_timeline": [{"start": 120, "text": "袜子破了", "stars": 2}],
         }
         topics = [
             manual_topic,
@@ -162,7 +160,7 @@ class ManualReviewTests(unittest.TestCase):
             return None
 
         with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_in_batches",
+            "autoslice.analysis.manual.review.enrich_manual_topics_in_batches",
             side_effect=enrich,
         ):
             warning = manual_review.validate_unmatched_manual_topics(
@@ -191,9 +189,7 @@ class ManualReviewTests(unittest.TestCase):
             }
         ]
 
-        with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_in_batches"
-        ) as enrich:
+        with patch("autoslice.analysis.manual.review.enrich_manual_topics_in_batches") as enrich:
             warning = manual_review.validate_unmatched_manual_topics(topics)
 
         self.assertIsNone(warning)

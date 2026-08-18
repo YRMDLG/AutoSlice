@@ -1,7 +1,8 @@
 import unittest
 
 from autoslice import timecode
-from autoslice.analysis import clip_policy, manual_enrichment
+from autoslice.analysis import clip_policy
+from autoslice.analysis.manual import enrichment as manual_enrichment
 from autoslice.streamer_profiles import streamer_profile_context
 
 
@@ -57,9 +58,7 @@ class ManualEnrichmentTests(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 self.assertTrue(manual_enrichment.is_manual_ai_placeholder(value))
-        self.assertFalse(
-            manual_enrichment.is_manual_ai_placeholder("袜子破洞引发吐槽")
-        )
+        self.assertFalse(manual_enrichment.is_manual_ai_placeholder("袜子破洞引发吐槽"))
 
     def test_focus_range_accepts_only_bounded_duration(self):
         topic = self._topic(end=500)
@@ -96,9 +95,7 @@ class ManualEnrichmentTests(unittest.TestCase):
         )
         for item in invalid_items:
             with self.subTest(item=item):
-                self.assertIsNone(
-                    manual_enrichment.validated_ai_focus_range(item, topic)
-                )
+                self.assertIsNone(manual_enrichment.validated_ai_focus_range(item, topic))
 
     def test_enrichment_preserves_evidence_and_applies_valid_focus(self):
         topic = self._topic()
@@ -161,9 +158,7 @@ class ManualEnrichmentTests(unittest.TestCase):
                 )
                 self.assertIsNotNone(enriched)
                 self.assertNotEqual(enriched["title"], title)
-                self.assertFalse(
-                    manual_enrichment.is_manual_ai_placeholder(enriched["title"])
-                )
+                self.assertFalse(manual_enrichment.is_manual_ai_placeholder(enriched["title"]))
                 self.assertFalse(enriched["title"].endswith("时"))
 
     def test_invalid_points_return_none_and_invalid_focus_keeps_source_range(self):

@@ -4557,7 +4557,7 @@ class TopicEngineParseTests(unittest.TestCase):
                 patch("autoslice.pipeline.load_manual_timeline", return_value=manual_timeline),
                 patch("autoslice.pipeline.probe_video_duration", return_value=600),
                 patch(
-                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual.workflow.optimize_manual_timeline",
                     return_value=(timeline_entries, None),
                 ),
                 patch(
@@ -4565,7 +4565,7 @@ class TopicEngineParseTests(unittest.TestCase):
                     return_value=(str(Path(tmp) / "优化.json"), str(Path(tmp) / "优化.md")),
                 ),
                 patch(
-                    "autoslice.analysis.manual_timeline.attach_manual_timeline_to_chunks",
+                    "autoslice.analysis.manual.workflow.attach_manual_timeline_to_chunks",
                     side_effect=AssertionError("首轮分析不得挂载人工时间轴"),
                 ),
                 patch(
@@ -6771,7 +6771,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                 topic["ai_enriched"] = True
             return None
 
-        with patch("autoslice.analysis.manual_review.enrich_manual_topics_in_batches", side_effect=fake_enrich):
+        with patch("autoslice.analysis.manual.review.enrich_manual_topics_in_batches", side_effect=fake_enrich):
             optimized, warning = _optimize_manual_timeline(
                 entries,
                 srt_segments=[
@@ -7013,11 +7013,11 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                     "video_start": datetime(2026, 7, 14, 19, 59, 0),
                 }),
                 patch(
-                    "autoslice.analysis.manual_timeline.retry_optimized_timeline_entries",
+                    "autoslice.analysis.manual.workflow.retry_optimized_timeline_entries",
                     return_value=(resumed_entries, None),
                 ) as retry,
                 patch(
-                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual.workflow.optimize_manual_timeline",
                     side_effect=AssertionError("已有断点时不应全量重跑"),
                 ),
             ):
@@ -7074,11 +7074,11 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                     "video_start": datetime(2026, 7, 14, 19, 59, 0),
                 }),
                 patch(
-                    "autoslice.analysis.manual_timeline.retry_optimized_timeline_entries",
+                    "autoslice.analysis.manual.workflow.retry_optimized_timeline_entries",
                     side_effect=AssertionError("旧版本产物不应按断点复用"),
                 ),
                 patch(
-                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual.workflow.optimize_manual_timeline",
                     return_value=(rebuilt_entries, None),
                 ) as rebuild,
             ):
@@ -7127,7 +7127,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             candidates[0].pop("reference_only", None)
             return 1
 
-        with patch("autoslice.analysis.manual_review.enrich_manual_topics_with_llm", side_effect=fake_validate):
+        with patch("autoslice.analysis.manual.review.enrich_manual_topics_with_llm", side_effect=fake_validate):
             warning = _validate_unmatched_manual_topics(
                 topics,
                 streamer_name="音音",
@@ -7167,7 +7167,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return len(candidates)
 
         with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual.review.enrich_manual_topics_with_llm",
             side_effect=fake_validate,
         ):
             warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
@@ -7325,7 +7325,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return 1
 
         with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual.review.enrich_manual_topics_with_llm",
             side_effect=enrich_first_only,
         ):
             warning = _enrich_manual_topics_in_batches(topics, batch_size=3)
@@ -7366,7 +7366,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("autoslice.analysis.manual_review.enrich_manual_topics_with_llm", side_effect=enrich_batch) as call,
+            patch("autoslice.analysis.manual.review.enrich_manual_topics_with_llm", side_effect=enrich_batch) as call,
         ):
             warning = _enrich_manual_topics_in_batches(
                 topics,
@@ -7422,7 +7422,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return len(batch)
 
         with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual.review.enrich_manual_topics_with_llm",
             side_effect=enrich_all,
         ):
             optimized, warning = _retry_optimized_timeline_entries(
@@ -7566,7 +7566,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         }]
 
         with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual.review.enrich_manual_topics_with_llm",
             side_effect=RuntimeError("上游服务暂时不可用"),
         ):
             warning = _try_enrich_manual_topics(topics, streamer_name="音音")
@@ -7592,7 +7592,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         _merge_manual_timeline_topics(topics, entries)
         with patch(
-            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual.review.enrich_manual_topics_with_llm",
             side_effect=RuntimeError("上游服务暂时不可用"),
         ):
             warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
@@ -9367,11 +9367,11 @@ class HybridModelRoutingTests(unittest.TestCase):
                     "entries": [{"start": 10, "text": "人工记录", "stars": 0}],
                 }),
                 patch(
-                    "autoslice.analysis.manual_timeline.retry_optimized_timeline_entries",
+                    "autoslice.analysis.manual.workflow.retry_optimized_timeline_entries",
                     side_effect=AssertionError("快速流水线不应重试部分产物"),
                 ) as retry,
                 patch(
-                    "autoslice.analysis.manual_timeline.optimize_manual_timeline",
+                    "autoslice.analysis.manual.workflow.optimize_manual_timeline",
                     side_effect=AssertionError("已有检查点时不应全量重跑"),
                 ),
             ):
@@ -9479,7 +9479,7 @@ class PipelineProgressTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("autoslice.analysis.manual_review.enrich_manual_topics_with_llm", side_effect=fake_enrich),
+            patch("autoslice.analysis.manual.review.enrich_manual_topics_with_llm", side_effect=fake_enrich),
         ):
             warning = _enrich_manual_topics_in_batches(
                 topics,
