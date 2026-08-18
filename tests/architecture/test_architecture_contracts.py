@@ -76,6 +76,7 @@ DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
     "autoslice.analysis.manual_review",
     "autoslice.analysis.manual_timeline",
     "autoslice.analysis.response_parsing",
+    "autoslice.analysis.titles",
     "autocover_tool",
     "autocover_tool.app",
     "autocover_tool.启动",
@@ -570,12 +571,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             llm_execution,
             slice_decisions,
             timeline,
-            titles,
+            titles as title_compatibility,
         )
         from autoslice.analysis.report import cleanup as report_cleanup
         from autoslice.analysis.report import formatting as topic_formatting
         from autoslice.analysis.manual import workflow as manual_workflow
-        from autoslice.analysis.topic import normalization, response
+        from autoslice.analysis.topic import normalization, response, titles
         from autoslice.transcription import model_runtime as transcription_model_runtime
         from autoslice.transcription import results as transcription_results
         from autoslice.transcription import service as transcription
@@ -611,6 +612,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             slicing,
             pipeline,
         )
+        self.assertIs(title_compatibility.FACADE_EXPORTS, titles.FACADE_EXPORTS)
+        for name, value in vars(titles).items():
+            if not name.startswith("__"):
+                self.assertIs(getattr(title_compatibility, name), value)
         facade_owners = {}
         for owner in owners:
             for facade_name in owner.FACADE_EXPORTS:
@@ -668,12 +673,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_candidate_facade_consumers_bind_unique_owner_objects(self):
         from autoslice import pipeline, reporting, topic_engine
-        from autoslice.analysis import (
-            danmaku,
-            titles,
-            topic_analysis,
-        )
-        from autoslice.analysis.topic import normalization
+        from autoslice.analysis import danmaku, topic_analysis
+        from autoslice.analysis.topic import normalization, titles
         from autoslice.llm import transport
 
         bindings = {
@@ -1076,7 +1077,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(len(all_assignments), 1)
         self.assertEqual(
             ast.literal_eval(all_assignments[0].value),
-            ["normalization", "response"],
+            ["normalization", "response", "titles"],
         )
 
     def test_manual_enrichment_has_one_owner_and_direct_consumers(self):

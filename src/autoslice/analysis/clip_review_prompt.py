@@ -4,7 +4,7 @@ import json
 
 from autoslice import timecode
 from autoslice.analysis import clip_policy
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import titles as title_analysis
 from autoslice.llm.prompts import (
     ClipCandidatePromptEvidence,
 )

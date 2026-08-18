@@ -1,6 +1,6 @@
 """话题报告中的时间、序号与单话题 Markdown 块格式。"""
 
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import titles as title_analysis
 
 CIRCLED_NUMBERS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
 

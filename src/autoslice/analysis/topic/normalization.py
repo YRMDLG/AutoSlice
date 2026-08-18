@@ -2,7 +2,7 @@
 
 import re
 
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {
     "_DANMAKU_META_KEYWORDS": "DANMAKU_META_KEYWORDS",

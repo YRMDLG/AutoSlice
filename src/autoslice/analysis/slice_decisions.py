@@ -10,7 +10,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import candidate_reconciliation, clip_policy, clip_scoring
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {
     "_topic_peak_focus_window": "topic_peak_focus_window",

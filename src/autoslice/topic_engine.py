@@ -32,7 +32,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import topic_analysis
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import titles as title_analysis
 from autoslice.analysis.topic import normalization, response
 from autoslice import reporting as reporting_service
 from autoslice import media_probe

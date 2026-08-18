@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from autoslice import timecode
 from autoslice.analysis import evidence as candidate_evidence
-from autoslice.analysis import titles as title_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis.manual import candidates as manual_candidates
 from autoslice.analysis.manual import enrichment as manual_enrichment
 from autoslice.analysis.manual import review as manual_review
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.topic import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
 
 FACADE_EXPORTS = {

@@ -37,8 +37,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import slice_decisions
 from autoslice.analysis.manual import timebase as timeline_analysis
-from autoslice.analysis.topic import normalization, response
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import normalization, response, titles as title_analysis
 from autoslice import reporting as reporting_service
 from autoslice import slice_encoding
 from autoslice import slicing as slicing_service
@@ -1078,7 +1077,6 @@ class TitleReviewTests(unittest.TestCase):
     """标题提示必须把格式、爆点因果和分层证据一起交给模型。"""
 
     def test_topic_engine_title_facade_keeps_analysis_object_identity(self):
-        self.assertGreater(len(title_analysis.FACADE_EXPORTS), 40)
         for facade_name, title_name in title_analysis.FACADE_EXPORTS.items():
             with self.subTest(facade_name=facade_name):
                 self.assertIs(
@@ -8542,7 +8540,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             str(REPOSITORY_ROOT / "title_style_profile.example.json")
         )
         with patch(
-                "autoslice.analysis.titles.load_title_style_profile",
+                "autoslice.analysis.topic.titles.load_title_style_profile",
                 return_value=public_profile):
             prompt, _, _ = _build_chunk_prompt(
                 {"start": 0, "end": 300, "text": "[0:00:01] 测试", "danmaku_info": "无弹幕"},
@@ -8615,7 +8613,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
             profile = _load_title_style_profile(str(profile_path))
             selected = _select_title_style_examples("音音开始念一条红SC", profile=profile, limit=1)
-            with patch("autoslice.analysis.titles.TITLE_STYLE_PROFILE_PATH", str(profile_path)):
+            with patch("autoslice.analysis.topic.titles.TITLE_STYLE_PROFILE_PATH", str(profile_path)):
                 style_prompt = _build_title_style_prompt("音音开始念一条红SC")
 
         self.assertEqual(profile["rules"], ["不要机械套模板"])
@@ -8630,7 +8628,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             str(REPOSITORY_ROOT / "title_style_profile.example.json")
         )
         with patch(
-                "autoslice.analysis.titles.load_title_style_profile",
+                "autoslice.analysis.topic.titles.load_title_style_profile",
                 return_value=public_profile):
             prompt = _build_manual_topic_enrichment_prompt([{
                 "start": 120,

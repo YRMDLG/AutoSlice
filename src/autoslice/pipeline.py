@@ -31,7 +31,7 @@ from autoslice.analysis.manual import workflow as manual_timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import topic_analysis
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import titles as title_analysis
 from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
 from autoslice.llm.prompts import build_title_hook_guide as _render_title_hook_guide
 from autoslice.transcription import checkpoints as transcription_checkpoints

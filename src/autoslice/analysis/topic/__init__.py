@@ -1,3 +1,3 @@
-"""话题内容与响应解析领域包。"""
+"""话题内容、响应解析与标题领域包。"""
 
-__all__ = ["normalization", "response"]
+__all__ = ["normalization", "response", "titles"]

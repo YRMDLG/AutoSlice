@@ -8,7 +8,7 @@ from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis.manual import candidates as manual_candidates
 from autoslice.analysis.manual import timebase as timeline_analysis
-from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {
     "_danmaku_topic_alignment": "danmaku_topic_alignment",

@@ -4,8 +4,8 @@ import re
 
 from autoslice import timecode
 from autoslice.analysis import clip_policy
-from autoslice.analysis import titles as title_analysis
 from autoslice.analysis.topic import normalization
+from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {
     "_MANUAL_AI_PLACEHOLDER_PHRASES": "MANUAL_AI_PLACEHOLDER_PHRASES",
