@@ -29,6 +29,7 @@ from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import manual_review
 from autoslice.analysis import report_cleanup
+from autoslice.analysis import slice_decisions
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
@@ -103,10 +104,8 @@ _manual_timeline_summary = timeline_analysis._manual_timeline_summary
 _funasr_checkpoint_path = transcription_checkpoints.funasr_checkpoint_path
 
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
-_apply_danmaku_slice_decisions = candidate_analysis._apply_danmaku_slice_decisions
 _average_danmaku_density = candidate_analysis._average_danmaku_density
 _build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_audit
-_clip_marks_from_topics = candidate_analysis._clip_marks_from_topics
 _danmaku_clip_threshold = danmaku_analysis._danmaku_clip_threshold
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
@@ -116,7 +115,6 @@ _review_peak_selected_topics = clip_review.review_peak_selected_topics
 _srt_video_duration = boundary_analysis._srt_video_duration
 _validate_unmatched_manual_topics = manual_review.validate_unmatched_manual_topics
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
-_append_clip_candidate_source = candidate_analysis._append_clip_candidate_source
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
 _clip_review_checkpoint_matches_policy = checkpoint_store.clip_review_checkpoint_matches_policy
 
@@ -771,7 +769,7 @@ def run_pipeline_impl(
         analysis_topics,
         stage="ready",
     )
-    _apply_danmaku_slice_decisions(
+    slice_decisions.apply_danmaku_slice_decisions(
         accepted_topics,
         peaks,
         avg_den,
@@ -799,7 +797,7 @@ def run_pipeline_impl(
             item for item in (api_precheck_warning, clip_review_warning) if item
         )
     accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
-    _apply_danmaku_slice_decisions(
+    slice_decisions.apply_danmaku_slice_decisions(
         accepted_topics,
         peaks,
         avg_den,
@@ -830,7 +828,7 @@ def run_pipeline_impl(
         topic for topic in accepted_topics
         if topic.get("clip_type") != "stream_outro"
     ]
-    raw_clip_marks = _clip_marks_from_topics(accepted_topics)
+    raw_clip_marks = slice_decisions.clip_marks_from_topics(accepted_topics)
     candidate_review_audit = _build_clip_candidate_review_audit(accepted_topics)
     candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
     _write_artifact_json(candidate_review_audit_path, candidate_review_audit)
@@ -1257,7 +1255,7 @@ def retry_clip_review_from_artifacts_impl(
         source="artifact_retry",
     )
     if not resume_review and not reuse_completed_review:
-        _apply_danmaku_slice_decisions(
+        slice_decisions.apply_danmaku_slice_decisions(
             accepted_topics,
             peaks,
             avg_den,
@@ -1269,7 +1267,7 @@ def retry_clip_review_from_artifacts_impl(
                 str(topic.get("title", "")),
             )
             if key in stale_review_keys:
-                _append_clip_candidate_source(topic, "语义复核")
+                slice_decisions.append_clip_candidate_source(topic, "语义复核")
     if reuse_completed_review:
         clip_review_warning = None
     else:
@@ -1294,7 +1292,7 @@ def retry_clip_review_from_artifacts_impl(
             resume=resume_review,
         )
     accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
-    _apply_danmaku_slice_decisions(
+    slice_decisions.apply_danmaku_slice_decisions(
         accepted_topics,
         peaks,
         avg_den,
@@ -1324,7 +1322,7 @@ def retry_clip_review_from_artifacts_impl(
         topic for topic in accepted_topics
         if topic.get("clip_type") != "stream_outro"
     ]
-    raw_clip_marks = _clip_marks_from_topics(accepted_topics)
+    raw_clip_marks = slice_decisions.clip_marks_from_topics(accepted_topics)
     candidate_review_audit = _build_clip_candidate_review_audit(accepted_topics)
     candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
     _write_artifact_json(candidate_review_audit_path, candidate_review_audit)

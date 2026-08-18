@@ -31,6 +31,7 @@ from autoslice.analysis import manual_review
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import response_parsing
 from autoslice.analysis import report_cleanup
+from autoslice.analysis import slice_decisions
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import topic_formatting
@@ -410,11 +411,13 @@ _VISUAL_REACTION_LEAD_IN_RE = boundary_analysis._VISUAL_REACTION_LEAD_IN_RE
 _VISUAL_REVIEW_TOPIC_RE = boundary_analysis._VISUAL_REVIEW_TOPIC_RE
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 _analyze_topic_chunks = topic_analysis.analyze_topic_chunks
-_append_clip_candidate_source = candidate_analysis._append_clip_candidate_source
-_apply_danmaku_slice_decisions = candidate_analysis._apply_danmaku_slice_decisions
-_apply_reviewed_slice_decisions = candidate_analysis._apply_reviewed_slice_decisions
-_assign_reviewed_semantic_slice_window = candidate_analysis._assign_reviewed_semantic_slice_window
-_assign_topic_slice_window = candidate_analysis._assign_topic_slice_window
+_append_clip_candidate_source = slice_decisions.append_clip_candidate_source
+_apply_danmaku_slice_decisions = slice_decisions.apply_danmaku_slice_decisions
+_apply_reviewed_slice_decisions = slice_decisions.apply_reviewed_slice_decisions
+_assign_reviewed_semantic_slice_window = (
+    slice_decisions.assign_reviewed_semantic_slice_window
+)
+_assign_topic_slice_window = slice_decisions.assign_topic_slice_window
 _average_danmaku_density = danmaku_analysis._average_danmaku_density
 _boundary_context_has_speech = boundary_analysis._boundary_context_has_speech
 _boundary_context_is_relevant = boundary_analysis._boundary_context_is_relevant
@@ -436,7 +439,7 @@ _clean_topics_for_report = report_cleanup.clean_topics_for_report
 _clip_context_requires_trigger = boundary_analysis._clip_context_requires_trigger
 _clip_interest_reason = clip_scoring.clip_interest_reason
 _clip_manual_star_count = clip_scoring.clip_manual_star_count
-_clip_marks_from_topics = candidate_analysis._clip_marks_from_topics
+_clip_marks_from_topics = slice_decisions.clip_marks_from_topics
 _clip_review_candidate = clip_review_candidates.build_clip_review_candidate
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
 _clip_review_checkpoint_matches_policy = checkpoint_store.clip_review_checkpoint_matches_policy
@@ -465,11 +468,11 @@ _format_report_time = topic_formatting.format_report_time
 _format_topic_block = topic_formatting.format_topic_block
 _fresh_manual_topic_evidence = clip_review_candidates.fresh_manual_topic_evidence
 _gift_trigger_has_question_followup = boundary_analysis._gift_trigger_has_question_followup
-_has_high_star_manual_evidence = candidate_analysis._has_high_star_manual_evidence
+_has_high_star_manual_evidence = slice_decisions.has_high_star_manual_evidence
 _has_outro_farewell_evidence = boundary_analysis._has_outro_farewell_evidence
 _high_energy_danmaku_peaks = danmaku_analysis._high_energy_danmaku_peaks
 _integer_clip_bounds_outside_subtitles = boundary_analysis._integer_clip_bounds_outside_subtitles
-_is_content_cuttable_topic = candidate_analysis._is_content_cuttable_topic
+_is_content_cuttable_topic = slice_decisions.is_content_cuttable_topic
 _is_duplicate_topic = boundary_analysis._is_duplicate_topic
 _is_explicit_sc_topic = boundary_analysis._is_explicit_sc_topic
 _is_explicit_sc_trigger = boundary_analysis._is_explicit_sc_trigger
@@ -497,7 +500,7 @@ _manual_entry_meaningfully_overlaps_topic = (
     candidate_reconciliation.manual_entry_meaningfully_overlaps_topic
 )
 _manual_evidence_line = manual_candidates.manual_evidence_line
-_manual_review_anchor = candidate_analysis._manual_review_anchor
+_manual_review_anchor = slice_decisions.manual_review_anchor
 _manual_text_supports_candidate = timeline_analysis._manual_text_supports_candidate
 _merge_expanded_clip_marks = boundary_analysis._merge_expanded_clip_marks
 _merge_manual_timeline_topics = manual_candidates.merge_manual_timeline_topics
@@ -521,13 +524,15 @@ _reconcile_topic_manual_evidence = (
     candidate_reconciliation.reconcile_topic_manual_evidence
 )
 _refresh_natural_boundary_metadata = boundary_analysis._refresh_natural_boundary_metadata
-_refresh_topic_danmaku_evidence = candidate_analysis._refresh_topic_danmaku_evidence
+_refresh_topic_danmaku_evidence = slice_decisions.refresh_topic_danmaku_evidence
 _repair_short_topic_end = topic_analysis.repair_short_topic_end
 _report_fact_lines = report_cleanup.report_fact_lines
 _resolve_reviewed_report_overlaps = report_cleanup.resolve_reviewed_report_overlaps
 _review_peak_selected_topics = clip_review.review_peak_selected_topics
 _reviewed_danmaku_ranking_score = danmaku_analysis._reviewed_danmaku_ranking_score
-_reviewed_topic_has_required_interest = candidate_analysis._reviewed_topic_has_required_interest
+_reviewed_topic_has_required_interest = (
+    slice_decisions.reviewed_topic_has_required_interest
+)
 _sanitize_optimized_manual_entry = (
     manual_candidates.sanitize_optimized_manual_entry
 )
@@ -546,7 +551,7 @@ _topic_analysis_prompt_fingerprint = topic_analysis.topic_analysis_prompt_finger
 _topic_danmaku_reference_lines = candidate_evidence.topic_danmaku_reference_lines
 _topic_index_label = topic_formatting.topic_index_label
 _topic_peak_candidates = candidate_evidence.topic_peak_candidates
-_topic_peak_focus_window = candidate_analysis._topic_peak_focus_window
+_topic_peak_focus_window = slice_decisions.topic_peak_focus_window
 _topic_semantic_text = candidate_reconciliation.topic_semantic_text
 _topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
 _topics_from_manual_timeline = manual_candidates.topics_from_manual_timeline

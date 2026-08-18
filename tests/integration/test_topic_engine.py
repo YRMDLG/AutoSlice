@@ -36,6 +36,7 @@ from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis import report_cleanup
 from autoslice.analysis import response_parsing
+from autoslice.analysis import slice_decisions
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
@@ -745,6 +746,7 @@ class CandidateReviewTests(unittest.TestCase):
             boundary_analysis,
             candidate_reconciliation,
             report_cleanup,
+            slice_decisions,
             candidate_analysis,
         )
         self.assertGreater(

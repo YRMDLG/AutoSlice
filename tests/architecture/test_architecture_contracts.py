@@ -567,6 +567,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             manual_timeline,
             report_cleanup,
             response_parsing,
+            slice_decisions,
             timeline,
             titles,
         )
@@ -595,6 +596,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             clip_policy,
             candidate_reconciliation,
             report_cleanup,
+            slice_decisions,
             candidates,
             titles,
             reporting,
@@ -2194,14 +2196,14 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             set(compatibility_owners).isdisjoint(owner_local_calls)
         )
 
-        candidates_tree = ast.parse(
-            (ROOT / "src/autoslice/analysis/candidates.py").read_text(
+        slice_decisions_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/slice_decisions.py").read_text(
                 encoding="utf-8"
             )
         )
-        direct_candidate_calls = {
+        direct_slice_decision_calls = {
             node.func.attr
-            for node in ast.walk(candidates_tree)
+            for node in ast.walk(slice_decisions_tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and isinstance(node.func.value, ast.Name)
@@ -2209,19 +2211,24 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         compatibility_calls = {
             node.func.id
-            for node in ast.walk(candidates_tree)
+            for node in ast.walk(slice_decisions_tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id in compatibility_owners
         }
         self.assertGreaterEqual(
-            direct_candidate_calls,
+            direct_slice_decision_calls,
             {
                 "danmaku_topic_alignment",
             },
         )
         self.assertEqual(compatibility_calls, set())
 
+        candidates_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/candidates.py").read_text(
+                encoding="utf-8"
+            )
+        )
         candidate_bindings = {
             target.id: node.value.attr
             for node in candidates_tree.body
@@ -2425,6 +2432,207 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             ("autoslice.analysis.report_cleanup", "autoslice.pipeline"),
             import_edges,
         )
+
+    def test_slice_decisions_has_one_owner_and_direct_consumers(self):
+        from autoslice import pipeline, topic_engine
+        from autoslice.analysis import candidates, slice_decisions
+
+        compatibility_owners = {
+            "_topic_peak_focus_window": "topic_peak_focus_window",
+            "_assign_topic_slice_window": "assign_topic_slice_window",
+            "_is_content_cuttable_topic": "is_content_cuttable_topic",
+            "_refresh_topic_danmaku_evidence": "refresh_topic_danmaku_evidence",
+            "_append_clip_candidate_source": "append_clip_candidate_source",
+            "_has_high_star_manual_evidence": "has_high_star_manual_evidence",
+            "_manual_review_anchor": "manual_review_anchor",
+            "_reviewed_topic_has_required_interest": (
+                "reviewed_topic_has_required_interest"
+            ),
+            "_assign_reviewed_semantic_slice_window": (
+                "assign_reviewed_semantic_slice_window"
+            ),
+            "_apply_reviewed_slice_decisions": "apply_reviewed_slice_decisions",
+            "_apply_danmaku_slice_decisions": "apply_danmaku_slice_decisions",
+            "_clip_marks_from_topics": "clip_marks_from_topics",
+        }
+        self.assertEqual(slice_decisions.FACADE_EXPORTS, compatibility_owners)
+        for compatibility_name, owner_name in compatibility_owners.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(slice_decisions, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+                self.assertNotIn(compatibility_name, candidates.FACADE_EXPORTS)
+
+        self.assertIs(pipeline.slice_decisions, slice_decisions)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        self.assertEqual(
+            modules["autoslice.analysis.candidates"]["top_level_functions"],
+            [],
+        )
+        self.assertEqual(
+            [
+                item["name"]
+                for item in modules[
+                    "autoslice.analysis.slice_decisions"
+                ]["top_level_functions"]
+            ],
+            list(compatibility_owners.values()),
+        )
+
+        candidates_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/candidates.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        candidate_bindings = {
+            target.id: node.value.attr
+            for node in candidates_tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "slice_decisions"
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        self.assertEqual(
+            {
+                name: candidate_bindings[name]
+                for name in compatibility_owners
+            },
+            compatibility_owners,
+        )
+        candidate_local_calls = {
+            node.func.id
+            for node in ast.walk(candidates_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id
+            in set(compatibility_owners) | set(compatibility_owners.values())
+        }
+        self.assertEqual(candidate_local_calls, set())
+
+        topic_engine_tree = ast.parse(
+            (ROOT / "src/autoslice/topic_engine.py").read_text(encoding="utf-8")
+        )
+        topic_engine_bindings = {
+            target.id: node.value.attr
+            for node in topic_engine_tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "slice_decisions"
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        self.assertEqual(
+            {
+                name: topic_engine_bindings[name]
+                for name in compatibility_owners
+            },
+            compatibility_owners,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        production_owners = {
+            "_apply_danmaku_slice_decisions": "apply_danmaku_slice_decisions",
+            "_append_clip_candidate_source": "append_clip_candidate_source",
+            "_clip_marks_from_topics": "clip_marks_from_topics",
+        }
+        direct_pipeline_calls = {
+            node.func.attr
+            for node in ast.walk(pipeline_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "slice_decisions"
+        }
+        self.assertGreaterEqual(
+            direct_pipeline_calls,
+            set(production_owners.values()),
+        )
+        pipeline_compatibility_calls = {
+            node.func.id
+            for node in ast.walk(pipeline_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in production_owners
+        }
+        self.assertEqual(pipeline_compatibility_calls, set())
+        pipeline_compatibility_bindings = {
+            target.id
+            for node in pipeline_tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name) and target.id in production_owners
+        }
+        self.assertEqual(pipeline_compatibility_bindings, set())
+
+        owner_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/slice_decisions.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        imported_targets = set()
+        for node in ast.walk(owner_tree):
+            if isinstance(node, ast.Import):
+                imported_targets.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_targets.update(
+                    f"{node.module}.{alias.name}" for alias in node.names
+                )
+        self.assertTrue(
+            {
+                "autoslice.analysis.candidates",
+                "autoslice.pipeline",
+                "autoslice.topic_engine",
+            }.isdisjoint(imported_targets)
+        )
+
+        owner_direct_calls = {
+            (node.func.value.id, node.func.attr)
+            for node in ast.walk(owner_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+        }
+        self.assertGreaterEqual(
+            owner_direct_calls,
+            {
+                ("boundary_analysis", "_clip_context_requires_trigger"),
+                ("boundary_analysis", "_dedupe_clip_marks"),
+                ("candidate_evidence", "topic_peak_candidates"),
+                ("candidate_reconciliation", "danmaku_topic_alignment"),
+                ("clip_scoring", "parse_clip_interest_score"),
+                ("danmaku_analysis", "_danmaku_peak_features"),
+                ("danmaku_analysis", "_high_energy_danmaku_peaks"),
+                ("danmaku_analysis", "_reviewed_danmaku_ranking_score"),
+                ("timecode", "format_elapsed"),
+                ("title_analysis", "_is_bad_topic_title"),
+                ("title_analysis", "_normalise_publish_title"),
+                ("title_analysis", "_sanitize_transport_claims"),
+            },
+        )
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertTrue(
+            {
+                (
+                    "autoslice.analysis.slice_decisions",
+                    "autoslice.analysis.candidates",
+                ),
+                ("autoslice.analysis.slice_decisions", "autoslice.pipeline"),
+                ("autoslice.analysis.slice_decisions", "autoslice.topic_engine"),
+            }.isdisjoint(import_edges)
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["test_private_patches"]["total"], 17)
 
     def test_topic_engine_compatibility_constants_follow_unique_owner(self):
         import topic_engine
