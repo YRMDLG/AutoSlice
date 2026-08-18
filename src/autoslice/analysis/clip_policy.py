@@ -7,6 +7,7 @@ import re
 from autoslice.analysis.danmaku import DANMAKU_WINDOW
 
 FACADE_EXPORTS = {
+    "_UNCUTTABLE_CONTENT_KEYWORDS": "UNCUTTABLE_CONTENT_KEYWORDS",
     "CLIP_MANUAL_REVIEW_MIN_STARS": "CLIP_MANUAL_REVIEW_MIN_STARS",
     "CLIP_MIN_INTEREST_SCORE": "CLIP_MIN_INTEREST_SCORE",
     "CLIP_REVIEW_BATCH_SIZE": "CLIP_REVIEW_BATCH_SIZE",
@@ -61,6 +62,25 @@ CLIP_MIN_INTEREST_SCORE = 75
 CLIP_MANUAL_REVIEW_MIN_STARS = 4
 CLIP_REVIEW_BATCH_SIZE = 3
 CLIP_REVIEW_RETRY_BATCH_SIZE = 2
+
+# 仅描述无有效主播内容、背景媒体或分析兜底的话题不能直接进入切片。
+UNCUTTABLE_CONTENT_KEYWORDS = (
+    "未发言",
+    "仅播放",
+    "只是播放",
+    "游戏角色对话语音",
+    "背景语音",
+    "游戏画面/语音",
+    "具体内容不清晰",
+    "字幕识别较碎",
+    "未形成稳定可切片主题",
+    "暂不标记为自动切片",
+    "无有效讲话",
+    "全是沉默",
+    "全是音乐",
+    "机械复读",
+    "游戏开头动画",
+)
 
 # 通用候选和 AI 已确认语义核心使用不同的前后文预算。
 TOPIC_PRE_CONTEXT_SEC = 45

@@ -19,6 +19,7 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis import manual_enrichment
+from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_review
 from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
@@ -45,7 +46,6 @@ FACADE_EXPORTS = {
     '_CIRCLED_NUMBERS': '_CIRCLED_NUMBERS',
     '_HEADING_RE': '_HEADING_RE',
     '_MANUAL_AI_PLACEHOLDER_PHRASES': '_MANUAL_AI_PLACEHOLDER_PHRASES',
-    '_UNCUTTABLE_CONTENT_KEYWORDS': '_UNCUTTABLE_CONTENT_KEYWORDS',
     '_analyze_topic_chunks': 'analyze_topic_chunks',
     '_append_clip_candidate_source': '_append_clip_candidate_source',
     '_apply_danmaku_slice_decisions': '_apply_danmaku_slice_decisions',
@@ -146,6 +146,17 @@ _build_clip_candidate_review_prompt = (
     clip_review_prompt.build_clip_candidate_review_prompt
 )
 _review_peak_selected_topics = clip_review.review_peak_selected_topics
+
+_UNCUTTABLE_CONTENT_KEYWORDS = clip_policy.UNCUTTABLE_CONTENT_KEYWORDS
+_manual_entry_matches_topic = manual_candidates.manual_entry_matches_topic
+_is_manual_merge_target = manual_candidates.is_manual_merge_target
+merge_manual_timeline_topics = manual_candidates.merge_manual_timeline_topics
+_topics_from_manual_timeline = manual_candidates.topics_from_manual_timeline
+_optimized_entry_semantic_text = manual_candidates.optimized_entry_semantic_text
+_manual_evidence_line = manual_candidates.manual_evidence_line
+_sanitize_optimized_manual_entry = (
+    manual_candidates.sanitize_optimized_manual_entry
+)
 
 
 _build_manual_topic_enrichment_prompt = (
@@ -422,241 +433,6 @@ THANKS_TRIGGER_RE = clip_policy.THANKS_TRIGGER_RE
 
 
 
-def _manual_entry_matches_topic(entry, topic, margin=0):
-    start = int(topic["start"]) - margin
-    end = int(topic["end"]) + margin
-    entry_start = int(entry["start"])
-    entry_end = max(entry_start + 1, int(entry.get("end", entry_start + 1)))
-    return entry_start < end and entry_end > start
-
-
-def _is_manual_merge_target(topic):
-    """人工重点只合并到真实话题；兜底/泛话题会吞掉重点，必须单独补话题。"""
-    if topic.get("fallback"):
-        return False
-    if topic.get("source") == "manual_timeline":
-        return True
-    if _is_bad_topic_title(topic.get("title", "")):
-        return False
-    if topic.get("title") in _GENERIC_TOPIC_TITLES:
-        return False
-    text = " ".join([topic.get("title", "")] + list(topic.get("body") or []))
-    compact = re.sub(r'\s+', '', text)
-    if any(keyword in compact for keyword in _UNCUTTABLE_CONTENT_KEYWORDS):
-        return False
-    return True
-
-
-def merge_manual_timeline_topics(topics, entries):
-    """后置对照优化时间轴；命中只附证据，遗漏候选必须再次复核。"""
-    if not entries:
-        return topics
-    for topic in topics:
-        if not _is_manual_merge_target(topic):
-            continue
-        matched = [entry for entry in entries if _manual_entry_matches_topic(entry, topic)]
-        if not matched:
-            continue
-        existing_entries = list(topic.get("manual_timeline") or [])
-        for entry in matched:
-            if entry not in existing_entries:
-                existing_entries.append(entry)
-        topic["manual_stars"] = max(
-            [topic.get("manual_stars", 0)]
-            + [entry.get("stars", 0) for entry in existing_entries]
-        )
-        topic["manual_timeline"] = existing_entries
-        body = list(topic.get("body") or [])
-        for entry in matched:
-            if entry.get("stars", 0) <= 0:
-                continue
-            stars = "⭐" * min(entry.get("stars", 0), 5)
-            line = f"●人工时间轴{stars}：{timecode.format_elapsed(entry['start'])} {entry['text']}"
-            if line not in body:
-                body.append(line)
-        topic["body"] = body
-
-    for entry in entries:
-        optimized = entry.get("source") == "optimized_manual_timeline"
-        if entry.get("stars", 0) <= 0 and not optimized:
-            continue
-        if any(entry in (topic.get("manual_timeline") or []) for topic in topics):
-            continue
-        if any(_is_manual_merge_target(topic) and _manual_entry_matches_topic(entry, topic) for topic in topics):
-            continue
-        topic_start = (
-            max(0, int(entry["start"]))
-            if optimized
-            else max(0, int(entry["start"]) - MANUAL_TIMELINE_TOPIC_PRE_SEC)
-        )
-        topic_end = (
-            max(topic_start + 1, int(entry.get("end", topic_start + 1)))
-            if optimized
-            else int(entry["start"]) + MANUAL_TIMELINE_TOPIC_POST_SEC
-        )
-        topic = {
-            "start": topic_start,
-            "end": topic_end,
-            "start_str": timecode.format_elapsed(topic_start),
-            "end_str": timecode.format_elapsed(topic_end),
-            "title": _manual_title_from_text(entry["text"]),
-            "can_slice": False,
-            "body": list(entry.get("summary") or []) + [
-                f"●人工时间轴{'⭐' * min(entry.get('stars', 0), 5)}："
-                f"{timecode.format_elapsed(entry['start'])} {entry['text']}"
-            ],
-            "manual_stars": entry.get("stars", 0),
-            "manual_timeline": [entry],
-            "source": entry.get("source", "manual_timeline"),
-            # 时间轴优化阶段只负责整理候选。首轮遗漏后必须再做一次独立复核，
-            # 成功前不能把优化阶段的 ai_enriched 当作切片许可。
-            "ai_enriched": False if optimized else bool(entry.get("ai_enriched")),
-            "ai_focus_validated": False if optimized else bool(entry.get("ai_focus_validated")),
-            "postcheck_pending": optimized,
-            "reference_only": optimized,
-            "publish_title": entry.get("publish_title"),
-        }
-        if not _is_duplicate_topic(topic, [old for old in topics if _is_manual_merge_target(old)]):
-            topics.append(topic)
-    topics.sort(key=lambda item: (item["start"], item["end"]))
-    return topics
-
-
-def _topics_from_manual_timeline(
-        entries, srt_segments=None, peaks=None, max_gap_sec=240,
-        max_group_duration_sec=None):
-    """基于字幕/弹幕生成话题，人工时间轴只作为辅助参考和校准。"""
-    sorted_entries = sorted(entries or [], key=lambda item: item["start"])
-    groups = []
-    current = []
-    for entry in sorted_entries:
-        if entry.get("explicit_range"):
-            if current:
-                groups.append(current)
-                current = []
-            groups.append([entry])
-            continue
-        if not current:
-            current = [entry]
-            continue
-        same_hour = int(entry["start"] // 3600) == int(current[-1]["start"] // 3600)
-        within_group_duration = (
-            max_group_duration_sec is None
-            or entry["start"] - current[0]["start"] <= max_group_duration_sec
-        )
-        if (
-            same_hour
-            and within_group_duration
-            and entry["start"] - current[-1]["start"] <= max_gap_sec
-        ):
-            current.append(entry)
-        else:
-            groups.append(current)
-            current = [entry]
-    if current:
-        groups.append(current)
-
-    topics = []
-    for group in groups:
-        starred_entries = [item for item in group if item.get("stars", 0) > 0]
-        if starred_entries and any(item.get("alignment_score") is not None for item in starred_entries):
-            title_entry = max(
-                starred_entries,
-                key=lambda item: (
-                    float(item.get("alignment_score") or 0),
-                    len(str(item.get("text", ""))),
-                ),
-            )
-        else:
-            title_entry = starred_entries[0] if starred_entries else group[0]
-        explicit_end = group[0].get("end") if len(group) == 1 and group[0].get("explicit_range") else None
-        if explicit_end is not None:
-            start = max(0, int(group[0]["start"]))
-            end = max(start + 1, int(explicit_end))
-        else:
-            start = max(0, int(group[0]["start"]) - (MANUAL_TIMELINE_TOPIC_PRE_SEC if title_entry.get("stars", 0) else 0))
-            end = int(group[-1]["start"]) + (MANUAL_TIMELINE_TOPIC_POST_SEC if title_entry.get("stars", 0) else 120)
-        body = []
-        body.extend(_topic_danmaku_reference_lines(start, end, peaks or []))
-        body.extend(_topic_srt_summary_lines(start, end, srt_segments or []))
-        for item in group:
-            time_label = timecode.format_elapsed(item["start"])
-            if item.get("stars", 0) > 0:
-                stars = "⭐" * min(item.get("stars", 0), 5)
-                body.append(f"●人工时间轴{stars}：{time_label} {item['text']}")
-            else:
-                body.append(f"·时间轴：{time_label} {item['text']}")
-            if item.get("reference_publish_title"):
-                body.append(f"·参考投稿标题（仅供核对）：{item['reference_publish_title']}")
-        topic = {
-            "start": start,
-            "end": end,
-            "start_str": timecode.format_elapsed(start),
-            "end_str": timecode.format_elapsed(end),
-            "title": _manual_title_from_text(title_entry["text"]),
-            "can_slice": False,
-            "body": body,
-            "manual_stars": max(item.get("stars", 0) for item in group),
-            "manual_timeline": group,
-            "source": "subtitle_danmaku_with_manual_reference",
-        }
-        topics.append(topic)
-    return topics
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-_UNCUTTABLE_CONTENT_KEYWORDS = (
-    "未发言", "仅播放", "只是播放", "游戏角色对话语音", "背景语音", "游戏画面/语音",
-    "具体内容不清晰", "字幕识别较碎", "未形成稳定可切片主题", "暂不标记为自动切片",
-    "无有效讲话", "全是沉默", "全是音乐", "机械复读", "游戏开头动画",
-)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 _overlap_ratio = boundary_analysis._overlap_ratio
 _is_duplicate_topic = boundary_analysis._is_duplicate_topic
 
@@ -672,65 +448,6 @@ _is_duplicate_topic = boundary_analysis._is_duplicate_topic
 
 
 
-
-
-
-
-
-
-
-
-
-def _optimized_entry_semantic_text(entry):
-    return " ".join([
-        str(entry.get("text", "")),
-        *[str(point) for point in entry.get("summary") or []],
-    ]).strip()
-
-
-def _manual_evidence_line(entry):
-    stars = max(0, int(entry.get("stars", 0) or 0))
-    prefix = f"●人工时间轴{'⭐' * min(stars, 5)}" if stars else "·时间轴"
-    return f"{prefix}：{timecode.format_elapsed(int(entry.get('start', 0)))} {entry.get('text', '')}"
-
-
-def _sanitize_optimized_manual_entry(entry):
-    """过滤与原人工记录无关的 AI 改写，并移除误并入的原始星标。"""
-    fixed = dict(entry or {})
-    original_entries = [
-        dict(item)
-        for item in fixed.get("original_entries") or []
-        if isinstance(item, dict)
-    ]
-    if not original_entries:
-        return fixed
-
-    semantic_text = _optimized_entry_semantic_text(fixed)
-    grounded_entries = [
-        item for item in original_entries
-        if _manual_text_supports_candidate(item.get("text", ""), semantic_text)
-    ]
-    if not grounded_entries:
-        return None
-
-    fixed["original_entries"] = grounded_entries
-    stars = max(int(item.get("stars", 0) or 0) for item in grounded_entries)
-    fixed["stars"] = stars
-    fixed["highlight"] = stars > 0
-    if grounded_entries[0].get("clock"):
-        fixed["clock"] = grounded_entries[0]["clock"]
-
-    evidence = [
-        str(line)
-        for line in fixed.get("evidence") or []
-        if not str(line).startswith(("●人工时间轴", "·时间轴"))
-    ]
-    for item in grounded_entries:
-        line = _manual_evidence_line(item)
-        if line not in evidence:
-            evidence.append(line)
-    fixed["evidence"] = evidence
-    return fixed
 
 
 
@@ -872,7 +589,10 @@ def _is_content_cuttable_topic(topic):
     compact = re.sub(r'\s+', '', text)
     if not compact:
         return False
-    if any(keyword in compact for keyword in _UNCUTTABLE_CONTENT_KEYWORDS):
+    if any(
+        keyword in compact
+        for keyword in clip_policy.UNCUTTABLE_CONTENT_KEYWORDS
+    ):
         return False
     return True
 
@@ -953,7 +673,7 @@ def _reconcile_topic_manual_evidence(topic):
     seen_evidence = set()
     for raw_entry in manual_entries:
         entry = (
-            _sanitize_optimized_manual_entry(raw_entry)
+            manual_candidates.sanitize_optimized_manual_entry(raw_entry)
             if raw_entry.get("source") == "optimized_manual_timeline"
             or raw_entry.get("original_entries")
             else dict(raw_entry)
@@ -961,7 +681,7 @@ def _reconcile_topic_manual_evidence(topic):
         if not entry or not _manual_entry_meaningfully_overlaps_topic(entry, fixed):
             continue
         entry_supports_topic = _manual_text_supports_candidate(
-            _optimized_entry_semantic_text(entry), semantic_text
+            manual_candidates.optimized_entry_semantic_text(entry), semantic_text
         )
         if not entry_supports_topic:
             continue
@@ -1021,7 +741,9 @@ def _reconcile_topic_manual_evidence(topic):
             if not key[1] or key in seen_evidence:
                 continue
             seen_evidence.add(key)
-            retained_evidence.append(_manual_evidence_line(evidence_entry))
+            retained_evidence.append(
+                manual_candidates.manual_evidence_line(evidence_entry)
+            )
 
     body = [
         str(line)

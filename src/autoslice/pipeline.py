@@ -25,6 +25,7 @@ from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import manual_review
 from autoslice.analysis import timeline as timeline_analysis
@@ -92,7 +93,9 @@ _prompt_context = title_analysis._prompt_context
 _build_title_style_prompt = title_analysis._build_title_style_prompt
 _normalise_publish_title = title_analysis._normalise_publish_title
 _review_selected_publish_titles = title_analysis.review_selected_publish_titles
-_sanitize_optimized_manual_entry = candidate_analysis._sanitize_optimized_manual_entry
+_sanitize_optimized_manual_entry = (
+    manual_candidates.sanitize_optimized_manual_entry
+)
 _extract_video_start_datetime = timeline_analysis._extract_video_start_datetime
 _filter_manual_timeline_entries = timeline_analysis._filter_manual_timeline_entries
 _manual_timeline_summary = timeline_analysis._manual_timeline_summary
@@ -744,7 +747,7 @@ def run_pipeline_impl(
             item for item in (optimization_warning, api_precheck_warning) if item
         )
 
-    candidate_analysis.merge_manual_timeline_topics(accepted_topics, manual_entries)
+    manual_candidates.merge_manual_timeline_topics(accepted_topics, manual_entries)
     manual_validation_warning = manual_review.validate_unmatched_manual_topics(
         accepted_topics,
         streamer_name=streamer_display_name,
@@ -1104,7 +1107,10 @@ def retry_clip_review_from_artifacts_impl(
         _analysis_topics_snapshot(recovered_topics)
     )
     if rebuilt_manual_entries:
-        candidate_analysis.merge_manual_timeline_topics(baseline_topics, rebuilt_manual_entries)
+        manual_candidates.merge_manual_timeline_topics(
+            baseline_topics,
+            rebuilt_manual_entries,
+        )
         baseline_topics = _clean_topics_for_report(baseline_topics)
     analysis_topics = _analysis_topics_snapshot(baseline_topics)
 
@@ -1137,7 +1143,7 @@ def retry_clip_review_from_artifacts_impl(
                     # 送入本版规则复核，同时把最新优化时间轴重新挂回话题。
                     accepted_topics = _clean_topics_for_report(checkpoint_topics)
                     if rebuilt_manual_entries:
-                        candidate_analysis.merge_manual_timeline_topics(
+                        manual_candidates.merge_manual_timeline_topics(
                             accepted_topics,
                             rebuilt_manual_entries,
                         )

@@ -1466,6 +1466,130 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
+    def test_manual_candidates_have_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import (
+            candidates,
+            clip_policy,
+            manual_candidates,
+            manual_timeline,
+        )
+
+        candidate_aliases = {
+            "_is_manual_merge_target": "is_manual_merge_target",
+            "_manual_entry_matches_topic": "manual_entry_matches_topic",
+            "_manual_evidence_line": "manual_evidence_line",
+            "merge_manual_timeline_topics": "merge_manual_timeline_topics",
+            "_optimized_entry_semantic_text": "optimized_entry_semantic_text",
+            "_sanitize_optimized_manual_entry": (
+                "sanitize_optimized_manual_entry"
+            ),
+            "_topics_from_manual_timeline": "topics_from_manual_timeline",
+        }
+        for compatibility_name, owner_name in candidate_aliases.items():
+            with self.subTest(candidate=compatibility_name):
+                owner = getattr(manual_candidates, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+
+        topic_engine_aliases = dict(candidate_aliases)
+        topic_engine_aliases.pop("merge_manual_timeline_topics")
+        topic_engine_aliases["_merge_manual_timeline_topics"] = (
+            "merge_manual_timeline_topics"
+        )
+        for compatibility_name, owner_name in topic_engine_aliases.items():
+            with self.subTest(topic_engine=compatibility_name):
+                self.assertIs(
+                    getattr(topic_engine, compatibility_name),
+                    getattr(manual_candidates, owner_name),
+                )
+
+        self.assertIs(candidates.manual_candidates, manual_candidates)
+        self.assertIs(manual_timeline.manual_candidates, manual_candidates)
+        self.assertIs(pipeline.manual_candidates, manual_candidates)
+        self.assertIs(topic_engine.manual_candidates, manual_candidates)
+        self.assertIs(
+            candidates._UNCUTTABLE_CONTENT_KEYWORDS,
+            clip_policy.UNCUTTABLE_CONTENT_KEYWORDS,
+        )
+        self.assertIs(
+            topic_engine._UNCUTTABLE_CONTENT_KEYWORDS,
+            clip_policy.UNCUTTABLE_CONTENT_KEYWORDS,
+        )
+        self.assertIs(
+            pipeline._sanitize_optimized_manual_entry,
+            manual_candidates.sanitize_optimized_manual_entry,
+        )
+
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        manual_timeline_source = (
+            ROOT / "src/autoslice/analysis/manual_timeline.py"
+        ).read_text(encoding="utf-8")
+        pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
+            encoding="utf-8"
+        )
+        for old_definition in (
+            "_manual_entry_matches_topic",
+            "_is_manual_merge_target",
+            "merge_manual_timeline_topics",
+            "_topics_from_manual_timeline",
+            "_optimized_entry_semantic_text",
+            "_manual_evidence_line",
+            "_sanitize_optimized_manual_entry",
+        ):
+            self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
+        self.assertIn(
+            "manual_candidates.sanitize_optimized_manual_entry(",
+            candidate_source,
+        )
+        self.assertNotIn("candidate_analysis.", manual_timeline_source)
+        self.assertIn(
+            "manual_candidates.topics_from_manual_timeline(",
+            manual_timeline_source,
+        )
+        self.assertIn(
+            "candidate_evidence.topic_srt_summary_lines(",
+            manual_timeline_source,
+        )
+        self.assertIn(
+            "manual_candidates.merge_manual_timeline_topics(",
+            pipeline_source,
+        )
+        self.assertNotIn(
+            "candidate_analysis.merge_manual_timeline_topics(",
+            pipeline_source,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.manual_candidates"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(
+            owner_functions,
+            {
+                "is_manual_merge_target",
+                "manual_entry_matches_topic",
+                "manual_evidence_line",
+                "merge_manual_timeline_topics",
+                "optimized_entry_semantic_text",
+                "sanitize_optimized_manual_entry",
+                "topics_from_manual_timeline",
+            },
+        )
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
     def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from autoslice import timecode
-from autoslice.analysis import candidates as candidate_analysis
+from autoslice.analysis import evidence as candidate_evidence
+from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_enrichment
 from autoslice.analysis import manual_review
 from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
 
@@ -70,7 +72,7 @@ def attach_manual_timeline_to_chunks(chunks, entries):
         chunk["manual_timeline_info"] = manual_timeline_info_for_chunk(
             entries,
             int(chunk["start"]),
-            int(chunk.get("end", chunk["start"] + candidate_analysis.CHUNK_SEC)),
+            int(chunk.get("end", chunk["start"] + topic_analysis.CHUNK_SEC)),
         )
     return chunks
 
@@ -146,7 +148,7 @@ def optimized_manual_entries_from_topics(topics):
             ],
             "original_entries": original_entries,
         }
-        sanitized = candidate_analysis._sanitize_optimized_manual_entry(entry)
+        sanitized = manual_candidates.sanitize_optimized_manual_entry(entry)
         if sanitized:
             entries.append(sanitized)
     return entries
@@ -182,12 +184,12 @@ def topic_from_optimized_entry(entry, srt_segments, peaks):
         ]
     body = list(entry.get("evidence") or [])
     if not any(str(line).startswith("·弹幕依据：") for line in body):
-        body[:0] = candidate_analysis._topic_danmaku_reference_lines(
+        body[:0] = candidate_evidence.topic_danmaku_reference_lines(
             start, end, peaks or []
         )
     if not any(str(line).startswith("·字幕核查：") for line in body):
         body.extend(
-            candidate_analysis._topic_srt_summary_lines(
+            candidate_evidence.topic_srt_summary_lines(
                 start, end, srt_segments or []
             )
         )
@@ -294,7 +296,7 @@ def optimize_manual_timeline(
     aligned_entries = timeline_analysis._align_manual_timeline_entries_to_srt(
         entries, srt_segments
     )
-    topics = candidate_analysis._topics_from_manual_timeline(
+    topics = manual_candidates.topics_from_manual_timeline(
         aligned_entries,
         srt_segments=srt_segments,
         peaks=peaks,

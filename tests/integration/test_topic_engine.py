@@ -4564,7 +4564,9 @@ class TopicEngineParseTests(unittest.TestCase):
                     "autoslice.analysis.topic_analysis.analyze_topic_chunks",
                     return_value=(generated_topics, [], None),
                 ) as analyze_chunks,
-                patch("autoslice.analysis.candidates.merge_manual_timeline_topics"),
+                patch(
+                    "autoslice.analysis.manual_candidates.merge_manual_timeline_topics"
+                ),
                 patch("autoslice.pipeline.parse_srt_segments", return_value=[]),
                 patch("autoslice.reporting.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
             ):
