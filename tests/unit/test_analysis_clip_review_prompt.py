@@ -1,8 +1,45 @@
+import ast
 import json
 import unittest
+from pathlib import Path
 
-from autoslice.analysis import clip_policy, clip_review_prompt
+from autoslice.analysis import clip_review_prompt as legacy_clip_review_prompt
+from autoslice.analysis.review import policy as clip_policy
+from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.streamer_profiles import streamer_profile_context
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = ROOT / "src"
+OWNER_MODULE = "autoslice.analysis.review.prompt"
+LEGACY_MODULE = "autoslice.analysis.clip_review_prompt"
+PROMPT_CONSUMERS = {
+    "autoslice.analysis.candidates",
+    "autoslice.analysis.clip_review",
+    "autoslice.topic_engine",
+}
+
+
+def _module_name(path):
+    parts = list(path.relative_to(SRC_ROOT).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def _imported_names(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+            imported.update(
+                f"{node.module}.{alias.name}"
+                for alias in node.names
+                if alias.name != "*"
+            )
+    return imported
 
 
 class ClipReviewPromptTests(unittest.TestCase):
@@ -41,6 +78,78 @@ class ClipReviewPromptTests(unittest.TestCase):
             "danmaku_selection_score": 72.5,
             "danmaku_interaction_signal": "具体互动明显",
         }
+
+    def test_legacy_facade_is_definition_free_and_forwards_owner_by_identity(self):
+        facade_path = SRC_ROOT / "autoslice/analysis/clip_review_prompt.py"
+        tree = ast.parse(facade_path.read_text(encoding="utf-8"))
+        definitions = [
+            node
+            for node in tree.body
+            if isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+            )
+        ]
+
+        self.assertEqual(definitions, [])
+        self.assertIs(
+            legacy_clip_review_prompt.FACADE_EXPORTS,
+            clip_review_prompt.FACADE_EXPORTS,
+        )
+        for name, value in vars(clip_review_prompt).items():
+            if not name.startswith("__"):
+                with self.subTest(name=name):
+                    self.assertIs(
+                        getattr(legacy_clip_review_prompt, name),
+                        value,
+                    )
+
+    def test_owner_has_exact_consumers_and_no_reverse_dependencies(self):
+        owner_importers = set()
+        legacy_importers = set()
+        for path in SRC_ROOT.rglob("*.py"):
+            module_name = _module_name(path)
+            imported = _imported_names(path)
+            if OWNER_MODULE in imported and module_name != LEGACY_MODULE:
+                owner_importers.add(module_name)
+            if LEGACY_MODULE in imported:
+                legacy_importers.add(module_name)
+
+        self.assertEqual(owner_importers, PROMPT_CONSUMERS)
+        self.assertEqual(legacy_importers, set())
+
+        owner_imports = _imported_names(
+            SRC_ROOT / "autoslice/analysis/review/prompt.py"
+        )
+        forbidden = PROMPT_CONSUMERS | {
+            LEGACY_MODULE,
+            "autoslice.pipeline",
+        }
+        self.assertTrue(owner_imports.isdisjoint(forbidden))
+
+    def test_review_package_is_lazy_and_declares_all_review_modules(self):
+        package_path = SRC_ROOT / "autoslice/analysis/review/__init__.py"
+        tree = ast.parse(package_path.read_text(encoding="utf-8"))
+        imports = [
+            node
+            for node in tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+        ]
+        declared = None
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            ):
+                declared = ast.literal_eval(node.value)
+
+        self.assertEqual(imports, [])
+        self.assertEqual(
+            declared,
+            ["candidates", "policy", "prompt", "scoring"],
+        )
 
     def test_payload_keeps_time_sources_titles_and_evidence_channels(self):
         prompt = clip_review_prompt.build_clip_candidate_review_prompt(

@@ -15,10 +15,10 @@ POLICY_CONSUMERS = {
     "autoslice.analysis.candidate_reconciliation",
     "autoslice.analysis.candidates",
     "autoslice.analysis.clip_review",
-    "autoslice.analysis.clip_review_candidates",
-    "autoslice.analysis.clip_review_prompt",
     "autoslice.analysis.manual.candidates",
     "autoslice.analysis.manual.enrichment",
+    "autoslice.analysis.review.candidates",
+    "autoslice.analysis.review.prompt",
     "autoslice.analysis.slice_decisions",
     "autoslice.analysis.topic.analysis",
     "autoslice.pipeline",
@@ -89,7 +89,7 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
             clip_policy.THANKS_TRIGGER_RE,
         )
 
-    def test_review_package_is_lazy_and_declares_only_policy_and_scoring(self):
+    def test_review_package_is_lazy_and_declares_review_modules(self):
         package_path = SRC_ROOT / "autoslice/analysis/review/__init__.py"
         tree = ast.parse(package_path.read_text(encoding="utf-8"))
         imports = [
@@ -108,7 +108,10 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
                 declared = ast.literal_eval(node.value)
 
         self.assertEqual(imports, [])
-        self.assertEqual(declared, ["policy", "scoring"])
+        self.assertEqual(
+            declared,
+            ["candidates", "policy", "prompt", "scoring"],
+        )
 
     def test_policy_consumers_import_owner_and_no_production_uses_facade(self):
         owner_importers = set()

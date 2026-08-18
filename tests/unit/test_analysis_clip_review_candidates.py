@@ -1,9 +1,96 @@
+import ast
 import unittest
+from pathlib import Path
 
-from autoslice.analysis import clip_review_candidates
+from autoslice.analysis import (
+    clip_review_candidates as legacy_clip_review_candidates,
+)
+from autoslice.analysis.review import candidates as clip_review_candidates
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = ROOT / "src"
+OWNER_MODULE = "autoslice.analysis.review.candidates"
+LEGACY_MODULE = "autoslice.analysis.clip_review_candidates"
+CANDIDATE_CONSUMERS = {
+    "autoslice.analysis.candidates",
+    "autoslice.analysis.clip_review",
+    "autoslice.analysis.manual.review",
+    "autoslice.topic_engine",
+}
+
+
+def _module_name(path):
+    parts = list(path.relative_to(SRC_ROOT).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def _imported_names(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+            imported.update(
+                f"{node.module}.{alias.name}"
+                for alias in node.names
+                if alias.name != "*"
+            )
+    return imported
 
 
 class ClipReviewCandidateTests(unittest.TestCase):
+    def test_legacy_facade_is_definition_free_and_forwards_owner_by_identity(self):
+        facade_path = SRC_ROOT / "autoslice/analysis/clip_review_candidates.py"
+        tree = ast.parse(facade_path.read_text(encoding="utf-8"))
+        definitions = [
+            node
+            for node in tree.body
+            if isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+            )
+        ]
+
+        self.assertEqual(definitions, [])
+        self.assertIs(
+            legacy_clip_review_candidates.FACADE_EXPORTS,
+            clip_review_candidates.FACADE_EXPORTS,
+        )
+        for name, value in vars(clip_review_candidates).items():
+            if not name.startswith("__"):
+                with self.subTest(name=name):
+                    self.assertIs(
+                        getattr(legacy_clip_review_candidates, name),
+                        value,
+                    )
+
+    def test_owner_has_exact_consumers_and_no_reverse_dependencies(self):
+        owner_importers = set()
+        legacy_importers = set()
+        for path in SRC_ROOT.rglob("*.py"):
+            module_name = _module_name(path)
+            imported = _imported_names(path)
+            if OWNER_MODULE in imported and module_name != LEGACY_MODULE:
+                owner_importers.add(module_name)
+            if LEGACY_MODULE in imported:
+                legacy_importers.add(module_name)
+
+        self.assertEqual(owner_importers, CANDIDATE_CONSUMERS)
+        self.assertEqual(legacy_importers, set())
+
+        owner_imports = _imported_names(
+            SRC_ROOT / "autoslice/analysis/review/candidates.py"
+        )
+        forbidden = CANDIDATE_CONSUMERS | {
+            LEGACY_MODULE,
+            "autoslice.pipeline",
+        }
+        self.assertTrue(owner_imports.isdisjoint(forbidden))
+
     def test_fresh_evidence_rebuilds_subtitle_danmaku_and_manual_sources(self):
         topic = {
             "start": 100,

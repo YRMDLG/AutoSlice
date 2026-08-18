@@ -73,6 +73,8 @@ DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
     "启动",
     "autoslice.analysis.chunking",
     "autoslice.analysis.clip_policy",
+    "autoslice.analysis.clip_review_candidates",
+    "autoslice.analysis.clip_review_prompt",
     "autoslice.analysis.clip_scoring",
     "autoslice.analysis.content_normalization",
     "autoslice.analysis.manual_enrichment",
@@ -1224,40 +1226,35 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis import (
             candidates,
             clip_review,
-            clip_review_candidates,
         )
+        from autoslice.analysis import (
+            clip_review_candidates as legacy_clip_review_candidates,
+        )
+        from autoslice.analysis.manual import review as manual_review
+        from autoslice.analysis.review import candidates as review_candidates
 
         aliases = {
             "_clip_review_candidate": "build_clip_review_candidate",
             "_fresh_manual_topic_evidence": "fresh_manual_topic_evidence",
         }
+        self.assertEqual(review_candidates.FACADE_EXPORTS, aliases)
+        self.assertIs(
+            legacy_clip_review_candidates.FACADE_EXPORTS,
+            review_candidates.FACADE_EXPORTS,
+        )
         for compatibility_name, owner_name in aliases.items():
             with self.subTest(name=compatibility_name):
-                owner = getattr(clip_review_candidates, owner_name)
+                owner = getattr(review_candidates, owner_name)
+                self.assertIs(
+                    getattr(legacy_clip_review_candidates, owner_name),
+                    owner,
+                )
                 self.assertIs(getattr(candidates, compatibility_name), owner)
                 self.assertIs(getattr(topic_engine, compatibility_name), owner)
 
-        self.assertIs(candidates.clip_review_candidates, clip_review_candidates)
-        self.assertIs(clip_review.clip_review_candidates, clip_review_candidates)
-        clip_review_source = (
-            ROOT / "src/autoslice/analysis/clip_review.py"
-        ).read_text(encoding="utf-8")
-        manual_review_source = (
-            ROOT / "src/autoslice/analysis/manual/review.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn(
-            "clip_review_candidates.build_clip_review_candidate(",
-            clip_review_source,
-        )
-        candidate_source = (
-            ROOT / "src/autoslice/analysis/candidates.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn(
-            "clip_review_candidates.fresh_manual_topic_evidence(",
-            manual_review_source,
-        )
-        self.assertNotIn("\ndef _clip_review_candidate(", candidate_source)
-        self.assertNotIn("\ndef _fresh_manual_topic_evidence(", candidate_source)
+        self.assertIs(candidates.clip_review_candidates, review_candidates)
+        self.assertIs(clip_review.clip_review_candidates, review_candidates)
+        self.assertIs(manual_review.clip_review_candidates, review_candidates)
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
@@ -1269,7 +1266,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.clip_review_candidates"][
+            for item in modules["autoslice.analysis.review.candidates"][
                 "top_level_functions"
             ]
         }
@@ -1279,30 +1276,71 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.analysis.review.candidates"
+        legacy_module = "autoslice.analysis.clip_review_candidates"
+        consumers = {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.clip_review",
+            "autoslice.analysis.manual.review",
+            "autoslice.topic_engine",
+        }
+        production_modules = {
+            module["module"]
+            for module in current["modules"]
+            if module["path"].startswith("src/")
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == owner_module
+            },
+            consumers | {legacy_module},
+        )
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == legacy_module
+            },
+            set(),
+        )
+        for forbidden_target in consumers | {
+            legacy_module,
+            "autoslice.pipeline",
+        }:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
+
     def test_clip_review_prompt_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import candidates, clip_review, clip_review_prompt
+        from autoslice.analysis import candidates, clip_review
+        from autoslice.analysis import (
+            clip_review_prompt as legacy_clip_review_prompt,
+        )
+        from autoslice.analysis.review import prompt as review_prompt
 
-        owner = clip_review_prompt.build_clip_candidate_review_prompt
+        aliases = {
+            "_build_clip_candidate_review_prompt": (
+                "build_clip_candidate_review_prompt"
+            ),
+        }
+        self.assertEqual(review_prompt.FACADE_EXPORTS, aliases)
+        self.assertIs(
+            legacy_clip_review_prompt.FACADE_EXPORTS,
+            review_prompt.FACADE_EXPORTS,
+        )
+        owner = review_prompt.build_clip_candidate_review_prompt
+        self.assertIs(
+            legacy_clip_review_prompt.build_clip_candidate_review_prompt,
+            owner,
+        )
         self.assertIs(candidates._build_clip_candidate_review_prompt, owner)
         self.assertIs(topic_engine._build_clip_candidate_review_prompt, owner)
-        self.assertIs(candidates.clip_review_prompt, clip_review_prompt)
-        self.assertIs(clip_review.clip_review_prompt, clip_review_prompt)
-
-        clip_review_source = (
-            ROOT / "src/autoslice/analysis/clip_review.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn(
-            "clip_review_prompt.build_clip_candidate_review_prompt(",
-            clip_review_source,
-        )
-        candidate_source = (
-            ROOT / "src/autoslice/analysis/candidates.py"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn(
-            "\ndef _build_clip_candidate_review_prompt(",
-            candidate_source,
-        )
+        self.assertIs(candidates.clip_review_prompt, review_prompt)
+        self.assertIs(clip_review.clip_review_prompt, review_prompt)
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
@@ -1314,12 +1352,49 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.clip_review_prompt"][
+            for item in modules["autoslice.analysis.review.prompt"][
                 "top_level_functions"
             ]
         }
         self.assertEqual(owner_functions, {"build_clip_candidate_review_prompt"})
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.analysis.review.prompt"
+        legacy_module = "autoslice.analysis.clip_review_prompt"
+        consumers = {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.clip_review",
+            "autoslice.topic_engine",
+        }
+        production_modules = {
+            module["module"]
+            for module in current["modules"]
+            if module["path"].startswith("src/")
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == owner_module
+            },
+            consumers | {legacy_module},
+        )
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == legacy_module
+            },
+            set(),
+        )
+        for forbidden_target in consumers | {
+            legacy_module,
+            "autoslice.pipeline",
+        }:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
 
     def test_clip_review_orchestration_has_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -3007,10 +3082,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.analysis.candidate_reconciliation",
             "autoslice.analysis.candidates",
             "autoslice.analysis.clip_review",
-            "autoslice.analysis.clip_review_candidates",
-            "autoslice.analysis.clip_review_prompt",
             "autoslice.analysis.manual.candidates",
             "autoslice.analysis.manual.enrichment",
+            "autoslice.analysis.review.candidates",
+            "autoslice.analysis.review.prompt",
             "autoslice.analysis.slice_decisions",
             "autoslice.analysis.topic.analysis",
             "autoslice.pipeline",

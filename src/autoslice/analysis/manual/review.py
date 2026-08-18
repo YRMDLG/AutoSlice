@@ -8,11 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from autoslice import timecode
 from autoslice.analysis import (
     boundaries,
-    clip_review_candidates,
     llm_execution,
 )
 from autoslice.analysis.manual import enrichment as manual_enrichment
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.review import candidates as clip_review_candidates
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import (
