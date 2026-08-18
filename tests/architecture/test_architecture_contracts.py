@@ -1400,6 +1400,72 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
+    def test_analysis_chunking_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import candidates, chunking
+
+        aliases = {
+            "_make_chunk": "make_chunk",
+            "chunk_srt": "chunk_srt",
+            "parse_srt_text": "parse_srt_text",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(chunking, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        self.assertIs(candidates.chunking, chunking)
+        self.assertIs(pipeline.analysis_chunking, chunking)
+        self.assertIs(topic_engine.analysis_chunking, chunking)
+        self.assertIs(pipeline.parse_srt_text, chunking.parse_srt_text)
+        self.assertIs(pipeline.chunk_srt, chunking.chunk_srt)
+
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
+            encoding="utf-8"
+        )
+        topic_engine_source = (
+            ROOT / "src/autoslice/topic_engine.py"
+        ).read_text(encoding="utf-8")
+        for old_definition in ("parse_srt_text", "chunk_srt", "_make_chunk"):
+            self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
+        self.assertIn(
+            "parse_srt_text = analysis_chunking.parse_srt_text",
+            pipeline_source,
+        )
+        self.assertIn(
+            "chunk_srt = analysis_chunking.chunk_srt",
+            pipeline_source,
+        )
+        self.assertIn(
+            "_make_chunk = analysis_chunking.make_chunk",
+            topic_engine_source,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.chunking"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(
+            owner_functions,
+            {"chunk_srt", "make_chunk", "parse_srt_text"},
+        )
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
     def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline

@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import boundaries as boundary_analysis
+from autoslice.analysis import chunking
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
@@ -187,6 +188,11 @@ _load_topic_analysis_checkpoint = topic_analysis.load_topic_analysis_checkpoint
 _write_topic_analysis_checkpoint = topic_analysis.write_topic_analysis_checkpoint
 analyze_topic_chunks = topic_analysis.analyze_topic_chunks
 _analyze_topic_chunks = topic_analysis.analyze_topic_chunks
+
+
+parse_srt_text = chunking.parse_srt_text
+chunk_srt = chunking.chunk_srt
+_make_chunk = chunking.make_chunk
 
 
 LLM_DEFAULT_CONCURRENCY = llm_execution.LLM_DEFAULT_CONCURRENCY
@@ -598,99 +604,10 @@ def _topics_from_manual_timeline(
     return topics
 
 
-def parse_srt_text(srt_path):
-    """解析 SRT，去空格，返回 [(start_s, end_s, text), ...]，并修复明显异常时间戳。"""
-    return [
-        (start_s, end_s, text)
-        for start_s, end_s, text in _load_repaired_srt_segments(srt_path)
-        if _subtitle_text_size(text) >= 2
-    ]
 
 
-def chunk_srt(segs, peaks, chunk_sec=CHUNK_SEC):
-    """将 SRT 按时间分块，每块附带弹幕密度信息"""
-    if not segs:
-        return []
-    avg_density = _average_danmaku_density(peaks)
-    independent_peaks = _high_energy_danmaku_peaks(peaks, avg_density)
-
-    chunks = []
-    chunk_start = segs[0][0]
-    current_texts = []
-
-    for item in segs:
-        if len(item) == 3:
-            start_s, end_s, text = item
-        else:
-            start_s, text = item
-            end_s = start_s
-        if start_s - chunk_start > chunk_sec:
-            if current_texts:
-                chunks.append(_make_chunk(
-                    chunk_start,
-                    current_texts,
-                    peaks,
-                    avg_density,
-                    independent_peaks=independent_peaks,
-                ))
-            chunk_start = start_s
-            current_texts = []
-        time_label = timecode.format_elapsed(start_s) if end_s <= start_s + 1 else f"{timecode.format_elapsed(start_s)}－{timecode.format_elapsed(end_s)}"
-        current_texts.append(f"[{time_label}] {text}")
-
-    if current_texts:
-        chunks.append(_make_chunk(
-            chunk_start,
-            current_texts,
-            peaks,
-            avg_density,
-            independent_peaks=independent_peaks,
-        ))
-
-    return chunks
 
 
-def _make_chunk(
-        chunk_start, texts, peaks, avg_density=0, independent_peaks=None):
-    text_block = "\n".join(texts)
-    chunk_end = chunk_start + CHUNK_SEC
-    nearby_peaks = [(s, d) for s, d in peaks if chunk_start - 60 <= s <= chunk_end + 60]
-    if nearby_peaks:
-        max_d = max(d for _, d in nearby_peaks)
-        ratio = max_d / avg_density if avg_density > 0 else 1.0
-        danmaku_info = f"[弹幕: 本段峰值{max_d}条/分钟 = {ratio:.1f}倍平均 | 全场平均={avg_density:.0f}]"
-    else:
-        danmaku_info = f"[弹幕: 本段无峰值, 远低于全场平均{avg_density:.0f}]"
-    independent_peaks = (
-        _high_energy_danmaku_peaks(peaks, avg_density)
-        if independent_peaks is None
-        else independent_peaks
-    )
-    evidence_rows = []
-    for peak_start, density in independent_peaks:
-        if not chunk_start - DANMAKU_WINDOW <= peak_start <= chunk_end + DANMAKU_WINDOW:
-            continue
-        features = _danmaku_peak_features(
-            peaks,
-            peak_start,
-            density,
-            avg_density=avg_density,
-        )
-        evidence_rows.append((
-            float(features["selection_score"]),
-            int(peak_start),
-            _danmaku_prompt_evidence(features),
-        ))
-    evidence_rows.sort(key=lambda row: (-row[0], row[1]))
-    danmaku_evidence = [row[2] for row in evidence_rows[:4]]
-    return {
-        "start": chunk_start,
-        "end": chunk_end,
-        "text": text_block,
-        "danmaku_info": danmaku_info,
-        "danmaku_evidence": danmaku_evidence,
-        "has_peaks": len(nearby_peaks) > 0,
-    }
 
 
 

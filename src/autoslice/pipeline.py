@@ -20,6 +20,7 @@ from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import chunking as analysis_chunking
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
@@ -66,9 +67,9 @@ ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
-parse_srt_text = candidate_analysis.parse_srt_text
+parse_srt_text = analysis_chunking.parse_srt_text
 parse_srt_segments = boundary_analysis.parse_srt_segments
-chunk_srt = candidate_analysis.chunk_srt
+chunk_srt = analysis_chunking.chunk_srt
 fmt_time = timecode.format_elapsed
 load_manual_timeline = timeline_analysis.load_manual_timeline
 

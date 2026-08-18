@@ -14,6 +14,7 @@ import os
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import chunking as analysis_chunking
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
@@ -485,7 +486,7 @@ _looks_like_discourse_continuation = boundary_analysis._looks_like_discourse_con
 _looks_like_low_score_visual_case_shift = boundary_analysis._looks_like_low_score_visual_case_shift
 _looks_like_next_case_transition = boundary_analysis._looks_like_next_case_transition
 _looks_like_sc_or_gift_trigger = boundary_analysis._looks_like_sc_or_gift_trigger
-_make_chunk = candidate_analysis._make_chunk
+_make_chunk = analysis_chunking.make_chunk
 _make_fallback_topic_from_chunk = topic_analysis.make_fallback_topic_from_chunk
 _manual_alignment_score = timeline_analysis._manual_alignment_score
 _manual_entry_matches_topic = candidate_analysis._manual_entry_matches_topic
@@ -546,10 +547,10 @@ _validated_ai_focus_range = manual_enrichment.validated_ai_focus_range
 _write_clip_review_checkpoint = checkpoint_store.write_clip_review_checkpoint
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
 _write_topic_analysis_checkpoint = topic_analysis.write_topic_analysis_checkpoint
-chunk_srt = candidate_analysis.chunk_srt
+chunk_srt = analysis_chunking.chunk_srt
 fmt_time = timecode.format_elapsed
 parse_srt_segments = boundary_analysis.parse_srt_segments
-parse_srt_text = candidate_analysis.parse_srt_text
+parse_srt_text = analysis_chunking.parse_srt_text
 
 
 # 报告兼容 façade：报告、整理包和精调清单只保留唯一实现。
