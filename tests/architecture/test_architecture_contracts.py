@@ -559,6 +559,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             clip_scoring,
             clip_policy,
             danmaku,
+            evidence,
             manual_timeline,
             timeline,
             titles,
@@ -575,6 +576,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             transcription,
             transcription_workflow,
             danmaku,
+            evidence,
             timeline,
             manual_timeline,
             checkpoints,
@@ -704,6 +706,38 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         owner_functions = {
             item["name"]
             for item in modules["autoslice.analysis.clip_scoring"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(owner_functions)
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+    def test_candidate_evidence_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import candidates, evidence
+
+        aliases = {
+            "_topic_danmaku_reference_lines": "topic_danmaku_reference_lines",
+            "_topic_peak_candidates": "topic_peak_candidates",
+            "_topic_srt_summary_lines": "topic_srt_summary_lines",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(evidence, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.evidence"][
                 "top_level_functions"
             ]
         }

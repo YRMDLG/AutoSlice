@@ -17,6 +17,7 @@ from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -515,12 +516,12 @@ _subtitle_speech_chains = boundary_analysis._subtitle_speech_chains
 _subtitle_text_size = transcription_segments.subtitle_text_size
 _text_len_for_timing = transcription_segments.text_len_for_timing
 _topic_analysis_prompt_fingerprint = candidate_analysis._topic_analysis_prompt_fingerprint
-_topic_danmaku_reference_lines = candidate_analysis._topic_danmaku_reference_lines
+_topic_danmaku_reference_lines = candidate_evidence.topic_danmaku_reference_lines
 _topic_index_label = candidate_analysis._topic_index_label
-_topic_peak_candidates = candidate_analysis._topic_peak_candidates
+_topic_peak_candidates = candidate_evidence.topic_peak_candidates
 _topic_peak_focus_window = candidate_analysis._topic_peak_focus_window
 _topic_semantic_text = candidate_analysis._topic_semantic_text
-_topic_srt_summary_lines = candidate_analysis._topic_srt_summary_lines
+_topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
 _topics_from_manual_timeline = candidate_analysis._topics_from_manual_timeline
 _trim_report_topic_around_reviewed_topic = candidate_analysis._trim_report_topic_around_reviewed_topic
 _validate_unmatched_manual_topics = candidate_analysis._validate_unmatched_manual_topics

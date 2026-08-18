@@ -17,6 +17,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
@@ -116,12 +117,9 @@ FACADE_EXPORTS = {
     '_strip_code_fence': '_strip_code_fence',
     '_strip_prompt_time_labels': '_strip_prompt_time_labels',
     '_topic_analysis_prompt_fingerprint': '_topic_analysis_prompt_fingerprint',
-    '_topic_danmaku_reference_lines': '_topic_danmaku_reference_lines',
     '_topic_index_label': '_topic_index_label',
-    '_topic_peak_candidates': '_topic_peak_candidates',
     '_topic_peak_focus_window': '_topic_peak_focus_window',
     '_topic_semantic_text': '_topic_semantic_text',
-    '_topic_srt_summary_lines': '_topic_srt_summary_lines',
     '_topics_from_manual_timeline': '_topics_from_manual_timeline',
     '_trim_report_topic_around_reviewed_topic': '_trim_report_topic_around_reviewed_topic',
     '_validate_unmatched_manual_topics': '_validate_unmatched_manual_topics',
@@ -160,7 +158,9 @@ _load_repaired_srt_segments = transcription_srt_io.load_repaired_srt_segments
 DANMAKU_WINDOW = danmaku_analysis.DANMAKU_WINDOW
 
 
-DANMAKU_WINDOW_STEP = danmaku_analysis.DANMAKU_WINDOW_STEP
+_topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
+_topic_danmaku_reference_lines = candidate_evidence.topic_danmaku_reference_lines
+_topic_peak_candidates = candidate_evidence.topic_peak_candidates
 
 
 _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
@@ -500,76 +500,6 @@ def merge_manual_timeline_topics(topics, entries):
             topics.append(topic)
     topics.sort(key=lambda item: (item["start"], item["end"]))
     return topics
-
-
-def _topic_srt_summary_lines(start, end, srt_segments, limit=12, bucket_sec=30):
-    """把碎片字幕聚成带时间范围的短窗口，供 AI 核对事件与边界。"""
-    if not srt_segments:
-        return []
-    related = [
-        (seg_start, seg_end, text)
-        for seg_start, seg_end, text in srt_segments
-        if seg_end >= start and seg_start <= end
-    ]
-    if not related:
-        return []
-
-    buckets = {}
-    for seg_start, seg_end, text in related:
-        key = max(0, int((max(start, seg_start) - start) // bucket_sec))
-        bucket = buckets.setdefault(key, {
-            "start": max(start, seg_start),
-            "end": min(end, seg_end),
-            "texts": [],
-        })
-        bucket["start"] = min(bucket["start"], max(start, seg_start))
-        bucket["end"] = max(bucket["end"], min(end, seg_end))
-        compact = re.sub(r'\s+', '', text or '')
-        if compact and (not bucket["texts"] or bucket["texts"][-1] != compact):
-            bucket["texts"].append(compact)
-
-    windows = [buckets[key] for key in sorted(buckets)]
-    if len(windows) <= limit:
-        selected = windows
-    elif limit <= 1:
-        selected = [windows[len(windows) // 2]]
-    else:
-        indexes = sorted({round(i * (len(windows) - 1) / (limit - 1)) for i in range(limit)})
-        selected = [windows[index] for index in indexes]
-
-    lines = []
-    seen = set()
-    for window in selected:
-        compact = "".join(window["texts"])
-        if not compact or compact in seen:
-            continue
-        seen.add(compact)
-        if len(compact) > 180:
-            compact = compact[:180] + "…"
-        lines.append(
-            f"·字幕核查：{fmt_time(window['start'])}-{fmt_time(window['end'])} {compact}"
-        )
-    return lines
-
-
-def _topic_danmaku_reference_lines(start, end, peaks, limit=3):
-    """保留相隔较远的多个峰值，让 AI 能识别人工记录中的并列事件。"""
-    candidates = [
-        (peak_start, density)
-        for peak_start, density in peaks or []
-        if peak_start + DANMAKU_WINDOW >= start and peak_start <= end
-    ]
-    selected = []
-    for peak_start, density in sorted(candidates, key=lambda item: item[1], reverse=True):
-        if any(abs(peak_start - old_start) < DANMAKU_WINDOW for old_start, _ in selected):
-            continue
-        selected.append((peak_start, density))
-        if len(selected) >= limit:
-            break
-    return [
-        f"·弹幕依据：{fmt_time(peak_start)} 附近峰值约 {int(density)} 条/分钟"
-        for peak_start, density in sorted(selected)
-    ]
 
 
 def _topics_from_manual_timeline(
@@ -1822,23 +1752,6 @@ def _format_topic_block(topic, index, streamer_name=None):
     body = topic.get("body") or []
     lines.extend(_replace_streamer_role(line, streamer_name) for line in body)
     return "\n".join(lines)
-
-
-def _topic_peak_candidates(topic, peaks, window_sec=DANMAKU_WINDOW):
-    """峰值中心允许一个采样步长误差，兼容字幕边界校正后的重复重建。"""
-    if not peaks:
-        return []
-    start = int(topic["start"])
-    end = int(topic["end"])
-    return [
-        (peak_start, density)
-        for peak_start, density in peaks
-        if (
-            start - DANMAKU_WINDOW_STEP
-            <= peak_start + window_sec / 2
-            <= end + DANMAKU_WINDOW_STEP
-        )
-    ]
 
 
 def _topic_peak_focus_window(topic, peaks, window_sec=DANMAKU_WINDOW):
