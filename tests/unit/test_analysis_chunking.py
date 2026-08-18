@@ -1,10 +1,179 @@
+import ast
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from autoslice.analysis import chunking
+from autoslice.analysis.topic import chunking
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = ROOT / "src" / "autoslice"
+OWNER_PATH = SRC_ROOT / "analysis" / "topic" / "chunking.py"
+FACADE_PATH = SRC_ROOT / "analysis" / "chunking.py"
+TOPIC_INIT_PATH = SRC_ROOT / "analysis" / "topic" / "__init__.py"
+
+CHUNKING_CONSUMERS = (
+    "src/autoslice/analysis/candidates.py",
+    "src/autoslice/pipeline.py",
+    "src/autoslice/topic_engine.py",
+)
+
+PRE_MIGRATION_NON_DUNDER_NAMES = {
+    "FACADE_EXPORTS",
+    "annotations",
+    "chunk_srt",
+    "danmaku_analysis",
+    "make_chunk",
+    "parse_srt_text",
+    "timecode",
+    "topic_analysis",
+    "transcription_segments",
+    "transcription_srt_io",
+}
+
+
+def _parse(path):
+    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def _legacy_chunking_imports(tree):
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(
+                alias.name
+                for alias in node.names
+                if alias.name == "autoslice.analysis.chunking"
+            )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "autoslice.analysis.chunking":
+                imports.append(node.module)
+            elif node.module == "autoslice.analysis":
+                imports.extend(
+                    f"{node.module}.{alias.name}"
+                    for alias in node.names
+                    if alias.name == "chunking"
+                )
+    return imports
+
+
+def _import_targets(tree):
+    targets = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            targets.update(
+                f"{node.module}.{alias.name}" for alias in node.names
+            )
+    return targets
 
 
 class AnalysisChunkingTests(unittest.TestCase):
+    def test_topic_owner_has_exactly_three_functions_and_facade_has_none(self):
+        owner_tree = _parse(OWNER_PATH)
+        facade_tree = _parse(FACADE_PATH)
+        definition_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+        self.assertEqual(
+            [
+                node.name
+                for node in owner_tree.body
+                if isinstance(node, definition_types)
+            ],
+            ["parse_srt_text", "chunk_srt", "make_chunk"],
+        )
+        self.assertFalse(
+            any(isinstance(node, ast.ClassDef) for node in owner_tree.body)
+        )
+        self.assertFalse(
+            any(isinstance(node, definition_types) for node in facade_tree.body)
+        )
+        self.assertFalse(
+            any(isinstance(node, ast.ClassDef) for node in facade_tree.body)
+        )
+
+    def test_legacy_facade_reexports_every_pre_migration_name_by_identity(self):
+        from autoslice.analysis import chunking as compatibility
+        from autoslice.analysis.topic import chunking as owner
+
+        owner_names = {
+            name for name in vars(owner) if not name.startswith("__")
+        }
+        self.assertEqual(owner_names, PRE_MIGRATION_NON_DUNDER_NAMES)
+        self.assertIs(compatibility.FACADE_EXPORTS, owner.FACADE_EXPORTS)
+        for name in sorted(PRE_MIGRATION_NON_DUNDER_NAMES):
+            with self.subTest(name=name):
+                self.assertIs(getattr(compatibility, name), getattr(owner, name))
+
+    def test_production_consumers_import_topic_owner_directly(self):
+        for relative_path in CHUNKING_CONSUMERS:
+            path = ROOT / relative_path
+            tree = _parse(path)
+            direct_import = any(
+                isinstance(node, ast.ImportFrom)
+                and node.module == "autoslice.analysis.topic"
+                and any(alias.name == "chunking" for alias in node.names)
+                for node in ast.walk(tree)
+            )
+            with self.subTest(path=relative_path):
+                self.assertTrue(direct_import)
+                self.assertEqual(_legacy_chunking_imports(tree), [])
+
+        violations = []
+        for path in sorted(SRC_ROOT.rglob("*.py")):
+            imports = _legacy_chunking_imports(_parse(path))
+            if imports:
+                violations.append((path.relative_to(ROOT).as_posix(), imports))
+        self.assertEqual(violations, [])
+
+    def test_topic_package_is_lazy_and_owner_has_no_reverse_dependency(self):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-c",
+                (
+                    "import sys; import autoslice.analysis.topic; "
+                    "assert 'autoslice.analysis.topic.chunking' "
+                    "not in sys.modules"
+                ),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stdout + completed.stderr,
+        )
+
+        topic_init_tree = _parse(TOPIC_INIT_PATH)
+        all_assignment = next(
+            node
+            for node in topic_init_tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            )
+        )
+        self.assertIn("chunking", ast.literal_eval(all_assignment.value))
+
+        forbidden_targets = {
+            "autoslice.analysis.chunking",
+            *(
+                path.removeprefix("src/").removesuffix(".py").replace("/", ".")
+                for path in CHUNKING_CONSUMERS
+            ),
+        }
+        self.assertTrue(
+            _import_targets(_parse(OWNER_PATH)).isdisjoint(forbidden_targets)
+        )
+
     def test_parse_srt_text_filters_only_visibly_too_short_cues(self):
         repaired = [
             (1.0, 2.0, "啊"),
@@ -13,7 +182,8 @@ class AnalysisChunkingTests(unittest.TestCase):
         ]
 
         with patch(
-            "autoslice.analysis.chunking.transcription_srt_io.load_repaired_srt_segments",
+            "autoslice.analysis.topic.chunking."
+            "transcription_srt_io.load_repaired_srt_segments",
             return_value=repaired,
         ) as load:
             result = chunking.parse_srt_text("测试.srt")

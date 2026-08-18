@@ -19,7 +19,6 @@ from autoslice import slicing as slicing_service
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
-from autoslice.analysis import chunking as analysis_chunking
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
@@ -30,6 +29,7 @@ from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.manual import workflow as manual_timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis import slice_decisions
+from autoslice.analysis.topic import chunking as analysis_chunking
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.llm.prompts import build_system_prompt as _render_system_prompt

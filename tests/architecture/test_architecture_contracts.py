@@ -71,6 +71,7 @@ DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
     "task_store",
     "topic_engine",
     "启动",
+    "autoslice.analysis.chunking",
     "autoslice.analysis.content_normalization",
     "autoslice.analysis.manual_enrichment",
     "autoslice.analysis.manual_review",
@@ -1079,7 +1080,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(len(all_assignments), 1)
         self.assertEqual(
             ast.literal_eval(all_assignments[0].value),
-            ["analysis", "normalization", "response", "titles"],
+            ["analysis", "chunking", "normalization", "response", "titles"],
         )
 
     def test_manual_enrichment_has_one_owner_and_direct_consumers(self):
@@ -1627,10 +1628,11 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_topic_analysis_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline, reporting
-        from autoslice.analysis import candidates, chunking
+        from autoslice.analysis import candidates
         from autoslice.analysis import topic_analysis as legacy_topic_analysis
         from autoslice.analysis.manual import workflow as manual_workflow
         from autoslice.analysis.topic import analysis as topic_analysis
+        from autoslice.analysis.topic import chunking
 
         aliases = {
             "_HEADING_RE": "HEADING_RE",
@@ -1773,7 +1775,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.topic_analysis"
         consumers = {
             "autoslice.analysis.candidates",
-            "autoslice.analysis.chunking",
+            "autoslice.analysis.topic.chunking",
             "autoslice.analysis.manual.workflow",
             "autoslice.pipeline",
             "autoslice.reporting",
@@ -1794,13 +1796,26 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_analysis_chunking_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline
-        from autoslice.analysis import candidates, chunking
+        from autoslice.analysis import candidates
+        from autoslice.analysis import chunking as legacy_chunking
+        from autoslice.analysis.topic import chunking
 
         aliases = {
             "_make_chunk": "make_chunk",
             "chunk_srt": "chunk_srt",
             "parse_srt_text": "parse_srt_text",
         }
+        self.assertEqual(chunking.FACADE_EXPORTS, aliases)
+        self.assertIs(
+            legacy_chunking.FACADE_EXPORTS,
+            chunking.FACADE_EXPORTS,
+        )
+        for name, value in vars(chunking).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(legacy_name=name):
+                self.assertIs(getattr(legacy_chunking, name), value)
+
         for compatibility_name, owner_name in aliases.items():
             with self.subTest(name=compatibility_name):
                 owner = getattr(chunking, owner_name)
@@ -1847,15 +1862,67 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.chunking"][
+            for item in modules["autoslice.analysis.topic.chunking"][
                 "top_level_functions"
             ]
         }
         self.assertEqual(
+            modules["autoslice.analysis.chunking"]["top_level_functions"],
+            [],
+        )
+        self.assertEqual(
+            modules["autoslice.analysis.chunking"]["top_level_classes"],
+            [],
+        )
+        self.assertEqual(
             owner_functions,
             {"chunk_srt", "make_chunk", "parse_srt_text"},
         )
+        self.assertEqual(
+            modules["autoslice.analysis.topic.chunking"]["top_level_classes"],
+            [],
+        )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.analysis.topic.chunking"
+        legacy_module = "autoslice.analysis.chunking"
+        consumers = {
+            "autoslice.analysis.candidates",
+            "autoslice.pipeline",
+            "autoslice.topic_engine",
+        }
+        for consumer in consumers:
+            with self.subTest(consumer=consumer):
+                self.assertIn((consumer, owner_module), import_edges)
+                self.assertNotIn((consumer, legacy_module), import_edges)
+        self.assertIn((legacy_module, owner_module), import_edges)
+
+        production_modules = {
+            module["module"]
+            for module in current["modules"]
+            if module["path"].startswith("src/")
+            and module["module"] != legacy_module
+        }
+        legacy_importers = {
+            source
+            for source, target in import_edges
+            if source in production_modules and target == legacy_module
+        }
+        self.assertEqual(legacy_importers, set())
+        for forbidden_target in consumers | {legacy_module}:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
+
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_manual_domain_has_one_owner_and_direct_consumers(self):
         import topic_engine
