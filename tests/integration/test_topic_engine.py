@@ -31,6 +31,7 @@ from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
+from autoslice.analysis import llm_execution
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
@@ -732,6 +733,7 @@ class CandidateReviewTests(unittest.TestCase):
             checkpoint_store,
             clip_scoring,
             candidate_evidence,
+            llm_execution,
             clip_policy,
             boundary_analysis,
             candidate_analysis,

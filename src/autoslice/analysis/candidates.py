@@ -6,7 +6,6 @@ import json
 import math
 import os
 import re
-import threading
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
@@ -18,6 +17,7 @@ from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
+from autoslice.analysis import llm_execution
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
@@ -45,9 +45,7 @@ FACADE_EXPORTS = {
     'LLM_ANALYSIS_MODEL': 'LLM_ANALYSIS_MODEL',
     'LLM_COMPACT_MAX_TOKENS': 'LLM_COMPACT_MAX_TOKENS',
     'LLM_COMPACT_TEXT_CHARS': 'LLM_COMPACT_TEXT_CHARS',
-    'LLM_DEFAULT_CONCURRENCY': 'LLM_DEFAULT_CONCURRENCY',
     'LLM_FULL_TEXT_CHARS': 'LLM_FULL_TEXT_CHARS',
-    'LLM_MAX_CONCURRENCY': 'LLM_MAX_CONCURRENCY',
     'LLM_MAX_TOKENS': 'LLM_MAX_TOKENS',
     'MAX_INITIAL_FAILED_CHUNKS': 'MAX_INITIAL_FAILED_CHUNKS',
     '_CIRCLED_NUMBERS': '_CIRCLED_NUMBERS',
@@ -72,7 +70,6 @@ FACADE_EXPORTS = {
     '_clean_topics_for_report': '_clean_topics_for_report',
     '_clip_marks_from_topics': '_clip_marks_from_topics',
     '_clip_review_candidate': '_clip_review_candidate',
-    '_configured_llm_concurrency': '_configured_llm_concurrency',
     '_danmaku_topic_alignment': '_danmaku_topic_alignment',
     '_enrich_manual_topics_in_batches': 'enrich_manual_topics_in_batches',
     '_enrich_manual_topics_with_llm': 'enrich_manual_topics_with_llm',
@@ -112,7 +109,6 @@ FACADE_EXPORTS = {
     '_review_peak_selected_topics': '_review_peak_selected_topics',
     '_reviewed_topic_has_required_interest': '_reviewed_topic_has_required_interest',
     '_sanitize_optimized_manual_entry': '_sanitize_optimized_manual_entry',
-    '_serialized_progress_callback': '_serialized_progress_callback',
     '_short_llm_error': '_short_llm_error',
     '_strip_code_fence': '_strip_code_fence',
     '_strip_prompt_time_labels': '_strip_prompt_time_labels',
@@ -161,6 +157,12 @@ DANMAKU_WINDOW = danmaku_analysis.DANMAKU_WINDOW
 _topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
 _topic_danmaku_reference_lines = candidate_evidence.topic_danmaku_reference_lines
 _topic_peak_candidates = candidate_evidence.topic_peak_candidates
+
+
+LLM_DEFAULT_CONCURRENCY = llm_execution.LLM_DEFAULT_CONCURRENCY
+LLM_MAX_CONCURRENCY = llm_execution.LLM_MAX_CONCURRENCY
+_configured_llm_concurrency = llm_execution.configured_llm_concurrency
+_serialized_progress_callback = llm_execution.serialized_progress_callback
 
 
 _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
@@ -287,12 +289,6 @@ LLM_COMPACT_TEXT_CHARS = 2200
 
 
 MAX_INITIAL_FAILED_CHUNKS = 3
-
-
-LLM_DEFAULT_CONCURRENCY = 3
-
-
-LLM_MAX_CONCURRENCY = 4
 
 
 TOPIC_ANALYSIS_CHECKPOINT_VERSION = checkpoint_store.TOPIC_ANALYSIS_CHECKPOINT_VERSION
@@ -1401,7 +1397,7 @@ def enrich_manual_topics_in_batches(
     warnings = []
     safe_batch_size = max(1, batch_size)
     total_batches = max(1, math.ceil(len(topics or []) / safe_batch_size))
-    report_progress = _serialized_progress_callback(progress_callback)
+    report_progress = llm_execution.serialized_progress_callback(progress_callback)
     jobs = []
     for batch_index, offset in enumerate(
             range(0, len(topics or []), safe_batch_size), 1):
@@ -1426,7 +1422,10 @@ def enrich_manual_topics_in_batches(
             )
 
     provider_retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
-    concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
+    concurrency = min(
+        llm_execution.configured_llm_concurrency(),
+        max(1, len(jobs)),
+    )
     if report_progress:
         report_progress(
             f"{progress_label}：{total_batches} 批，{concurrency} 路并行...",
@@ -2564,19 +2563,6 @@ def _clip_marks_from_topics(topics):
     return _dedupe_clip_marks(marks)
 
 
-def _configured_llm_concurrency():
-    """读取受控并发数；默认 3 路，避免过度请求上游服务。"""
-    raw_value = os.environ.get(
-        "AUTOSLICE_LLM_CONCURRENCY",
-        str(LLM_DEFAULT_CONCURRENCY),
-    )
-    try:
-        value = int(raw_value)
-    except (TypeError, ValueError):
-        value = LLM_DEFAULT_CONCURRENCY
-    return max(1, min(LLM_MAX_CONCURRENCY, value))
-
-
 _topic_analysis_prompt_fingerprint = partial(
     checkpoint_store.topic_analysis_prompt_fingerprint,
     schema_version=TOPIC_ANALYSIS_CHECKPOINT_VERSION,
@@ -2599,19 +2585,6 @@ _write_topic_analysis_checkpoint = partial(
 )
 
 
-def _serialized_progress_callback(progress_callback):
-    """让并发重试日志按完整消息写入 SSE 和控制台。"""
-    if not progress_callback:
-        return None
-    lock = threading.Lock()
-
-    def report(message, step, total):
-        with lock:
-            progress_callback(message, step, total)
-
-    return report
-
-
 def analyze_topic_chunks(
         chunks, streamer_display_name, progress_callback=None,
         checkpoint_path=None):
@@ -2620,7 +2593,7 @@ def analyze_topic_chunks(
         return [], [], None
 
     total = len(chunks)
-    report_progress = _serialized_progress_callback(progress_callback)
+    report_progress = llm_execution.serialized_progress_callback(progress_callback)
     stored_responses = _load_topic_analysis_checkpoint(checkpoint_path)
     active_checkpoint_responses = {}
     prepared_chunks = []
@@ -2683,7 +2656,10 @@ def analyze_topic_chunks(
                 report_progress(f"API 配置无效: {message}", 0, 100)
             raise RuntimeError(f"API 配置无效: {message}") from exc
 
-        concurrency = min(_configured_llm_concurrency(), len(pending))
+        concurrency = min(
+            llm_execution.configured_llm_concurrency(),
+            len(pending),
+        )
         initial_submission_count = (
             1
             if getattr(api_config, "analysis_reasoning_effort", None) == "xhigh"
@@ -3049,7 +3025,7 @@ def _review_peak_selected_topics(
 
     unresolved = list(selected)
     last_errors = {}
-    report_progress = _serialized_progress_callback(progress_callback)
+    report_progress = llm_execution.serialized_progress_callback(progress_callback)
     provider_retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
     review_rounds = (
         (
@@ -3119,7 +3095,10 @@ def _review_peak_selected_topics(
                 reasoning_stage="review",
             )
 
-        concurrency = min(_configured_llm_concurrency(), max(1, len(jobs)))
+        concurrency = min(
+            llm_execution.configured_llm_concurrency(),
+            max(1, len(jobs)),
+        )
         with ThreadPoolExecutor(
                 max_workers=concurrency,
                 thread_name_prefix="autoslice-review") as executor:

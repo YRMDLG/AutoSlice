@@ -18,6 +18,7 @@ from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
+from autoslice.analysis import llm_execution
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -320,9 +321,9 @@ LLMStructuredOutputError = candidate_analysis.LLMStructuredOutputError
 LLM_ANALYSIS_MODEL = candidate_analysis.LLM_ANALYSIS_MODEL
 LLM_COMPACT_MAX_TOKENS = candidate_analysis.LLM_COMPACT_MAX_TOKENS
 LLM_COMPACT_TEXT_CHARS = candidate_analysis.LLM_COMPACT_TEXT_CHARS
-LLM_DEFAULT_CONCURRENCY = candidate_analysis.LLM_DEFAULT_CONCURRENCY
+LLM_DEFAULT_CONCURRENCY = llm_execution.LLM_DEFAULT_CONCURRENCY
 LLM_FULL_TEXT_CHARS = candidate_analysis.LLM_FULL_TEXT_CHARS
-LLM_MAX_CONCURRENCY = candidate_analysis.LLM_MAX_CONCURRENCY
+LLM_MAX_CONCURRENCY = llm_execution.LLM_MAX_CONCURRENCY
 LLM_MAX_TOKENS = candidate_analysis.LLM_MAX_TOKENS
 MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE = timeline_analysis.MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE
 MANUAL_TIMELINE_TOPIC_POST_SEC = timeline_analysis.MANUAL_TIMELINE_TOPIC_POST_SEC
@@ -420,7 +421,7 @@ _clip_review_candidate = candidate_analysis._clip_review_candidate
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
 _clip_review_checkpoint_matches_policy = checkpoint_store.clip_review_checkpoint_matches_policy
 _clip_star_bonus_cap = clip_scoring.clip_star_bonus_cap
-_configured_llm_concurrency = candidate_analysis._configured_llm_concurrency
+_configured_llm_concurrency = llm_execution.configured_llm_concurrency
 _danmaku_peak_features = danmaku_analysis._danmaku_peak_features
 _danmaku_prompt_evidence = danmaku_analysis._danmaku_prompt_evidence
 _danmaku_topic_alignment = candidate_analysis._danmaku_topic_alignment
@@ -505,7 +506,7 @@ _reviewed_danmaku_ranking_score = danmaku_analysis._reviewed_danmaku_ranking_sco
 _reviewed_topic_has_required_interest = candidate_analysis._reviewed_topic_has_required_interest
 _sanitize_optimized_manual_entry = candidate_analysis._sanitize_optimized_manual_entry
 _score_boundary_evidence_text = boundary_analysis._score_boundary_evidence_text
-_serialized_progress_callback = candidate_analysis._serialized_progress_callback
+_serialized_progress_callback = llm_execution.serialized_progress_callback
 _short_llm_error = candidate_analysis._short_llm_error
 _snap_clip_to_srt_segments = boundary_analysis._snap_clip_to_srt_segments
 _split_chain_crossing_topic_end = boundary_analysis._split_chain_crossing_topic_end

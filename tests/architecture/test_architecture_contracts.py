@@ -560,6 +560,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             clip_policy,
             danmaku,
             evidence,
+            llm_execution,
             manual_timeline,
             timeline,
             titles,
@@ -577,6 +578,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             transcription_workflow,
             danmaku,
             evidence,
+            llm_execution,
             timeline,
             manual_timeline,
             checkpoints,
@@ -738,6 +740,39 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         owner_functions = {
             item["name"]
             for item in modules["autoslice.analysis.evidence"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(owner_functions)
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+    def test_candidate_llm_execution_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import candidates, llm_execution
+
+        aliases = {
+            "LLM_DEFAULT_CONCURRENCY": "LLM_DEFAULT_CONCURRENCY",
+            "LLM_MAX_CONCURRENCY": "LLM_MAX_CONCURRENCY",
+            "_configured_llm_concurrency": "configured_llm_concurrency",
+            "_serialized_progress_callback": "serialized_progress_callback",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(llm_execution, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.llm_execution"][
                 "top_level_functions"
             ]
         }
