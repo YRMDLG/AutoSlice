@@ -14,6 +14,7 @@ from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import candidates as clip_review_candidates
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
@@ -424,8 +425,8 @@ THANKS_TRIGGER_RE = clip_policy.THANKS_TRIGGER_RE
 
 
 
-_overlap_ratio = boundary_analysis._overlap_ratio
-_is_duplicate_topic = boundary_analysis._is_duplicate_topic
+_overlap_ratio = clip_deduplication._overlap_ratio
+_is_duplicate_topic = clip_deduplication._is_duplicate_topic
 
 
 
@@ -470,7 +471,7 @@ _boundary_evidence_text_is_relevant = boundary_analysis._boundary_evidence_text_
 _cap_expanded_clip_mark = boundary_analysis._cap_expanded_clip_mark
 _capped_speech_chain_start = boundary_analysis._capped_speech_chain_start
 _clip_context_requires_trigger = boundary_analysis._clip_context_requires_trigger
-_dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
+_dedupe_clip_marks = clip_deduplication._dedupe_clip_marks
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
 _expand_clip_mark_with_context = boundary_analysis._expand_clip_mark_with_context
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
@@ -484,7 +485,7 @@ _fit_final_clip_to_safe_srt_boundaries = boundary_analysis._fit_final_clip_to_sa
 _gift_trigger_has_question_followup = boundary_analysis._gift_trigger_has_question_followup
 _has_outro_farewell_evidence = boundary_analysis._has_outro_farewell_evidence
 _integer_clip_bounds_outside_subtitles = boundary_analysis._integer_clip_bounds_outside_subtitles
-_is_duplicate_topic = boundary_analysis._is_duplicate_topic
+_is_duplicate_topic = clip_deduplication._is_duplicate_topic
 _is_explicit_sc_topic = boundary_analysis._is_explicit_sc_topic
 _is_explicit_sc_trigger = boundary_analysis._is_explicit_sc_trigger
 _looks_like_delayed_topic_conclusion = boundary_analysis._looks_like_delayed_topic_conclusion
@@ -498,7 +499,7 @@ _next_report_topic_safe_boundary = boundary_analysis._next_report_topic_safe_bou
 _normalise_boundary_evidence_text = boundary_analysis._normalise_boundary_evidence_text
 _normalise_outro_trigger_text = boundary_analysis._normalise_outro_trigger_text
 _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
-_overlap_ratio = boundary_analysis._overlap_ratio
+_overlap_ratio = clip_deduplication._overlap_ratio
 _refresh_natural_boundary_metadata = boundary_analysis._refresh_natural_boundary_metadata
 _score_boundary_evidence_text = boundary_analysis._score_boundary_evidence_text
 _snap_clip_to_srt_segments = boundary_analysis._snap_clip_to_srt_segments

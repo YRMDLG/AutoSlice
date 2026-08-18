@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from autoslice import timecode
-from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.analysis.topic import normalization
@@ -193,7 +193,7 @@ def clean_topics_for_report(topics):
             item.get("end", 0),
         ),
     ):
-        if boundary_analysis._is_duplicate_topic(fixed, cleaned):
+        if clip_deduplication._is_duplicate_topic(fixed, cleaned):
             continue
         cleaned.append(fixed)
     cleaned = resolve_reviewed_report_overlaps(cleaned)

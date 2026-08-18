@@ -9,6 +9,7 @@ from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
 from autoslice.analysis.review import scoring as clip_scoring
@@ -541,4 +542,4 @@ def clip_marks_from_topics(topics):
                 "next_report_topic_start": (min(next_topic_starts) if next_topic_starts else None),
             }
         )
-    return boundary_analysis._dedupe_clip_marks(marks)
+    return clip_deduplication._dedupe_clip_marks(marks)

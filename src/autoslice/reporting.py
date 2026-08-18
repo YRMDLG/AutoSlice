@@ -9,8 +9,8 @@ import threading
 from datetime import datetime
 
 from autoslice import timecode
-from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.analysis.topic import normalization
@@ -73,7 +73,7 @@ _parse_hms = timecode.parse_hms
 fmt_time = timecode.format_elapsed
 _replace_streamer_role = title_analysis._replace_streamer_role
 _format_report_time = topic_formatting.format_report_time
-_dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
+_dedupe_clip_marks = clip_deduplication._dedupe_clip_marks
 _normalise_publish_title = title_analysis._normalise_publish_title
 _format_topic_block = topic_formatting.format_topic_block
 LLM_ANALYSIS_MODEL = topic_analysis.LLM_ANALYSIS_MODEL

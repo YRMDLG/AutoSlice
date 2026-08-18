@@ -9,12 +9,10 @@ from datetime import datetime
 from functools import partial
 
 from autoslice import timecode
-from autoslice.analysis import (
-    boundaries,
-    llm_execution,
-)
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import llm_execution
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.topic import normalization
 from autoslice.analysis.topic import response as topic_response
@@ -232,7 +230,7 @@ def parse_json_topics_response(
         )
         if title_hook:
             topic["title_hook"] = title_hook
-        if boundaries._is_duplicate_topic(topic, accepted_topics):
+        if clip_deduplication._is_duplicate_topic(topic, accepted_topics):
             continue
         accepted_topics.append(topic)
         parsed_topics.append(topic)
@@ -249,7 +247,7 @@ def parse_json_topics_response(
         topic_formatting.format_topic_block(topic, idx + 1)
         for idx, topic in enumerate(parsed_topics)
     ]
-    return report_blocks, boundaries._dedupe_clip_marks(clip_marks)
+    return report_blocks, clip_deduplication._dedupe_clip_marks(clip_marks)
 
 
 def parse_llm_response(
@@ -316,7 +314,7 @@ def parse_llm_response(
             "can_slice": current["can_slice"],
             "body": body_lines,
         }
-        if boundaries._is_duplicate_topic(topic, accepted_topics):
+        if clip_deduplication._is_duplicate_topic(topic, accepted_topics):
             return
         accepted_topics.append(topic)
         parsed_topics.append(topic)
@@ -656,7 +654,7 @@ def analyze_topic_chunks(
                 chunk,
                 streamer_name=streamer_display_name,
             )
-            if fallback_topic and not boundaries._is_duplicate_topic(
+            if fallback_topic and not clip_deduplication._is_duplicate_topic(
                 fallback_topic,
                 accepted_topics,
             ):
@@ -676,7 +674,7 @@ def analyze_topic_chunks(
                 chunk,
                 streamer_name=streamer_display_name,
             )
-            if fallback_topic and not boundaries._is_duplicate_topic(
+            if fallback_topic and not clip_deduplication._is_duplicate_topic(
                 fallback_topic,
                 accepted_topics,
             ):

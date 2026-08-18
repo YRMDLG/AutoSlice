@@ -35,6 +35,7 @@ from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis import slice_decisions
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.topic import normalization, response, titles as title_analysis
@@ -742,6 +743,7 @@ class CandidateReviewTests(unittest.TestCase):
             response,
             normalization,
             clip_policy,
+            clip_deduplication,
             boundary_analysis,
             candidate_reconciliation,
             report_cleanup,

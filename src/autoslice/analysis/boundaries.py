@@ -6,6 +6,7 @@ import math
 import re
 from collections import defaultdict
 
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.streamer_profiles import current_streamer_profile
 from autoslice.transcription import service as transcription_service
@@ -34,7 +35,6 @@ FACADE_EXPORTS = {
     "_cap_expanded_clip_mark": "_cap_expanded_clip_mark",
     "_capped_speech_chain_start": "_capped_speech_chain_start",
     "_clip_context_requires_trigger": "_clip_context_requires_trigger",
-    "_dedupe_clip_marks": "_dedupe_clip_marks",
     "_detect_stream_outro_clip": "_detect_stream_outro_clip",
     "_expand_clip_mark_with_context": "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context": "_expand_clip_marks_with_context",
@@ -48,7 +48,6 @@ FACADE_EXPORTS = {
     "_gift_trigger_has_question_followup": "_gift_trigger_has_question_followup",
     "_has_outro_farewell_evidence": "_has_outro_farewell_evidence",
     "_integer_clip_bounds_outside_subtitles": "_integer_clip_bounds_outside_subtitles",
-    "_is_duplicate_topic": "_is_duplicate_topic",
     "_is_explicit_sc_topic": "_is_explicit_sc_topic",
     "_is_explicit_sc_trigger": "_is_explicit_sc_trigger",
     "_looks_like_delayed_topic_conclusion": "_looks_like_delayed_topic_conclusion",
@@ -62,7 +61,6 @@ FACADE_EXPORTS = {
     "_normalise_boundary_evidence_text": "_normalise_boundary_evidence_text",
     "_normalise_outro_trigger_text": "_normalise_outro_trigger_text",
     "_outro_topic_from_mark": "_outro_topic_from_mark",
-    "_overlap_ratio": "_overlap_ratio",
     "_refresh_natural_boundary_metadata": "_refresh_natural_boundary_metadata",
     "_score_boundary_evidence_text": "_score_boundary_evidence_text",
     "_snap_clip_to_srt_segments": "_snap_clip_to_srt_segments",
@@ -115,69 +113,9 @@ OUTRO_VARIANT_FAREWELL_BEFORE_SEC = clip_policy.OUTRO_VARIANT_FAREWELL_BEFORE_SE
 OUTRO_VARIANT_FAREWELL_AFTER_SEC = clip_policy.OUTRO_VARIANT_FAREWELL_AFTER_SEC
 
 
-def _overlap_ratio(a_start, a_end, b_start, b_end):
-    """按较短区间计算重叠比例。"""
-    overlap = max(0, min(a_end, b_end) - max(a_start, b_start))
-    shorter = max(1, min(a_end - a_start, b_end - b_start))
-    return overlap / shorter
-
-
-def _is_duplicate_topic(topic, existing_topics):
-    """按时间范围去重；同一段被模型换标题复述时只保留第一条。"""
-    for old in existing_topics:
-        same_range = abs(topic["start"] - old["start"]) <= 3 and abs(topic["end"] - old["end"]) <= 3
-        high_overlap = _overlap_ratio(topic["start"], topic["end"], old["start"], old["end"]) >= 0.85
-        if same_range or high_overlap:
-            return True
-    return False
-
-
-
-def _dedupe_clip_marks(marks):
-    """对 clip_marks 做最终去重，避免旧 JSON 或异常响应导致重复切片。"""
-    deduped = []
-    seen_topics = []
-    for mark in sorted(
-            marks,
-            key=lambda m: (
-                0 if m.get("clip_type") == "stream_outro" else 1,
-                int(m.get("topic_start", m.get("start", 0))),
-                int(m.get("topic_end", m.get("end", 0))),
-                m.get("title", ""),
-            )):
-        try:
-            topic_start = int(float(mark.get("topic_start", mark["start"])))
-            topic_end = int(float(mark.get("topic_end", mark["end"])))
-            item = dict(mark)
-            item["start"] = int(float(mark["start"]))
-            item["end"] = int(float(mark["end"]))
-            item["title"] = str(mark.get("title", "未命名片段")).strip() or "未命名片段"
-        except (KeyError, TypeError, ValueError):
-            continue
-        if item["end"] <= item["start"] or topic_end <= topic_start:
-            continue
-        dedupe_topic = {"start": topic_start, "end": topic_end, "title": item["title"]}
-        if _is_duplicate_topic(dedupe_topic, seen_topics):
-            continue
-        if any(
-            old.get("title") == item["title"]
-            and _overlap_ratio(item["start"], item["end"], old["start"], old["end"]) >= 0.5
-            for old in deduped
-        ):
-            continue
-        seen_topics.append(dedupe_topic)
-        deduped.append(item)
-    # 去重阶段让收播片先参与比较，是为了在尾部范围冲突时优先保留用户
-    # 指定的系列片；对外返回仍必须按视频时间排列，否则收播片会变成 01，
-    # 还会迫使所有既有切片无意义地整体改号。
-    return sorted(
-        deduped,
-        key=lambda item: (
-            int(item.get("start", 0)),
-            int(item.get("end", 0)),
-            item.get("title", ""),
-        ),
-    )
+_overlap_ratio = clip_deduplication._overlap_ratio
+_is_duplicate_topic = clip_deduplication._is_duplicate_topic
+_dedupe_clip_marks = clip_deduplication._dedupe_clip_marks
 
 
 def _nearest_safe_srt_boundary(candidate, minimum, maximum, srt_segments):

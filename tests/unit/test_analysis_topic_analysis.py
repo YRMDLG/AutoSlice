@@ -143,13 +143,17 @@ class TopicAnalysisOwnershipTests(unittest.TestCase):
         self.assertIn("analysis", ast.literal_eval(all_assignment.value))
 
         forbidden_targets = {
+            "autoslice.analysis.boundaries",
             "autoslice.analysis.topic_analysis",
             *(path.removeprefix("src/").removesuffix(".py").replace("/", ".")
               for path in TOPIC_ANALYSIS_CONSUMERS),
         }
-        self.assertTrue(
-            _import_targets(_parse(OWNER_PATH)).isdisjoint(forbidden_targets)
+        owner_imports = _import_targets(_parse(OWNER_PATH))
+        self.assertIn(
+            "autoslice.analysis.review.deduplication",
+            owner_imports,
         )
+        self.assertTrue(owner_imports.isdisjoint(forbidden_targets))
 
 
 class TopicAnalysisFormattingTests(unittest.TestCase):

@@ -20,7 +20,7 @@ class SliceDecisionOwnershipTests(unittest.TestCase):
         facade_tree = ast.parse(facade_path.read_text(encoding="utf-8"))
         definition_types = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
-        self.assertEqual(len(owner_path.read_text(encoding="utf-8").splitlines()), 544)
+        self.assertEqual(len(owner_path.read_text(encoding="utf-8").splitlines()), 545)
         self.assertEqual(
             len([node for node in owner_tree.body if isinstance(node, ast.FunctionDef)]),
             12,

@@ -113,6 +113,7 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
             [
                 "candidates",
                 "decisions",
+                "deduplication",
                 "policy",
                 "prompt",
                 "reconciliation",

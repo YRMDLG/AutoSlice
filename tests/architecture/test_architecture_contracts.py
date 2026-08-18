@@ -582,6 +582,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.report import formatting as topic_formatting
         from autoslice.analysis.manual import workflow as manual_workflow
         from autoslice.analysis.review import decisions as slice_decisions
+        from autoslice.analysis.review import deduplication as clip_deduplication
         from autoslice.analysis.review import policy as clip_policy
         from autoslice.analysis.review import (
             reconciliation as candidate_reconciliation,
@@ -609,6 +610,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             checkpoints,
             clip_scoring,
             normalization,
+            clip_deduplication,
             boundaries,
             clip_policy,
             candidate_reconciliation,
@@ -3079,13 +3081,99 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             }.isdisjoint(slicing_functions)
         )
 
+    def test_clip_deduplication_has_one_owner_and_exact_direct_consumers(self):
+        import topic_engine
+        from autoslice import reporting, slicing
+        from autoslice.analysis import boundaries, candidates
+        from autoslice.analysis.review import deduplication as clip_deduplication
+
+        aliases = {
+            "_overlap_ratio": "_overlap_ratio",
+            "_is_duplicate_topic": "_is_duplicate_topic",
+            "_dedupe_clip_marks": "_dedupe_clip_marks",
+        }
+        self.assertEqual(clip_deduplication.FACADE_EXPORTS, aliases)
+        for name in aliases:
+            owner = getattr(clip_deduplication, name)
+            with self.subTest(name=name):
+                self.assertNotIn(name, boundaries.FACADE_EXPORTS)
+                self.assertIs(getattr(boundaries, name), owner)
+                self.assertIs(getattr(candidates, name), owner)
+                self.assertIs(getattr(topic_engine, name), owner)
+        self.assertIs(
+            reporting._dedupe_clip_marks,
+            clip_deduplication._dedupe_clip_marks,
+        )
+        self.assertIs(
+            slicing._dedupe_clip_marks,
+            clip_deduplication._dedupe_clip_marks,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.analysis.review.deduplication"]
+        self.assertEqual(owner_module["line_count"], 72)
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            list(aliases.values()),
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        boundary_module = modules["autoslice.analysis.boundaries"]
+        self.assertEqual(boundary_module["line_count"], 1692)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 42)
+        self.assertTrue(
+            set(aliases).isdisjoint(
+                item["name"] for item in boundary_module["top_level_functions"]
+            )
+        )
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        owner_module_name = "autoslice.analysis.review.deduplication"
+        direct_consumers = {
+            "autoslice.analysis.boundaries",
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual.candidates",
+            "autoslice.analysis.manual.review",
+            "autoslice.analysis.report.cleanup",
+            "autoslice.analysis.review.decisions",
+            "autoslice.analysis.topic.analysis",
+            "autoslice.reporting",
+            "autoslice.slicing",
+            "autoslice.topic_engine",
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if target == owner_module_name
+            },
+            direct_consumers,
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == owner_module_name
+            },
+            set(),
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
     def test_clip_boundaries_have_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline, reporting, slicing
         from autoslice.analysis import boundaries, candidates
 
         compatibility_names = (
-            "_dedupe_clip_marks",
             "_detect_stream_outro_clip",
             "_expand_clip_mark_with_context",
             "_expand_clip_marks_with_context",
@@ -3102,7 +3190,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertIs(pipeline.boundary_analysis, boundaries)
         self.assertIs(slicing.boundary_analysis, boundaries)
-        self.assertIs(reporting.boundary_analysis, boundaries)
+        self.assertFalse(hasattr(reporting, "boundary_analysis"))
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
@@ -3506,7 +3594,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertGreaterEqual(
             owner_direct_calls,
             {
-                ("boundary_analysis", "_is_duplicate_topic"),
+                ("clip_deduplication", "_is_duplicate_topic"),
                 (
                     "candidate_reconciliation",
                     "reconcile_topic_manual_evidence",
@@ -3683,7 +3771,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(facade_module["top_level_functions"], [])
         self.assertEqual(facade_module["top_level_classes"], [])
         owner_module = modules["autoslice.analysis.review.decisions"]
-        self.assertEqual(owner_module["line_count"], 544)
+        self.assertEqual(owner_module["line_count"], 545)
         self.assertEqual(owner_module["top_level_classes"], [])
         self.assertEqual(
             [
@@ -3815,7 +3903,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             owner_direct_calls,
             {
                 ("boundary_analysis", "_clip_context_requires_trigger"),
-                ("boundary_analysis", "_dedupe_clip_marks"),
+                ("clip_deduplication", "_dedupe_clip_marks"),
                 ("candidate_evidence", "topic_peak_candidates"),
                 ("candidate_reconciliation", "danmaku_topic_alignment"),
                 ("clip_scoring", "parse_clip_interest_score"),
@@ -3879,6 +3967,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "autoslice.analysis.boundaries",
                 "autoslice.analysis.danmaku",
                 "autoslice.analysis.evidence",
+                "autoslice.analysis.review.deduplication",
                 "autoslice.analysis.review.policy",
                 "autoslice.analysis.review.reconciliation",
                 "autoslice.analysis.review.scoring",

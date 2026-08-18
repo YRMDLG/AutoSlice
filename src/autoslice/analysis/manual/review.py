@@ -6,13 +6,11 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from autoslice import timecode
-from autoslice.analysis import (
-    boundaries,
-    llm_execution,
-)
+from autoslice.analysis import llm_execution
 from autoslice.analysis.manual import enrichment as manual_enrichment
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.review import candidates as clip_review_candidates
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import (
@@ -137,7 +135,7 @@ def enrich_manual_topics_with_llm(
                 continue
             if len(items) > 1 and not enriched.get("ai_focus_validated"):
                 continue
-            if boundaries._is_duplicate_topic(enriched, replacements):
+            if clip_deduplication._is_duplicate_topic(enriched, replacements):
                 continue
             replacements.append(enriched)
         if replacements:

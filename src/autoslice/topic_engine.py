@@ -24,6 +24,7 @@ from autoslice.analysis.manual import workflow as manual_timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import candidates as clip_review_candidates
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
@@ -446,7 +447,7 @@ _configured_llm_concurrency = llm_execution.configured_llm_concurrency
 _danmaku_peak_features = danmaku_analysis._danmaku_peak_features
 _danmaku_prompt_evidence = danmaku_analysis._danmaku_prompt_evidence
 _danmaku_topic_alignment = candidate_reconciliation.danmaku_topic_alignment
-_dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
+_dedupe_clip_marks = clip_deduplication._dedupe_clip_marks
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
 _enrich_manual_topics_in_batches = manual_review.enrich_manual_topics_in_batches
 _enrich_manual_topics_with_llm = manual_review.enrich_manual_topics_with_llm
@@ -471,7 +472,7 @@ _has_outro_farewell_evidence = boundary_analysis._has_outro_farewell_evidence
 _high_energy_danmaku_peaks = danmaku_analysis._high_energy_danmaku_peaks
 _integer_clip_bounds_outside_subtitles = boundary_analysis._integer_clip_bounds_outside_subtitles
 _is_content_cuttable_topic = slice_decisions.is_content_cuttable_topic
-_is_duplicate_topic = boundary_analysis._is_duplicate_topic
+_is_duplicate_topic = clip_deduplication._is_duplicate_topic
 _is_explicit_sc_topic = boundary_analysis._is_explicit_sc_topic
 _is_explicit_sc_trigger = boundary_analysis._is_explicit_sc_trigger
 _is_generic_danmaku_reaction = danmaku_analysis._is_generic_danmaku_reaction
@@ -510,7 +511,7 @@ _normalise_outro_trigger_text = boundary_analysis._normalise_outro_trigger_text
 _normalise_streamer_terms = transcription_segments.normalise_streamer_terms
 _optimized_entry_semantic_text = manual_candidates.optimized_entry_semantic_text
 _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
-_overlap_ratio = boundary_analysis._overlap_ratio
+_overlap_ratio = clip_deduplication._overlap_ratio
 _parse_clip_interest_score = clip_scoring.parse_clip_interest_score
 _parse_clip_star_bonus = clip_scoring.parse_clip_star_bonus
 _parse_hms = timecode.parse_hms

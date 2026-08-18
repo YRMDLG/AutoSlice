@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 
 from autoslice import timecode
-from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.topic import titles as title_analysis
 
@@ -122,7 +122,7 @@ def merge_manual_timeline_topics(topics, entries):
             "publish_title": entry.get("publish_title"),
         }
         existing_topics = [old for old in topics if is_manual_merge_target(old)]
-        if not boundary_analysis._is_duplicate_topic(topic, existing_topics):
+        if not clip_deduplication._is_duplicate_topic(topic, existing_topics):
             topics.append(topic)
     topics.sort(key=lambda item: (item["start"], item["end"]))
     return topics

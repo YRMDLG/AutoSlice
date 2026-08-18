@@ -9,6 +9,7 @@ from autoslice import reporting as reporting_service
 from autoslice import media_probe
 from autoslice import slice_encoding, slice_planning, slice_reuse
 from autoslice.analysis import boundaries as boundary_analysis
+from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
     is_analyzable_video,
@@ -23,7 +24,7 @@ FACADE_EXPORTS = {
 }
 
 
-_dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
+_dedupe_clip_marks = clip_deduplication._dedupe_clip_marks
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _srt_video_duration = boundary_analysis._srt_video_duration
 parse_srt_segments = boundary_analysis.parse_srt_segments
