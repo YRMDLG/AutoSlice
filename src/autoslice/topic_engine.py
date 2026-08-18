@@ -11,7 +11,6 @@
 
 import os
 
-from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis import checkpoints as checkpoint_store
@@ -331,8 +330,8 @@ CLIP_REVIEW_POLICY_VERSION = checkpoint_store.CLIP_REVIEW_POLICY_VERSION
 CLIP_REVIEW_RETRY_BATCH_SIZE = clip_policy.CLIP_REVIEW_RETRY_BATCH_SIZE
 DANMAKU_WINDOW = danmaku_analysis.DANMAKU_WINDOW
 DANMAKU_WINDOW_STEP = danmaku_analysis.DANMAKU_WINDOW_STEP
-LLMProviderUnavailableError = candidate_analysis.LLMProviderUnavailableError
-LLMStructuredOutputError = candidate_analysis.LLMStructuredOutputError
+LLMProviderUnavailableError = llm_gateway.LLMProviderUnavailableError
+LLMStructuredOutputError = llm_gateway.LLMStructuredOutputError
 LLM_ANALYSIS_MODEL = topic_analysis.LLM_ANALYSIS_MODEL
 LLM_COMPACT_MAX_TOKENS = topic_analysis.LLM_COMPACT_MAX_TOKENS
 LLM_COMPACT_TEXT_CHARS = topic_analysis.LLM_COMPACT_TEXT_CHARS
@@ -455,7 +454,7 @@ _enrich_manual_topics_with_llm = manual_review.enrich_manual_topics_with_llm
 _enriched_manual_topic_from_item = manual_enrichment.enrich_manual_topic_from_item
 _expand_clip_mark_with_context = boundary_analysis._expand_clip_mark_with_context
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
-_extract_json_payload = candidate_analysis._extract_json_payload
+_extract_json_payload = llm_gateway.extract_json_payload
 _filter_unsupported_ai_points = content_normalization.filter_unsupported_ai_points
 _find_next_topic_hard_end = boundary_analysis._find_next_topic_hard_end
 _find_relevant_topic_context_end = boundary_analysis._find_relevant_topic_context_end
@@ -480,7 +479,7 @@ _is_generic_danmaku_reaction = danmaku_analysis._is_generic_danmaku_reaction
 _is_manual_ai_placeholder = manual_enrichment.is_manual_ai_placeholder
 _is_manual_merge_target = manual_candidates.is_manual_merge_target
 _is_meta_body_line = content_normalization.is_meta_body_line
-_is_retryable_llm_error = candidate_analysis._is_retryable_llm_error
+_is_retryable_llm_error = llm_gateway.is_retryable_llm_error
 _is_slice_marked = response_parsing.is_slice_marked
 _is_topic_in_chunk = topic_analysis.is_topic_in_chunk
 _json_can_slice = response_parsing.json_can_slice
@@ -538,7 +537,7 @@ _sanitize_optimized_manual_entry = (
 )
 _score_boundary_evidence_text = boundary_analysis._score_boundary_evidence_text
 _serialized_progress_callback = llm_execution.serialized_progress_callback
-_short_llm_error = candidate_analysis._short_llm_error
+_short_llm_error = llm_gateway.short_llm_error
 _snap_clip_to_srt_segments = boundary_analysis._snap_clip_to_srt_segments
 _split_chain_crossing_topic_end = boundary_analysis._split_chain_crossing_topic_end
 _srt_video_duration = boundary_analysis._srt_video_duration

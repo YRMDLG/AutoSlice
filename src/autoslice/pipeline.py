@@ -17,7 +17,6 @@ from autoslice import media_probe
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice import timecode
-from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import chunking as analysis_chunking
@@ -104,12 +103,12 @@ _manual_timeline_summary = timeline_analysis.manual_timeline_summary
 _funasr_checkpoint_path = transcription_checkpoints.funasr_checkpoint_path
 
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
-_average_danmaku_density = candidate_analysis._average_danmaku_density
+_average_danmaku_density = danmaku_analysis._average_danmaku_density
 _build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_audit
 _danmaku_clip_threshold = danmaku_analysis._danmaku_clip_threshold
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
-_high_energy_danmaku_peaks = candidate_analysis._high_energy_danmaku_peaks
+_high_energy_danmaku_peaks = danmaku_analysis._high_energy_danmaku_peaks
 _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
 _review_peak_selected_topics = clip_review.review_peak_selected_topics
 _srt_video_duration = boundary_analysis._srt_video_duration

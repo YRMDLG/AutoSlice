@@ -9,9 +9,11 @@ import threading
 from datetime import datetime
 
 from autoslice import timecode
-from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
+from autoslice.analysis import content_normalization
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis import titles as title_analysis
+from autoslice.analysis import topic_analysis
 from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
     ARTIFACT_QUEUE_DIRNAME,
@@ -65,16 +67,16 @@ FACADE_EXPORTS = {
 }
 
 
-_clean_topic_title = candidate_analysis._clean_topic_title
-_filter_unsupported_ai_points = candidate_analysis._filter_unsupported_ai_points
+_clean_topic_title = title_analysis._clean_topic_title
+_filter_unsupported_ai_points = content_normalization.filter_unsupported_ai_points
 _parse_hms = timecode.parse_hms
 fmt_time = timecode.format_elapsed
-_replace_streamer_role = candidate_analysis._replace_streamer_role
+_replace_streamer_role = title_analysis._replace_streamer_role
 _format_report_time = topic_formatting.format_report_time
 _dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
-_normalise_publish_title = candidate_analysis._normalise_publish_title
+_normalise_publish_title = title_analysis._normalise_publish_title
 _format_topic_block = topic_formatting.format_topic_block
-LLM_ANALYSIS_MODEL = candidate_analysis.LLM_ANALYSIS_MODEL
+LLM_ANALYSIS_MODEL = topic_analysis.LLM_ANALYSIS_MODEL
 
 
 

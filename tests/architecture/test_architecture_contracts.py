@@ -643,6 +643,66 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         ),
                     )
 
+    def test_candidate_facade_is_definition_free_and_not_imported_by_production(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_module = modules["autoslice.analysis.candidates"]
+
+        self.assertEqual(candidate_module["top_level_functions"], [])
+        self.assertEqual(candidate_module["top_level_classes"], [])
+
+        production_src_modules = {
+            module["module"]
+            for module in current["modules"]
+            if module["path"].startswith("src/")
+            and module["module"] != "autoslice.analysis.candidates"
+        }
+        candidate_imports = [
+            edge
+            for edge in current["import_edges"]
+            if edge["from"] in production_src_modules
+            and edge["to"] == "autoslice.analysis.candidates"
+        ]
+        self.assertEqual(candidate_imports, [])
+
+    def test_candidate_facade_consumers_bind_unique_owner_objects(self):
+        from autoslice import pipeline, reporting, topic_engine
+        from autoslice.analysis import (
+            content_normalization,
+            danmaku,
+            titles,
+            topic_analysis,
+        )
+        from autoslice.llm import transport
+
+        bindings = {
+            reporting: {
+                "_clean_topic_title": titles._clean_topic_title,
+                "_filter_unsupported_ai_points": (
+                    content_normalization.filter_unsupported_ai_points
+                ),
+                "_replace_streamer_role": titles._replace_streamer_role,
+                "_normalise_publish_title": titles._normalise_publish_title,
+                "LLM_ANALYSIS_MODEL": topic_analysis.LLM_ANALYSIS_MODEL,
+            },
+            pipeline: {
+                "_average_danmaku_density": danmaku._average_danmaku_density,
+                "_high_energy_danmaku_peaks": danmaku._high_energy_danmaku_peaks,
+            },
+            topic_engine: {
+                "LLMProviderUnavailableError": transport.LLMProviderUnavailableError,
+                "LLMStructuredOutputError": transport.LLMStructuredOutputError,
+                "_extract_json_payload": transport.extract_json_payload,
+                "_is_retryable_llm_error": transport.is_retryable_llm_error,
+                "_short_llm_error": transport.short_llm_error,
+            },
+        }
+        for consumer, aliases in bindings.items():
+            for compatibility_name, owner in aliases.items():
+                with self.subTest(
+                        consumer=consumer.__name__, name=compatibility_name):
+                    self.assertIs(getattr(consumer, compatibility_name), owner)
+
     def test_analysis_checkpoints_have_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline
