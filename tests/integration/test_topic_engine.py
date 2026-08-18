@@ -2784,7 +2784,7 @@ class TranscriptionTests(unittest.TestCase):
             _write_funasr_checkpoint(checkpoint_path, payload)
 
             with (
-                patch("autoslice.transcription.service.probe_video_duration", return_value=duration),
+                patch("autoslice.transcription.workflow.probe_video_duration", return_value=duration),
                 patch(
                     "autoslice.transcription.model_runtime.load_funasr_model",
                     side_effect=AssertionError("完整检查点不应加载模型"),
@@ -2870,7 +2870,7 @@ class TranscriptionTests(unittest.TestCase):
             video_path.write_bytes(b"source")
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("autoslice.transcription.service.probe_video_duration", return_value=240.0),
+                patch("autoslice.transcription.workflow.probe_video_duration", return_value=240.0),
                 patch(
                     "autoslice.transcription.model_runtime.resolve_funasr_device",
                     return_value="cpu",
@@ -2923,7 +2923,7 @@ class TranscriptionTests(unittest.TestCase):
             video_path.write_bytes(b"source")
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("autoslice.transcription.service.probe_video_duration", return_value=120.0),
+                patch("autoslice.transcription.workflow.probe_video_duration", return_value=120.0),
                 patch(
                     "autoslice.transcription.model_runtime.resolve_funasr_device",
                     return_value="cpu",
@@ -3025,7 +3025,7 @@ class TranscriptionTests(unittest.TestCase):
             video_path.write_bytes(b"source")
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("autoslice.transcription.service.probe_video_duration", return_value=120.0),
+                patch("autoslice.transcription.workflow.probe_video_duration", return_value=120.0),
                 patch(
                     "autoslice.transcription.model_runtime.resolve_funasr_device",
                     return_value="cuda:0",
@@ -3090,7 +3090,7 @@ class TranscriptionTests(unittest.TestCase):
             os.utime(checkpoint_path, ns=(2_000_000_000, 2_000_000_000))
             with (
                 patch.dict(sys.modules, {"funasr": fake_funasr}),
-                patch("autoslice.transcription.service.probe_video_duration", return_value=240.0),
+                patch("autoslice.transcription.workflow.probe_video_duration", return_value=240.0),
                 patch(
                     "autoslice.transcription.model_runtime.resolve_funasr_device",
                     return_value="cpu",

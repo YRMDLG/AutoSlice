@@ -565,12 +565,14 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.transcription import model_runtime as transcription_model_runtime
         from autoslice.transcription import results as transcription_results
         from autoslice.transcription import service as transcription
+        from autoslice.transcription import workflow as transcription_workflow
 
         owners = (
             media_probe,
             transcription_model_runtime,
             transcription_results,
             transcription,
+            transcription_workflow,
             danmaku,
             timeline,
             manual_timeline,
@@ -975,6 +977,40 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         self.assertTrue(owner_functions)
         self.assertTrue(owner_functions.isdisjoint(service_functions))
+
+    def test_transcription_workflow_has_one_owner_and_pure_service_facade(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.transcription import service, workflow
+
+        owner = workflow.ensure_srt
+        self.assertIs(service.ensure_srt, owner)
+        self.assertIs(pipeline.ensure_srt, owner)
+        self.assertIs(topic_engine.ensure_srt, owner)
+        self.assertIs(workflow.checkpoint_store, service.checkpoint_store)
+        self.assertIs(workflow.model_runtime, service.model_runtime)
+        self.assertIs(workflow.recognition, service.recognition)
+        self.assertIs(workflow.result_contracts, service.result_contracts)
+        self.assertIs(workflow.subtitle_segments, service.subtitle_segments)
+        self.assertIs(workflow.srt_io, service.srt_io)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        service_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.service"][
+                "top_level_functions"
+            ]
+        }
+        workflow_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.workflow"][
+                "top_level_functions"
+            ]
+        }
+        self.assertFalse(service_functions)
+        self.assertIn("ensure_srt", workflow_functions)
+        self.assertNotIn("ensure_srt", service.FACADE_EXPORTS)
 
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):
         import topic_engine

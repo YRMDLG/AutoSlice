@@ -47,6 +47,7 @@ from autoslice.transcription import results as transcription_results
 from autoslice.transcription import segments as transcription_segments
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription import srt_io as transcription_srt_io
+from autoslice.transcription import workflow as transcription_workflow
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -183,7 +184,7 @@ _attach_funasr_punctuation_to_tokens = (
 )
 _align_funasr_tokens = transcription_segments.align_funasr_tokens
 _trim_funasr_tokens_to_core = transcription_segments.trim_funasr_tokens_to_core
-ensure_srt = transcription_service.ensure_srt
+ensure_srt = transcription_workflow.ensure_srt
 _srt_time = transcription_segments.srt_time
 _parse_srt_timestamp = transcription_segments.parse_srt_timestamp
 
