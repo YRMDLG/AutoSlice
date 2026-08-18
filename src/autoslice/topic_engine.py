@@ -30,6 +30,7 @@ from autoslice.analysis import manual_enrichment
 from autoslice.analysis import manual_review
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import response_parsing
+from autoslice.analysis import report_cleanup
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import topic_formatting
@@ -431,7 +432,7 @@ _cap_expanded_clip_mark = boundary_analysis._cap_expanded_clip_mark
 _capped_speech_chain_start = boundary_analysis._capped_speech_chain_start
 _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
 _clean_body_content = content_normalization.clean_body_content
-_clean_topics_for_report = candidate_analysis._clean_topics_for_report
+_clean_topics_for_report = report_cleanup.clean_topics_for_report
 _clip_context_requires_trigger = boundary_analysis._clip_context_requires_trigger
 _clip_interest_reason = clip_scoring.clip_interest_reason
 _clip_manual_star_count = clip_scoring.clip_manual_star_count
@@ -522,8 +523,8 @@ _reconcile_topic_manual_evidence = (
 _refresh_natural_boundary_metadata = boundary_analysis._refresh_natural_boundary_metadata
 _refresh_topic_danmaku_evidence = candidate_analysis._refresh_topic_danmaku_evidence
 _repair_short_topic_end = topic_analysis.repair_short_topic_end
-_report_fact_lines = candidate_analysis._report_fact_lines
-_resolve_reviewed_report_overlaps = candidate_analysis._resolve_reviewed_report_overlaps
+_report_fact_lines = report_cleanup.report_fact_lines
+_resolve_reviewed_report_overlaps = report_cleanup.resolve_reviewed_report_overlaps
 _review_peak_selected_topics = clip_review.review_peak_selected_topics
 _reviewed_danmaku_ranking_score = danmaku_analysis._reviewed_danmaku_ranking_score
 _reviewed_topic_has_required_interest = candidate_analysis._reviewed_topic_has_required_interest
@@ -549,7 +550,9 @@ _topic_peak_focus_window = candidate_analysis._topic_peak_focus_window
 _topic_semantic_text = candidate_reconciliation.topic_semantic_text
 _topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
 _topics_from_manual_timeline = manual_candidates.topics_from_manual_timeline
-_trim_report_topic_around_reviewed_topic = candidate_analysis._trim_report_topic_around_reviewed_topic
+_trim_report_topic_around_reviewed_topic = (
+    report_cleanup.trim_report_topic_around_reviewed_topic
+)
 _validate_unmatched_manual_topics = manual_review.validate_unmatched_manual_topics
 _validated_ai_focus_range = manual_enrichment.validated_ai_focus_range
 _write_clip_review_checkpoint = checkpoint_store.write_clip_review_checkpoint

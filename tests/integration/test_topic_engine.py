@@ -34,6 +34,7 @@ from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
+from autoslice.analysis import report_cleanup
 from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -743,6 +744,7 @@ class CandidateReviewTests(unittest.TestCase):
             clip_policy,
             boundary_analysis,
             candidate_reconciliation,
+            report_cleanup,
             candidate_analysis,
         )
         self.assertGreater(

@@ -565,6 +565,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             evidence,
             llm_execution,
             manual_timeline,
+            report_cleanup,
             response_parsing,
             timeline,
             titles,
@@ -593,6 +594,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             boundaries,
             clip_policy,
             candidate_reconciliation,
+            report_cleanup,
             candidates,
             titles,
             reporting,
@@ -2216,7 +2218,6 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             direct_candidate_calls,
             {
                 "danmaku_topic_alignment",
-                "reconcile_topic_manual_evidence",
             },
         )
         self.assertEqual(compatibility_calls, set())
@@ -2259,6 +2260,169 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "autoslice.analysis.candidate_reconciliation",
                 "autoslice.analysis.candidates",
             ),
+            import_edges,
+        )
+
+    def test_report_cleanup_has_one_owner_and_direct_consumers(self):
+        from autoslice import pipeline, topic_engine
+        from autoslice.analysis import candidates, report_cleanup
+
+        compatibility_owners = {
+            "_report_fact_lines": "report_fact_lines",
+            "_trim_report_topic_around_reviewed_topic": (
+                "trim_report_topic_around_reviewed_topic"
+            ),
+            "_resolve_reviewed_report_overlaps": (
+                "resolve_reviewed_report_overlaps"
+            ),
+            "_clean_topics_for_report": "clean_topics_for_report",
+        }
+        self.assertEqual(report_cleanup.FACADE_EXPORTS, compatibility_owners)
+        for compatibility_name, owner_name in compatibility_owners.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(report_cleanup, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+                self.assertNotIn(
+                    compatibility_name,
+                    candidates.FACADE_EXPORTS,
+                )
+        self.assertIs(pipeline.report_cleanup, report_cleanup)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"]["top_level_functions"]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules[
+                "autoslice.analysis.report_cleanup"
+            ]["top_level_functions"]
+        }
+        self.assertEqual(owner_functions, set(compatibility_owners.values()))
+        self.assertTrue(set(compatibility_owners).isdisjoint(candidate_functions))
+        self.assertTrue(
+            set(compatibility_owners.values()).isdisjoint(candidate_functions)
+        )
+
+        owner_path = ROOT / "src/autoslice/analysis/report_cleanup.py"
+        owner_tree = ast.parse(owner_path.read_text(encoding="utf-8"))
+        imported_targets = set()
+        for node in ast.walk(owner_tree):
+            if isinstance(node, ast.Import):
+                imported_targets.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_targets.update(
+                    f"{node.module}.{alias.name}" for alias in node.names
+                )
+        self.assertNotIn("autoslice.analysis.candidates", imported_targets)
+        self.assertNotIn("autoslice.pipeline", imported_targets)
+
+        owner_direct_calls = {
+            (node.func.value.id, node.func.attr)
+            for node in ast.walk(owner_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+        }
+        self.assertGreaterEqual(
+            owner_direct_calls,
+            {
+                ("boundary_analysis", "_is_duplicate_topic"),
+                (
+                    "candidate_reconciliation",
+                    "reconcile_topic_manual_evidence",
+                ),
+                ("content_normalization", "normalise_body_line"),
+                ("timeline_analysis", "_manual_alignment_score"),
+                ("timecode", "format_elapsed"),
+                ("title_analysis", "_derive_topic_title"),
+                ("title_analysis", "_fallback_publish_title"),
+                ("title_analysis", "_normalise_publish_title"),
+                ("title_analysis", "_sanitize_transport_claims"),
+                ("title_analysis", "_strip_body_prefix"),
+            },
+        )
+
+        candidates_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/candidates.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        candidate_compatibility_calls = {
+            node.func.id
+            for node in ast.walk(candidates_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in compatibility_owners
+        }
+        self.assertEqual(candidate_compatibility_calls, set())
+        candidate_bindings = {
+            target.id: node.value.attr
+            for node in candidates_tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "report_cleanup"
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for compatibility_name, owner_name in compatibility_owners.items():
+            self.assertEqual(candidate_bindings[compatibility_name], owner_name)
+
+        topic_engine_tree = ast.parse(
+            (ROOT / "src/autoslice/topic_engine.py").read_text(encoding="utf-8")
+        )
+        topic_engine_bindings = {
+            target.id: node.value.attr
+            for node in topic_engine_tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "report_cleanup"
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for compatibility_name, owner_name in compatibility_owners.items():
+            self.assertEqual(topic_engine_bindings[compatibility_name], owner_name)
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        pipeline_direct_calls = [
+            node
+            for node in ast.walk(pipeline_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "report_cleanup"
+            and node.func.attr == "clean_topics_for_report"
+        ]
+        pipeline_compatibility_calls = [
+            node
+            for node in ast.walk(pipeline_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_clean_topics_for_report"
+        ]
+        self.assertGreater(len(pipeline_direct_calls), 0)
+        self.assertEqual(pipeline_compatibility_calls, [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertNotIn(
+            (
+                "autoslice.analysis.report_cleanup",
+                "autoslice.analysis.candidates",
+            ),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.analysis.report_cleanup", "autoslice.pipeline"),
             import_edges,
         )
 

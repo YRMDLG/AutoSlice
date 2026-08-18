@@ -28,6 +28,7 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import manual_review
+from autoslice.analysis import report_cleanup
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
@@ -105,7 +106,6 @@ _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 _apply_danmaku_slice_decisions = candidate_analysis._apply_danmaku_slice_decisions
 _average_danmaku_density = candidate_analysis._average_danmaku_density
 _build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_audit
-_clean_topics_for_report = candidate_analysis._clean_topics_for_report
 _clip_marks_from_topics = candidate_analysis._clip_marks_from_topics
 _danmaku_clip_threshold = danmaku_analysis._danmaku_clip_threshold
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
@@ -759,7 +759,7 @@ def run_pipeline_impl(
         api_precheck_warning = "；".join(
             item for item in (api_precheck_warning, manual_validation_warning) if item
         )
-    accepted_topics = _clean_topics_for_report(accepted_topics)
+    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
     analysis_topics = _analysis_topics_snapshot(accepted_topics)
     clip_review_checkpoint_path = artifact_layout["clip_review_checkpoint_path"]
     _seed_artifact_from_legacy(
@@ -798,7 +798,7 @@ def run_pipeline_impl(
         api_precheck_warning = "；".join(
             item for item in (api_precheck_warning, clip_review_warning) if item
         )
-    accepted_topics = _clean_topics_for_report(accepted_topics)
+    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
     _apply_danmaku_slice_decisions(
         accepted_topics,
         peaks,
@@ -823,7 +823,7 @@ def run_pipeline_impl(
         api_precheck_warning = "；".join(
             item for item in (api_precheck_warning, title_review_warning) if item
         )
-    accepted_topics = _clean_topics_for_report(accepted_topics)
+    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
     # 复核旧产物时 analysis_topics 可能已带上一轮生成的收播片；收播片由
     # 当前字幕和真实视频时长重新判定，避免报告和队列出现重复的系列任务。
     accepted_topics = [
@@ -1103,7 +1103,7 @@ def retry_clip_review_from_artifacts_impl(
     recovered_topics = data.get("analysis_topics")
     if not isinstance(recovered_topics, list) or not recovered_topics:
         recovered_topics = reporting_service.parse_generated_topic_report(report_path)
-    baseline_topics = _clean_topics_for_report(
+    baseline_topics = report_cleanup.clean_topics_for_report(
         _analysis_topics_snapshot(recovered_topics)
     )
     if rebuilt_manual_entries:
@@ -1111,7 +1111,7 @@ def retry_clip_review_from_artifacts_impl(
             baseline_topics,
             rebuilt_manual_entries,
         )
-        baseline_topics = _clean_topics_for_report(baseline_topics)
+        baseline_topics = report_cleanup.clean_topics_for_report(baseline_topics)
     analysis_topics = _analysis_topics_snapshot(baseline_topics)
 
     clip_review_checkpoint_path = (
@@ -1141,13 +1141,17 @@ def retry_clip_review_from_artifacts_impl(
                 if checkpoint_policy_stale:
                     # 旧策略的已通过项可能已被收缩到峰值之外；把它们重新
                     # 送入本版规则复核，同时把最新优化时间轴重新挂回话题。
-                    accepted_topics = _clean_topics_for_report(checkpoint_topics)
+                    accepted_topics = report_cleanup.clean_topics_for_report(
+                        checkpoint_topics
+                    )
                     if rebuilt_manual_entries:
                         manual_candidates.merge_manual_timeline_topics(
                             accepted_topics,
                             rebuilt_manual_entries,
                         )
-                        accepted_topics = _clean_topics_for_report(accepted_topics)
+                        accepted_topics = report_cleanup.clean_topics_for_report(
+                            accepted_topics
+                        )
                     stale_review_keys = {
                         (
                             int(topic.get("start", 0) or 0),
@@ -1182,11 +1186,15 @@ def retry_clip_review_from_artifacts_impl(
                         )
                     ]
                     if pending_topics and checkpoint.get("stage") in resume_stages:
-                        accepted_topics = _clean_topics_for_report(checkpoint_topics)
+                        accepted_topics = report_cleanup.clean_topics_for_report(
+                            checkpoint_topics
+                        )
                         resume_review = True
                     elif _clip_review_checkpoint_is_complete(
                             checkpoint, checkpoint_topics):
-                        accepted_topics = _clean_topics_for_report(checkpoint_topics)
+                        accepted_topics = report_cleanup.clean_topics_for_report(
+                            checkpoint_topics
+                        )
                         reuse_completed_review = True
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             resume_review = False
@@ -1285,7 +1293,7 @@ def retry_clip_review_from_artifacts_impl(
             ),
             resume=resume_review,
         )
-    accepted_topics = _clean_topics_for_report(accepted_topics)
+    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
     _apply_danmaku_slice_decisions(
         accepted_topics,
         peaks,
@@ -1311,7 +1319,7 @@ def retry_clip_review_from_artifacts_impl(
         clip_review_warning = "；".join(
             item for item in (clip_review_warning, title_review_warning) if item
         )
-    accepted_topics = _clean_topics_for_report(accepted_topics)
+    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
     accepted_topics = [
         topic for topic in accepted_topics
         if topic.get("clip_type") != "stream_outro"
