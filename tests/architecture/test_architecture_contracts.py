@@ -73,6 +73,7 @@ DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
     "启动",
     "autoslice.analysis.chunking",
     "autoslice.analysis.clip_policy",
+    "autoslice.analysis.clip_review",
     "autoslice.analysis.clip_review_candidates",
     "autoslice.analysis.clip_review_prompt",
     "autoslice.analysis.clip_scoring",
@@ -815,7 +816,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.clip_scoring"
         consumers = {
             "autoslice.analysis.candidates",
-            "autoslice.analysis.clip_review",
+            "autoslice.analysis.review.workflow",
             "autoslice.analysis.slice_decisions",
             "autoslice.pipeline",
             "autoslice.topic_engine",
@@ -951,7 +952,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         consumers = {
             "autoslice.analysis.candidates",
-            "autoslice.analysis.clip_review",
+            "autoslice.analysis.review.workflow",
             "autoslice.analysis.topic.analysis",
             "autoslice.topic_engine",
         }
@@ -972,7 +973,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         direct_calls = set()
         for path in (
-            ROOT / "src/autoslice/analysis/clip_review.py",
+            ROOT / "src/autoslice/analysis/review/workflow.py",
             ROOT / "src/autoslice/analysis/topic/analysis.py",
         ):
             tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -1131,9 +1132,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_manual_enrichment_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import candidates, clip_review
+        from autoslice.analysis import candidates
         from autoslice.analysis import manual_enrichment as legacy_enrichment
         from autoslice.analysis.manual import enrichment, review, workflow
+        from autoslice.analysis.review import workflow as review_workflow
 
         aliases = {
             "_MANUAL_AI_PLACEHOLDER_PHRASES": "MANUAL_AI_PLACEHOLDER_PHRASES",
@@ -1155,7 +1157,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 self.assertIs(getattr(candidates, compatibility_name), owner)
                 self.assertIs(getattr(topic_engine, compatibility_name), owner)
 
-        for consumer in (candidates, clip_review, review, workflow, topic_engine):
+        for consumer in (candidates, review_workflow, review, workflow, topic_engine):
             with self.subTest(consumer=consumer.__name__):
                 self.assertIs(consumer.manual_enrichment, enrichment)
 
@@ -1201,9 +1203,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.manual_enrichment"
         for consumer in {
             "autoslice.analysis.candidates",
-            "autoslice.analysis.clip_review",
             "autoslice.analysis.manual.review",
             "autoslice.analysis.manual.workflow",
+            "autoslice.analysis.review.workflow",
             "autoslice.topic_engine",
         }:
             with self.subTest(direct_consumer=consumer):
@@ -1223,15 +1225,13 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_clip_review_candidates_have_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import (
-            candidates,
-            clip_review,
-        )
+        from autoslice.analysis import candidates
         from autoslice.analysis import (
             clip_review_candidates as legacy_clip_review_candidates,
         )
         from autoslice.analysis.manual import review as manual_review
         from autoslice.analysis.review import candidates as review_candidates
+        from autoslice.analysis.review import workflow as clip_review
 
         aliases = {
             "_clip_review_candidate": "build_clip_review_candidate",
@@ -1283,8 +1283,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.clip_review_candidates"
         consumers = {
             "autoslice.analysis.candidates",
-            "autoslice.analysis.clip_review",
             "autoslice.analysis.manual.review",
+            "autoslice.analysis.review.workflow",
             "autoslice.topic_engine",
         }
         production_modules = {
@@ -1316,11 +1316,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_clip_review_prompt_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import candidates, clip_review
+        from autoslice.analysis import candidates
         from autoslice.analysis import (
             clip_review_prompt as legacy_clip_review_prompt,
         )
         from autoslice.analysis.review import prompt as review_prompt
+        from autoslice.analysis.review import workflow as clip_review
 
         aliases = {
             "_build_clip_candidate_review_prompt": (
@@ -1366,7 +1367,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.clip_review_prompt"
         consumers = {
             "autoslice.analysis.candidates",
-            "autoslice.analysis.clip_review",
+            "autoslice.analysis.review.workflow",
             "autoslice.topic_engine",
         }
         production_modules = {
@@ -1399,14 +1400,23 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_clip_review_orchestration_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline
-        from autoslice.analysis import candidates, clip_review
+        from autoslice.analysis import candidates
+        from autoslice.analysis import clip_review as legacy_clip_review
+        from autoslice.analysis.review import workflow as clip_review
 
         owner = clip_review.review_peak_selected_topics
+        self.assertIs(legacy_clip_review.FACADE_EXPORTS, clip_review.FACADE_EXPORTS)
+        for name, value in vars(clip_review).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(facade_name=name):
+                self.assertIs(getattr(legacy_clip_review, name), value)
         self.assertIs(candidates._review_peak_selected_topics, owner)
         self.assertIs(pipeline._review_peak_selected_topics, owner)
         self.assertIs(topic_engine._review_peak_selected_topics, owner)
         self.assertIs(candidates.clip_review, clip_review)
         self.assertIs(pipeline.clip_review, clip_review)
+        self.assertIs(topic_engine.clip_review, clip_review)
 
         candidate_source = (
             ROOT / "src/autoslice/analysis/candidates.py"
@@ -1431,12 +1441,69 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.clip_review"][
+            for item in modules["autoslice.analysis.review.workflow"][
                 "top_level_functions"
             ]
         }
         self.assertEqual(owner_functions, {"review_peak_selected_topics"})
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+        self.assertEqual(
+            modules["autoslice.analysis.review.workflow"]["top_level_classes"],
+            [],
+        )
+        self.assertEqual(
+            modules["autoslice.analysis.clip_review"]["top_level_functions"],
+            [],
+        )
+        self.assertEqual(
+            modules["autoslice.analysis.clip_review"]["top_level_classes"],
+            [],
+        )
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.analysis.review.workflow"
+        legacy_module = "autoslice.analysis.clip_review"
+        consumers = {
+            "autoslice.analysis.candidates",
+            "autoslice.pipeline",
+            "autoslice.topic_engine",
+        }
+        production_modules = {
+            module["module"]
+            for module in current["modules"]
+            if module["path"].startswith("src/")
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == owner_module
+            },
+            consumers | {legacy_module},
+        )
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == legacy_module
+            },
+            set(),
+        )
+        self.assertIn((legacy_module, owner_module), import_edges)
+        self.assertEqual(
+            {
+                (source, target)
+                for source, target in import_edges
+                if source.startswith("autoslice.analysis.review.")
+                and target == legacy_module
+            },
+            set(),
+        )
+        for forbidden_target in consumers | {legacy_module}:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
 
     def test_manual_review_has_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -3081,11 +3148,11 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.analysis.boundaries",
             "autoslice.analysis.candidate_reconciliation",
             "autoslice.analysis.candidates",
-            "autoslice.analysis.clip_review",
             "autoslice.analysis.manual.candidates",
             "autoslice.analysis.manual.enrichment",
             "autoslice.analysis.review.candidates",
             "autoslice.analysis.review.prompt",
+            "autoslice.analysis.review.workflow",
             "autoslice.analysis.slice_decisions",
             "autoslice.analysis.topic.analysis",
             "autoslice.pipeline",

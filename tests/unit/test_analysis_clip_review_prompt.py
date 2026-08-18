@@ -14,7 +14,7 @@ OWNER_MODULE = "autoslice.analysis.review.prompt"
 LEGACY_MODULE = "autoslice.analysis.clip_review_prompt"
 PROMPT_CONSUMERS = {
     "autoslice.analysis.candidates",
-    "autoslice.analysis.clip_review",
+    "autoslice.analysis.review.workflow",
     "autoslice.topic_engine",
 }
 
@@ -148,7 +148,7 @@ class ClipReviewPromptTests(unittest.TestCase):
         self.assertEqual(imports, [])
         self.assertEqual(
             declared,
-            ["candidates", "policy", "prompt", "scoring"],
+            ["candidates", "policy", "prompt", "scoring", "workflow"],
         )
 
     def test_payload_keeps_time_sources_titles_and_evidence_channels(self):

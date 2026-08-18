@@ -14,11 +14,11 @@ POLICY_CONSUMERS = {
     "autoslice.analysis.boundaries",
     "autoslice.analysis.candidate_reconciliation",
     "autoslice.analysis.candidates",
-    "autoslice.analysis.clip_review",
     "autoslice.analysis.manual.candidates",
     "autoslice.analysis.manual.enrichment",
     "autoslice.analysis.review.candidates",
     "autoslice.analysis.review.prompt",
+    "autoslice.analysis.review.workflow",
     "autoslice.analysis.slice_decisions",
     "autoslice.analysis.topic.analysis",
     "autoslice.pipeline",
@@ -110,7 +110,7 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
         self.assertEqual(imports, [])
         self.assertEqual(
             declared,
-            ["candidates", "policy", "prompt", "scoring"],
+            ["candidates", "policy", "prompt", "scoring", "workflow"],
         )
 
     def test_policy_consumers_import_owner_and_no_production_uses_facade(self):

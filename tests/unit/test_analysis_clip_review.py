@@ -1,9 +1,15 @@
+import ast
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from autoslice.analysis import clip_review
+from autoslice.analysis import clip_review as legacy_clip_review
+from autoslice.analysis.review import workflow as clip_review
 from autoslice.streamer_profiles import streamer_profile_context
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = ROOT / "src"
 
 
 class ClipReviewTests(unittest.TestCase):
@@ -24,6 +30,34 @@ class ClipReviewTests(unittest.TestCase):
         }
         topic.update(overrides)
         return topic
+
+    def test_owner_and_legacy_facade_keep_definition_and_identity_contracts(self):
+        owner_path = SRC_ROOT / "autoslice/analysis/review/workflow.py"
+        facade_path = SRC_ROOT / "autoslice/analysis/clip_review.py"
+        owner_tree = ast.parse(owner_path.read_text(encoding="utf-8"))
+        facade_tree = ast.parse(facade_path.read_text(encoding="utf-8"))
+        owner_functions = {
+            node.name
+            for node in owner_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+
+        self.assertEqual(owner_functions, {"review_peak_selected_topics"})
+        self.assertFalse(
+            any(isinstance(node, ast.ClassDef) for node in owner_tree.body)
+        )
+        self.assertFalse(
+            any(
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                for node in facade_tree.body
+            )
+        )
+        self.assertIs(legacy_clip_review.FACADE_EXPORTS, clip_review.FACADE_EXPORTS)
+        for name, value in vars(clip_review).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(name=name):
+                self.assertIs(getattr(legacy_clip_review, name), value)
 
     def test_no_selected_candidate_returns_without_calling_llm(self):
         topics = [self._topic(can_slice=False, clip_review_candidate=False)]

@@ -12,7 +12,7 @@ OWNER_MODULE = "autoslice.analysis.review.scoring"
 LEGACY_MODULE = "autoslice.analysis.clip_scoring"
 SCORING_CONSUMERS = {
     "autoslice.analysis.candidates",
-    "autoslice.analysis.clip_review",
+    "autoslice.analysis.review.workflow",
     "autoslice.analysis.slice_decisions",
     "autoslice.pipeline",
     "autoslice.topic_engine",

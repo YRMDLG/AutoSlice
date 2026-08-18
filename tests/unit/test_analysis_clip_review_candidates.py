@@ -13,8 +13,8 @@ OWNER_MODULE = "autoslice.analysis.review.candidates"
 LEGACY_MODULE = "autoslice.analysis.clip_review_candidates"
 CANDIDATE_CONSUMERS = {
     "autoslice.analysis.candidates",
-    "autoslice.analysis.clip_review",
     "autoslice.analysis.manual.review",
+    "autoslice.analysis.review.workflow",
     "autoslice.topic_engine",
 }
 

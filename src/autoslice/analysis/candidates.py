@@ -5,7 +5,6 @@ from __future__ import annotations
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis import checkpoints as checkpoint_store
-from autoslice.analysis import clip_review
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
@@ -19,6 +18,7 @@ from autoslice.analysis.review import candidates as clip_review_candidates
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.analysis.review import scoring as clip_scoring
+from autoslice.analysis.review import workflow as clip_review
 from autoslice.analysis import slice_decisions
 from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.analysis.topic import chunking
