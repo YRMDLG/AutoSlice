@@ -1709,7 +1709,7 @@ class ArtifactPipelineTests(unittest.TestCase):
                 patch("autoslice.pipeline.analyze_danmaku", return_value=DanmakuDensitySeries()),
                 patch("autoslice.pipeline.probe_video_duration", return_value=5),
                 patch("autoslice.pipeline.prepare_optimized_manual_timeline", return_value=prepared),
-                patch("autoslice.analysis.topic_analysis.analyze_topic_chunks", side_effect=fake_analyze),
+                patch("autoslice.analysis.topic.analysis.analyze_topic_chunks", side_effect=fake_analyze),
             ):
                 result = run_pipeline(
                     str(flv_path),
@@ -4566,7 +4566,7 @@ class TopicEngineParseTests(unittest.TestCase):
                     side_effect=AssertionError("首轮分析不得挂载人工时间轴"),
                 ),
                 patch(
-                    "autoslice.analysis.topic_analysis.analyze_topic_chunks",
+                    "autoslice.analysis.topic.analysis.analyze_topic_chunks",
                     return_value=(generated_topics, [], None),
                 ) as analyze_chunks,
                 patch(
@@ -6840,7 +6840,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                 patch("autoslice.pipeline.probe_video_duration", return_value=600),
                 patch("autoslice.pipeline.prepare_optimized_manual_timeline", return_value=prepared) as prepare,
                 patch(
-                    "autoslice.analysis.topic_analysis.analyze_topic_chunks",
+                    "autoslice.analysis.topic.analysis.analyze_topic_chunks",
                     side_effect=AssertionError("独立优化不应运行整场话题分析"),
                 ),
                 patch(
@@ -9304,7 +9304,7 @@ class HybridModelRoutingTests(unittest.TestCase):
                     "autoslice.pipeline.prepare_optimized_manual_timeline",
                     return_value=prepared,
                 ) as prepare,
-                patch("autoslice.analysis.topic_analysis.analyze_topic_chunks", return_value=([], [], None)),
+                patch("autoslice.analysis.topic.analysis.analyze_topic_chunks", return_value=([], [], None)),
                 patch("autoslice.analysis.checkpoints.write_clip_review_checkpoint"),
                 patch("autoslice.reporting.build_refinement_manifest", return_value={}),
                 patch("autoslice.reporting.write_refinement_manifest_files"),
@@ -9431,7 +9431,7 @@ class PipelineProgressTests(unittest.TestCase):
                 patch("autoslice.pipeline.chunk_srt", return_value=[]),
                 patch("autoslice.pipeline.probe_video_duration", return_value=5),
                 patch("autoslice.pipeline.prepare_optimized_manual_timeline", side_effect=fake_prepare),
-                patch("autoslice.analysis.topic_analysis.analyze_topic_chunks", side_effect=fake_analyze),
+                patch("autoslice.analysis.topic.analysis.analyze_topic_chunks", side_effect=fake_analyze),
                 patch("autoslice.analysis.checkpoints.write_clip_review_checkpoint"),
                 patch("autoslice.reporting.build_timeline_report", return_value="# 测试报告\n"),
                 patch("autoslice.reporting.build_refinement_manifest", return_value={}),

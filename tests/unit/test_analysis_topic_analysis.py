@@ -1,8 +1,155 @@
+import ast
 import json
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from autoslice.analysis import topic_analysis
+from autoslice.analysis.topic import analysis as topic_analysis
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = ROOT / "src" / "autoslice"
+OWNER_PATH = SRC_ROOT / "analysis" / "topic" / "analysis.py"
+FACADE_PATH = SRC_ROOT / "analysis" / "topic_analysis.py"
+TOPIC_INIT_PATH = SRC_ROOT / "analysis" / "topic" / "__init__.py"
+
+TOPIC_ANALYSIS_CONSUMERS = (
+    "src/autoslice/analysis/chunking.py",
+    "src/autoslice/analysis/candidates.py",
+    "src/autoslice/analysis/manual/workflow.py",
+    "src/autoslice/pipeline.py",
+    "src/autoslice/reporting.py",
+    "src/autoslice/topic_engine.py",
+)
+
+
+def _parse(path):
+    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def _legacy_topic_analysis_imports(tree):
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(
+                alias.name
+                for alias in node.names
+                if alias.name == "autoslice.analysis.topic_analysis"
+            )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "autoslice.analysis.topic_analysis":
+                imports.append(node.module)
+            elif node.module == "autoslice.analysis":
+                imports.extend(
+                    f"{node.module}.{alias.name}"
+                    for alias in node.names
+                    if alias.name == "topic_analysis"
+                )
+    return imports
+
+
+def _import_targets(tree):
+    targets = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            targets.update(
+                f"{node.module}.{alias.name}" for alias in node.names
+            )
+    return targets
+
+
+class TopicAnalysisOwnershipTests(unittest.TestCase):
+    def test_topic_owner_has_all_nine_functions_and_facade_has_no_definitions(self):
+        owner_tree = _parse(OWNER_PATH)
+        facade_tree = _parse(FACADE_PATH)
+        definition_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+        owner_functions = [
+            node.name for node in owner_tree.body if isinstance(node, definition_types)
+        ]
+
+        self.assertEqual(len(owner_functions), 9)
+        self.assertEqual(len(owner_functions), len(set(owner_functions)))
+        self.assertIn("build_chunk_prompt", owner_functions)
+        self.assertIn("parse_llm_response", owner_functions)
+        self.assertIn("analyze_topic_chunks", owner_functions)
+        self.assertFalse(
+            any(isinstance(node, definition_types) for node in facade_tree.body)
+        )
+        self.assertFalse(any(isinstance(node, ast.ClassDef) for node in facade_tree.body))
+
+    def test_legacy_facade_reexports_every_owner_object_by_identity(self):
+        from autoslice.analysis import topic_analysis as compatibility
+        from autoslice.analysis.topic import analysis as owner
+
+        self.assertIs(compatibility.FACADE_EXPORTS, owner.FACADE_EXPORTS)
+        for name, value in vars(owner).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(name=name):
+                self.assertIs(getattr(compatibility, name), value)
+
+    def test_production_consumers_import_topic_owner_directly(self):
+        for relative_path in TOPIC_ANALYSIS_CONSUMERS:
+            path = ROOT / relative_path
+            tree = _parse(path)
+            direct_import = any(
+                isinstance(node, ast.ImportFrom)
+                and node.module == "autoslice.analysis.topic"
+                and any(alias.name == "analysis" for alias in node.names)
+                for node in ast.walk(tree)
+            )
+            with self.subTest(path=relative_path):
+                self.assertTrue(direct_import)
+                self.assertEqual(_legacy_topic_analysis_imports(tree), [])
+
+        violations = []
+        for path in sorted(SRC_ROOT.rglob("*.py")):
+            imports = _legacy_topic_analysis_imports(_parse(path))
+            if imports:
+                violations.append((path.relative_to(ROOT).as_posix(), imports))
+        self.assertEqual(violations, [])
+
+    def test_topic_package_is_lazy_and_owner_has_no_reverse_dependency(self):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-c",
+                (
+                    "import sys; import autoslice.analysis.topic; "
+                    "assert 'autoslice.analysis.topic.analysis' not in sys.modules"
+                ),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+
+        topic_init_tree = _parse(TOPIC_INIT_PATH)
+        all_assignment = next(
+            node
+            for node in topic_init_tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            )
+        )
+        self.assertIn("analysis", ast.literal_eval(all_assignment.value))
+
+        forbidden_targets = {
+            "autoslice.analysis.topic_analysis",
+            *(path.removeprefix("src/").removesuffix(".py").replace("/", ".")
+              for path in TOPIC_ANALYSIS_CONSUMERS),
+        }
+        self.assertTrue(
+            _import_targets(_parse(OWNER_PATH)).isdisjoint(forbidden_targets)
+        )
 
 
 class TopicAnalysisFormattingTests(unittest.TestCase):
@@ -231,7 +378,7 @@ class TopicAnalysisOrchestrationTests(unittest.TestCase):
 
     def test_empty_chunks_do_not_load_api(self):
         with patch(
-            "autoslice.analysis.topic_analysis.llm_gateway.load_api_config",
+            "autoslice.analysis.topic.analysis.llm_gateway.load_api_config",
             side_effect=AssertionError("空输入不应读取 API"),
         ):
             self.assertEqual(
@@ -261,15 +408,15 @@ class TopicAnalysisOrchestrationTests(unittest.TestCase):
 
         with (
             patch(
-                "autoslice.analysis.topic_analysis.llm_gateway.load_api_config",
+                "autoslice.analysis.topic.analysis.llm_gateway.load_api_config",
                 return_value=("https://example.test", "token", "model"),
             ),
             patch(
-                "autoslice.analysis.topic_analysis.llm_execution.configured_llm_concurrency",
+                "autoslice.analysis.topic.analysis.llm_execution.configured_llm_concurrency",
                 return_value=1,
             ),
             patch(
-                "autoslice.analysis.topic_analysis.llm_gateway.call_llm_with_retry",
+                "autoslice.analysis.topic.analysis.llm_gateway.call_llm_with_retry",
                 side_effect=responses,
             ),
         ):

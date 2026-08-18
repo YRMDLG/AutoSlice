@@ -16,7 +16,7 @@ TOPIC_INIT_PATH = SRC_ROOT / "analysis" / "topic" / "__init__.py"
 
 TITLE_CONSUMERS = (
     "src/autoslice/analysis/candidate_reconciliation.py",
-    "src/autoslice/analysis/topic_analysis.py",
+    "src/autoslice/analysis/topic/analysis.py",
     "src/autoslice/analysis/candidates.py",
     "src/autoslice/analysis/clip_review_prompt.py",
     "src/autoslice/analysis/clip_review_candidates.py",

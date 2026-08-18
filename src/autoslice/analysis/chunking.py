@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from autoslice import timecode
 from autoslice.analysis import danmaku as danmaku_analysis
-from autoslice.analysis import topic_analysis
+from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.transcription import segments as transcription_segments
 from autoslice.transcription import srt_io as transcription_srt_io
 

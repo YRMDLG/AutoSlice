@@ -11,8 +11,8 @@ from datetime import datetime
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.analysis.topic import titles as title_analysis
-from autoslice.analysis import topic_analysis
 from autoslice.analysis.topic import normalization
 from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
