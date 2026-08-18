@@ -19,7 +19,7 @@ from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
 from autoslice.analysis.review import scoring as clip_scoring
 from autoslice.analysis.review import workflow as clip_review
-from autoslice.analysis import slice_decisions
+from autoslice.analysis.review import decisions as slice_decisions
 from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.analysis.topic import chunking
 from autoslice.analysis.topic import titles as title_analysis

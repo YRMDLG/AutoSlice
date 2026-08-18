@@ -574,13 +574,14 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             danmaku,
             evidence,
             llm_execution,
-            slice_decisions,
+            slice_decisions as slice_decisions_compatibility,
             timeline,
             titles as title_compatibility,
         )
         from autoslice.analysis.report import cleanup as report_cleanup
         from autoslice.analysis.report import formatting as topic_formatting
         from autoslice.analysis.manual import workflow as manual_workflow
+        from autoslice.analysis.review import decisions as slice_decisions
         from autoslice.analysis.review import policy as clip_policy
         from autoslice.analysis.review import (
             reconciliation as candidate_reconciliation,
@@ -626,6 +627,13 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         for name, value in vars(titles).items():
             if not name.startswith("__"):
                 self.assertIs(getattr(title_compatibility, name), value)
+        self.assertIs(
+            slice_decisions_compatibility.FACADE_EXPORTS,
+            slice_decisions.FACADE_EXPORTS,
+        )
+        for name, value in vars(slice_decisions).items():
+            if not name.startswith("__"):
+                self.assertIs(getattr(slice_decisions_compatibility, name), value)
         facade_owners = {}
         for owner in owners:
             for facade_name in owner.FACADE_EXPORTS:
@@ -819,8 +827,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.clip_scoring"
         consumers = {
             "autoslice.analysis.candidates",
+            "autoslice.analysis.review.decisions",
             "autoslice.analysis.review.workflow",
-            "autoslice.analysis.slice_decisions",
             "autoslice.pipeline",
             "autoslice.topic_engine",
         }
@@ -3151,6 +3159,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.clip_policy"
         consumers = {
             "autoslice.analysis.boundaries",
+            "autoslice.analysis.review.decisions",
             "autoslice.analysis.review.reconciliation",
             "autoslice.analysis.candidates",
             "autoslice.analysis.manual.candidates",
@@ -3158,7 +3167,6 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.analysis.review.candidates",
             "autoslice.analysis.review.prompt",
             "autoslice.analysis.review.workflow",
-            "autoslice.analysis.slice_decisions",
             "autoslice.analysis.topic.analysis",
             "autoslice.pipeline",
             "autoslice.topic_engine",
@@ -3190,8 +3198,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis import (
             candidate_reconciliation as legacy_candidate_reconciliation,
         )
-        from autoslice.analysis import candidates, slice_decisions
+        from autoslice.analysis import candidates
         from autoslice.analysis.report import cleanup as report_cleanup
+        from autoslice.analysis.review import decisions as slice_decisions
         from autoslice.analysis.review import reconciliation as candidate_reconciliation
 
         compatibility_owners = {
@@ -3290,7 +3299,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
 
         slice_decisions_tree = ast.parse(
-            (ROOT / "src/autoslice/analysis/slice_decisions.py").read_text(
+            (ROOT / "src/autoslice/analysis/review/decisions.py").read_text(
                 encoding="utf-8"
             )
         )
@@ -3360,7 +3369,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         direct_consumer_names = {
             "autoslice.analysis.candidates",
             "autoslice.analysis.report.cleanup",
-            "autoslice.analysis.slice_decisions",
+            "autoslice.analysis.review.decisions",
             "autoslice.topic_engine",
         }
         self.assertEqual(
@@ -3620,7 +3629,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_slice_decisions_has_one_owner_and_direct_consumers(self):
         from autoslice import pipeline, topic_engine
-        from autoslice.analysis import candidates, slice_decisions
+        from autoslice.analysis import candidates
+        from autoslice.analysis import slice_decisions as legacy_slice_decisions
+        from autoslice.analysis.review import decisions as slice_decisions
 
         compatibility_owners = {
             "_topic_peak_focus_window": "topic_peak_focus_window",
@@ -3640,7 +3651,16 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "_apply_danmaku_slice_decisions": "apply_danmaku_slice_decisions",
             "_clip_marks_from_topics": "clip_marks_from_topics",
         }
+        self.assertIs(
+            legacy_slice_decisions.FACADE_EXPORTS,
+            slice_decisions.FACADE_EXPORTS,
+        )
         self.assertEqual(slice_decisions.FACADE_EXPORTS, compatibility_owners)
+        for name, value in vars(slice_decisions).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(facade_name=name):
+                self.assertIs(getattr(legacy_slice_decisions, name), value)
         for compatibility_name, owner_name in compatibility_owners.items():
             with self.subTest(name=compatibility_name):
                 owner = getattr(slice_decisions, owner_name)
@@ -3648,7 +3668,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 self.assertIs(getattr(topic_engine, compatibility_name), owner)
                 self.assertNotIn(compatibility_name, candidates.FACADE_EXPORTS)
 
+        self.assertIs(candidates.slice_decisions, slice_decisions)
         self.assertIs(pipeline.slice_decisions, slice_decisions)
+        self.assertIs(topic_engine.slice_decisions, slice_decisions)
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
@@ -3656,12 +3678,17 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             modules["autoslice.analysis.candidates"]["top_level_functions"],
             [],
         )
+        facade_module = modules["autoslice.analysis.slice_decisions"]
+        self.assertEqual(facade_module["line_count"], 10)
+        self.assertEqual(facade_module["top_level_functions"], [])
+        self.assertEqual(facade_module["top_level_classes"], [])
+        owner_module = modules["autoslice.analysis.review.decisions"]
+        self.assertEqual(owner_module["line_count"], 544)
+        self.assertEqual(owner_module["top_level_classes"], [])
         self.assertEqual(
             [
                 item["name"]
-                for item in modules[
-                    "autoslice.analysis.slice_decisions"
-                ]["top_level_functions"]
+                for item in owner_module["top_level_functions"]
             ],
             list(compatibility_owners.values()),
         )
@@ -3757,7 +3784,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(pipeline_compatibility_bindings, set())
 
         owner_tree = ast.parse(
-            (ROOT / "src/autoslice/analysis/slice_decisions.py").read_text(
+            (ROOT / "src/autoslice/analysis/review/decisions.py").read_text(
                 encoding="utf-8"
             )
         )
@@ -3806,18 +3833,62 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             (edge["from"], edge["to"])
             for edge in current["import_edges"]
         }
-        self.assertTrue(
+        owner_module_name = "autoslice.analysis.review.decisions"
+        legacy_module_name = "autoslice.analysis.slice_decisions"
+        direct_consumers = {
+            "autoslice.analysis.candidates",
+            "autoslice.pipeline",
+            "autoslice.topic_engine",
+        }
+        self.assertEqual(
             {
-                (
-                    "autoslice.analysis.slice_decisions",
-                    "autoslice.analysis.candidates",
-                ),
-                ("autoslice.analysis.slice_decisions", "autoslice.pipeline"),
-                ("autoslice.analysis.slice_decisions", "autoslice.topic_engine"),
-            }.isdisjoint(import_edges)
+                source
+                for source, target in import_edges
+                if target == owner_module_name
+            },
+            direct_consumers | {legacy_module_name},
+        )
+        production_modules = {
+            module["module"]
+            for module in current["modules"]
+            if module["path"].startswith("src/")
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == legacy_module_name
+            },
+            set(),
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == legacy_module_name
+            },
+            {owner_module_name},
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == owner_module_name
+            },
+            {
+                "autoslice.analysis.boundaries",
+                "autoslice.analysis.danmaku",
+                "autoslice.analysis.evidence",
+                "autoslice.analysis.review.policy",
+                "autoslice.analysis.review.reconciliation",
+                "autoslice.analysis.review.scoring",
+                "autoslice.analysis.topic.titles",
+                "autoslice.timecode",
+            },
         )
         self.assertEqual(current["dependency_cycles"], [])
-        self.assertEqual(current["test_private_patches"]["total"], 17)
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_topic_engine_compatibility_constants_follow_unique_owner(self):
         import topic_engine

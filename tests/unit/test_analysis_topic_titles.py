@@ -20,7 +20,7 @@ TITLE_CONSUMERS = (
     "src/autoslice/analysis/candidates.py",
     "src/autoslice/analysis/review/prompt.py",
     "src/autoslice/analysis/review/candidates.py",
-    "src/autoslice/analysis/slice_decisions.py",
+    "src/autoslice/analysis/review/decisions.py",
     "src/autoslice/analysis/report/formatting.py",
     "src/autoslice/analysis/topic/normalization.py",
     "src/autoslice/analysis/report/cleanup.py",

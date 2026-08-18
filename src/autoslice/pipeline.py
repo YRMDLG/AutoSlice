@@ -28,7 +28,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import scoring as clip_scoring
 from autoslice.analysis.review import workflow as clip_review
-from autoslice.analysis import slice_decisions
+from autoslice.analysis.review import decisions as slice_decisions
 from autoslice.analysis.topic import chunking as analysis_chunking
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.analysis.topic import analysis as topic_analysis

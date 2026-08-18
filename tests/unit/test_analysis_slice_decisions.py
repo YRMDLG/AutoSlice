@@ -1,8 +1,43 @@
+import ast
 import copy
 import unittest
+from pathlib import Path
 
-from autoslice.analysis import clip_policy, slice_decisions
+from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis import slice_decisions as legacy_slice_decisions
+from autoslice.analysis.review import decisions as slice_decisions
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = ROOT / "src"
+
+
+class SliceDecisionOwnershipTests(unittest.TestCase):
+    def test_review_owner_and_legacy_facade_preserve_identity(self):
+        owner_path = SRC_ROOT / "autoslice/analysis/review/decisions.py"
+        facade_path = SRC_ROOT / "autoslice/analysis/slice_decisions.py"
+        owner_tree = ast.parse(owner_path.read_text(encoding="utf-8"))
+        facade_tree = ast.parse(facade_path.read_text(encoding="utf-8"))
+        definition_types = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+        self.assertEqual(len(owner_path.read_text(encoding="utf-8").splitlines()), 544)
+        self.assertEqual(
+            len([node for node in owner_tree.body if isinstance(node, ast.FunctionDef)]),
+            12,
+        )
+        self.assertFalse(
+            any(isinstance(node, ast.ClassDef) for node in owner_tree.body)
+        )
+        self.assertEqual(len(facade_path.read_text(encoding="utf-8").splitlines()), 10)
+        self.assertFalse(
+            any(isinstance(node, definition_types) for node in facade_tree.body)
+        )
+        self.assertIs(legacy_slice_decisions.FACADE_EXPORTS, slice_decisions.FACADE_EXPORTS)
+        for name, value in vars(slice_decisions).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(name=name):
+                self.assertIs(getattr(legacy_slice_decisions, name), value)
 
 
 class SliceDecisionWindowTests(unittest.TestCase):

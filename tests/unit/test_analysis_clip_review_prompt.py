@@ -150,6 +150,7 @@ class ClipReviewPromptTests(unittest.TestCase):
             declared,
             [
                 "candidates",
+                "decisions",
                 "policy",
                 "prompt",
                 "reconciliation",

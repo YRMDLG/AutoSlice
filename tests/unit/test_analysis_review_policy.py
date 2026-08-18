@@ -19,7 +19,7 @@ POLICY_CONSUMERS = {
     "autoslice.analysis.review.candidates",
     "autoslice.analysis.review.prompt",
     "autoslice.analysis.review.workflow",
-    "autoslice.analysis.slice_decisions",
+    "autoslice.analysis.review.decisions",
     "autoslice.analysis.topic.analysis",
     "autoslice.pipeline",
     "autoslice.topic_engine",
@@ -112,6 +112,7 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
             declared,
             [
                 "candidates",
+                "decisions",
                 "policy",
                 "prompt",
                 "reconciliation",

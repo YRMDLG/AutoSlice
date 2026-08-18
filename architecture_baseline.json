@@ -390,6 +390,16 @@
     {
       "from": "autoslice.analysis.candidates",
       "imports": [
+        "autoslice.analysis.review.decisions"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.analysis.review.decisions"
+    },
+    {
+      "from": "autoslice.analysis.candidates",
+      "imports": [
         "autoslice.analysis.review.policy"
       ],
       "lines": [
@@ -436,16 +446,6 @@
         21
       ],
       "to": "autoslice.analysis.review.workflow"
-    },
-    {
-      "from": "autoslice.analysis.candidates",
-      "imports": [
-        "autoslice.analysis.slice_decisions"
-      ],
-      "lines": [
-        22
-      ],
-      "to": "autoslice.analysis.slice_decisions"
     },
     {
       "from": "autoslice.analysis.candidates",
@@ -1162,6 +1162,86 @@
       "to": "autoslice.timecode"
     },
     {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.analysis.boundaries"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.analysis.boundaries"
+    },
+    {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.analysis.danmaku"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.analysis.danmaku"
+    },
+    {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.analysis.evidence"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.analysis.evidence"
+    },
+    {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.analysis.review.policy"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.analysis.review.policy"
+    },
+    {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.analysis.review.reconciliation"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.analysis.review.reconciliation"
+    },
+    {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.analysis.review.scoring"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.analysis.review.scoring"
+    },
+    {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.analysis.topic.titles"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.analysis.topic.titles"
+    },
+    {
+      "from": "autoslice.analysis.review.decisions",
+      "imports": [
+        "autoslice.timecode"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.timecode"
+    },
+    {
       "from": "autoslice.analysis.review.policy",
       "imports": [
         "autoslice.analysis.danmaku.DANMAKU_WINDOW"
@@ -1366,82 +1446,12 @@
     {
       "from": "autoslice.analysis.slice_decisions",
       "imports": [
-        "autoslice.analysis.boundaries"
+        "autoslice.analysis.review.decisions"
       ],
       "lines": [
-        9
+        3
       ],
-      "to": "autoslice.analysis.boundaries"
-    },
-    {
-      "from": "autoslice.analysis.slice_decisions",
-      "imports": [
-        "autoslice.analysis.danmaku"
-      ],
-      "lines": [
-        10
-      ],
-      "to": "autoslice.analysis.danmaku"
-    },
-    {
-      "from": "autoslice.analysis.slice_decisions",
-      "imports": [
-        "autoslice.analysis.evidence"
-      ],
-      "lines": [
-        11
-      ],
-      "to": "autoslice.analysis.evidence"
-    },
-    {
-      "from": "autoslice.analysis.slice_decisions",
-      "imports": [
-        "autoslice.analysis.review.policy"
-      ],
-      "lines": [
-        12
-      ],
-      "to": "autoslice.analysis.review.policy"
-    },
-    {
-      "from": "autoslice.analysis.slice_decisions",
-      "imports": [
-        "autoslice.analysis.review.reconciliation"
-      ],
-      "lines": [
-        13
-      ],
-      "to": "autoslice.analysis.review.reconciliation"
-    },
-    {
-      "from": "autoslice.analysis.slice_decisions",
-      "imports": [
-        "autoslice.analysis.review.scoring"
-      ],
-      "lines": [
-        14
-      ],
-      "to": "autoslice.analysis.review.scoring"
-    },
-    {
-      "from": "autoslice.analysis.slice_decisions",
-      "imports": [
-        "autoslice.analysis.topic.titles"
-      ],
-      "lines": [
-        15
-      ],
-      "to": "autoslice.analysis.topic.titles"
-    },
-    {
-      "from": "autoslice.analysis.slice_decisions",
-      "imports": [
-        "autoslice.timecode"
-      ],
-      "lines": [
-        8
-      ],
-      "to": "autoslice.timecode"
+      "to": "autoslice.analysis.review.decisions"
     },
     {
       "from": "autoslice.analysis.timeline",
@@ -1984,6 +1994,16 @@
     {
       "from": "autoslice.pipeline",
       "imports": [
+        "autoslice.analysis.review.decisions"
+      ],
+      "lines": [
+        31
+      ],
+      "to": "autoslice.analysis.review.decisions"
+    },
+    {
+      "from": "autoslice.pipeline",
+      "imports": [
         "autoslice.analysis.review.policy"
       ],
       "lines": [
@@ -2010,16 +2030,6 @@
         30
       ],
       "to": "autoslice.analysis.review.workflow"
-    },
-    {
-      "from": "autoslice.pipeline",
-      "imports": [
-        "autoslice.analysis.slice_decisions"
-      ],
-      "lines": [
-        31
-      ],
-      "to": "autoslice.analysis.slice_decisions"
     },
     {
       "from": "autoslice.pipeline",
@@ -2654,6 +2664,16 @@
     {
       "from": "autoslice.topic_engine",
       "imports": [
+        "autoslice.analysis.review.decisions"
+      ],
+      "lines": [
+        32
+      ],
+      "to": "autoslice.analysis.review.decisions"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
         "autoslice.analysis.review.policy"
       ],
       "lines": [
@@ -2700,16 +2720,6 @@
         31
       ],
       "to": "autoslice.analysis.review.workflow"
-    },
-    {
-      "from": "autoslice.topic_engine",
-      "imports": [
-        "autoslice.analysis.slice_decisions"
-      ],
-      "lines": [
-        32
-      ],
-      "to": "autoslice.analysis.slice_decisions"
     },
     {
       "from": "autoslice.topic_engine",
@@ -4098,8 +4108,8 @@
       "kind": "function",
       "line": 352,
       "line_count": 142,
-      "module": "autoslice.analysis.slice_decisions",
-      "path": "src/autoslice/analysis/slice_decisions.py",
+      "module": "autoslice.analysis.review.decisions",
+      "path": "src/autoslice/analysis/review/decisions.py",
       "qualname": "apply_danmaku_slice_decisions"
     },
     {
@@ -4760,7 +4770,7 @@
       "longest_function": null,
       "module": "autoslice.analysis.candidates",
       "path": "src/autoslice/analysis/candidates.py",
-      "sha256": "b0cb4c08bd30559c177364e797f83b8aba4c8af28391512e0c685cd9f84b0420",
+      "sha256": "253564da86a9119cc4f835a30e45ba89733e78a88f18a17e95a0011cebf2f27c",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -5618,7 +5628,7 @@
       "longest_function": null,
       "module": "autoslice.analysis.review",
       "path": "src/autoslice/analysis/review/__init__.py",
-      "sha256": "30f7b50a6b8ff7b519141edbaee08f1707e3c0c6f4d8736778e7a5e84c1dac55",
+      "sha256": "4d538083872de265ed62cd56ce884ca74d2d251f7dde6968ddde3ca97f232fdf",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -5648,6 +5658,95 @@
           "kind": "function",
           "line": 43,
           "name": "build_clip_review_candidate"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 544,
+      "longest_function": {
+        "end_line": 493,
+        "kind": "function",
+        "line": 352,
+        "line_count": 142,
+        "qualname": "apply_danmaku_slice_decisions"
+      },
+      "module": "autoslice.analysis.review.decisions",
+      "path": "src/autoslice/analysis/review/decisions.py",
+      "sha256": "65375b73aeb0dd2bd00764e3010607906c374ba41810d9c806cb4a956d097cc3",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 54,
+          "kind": "function",
+          "line": 33,
+          "name": "topic_peak_focus_window"
+        },
+        {
+          "end_line": 89,
+          "kind": "function",
+          "line": 57,
+          "name": "assign_topic_slice_window"
+        },
+        {
+          "end_line": 110,
+          "kind": "function",
+          "line": 92,
+          "name": "is_content_cuttable_topic"
+        },
+        {
+          "end_line": 140,
+          "kind": "function",
+          "line": 113,
+          "name": "refresh_topic_danmaku_evidence"
+        },
+        {
+          "end_line": 153,
+          "kind": "function",
+          "line": 143,
+          "name": "append_clip_candidate_source"
+        },
+        {
+          "end_line": 181,
+          "kind": "function",
+          "line": 156,
+          "name": "has_high_star_manual_evidence"
+        },
+        {
+          "end_line": 217,
+          "kind": "function",
+          "line": 184,
+          "name": "manual_review_anchor"
+        },
+        {
+          "end_line": 225,
+          "kind": "function",
+          "line": 220,
+          "name": "reviewed_topic_has_required_interest"
+        },
+        {
+          "end_line": 240,
+          "kind": "function",
+          "line": 228,
+          "name": "assign_reviewed_semantic_slice_window"
+        },
+        {
+          "end_line": 349,
+          "kind": "function",
+          "line": 243,
+          "name": "apply_reviewed_slice_decisions"
+        },
+        {
+          "end_line": 493,
+          "kind": "function",
+          "line": 352,
+          "name": "apply_danmaku_slice_decisions"
+        },
+        {
+          "end_line": 544,
+          "kind": "function",
+          "line": 496,
+          "name": "clip_marks_from_topics"
         }
       ]
     },
@@ -5809,92 +5908,13 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 544,
-      "longest_function": {
-        "end_line": 493,
-        "kind": "function",
-        "line": 352,
-        "line_count": 142,
-        "qualname": "apply_danmaku_slice_decisions"
-      },
+      "line_count": 10,
+      "longest_function": null,
       "module": "autoslice.analysis.slice_decisions",
       "path": "src/autoslice/analysis/slice_decisions.py",
-      "sha256": "65375b73aeb0dd2bd00764e3010607906c374ba41810d9c806cb4a956d097cc3",
+      "sha256": "ac3fb2eac1c63a96931da521488498e35c9fe5a32aed8cff59502d9be40c83ad",
       "top_level_classes": [],
-      "top_level_functions": [
-        {
-          "end_line": 54,
-          "kind": "function",
-          "line": 33,
-          "name": "topic_peak_focus_window"
-        },
-        {
-          "end_line": 89,
-          "kind": "function",
-          "line": 57,
-          "name": "assign_topic_slice_window"
-        },
-        {
-          "end_line": 110,
-          "kind": "function",
-          "line": 92,
-          "name": "is_content_cuttable_topic"
-        },
-        {
-          "end_line": 140,
-          "kind": "function",
-          "line": 113,
-          "name": "refresh_topic_danmaku_evidence"
-        },
-        {
-          "end_line": 153,
-          "kind": "function",
-          "line": 143,
-          "name": "append_clip_candidate_source"
-        },
-        {
-          "end_line": 181,
-          "kind": "function",
-          "line": 156,
-          "name": "has_high_star_manual_evidence"
-        },
-        {
-          "end_line": 217,
-          "kind": "function",
-          "line": 184,
-          "name": "manual_review_anchor"
-        },
-        {
-          "end_line": 225,
-          "kind": "function",
-          "line": 220,
-          "name": "reviewed_topic_has_required_interest"
-        },
-        {
-          "end_line": 240,
-          "kind": "function",
-          "line": 228,
-          "name": "assign_reviewed_semantic_slice_window"
-        },
-        {
-          "end_line": 349,
-          "kind": "function",
-          "line": 243,
-          "name": "apply_reviewed_slice_decisions"
-        },
-        {
-          "end_line": 493,
-          "kind": "function",
-          "line": 352,
-          "name": "apply_danmaku_slice_decisions"
-        },
-        {
-          "end_line": 544,
-          "kind": "function",
-          "line": 496,
-          "name": "clip_marks_from_topics"
-        }
-      ]
+      "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
@@ -7331,7 +7351,7 @@
       },
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
-      "sha256": "b364c51e619df00ecc34c55f25d492bb0f540514def85560fb6d2e74dabb39b7",
+      "sha256": "24fd1f2c135dc419c0502805193bfb9d20b44d6609b307504fcb4bbc70aa26eb",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -9014,7 +9034,7 @@
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "b68c0d2c03adc59995e0fc5226131ba2df4d84626668bf94df7411d9109fdefc",
+      "sha256": "2b4157706c5e013e822f89b20585eaabe4174fc7aad163f87d7f644640ba14c1",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -12209,6 +12229,7 @@
       "src/autoslice/analysis/report/formatting.py",
       "src/autoslice/analysis/review/__init__.py",
       "src/autoslice/analysis/review/candidates.py",
+      "src/autoslice/analysis/review/decisions.py",
       "src/autoslice/analysis/review/policy.py",
       "src/autoslice/analysis/review/prompt.py",
       "src/autoslice/analysis/review/reconciliation.py",
@@ -12327,9 +12348,9 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 370,
-    "production_line_count": 35961,
-    "production_module_count": 144,
+    "import_edge_count": 371,
+    "production_line_count": 35971,
+    "production_module_count": 145,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,
     "top_level_function_count": 884

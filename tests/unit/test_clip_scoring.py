@@ -13,7 +13,7 @@ LEGACY_MODULE = "autoslice.analysis.clip_scoring"
 SCORING_CONSUMERS = {
     "autoslice.analysis.candidates",
     "autoslice.analysis.review.workflow",
-    "autoslice.analysis.slice_decisions",
+    "autoslice.analysis.review.decisions",
     "autoslice.pipeline",
     "autoslice.topic_engine",
 }
