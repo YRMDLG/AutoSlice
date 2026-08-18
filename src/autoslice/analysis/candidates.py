@@ -18,6 +18,7 @@ from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
+from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
@@ -54,7 +55,6 @@ FACADE_EXPORTS = {
     '_HEADING_RE': '_HEADING_RE',
     '_MANUAL_AI_PLACEHOLDER_PHRASES': '_MANUAL_AI_PLACEHOLDER_PHRASES',
     '_META_BODY_KEYWORDS': '_META_BODY_KEYWORDS',
-    '_NO_SLICE_HINTS': '_NO_SLICE_HINTS',
     '_UNCUTTABLE_CONTENT_KEYWORDS': '_UNCUTTABLE_CONTENT_KEYWORDS',
     '_UNSUPPORTED_AI_AUDIENCE_REACTION_RE': '_UNSUPPORTED_AI_AUDIENCE_REACTION_RE',
     '_analyze_topic_chunks': 'analyze_topic_chunks',
@@ -85,9 +85,7 @@ FACADE_EXPORTS = {
     '_is_manual_merge_target': '_is_manual_merge_target',
     '_is_meta_body_line': '_is_meta_body_line',
     '_is_retryable_llm_error': '_is_retryable_llm_error',
-    '_is_slice_marked': '_is_slice_marked',
     '_is_topic_in_chunk': '_is_topic_in_chunk',
-    '_json_can_slice': '_json_can_slice',
     '_json_points_to_body': '_json_points_to_body',
     '_load_topic_analysis_checkpoint': '_load_topic_analysis_checkpoint',
     '_make_chunk': '_make_chunk',
@@ -163,6 +161,11 @@ LLM_DEFAULT_CONCURRENCY = llm_execution.LLM_DEFAULT_CONCURRENCY
 LLM_MAX_CONCURRENCY = llm_execution.LLM_MAX_CONCURRENCY
 _configured_llm_concurrency = llm_execution.configured_llm_concurrency
 _serialized_progress_callback = llm_execution.serialized_progress_callback
+
+
+_NO_SLICE_HINTS = response_parsing.NO_SLICE_HINTS
+_is_slice_marked = response_parsing.is_slice_marked
+_json_can_slice = response_parsing.json_can_slice
 
 
 _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
@@ -716,7 +719,6 @@ _HEADING_RE = re.compile(
 )
 
 
-_NO_SLICE_HINTS = ("不切", "不加标记", "不建议切", "不要切", "不适合切")
 
 
 
@@ -864,13 +866,6 @@ def _strip_code_fence(response):
 
 
 
-
-
-def _is_slice_marked(raw_title):
-    """判断标题是否显式标记为可切。"""
-    if any(hint in raw_title for hint in _NO_SLICE_HINTS):
-        return False
-    return "✂" in raw_title
 
 
 def _is_topic_in_chunk(start_s, end_s, chunk_start, chunk_end, tolerance=90):
@@ -1066,17 +1061,6 @@ def _json_points_to_body(points):
     return [line for line in body_lines if line]
 
 
-def _json_can_slice(value, raw_title):
-    """解析 JSON 里的 can_slice 字段；兼容字符串布尔值。"""
-    if any(hint in str(raw_title) for hint in _NO_SLICE_HINTS):
-        return False
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        return value.strip().lower() in {"true", "yes", "y", "1", "可切", "切", "是"}
-    return "✂" in str(raw_title)
 
 
 
@@ -1132,7 +1116,10 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
             "end_str": fmt_time(end_s),
             "title": title,
             "publish_title": _normalise_publish_title(item.get("publish_title"), title),
-            "can_slice": _json_can_slice(item.get("can_slice", False), raw_title),
+            "can_slice": response_parsing.json_can_slice(
+                item.get("can_slice", False),
+                raw_title,
+            ),
             "body": body_lines,
         }
         title_hook = _normalise_title_hook(item.get("title_hook"))
@@ -1605,7 +1592,7 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None, 
                 "start": _parse_hms(start_str),
                 "end": _parse_hms(end_str),
                 "title": _clean_topic_title(raw_title),
-                "can_slice": _is_slice_marked(raw_title),
+                "can_slice": response_parsing.is_slice_marked(raw_title),
                 "body": [],
             }
         elif current:
@@ -3153,7 +3140,10 @@ def _review_peak_selected_topics(
                             manual_star_count
                         )
                         interest_reason = _clip_interest_reason(item)
-                        if not _json_can_slice(item.get("valid"), ""):
+                        if not response_parsing.json_can_slice(
+                            item.get("valid"),
+                            "",
+                        ):
                             original["clip_review_validated"] = False
                             original["clip_review_rejection"] = str(
                                 item.get("reason", "字幕证据不足")

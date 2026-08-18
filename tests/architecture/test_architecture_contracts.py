@@ -562,6 +562,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             evidence,
             llm_execution,
             manual_timeline,
+            response_parsing,
             timeline,
             titles,
         )
@@ -579,6 +580,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             danmaku,
             evidence,
             llm_execution,
+            response_parsing,
             timeline,
             manual_timeline,
             checkpoints,
@@ -773,6 +775,38 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         owner_functions = {
             item["name"]
             for item in modules["autoslice.analysis.llm_execution"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(owner_functions)
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+    def test_candidate_response_parsing_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import candidates, response_parsing
+
+        aliases = {
+            "_NO_SLICE_HINTS": "NO_SLICE_HINTS",
+            "_is_slice_marked": "is_slice_marked",
+            "_json_can_slice": "json_can_slice",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(response_parsing, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.response_parsing"][
                 "top_level_functions"
             ]
         }

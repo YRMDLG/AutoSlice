@@ -20,6 +20,7 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
+from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
@@ -376,7 +377,7 @@ _HEADING_RE = candidate_analysis._HEADING_RE
 _MANUAL_AI_PLACEHOLDER_PHRASES = candidate_analysis._MANUAL_AI_PLACEHOLDER_PHRASES
 _META_BODY_KEYWORDS = candidate_analysis._META_BODY_KEYWORDS
 _NEXT_CASE_ASR_TRIGGER_RE = boundary_analysis._NEXT_CASE_ASR_TRIGGER_RE
-_NO_SLICE_HINTS = candidate_analysis._NO_SLICE_HINTS
+_NO_SLICE_HINTS = response_parsing.NO_SLICE_HINTS
 _OUTRO_ACTIVITY_VARIANT_RE = boundary_analysis._OUTRO_ACTIVITY_VARIANT_RE
 _OUTRO_FAREWELL_EVIDENCE = boundary_analysis._OUTRO_FAREWELL_EVIDENCE
 _OUTRO_TRIGGER_NORMALISE_RE = boundary_analysis._OUTRO_TRIGGER_NORMALISE_RE
@@ -458,9 +459,9 @@ _is_manual_ai_placeholder = candidate_analysis._is_manual_ai_placeholder
 _is_manual_merge_target = candidate_analysis._is_manual_merge_target
 _is_meta_body_line = candidate_analysis._is_meta_body_line
 _is_retryable_llm_error = candidate_analysis._is_retryable_llm_error
-_is_slice_marked = candidate_analysis._is_slice_marked
+_is_slice_marked = response_parsing.is_slice_marked
 _is_topic_in_chunk = candidate_analysis._is_topic_in_chunk
-_json_can_slice = candidate_analysis._json_can_slice
+_json_can_slice = response_parsing.json_can_slice
 _json_points_to_body = candidate_analysis._json_points_to_body
 _load_repaired_srt_segments = transcription_srt_io.load_repaired_srt_segments
 _load_topic_analysis_checkpoint = candidate_analysis._load_topic_analysis_checkpoint
