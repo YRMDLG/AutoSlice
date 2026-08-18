@@ -13,6 +13,7 @@ import os
 
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
+from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import chunking as analysis_chunking
 from autoslice.analysis import clip_scoring
@@ -442,7 +443,7 @@ _clip_star_bonus_cap = clip_scoring.clip_star_bonus_cap
 _configured_llm_concurrency = llm_execution.configured_llm_concurrency
 _danmaku_peak_features = danmaku_analysis._danmaku_peak_features
 _danmaku_prompt_evidence = danmaku_analysis._danmaku_prompt_evidence
-_danmaku_topic_alignment = candidate_analysis._danmaku_topic_alignment
+_danmaku_topic_alignment = candidate_reconciliation.danmaku_topic_alignment
 _dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
 _enrich_manual_topics_in_batches = manual_review.enrich_manual_topics_in_batches
@@ -491,7 +492,9 @@ _make_chunk = analysis_chunking.make_chunk
 _make_fallback_topic_from_chunk = topic_analysis.make_fallback_topic_from_chunk
 _manual_alignment_score = timeline_analysis._manual_alignment_score
 _manual_entry_matches_topic = manual_candidates.manual_entry_matches_topic
-_manual_entry_meaningfully_overlaps_topic = candidate_analysis._manual_entry_meaningfully_overlaps_topic
+_manual_entry_meaningfully_overlaps_topic = (
+    candidate_reconciliation.manual_entry_meaningfully_overlaps_topic
+)
 _manual_evidence_line = manual_candidates.manual_evidence_line
 _manual_review_anchor = candidate_analysis._manual_review_anchor
 _manual_text_supports_candidate = timeline_analysis._manual_text_supports_candidate
@@ -513,7 +516,9 @@ _parse_json_topics_response = topic_analysis.parse_json_topics_response
 _parse_llm_response = topic_analysis.parse_llm_response
 _profile_identity_names = transcription_service.profile_identity_names
 _profile_matches_streamer = transcription_service.profile_matches_streamer
-_reconcile_topic_manual_evidence = candidate_analysis._reconcile_topic_manual_evidence
+_reconcile_topic_manual_evidence = (
+    candidate_reconciliation.reconcile_topic_manual_evidence
+)
 _refresh_natural_boundary_metadata = boundary_analysis._refresh_natural_boundary_metadata
 _refresh_topic_danmaku_evidence = candidate_analysis._refresh_topic_danmaku_evidence
 _repair_short_topic_end = topic_analysis.repair_short_topic_end
@@ -541,7 +546,7 @@ _topic_danmaku_reference_lines = candidate_evidence.topic_danmaku_reference_line
 _topic_index_label = topic_formatting.topic_index_label
 _topic_peak_candidates = candidate_evidence.topic_peak_candidates
 _topic_peak_focus_window = candidate_analysis._topic_peak_focus_window
-_topic_semantic_text = candidate_analysis._topic_semantic_text
+_topic_semantic_text = candidate_reconciliation.topic_semantic_text
 _topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
 _topics_from_manual_timeline = manual_candidates.topics_from_manual_timeline
 _trim_report_topic_around_reviewed_topic = candidate_analysis._trim_report_topic_around_reviewed_topic

@@ -555,6 +555,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         from autoslice.analysis import (
             boundaries,
+            candidate_reconciliation,
             candidates,
             checkpoints,
             clip_scoring,
@@ -591,6 +592,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             content_normalization,
             boundaries,
             clip_policy,
+            candidate_reconciliation,
             candidates,
             titles,
             reporting,
@@ -1524,6 +1526,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         candidate_source = (
             ROOT / "src/autoslice/analysis/candidates.py"
         ).read_text(encoding="utf-8")
+        candidate_reconciliation_source = (
+            ROOT / "src/autoslice/analysis/candidate_reconciliation.py"
+        ).read_text(encoding="utf-8")
         manual_timeline_source = (
             ROOT / "src/autoslice/analysis/manual_timeline.py"
         ).read_text(encoding="utf-8")
@@ -1540,9 +1545,13 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "_sanitize_optimized_manual_entry",
         ):
             self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
-        self.assertIn(
+        self.assertNotIn(
             "manual_candidates.sanitize_optimized_manual_entry(",
             candidate_source,
+        )
+        self.assertIn(
+            "manual_candidates.sanitize_optimized_manual_entry(",
+            candidate_reconciliation_source,
         )
         self.assertNotIn("candidate_analysis.", manual_timeline_source)
         self.assertIn(
@@ -2114,6 +2123,143 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertIs(
             pipeline.TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
             clip_policy.TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
+        )
+
+    def test_candidate_reconciliation_has_one_owner_and_direct_consumers(self):
+        from autoslice import topic_engine
+        from autoslice.analysis import candidate_reconciliation, candidates
+
+        compatibility_owners = {
+            "_topic_semantic_text": "topic_semantic_text",
+            "_danmaku_topic_alignment": "danmaku_topic_alignment",
+            "_manual_entry_meaningfully_overlaps_topic": (
+                "manual_entry_meaningfully_overlaps_topic"
+            ),
+            "_reconcile_topic_manual_evidence": "reconcile_topic_manual_evidence",
+        }
+        for compatibility_name, owner_name in compatibility_owners.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(candidate_reconciliation, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+                self.assertEqual(
+                    candidate_reconciliation.FACADE_EXPORTS[compatibility_name],
+                    owner_name,
+                )
+                self.assertNotIn(
+                    compatibility_name,
+                    candidates.FACADE_EXPORTS,
+                )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"]["top_level_functions"]
+        }
+        owner_functions = [
+            item["name"]
+            for item in modules[
+                "autoslice.analysis.candidate_reconciliation"
+            ]["top_level_functions"]
+        ]
+        self.assertEqual(owner_functions, list(compatibility_owners.values()))
+        self.assertTrue(
+            set(compatibility_owners).isdisjoint(candidate_functions)
+        )
+        self.assertTrue(
+            set(compatibility_owners.values()).isdisjoint(candidate_functions)
+        )
+
+        owner_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/candidate_reconciliation.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        owner_local_calls = {
+            node.func.id
+            for node in ast.walk(owner_tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertGreaterEqual(
+            owner_local_calls,
+            {
+                "topic_semantic_text",
+                "manual_entry_meaningfully_overlaps_topic",
+            },
+        )
+        self.assertTrue(
+            set(compatibility_owners).isdisjoint(owner_local_calls)
+        )
+
+        candidates_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/candidates.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        direct_candidate_calls = {
+            node.func.attr
+            for node in ast.walk(candidates_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "candidate_reconciliation"
+        }
+        compatibility_calls = {
+            node.func.id
+            for node in ast.walk(candidates_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in compatibility_owners
+        }
+        self.assertGreaterEqual(
+            direct_candidate_calls,
+            {
+                "danmaku_topic_alignment",
+                "reconcile_topic_manual_evidence",
+            },
+        )
+        self.assertEqual(compatibility_calls, set())
+
+        candidate_bindings = {
+            target.id: node.value.attr
+            for node in candidates_tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "candidate_reconciliation"
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for compatibility_name, owner_name in compatibility_owners.items():
+            self.assertEqual(candidate_bindings[compatibility_name], owner_name)
+
+        topic_engine_tree = ast.parse(
+            (ROOT / "src/autoslice/topic_engine.py").read_text(encoding="utf-8")
+        )
+        direct_bindings = {
+            target.id: node.value.attr
+            for node in topic_engine_tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "candidate_reconciliation"
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for compatibility_name, owner_name in compatibility_owners.items():
+            self.assertEqual(direct_bindings[compatibility_name], owner_name)
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertNotIn(
+            (
+                "autoslice.analysis.candidate_reconciliation",
+                "autoslice.analysis.candidates",
+            ),
+            import_edges,
         )
 
     def test_topic_engine_compatibility_constants_follow_unique_owner(self):

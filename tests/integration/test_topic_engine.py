@@ -24,6 +24,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 install_test_external_boundary_guard()
 
 from autoslice import topic_engine
+from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
@@ -741,6 +742,7 @@ class CandidateReviewTests(unittest.TestCase):
             content_normalization,
             clip_policy,
             boundary_analysis,
+            candidate_reconciliation,
             candidate_analysis,
         )
         self.assertGreater(
