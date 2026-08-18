@@ -16,6 +16,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
+from autoslice.analysis import clip_review
 from autoslice.analysis import clip_review_candidates
 from autoslice.analysis import clip_review_prompt
 from autoslice.analysis import content_normalization
@@ -511,7 +512,7 @@ _refresh_topic_danmaku_evidence = candidate_analysis._refresh_topic_danmaku_evid
 _repair_short_topic_end = candidate_analysis._repair_short_topic_end
 _report_fact_lines = candidate_analysis._report_fact_lines
 _resolve_reviewed_report_overlaps = candidate_analysis._resolve_reviewed_report_overlaps
-_review_peak_selected_topics = candidate_analysis._review_peak_selected_topics
+_review_peak_selected_topics = clip_review.review_peak_selected_topics
 _reviewed_danmaku_ranking_score = danmaku_analysis._reviewed_danmaku_ranking_score
 _reviewed_topic_has_required_interest = candidate_analysis._reviewed_topic_has_required_interest
 _sanitize_optimized_manual_entry = candidate_analysis._sanitize_optimized_manual_entry

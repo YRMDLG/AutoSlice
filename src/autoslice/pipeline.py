@@ -22,6 +22,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
+from autoslice.analysis import clip_review
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import timeline as timeline_analysis
@@ -105,7 +106,7 @@ _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _high_energy_danmaku_peaks = candidate_analysis._high_energy_danmaku_peaks
 _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
-_review_peak_selected_topics = candidate_analysis._review_peak_selected_topics
+_review_peak_selected_topics = clip_review.review_peak_selected_topics
 _srt_video_duration = boundary_analysis._srt_video_duration
 _validate_unmatched_manual_topics = candidate_analysis._validate_unmatched_manual_topics
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
@@ -769,7 +770,7 @@ def run_pipeline_impl(
         peaks,
         avg_den,
     )
-    clip_review_warning = _review_peak_selected_topics(
+    clip_review_warning = clip_review.review_peak_selected_topics(
         accepted_topics,
         srt_segments=segs,
         peaks=peaks,
@@ -1255,7 +1256,7 @@ def retry_clip_review_from_artifacts_impl(
     if reuse_completed_review:
         clip_review_warning = None
     else:
-        clip_review_warning = _review_peak_selected_topics(
+        clip_review_warning = clip_review.review_peak_selected_topics(
             accepted_topics,
             srt_segments=srt_segments,
             peaks=peaks,
