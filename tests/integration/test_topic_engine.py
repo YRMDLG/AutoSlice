@@ -39,6 +39,7 @@ from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
 from autoslice import slice_encoding
 from autoslice import slicing as slicing_service
+from autoslice import timecode
 from autoslice.transcription import service as transcription_service
 from autoslice.llm_client import (
     LLMApiConfig,
@@ -8767,7 +8768,8 @@ class ManualTimelineTests(unittest.TestCase):
                     getattr(timeline_analysis, name),
                 )
         self.assertIs(topic_engine._read_docx_lines, timeline_analysis.read_docx_lines)
-        self.assertIs(topic_engine._parse_hms, timeline_analysis.parse_hms)
+        self.assertIs(topic_engine._parse_hms, timecode.parse_hms)
+        self.assertIs(timeline_analysis.parse_hms, timecode.parse_hms)
 
     def test_manual_star_with_only_normal_density_cannot_force_slice(self):
         topics = [{

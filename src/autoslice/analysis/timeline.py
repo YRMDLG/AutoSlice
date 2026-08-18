@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 from autoslice.runtime_config import TIMELINE_DIR
 from autoslice.streamer_profiles import current_streamer_profile, profile_identity_names
+from autoslice import timecode
 
 
 FACADE_EXPORTS = {
@@ -46,7 +47,6 @@ FACADE_EXPORTS = {
     'MANUAL_TIMELINE_TOPIC_PRE_SEC': 'MANUAL_TIMELINE_TOPIC_PRE_SEC',
     '_manual_alignment_score': '_manual_alignment_score',
     '_manual_text_supports_candidate': '_manual_text_supports_candidate',
-    '_parse_hms': 'parse_hms',
 }
 
 
@@ -77,6 +77,9 @@ MANUAL_TIMELINE_OPTIMIZATION_VERSION = 3
 MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC = 600
 
 MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC = 80
+
+
+parse_hms = timecode.parse_hms
 
 MANUAL_TIMELINE_ALIGNMENT_STEP_SEC = 20
 
@@ -295,8 +298,8 @@ def _parse_elapsed_timeline_report_lines(lines):
         match = topic_re.match(line)
         if match:
             try:
-                start = parse_hms(match.group("start"))
-                end = parse_hms(match.group("end"))
+                start = timecode.parse_hms(match.group("start"))
+                end = timecode.parse_hms(match.group("end"))
             except (TypeError, ValueError):
                 current = None
                 continue
@@ -519,10 +522,3 @@ def _align_manual_timeline_entries_to_srt(entries, srt_segments):
             fixed["alignment_source"] = "wall_clock_fallback"
         aligned_entries.append(fixed)
     return sorted(aligned_entries, key=lambda item: (item["start"], item.get("original_start", 0)))
-
-
-def parse_hms(s):
-    parts = s.split(":")
-    if len(parts) == 3:
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-    return int(parts[0]) * 60 + int(parts[1])

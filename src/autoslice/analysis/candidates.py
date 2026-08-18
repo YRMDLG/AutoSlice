@@ -8,7 +8,7 @@ import os
 import re
 from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import partial
 
 from autoslice.analysis import checkpoints as checkpoint_store
@@ -22,6 +22,7 @@ from autoslice.analysis import llm_execution
 from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
+from autoslice import timecode
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import (
     ClipCandidatePromptEvidence as _ClipCandidatePromptEvidence,
@@ -112,7 +113,6 @@ FACADE_EXPORTS = {
     '_validated_ai_focus_range': '_validated_ai_focus_range',
     '_write_topic_analysis_checkpoint': '_write_topic_analysis_checkpoint',
     'chunk_srt': 'chunk_srt',
-    'fmt_time': 'fmt_time',
     'parse_srt_text': 'parse_srt_text',
 }
 
@@ -257,7 +257,10 @@ _manual_alignment_score = timeline_analysis._manual_alignment_score
 _manual_text_supports_candidate = timeline_analysis._manual_text_supports_candidate
 
 
-_parse_hms = timeline_analysis.parse_hms
+_parse_hms = timecode.parse_hms
+
+
+fmt_time = timecode.format_elapsed
 
 
 LLMStructuredOutputError = llm_gateway.LLMStructuredOutputError
@@ -372,8 +375,6 @@ THANKS_TRIGGER_RE = clip_policy.THANKS_TRIGGER_RE
 
 
 
-def fmt_time(seconds):
-    return str(timedelta(seconds=int(seconds)))
 
 
 
@@ -455,7 +456,7 @@ def merge_manual_timeline_topics(topics, entries):
             if entry.get("stars", 0) <= 0:
                 continue
             stars = "⭐" * min(entry.get("stars", 0), 5)
-            line = f"●人工时间轴{stars}：{fmt_time(entry['start'])} {entry['text']}"
+            line = f"●人工时间轴{stars}：{timecode.format_elapsed(entry['start'])} {entry['text']}"
             if line not in body:
                 body.append(line)
         topic["body"] = body
@@ -481,13 +482,13 @@ def merge_manual_timeline_topics(topics, entries):
         topic = {
             "start": topic_start,
             "end": topic_end,
-            "start_str": fmt_time(topic_start),
-            "end_str": fmt_time(topic_end),
+            "start_str": timecode.format_elapsed(topic_start),
+            "end_str": timecode.format_elapsed(topic_end),
             "title": _manual_title_from_text(entry["text"]),
             "can_slice": False,
             "body": list(entry.get("summary") or []) + [
                 f"●人工时间轴{'⭐' * min(entry.get('stars', 0), 5)}："
-                f"{fmt_time(entry['start'])} {entry['text']}"
+                f"{timecode.format_elapsed(entry['start'])} {entry['text']}"
             ],
             "manual_stars": entry.get("stars", 0),
             "manual_timeline": [entry],
@@ -564,7 +565,7 @@ def _topics_from_manual_timeline(
         body.extend(_topic_danmaku_reference_lines(start, end, peaks or []))
         body.extend(_topic_srt_summary_lines(start, end, srt_segments or []))
         for item in group:
-            time_label = fmt_time(item["start"])
+            time_label = timecode.format_elapsed(item["start"])
             if item.get("stars", 0) > 0:
                 stars = "⭐" * min(item.get("stars", 0), 5)
                 body.append(f"●人工时间轴{stars}：{time_label} {item['text']}")
@@ -575,8 +576,8 @@ def _topics_from_manual_timeline(
         topic = {
             "start": start,
             "end": end,
-            "start_str": fmt_time(start),
-            "end_str": fmt_time(end),
+            "start_str": timecode.format_elapsed(start),
+            "end_str": timecode.format_elapsed(end),
             "title": _manual_title_from_text(title_entry["text"]),
             "can_slice": False,
             "body": body,
@@ -625,7 +626,7 @@ def chunk_srt(segs, peaks, chunk_sec=CHUNK_SEC):
                 ))
             chunk_start = start_s
             current_texts = []
-        time_label = fmt_time(start_s) if end_s <= start_s + 1 else f"{fmt_time(start_s)}－{fmt_time(end_s)}"
+        time_label = timecode.format_elapsed(start_s) if end_s <= start_s + 1 else f"{timecode.format_elapsed(start_s)}－{timecode.format_elapsed(end_s)}"
         current_texts.append(f"[{time_label}] {text}")
 
     if current_texts:
@@ -707,8 +708,8 @@ def _build_chunk_prompt(ch, index, total, compact=False, streamer_name=None):
             compact=bool(compact),
             chunk_index=index + 1,
             chunk_total=total,
-            start_label=fmt_time(chunk_start),
-            end_label=fmt_time(chunk_end),
+            start_label=timecode.format_elapsed(chunk_start),
+            end_label=timecode.format_elapsed(chunk_end),
             danmaku_info=str(ch["danmaku_info"]),
             danmaku_evidence=tuple(ch.get("danmaku_evidence") or ()),
             subtitle_text=str(ch["text"])[:text_limit],
@@ -825,8 +826,8 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
         try:
             start_str = str(item.get("start", "")).strip()
             end_str = str(item.get("end", "")).strip()
-            start_s = _parse_hms(start_str)
-            end_s = _parse_hms(end_str)
+            start_s = timecode.parse_hms(start_str)
+            end_s = timecode.parse_hms(end_str)
         except Exception:
             continue
         if not _is_topic_in_chunk(start_s, end_s, chunk_start, chunk_end):
@@ -849,7 +850,7 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
             "start": start_s,
             "end": end_s,
             "start_str": start_str,
-            "end_str": fmt_time(end_s),
+            "end_str": timecode.format_elapsed(end_s),
             "title": title,
             "publish_title": _normalise_publish_title(item.get("publish_title"), title),
             "can_slice": response_parsing.json_can_slice(
@@ -894,8 +895,8 @@ def _build_manual_topic_enrichment_prompt(topics, streamer_name=None, compact=Fa
         ]
         candidates.append({
             "id": index,
-            "start": fmt_time(topic["start"]),
-            "end": fmt_time(topic["end"]),
+            "start": timecode.format_elapsed(topic["start"]),
+            "end": timecode.format_elapsed(topic["end"]),
             "current_title": topic.get("title", "未命名片段"),
             "evidence": evidence,
             "subtitle_evidence": subtitle_evidence,
@@ -949,8 +950,8 @@ def _is_manual_ai_placeholder(value):
 def _validated_ai_focus_range(item, topic):
     """校验 AI 建议的语义核心范围；越界或过长时忽略，继续使用程序候选范围。"""
     try:
-        focus_start = _parse_hms(str(item.get("focus_start", "")))
-        focus_end = _parse_hms(str(item.get("focus_end", "")))
+        focus_start = timecode.parse_hms(str(item.get("focus_start", "")))
+        focus_end = timecode.parse_hms(str(item.get("focus_end", "")))
     except (TypeError, ValueError):
         return None
     source_start = int(topic["start"])
@@ -1027,8 +1028,8 @@ def _enriched_manual_topic_from_item(topic, item):
         enriched["reference_start"] = source_start
         enriched["reference_end"] = source_end
         enriched["start"], enriched["end"] = focus_range
-        enriched["start_str"] = fmt_time(enriched["start"])
-        enriched["end_str"] = fmt_time(enriched["end"])
+        enriched["start_str"] = timecode.format_elapsed(enriched["start"])
+        enriched["end_str"] = timecode.format_elapsed(enriched["end"])
         enriched["ai_focus_validated"] = True
     return enriched
 
@@ -1205,7 +1206,7 @@ def _optimized_entry_semantic_text(entry):
 def _manual_evidence_line(entry):
     stars = max(0, int(entry.get("stars", 0) or 0))
     prefix = f"●人工时间轴{'⭐' * min(stars, 5)}" if stars else "·时间轴"
-    return f"{prefix}：{fmt_time(int(entry.get('start', 0)))} {entry.get('text', '')}"
+    return f"{prefix}：{timecode.format_elapsed(int(entry.get('start', 0)))} {entry.get('text', '')}"
 
 
 def _sanitize_optimized_manual_entry(entry):
@@ -1294,7 +1295,7 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None, 
             "start": start_s,
             "end": end_s,
             "start_str": current["start_str"],
-            "end_str": fmt_time(end_s),
+            "end_str": timecode.format_elapsed(end_s),
             "title": title,
             "can_slice": current["can_slice"],
             "body": body_lines,
@@ -1318,8 +1319,8 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None, 
             current = {
                 "start_str": start_str,
                 "end_str": end_str,
-                "start": _parse_hms(start_str),
-                "end": _parse_hms(end_str),
+                "start": timecode.parse_hms(start_str),
+                "end": timecode.parse_hms(end_str),
                 "title": _clean_topic_title(raw_title),
                 "can_slice": response_parsing.is_slice_marked(raw_title),
                 "body": [],
@@ -1360,8 +1361,8 @@ def _make_fallback_topic_from_chunk(ch, streamer_name=None):
     topic = {
         "start": int(ch["start"]),
         "end": int(ch.get("end", ch["start"] + CHUNK_SEC)),
-        "start_str": fmt_time(ch["start"]),
-        "end_str": fmt_time(ch.get("end", ch["start"] + CHUNK_SEC)),
+        "start_str": timecode.format_elapsed(ch["start"]),
+        "end_str": timecode.format_elapsed(ch.get("end", ch["start"] + CHUNK_SEC)),
         "title": title,
         "can_slice": False,
         "body": [
@@ -1516,7 +1517,7 @@ def _assign_topic_slice_window(topic, peaks):
     body = list(fixed.get("body") or [])
     note = (
         f"·切片核心：完整话题较长，实际切片围绕弹幕峰值"
-        f"{fmt_time(peak_focus['anchor'])}截取，保留峰值前后完整反应"
+        f"{timecode.format_elapsed(peak_focus['anchor'])}截取，保留峰值前后完整反应"
     )
     if note not in body:
         body.append(note)
@@ -1746,8 +1747,8 @@ def _trim_report_topic_around_reviewed_topic(topic, reviewed_topic, trim_start):
             continue
         body.append(line)
     fixed["body"] = body
-    fixed["start_str"] = fmt_time(fixed["start"])
-    fixed["end_str"] = fmt_time(fixed["end"])
+    fixed["start_str"] = timecode.format_elapsed(fixed["start"])
+    fixed["end_str"] = timecode.format_elapsed(fixed["end"])
     fixed = _reconcile_topic_manual_evidence(fixed)
 
     if removed_fact:
@@ -1893,7 +1894,7 @@ def _refresh_topic_danmaku_evidence(topic, peaks):
     evidence = None
     if best:
         peak_start, density = best
-        evidence = f"·弹幕依据：{fmt_time(peak_start)} 附近峰值约 {density:.0f} 条/分钟"
+        evidence = f"·弹幕依据：{timecode.format_elapsed(peak_start)} 附近峰值约 {density:.0f} 条/分钟"
     body = []
     inserted = False
     for line in topic.get("body") or []:
@@ -2526,7 +2527,7 @@ def analyze_topic_chunks(
                 "index": index + 1,
                 "start": int(chunk_start),
                 "end": int(chunk_end),
-                "time": fmt_time(chunk_start),
+                "time": timecode.format_elapsed(chunk_start),
                 "error": _short_llm_error(error),
             })
             fallback_topic = _make_fallback_topic_from_chunk(
@@ -2572,7 +2573,7 @@ def _fresh_manual_topic_evidence(topic, srt_segments=None, peaks=None):
             stars = int(source_entry.get("stars", entry.get("stars", 0)))
             prefix = f"●人工时间轴{'⭐' * min(stars, 5)}" if stars else "·时间轴"
             line = (
-                f"{prefix}：{fmt_time(int(source_entry.get('start', start)))} "
+                f"{prefix}：{timecode.format_elapsed(int(source_entry.get('start', start)))} "
                 f"{source_entry.get('text', '')}"
             )
             if line not in body:
@@ -2590,8 +2591,8 @@ def _clip_review_candidate(
     candidate = dict(topic)
     candidate["start"] = review_start
     candidate["end"] = review_end
-    candidate["start_str"] = fmt_time(review_start)
-    candidate["end_str"] = fmt_time(review_end)
+    candidate["start_str"] = timecode.format_elapsed(review_start)
+    candidate["end_str"] = timecode.format_elapsed(review_end)
     core_subtitle_evidence = _topic_srt_summary_lines(
         source_start,
         source_end,
@@ -2657,9 +2658,9 @@ def _build_clip_candidate_review_prompt(candidates, streamer_name=None, compact=
         ]
         payload.append({
             "id": index,
-            "reference_start": fmt_time(candidate["start"]),
-            "reference_end": fmt_time(candidate["end"]),
-            "candidate_anchor": fmt_time(candidate.get("slice_anchor", candidate["start"])),
+            "reference_start": timecode.format_elapsed(candidate["start"]),
+            "reference_end": timecode.format_elapsed(candidate["end"]),
+            "candidate_anchor": timecode.format_elapsed(candidate.get("slice_anchor", candidate["start"])),
             "candidate_sources": list(candidate.get("clip_candidate_sources") or []),
             "provisional_title": candidate.get("title", "待核查高能片段"),
             "reference_publish_titles": _clip_candidate_reference_publish_titles(candidate),

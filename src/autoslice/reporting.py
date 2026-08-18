@@ -8,6 +8,7 @@ import re
 import threading
 from datetime import datetime
 
+from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.artifact_store import (
@@ -65,8 +66,8 @@ FACADE_EXPORTS = {
 
 _clean_topic_title = candidate_analysis._clean_topic_title
 _filter_unsupported_ai_points = candidate_analysis._filter_unsupported_ai_points
-_parse_hms = candidate_analysis._parse_hms
-fmt_time = candidate_analysis.fmt_time
+_parse_hms = timecode.parse_hms
+fmt_time = timecode.format_elapsed
 _replace_streamer_role = candidate_analysis._replace_streamer_role
 _format_report_time = candidate_analysis._format_report_time
 _dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
@@ -128,8 +129,8 @@ def parse_generated_topic_report(report_path):
         match = _GENERATED_REPORT_TOPIC_RE.match(line)
         if match:
             try:
-                start = _parse_hms(match.group("start"))
-                end = _parse_hms(match.group("end"))
+                start = timecode.parse_hms(match.group("start"))
+                end = timecode.parse_hms(match.group("end"))
             except (TypeError, ValueError):
                 current = None
                 continue
@@ -141,8 +142,8 @@ def parse_generated_topic_report(report_path):
             current = {
                 "start": start,
                 "end": end,
-                "start_str": fmt_time(start),
-                "end_str": fmt_time(end),
+                "start_str": timecode.format_elapsed(start),
+                "end_str": timecode.format_elapsed(end),
                 "title": title,
                 "body": [],
                 "can_slice": False,

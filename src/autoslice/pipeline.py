@@ -16,6 +16,7 @@ from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
+from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
@@ -65,7 +66,7 @@ analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = candidate_analysis.parse_srt_text
 parse_srt_segments = boundary_analysis.parse_srt_segments
 chunk_srt = candidate_analysis.chunk_srt
-fmt_time = candidate_analysis.fmt_time
+fmt_time = timecode.format_elapsed
 load_manual_timeline = timeline_analysis.load_manual_timeline
 
 DanmakuDensitySeries = danmaku_analysis.DanmakuDensitySeries
@@ -198,13 +199,13 @@ def write_optimized_timeline_files(
             else "低权重参考"
         )
         lines.append(
-            f"## {index:02d} [{fmt_time(entry['start'])}－{fmt_time(entry['end'])}] "
+            f"## {index:02d} [{timecode.format_elapsed(entry['start'])}－{timecode.format_elapsed(entry['end'])}] "
             f"{entry.get('text', '未命名话题')}{stars}"
         )
         lines.append(f"- 状态: {confidence}")
         adjustments = [
-            f"{fmt_time(item.get('original_start', item.get('start', 0)))}→"
-            f"{fmt_time(item.get('start', 0))} ({int(item.get('alignment_shift_sec', 0)):+d}秒)"
+            f"{timecode.format_elapsed(item.get('original_start', item.get('start', 0)))}→"
+            f"{timecode.format_elapsed(item.get('start', 0))} ({int(item.get('alignment_shift_sec', 0)):+d}秒)"
             for item in entry.get("original_entries") or []
             if int(item.get("alignment_shift_sec", 0)) != 0
         ]

@@ -551,6 +551,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             slice_encoding,
             slice_reuse,
             slicing,
+            timecode,
         )
         from autoslice.analysis import (
             boundaries,
@@ -573,6 +574,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.transcription import workflow as transcription_workflow
 
         owners = (
+            timecode,
             media_probe,
             transcription_model_runtime,
             transcription_results,
@@ -854,6 +856,42 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         }
         self.assertTrue(owner_functions)
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+    def test_timecode_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline, reporting, timecode
+        from autoslice.analysis import candidates, timeline
+
+        self.assertIs(candidates.fmt_time, timecode.format_elapsed)
+        self.assertIs(candidates._parse_hms, timecode.parse_hms)
+        self.assertIs(timeline.parse_hms, timecode.parse_hms)
+        self.assertIs(pipeline.fmt_time, timecode.format_elapsed)
+        self.assertIs(reporting.fmt_time, timecode.format_elapsed)
+        self.assertIs(reporting._parse_hms, timecode.parse_hms)
+        self.assertIs(topic_engine.fmt_time, timecode.format_elapsed)
+        self.assertIs(topic_engine._parse_hms, timecode.parse_hms)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.timecode"]["top_level_functions"]
+        }
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        timeline_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.timeline"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(owner_functions, {"format_elapsed", "parse_hms"})
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+        self.assertTrue(owner_functions.isdisjoint(timeline_functions))
 
     def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
         import topic_engine

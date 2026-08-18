@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
@@ -25,10 +26,10 @@ def format_manual_entry_for_prompt(entry):
     stars = "⭐" * min(int(entry.get("stars", 0)), 5)
     prefix = f"{stars} " if stars else ""
     clock = entry.get("clock")
-    elapsed_label = candidate_analysis.fmt_time(entry["start"])
+    elapsed_label = timecode.format_elapsed(entry["start"])
     if entry.get("end") is not None and int(entry["end"]) > int(entry["start"]):
         elapsed_label = (
-            f"{elapsed_label}-{candidate_analysis.fmt_time(entry['end'])}"
+            f"{elapsed_label}-{timecode.format_elapsed(entry['end'])}"
         )
     time_label = f"{elapsed_label} / {clock}" if clock else elapsed_label
     summary = "；".join(
@@ -192,7 +193,7 @@ def topic_from_optimized_entry(entry, srt_segments, peaks):
         stars = int(item.get("stars", 0))
         prefix = f"●人工时间轴{'⭐' * min(stars, 5)}" if stars else "·时间轴"
         line = (
-            f"{prefix}：{candidate_analysis.fmt_time(int(item.get('start', start)))} "
+            f"{prefix}：{timecode.format_elapsed(int(item.get('start', start)))} "
             f"{item.get('text', '')}"
         )
         if line not in body:
@@ -200,8 +201,8 @@ def topic_from_optimized_entry(entry, srt_segments, peaks):
     return {
         "start": start,
         "end": end,
-        "start_str": candidate_analysis.fmt_time(start),
-        "end_str": candidate_analysis.fmt_time(end),
+        "start_str": timecode.format_elapsed(start),
+        "end_str": timecode.format_elapsed(end),
         "title": entry.get("text", "人工时间轴重点"),
         "publish_title": entry.get("publish_title"),
         "body": body,

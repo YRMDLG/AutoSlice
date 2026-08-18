@@ -29,6 +29,7 @@ from autoslice import media_probe
 from autoslice import slice_encoding, slice_reuse
 from autoslice import slicing as slicing_service
 from autoslice import pipeline as pipeline_service
+from autoslice import timecode
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import (
     ClipCandidatePromptEvidence as _ClipCandidatePromptEvidence,
@@ -494,7 +495,7 @@ _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
 _overlap_ratio = boundary_analysis._overlap_ratio
 _parse_clip_interest_score = clip_scoring.parse_clip_interest_score
 _parse_clip_star_bonus = clip_scoring.parse_clip_star_bonus
-_parse_hms = timeline_analysis.parse_hms
+_parse_hms = timecode.parse_hms
 _parse_json_topics_response = candidate_analysis._parse_json_topics_response
 _parse_llm_response = candidate_analysis._parse_llm_response
 _profile_identity_names = transcription_service.profile_identity_names
@@ -535,7 +536,7 @@ _write_clip_review_checkpoint = checkpoint_store.write_clip_review_checkpoint
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
 _write_topic_analysis_checkpoint = candidate_analysis._write_topic_analysis_checkpoint
 chunk_srt = candidate_analysis.chunk_srt
-fmt_time = candidate_analysis.fmt_time
+fmt_time = timecode.format_elapsed
 parse_srt_segments = boundary_analysis.parse_srt_segments
 parse_srt_text = candidate_analysis.parse_srt_text
 
@@ -737,7 +738,10 @@ def main(argv=None):
         print(f"\n报告: {result['md_path']}")
         print(f"切片标记: {len(result['clip_marks'])} 个")
         for cm in result['clip_marks'][:10]:
-            print(f"  [{fmt_time(cm['start'])}-{fmt_time(cm['end'])}] {cm['title']}")
+            print(
+                f"  [{timecode.format_elapsed(cm['start'])}-"
+                f"{timecode.format_elapsed(cm['end'])}] {cm['title']}"
+            )
         return 0
     else:
         print("用法: python topic_engine.py <视频文件>")
