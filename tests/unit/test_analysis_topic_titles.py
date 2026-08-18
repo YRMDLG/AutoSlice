@@ -15,7 +15,7 @@ FACADE_PATH = SRC_ROOT / "analysis" / "titles.py"
 TOPIC_INIT_PATH = SRC_ROOT / "analysis" / "topic" / "__init__.py"
 
 TITLE_CONSUMERS = (
-    "src/autoslice/analysis/candidate_reconciliation.py",
+    "src/autoslice/analysis/review/reconciliation.py",
     "src/autoslice/analysis/topic/analysis.py",
     "src/autoslice/analysis/candidates.py",
     "src/autoslice/analysis/review/prompt.py",

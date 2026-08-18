@@ -71,6 +71,7 @@ DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
     "task_store",
     "topic_engine",
     "启动",
+    "autoslice.analysis.candidate_reconciliation",
     "autoslice.analysis.chunking",
     "autoslice.analysis.clip_policy",
     "autoslice.analysis.clip_review",
@@ -568,7 +569,6 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         from autoslice.analysis import (
             boundaries,
-            candidate_reconciliation,
             candidates,
             checkpoints,
             danmaku,
@@ -582,6 +582,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.report import formatting as topic_formatting
         from autoslice.analysis.manual import workflow as manual_workflow
         from autoslice.analysis.review import policy as clip_policy
+        from autoslice.analysis.review import (
+            reconciliation as candidate_reconciliation,
+        )
         from autoslice.analysis.review import scoring as clip_scoring
         from autoslice.analysis.topic import normalization, response, titles
         from autoslice.transcription import model_runtime as transcription_model_runtime
@@ -2114,7 +2117,6 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         import topic_engine
         from autoslice import pipeline
         from autoslice.analysis import (
-            candidate_reconciliation,
             candidates,
             manual_candidates as legacy_manual_candidates,
             timeline as legacy_timeline,
@@ -2125,6 +2127,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.manual import workflow as manual_timeline
         from autoslice.analysis.report import cleanup as report_cleanup
         from autoslice.analysis.review import policy as clip_policy
+        from autoslice.analysis.review import (
+            reconciliation as candidate_reconciliation,
+        )
 
         timebase_aliases = {
             "MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE": (
@@ -2433,7 +2438,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "src/autoslice/analysis/manual/candidates.py": {
                 "manual_text_supports_candidate",
             },
-            "src/autoslice/analysis/candidate_reconciliation.py": {
+            "src/autoslice/analysis/review/reconciliation.py": {
                 "manual_alignment_score",
                 "manual_text_supports_candidate",
             },
@@ -2486,7 +2491,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_timebase = "autoslice.analysis.timeline"
         legacy_candidates = "autoslice.analysis.manual_candidates"
         timebase_consumer_names = {
-            "autoslice.analysis.candidate_reconciliation",
+            "autoslice.analysis.review.reconciliation",
             "autoslice.analysis.candidates",
             "autoslice.analysis.manual.review",
             "autoslice.analysis.manual.workflow",
@@ -2495,7 +2500,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.topic_engine",
         }
         candidate_consumer_names = {
-            "autoslice.analysis.candidate_reconciliation",
+            "autoslice.analysis.review.reconciliation",
             "autoslice.analysis.candidates",
             "autoslice.analysis.manual.workflow",
             "autoslice.pipeline",
@@ -3146,7 +3151,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.clip_policy"
         consumers = {
             "autoslice.analysis.boundaries",
-            "autoslice.analysis.candidate_reconciliation",
+            "autoslice.analysis.review.reconciliation",
             "autoslice.analysis.candidates",
             "autoslice.analysis.manual.candidates",
             "autoslice.analysis.manual.enrichment",
@@ -3182,7 +3187,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_candidate_reconciliation_has_one_owner_and_direct_consumers(self):
         from autoslice import topic_engine
-        from autoslice.analysis import candidate_reconciliation, candidates
+        from autoslice.analysis import (
+            candidate_reconciliation as legacy_candidate_reconciliation,
+        )
+        from autoslice.analysis import candidates, slice_decisions
+        from autoslice.analysis.report import cleanup as report_cleanup
+        from autoslice.analysis.review import reconciliation as candidate_reconciliation
 
         compatibility_owners = {
             "_topic_semantic_text": "topic_semantic_text",
@@ -3192,6 +3202,18 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             ),
             "_reconcile_topic_manual_evidence": "reconcile_topic_manual_evidence",
         }
+        self.assertIs(
+            legacy_candidate_reconciliation.FACADE_EXPORTS,
+            candidate_reconciliation.FACADE_EXPORTS,
+        )
+        for name, value in vars(candidate_reconciliation).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(facade_name=name):
+                self.assertIs(
+                    getattr(legacy_candidate_reconciliation, name),
+                    value,
+                )
         for compatibility_name, owner_name in compatibility_owners.items():
             with self.subTest(name=compatibility_name):
                 owner = getattr(candidate_reconciliation, owner_name)
@@ -3206,6 +3228,19 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                     candidates.FACADE_EXPORTS,
                 )
 
+        direct_consumers = {
+            candidates,
+            report_cleanup,
+            slice_decisions,
+            topic_engine,
+        }
+        for consumer in direct_consumers:
+            with self.subTest(direct_consumer=consumer.__name__):
+                self.assertIs(
+                    consumer.candidate_reconciliation,
+                    candidate_reconciliation,
+                )
+
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
         candidate_functions = {
@@ -3215,10 +3250,16 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         owner_functions = [
             item["name"]
             for item in modules[
-                "autoslice.analysis.candidate_reconciliation"
+                "autoslice.analysis.review.reconciliation"
             ]["top_level_functions"]
         ]
         self.assertEqual(owner_functions, list(compatibility_owners.values()))
+        legacy_module_record = modules[
+            "autoslice.analysis.candidate_reconciliation"
+        ]
+        self.assertEqual(legacy_module_record["line_count"], 10)
+        self.assertEqual(legacy_module_record["top_level_functions"], [])
+        self.assertEqual(legacy_module_record["top_level_classes"], [])
         self.assertTrue(
             set(compatibility_owners).isdisjoint(candidate_functions)
         )
@@ -3227,9 +3268,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
 
         owner_tree = ast.parse(
-            (ROOT / "src/autoslice/analysis/candidate_reconciliation.py").read_text(
-                encoding="utf-8"
-            )
+            (
+                ROOT
+                / "src/autoslice/analysis/review/reconciliation.py"
+            ).read_text(encoding="utf-8")
         )
         owner_local_calls = {
             node.func.id
@@ -3313,13 +3355,62 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             (edge["from"], edge["to"])
             for edge in current["import_edges"]
         }
-        self.assertNotIn(
-            (
-                "autoslice.analysis.candidate_reconciliation",
-                "autoslice.analysis.candidates",
-            ),
-            import_edges,
+        owner_module = "autoslice.analysis.review.reconciliation"
+        legacy_module = "autoslice.analysis.candidate_reconciliation"
+        direct_consumer_names = {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.report.cleanup",
+            "autoslice.analysis.slice_decisions",
+            "autoslice.topic_engine",
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if target == owner_module
+            },
+            direct_consumer_names | {legacy_module},
         )
+        production_modules = {
+            module["module"]
+            for module in current["modules"]
+            if module["path"].startswith("src/")
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if source in production_modules and target == legacy_module
+            },
+            set(),
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == owner_module
+            },
+            {
+                "autoslice.analysis.danmaku",
+                "autoslice.analysis.manual.candidates",
+                "autoslice.analysis.manual.timebase",
+                "autoslice.analysis.review.policy",
+                "autoslice.analysis.topic.titles",
+            },
+        )
+        self.assertFalse(
+            any(
+                source.startswith("autoslice.analysis.review")
+                and target == legacy_module
+                for source, target in import_edges
+            )
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_report_cleanup_has_one_owner_and_direct_consumers(self):
         from autoslice import pipeline, topic_engine

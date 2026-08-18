@@ -1,13 +1,54 @@
+import ast
 import copy
 import math
 import unittest
+from pathlib import Path
 
-from autoslice.analysis import candidate_reconciliation
+from autoslice.analysis import candidate_reconciliation as legacy_reconciliation
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.review import reconciliation as candidate_reconciliation
+
+ROOT = Path(__file__).resolve().parents[2]
+OWNER_PATH = ROOT / "src/autoslice/analysis/review/reconciliation.py"
+FACADE_PATH = ROOT / "src/autoslice/analysis/candidate_reconciliation.py"
 
 
 class CandidateReconciliationTests(unittest.TestCase):
+    def test_owner_has_four_functions_and_facade_forwards_by_identity(self):
+        definition_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+        owner_tree = ast.parse(OWNER_PATH.read_text(encoding="utf-8"))
+        facade_tree = ast.parse(FACADE_PATH.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            [
+                node.name
+                for node in owner_tree.body
+                if isinstance(node, definition_types)
+            ],
+            [
+                "topic_semantic_text",
+                "danmaku_topic_alignment",
+                "manual_entry_meaningfully_overlaps_topic",
+                "reconcile_topic_manual_evidence",
+            ],
+        )
+        self.assertFalse(
+            any(
+                isinstance(node, (*definition_types, ast.ClassDef))
+                for node in facade_tree.body
+            )
+        )
+        self.assertIs(
+            legacy_reconciliation.FACADE_EXPORTS,
+            candidate_reconciliation.FACADE_EXPORTS,
+        )
+        for name, value in vars(candidate_reconciliation).items():
+            if name.startswith("__"):
+                continue
+            with self.subTest(name=name):
+                self.assertIs(getattr(legacy_reconciliation, name), value)
+
     def test_empty_values_return_empty_semantics_and_compatible_topic_copy(self):
         topic = {}
 

@@ -12,7 +12,7 @@ OWNER_MODULE = "autoslice.analysis.review.policy"
 LEGACY_MODULE = "autoslice.analysis.clip_policy"
 POLICY_CONSUMERS = {
     "autoslice.analysis.boundaries",
-    "autoslice.analysis.candidate_reconciliation",
+    "autoslice.analysis.review.reconciliation",
     "autoslice.analysis.candidates",
     "autoslice.analysis.manual.candidates",
     "autoslice.analysis.manual.enrichment",
@@ -110,7 +110,14 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
         self.assertEqual(imports, [])
         self.assertEqual(
             declared,
-            ["candidates", "policy", "prompt", "scoring", "workflow"],
+            [
+                "candidates",
+                "policy",
+                "prompt",
+                "reconciliation",
+                "scoring",
+                "workflow",
+            ],
         )
 
     def test_policy_consumers_import_owner_and_no_production_uses_facade(self):

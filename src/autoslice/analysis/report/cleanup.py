@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
-from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.review import reconciliation as candidate_reconciliation
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.analysis.topic import normalization
 

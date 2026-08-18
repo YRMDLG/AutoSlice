@@ -148,7 +148,14 @@ class ClipReviewPromptTests(unittest.TestCase):
         self.assertEqual(imports, [])
         self.assertEqual(
             declared,
-            ["candidates", "policy", "prompt", "scoring", "workflow"],
+            [
+                "candidates",
+                "policy",
+                "prompt",
+                "reconciliation",
+                "scoring",
+                "workflow",
+            ],
         )
 
     def test_payload_keeps_time_sources_titles_and_evidence_channels(self):
