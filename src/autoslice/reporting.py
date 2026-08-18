@@ -11,7 +11,7 @@ from datetime import datetime
 from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
-from autoslice.analysis import topic_formatting
+from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
     ARTIFACT_QUEUE_DIRNAME,
@@ -106,8 +106,8 @@ REFINEMENT_WORKFLOW_STEPS = (
 
 _GENERATED_REPORT_TOPIC_RE = re.compile(
     r'^\s*(?:[①-⑳㉑-㊿]|\d+[.、)])\s*'
-    rf'\[\s*(?P<start>\d{{1,3}}:\d{{2}}(?::\d{{2}})?)\s*[－—–~-]\s*'
-    rf'(?P<end>\d{{1,3}}:\d{{2}}(?::\d{{2}})?)\s*\]\s*(?P<title>.+?)\s*$'
+    r'\[\s*(?P<start>\d{1,3}:\d{2}(?::\d{2})?)\s*[－—–~-]\s*'
+    r'(?P<end>\d{1,3}:\d{2}(?::\d{2})?)\s*\]\s*(?P<title>.+?)\s*$'
 )
 
 

@@ -1,6 +1,6 @@
 import unittest
 
-from autoslice.analysis import topic_formatting
+from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.streamer_profiles import streamer_profile_context
 
 

@@ -18,12 +18,12 @@ from autoslice.analysis import llm_execution
 from autoslice.analysis import manual_enrichment
 from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_review
-from autoslice.analysis import report_cleanup
+from autoslice.analysis.report import cleanup as report_cleanup
+from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import response_parsing
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
-from autoslice.analysis import topic_formatting
 from autoslice.analysis import titles as title_analysis
 from autoslice import timecode
 from autoslice.llm import transport as llm_gateway
@@ -42,7 +42,6 @@ FACADE_EXPORTS = {
     'LLM_FULL_TEXT_CHARS': 'LLM_FULL_TEXT_CHARS',
     'LLM_MAX_TOKENS': 'LLM_MAX_TOKENS',
     'MAX_INITIAL_FAILED_CHUNKS': 'MAX_INITIAL_FAILED_CHUNKS',
-    '_CIRCLED_NUMBERS': '_CIRCLED_NUMBERS',
     '_HEADING_RE': '_HEADING_RE',
     '_MANUAL_AI_PLACEHOLDER_PHRASES': '_MANUAL_AI_PLACEHOLDER_PHRASES',
     '_analyze_topic_chunks': 'analyze_topic_chunks',
@@ -54,8 +53,6 @@ FACADE_EXPORTS = {
     '_enrich_manual_topics_with_llm': 'enrich_manual_topics_with_llm',
     '_enriched_manual_topic_from_item': '_enriched_manual_topic_from_item',
     '_extract_json_payload': '_extract_json_payload',
-    '_format_report_time': '_format_report_time',
-    '_format_topic_block': '_format_topic_block',
     '_fresh_manual_topic_evidence': '_fresh_manual_topic_evidence',
     '_is_manual_ai_placeholder': '_is_manual_ai_placeholder',
     '_is_manual_merge_target': '_is_manual_merge_target',
@@ -77,7 +74,6 @@ FACADE_EXPORTS = {
     '_strip_code_fence': '_strip_code_fence',
     '_strip_prompt_time_labels': '_strip_prompt_time_labels',
     '_topic_analysis_prompt_fingerprint': '_topic_analysis_prompt_fingerprint',
-    '_topic_index_label': '_topic_index_label',
     '_topics_from_manual_timeline': '_topics_from_manual_timeline',
     '_validate_unmatched_manual_topics': '_validate_unmatched_manual_topics',
     '_validated_ai_focus_range': '_validated_ai_focus_range',

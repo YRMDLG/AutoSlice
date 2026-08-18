@@ -34,7 +34,8 @@ from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
-from autoslice.analysis import report_cleanup
+from autoslice.analysis.report import cleanup as report_cleanup
+from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import response_parsing
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import timeline as timeline_analysis
@@ -746,6 +747,7 @@ class CandidateReviewTests(unittest.TestCase):
             boundary_analysis,
             candidate_reconciliation,
             report_cleanup,
+            topic_formatting,
             slice_decisions,
             candidate_analysis,
         )

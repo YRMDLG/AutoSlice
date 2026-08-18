@@ -30,11 +30,11 @@ from autoslice.analysis import manual_enrichment
 from autoslice.analysis import manual_review
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import response_parsing
-from autoslice.analysis import report_cleanup
+from autoslice.analysis.report import cleanup as report_cleanup
+from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
-from autoslice.analysis import topic_formatting
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
 from autoslice import media_probe

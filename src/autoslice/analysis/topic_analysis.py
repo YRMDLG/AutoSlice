@@ -15,10 +15,10 @@ from autoslice.analysis import (
     content_normalization,
     llm_execution,
     response_parsing,
-    topic_formatting,
 )
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import TopicAnalysisPromptEvidence
 from autoslice.llm.prompts import (

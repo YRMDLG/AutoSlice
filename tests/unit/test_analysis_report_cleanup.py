@@ -1,8 +1,8 @@
 import copy
 import unittest
 
-from autoslice.analysis import report_cleanup
 from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.streamer_profiles import streamer_profile_context
 
 
