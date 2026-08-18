@@ -6,12 +6,12 @@ import os
 import re
 import shutil
 
+from autoslice import media_probe
 from autoslice.media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
     compatible_output_extensions,
     normalise_video_extension,
 )
-from autoslice.transcription import service as transcription_service
 
 FACADE_EXPORTS = {
     "_GENERATED_VIDEO_SUFFIX_PATTERN": "_GENERATED_VIDEO_SUFFIX_PATTERN",
@@ -48,7 +48,7 @@ _GENERATED_TOPIC_TEMP_RE = re.compile(
 )
 
 
-probe_video_duration = transcription_service.probe_video_duration
+probe_video_duration = media_probe.probe_video_duration
 
 
 def cleanup_stale_topic_clips(report_dir, preserve_names=None):

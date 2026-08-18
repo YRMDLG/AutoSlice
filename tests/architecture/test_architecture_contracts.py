@@ -545,6 +545,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_phase6_facades_keep_every_owner_object_identity(self):
         import topic_engine
         from autoslice import (
+            media_probe,
             pipeline,
             reporting,
             slice_encoding,
@@ -566,6 +567,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.transcription import service as transcription
 
         owners = (
+            media_probe,
             transcription_model_runtime,
             transcription_results,
             transcription,
@@ -705,6 +707,37 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 pipeline_functions
             )
         )
+
+    def test_media_probe_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import media_probe, pipeline, slice_reuse, slicing
+        from autoslice.transcription import service
+
+        owner = media_probe.probe_video_duration
+        self.assertIs(service.probe_video_duration, owner)
+        self.assertIs(pipeline.probe_video_duration, owner)
+        self.assertIs(slice_reuse.probe_video_duration, owner)
+        self.assertIs(slicing.probe_video_duration, owner)
+        self.assertIs(topic_engine._probe_video_duration, owner)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.media_probe"]["top_level_functions"]
+        }
+        self.assertEqual(owner_functions, {"probe_video_duration"})
+        for module_name in (
+            "autoslice.pipeline",
+            "autoslice.slice_reuse",
+            "autoslice.slicing",
+            "autoslice.transcription.service",
+        ):
+            functions = {
+                item["name"]
+                for item in modules[module_name]["top_level_functions"]
+            }
+            self.assertTrue(owner_functions.isdisjoint(functions))
 
     def test_funasr_results_have_one_owner_and_direct_consumers(self):
         import topic_engine

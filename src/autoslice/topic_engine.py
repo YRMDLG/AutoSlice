@@ -20,6 +20,7 @@ from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
+from autoslice import media_probe
 from autoslice import slice_encoding, slice_reuse
 from autoslice import slicing as slicing_service
 from autoslice import pipeline as pipeline_service
@@ -141,7 +142,7 @@ _segment_timed_tokens = transcription_segments.segment_timed_tokens
 _segments_from_funasr_result = transcription_segments.segments_from_funasr_result
 _read_srt_entries = transcription_srt_io.read_srt_entries
 export_corrected_srt = transcription_srt_io.export_corrected_srt
-_probe_video_duration = transcription_service.probe_video_duration
+_probe_video_duration = media_probe.probe_video_duration
 _prepare_funasr_environment = transcription_model_runtime.prepare_funasr_environment
 _funasr_model_cache_candidates = (
     transcription_model_runtime.funasr_model_cache_candidates

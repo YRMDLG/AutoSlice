@@ -6,6 +6,7 @@ import json
 import os
 
 from autoslice import reporting as reporting_service
+from autoslice import media_probe
 from autoslice import slice_encoding, slice_planning, slice_reuse
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.media_formats import (
@@ -14,7 +15,6 @@ from autoslice.media_formats import (
     is_sliceable_video,
 )
 from autoslice.streamer_profiles import streamer_profile_context
-from autoslice.transcription import service as transcription_service
 
 FACADE_EXPORTS = {
     '_validated_video_path': 'validate_video_path',
@@ -27,7 +27,7 @@ _dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _srt_video_duration = boundary_analysis._srt_video_duration
 parse_srt_segments = boundary_analysis.parse_srt_segments
-probe_video_duration = transcription_service.probe_video_duration
+probe_video_duration = media_probe.probe_video_duration
 
 _GENERATED_VIDEO_SUFFIX_PATTERN = slice_reuse._GENERATED_VIDEO_SUFFIX_PATTERN
 _GENERATED_TOPIC_ARTIFACT_RE = slice_reuse._GENERATED_TOPIC_ARTIFACT_RE

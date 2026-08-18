@@ -6,6 +6,7 @@ import math
 import os
 from datetime import datetime
 
+from autoslice import media_probe
 from autoslice.transcription import (
     checkpoints as checkpoint_store,
     model_runtime,
@@ -26,7 +27,6 @@ FACADE_EXPORTS = {
     'FUNASR_CHECKPOINT_VERSION': 'FUNASR_CHECKPOINT_VERSION',
     'FUNASR_CHUNK_PRE_CONTEXT_SEC': 'FUNASR_CHUNK_PRE_CONTEXT_SEC',
     'FUNASR_CHUNK_SEC': 'FUNASR_CHUNK_SEC',
-    '_probe_video_duration': 'probe_video_duration',
     '_funasr_model_runtime_signature': '_funasr_model_runtime_signature',
     '_funasr_checkpoint_path': 'funasr_checkpoint_path',
     '_funasr_source_fingerprint': '_funasr_source_fingerprint',
@@ -109,29 +109,7 @@ parse_srt_timestamp = subtitle_segments.parse_srt_timestamp
 _read_srt_entries = srt_io.read_srt_entries
 _load_repaired_srt_segments = srt_io.load_repaired_srt_segments
 export_corrected_srt = srt_io.export_corrected_srt
-
-
-def probe_video_duration(video_path):
-    """用 ffprobe 获取当前分段视频的精确时长；失败时返回 None。"""
-    if not video_path or not os.path.isfile(video_path):
-        return None
-    import subprocess as sp
-    try:
-        result = sp.run(
-            [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", video_path,
-            ],
-            check=True,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-            encoding="utf-8",
-            errors="replace",
-        )
-        duration = float(result.stdout.strip())
-        return duration if duration > 0 else None
-    except (OSError, ValueError, sp.CalledProcessError):
-        return None
+probe_video_duration = media_probe.probe_video_duration
 
 
 def ensure_srt(

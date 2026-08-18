@@ -13,6 +13,7 @@ from autoslice.artifact_store import copy_artifact_file as _copy_artifact_file
 from autoslice.artifact_store import seed_artifact_from_legacy as _seed_artifact_from_legacy
 from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
+from autoslice import media_probe
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice.analysis import candidates as candidate_analysis
@@ -58,7 +59,7 @@ FACADE_EXPORTS = {
 # 可替换的公开依赖 seam；默认对象均直接来自各自唯一 owner。
 ensure_srt = transcription_service.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
-probe_video_duration = transcription_service.probe_video_duration
+probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = candidate_analysis.parse_srt_text
 parse_srt_segments = boundary_analysis.parse_srt_segments
