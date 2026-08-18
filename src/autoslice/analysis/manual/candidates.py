@@ -6,9 +6,9 @@ import re
 
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
-from autoslice.analysis import clip_policy
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {

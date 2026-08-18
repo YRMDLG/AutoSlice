@@ -4,14 +4,14 @@ import math
 from concurrent.futures import ThreadPoolExecutor
 
 from autoslice.analysis import (
-    clip_policy,
     clip_review_candidates,
     clip_review_prompt,
-    clip_scoring,
     llm_execution,
 )
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis.manual import enrichment as manual_enrichment
+from autoslice.analysis.review import policy as clip_policy
+from autoslice.analysis.review import scoring as clip_scoring
 from autoslice.analysis.topic import response as topic_response
 from autoslice.llm import transport as llm_gateway
 

@@ -1,9 +1,9 @@
 """候选独立复核所需的原始证据与输入构造。"""
 
 from autoslice import timecode
-from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
+from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {

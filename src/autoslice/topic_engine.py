@@ -14,8 +14,6 @@ import os
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis import checkpoints as checkpoint_store
-from autoslice.analysis import clip_scoring
-from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import clip_review_candidates
 from autoslice.analysis import clip_review_prompt
@@ -29,6 +27,8 @@ from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.manual import workflow as manual_timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis.review import policy as clip_policy
+from autoslice.analysis.review import scoring as clip_scoring
 from autoslice.analysis import slice_decisions
 from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.analysis.topic import chunking as analysis_chunking

@@ -6,7 +6,7 @@ import math
 import re
 from collections import defaultdict
 
-from autoslice.analysis import clip_policy
+from autoslice.analysis.review import policy as clip_policy
 from autoslice.streamer_profiles import current_streamer_profile
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription import segments as transcription_segments

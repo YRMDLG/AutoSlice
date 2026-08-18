@@ -7,9 +7,11 @@ from collections import defaultdict
 
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
-from autoslice.analysis import candidate_reconciliation, clip_policy, clip_scoring
+from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
+from autoslice.analysis.review import policy as clip_policy
+from autoslice.analysis.review import scoring as clip_scoring
 from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {

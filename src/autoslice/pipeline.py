@@ -19,8 +19,6 @@ from autoslice import slicing as slicing_service
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
-from autoslice.analysis import clip_scoring
-from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis.manual import candidates as manual_candidates
@@ -28,6 +26,8 @@ from autoslice.analysis.manual import review as manual_review
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.manual import workflow as manual_timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
+from autoslice.analysis.review import policy as clip_policy
+from autoslice.analysis.review import scoring as clip_scoring
 from autoslice.analysis import slice_decisions
 from autoslice.analysis.topic import chunking as analysis_chunking
 from autoslice.analysis.topic import titles as title_analysis

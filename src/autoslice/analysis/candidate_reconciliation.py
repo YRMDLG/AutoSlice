@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import math
 
-from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis.manual import candidates as manual_candidates
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {
