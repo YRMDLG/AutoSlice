@@ -16,6 +16,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
+from autoslice.analysis import clip_review_candidates
 from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
@@ -423,7 +424,7 @@ _clip_context_requires_trigger = boundary_analysis._clip_context_requires_trigge
 _clip_interest_reason = clip_scoring.clip_interest_reason
 _clip_manual_star_count = clip_scoring.clip_manual_star_count
 _clip_marks_from_topics = candidate_analysis._clip_marks_from_topics
-_clip_review_candidate = candidate_analysis._clip_review_candidate
+_clip_review_candidate = clip_review_candidates.build_clip_review_candidate
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
 _clip_review_checkpoint_matches_policy = checkpoint_store.clip_review_checkpoint_matches_policy
 _clip_star_bonus_cap = clip_scoring.clip_star_bonus_cap
@@ -449,7 +450,7 @@ _find_visual_reaction_context_start = boundary_analysis._find_visual_reaction_co
 _fit_final_clip_to_safe_srt_boundaries = boundary_analysis._fit_final_clip_to_safe_srt_boundaries
 _format_report_time = candidate_analysis._format_report_time
 _format_topic_block = candidate_analysis._format_topic_block
-_fresh_manual_topic_evidence = candidate_analysis._fresh_manual_topic_evidence
+_fresh_manual_topic_evidence = clip_review_candidates.fresh_manual_topic_evidence
 _gift_trigger_has_question_followup = boundary_analysis._gift_trigger_has_question_followup
 _has_high_star_manual_evidence = candidate_analysis._has_high_star_manual_evidence
 _has_outro_farewell_evidence = boundary_analysis._has_outro_farewell_evidence

@@ -920,6 +920,55 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
+    def test_clip_review_candidates_have_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import candidates, clip_review_candidates
+
+        aliases = {
+            "_clip_review_candidate": "build_clip_review_candidate",
+            "_fresh_manual_topic_evidence": "fresh_manual_topic_evidence",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(clip_review_candidates, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        self.assertIs(candidates.clip_review_candidates, clip_review_candidates)
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "clip_review_candidates.build_clip_review_candidate(",
+            candidate_source,
+        )
+        self.assertIn(
+            "clip_review_candidates.fresh_manual_topic_evidence(",
+            candidate_source,
+        )
+        self.assertNotIn("\ndef _clip_review_candidate(", candidate_source)
+        self.assertNotIn("\ndef _fresh_manual_topic_evidence(", candidate_source)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.clip_review_candidates"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(
+            owner_functions,
+            {"build_clip_review_candidate", "fresh_manual_topic_evidence"},
+        )
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
     def test_timecode_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline, reporting, timecode
