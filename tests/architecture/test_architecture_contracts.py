@@ -857,6 +857,69 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertTrue(owner_functions)
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
+    def test_manual_enrichment_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import candidates, manual_enrichment, manual_timeline
+
+        aliases = {
+            "_MANUAL_AI_PLACEHOLDER_PHRASES": "MANUAL_AI_PLACEHOLDER_PHRASES",
+            "_enriched_manual_topic_from_item": "enrich_manual_topic_from_item",
+            "_is_manual_ai_placeholder": "is_manual_ai_placeholder",
+            "_validated_ai_focus_range": "validated_ai_focus_range",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(manual_enrichment, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        self.assertIs(candidates.manual_enrichment, manual_enrichment)
+        self.assertIs(manual_timeline.manual_enrichment, manual_enrichment)
+
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        manual_source = (
+            ROOT / "src/autoslice/analysis/manual_timeline.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "manual_enrichment.enrich_manual_topic_from_item(",
+            candidate_source,
+        )
+        self.assertNotIn("_enriched_manual_topic_from_item(", candidate_source)
+        self.assertIn(
+            "manual_enrichment.is_manual_ai_placeholder(",
+            manual_source,
+        )
+        self.assertNotIn(
+            "candidate_analysis._is_manual_ai_placeholder(",
+            manual_source,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.manual_enrichment"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(
+            owner_functions,
+            {
+                "enrich_manual_topic_from_item",
+                "is_manual_ai_placeholder",
+                "validated_ai_focus_range",
+            },
+        )
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
     def test_timecode_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline, reporting, timecode

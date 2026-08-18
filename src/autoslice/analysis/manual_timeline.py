@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
+from autoslice.analysis import manual_enrichment
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
@@ -154,10 +155,10 @@ def optimized_entry_needs_retry(entry):
     """识别未复核、降级或被模型模板占位污染的优化候选。"""
     if not entry.get("ai_enriched") or entry.get("reference_only"):
         return True
-    if candidate_analysis._is_manual_ai_placeholder(entry.get("text")):
+    if manual_enrichment.is_manual_ai_placeholder(entry.get("text")):
         return True
     return any(
-        candidate_analysis._is_manual_ai_placeholder(
+        manual_enrichment.is_manual_ai_placeholder(
             title_analysis._strip_body_prefix(point)
         )
         for point in entry.get("summary") or []

@@ -20,6 +20,7 @@ from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
+from autoslice.analysis import manual_enrichment
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
@@ -376,7 +377,7 @@ _CIRCLED_NUMBERS = candidate_analysis._CIRCLED_NUMBERS
 _DANMAKU_META_KEYWORDS = content_normalization.DANMAKU_META_KEYWORDS
 _FRAGMENT_BODY_LINES = content_normalization.FRAGMENT_BODY_LINES
 _HEADING_RE = candidate_analysis._HEADING_RE
-_MANUAL_AI_PLACEHOLDER_PHRASES = candidate_analysis._MANUAL_AI_PLACEHOLDER_PHRASES
+_MANUAL_AI_PLACEHOLDER_PHRASES = manual_enrichment.MANUAL_AI_PLACEHOLDER_PHRASES
 _META_BODY_KEYWORDS = content_normalization.META_BODY_KEYWORDS
 _NEXT_CASE_ASR_TRIGGER_RE = boundary_analysis._NEXT_CASE_ASR_TRIGGER_RE
 _NO_SLICE_HINTS = response_parsing.NO_SLICE_HINTS
@@ -434,7 +435,7 @@ _dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
 _enrich_manual_topics_in_batches = candidate_analysis.enrich_manual_topics_in_batches
 _enrich_manual_topics_with_llm = candidate_analysis.enrich_manual_topics_with_llm
-_enriched_manual_topic_from_item = candidate_analysis._enriched_manual_topic_from_item
+_enriched_manual_topic_from_item = manual_enrichment.enrich_manual_topic_from_item
 _expand_clip_mark_with_context = boundary_analysis._expand_clip_mark_with_context
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _extract_json_payload = candidate_analysis._extract_json_payload
@@ -459,7 +460,7 @@ _is_duplicate_topic = boundary_analysis._is_duplicate_topic
 _is_explicit_sc_topic = boundary_analysis._is_explicit_sc_topic
 _is_explicit_sc_trigger = boundary_analysis._is_explicit_sc_trigger
 _is_generic_danmaku_reaction = danmaku_analysis._is_generic_danmaku_reaction
-_is_manual_ai_placeholder = candidate_analysis._is_manual_ai_placeholder
+_is_manual_ai_placeholder = manual_enrichment.is_manual_ai_placeholder
 _is_manual_merge_target = candidate_analysis._is_manual_merge_target
 _is_meta_body_line = content_normalization.is_meta_body_line
 _is_retryable_llm_error = candidate_analysis._is_retryable_llm_error
@@ -531,7 +532,7 @@ _topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
 _topics_from_manual_timeline = candidate_analysis._topics_from_manual_timeline
 _trim_report_topic_around_reviewed_topic = candidate_analysis._trim_report_topic_around_reviewed_topic
 _validate_unmatched_manual_topics = candidate_analysis._validate_unmatched_manual_topics
-_validated_ai_focus_range = candidate_analysis._validated_ai_focus_range
+_validated_ai_focus_range = manual_enrichment.validated_ai_focus_range
 _write_clip_review_checkpoint = checkpoint_store.write_clip_review_checkpoint
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
 _write_topic_analysis_checkpoint = candidate_analysis._write_topic_analysis_checkpoint
