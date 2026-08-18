@@ -6761,7 +6761,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
                 topic["ai_enriched"] = True
             return None
 
-        with patch("autoslice.analysis.candidates.enrich_manual_topics_in_batches", side_effect=fake_enrich):
+        with patch("autoslice.analysis.manual_review.enrich_manual_topics_in_batches", side_effect=fake_enrich):
             optimized, warning = _optimize_manual_timeline(
                 entries,
                 srt_segments=[
@@ -7117,7 +7117,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             candidates[0].pop("reference_only", None)
             return 1
 
-        with patch("autoslice.analysis.candidates.enrich_manual_topics_with_llm", side_effect=fake_validate):
+        with patch("autoslice.analysis.manual_review.enrich_manual_topics_with_llm", side_effect=fake_validate):
             warning = _validate_unmatched_manual_topics(
                 topics,
                 streamer_name="音音",
@@ -7157,7 +7157,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return len(candidates)
 
         with patch(
-            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
             side_effect=fake_validate,
         ):
             warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
@@ -7315,7 +7315,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return 1
 
         with patch(
-            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
             side_effect=enrich_first_only,
         ):
             warning = _enrich_manual_topics_in_batches(topics, batch_size=3)
@@ -7356,7 +7356,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("autoslice.analysis.candidates.enrich_manual_topics_with_llm", side_effect=enrich_batch) as call,
+            patch("autoslice.analysis.manual_review.enrich_manual_topics_with_llm", side_effect=enrich_batch) as call,
         ):
             warning = _enrich_manual_topics_in_batches(
                 topics,
@@ -7412,7 +7412,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
             return len(batch)
 
         with patch(
-            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
             side_effect=enrich_all,
         ):
             optimized, warning = _retry_optimized_timeline_entries(
@@ -7556,7 +7556,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         }]
 
         with patch(
-            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
             side_effect=RuntimeError("上游服务暂时不可用"),
         ):
             warning = _try_enrich_manual_topics(topics, streamer_name="音音")
@@ -7582,7 +7582,7 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
 
         _merge_manual_timeline_topics(topics, entries)
         with patch(
-            "autoslice.analysis.candidates.enrich_manual_topics_with_llm",
+            "autoslice.analysis.manual_review.enrich_manual_topics_with_llm",
             side_effect=RuntimeError("上游服务暂时不可用"),
         ):
             warning = _validate_unmatched_manual_topics(topics, streamer_name="音音")
@@ -9494,7 +9494,7 @@ class PipelineProgressTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"AUTOSLICE_LLM_CONCURRENCY": "3"}),
-            patch("autoslice.analysis.candidates.enrich_manual_topics_with_llm", side_effect=fake_enrich),
+            patch("autoslice.analysis.manual_review.enrich_manual_topics_with_llm", side_effect=fake_enrich),
         ):
             warning = _enrich_manual_topics_in_batches(
                 topics,

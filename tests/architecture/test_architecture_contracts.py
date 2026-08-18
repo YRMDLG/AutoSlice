@@ -859,7 +859,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_manual_enrichment_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import candidates, manual_enrichment, manual_timeline
+        from autoslice.analysis import (
+            candidates,
+            manual_enrichment,
+            manual_review,
+            manual_timeline,
+        )
 
         aliases = {
             "_MANUAL_AI_PLACEHOLDER_PHRASES": "MANUAL_AI_PLACEHOLDER_PHRASES",
@@ -874,19 +879,23 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 self.assertIs(getattr(topic_engine, compatibility_name), owner)
 
         self.assertIs(candidates.manual_enrichment, manual_enrichment)
+        self.assertIs(manual_review.manual_enrichment, manual_enrichment)
         self.assertIs(manual_timeline.manual_enrichment, manual_enrichment)
 
         candidate_source = (
             ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        review_source = (
+            ROOT / "src/autoslice/analysis/manual_review.py"
         ).read_text(encoding="utf-8")
         manual_source = (
             ROOT / "src/autoslice/analysis/manual_timeline.py"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "manual_enrichment.enrich_manual_topic_from_item(",
-            candidate_source,
+            review_source,
         )
-        self.assertNotIn("_enriched_manual_topic_from_item(", candidate_source)
+        self.assertNotIn("\ndef _enriched_manual_topic_from_item(", candidate_source)
         self.assertIn(
             "manual_enrichment.is_manual_ai_placeholder(",
             manual_source,
@@ -943,6 +952,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         clip_review_source = (
             ROOT / "src/autoslice/analysis/clip_review.py"
         ).read_text(encoding="utf-8")
+        manual_review_source = (
+            ROOT / "src/autoslice/analysis/manual_review.py"
+        ).read_text(encoding="utf-8")
         self.assertIn(
             "clip_review_candidates.build_clip_review_candidate(",
             clip_review_source,
@@ -952,7 +964,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn(
             "clip_review_candidates.fresh_manual_topic_evidence(",
-            candidate_source,
+            manual_review_source,
         )
         self.assertNotIn("\ndef _clip_review_candidate(", candidate_source)
         self.assertNotIn("\ndef _fresh_manual_topic_evidence(", candidate_source)
@@ -1059,6 +1071,94 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             ]
         }
         self.assertEqual(owner_functions, {"review_peak_selected_topics"})
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+    def test_manual_review_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import candidates, manual_review, manual_timeline
+
+        aliases = {
+            "_build_manual_topic_enrichment_prompt": (
+                "build_manual_topic_enrichment_prompt"
+            ),
+            "enrich_manual_topics_with_llm": "enrich_manual_topics_with_llm",
+            "enrich_manual_topics_in_batches": "enrich_manual_topics_in_batches",
+            "_validate_unmatched_manual_topics": (
+                "validate_unmatched_manual_topics"
+            ),
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(manual_review, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                topic_engine_name = (
+                    compatibility_name
+                    if compatibility_name.startswith("_")
+                    else f"_{compatibility_name}"
+                )
+                self.assertIs(getattr(topic_engine, topic_engine_name), owner)
+
+        self.assertIs(
+            pipeline._validate_unmatched_manual_topics,
+            manual_review.validate_unmatched_manual_topics,
+        )
+        self.assertIs(candidates.manual_review, manual_review)
+        self.assertIs(manual_timeline.manual_review, manual_review)
+        self.assertIs(pipeline.manual_review, manual_review)
+
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        manual_timeline_source = (
+            ROOT / "src/autoslice/analysis/manual_timeline.py"
+        ).read_text(encoding="utf-8")
+        pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
+            encoding="utf-8"
+        )
+        for old_definition in (
+            "_build_manual_topic_enrichment_prompt",
+            "enrich_manual_topics_with_llm",
+            "enrich_manual_topics_in_batches",
+            "_validate_unmatched_manual_topics",
+        ):
+            self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
+        self.assertIn(
+            "manual_review.enrich_manual_topics_with_llm(",
+            manual_timeline_source,
+        )
+        self.assertIn(
+            "manual_review.enrich_manual_topics_in_batches(",
+            manual_timeline_source,
+        )
+        self.assertIn(
+            "manual_review.validate_unmatched_manual_topics(",
+            pipeline_source,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.manual_review"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(
+            owner_functions,
+            {
+                "build_manual_topic_enrichment_prompt",
+                "enrich_manual_topics_in_batches",
+                "enrich_manual_topics_with_llm",
+                "validate_unmatched_manual_topics",
+            },
+        )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
     def test_timecode_has_one_owner_and_direct_consumers(self):

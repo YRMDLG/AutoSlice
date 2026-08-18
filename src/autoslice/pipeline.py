@@ -25,6 +25,7 @@ from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
+from autoslice.analysis import manual_review
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
@@ -108,7 +109,7 @@ _high_energy_danmaku_peaks = candidate_analysis._high_energy_danmaku_peaks
 _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
 _review_peak_selected_topics = clip_review.review_peak_selected_topics
 _srt_video_duration = boundary_analysis._srt_video_duration
-_validate_unmatched_manual_topics = candidate_analysis._validate_unmatched_manual_topics
+_validate_unmatched_manual_topics = manual_review.validate_unmatched_manual_topics
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
 _append_clip_candidate_source = candidate_analysis._append_clip_candidate_source
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
@@ -742,7 +743,7 @@ def run_pipeline_impl(
         )
 
     candidate_analysis.merge_manual_timeline_topics(accepted_topics, manual_entries)
-    manual_validation_warning = _validate_unmatched_manual_topics(
+    manual_validation_warning = manual_review.validate_unmatched_manual_topics(
         accepted_topics,
         streamer_name=streamer_display_name,
         progress_callback=progress_callback,

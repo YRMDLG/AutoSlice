@@ -24,6 +24,7 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis import manual_enrichment
+from autoslice.analysis import manual_review
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
@@ -418,7 +419,9 @@ _build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_au
 _build_clip_candidate_review_prompt = (
     clip_review_prompt.build_clip_candidate_review_prompt
 )
-_build_manual_topic_enrichment_prompt = candidate_analysis._build_manual_topic_enrichment_prompt
+_build_manual_topic_enrichment_prompt = (
+    manual_review.build_manual_topic_enrichment_prompt
+)
 _cap_expanded_clip_mark = boundary_analysis._cap_expanded_clip_mark
 _capped_speech_chain_start = boundary_analysis._capped_speech_chain_start
 _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
@@ -438,8 +441,8 @@ _danmaku_prompt_evidence = danmaku_analysis._danmaku_prompt_evidence
 _danmaku_topic_alignment = candidate_analysis._danmaku_topic_alignment
 _dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
 _detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
-_enrich_manual_topics_in_batches = candidate_analysis.enrich_manual_topics_in_batches
-_enrich_manual_topics_with_llm = candidate_analysis.enrich_manual_topics_with_llm
+_enrich_manual_topics_in_batches = manual_review.enrich_manual_topics_in_batches
+_enrich_manual_topics_with_llm = manual_review.enrich_manual_topics_with_llm
 _enriched_manual_topic_from_item = manual_enrichment.enrich_manual_topic_from_item
 _expand_clip_mark_with_context = boundary_analysis._expand_clip_mark_with_context
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
@@ -536,7 +539,7 @@ _topic_semantic_text = candidate_analysis._topic_semantic_text
 _topic_srt_summary_lines = candidate_evidence.topic_srt_summary_lines
 _topics_from_manual_timeline = candidate_analysis._topics_from_manual_timeline
 _trim_report_topic_around_reviewed_topic = candidate_analysis._trim_report_topic_around_reviewed_topic
-_validate_unmatched_manual_topics = candidate_analysis._validate_unmatched_manual_topics
+_validate_unmatched_manual_topics = manual_review.validate_unmatched_manual_topics
 _validated_ai_focus_range = manual_enrichment.validated_ai_focus_range
 _write_clip_review_checkpoint = checkpoint_store.write_clip_review_checkpoint
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint

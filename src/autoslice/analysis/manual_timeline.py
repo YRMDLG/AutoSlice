@@ -5,6 +5,7 @@ from __future__ import annotations
 from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import manual_enrichment
+from autoslice.analysis import manual_review
 from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
@@ -77,7 +78,7 @@ def attach_manual_timeline_to_chunks(chunks, entries):
 def try_enrich_manual_topics(topics, streamer_name=None, progress_callback=None):
     """AI 复核失败时保留规则候选，返回适合写入报告的警告。"""
     try:
-        candidate_analysis.enrich_manual_topics_with_llm(
+        manual_review.enrich_manual_topics_with_llm(
             topics,
             streamer_name=streamer_name,
             progress_callback=progress_callback,
@@ -264,7 +265,7 @@ def retry_optimized_timeline_entries(
             batch_warning_text(warnings, pending_count=len(remaining_topics)),
         )
 
-    warning = candidate_analysis.enrich_manual_topics_in_batches(
+    warning = manual_review.enrich_manual_topics_in_batches(
         retry_topics,
         streamer_name=streamer_name,
         progress_callback=progress_callback,
@@ -302,7 +303,7 @@ def optimize_manual_timeline(
             timeline_analysis.MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC
         ),
     )
-    warning = candidate_analysis.enrich_manual_topics_in_batches(
+    warning = manual_review.enrich_manual_topics_in_batches(
         topics,
         streamer_name=streamer_name,
         progress_callback=progress_callback,
