@@ -11,6 +11,7 @@ from datetime import datetime
 from autoslice import timecode
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
+from autoslice.analysis import topic_formatting
 from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
     ARTIFACT_QUEUE_DIRNAME,
@@ -69,10 +70,10 @@ _filter_unsupported_ai_points = candidate_analysis._filter_unsupported_ai_points
 _parse_hms = timecode.parse_hms
 fmt_time = timecode.format_elapsed
 _replace_streamer_role = candidate_analysis._replace_streamer_role
-_format_report_time = candidate_analysis._format_report_time
+_format_report_time = topic_formatting.format_report_time
 _dedupe_clip_marks = boundary_analysis._dedupe_clip_marks
 _normalise_publish_title = candidate_analysis._normalise_publish_title
-_format_topic_block = candidate_analysis._format_topic_block
+_format_topic_block = topic_formatting.format_topic_block
 LLM_ANALYSIS_MODEL = candidate_analysis.LLM_ANALYSIS_MODEL
 
 
@@ -272,7 +273,7 @@ def synchronise_selected_topic_ranges(topics, clip_marks):
         used.add(index)
         if report_start > int(topic.get("start", report_start)):
             topic["start"] = report_start
-            topic["start_str"] = _format_report_time(report_start)
+            topic["start_str"] = topic_formatting.format_report_time(report_start)
 
 
 def clip_subtitle_filename(clip_filename):
@@ -309,8 +310,8 @@ def publish_title_report_lines(clip_marks, source_path=None):
         return []
     lines = ["## 投稿标题建议", ""]
     for index, mark in enumerate(marks, 1):
-        start = _format_report_time(mark["start"])
-        end = _format_report_time(mark["end"])
+        start = topic_formatting.format_report_time(mark["start"])
+        end = topic_formatting.format_report_time(mark["end"])
         filename = topic_clip_filename(index, mark, source_path)
         publish_title = _normalise_publish_title(
             mark.get("publish_title"), mark.get("title", "未命名片段")
@@ -414,7 +415,7 @@ def render_artifact_overview(layout, clip_data=None, manifest=None, slice_dir=No
         lines.extend([
             f"### {index:02d} {title}",
             "",
-            f"- 视频内时间: {_format_report_time(start)}－{_format_report_time(end)}"
+            f"- 视频内时间: {topic_formatting.format_report_time(start)}－{topic_formatting.format_report_time(end)}"
             f"（{max(0, int(round(end - start)))} 秒）",
             f"- 投稿标题: {publish_title}",
             *(
@@ -693,8 +694,8 @@ def render_refinement_manifest_markdown(manifest):
             f"### {task.get('id')} {task.get('topic_title', '未命名片段')}",
             "",
             f"- 状态: {task.get('status', '待处理')}",
-            f"- 视频内时间: {_format_report_time(task.get('start', 0))}－"
-            f"{_format_report_time(task.get('end', 0))}（{task.get('duration', 0)} 秒）",
+            f"- 视频内时间: {topic_formatting.format_report_time(task.get('start', 0))}－"
+            f"{topic_formatting.format_report_time(task.get('end', 0))}（{task.get('duration', 0)} 秒）",
             f"- 切片文件: `{task.get('slice_path') or task.get('clip_filename')}`",
             f"- 片段字幕: `{task.get('subtitle_path') or '精剪导出后在字幕校对页识别'}`",
             f"- 投稿标题: {task.get('publish_title', '')}",
@@ -821,8 +822,8 @@ def render_unified_refinement_queue_markdown(queue):
             lines.extend([
                 f"- [{checked}] {task.get('id', '')} {task.get('topic_title', '未命名片段')}"
                 f"（{task.get('status', '待处理')}，{task.get('duration', 0)} 秒）",
-                f"  - 视频内时间: {_format_report_time(task.get('start', 0))}－"
-                f"{_format_report_time(task.get('end', 0))}",
+                f"  - 视频内时间: {topic_formatting.format_report_time(task.get('start', 0))}－"
+                f"{topic_formatting.format_report_time(task.get('end', 0))}",
                 f"  - 切片: `{task.get('slice_path') or task.get('clip_filename') or '等待自动切片'}`",
                 f"  - 片段字幕: `{task.get('subtitle_path') or '精剪导出后在字幕校对页识别'}`",
                 f"  - 首尾: 已在话题核心前保留 {pre_context} 秒、后保留 {post_context} 秒；"
@@ -1059,10 +1060,10 @@ def build_timeline_report(
                 part_title = _make_part_title(group, streamer_name=streamer_name)
             lines.append(
                 f"Part {display_part_index}: {part_title} "
-                f"({_format_report_time(part_start)}－{_format_report_time(part_end)})"
+                f"({topic_formatting.format_report_time(part_start)}－{topic_formatting.format_report_time(part_end)})"
             )
             for topic in group:
-                lines.append(_format_topic_block(topic, topic_index, streamer_name=streamer_name))
+                lines.append(topic_formatting.format_topic_block(topic, topic_index, streamer_name=streamer_name))
                 topic_index += 1
             lines.append("")
 

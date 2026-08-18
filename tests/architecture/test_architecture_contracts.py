@@ -1197,6 +1197,80 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
         self.assertTrue(owner_functions.isdisjoint(timeline_functions))
 
+    def test_topic_formatting_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import reporting
+        from autoslice.analysis import candidates, topic_formatting
+
+        aliases = {
+            "_CIRCLED_NUMBERS": "CIRCLED_NUMBERS",
+            "_format_report_time": "format_report_time",
+            "_format_topic_block": "format_topic_block",
+            "_topic_index_label": "topic_index_label",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(topic_formatting, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        self.assertIs(
+            reporting._format_report_time,
+            topic_formatting.format_report_time,
+        )
+        self.assertIs(
+            reporting._format_topic_block,
+            topic_formatting.format_topic_block,
+        )
+        self.assertIs(candidates.topic_formatting, topic_formatting)
+        self.assertIs(reporting.topic_formatting, topic_formatting)
+
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        reporting_source = (ROOT / "src/autoslice/reporting.py").read_text(
+            encoding="utf-8"
+        )
+        for old_definition in (
+            "_format_report_time",
+            "_format_topic_block",
+            "_topic_index_label",
+        ):
+            self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
+        self.assertNotIn("_CIRCLED_NUMBERS = \"①", candidate_source)
+        self.assertIn(
+            "topic_formatting.format_topic_block(",
+            candidate_source,
+        )
+        self.assertIn(
+            "topic_formatting.format_report_time(",
+            reporting_source,
+        )
+        self.assertIn(
+            "topic_formatting.format_topic_block(",
+            reporting_source,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.topic_formatting"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(
+            owner_functions,
+            {"format_report_time", "format_topic_block", "topic_index_label"},
+        )
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
     def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline

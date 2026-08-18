@@ -28,6 +28,7 @@ from autoslice.analysis import manual_review
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis import topic_formatting
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
 from autoslice import media_probe
@@ -377,7 +378,7 @@ TOPIC_RELEVANT_CONTINUATION_GAP_SEC = clip_policy.TOPIC_RELEVANT_CONTINUATION_GA
 TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC = clip_policy.TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC
 TOPIC_REVIEW_FOCUS_MAX_SEC = clip_policy.TOPIC_REVIEW_FOCUS_MAX_SEC
 _BOUNDARY_EVIDENCE_STOP_TERMS = boundary_analysis._BOUNDARY_EVIDENCE_STOP_TERMS
-_CIRCLED_NUMBERS = candidate_analysis._CIRCLED_NUMBERS
+_CIRCLED_NUMBERS = topic_formatting.CIRCLED_NUMBERS
 _DANMAKU_META_KEYWORDS = content_normalization.DANMAKU_META_KEYWORDS
 _FRAGMENT_BODY_LINES = content_normalization.FRAGMENT_BODY_LINES
 _HEADING_RE = candidate_analysis._HEADING_RE
@@ -455,8 +456,8 @@ _find_sc_context_start = boundary_analysis._find_sc_context_start
 _find_topic_lead_in_start = boundary_analysis._find_topic_lead_in_start
 _find_visual_reaction_context_start = boundary_analysis._find_visual_reaction_context_start
 _fit_final_clip_to_safe_srt_boundaries = boundary_analysis._fit_final_clip_to_safe_srt_boundaries
-_format_report_time = candidate_analysis._format_report_time
-_format_topic_block = candidate_analysis._format_topic_block
+_format_report_time = topic_formatting.format_report_time
+_format_topic_block = topic_formatting.format_topic_block
 _fresh_manual_topic_evidence = clip_review_candidates.fresh_manual_topic_evidence
 _gift_trigger_has_question_followup = boundary_analysis._gift_trigger_has_question_followup
 _has_high_star_manual_evidence = candidate_analysis._has_high_star_manual_evidence
@@ -532,7 +533,7 @@ _subtitle_text_size = transcription_segments.subtitle_text_size
 _text_len_for_timing = transcription_segments.text_len_for_timing
 _topic_analysis_prompt_fingerprint = candidate_analysis._topic_analysis_prompt_fingerprint
 _topic_danmaku_reference_lines = candidate_evidence.topic_danmaku_reference_lines
-_topic_index_label = candidate_analysis._topic_index_label
+_topic_index_label = topic_formatting.topic_index_label
 _topic_peak_candidates = candidate_evidence.topic_peak_candidates
 _topic_peak_focus_window = candidate_analysis._topic_peak_focus_window
 _topic_semantic_text = candidate_analysis._topic_semantic_text

@@ -25,6 +25,7 @@ from autoslice.analysis import manual_enrichment
 from autoslice.analysis import manual_review
 from autoslice.analysis import response_parsing
 from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis import topic_formatting
 from autoslice.analysis import titles as title_analysis
 from autoslice import timecode
 from autoslice.llm import transport as llm_gateway
@@ -159,6 +160,12 @@ _build_manual_topic_enrichment_prompt = (
 enrich_manual_topics_with_llm = manual_review.enrich_manual_topics_with_llm
 enrich_manual_topics_in_batches = manual_review.enrich_manual_topics_in_batches
 _validate_unmatched_manual_topics = manual_review.validate_unmatched_manual_topics
+
+
+_CIRCLED_NUMBERS = topic_formatting.CIRCLED_NUMBERS
+_format_report_time = topic_formatting.format_report_time
+_format_topic_block = topic_formatting.format_topic_block
+_topic_index_label = topic_formatting.topic_index_label
 
 
 LLM_DEFAULT_CONCURRENCY = llm_execution.LLM_DEFAULT_CONCURRENCY
@@ -889,7 +896,10 @@ def _parse_json_topics_response(response, chunk_start, chunk_end, accepted_topic
         if topic["can_slice"]:
             clip_marks.append({"start": topic["start"], "end": topic["end"], "title": topic["title"]})
 
-    report_blocks = [_format_topic_block(topic, idx + 1) for idx, topic in enumerate(parsed_topics)]
+    report_blocks = [
+        topic_formatting.format_topic_block(topic, idx + 1)
+        for idx, topic in enumerate(parsed_topics)
+    ]
     return report_blocks, _dedupe_clip_marks(clip_marks)
 
 
@@ -1028,7 +1038,10 @@ def _parse_llm_response(response, chunk_start, chunk_end, accepted_topics=None, 
 
     flush_current()
 
-    report_blocks = [_format_topic_block(topic, idx + 1) for idx, topic in enumerate(parsed_topics)]
+    report_blocks = [
+        topic_formatting.format_topic_block(topic, idx + 1)
+        for idx, topic in enumerate(parsed_topics)
+    ]
     clip_marks = [
         {"start": topic["start"], "end": topic["end"], "title": topic["title"]}
         for topic in parsed_topics
@@ -1132,40 +1145,6 @@ parse_srt_segments = boundary_analysis.parse_srt_segments
 _BOUNDARY_SEMANTIC_SIGNAL_PATTERNS = boundary_analysis._BOUNDARY_SEMANTIC_SIGNAL_PATTERNS
 _boundary_semantic_signals = boundary_analysis._boundary_semantic_signals
 _boundary_text_has_semantic_signal = boundary_analysis._boundary_text_has_semantic_signal
-
-
-_CIRCLED_NUMBERS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
-
-
-def _format_report_time(seconds):
-    """报告展示用时间：1小时内用 MM:SS，超过 1 小时用 H:MM:SS。"""
-    seconds = int(seconds)
-    h, rem = divmod(seconds, 3600)
-    m, s = divmod(rem, 60)
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m:02d}:{s:02d}"
-
-
-def _topic_index_label(index):
-    if 1 <= index <= len(_CIRCLED_NUMBERS):
-        return _CIRCLED_NUMBERS[index - 1]
-    return f"{index}."
-
-
-
-
-def _format_topic_block(topic, index, streamer_name=None):
-    """格式化单个话题块，贴近用户给出的逐话题时间轴样式。"""
-    label = _topic_index_label(index) if index else ""
-    start = _format_report_time(topic["start"])
-    end = _format_report_time(topic["end"])
-    marker = " ✂️" if topic.get("can_slice") else ""
-    title = _replace_streamer_role(topic["title"], streamer_name)
-    lines = [f"{label}[{start}－{end}]{title}{marker}"]
-    body = topic.get("body") or []
-    lines.extend(_replace_streamer_role(line, streamer_name) for line in body)
-    return "\n".join(lines)
 
 
 def _topic_peak_focus_window(topic, peaks, window_sec=DANMAKU_WINDOW):
