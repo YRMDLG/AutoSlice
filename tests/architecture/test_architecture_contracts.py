@@ -558,6 +558,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             checkpoints,
             clip_scoring,
             clip_policy,
+            content_normalization,
             danmaku,
             evidence,
             llm_execution,
@@ -585,6 +586,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             manual_timeline,
             checkpoints,
             clip_scoring,
+            content_normalization,
             boundaries,
             clip_policy,
             candidates,
@@ -807,6 +809,46 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         owner_functions = {
             item["name"]
             for item in modules["autoslice.analysis.response_parsing"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(owner_functions)
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+    def test_candidate_content_normalization_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import candidates, content_normalization
+
+        aliases = {
+            "_DANMAKU_META_KEYWORDS": "DANMAKU_META_KEYWORDS",
+            "_FRAGMENT_BODY_LINES": "FRAGMENT_BODY_LINES",
+            "_META_BODY_KEYWORDS": "META_BODY_KEYWORDS",
+            "_UNSUPPORTED_AI_AUDIENCE_REACTION_RE": (
+                "UNSUPPORTED_AI_AUDIENCE_REACTION_RE"
+            ),
+            "_clean_body_content": "clean_body_content",
+            "_filter_unsupported_ai_points": "filter_unsupported_ai_points",
+            "_is_meta_body_line": "is_meta_body_line",
+            "_json_points_to_body": "json_points_to_body",
+            "_normalise_body_line": "normalise_body_line",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(content_normalization, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.content_normalization"][
                 "top_level_functions"
             ]
         }

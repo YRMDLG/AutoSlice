@@ -29,6 +29,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
+from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
@@ -736,6 +737,7 @@ class CandidateReviewTests(unittest.TestCase):
             candidate_evidence,
             llm_execution,
             response_parsing,
+            content_normalization,
             clip_policy,
             boundary_analysis,
             candidate_analysis,
