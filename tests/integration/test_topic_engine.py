@@ -30,15 +30,14 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
-from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
-from autoslice.analysis import response_parsing
 from autoslice.analysis import slice_decisions
 from autoslice.analysis.manual import timebase as timeline_analysis
+from autoslice.analysis.topic import normalization, response
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
 from autoslice import slice_encoding
@@ -741,8 +740,8 @@ class CandidateReviewTests(unittest.TestCase):
             clip_scoring,
             candidate_evidence,
             llm_execution,
-            response_parsing,
-            content_normalization,
+            response,
+            normalization,
             clip_policy,
             boundary_analysis,
             candidate_reconciliation,

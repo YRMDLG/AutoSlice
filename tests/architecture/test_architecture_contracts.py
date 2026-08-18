@@ -71,9 +71,11 @@ DEFINITION_FREE_COMPATIBILITY_MODULES = frozenset({
     "task_store",
     "topic_engine",
     "启动",
+    "autoslice.analysis.content_normalization",
     "autoslice.analysis.manual_enrichment",
     "autoslice.analysis.manual_review",
     "autoslice.analysis.manual_timeline",
+    "autoslice.analysis.response_parsing",
     "autocover_tool",
     "autocover_tool.app",
     "autocover_tool.启动",
@@ -563,11 +565,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             checkpoints,
             clip_scoring,
             clip_policy,
-            content_normalization,
             danmaku,
             evidence,
             llm_execution,
-            response_parsing,
             slice_decisions,
             timeline,
             titles,
@@ -575,6 +575,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.report import cleanup as report_cleanup
         from autoslice.analysis.report import formatting as topic_formatting
         from autoslice.analysis.manual import workflow as manual_workflow
+        from autoslice.analysis.topic import normalization, response
         from autoslice.transcription import model_runtime as transcription_model_runtime
         from autoslice.transcription import results as transcription_results
         from autoslice.transcription import service as transcription
@@ -590,12 +591,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             danmaku,
             evidence,
             llm_execution,
-            response_parsing,
+            response,
             timeline,
             manual_workflow,
             checkpoints,
             clip_scoring,
-            content_normalization,
+            normalization,
             boundaries,
             clip_policy,
             candidate_reconciliation,
@@ -668,18 +669,18 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_candidate_facade_consumers_bind_unique_owner_objects(self):
         from autoslice import pipeline, reporting, topic_engine
         from autoslice.analysis import (
-            content_normalization,
             danmaku,
             titles,
             topic_analysis,
         )
+        from autoslice.analysis.topic import normalization
         from autoslice.llm import transport
 
         bindings = {
             reporting: {
                 "_clean_topic_title": titles._clean_topic_title,
                 "_filter_unsupported_ai_points": (
-                    content_normalization.filter_unsupported_ai_points
+                    normalization.filter_unsupported_ai_points
                 ),
                 "_replace_streamer_role": titles._replace_streamer_role,
                 "_normalise_publish_title": titles._normalise_publish_title,
@@ -856,41 +857,93 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertTrue(owner_functions)
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
-    def test_candidate_response_parsing_has_one_owner_and_direct_consumers(self):
+    def test_topic_response_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import candidates, response_parsing
+        from autoslice.analysis import candidates
+        from autoslice.analysis import response_parsing as legacy_response
+        from autoslice.analysis.topic import response
 
         aliases = {
             "_NO_SLICE_HINTS": "NO_SLICE_HINTS",
             "_is_slice_marked": "is_slice_marked",
             "_json_can_slice": "json_can_slice",
         }
+        self.assertEqual(response.FACADE_EXPORTS, aliases)
+        self.assertIs(legacy_response.FACADE_EXPORTS, response.FACADE_EXPORTS)
         for compatibility_name, owner_name in aliases.items():
             with self.subTest(name=compatibility_name):
-                owner = getattr(response_parsing, owner_name)
+                owner = getattr(response, owner_name)
+                self.assertIs(getattr(legacy_response, owner_name), owner)
                 self.assertIs(getattr(candidates, compatibility_name), owner)
                 self.assertIs(getattr(topic_engine, compatibility_name), owner)
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
-        candidate_functions = {
-            item["name"]
-            for item in modules["autoslice.analysis.candidates"][
-                "top_level_functions"
-            ]
-        }
-        owner_functions = {
-            item["name"]
-            for item in modules["autoslice.analysis.response_parsing"][
-                "top_level_functions"
-            ]
-        }
-        self.assertTrue(owner_functions)
-        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+        owner_module = "autoslice.analysis.topic.response"
+        legacy_module = "autoslice.analysis.response_parsing"
+        self.assertEqual(
+            modules[legacy_module]["top_level_functions"],
+            [],
+        )
+        self.assertEqual(modules[legacy_module]["top_level_classes"], [])
+        self.assertEqual(
+            {
+                item["name"]
+                for item in modules[owner_module]["top_level_functions"]
+            },
+            {"is_slice_marked", "json_can_slice"},
+        )
+        self.assertEqual(modules[owner_module]["top_level_classes"], [])
 
-    def test_candidate_content_normalization_has_one_owner_and_direct_consumers(self):
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        consumers = {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.clip_review",
+            "autoslice.analysis.topic_analysis",
+            "autoslice.topic_engine",
+        }
+        for consumer in consumers:
+            with self.subTest(consumer=consumer):
+                self.assertIn((consumer, owner_module), import_edges)
+                self.assertNotIn((consumer, legacy_module), import_edges)
+        self.assertIn((legacy_module, owner_module), import_edges)
+        for forbidden_target in {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.content_normalization",
+            legacy_module,
+            "autoslice.pipeline",
+            "autoslice.reporting",
+            "autoslice.topic_engine",
+        }:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
+
+        direct_calls = set()
+        for path in (
+            ROOT / "src/autoslice/analysis/clip_review.py",
+            ROOT / "src/autoslice/analysis/topic_analysis.py",
+        ):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            direct_calls.update(
+                node.func.attr
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in {"response", "topic_response"}
+            )
+        self.assertGreaterEqual(
+            direct_calls,
+            {"is_slice_marked", "json_can_slice"},
+        )
+
+    def test_topic_normalization_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice.analysis import candidates, content_normalization
+        from autoslice.analysis import candidates
+        from autoslice.analysis import content_normalization as legacy_normalization
+        from autoslice.analysis.topic import normalization
 
         aliases = {
             "_DANMAKU_META_KEYWORDS": "DANMAKU_META_KEYWORDS",
@@ -905,28 +958,126 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "_json_points_to_body": "json_points_to_body",
             "_normalise_body_line": "normalise_body_line",
         }
+        self.assertEqual(normalization.FACADE_EXPORTS, aliases)
+        self.assertIs(
+            legacy_normalization.FACADE_EXPORTS,
+            normalization.FACADE_EXPORTS,
+        )
         for compatibility_name, owner_name in aliases.items():
             with self.subTest(name=compatibility_name):
-                owner = getattr(content_normalization, owner_name)
+                owner = getattr(normalization, owner_name)
+                self.assertIs(getattr(legacy_normalization, owner_name), owner)
                 self.assertIs(getattr(candidates, compatibility_name), owner)
                 self.assertIs(getattr(topic_engine, compatibility_name), owner)
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
-        candidate_functions = {
-            item["name"]
-            for item in modules["autoslice.analysis.candidates"][
-                "top_level_functions"
-            ]
-        }
+        owner_module = "autoslice.analysis.topic.normalization"
+        legacy_module = "autoslice.analysis.content_normalization"
+        self.assertEqual(modules[legacy_module]["top_level_functions"], [])
+        self.assertEqual(modules[legacy_module]["top_level_classes"], [])
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.content_normalization"][
+            for item in modules[owner_module][
                 "top_level_functions"
             ]
         }
-        self.assertTrue(owner_functions)
-        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+        self.assertEqual(
+            owner_functions,
+            {
+                "clean_body_content",
+                "filter_unsupported_ai_points",
+                "is_meta_body_line",
+                "json_points_to_body",
+                "normalise_body_line",
+            },
+        )
+        self.assertEqual(modules[owner_module]["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        consumers = {
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual.enrichment",
+            "autoslice.analysis.report.cleanup",
+            "autoslice.analysis.topic_analysis",
+            "autoslice.reporting",
+            "autoslice.topic_engine",
+        }
+        for consumer in consumers:
+            with self.subTest(consumer=consumer):
+                self.assertIn((consumer, owner_module), import_edges)
+                self.assertNotIn((consumer, legacy_module), import_edges)
+        self.assertIn((legacy_module, owner_module), import_edges)
+        for forbidden_target in {
+            "autoslice.analysis.candidates",
+            legacy_module,
+            "autoslice.analysis.response_parsing",
+            "autoslice.pipeline",
+            "autoslice.reporting",
+            "autoslice.topic_engine",
+        }:
+            self.assertNotIn((owner_module, forbidden_target), import_edges)
+
+        direct_calls = set()
+        for path in (
+            ROOT / "src/autoslice/analysis/manual/enrichment.py",
+            ROOT / "src/autoslice/analysis/report/cleanup.py",
+            ROOT / "src/autoslice/analysis/topic_analysis.py",
+        ):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            direct_calls.update(
+                node.func.attr
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "normalization"
+            )
+        self.assertGreaterEqual(
+            direct_calls,
+            {
+                "filter_unsupported_ai_points",
+                "json_points_to_body",
+                "normalise_body_line",
+            },
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
+    def test_topic_domain_package_has_no_eager_imports(self):
+        package_path = ROOT / "src/autoslice/analysis/topic/__init__.py"
+        tree = ast.parse(package_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.Import, ast.ImportFrom))
+            ],
+            [],
+        )
+        all_assignments = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            )
+        ]
+        self.assertEqual(len(all_assignments), 1)
+        self.assertEqual(
+            ast.literal_eval(all_assignments[0].value),
+            ["normalization", "response"],
+        )
 
     def test_manual_enrichment_has_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -2904,7 +3055,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                     "candidate_reconciliation",
                     "reconcile_topic_manual_evidence",
                 ),
-                ("content_normalization", "normalise_body_line"),
+                ("normalization", "normalise_body_line"),
                 ("timeline_analysis", "manual_alignment_score"),
                 ("timecode", "format_elapsed"),
                 ("title_analysis", "_derive_topic_title"),

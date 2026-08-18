@@ -3,8 +3,9 @@
 import re
 
 from autoslice import timecode
-from autoslice.analysis import clip_policy, content_normalization
+from autoslice.analysis import clip_policy
 from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import normalization
 
 FACADE_EXPORTS = {
     "_MANUAL_AI_PLACEHOLDER_PHRASES": "MANUAL_AI_PLACEHOLDER_PHRASES",
@@ -55,8 +56,8 @@ def enrich_manual_topic_from_item(topic, item):
     """把一项 AI 复核结果应用到候选副本；无有效正文时返回 ``None``。"""
     points = [
         point
-        for point in content_normalization.filter_unsupported_ai_points(
-            content_normalization.json_points_to_body(item.get("points"))
+        for point in normalization.filter_unsupported_ai_points(
+            normalization.json_points_to_body(item.get("points"))
         )
         if not is_manual_ai_placeholder(title_analysis._strip_body_prefix(point))
     ]

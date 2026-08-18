@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
-from autoslice.analysis import candidate_reconciliation, content_normalization
+from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import normalization
 
 FACADE_EXPORTS = {
     "_clean_topics_for_report": "clean_topics_for_report",
@@ -145,7 +146,7 @@ def clean_topics_for_report(topics):
             continue
         topic = candidate_reconciliation.reconcile_topic_manual_evidence(topic)
         body_lines = [
-            content_normalization.normalise_body_line(line) for line in topic.get("body") or []
+            normalization.normalise_body_line(line) for line in topic.get("body") or []
         ]
         body_lines = [line for line in body_lines if line]
         if not body_lines:

@@ -20,7 +20,6 @@ from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import clip_review_candidates
 from autoslice.analysis import clip_review_prompt
-from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
@@ -29,12 +28,12 @@ from autoslice.analysis.manual import enrichment as manual_enrichment
 from autoslice.analysis.manual import review as manual_review
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.manual import workflow as manual_timeline_analysis
-from autoslice.analysis import response_parsing
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import normalization, response
 from autoslice import reporting as reporting_service
 from autoslice import media_probe
 from autoslice import slice_encoding, slice_reuse
@@ -384,13 +383,13 @@ TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC = clip_policy.TOPIC_REQUIRED_CONTEXT_OVERFLO
 TOPIC_REVIEW_FOCUS_MAX_SEC = clip_policy.TOPIC_REVIEW_FOCUS_MAX_SEC
 _BOUNDARY_EVIDENCE_STOP_TERMS = boundary_analysis._BOUNDARY_EVIDENCE_STOP_TERMS
 _CIRCLED_NUMBERS = topic_formatting.CIRCLED_NUMBERS
-_DANMAKU_META_KEYWORDS = content_normalization.DANMAKU_META_KEYWORDS
-_FRAGMENT_BODY_LINES = content_normalization.FRAGMENT_BODY_LINES
+_DANMAKU_META_KEYWORDS = normalization.DANMAKU_META_KEYWORDS
+_FRAGMENT_BODY_LINES = normalization.FRAGMENT_BODY_LINES
 _HEADING_RE = topic_analysis.HEADING_RE
 _MANUAL_AI_PLACEHOLDER_PHRASES = manual_enrichment.MANUAL_AI_PLACEHOLDER_PHRASES
-_META_BODY_KEYWORDS = content_normalization.META_BODY_KEYWORDS
+_META_BODY_KEYWORDS = normalization.META_BODY_KEYWORDS
 _NEXT_CASE_ASR_TRIGGER_RE = boundary_analysis._NEXT_CASE_ASR_TRIGGER_RE
-_NO_SLICE_HINTS = response_parsing.NO_SLICE_HINTS
+_NO_SLICE_HINTS = response.NO_SLICE_HINTS
 _OUTRO_ACTIVITY_VARIANT_RE = boundary_analysis._OUTRO_ACTIVITY_VARIANT_RE
 _OUTRO_FAREWELL_EVIDENCE = boundary_analysis._OUTRO_FAREWELL_EVIDENCE
 _OUTRO_TRIGGER_NORMALISE_RE = boundary_analysis._OUTRO_TRIGGER_NORMALISE_RE
@@ -403,7 +402,7 @@ _TOPIC_REVIEW_TRANSIENT_KEYS = checkpoint_store.TOPIC_REVIEW_TRANSIENT_KEYS
 _TRIGGER_CONTEXT_TOPIC_RE = boundary_analysis._TRIGGER_CONTEXT_TOPIC_RE
 _UNCUTTABLE_CONTENT_KEYWORDS = clip_policy.UNCUTTABLE_CONTENT_KEYWORDS
 _UNSUPPORTED_AI_AUDIENCE_REACTION_RE = (
-    content_normalization.UNSUPPORTED_AI_AUDIENCE_REACTION_RE
+    normalization.UNSUPPORTED_AI_AUDIENCE_REACTION_RE
 )
 _VISUAL_CASE_SHIFT_RE = boundary_analysis._VISUAL_CASE_SHIFT_RE
 _VISUAL_REACTION_LEAD_IN_RE = boundary_analysis._VISUAL_REACTION_LEAD_IN_RE
@@ -433,7 +432,7 @@ _build_manual_topic_enrichment_prompt = (
 _cap_expanded_clip_mark = boundary_analysis._cap_expanded_clip_mark
 _capped_speech_chain_start = boundary_analysis._capped_speech_chain_start
 _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
-_clean_body_content = content_normalization.clean_body_content
+_clean_body_content = normalization.clean_body_content
 _clean_topics_for_report = report_cleanup.clean_topics_for_report
 _clip_context_requires_trigger = boundary_analysis._clip_context_requires_trigger
 _clip_interest_reason = clip_scoring.clip_interest_reason
@@ -455,7 +454,7 @@ _enriched_manual_topic_from_item = manual_enrichment.enrich_manual_topic_from_it
 _expand_clip_mark_with_context = boundary_analysis._expand_clip_mark_with_context
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _extract_json_payload = llm_gateway.extract_json_payload
-_filter_unsupported_ai_points = content_normalization.filter_unsupported_ai_points
+_filter_unsupported_ai_points = normalization.filter_unsupported_ai_points
 _find_next_topic_hard_end = boundary_analysis._find_next_topic_hard_end
 _find_relevant_topic_context_end = boundary_analysis._find_relevant_topic_context_end
 _find_relevant_topic_context_start = boundary_analysis._find_relevant_topic_context_start
@@ -478,12 +477,12 @@ _is_explicit_sc_trigger = boundary_analysis._is_explicit_sc_trigger
 _is_generic_danmaku_reaction = danmaku_analysis._is_generic_danmaku_reaction
 _is_manual_ai_placeholder = manual_enrichment.is_manual_ai_placeholder
 _is_manual_merge_target = manual_candidates.is_manual_merge_target
-_is_meta_body_line = content_normalization.is_meta_body_line
+_is_meta_body_line = normalization.is_meta_body_line
 _is_retryable_llm_error = llm_gateway.is_retryable_llm_error
-_is_slice_marked = response_parsing.is_slice_marked
+_is_slice_marked = response.is_slice_marked
 _is_topic_in_chunk = topic_analysis.is_topic_in_chunk
-_json_can_slice = response_parsing.json_can_slice
-_json_points_to_body = content_normalization.json_points_to_body
+_json_can_slice = response.json_can_slice
+_json_points_to_body = normalization.json_points_to_body
 _load_repaired_srt_segments = transcription_srt_io.load_repaired_srt_segments
 _load_topic_analysis_checkpoint = topic_analysis.load_topic_analysis_checkpoint
 _looks_like_delayed_topic_conclusion = boundary_analysis._looks_like_delayed_topic_conclusion
@@ -505,7 +504,7 @@ _merge_expanded_clip_marks = boundary_analysis._merge_expanded_clip_marks
 _merge_manual_timeline_topics = manual_candidates.merge_manual_timeline_topics
 _nearest_safe_srt_boundary = boundary_analysis._nearest_safe_srt_boundary
 _next_report_topic_safe_boundary = boundary_analysis._next_report_topic_safe_boundary
-_normalise_body_line = content_normalization.normalise_body_line
+_normalise_body_line = normalization.normalise_body_line
 _normalise_boundary_evidence_text = boundary_analysis._normalise_boundary_evidence_text
 _normalise_outro_trigger_text = boundary_analysis._normalise_outro_trigger_text
 _normalise_streamer_terms = transcription_segments.normalise_streamer_terms

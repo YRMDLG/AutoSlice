@@ -11,7 +11,6 @@ from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import clip_review_candidates
 from autoslice.analysis import clip_review_prompt
-from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
@@ -21,10 +20,10 @@ from autoslice.analysis.manual import review as manual_review
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
-from autoslice.analysis import response_parsing
 from autoslice.analysis import slice_decisions
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
+from autoslice.analysis.topic import normalization, response
 from autoslice import timecode
 from autoslice.llm import transport as llm_gateway
 from autoslice.transcription import service as transcription_service
@@ -196,22 +195,22 @@ _configured_llm_concurrency = llm_execution.configured_llm_concurrency
 _serialized_progress_callback = llm_execution.serialized_progress_callback
 
 
-_NO_SLICE_HINTS = response_parsing.NO_SLICE_HINTS
-_is_slice_marked = response_parsing.is_slice_marked
-_json_can_slice = response_parsing.json_can_slice
+_NO_SLICE_HINTS = response.NO_SLICE_HINTS
+_is_slice_marked = response.is_slice_marked
+_json_can_slice = response.json_can_slice
 
 
-_DANMAKU_META_KEYWORDS = content_normalization.DANMAKU_META_KEYWORDS
-_FRAGMENT_BODY_LINES = content_normalization.FRAGMENT_BODY_LINES
-_META_BODY_KEYWORDS = content_normalization.META_BODY_KEYWORDS
+_DANMAKU_META_KEYWORDS = normalization.DANMAKU_META_KEYWORDS
+_FRAGMENT_BODY_LINES = normalization.FRAGMENT_BODY_LINES
+_META_BODY_KEYWORDS = normalization.META_BODY_KEYWORDS
 _UNSUPPORTED_AI_AUDIENCE_REACTION_RE = (
-    content_normalization.UNSUPPORTED_AI_AUDIENCE_REACTION_RE
+    normalization.UNSUPPORTED_AI_AUDIENCE_REACTION_RE
 )
-_clean_body_content = content_normalization.clean_body_content
-_filter_unsupported_ai_points = content_normalization.filter_unsupported_ai_points
-_is_meta_body_line = content_normalization.is_meta_body_line
-_json_points_to_body = content_normalization.json_points_to_body
-_normalise_body_line = content_normalization.normalise_body_line
+_clean_body_content = normalization.clean_body_content
+_filter_unsupported_ai_points = normalization.filter_unsupported_ai_points
+_is_meta_body_line = normalization.is_meta_body_line
+_json_points_to_body = normalization.json_points_to_body
+_normalise_body_line = normalization.normalise_body_line
 
 
 _clean_topics_for_report = report_cleanup.clean_topics_for_report

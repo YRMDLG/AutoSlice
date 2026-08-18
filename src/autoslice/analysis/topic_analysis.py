@@ -12,13 +12,13 @@ from autoslice import timecode
 from autoslice.analysis import (
     boundaries,
     clip_policy,
-    content_normalization,
     llm_execution,
-    response_parsing,
 )
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import titles as title_analysis
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis.topic import normalization
+from autoslice.analysis.topic import response as topic_response
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import TopicAnalysisPromptEvidence
 from autoslice.llm.prompts import (
@@ -189,8 +189,8 @@ def parse_json_topics_response(
         raw_title = str(item.get("title", "")).strip()
         if title_analysis._is_placeholder_title(raw_title):
             continue
-        body_lines = content_normalization.filter_unsupported_ai_points(
-            content_normalization.json_points_to_body(
+        body_lines = normalization.filter_unsupported_ai_points(
+            normalization.json_points_to_body(
                 item.get(
                     "points",
                     item.get("body", item.get("summary", item.get("details"))),
@@ -221,7 +221,7 @@ def parse_json_topics_response(
                 item.get("publish_title"),
                 title,
             ),
-            "can_slice": response_parsing.json_can_slice(
+            "can_slice": topic_response.json_can_slice(
                 item.get("can_slice", False),
                 raw_title,
             ),
@@ -289,7 +289,7 @@ def parse_llm_response(
         if title_analysis._is_placeholder_title(current["title"]):
             return
         body_lines = [
-            content_normalization.normalise_body_line(line)
+            normalization.normalise_body_line(line)
             for line in current["body"]
         ]
         body_lines = [line for line in body_lines if line]
@@ -337,7 +337,7 @@ def parse_llm_response(
                 "start": timecode.parse_hms(start_str),
                 "end": timecode.parse_hms(end_str),
                 "title": title_analysis._clean_topic_title(raw_title),
-                "can_slice": response_parsing.is_slice_marked(raw_title),
+                "can_slice": topic_response.is_slice_marked(raw_title),
                 "body": [],
             }
         elif current:

@@ -9,10 +9,10 @@ from autoslice.analysis import (
     clip_review_prompt,
     clip_scoring,
     llm_execution,
-    response_parsing,
 )
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis.manual import enrichment as manual_enrichment
+from autoslice.analysis.topic import response as topic_response
 from autoslice.llm import transport as llm_gateway
 
 FACADE_EXPORTS = {
@@ -201,7 +201,7 @@ def review_peak_selected_topics(
                             manual_star_count
                         )
                         interest_reason = clip_scoring.clip_interest_reason(item)
-                        if not response_parsing.json_can_slice(
+                        if not topic_response.json_can_slice(
                             item.get("valid"),
                             "",
                         ):
