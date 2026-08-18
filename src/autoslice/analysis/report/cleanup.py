@@ -5,7 +5,7 @@ from __future__ import annotations
 from autoslice import timecode
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import candidate_reconciliation, content_normalization
-from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 
 FACADE_EXPORTS = {
@@ -62,7 +62,7 @@ def trim_report_topic_around_reviewed_topic(topic, reviewed_topic, trim_start):
             )
         )
         if is_fact and any(
-            timeline_analysis._manual_alignment_score(clean, reviewed) >= 0.20
+            timeline_analysis.manual_alignment_score(clean, reviewed) >= 0.20
             for reviewed in reviewed_facts
         ):
             removed_fact = True
@@ -157,7 +157,7 @@ def clean_topics_for_report(topics):
         title_rebuilt = False
         if (
             fact_lines
-            and max(timeline_analysis._manual_alignment_score(title, fact) for fact in fact_lines)
+            and max(timeline_analysis.manual_alignment_score(title, fact) for fact in fact_lines)
             == 0
         ):
             rebuilt_title = title_analysis._derive_topic_title(

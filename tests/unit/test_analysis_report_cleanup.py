@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.streamer_profiles import streamer_profile_context
 
@@ -96,14 +96,14 @@ class ReportCleanupTests(unittest.TestCase):
         )
 
         self.assertGreaterEqual(
-            timeline_analysis._manual_alignment_score(
+            timeline_analysis.manual_alignment_score(
                 removed_fact,
                 reviewed_fact,
             ),
             0.20,
         )
         self.assertLess(
-            timeline_analysis._manual_alignment_score(
+            timeline_analysis.manual_alignment_score(
                 retained_fact,
                 reviewed_fact,
             ),

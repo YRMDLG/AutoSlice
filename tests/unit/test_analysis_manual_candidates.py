@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from autoslice.analysis import manual_candidates
+from autoslice.analysis.manual import candidates as manual_candidates
 
 
 class ManualCandidateTests(unittest.TestCase):
@@ -30,13 +30,9 @@ class ManualCandidateTests(unittest.TestCase):
 
     def test_manual_merge_target_rejects_fallback_generic_and_uncuttable_topics(self):
         self.assertFalse(
-            manual_candidates.is_manual_merge_target(
-                {"title": "真实话题", "fallback": True}
-            )
+            manual_candidates.is_manual_merge_target({"title": "真实话题", "fallback": True})
         )
-        self.assertFalse(
-            manual_candidates.is_manual_merge_target({"title": "日常聊天互动"})
-        )
+        self.assertFalse(manual_candidates.is_manual_merge_target({"title": "日常聊天互动"}))
         self.assertFalse(
             manual_candidates.is_manual_merge_target(
                 {"title": "游戏片段", "body": ["·全是音乐，仅播放画面"]}
@@ -213,14 +209,10 @@ class ManualCandidateTests(unittest.TestCase):
         entry = {
             "text": "草莓蛋糕烤糊以后满屋冒烟",
             "summary": ["·最后只能把烤箱关掉"],
-            "original_entries": [
-                {"start": 100, "text": "量子计算芯片发布", "stars": 5}
-            ],
+            "original_entries": [{"start": 100, "text": "量子计算芯片发布", "stars": 5}],
         }
 
-        self.assertIsNone(
-            manual_candidates.sanitize_optimized_manual_entry(entry)
-        )
+        self.assertIsNone(manual_candidates.sanitize_optimized_manual_entry(entry))
 
     def test_sanitize_keeps_only_grounded_originals_and_rebuilds_truthful_fields(self):
         entry = {

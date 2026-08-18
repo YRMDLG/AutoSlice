@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 
-from autoslice.analysis import clip_policy, manual_candidates
+from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
-from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis.manual import candidates as manual_candidates
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 
 FACADE_EXPORTS = {
@@ -47,7 +48,7 @@ def danmaku_topic_alignment(topic, evidence):
         text = danmaku_analysis._clean_ass_danmaku_text(item.get("text", ""))
         if not text or danmaku_analysis._is_generic_danmaku_reaction(text):
             continue
-        score = timeline_analysis._manual_alignment_score(text, semantic_text)
+        score = timeline_analysis.manual_alignment_score(text, semantic_text)
         if score <= 0:
             continue
         weight = 1.0 + math.log1p(max(1, int(item.get("count", 1) or 1)))
@@ -102,7 +103,7 @@ def reconcile_topic_manual_evidence(topic):
         )
         if not entry or not manual_entry_meaningfully_overlaps_topic(entry, fixed):
             continue
-        entry_supports_topic = timeline_analysis._manual_text_supports_candidate(
+        entry_supports_topic = timeline_analysis.manual_text_supports_candidate(
             manual_candidates.optimized_entry_semantic_text(entry), semantic_text
         )
         if not entry_supports_topic:
@@ -116,7 +117,7 @@ def reconcile_topic_manual_evidence(topic):
         if original_entries:
             relevant_originals = []
             for item in original_entries:
-                if timeline_analysis._manual_text_supports_candidate(
+                if timeline_analysis.manual_text_supports_candidate(
                         item.get("text", ""), semantic_text):
                     relevant_originals.append(item)
                     continue

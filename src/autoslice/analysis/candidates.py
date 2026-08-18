@@ -16,13 +16,13 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis import manual_enrichment
-from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_review
+from autoslice.analysis.manual import candidates as manual_candidates
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import response_parsing
 from autoslice.analysis import slice_decisions
-from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import timecode
@@ -308,10 +308,10 @@ MANUAL_TIMELINE_TOPIC_POST_SEC = timeline_analysis.MANUAL_TIMELINE_TOPIC_POST_SE
 MANUAL_TIMELINE_TOPIC_PRE_SEC = timeline_analysis.MANUAL_TIMELINE_TOPIC_PRE_SEC
 
 
-_manual_alignment_score = timeline_analysis._manual_alignment_score
+_manual_alignment_score = timeline_analysis.manual_alignment_score
 
 
-_manual_text_supports_candidate = timeline_analysis._manual_text_supports_candidate
+_manual_text_supports_candidate = timeline_analysis.manual_text_supports_candidate
 
 
 _parse_hms = timecode.parse_hms

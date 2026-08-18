@@ -25,12 +25,12 @@ from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review
 from autoslice.analysis import danmaku as danmaku_analysis
-from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import manual_review
+from autoslice.analysis.manual import candidates as manual_candidates
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis import slice_decisions
-from autoslice.analysis import timeline as timeline_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
@@ -98,9 +98,9 @@ _review_selected_publish_titles = title_analysis.review_selected_publish_titles
 _sanitize_optimized_manual_entry = (
     manual_candidates.sanitize_optimized_manual_entry
 )
-_extract_video_start_datetime = timeline_analysis._extract_video_start_datetime
-_filter_manual_timeline_entries = timeline_analysis._filter_manual_timeline_entries
-_manual_timeline_summary = timeline_analysis._manual_timeline_summary
+_extract_video_start_datetime = timeline_analysis.extract_video_start_datetime
+_filter_manual_timeline_entries = timeline_analysis.filter_manual_timeline_entries
+_manual_timeline_summary = timeline_analysis.manual_timeline_summary
 _funasr_checkpoint_path = transcription_checkpoints.funasr_checkpoint_path
 
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
@@ -274,7 +274,7 @@ def load_optimized_timeline_artifact(
         "optimization_version": int(payload.get("optimization_version", 0)),
         "streamer_profile_id": payload.get("streamer_profile_id"),
         "mode": "optimized_artifact",
-        "video_start": _extract_video_start_datetime(flv_path),
+        "video_start": timeline_analysis.extract_video_start_datetime(flv_path),
     }
 
 
@@ -288,7 +288,10 @@ def prepare_optimized_manual_timeline(
         manual_timeline_path=manual_timeline_path,
     )
     all_entries = manual_timeline.get("entries") or []
-    raw_entries = _filter_manual_timeline_entries(all_entries, video_duration)
+    raw_entries = timeline_analysis.filter_manual_timeline_entries(
+        all_entries,
+        video_duration,
+    )
     manual_timeline["source_entry_count"] = len(all_entries)
     manual_timeline["raw_entry_count"] = len(raw_entries)
     manual_timeline["entries"] = raw_entries
@@ -533,7 +536,7 @@ def optimize_manual_timeline_for_video_impl(
         "optimized_json_path": manual_timeline.get("optimized_json_path"),
         "optimized_md_path": manual_timeline.get("optimized_md_path"),
         "warning": manual_timeline.get("optimization_warning"),
-        "manual_timeline": _manual_timeline_summary(manual_timeline),
+        "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
         "artifact_dir": artifact_layout["artifact_dir"],
         "overview_path": organized["overview_path"],
     }
@@ -921,7 +924,7 @@ def run_pipeline_impl(
             "clip_review_warning": clip_review_warning,
             "clip_review_completed_at": clip_review_completed_at,
             "failed_chunks": failed_chunks,
-            "manual_timeline": _manual_timeline_summary(manual_timeline),
+            "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
             "analysis_topics": analysis_topics,
             "clip_marks": clip_marks,
         },
@@ -1000,7 +1003,7 @@ def run_pipeline_impl(
         "candidate_review_audit_path": candidate_review_audit_path,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
-        "manual_timeline": _manual_timeline_summary(manual_timeline),
+        "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
     }
 
 
@@ -1410,7 +1413,7 @@ def retry_clip_review_from_artifacts_impl(
         },
         "api_precheck_warning": api_warning,
         "clip_review_warning": clip_review_warning,
-        "manual_timeline": _manual_timeline_summary(manual_timeline),
+        "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
         "analysis_topics": analysis_topics,
         "clip_marks": clip_marks,
         "clip_review_completed_at": clip_review_completed_at,

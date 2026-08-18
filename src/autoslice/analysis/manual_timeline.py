@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from autoslice import timecode
 from autoslice.analysis import evidence as candidate_evidence
-from autoslice.analysis import manual_candidates
 from autoslice.analysis import manual_enrichment
 from autoslice.analysis import manual_review
-from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis.manual import candidates as manual_candidates
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
@@ -293,7 +293,7 @@ def optimize_manual_timeline(
     """先用字幕/弹幕聚合人工记录，再由 AI 改写标题、要点和语义范围。"""
     if not entries:
         return [], None
-    aligned_entries = timeline_analysis._align_manual_timeline_entries_to_srt(
+    aligned_entries = timeline_analysis.align_manual_timeline_entries_to_srt(
         entries, srt_segments
     )
     topics = manual_candidates.topics_from_manual_timeline(

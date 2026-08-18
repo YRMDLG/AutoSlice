@@ -4,7 +4,7 @@ import unittest
 
 from autoslice.analysis import candidate_reconciliation
 from autoslice.analysis import danmaku as danmaku_analysis
-from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis.manual import timebase as timeline_analysis
 
 
 class CandidateReconciliationTests(unittest.TestCase):
@@ -64,20 +64,18 @@ class CandidateReconciliationTests(unittest.TestCase):
             text = danmaku_analysis._clean_ass_danmaku_text(item["text"])
             if not text or danmaku_analysis._is_generic_danmaku_reaction(text):
                 continue
-            score = timeline_analysis._manual_alignment_score(text, semantic_text)
+            score = timeline_analysis.manual_alignment_score(text, semantic_text)
             if score <= 0:
                 continue
             weight = 1.0 + math.log1p(max(1, int(item["count"])))
             scored.append((score, weight))
         scored.sort(key=lambda item: item[0], reverse=True)
         strongest = scored[0][0]
-        weighted_average = sum(
-            score * weight for score, weight in scored[:3]
-        ) / sum(weight for _, weight in scored[:3])
+        weighted_average = sum(score * weight for score, weight in scored[:3]) / sum(
+            weight for _, weight in scored[:3]
+        )
         expected = round(strongest * 0.70 + weighted_average * 0.30, 4)
-        without_generic = {
-            "representative_messages": evidence["representative_messages"][:2]
-        }
+        without_generic = {"representative_messages": evidence["representative_messages"][:2]}
         equal_counts = copy.deepcopy(without_generic)
         equal_counts["representative_messages"][1]["count"] = 1
 
@@ -251,12 +249,7 @@ class CandidateReconciliationTests(unittest.TestCase):
         result = candidate_reconciliation.reconcile_topic_manual_evidence(topic)
 
         self.assertEqual(len(result["manual_timeline"]), 2)
-        self.assertTrue(
-            all(
-                entry["text"] == "草莓蛋糕烤糊"
-                for entry in result["manual_timeline"]
-            )
-        )
+        self.assertTrue(all(entry["text"] == "草莓蛋糕烤糊" for entry in result["manual_timeline"]))
         evidence_line = "●人工时间轴⭐⭐：0:02:00 草莓蛋糕烤糊"
         self.assertEqual(result["body"].count(evidence_line), 1)
         body_text = "\n".join(result["body"])

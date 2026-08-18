@@ -38,7 +38,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis import response_parsing
 from autoslice.analysis import slice_decisions
-from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice import reporting as reporting_service
 from autoslice import slice_encoding
@@ -4573,7 +4573,7 @@ class TopicEngineParseTests(unittest.TestCase):
                     return_value=(generated_topics, [], None),
                 ) as analyze_chunks,
                 patch(
-                    "autoslice.analysis.manual_candidates.merge_manual_timeline_topics"
+                    "autoslice.analysis.manual.candidates.merge_manual_timeline_topics"
                 ),
                 patch("autoslice.pipeline.parse_srt_segments", return_value=[]),
                 patch("autoslice.reporting.DEFAULT_REFINEMENT_QUEUE_DIR", tmp),
@@ -8746,36 +8746,11 @@ class ManualTimelineTests(unittest.TestCase):
     """北京时间参考、多段录播过滤、星标证据与 SRT 校准回归。"""
 
     def test_topic_engine_timeline_facade_keeps_analysis_object_identity(self):
-        expected = (
-            "_extract_video_start_datetime", "_manual_timeline_doc_candidates",
-            "_find_manual_timeline_doc",
-            "_parse_manual_timeline_lines", "_parse_elapsed_timeline_report_lines",
-            "_filter_manual_timeline_entries", "load_manual_timeline",
-            "_manual_timeline_summary", "_manual_alignment_text",
-            "_manual_alignment_score", "_manual_semantic_core",
-            "_manual_text_supports_candidate", "_srt_alignment_windows",
-            "_align_manual_timeline_entries_to_srt",
-        )
-        constants = (
-            "MANUAL_TIMELINE_DIR", "MANUAL_TIMELINE_CHUNK_MARGIN_SEC",
-            "MANUAL_TIMELINE_TOPIC_PRE_SEC", "MANUAL_TIMELINE_TOPIC_POST_SEC",
-            "MANUAL_TIMELINE_END_MARGIN_SEC", "MANUAL_TIMELINE_OPTIMIZE_GAP_SEC",
-            "MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC",
-            "MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE",
-            "MANUAL_TIMELINE_OPTIMIZATION_VERSION",
-            "MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC",
-            "MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC",
-            "MANUAL_TIMELINE_ALIGNMENT_STEP_SEC",
-            "MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE",
-            "MANUAL_TIMELINE_GROUNDING_MIN_SCORE",
-            "_MANUAL_SEMANTIC_GENERIC_TERMS",
-            "_MANUAL_SEMANTIC_BIGRAM_STOPWORDS",
-        )
-        for name in (*expected, *constants):
-            with self.subTest(name=name):
+        for compatibility_name, owner_name in timeline_analysis.FACADE_EXPORTS.items():
+            with self.subTest(name=compatibility_name):
                 self.assertIs(
-                    getattr(topic_engine, name),
-                    getattr(timeline_analysis, name),
+                    getattr(topic_engine, compatibility_name),
+                    getattr(timeline_analysis, owner_name),
                 )
         self.assertIs(topic_engine._read_docx_lines, timeline_analysis.read_docx_lines)
         self.assertIs(topic_engine._parse_hms, timecode.parse_hms)
@@ -8976,7 +8951,7 @@ class ManualTimelineTests(unittest.TestCase):
             doc_path = Path(tmp) / "指定时间轴.docx"
             doc_path.write_bytes(b"fake docx body")
             with patch(
-                "autoslice.analysis.timeline.read_docx_lines",
+                "autoslice.analysis.manual.timebase.read_docx_lines",
                 return_value=["20:31:56 指定时间轴重点 ⭐"],
             ):
                 loaded = load_manual_timeline(video_path, manual_timeline_path=str(doc_path))

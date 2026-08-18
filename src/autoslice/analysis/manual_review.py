@@ -12,9 +12,7 @@ from autoslice.analysis import (
     llm_execution,
     manual_enrichment,
 )
-from autoslice.analysis import (
-    timeline as timeline_analysis,
-)
+from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis import (
     titles as title_analysis,
 )

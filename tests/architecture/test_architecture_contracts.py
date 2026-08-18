@@ -1522,48 +1522,223 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
-    def test_manual_candidates_have_one_owner_and_direct_consumers(self):
+    def test_manual_domain_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline
         from autoslice.analysis import (
+            candidate_reconciliation,
             candidates,
             clip_policy,
-            manual_candidates,
+            manual_candidates as legacy_manual_candidates,
+            manual_review,
             manual_timeline,
+            timeline as legacy_timeline,
         )
+        from autoslice.analysis.manual import candidates as manual_candidates
+        from autoslice.analysis.manual import timebase
+        from autoslice.analysis.report import cleanup as report_cleanup
 
-        candidate_aliases = {
+        timebase_aliases = {
+            "MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE": (
+                "MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE"
+            ),
+            "MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC": (
+                "MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC"
+            ),
+            "MANUAL_TIMELINE_ALIGNMENT_STEP_SEC": (
+                "MANUAL_TIMELINE_ALIGNMENT_STEP_SEC"
+            ),
+            "MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC": (
+                "MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC"
+            ),
+            "MANUAL_TIMELINE_CHUNK_MARGIN_SEC": (
+                "MANUAL_TIMELINE_CHUNK_MARGIN_SEC"
+            ),
+            "MANUAL_TIMELINE_DIR": "MANUAL_TIMELINE_DIR",
+            "MANUAL_TIMELINE_END_MARGIN_SEC": (
+                "MANUAL_TIMELINE_END_MARGIN_SEC"
+            ),
+            "MANUAL_TIMELINE_GROUNDING_MIN_SCORE": (
+                "MANUAL_TIMELINE_GROUNDING_MIN_SCORE"
+            ),
+            "MANUAL_TIMELINE_OPTIMIZATION_VERSION": (
+                "MANUAL_TIMELINE_OPTIMIZATION_VERSION"
+            ),
+            "MANUAL_TIMELINE_OPTIMIZE_GAP_SEC": (
+                "MANUAL_TIMELINE_OPTIMIZE_GAP_SEC"
+            ),
+            "MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC": (
+                "MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC"
+            ),
+            "_MANUAL_SEMANTIC_BIGRAM_STOPWORDS": (
+                "_MANUAL_SEMANTIC_BIGRAM_STOPWORDS"
+            ),
+            "_MANUAL_SEMANTIC_GENERIC_TERMS": (
+                "_MANUAL_SEMANTIC_GENERIC_TERMS"
+            ),
+            "_extract_video_start_datetime": "extract_video_start_datetime",
+            "_manual_timeline_doc_candidates": (
+                "manual_timeline_doc_candidates"
+            ),
+            "_find_manual_timeline_doc": "find_manual_timeline_doc",
+            "_read_docx_lines": "read_docx_lines",
+            "_parse_manual_timeline_lines": "parse_manual_timeline_lines",
+            "_parse_elapsed_timeline_report_lines": (
+                "parse_elapsed_timeline_report_lines"
+            ),
+            "_filter_manual_timeline_entries": (
+                "filter_manual_timeline_entries"
+            ),
+            "load_manual_timeline": "load_manual_timeline",
+            "_manual_timeline_summary": "manual_timeline_summary",
+            "_manual_alignment_text": "manual_alignment_text",
+            "_manual_semantic_core": "manual_semantic_core",
+            "_srt_alignment_windows": "srt_alignment_windows",
+            "_align_manual_timeline_entries_to_srt": (
+                "align_manual_timeline_entries_to_srt"
+            ),
+            "MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE": (
+                "MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE"
+            ),
+            "MANUAL_TIMELINE_TOPIC_POST_SEC": (
+                "MANUAL_TIMELINE_TOPIC_POST_SEC"
+            ),
+            "MANUAL_TIMELINE_TOPIC_PRE_SEC": (
+                "MANUAL_TIMELINE_TOPIC_PRE_SEC"
+            ),
+            "_manual_alignment_score": "manual_alignment_score",
+            "_manual_text_supports_candidate": (
+                "manual_text_supports_candidate"
+            ),
+        }
+        self.assertEqual(timebase.FACADE_EXPORTS, timebase_aliases)
+        self.assertIs(legacy_timeline.FACADE_EXPORTS, timebase.FACADE_EXPORTS)
+        for compatibility_name, owner_name in timebase_aliases.items():
+            with self.subTest(topic_engine_timebase=compatibility_name):
+                self.assertIs(
+                    getattr(topic_engine, compatibility_name),
+                    getattr(timebase, owner_name),
+                )
+
+        timebase_same_name_compatibility = {
+            "TIMELINE_DIR",
+            "MANUAL_TIMELINE_DIR",
+            "MANUAL_TIMELINE_CHUNK_MARGIN_SEC",
+            "MANUAL_TIMELINE_TOPIC_PRE_SEC",
+            "MANUAL_TIMELINE_TOPIC_POST_SEC",
+            "MANUAL_TIMELINE_END_MARGIN_SEC",
+            "MANUAL_TIMELINE_OPTIMIZE_GAP_SEC",
+            "MANUAL_TIMELINE_OPTIMIZE_MAX_GROUP_SEC",
+            "MANUAL_TIMELINE_OPTIMIZE_BATCH_SIZE",
+            "MANUAL_TIMELINE_OPTIMIZATION_VERSION",
+            "MANUAL_TIMELINE_ALIGNMENT_SEARCH_SEC",
+            "MANUAL_TIMELINE_ALIGNMENT_WINDOW_SEC",
+            "MANUAL_TIMELINE_ALIGNMENT_STEP_SEC",
+            "MANUAL_TIMELINE_ALIGNMENT_MIN_SCORE",
+            "MANUAL_TIMELINE_GROUNDING_MIN_SCORE",
+            "parse_hms",
+            "_TIMELINE_ACCOUNT_PREFIX_RE",
+            "_MANUAL_SEMANTIC_GENERIC_TERMS",
+            "_MANUAL_SEMANTIC_BIGRAM_STOPWORDS",
+            "read_docx_lines",
+            "load_manual_timeline",
+        }
+        for name in timebase_same_name_compatibility:
+            with self.subTest(legacy_timebase=name):
+                self.assertIs(getattr(legacy_timeline, name), getattr(timebase, name))
+
+        legacy_timebase_functions = {
+            compatibility_name: owner_name
+            for compatibility_name, owner_name in timebase_aliases.items()
+            if owner_name
+            in {
+                "extract_video_start_datetime",
+                "manual_timeline_doc_candidates",
+                "find_manual_timeline_doc",
+                "parse_manual_timeline_lines",
+                "parse_elapsed_timeline_report_lines",
+                "filter_manual_timeline_entries",
+                "manual_timeline_summary",
+                "manual_alignment_text",
+                "manual_alignment_score",
+                "manual_semantic_core",
+                "manual_text_supports_candidate",
+                "srt_alignment_windows",
+                "align_manual_timeline_entries_to_srt",
+            }
+        }
+        legacy_timebase_functions["read_docx_lines"] = "read_docx_lines"
+        legacy_timebase_functions["load_manual_timeline"] = "load_manual_timeline"
+        for compatibility_name, owner_name in legacy_timebase_functions.items():
+            with self.subTest(legacy_timebase_function=compatibility_name):
+                self.assertIs(
+                    getattr(legacy_timeline, compatibility_name),
+                    getattr(timebase, owner_name),
+                )
+
+        manual_candidate_aliases = {
             "_is_manual_merge_target": "is_manual_merge_target",
             "_manual_entry_matches_topic": "manual_entry_matches_topic",
             "_manual_evidence_line": "manual_evidence_line",
-            "merge_manual_timeline_topics": "merge_manual_timeline_topics",
+            "_merge_manual_timeline_topics": "merge_manual_timeline_topics",
             "_optimized_entry_semantic_text": "optimized_entry_semantic_text",
             "_sanitize_optimized_manual_entry": (
                 "sanitize_optimized_manual_entry"
             ),
             "_topics_from_manual_timeline": "topics_from_manual_timeline",
         }
+        self.assertEqual(manual_candidates.FACADE_EXPORTS, manual_candidate_aliases)
+        self.assertIs(
+            legacy_manual_candidates.FACADE_EXPORTS,
+            manual_candidates.FACADE_EXPORTS,
+        )
+        for owner_name in manual_candidate_aliases.values():
+            with self.subTest(legacy_manual_candidates=owner_name):
+                self.assertIs(
+                    getattr(legacy_manual_candidates, owner_name),
+                    getattr(manual_candidates, owner_name),
+                )
+
+        candidate_aliases = dict(manual_candidate_aliases)
+        candidate_aliases["merge_manual_timeline_topics"] = (
+            candidate_aliases.pop("_merge_manual_timeline_topics")
+        )
         for compatibility_name, owner_name in candidate_aliases.items():
             with self.subTest(candidate=compatibility_name):
                 owner = getattr(manual_candidates, owner_name)
                 self.assertIs(getattr(candidates, compatibility_name), owner)
 
-        topic_engine_aliases = dict(candidate_aliases)
-        topic_engine_aliases.pop("merge_manual_timeline_topics")
-        topic_engine_aliases["_merge_manual_timeline_topics"] = (
-            "merge_manual_timeline_topics"
-        )
+        topic_engine_aliases = dict(manual_candidate_aliases)
         for compatibility_name, owner_name in topic_engine_aliases.items():
-            with self.subTest(topic_engine=compatibility_name):
+            with self.subTest(topic_engine_candidate=compatibility_name):
                 self.assertIs(
                     getattr(topic_engine, compatibility_name),
                     getattr(manual_candidates, owner_name),
                 )
 
-        self.assertIs(candidates.manual_candidates, manual_candidates)
-        self.assertIs(manual_timeline.manual_candidates, manual_candidates)
-        self.assertIs(pipeline.manual_candidates, manual_candidates)
-        self.assertIs(topic_engine.manual_candidates, manual_candidates)
+        candidate_consumers = (
+            candidate_reconciliation,
+            candidates,
+            manual_timeline,
+            pipeline,
+            topic_engine,
+        )
+        for consumer in candidate_consumers:
+            with self.subTest(candidate_consumer=consumer.__name__):
+                self.assertIs(consumer.manual_candidates, manual_candidates)
+        timebase_consumers = (
+            candidate_reconciliation,
+            candidates,
+            manual_review,
+            manual_timeline,
+            report_cleanup,
+            pipeline,
+            topic_engine,
+        )
+        for consumer in timebase_consumers:
+            with self.subTest(timebase_consumer=consumer.__name__):
+                self.assertIs(consumer.timeline_analysis, timebase)
+
         self.assertIs(
             candidates._UNCUTTABLE_CONTENT_KEYWORDS,
             clip_policy.UNCUTTABLE_CONTENT_KEYWORDS,
@@ -1577,81 +1752,191 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             manual_candidates.sanitize_optimized_manual_entry,
         )
 
-        candidate_source = (
-            ROOT / "src/autoslice/analysis/candidates.py"
-        ).read_text(encoding="utf-8")
-        candidate_reconciliation_source = (
-            ROOT / "src/autoslice/analysis/candidate_reconciliation.py"
-        ).read_text(encoding="utf-8")
-        manual_timeline_source = (
-            ROOT / "src/autoslice/analysis/manual_timeline.py"
-        ).read_text(encoding="utf-8")
-        pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
-            encoding="utf-8"
+        manual_package_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/manual/__init__.py").read_text(
+                encoding="utf-8"
+            )
         )
-        for old_definition in (
-            "_manual_entry_matches_topic",
-            "_is_manual_merge_target",
-            "merge_manual_timeline_topics",
-            "_topics_from_manual_timeline",
-            "_optimized_entry_semantic_text",
-            "_manual_evidence_line",
-            "_sanitize_optimized_manual_entry",
-        ):
-            self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
-        self.assertNotIn(
-            "manual_candidates.sanitize_optimized_manual_entry(",
-            candidate_source,
-        )
-        self.assertIn(
-            "manual_candidates.sanitize_optimized_manual_entry(",
-            candidate_reconciliation_source,
-        )
-        self.assertNotIn("candidate_analysis.", manual_timeline_source)
-        self.assertIn(
-            "manual_candidates.topics_from_manual_timeline(",
-            manual_timeline_source,
-        )
-        self.assertIn(
-            "candidate_evidence.topic_srt_summary_lines(",
-            manual_timeline_source,
-        )
-        self.assertIn(
-            "manual_candidates.merge_manual_timeline_topics(",
-            pipeline_source,
-        )
-        self.assertNotIn(
-            "candidate_analysis.merge_manual_timeline_topics(",
-            pipeline_source,
+        self.assertFalse(
+            any(
+                isinstance(node, (ast.Import, ast.ImportFrom))
+                for node in manual_package_tree.body
+            )
         )
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
-        candidate_functions = {
-            item["name"]
-            for item in modules["autoslice.analysis.candidates"][
+        self.assertEqual(
+            modules["autoslice.analysis.timeline"]["top_level_functions"],
+            [],
+        )
+        self.assertEqual(
+            modules["autoslice.analysis.manual_candidates"][
                 "top_level_functions"
-            ]
-        }
-        owner_functions = {
+            ],
+            [],
+        )
+        timebase_functions = {
             item["name"]
-            for item in modules["autoslice.analysis.manual_candidates"][
+            for item in modules["autoslice.analysis.manual.timebase"][
                 "top_level_functions"
             ]
         }
         self.assertEqual(
-            owner_functions,
+            timebase_functions,
             {
-                "is_manual_merge_target",
-                "manual_entry_matches_topic",
-                "manual_evidence_line",
-                "merge_manual_timeline_topics",
-                "optimized_entry_semantic_text",
-                "sanitize_optimized_manual_entry",
-                "topics_from_manual_timeline",
+                "extract_video_start_datetime",
+                "manual_timeline_doc_candidates",
+                "find_manual_timeline_doc",
+                "read_docx_lines",
+                "parse_manual_timeline_lines",
+                "parse_elapsed_timeline_report_lines",
+                "filter_manual_timeline_entries",
+                "load_manual_timeline",
+                "manual_timeline_summary",
+                "manual_alignment_text",
+                "manual_alignment_score",
+                "manual_semantic_core",
+                "manual_text_supports_candidate",
+                "srt_alignment_windows",
+                "align_manual_timeline_entries_to_srt",
             },
         )
-        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+        self.assertTrue(all(not name.startswith("_") for name in timebase_functions))
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.manual.candidates"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(candidate_functions, set(manual_candidate_aliases.values()))
+
+        legacy_private_timebase_functions = {
+            "_extract_video_start_datetime",
+            "_manual_timeline_doc_candidates",
+            "_find_manual_timeline_doc",
+            "_parse_manual_timeline_lines",
+            "_parse_elapsed_timeline_report_lines",
+            "_filter_manual_timeline_entries",
+            "_manual_timeline_summary",
+            "_manual_alignment_text",
+            "_manual_alignment_score",
+            "_manual_semantic_core",
+            "_manual_text_supports_candidate",
+            "_srt_alignment_windows",
+            "_align_manual_timeline_entries_to_srt",
+        }
+        expected_public_timebase_calls = {
+            "src/autoslice/analysis/manual/candidates.py": {
+                "manual_text_supports_candidate",
+            },
+            "src/autoslice/analysis/candidate_reconciliation.py": {
+                "manual_alignment_score",
+                "manual_text_supports_candidate",
+            },
+            "src/autoslice/analysis/manual_timeline.py": {
+                "align_manual_timeline_entries_to_srt",
+            },
+            "src/autoslice/analysis/report/cleanup.py": {
+                "manual_alignment_score",
+            },
+            "src/autoslice/pipeline.py": {
+                "extract_video_start_datetime",
+                "filter_manual_timeline_entries",
+                "manual_timeline_summary",
+            },
+        }
+        for relative_path, expected_calls in expected_public_timebase_calls.items():
+            consumer_tree = ast.parse(
+                (ROOT / relative_path).read_text(encoding="utf-8")
+            )
+            private_calls = {
+                node.func.attr
+                for node in ast.walk(consumer_tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in legacy_private_timebase_functions
+            } | {
+                node.func.id
+                for node in ast.walk(consumer_tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in legacy_private_timebase_functions
+            }
+            direct_owner_calls = {
+                node.func.attr
+                for node in ast.walk(consumer_tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "timeline_analysis"
+            }
+            with self.subTest(public_timebase_consumer=relative_path):
+                self.assertEqual(private_calls, set())
+                self.assertGreaterEqual(direct_owner_calls, expected_calls)
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        timebase_owner = "autoslice.analysis.manual.timebase"
+        candidate_owner = "autoslice.analysis.manual.candidates"
+        legacy_timebase = "autoslice.analysis.timeline"
+        legacy_candidates = "autoslice.analysis.manual_candidates"
+        timebase_consumer_names = {
+            "autoslice.analysis.candidate_reconciliation",
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual_review",
+            "autoslice.analysis.manual_timeline",
+            "autoslice.analysis.report.cleanup",
+            "autoslice.pipeline",
+            "autoslice.topic_engine",
+        }
+        candidate_consumer_names = {
+            "autoslice.analysis.candidate_reconciliation",
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.manual_timeline",
+            "autoslice.pipeline",
+            "autoslice.topic_engine",
+        }
+        for consumer in timebase_consumer_names:
+            with self.subTest(timebase_import=consumer):
+                self.assertIn((consumer, timebase_owner), import_edges)
+                self.assertNotIn((consumer, legacy_timebase), import_edges)
+        for consumer in candidate_consumer_names:
+            with self.subTest(candidate_import=consumer):
+                self.assertIn((consumer, candidate_owner), import_edges)
+                self.assertNotIn((consumer, legacy_candidates), import_edges)
+        self.assertIn((candidate_owner, timebase_owner), import_edges)
+        self.assertIn((legacy_timebase, timebase_owner), import_edges)
+        self.assertIn((legacy_candidates, candidate_owner), import_edges)
+
+        forbidden_owner_targets = {
+            legacy_timebase,
+            legacy_candidates,
+            "autoslice.analysis.candidates",
+            "autoslice.pipeline",
+            "autoslice.reporting",
+            "autoslice.topic_engine",
+        }
+        for owner_module in (timebase_owner, candidate_owner):
+            for forbidden_target in forbidden_owner_targets:
+                with self.subTest(
+                    owner=owner_module,
+                    forbidden_target=forbidden_target,
+                ):
+                    self.assertNotIn(
+                        (owner_module, forbidden_target),
+                        import_edges,
+                    )
+
+        self.assertEqual(current["summary"]["top_level_function_count"], 884)
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -2411,7 +2696,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                     "reconcile_topic_manual_evidence",
                 ),
                 ("content_normalization", "normalise_body_line"),
-                ("timeline_analysis", "_manual_alignment_score"),
+                ("timeline_analysis", "manual_alignment_score"),
                 ("timecode", "format_elapsed"),
                 ("title_analysis", "_derive_topic_title"),
                 ("title_analysis", "_fallback_publish_title"),
