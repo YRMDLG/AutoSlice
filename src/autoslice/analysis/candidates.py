@@ -29,6 +29,7 @@ from autoslice.llm.prompts import (
 )
 from autoslice.transcription import service as transcription_service
 from autoslice.transcription import segments as transcription_segments
+from autoslice.transcription import srt_io as transcription_srt_io
 from autoslice.streamer_profiles import (
     current_streamer_profile,
     streamer_profile_context,
@@ -158,7 +159,7 @@ _normalise_streamer_terms = transcription_segments.normalise_streamer_terms
 _subtitle_text_size = transcription_segments.subtitle_text_size
 
 
-_load_repaired_srt_segments = transcription_service._load_repaired_srt_segments
+_load_repaired_srt_segments = transcription_srt_io.load_repaired_srt_segments
 
 
 DANMAKU_WINDOW = danmaku_analysis.DANMAKU_WINDOW

@@ -27,6 +27,7 @@ from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
 from autoslice.llm.prompts import build_title_hook_guide as _render_title_hook_guide
 from autoslice.transcription import checkpoints as transcription_checkpoints
 from autoslice.transcription import service as transcription_service
+from autoslice.transcription import srt_io as transcription_srt_io
 from autoslice.transcription.contracts import SubtitleTitleServices
 from autoslice.streamer_profiles import (
     current_streamer_profile,
@@ -56,7 +57,7 @@ FACADE_EXPORTS = {
 
 # 可替换的公开依赖 seam；默认对象均直接来自各自唯一 owner。
 ensure_srt = transcription_service.ensure_srt
-export_corrected_srt = transcription_service.export_corrected_srt
+export_corrected_srt = transcription_srt_io.export_corrected_srt
 probe_video_duration = transcription_service.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = candidate_analysis.parse_srt_text

@@ -907,6 +907,42 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertTrue(owner_functions)
         self.assertTrue(owner_functions.isdisjoint(service_functions))
 
+    def test_srt_io_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import boundaries, candidates
+        from autoslice.transcription import service, srt_io
+
+        self.assertIs(service.srt_io, srt_io)
+        self.assertIs(pipeline.transcription_srt_io, srt_io)
+        self.assertIs(candidates.transcription_srt_io, srt_io)
+        self.assertIs(boundaries.transcription_srt_io, srt_io)
+
+        for facade_name, owner_name in srt_io.FACADE_EXPORTS.items():
+            with self.subTest(name=facade_name):
+                owner = getattr(srt_io, owner_name)
+                self.assertIs(getattr(service, facade_name), owner)
+                self.assertIs(getattr(topic_engine, facade_name), owner)
+
+        self.assertIs(pipeline.export_corrected_srt, srt_io.export_corrected_srt)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        service_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.service"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.transcription.srt_io"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(owner_functions)
+        self.assertTrue(owner_functions.isdisjoint(service_functions))
+
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import slice_reuse, slicing

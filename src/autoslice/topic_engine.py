@@ -45,6 +45,7 @@ from autoslice.transcription import model_runtime as transcription_model_runtime
 from autoslice.transcription import results as transcription_results
 from autoslice.transcription import segments as transcription_segments
 from autoslice.transcription import service as transcription_service
+from autoslice.transcription import srt_io as transcription_srt_io
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -138,8 +139,8 @@ _should_hold_subtitle_for_short_clause = (
 )
 _segment_timed_tokens = transcription_segments.segment_timed_tokens
 _segments_from_funasr_result = transcription_segments.segments_from_funasr_result
-_read_srt_entries = transcription_service._read_srt_entries
-export_corrected_srt = transcription_service.export_corrected_srt
+_read_srt_entries = transcription_srt_io.read_srt_entries
+export_corrected_srt = transcription_srt_io.export_corrected_srt
 _probe_video_duration = transcription_service.probe_video_duration
 _prepare_funasr_environment = transcription_model_runtime.prepare_funasr_environment
 _funasr_model_cache_candidates = (
@@ -456,7 +457,7 @@ _is_slice_marked = candidate_analysis._is_slice_marked
 _is_topic_in_chunk = candidate_analysis._is_topic_in_chunk
 _json_can_slice = candidate_analysis._json_can_slice
 _json_points_to_body = candidate_analysis._json_points_to_body
-_load_repaired_srt_segments = transcription_service._load_repaired_srt_segments
+_load_repaired_srt_segments = transcription_srt_io.load_repaired_srt_segments
 _load_topic_analysis_checkpoint = candidate_analysis._load_topic_analysis_checkpoint
 _looks_like_delayed_topic_conclusion = boundary_analysis._looks_like_delayed_topic_conclusion
 _looks_like_discourse_continuation = boundary_analysis._looks_like_discourse_continuation
