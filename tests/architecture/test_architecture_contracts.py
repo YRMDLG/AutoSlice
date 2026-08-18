@@ -969,6 +969,44 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
+    def test_clip_review_prompt_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import candidates, clip_review_prompt
+
+        owner = clip_review_prompt.build_clip_candidate_review_prompt
+        self.assertIs(candidates._build_clip_candidate_review_prompt, owner)
+        self.assertIs(topic_engine._build_clip_candidate_review_prompt, owner)
+        self.assertIs(candidates.clip_review_prompt, clip_review_prompt)
+
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "clip_review_prompt.build_clip_candidate_review_prompt(",
+            candidate_source,
+        )
+        self.assertNotIn(
+            "\ndef _build_clip_candidate_review_prompt(",
+            candidate_source,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.clip_review_prompt"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(owner_functions, {"build_clip_candidate_review_prompt"})
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
     def test_timecode_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import pipeline, reporting, timecode

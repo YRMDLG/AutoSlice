@@ -16,6 +16,7 @@ from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review_candidates
+from autoslice.analysis import clip_review_prompt
 from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
@@ -27,10 +28,8 @@ from autoslice.analysis import titles as title_analysis
 from autoslice import timecode
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import (
-    ClipCandidatePromptEvidence as _ClipCandidatePromptEvidence,
     ManualTopicPromptEvidence as _ManualTopicPromptEvidence,
     TopicAnalysisPromptEvidence as _TopicAnalysisPromptEvidence,
-    build_clip_candidate_review_prompt as _render_clip_candidate_review_prompt,
     build_manual_topic_enrichment_prompt as _render_manual_topic_enrichment_prompt,
     build_topic_analysis_prompt as _render_topic_analysis_prompt,
 )
@@ -153,6 +152,9 @@ _topic_peak_candidates = candidate_evidence.topic_peak_candidates
 
 _clip_review_candidate = clip_review_candidates.build_clip_review_candidate
 _fresh_manual_topic_evidence = clip_review_candidates.fresh_manual_topic_evidence
+_build_clip_candidate_review_prompt = (
+    clip_review_prompt.build_clip_candidate_review_prompt
+)
 
 
 LLM_DEFAULT_CONCURRENCY = llm_execution.LLM_DEFAULT_CONCURRENCY
@@ -2461,59 +2463,6 @@ def analyze_topic_chunks(
     return accepted_topics, failed_chunks, None
 
 
-def _build_clip_candidate_review_prompt(candidates, streamer_name=None, compact=False):
-    """构造切片候选独立复核提示；只把原字幕、峰值和原始人工记录作为证据。"""
-    payload = []
-    for index, candidate in enumerate(candidates, 1):
-        evidence_limit = 10 if compact else 24
-        evidence = [
-            _strip_body_prefix(line)
-            for line in (candidate.get("body") or [])[:evidence_limit]
-            if _strip_body_prefix(line)
-        ]
-        subtitle_evidence = [
-            line for line in evidence if line.startswith("字幕核查：")
-        ]
-        manual_evidence = [
-            line for line in evidence
-            if line.startswith(("人工时间轴", "时间轴："))
-        ]
-        density_evidence = [
-            line for line in evidence if line.startswith("弹幕依据：")
-        ]
-        payload.append({
-            "id": index,
-            "reference_start": timecode.format_elapsed(candidate["start"]),
-            "reference_end": timecode.format_elapsed(candidate["end"]),
-            "candidate_anchor": timecode.format_elapsed(candidate.get("slice_anchor", candidate["start"])),
-            "candidate_sources": list(candidate.get("clip_candidate_sources") or []),
-            "provisional_title": candidate.get("title", "待核查高能片段"),
-            "reference_publish_titles": _clip_candidate_reference_publish_titles(candidate),
-            "publish_title_locked": bool(candidate.get("publish_title_locked")),
-            "manual_star_count": max(0, int(candidate.get("manual_stars", 0) or 0)),
-            "danmaku_evidence": _clip_candidate_danmaku_prompt_evidence(candidate),
-            "evidence": evidence,
-            "subtitle_evidence": subtitle_evidence,
-            "core_subtitle_evidence": candidate.get("core_subtitle_evidence") or [],
-            "manual_evidence": manual_evidence,
-            "density_evidence": density_evidence,
-        })
-    context = _prompt_context(
-        streamer_name,
-        context_text=json.dumps(payload, ensure_ascii=False),
-        compact=compact,
-        publish_title_example_text="具体事件与原话",
-    )
-    return _render_clip_candidate_review_prompt(
-        _ClipCandidatePromptEvidence(
-            context=context,
-            candidates=tuple(payload),
-            focus_max_seconds=TOPIC_REVIEW_FOCUS_MAX_SEC,
-            minimum_interest_score=CLIP_MIN_INTEREST_SCORE,
-        )
-    )
-
-
 _TOPIC_REVIEW_TRANSIENT_KEYS = checkpoint_store.TOPIC_REVIEW_TRANSIENT_KEYS
 
 
@@ -2606,12 +2555,12 @@ def _review_peak_selected_topics(
                     95,
                     100,
                 )
-            prompt = _build_clip_candidate_review_prompt(
+            prompt = clip_review_prompt.build_clip_candidate_review_prompt(
                 candidates,
                 streamer_name=streamer_name,
                 compact=False,
             )
-            compact_prompt = _build_clip_candidate_review_prompt(
+            compact_prompt = clip_review_prompt.build_clip_candidate_review_prompt(
                 candidates,
                 streamer_name=streamer_name,
                 compact=True,

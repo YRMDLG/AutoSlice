@@ -17,6 +17,7 @@ from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import clip_review_candidates
+from autoslice.analysis import clip_review_prompt
 from autoslice.analysis import content_normalization
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
@@ -413,7 +414,9 @@ _boundary_evidence_term_counts = boundary_analysis._boundary_evidence_term_count
 _boundary_evidence_text_is_relevant = boundary_analysis._boundary_evidence_text_is_relevant
 _build_chunk_prompt = candidate_analysis._build_chunk_prompt
 _build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_audit
-_build_clip_candidate_review_prompt = candidate_analysis._build_clip_candidate_review_prompt
+_build_clip_candidate_review_prompt = (
+    clip_review_prompt.build_clip_candidate_review_prompt
+)
 _build_manual_topic_enrichment_prompt = candidate_analysis._build_manual_topic_enrichment_prompt
 _cap_expanded_clip_mark = boundary_analysis._cap_expanded_clip_mark
 _capped_speech_chain_start = boundary_analysis._capped_speech_chain_start
