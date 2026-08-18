@@ -19,6 +19,7 @@ from autoslice import slicing as slicing_service
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
@@ -95,7 +96,7 @@ _funasr_checkpoint_path = transcription_checkpoints.funasr_checkpoint_path
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 _apply_danmaku_slice_decisions = candidate_analysis._apply_danmaku_slice_decisions
 _average_danmaku_density = candidate_analysis._average_danmaku_density
-_build_clip_candidate_review_audit = candidate_analysis._build_clip_candidate_review_audit
+_build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_audit
 _clean_topics_for_report = candidate_analysis._clean_topics_for_report
 _clip_marks_from_topics = candidate_analysis._clip_marks_from_topics
 _danmaku_clip_threshold = danmaku_analysis._danmaku_clip_threshold

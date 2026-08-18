@@ -14,6 +14,7 @@ import os
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
@@ -402,7 +403,7 @@ _boundary_context_is_relevant = boundary_analysis._boundary_context_is_relevant
 _boundary_evidence_term_counts = boundary_analysis._boundary_evidence_term_counts
 _boundary_evidence_text_is_relevant = boundary_analysis._boundary_evidence_text_is_relevant
 _build_chunk_prompt = candidate_analysis._build_chunk_prompt
-_build_clip_candidate_review_audit = candidate_analysis._build_clip_candidate_review_audit
+_build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_audit
 _build_clip_candidate_review_prompt = candidate_analysis._build_clip_candidate_review_prompt
 _build_manual_topic_enrichment_prompt = candidate_analysis._build_manual_topic_enrichment_prompt
 _cap_expanded_clip_mark = boundary_analysis._cap_expanded_clip_mark
@@ -411,13 +412,13 @@ _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
 _clean_body_content = candidate_analysis._clean_body_content
 _clean_topics_for_report = candidate_analysis._clean_topics_for_report
 _clip_context_requires_trigger = boundary_analysis._clip_context_requires_trigger
-_clip_interest_reason = candidate_analysis._clip_interest_reason
-_clip_manual_star_count = candidate_analysis._clip_manual_star_count
+_clip_interest_reason = clip_scoring.clip_interest_reason
+_clip_manual_star_count = clip_scoring.clip_manual_star_count
 _clip_marks_from_topics = candidate_analysis._clip_marks_from_topics
 _clip_review_candidate = candidate_analysis._clip_review_candidate
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete
 _clip_review_checkpoint_matches_policy = checkpoint_store.clip_review_checkpoint_matches_policy
-_clip_star_bonus_cap = candidate_analysis._clip_star_bonus_cap
+_clip_star_bonus_cap = clip_scoring.clip_star_bonus_cap
 _configured_llm_concurrency = candidate_analysis._configured_llm_concurrency
 _danmaku_peak_features = danmaku_analysis._danmaku_peak_features
 _danmaku_prompt_evidence = danmaku_analysis._danmaku_prompt_evidence
@@ -485,8 +486,8 @@ _normalise_streamer_terms = transcription_segments.normalise_streamer_terms
 _optimized_entry_semantic_text = candidate_analysis._optimized_entry_semantic_text
 _outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
 _overlap_ratio = boundary_analysis._overlap_ratio
-_parse_clip_interest_score = candidate_analysis._parse_clip_interest_score
-_parse_clip_star_bonus = candidate_analysis._parse_clip_star_bonus
+_parse_clip_interest_score = clip_scoring.parse_clip_interest_score
+_parse_clip_star_bonus = clip_scoring.parse_clip_star_bonus
 _parse_hms = timeline_analysis.parse_hms
 _parse_json_topics_response = candidate_analysis._parse_json_topics_response
 _parse_llm_response = candidate_analysis._parse_llm_response

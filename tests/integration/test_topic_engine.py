@@ -27,6 +27,7 @@ from autoslice import topic_engine
 from autoslice.analysis import candidates as candidate_analysis
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
+from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
@@ -728,6 +729,7 @@ class CandidateReviewTests(unittest.TestCase):
     def test_topic_engine_candidate_facade_keeps_analysis_object_identity(self):
         owners = (
             checkpoint_store,
+            clip_scoring,
             clip_policy,
             boundary_analysis,
             candidate_analysis,

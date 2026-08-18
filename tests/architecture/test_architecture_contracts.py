@@ -556,6 +556,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             boundaries,
             candidates,
             checkpoints,
+            clip_scoring,
             clip_policy,
             danmaku,
             manual_timeline,
@@ -577,6 +578,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             timeline,
             manual_timeline,
             checkpoints,
+            clip_scoring,
             boundaries,
             clip_policy,
             candidates,
@@ -665,6 +667,48 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "clip_review_checkpoint_is_complete",
             "write_completed_clip_review_checkpoint",
         }.isdisjoint(candidate_functions))
+
+    def test_clip_scoring_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import candidates, clip_scoring
+
+        aliases = {
+            "_build_clip_candidate_review_audit": (
+                "build_clip_candidate_review_audit"
+            ),
+            "_clip_interest_reason": "clip_interest_reason",
+            "_clip_manual_star_count": "clip_manual_star_count",
+            "_clip_star_bonus_cap": "clip_star_bonus_cap",
+            "_parse_clip_interest_score": "parse_clip_interest_score",
+            "_parse_clip_star_bonus": "parse_clip_star_bonus",
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(clip_scoring, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+        self.assertIs(
+            pipeline._build_clip_candidate_review_audit,
+            clip_scoring.build_clip_candidate_review_audit,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.clip_scoring"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(owner_functions)
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
     def test_manual_timeline_optimization_has_one_owner_and_direct_consumers(self):
         import topic_engine

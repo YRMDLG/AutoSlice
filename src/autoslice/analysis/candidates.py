@@ -14,6 +14,7 @@ from functools import partial
 
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import boundaries as boundary_analysis
+from autoslice.analysis import clip_scoring
 from autoslice.analysis import clip_policy
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import timeline as timeline_analysis
@@ -64,16 +65,12 @@ FACADE_EXPORTS = {
     '_assign_reviewed_semantic_slice_window': '_assign_reviewed_semantic_slice_window',
     '_assign_topic_slice_window': '_assign_topic_slice_window',
     '_build_chunk_prompt': '_build_chunk_prompt',
-    '_build_clip_candidate_review_audit': '_build_clip_candidate_review_audit',
     '_build_clip_candidate_review_prompt': '_build_clip_candidate_review_prompt',
     '_build_manual_topic_enrichment_prompt': '_build_manual_topic_enrichment_prompt',
     '_clean_body_content': '_clean_body_content',
     '_clean_topics_for_report': '_clean_topics_for_report',
-    '_clip_interest_reason': '_clip_interest_reason',
-    '_clip_manual_star_count': '_clip_manual_star_count',
     '_clip_marks_from_topics': '_clip_marks_from_topics',
     '_clip_review_candidate': '_clip_review_candidate',
-    '_clip_star_bonus_cap': '_clip_star_bonus_cap',
     '_configured_llm_concurrency': '_configured_llm_concurrency',
     '_danmaku_topic_alignment': '_danmaku_topic_alignment',
     '_enrich_manual_topics_in_batches': 'enrich_manual_topics_in_batches',
@@ -104,8 +101,6 @@ FACADE_EXPORTS = {
     '_merge_manual_timeline_topics': 'merge_manual_timeline_topics',
     '_normalise_body_line': '_normalise_body_line',
     '_optimized_entry_semantic_text': '_optimized_entry_semantic_text',
-    '_parse_clip_interest_score': '_parse_clip_interest_score',
-    '_parse_clip_star_bonus': '_parse_clip_star_bonus',
     '_parse_json_topics_response': '_parse_json_topics_response',
     '_parse_llm_response': '_parse_llm_response',
     '_reconcile_topic_manual_evidence': '_reconcile_topic_manual_evidence',
@@ -310,6 +305,14 @@ CLIP_MIN_INTEREST_SCORE = clip_policy.CLIP_MIN_INTEREST_SCORE
 CLIP_MANUAL_REVIEW_MIN_STARS = clip_policy.CLIP_MANUAL_REVIEW_MIN_STARS
 CLIP_REVIEW_BATCH_SIZE = clip_policy.CLIP_REVIEW_BATCH_SIZE
 CLIP_REVIEW_RETRY_BATCH_SIZE = clip_policy.CLIP_REVIEW_RETRY_BATCH_SIZE
+_parse_clip_interest_score = clip_scoring.parse_clip_interest_score
+_parse_clip_star_bonus = clip_scoring.parse_clip_star_bonus
+_clip_star_bonus_cap = clip_scoring.clip_star_bonus_cap
+_clip_manual_star_count = clip_scoring.clip_manual_star_count
+_clip_interest_reason = clip_scoring.clip_interest_reason
+_build_clip_candidate_review_audit = (
+    clip_scoring.build_clip_candidate_review_audit
+)
 TOPIC_PRE_CONTEXT_SEC = clip_policy.TOPIC_PRE_CONTEXT_SEC
 TOPIC_POST_CONTEXT_SEC = clip_policy.TOPIC_POST_CONTEXT_SEC
 TOPIC_MIN_CLIP_SEC = clip_policy.TOPIC_MIN_CLIP_SEC
@@ -3024,58 +3027,6 @@ def _clip_review_candidate(
 
 
 
-def _parse_clip_interest_score(value):
-    """解析 Terra 的投稿价值分；缺失、越界或非有限值都视为结构无效。"""
-    try:
-        score = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(score) or not 0 <= score <= 100:
-        return None
-    return round(score, 1)
-
-
-def _parse_clip_star_bonus(value):
-    """解析强人工星标的有限加分；普通星标不允许产生加分。"""
-    bonus = _parse_clip_interest_score(value)
-    if bonus is None or bonus > 8:
-        return None
-    return bonus
-
-
-def _clip_star_bonus_cap(manual_star_count):
-    """按单条人工记录的星标强度限制加分，避免普通标记左右筛选。"""
-    try:
-        star_count = max(0, int(manual_star_count or 0))
-    except (TypeError, ValueError):
-        star_count = 0
-    if star_count < 3:
-        return 0.0
-    if star_count == 3:
-        return 2.0
-    if star_count == 4:
-        return 5.0
-    return 8.0
-
-
-def _clip_manual_star_count(topic):
-    """读取人工星标数量；异常旧数据按 0 处理，不能阻断审计文件写入。"""
-    try:
-        return max(0, int((topic or {}).get("manual_stars", 0) or 0))
-    except (AttributeError, TypeError, ValueError):
-        return 0
-
-
-def _clip_interest_reason(item):
-    """清理投稿价值说明，供检查点审计和拒绝原因使用。"""
-    reason = re.sub(r'\s+', ' ', str(
-        item.get("interest_reason", item.get("reason", ""))
-    )).strip()
-    return reason[:240]
-
-
-
-
 def _build_clip_candidate_review_prompt(candidates, streamer_name=None, compact=False):
     """构造切片候选独立复核提示；只把原字幕、峰值和原始人工记录作为证据。"""
     payload = []
@@ -3130,58 +3081,6 @@ def _build_clip_candidate_review_prompt(candidates, streamer_name=None, compact=
 
 
 _TOPIC_REVIEW_TRANSIENT_KEYS = checkpoint_store.TOPIC_REVIEW_TRANSIENT_KEYS
-
-
-def _build_clip_candidate_review_audit(topics):
-    """生成面向人工排查的候选明细，不把冗长原因塞进概览或话题报告。"""
-    rows = []
-    for topic in topics or []:
-        sources = [
-            str(value).strip()
-            for value in topic.get("clip_candidate_sources") or []
-            if str(value).strip()
-        ]
-        reviewed = topic.get("clip_review_validated")
-        has_review_state = (
-            topic.get("clip_review_attempts") is not None
-            or topic.get("clip_review_rejection") is not None
-            or reviewed is not None
-        )
-        if not sources and not has_review_state:
-            continue
-        if topic.get("can_slice"):
-            status = "已通过并生成切片"
-        elif reviewed is True:
-            status = "已通过复核但未生成切片"
-        elif reviewed is False:
-            status = "未通过复核"
-        else:
-            status = "复核未完成"
-        rows.append({
-            "start": int(topic.get("start", 0) or 0),
-            "end": int(topic.get("end", 0) or 0),
-            "time_range": (
-                f"{fmt_time(int(topic.get('start', 0) or 0))}－"
-                f"{fmt_time(int(topic.get('end', 0) or 0))}"
-            ),
-            "title": str(topic.get("title", "未命名候选")).strip() or "未命名候选",
-            "candidate_sources": sources,
-            "manual_stars": _clip_manual_star_count(topic),
-            "clip_review_validated": reviewed,
-            "interest_score": _parse_clip_interest_score(topic.get("clip_interest_score")),
-            "interest_reason": topic.get("clip_interest_reason"),
-            "rejection_reason": topic.get("clip_review_rejection"),
-            "final_slice": bool(topic.get("can_slice")),
-            "final_slice_anchor_source": topic.get("slice_anchor_source"),
-            "status": status,
-        })
-    return {
-        "review_policy_version": CLIP_REVIEW_POLICY_VERSION,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "candidate_count": len(rows),
-        "approved_count": sum(row["final_slice"] for row in rows),
-        "candidates": sorted(rows, key=lambda row: (row["start"], row["end"], row["title"])),
-    }
 
 
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
