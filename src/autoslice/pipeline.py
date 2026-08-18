@@ -27,6 +27,7 @@ from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import manual_timeline as manual_timeline_analysis
 from autoslice.analysis import manual_review
 from autoslice.analysis import timeline as timeline_analysis
+from autoslice.analysis import topic_analysis
 from autoslice.analysis import titles as title_analysis
 from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
 from autoslice.llm.prompts import build_title_hook_guide as _render_title_hook_guide
@@ -77,7 +78,7 @@ MAX_PUBLISH_TITLE_CHARS = title_analysis.MAX_PUBLISH_TITLE_CHARS
 CLIP_LOCAL_PEAK_RADIUS_SEC = danmaku_analysis.CLIP_LOCAL_PEAK_RADIUS_SEC
 CLIP_MANUAL_REVIEW_MIN_STARS = clip_policy.CLIP_MANUAL_REVIEW_MIN_STARS
 CLIP_MIN_INTEREST_SCORE = clip_policy.CLIP_MIN_INTEREST_SCORE
-LLM_ANALYSIS_MODEL = candidate_analysis.LLM_ANALYSIS_MODEL
+LLM_ANALYSIS_MODEL = topic_analysis.LLM_ANALYSIS_MODEL
 LLM_MODEL = reporting_service.LLM_REVIEW_MODEL
 TOPIC_MAX_CLIP_SEC = clip_policy.TOPIC_MAX_CLIP_SEC
 TOPIC_MIN_CLIP_SEC = clip_policy.TOPIC_MIN_CLIP_SEC
@@ -731,7 +732,7 @@ def run_pipeline_impl(
         topic_analysis_checkpoint_path,
         base + "_topic_analysis_checkpoint.json",
     )
-    accepted_topics, failed_chunks, api_precheck_warning = candidate_analysis.analyze_topic_chunks(
+    accepted_topics, failed_chunks, api_precheck_warning = topic_analysis.analyze_topic_chunks(
         chunks,
         streamer_display_name,
         progress_callback=progress_callback,

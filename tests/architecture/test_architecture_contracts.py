@@ -1200,7 +1200,11 @@ class ArchitectureDefinitionTests(unittest.TestCase):
     def test_topic_formatting_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import reporting
-        from autoslice.analysis import candidates, topic_formatting
+        from autoslice.analysis import (
+            candidates,
+            topic_analysis,
+            topic_formatting,
+        )
 
         aliases = {
             "_CIRCLED_NUMBERS": "CIRCLED_NUMBERS",
@@ -1224,6 +1228,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertIs(candidates.topic_formatting, topic_formatting)
         self.assertIs(reporting.topic_formatting, topic_formatting)
+        self.assertIs(topic_analysis.topic_formatting, topic_formatting)
 
         candidate_source = (
             ROOT / "src/autoslice/analysis/candidates.py"
@@ -1231,6 +1236,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         reporting_source = (ROOT / "src/autoslice/reporting.py").read_text(
             encoding="utf-8"
         )
+        topic_analysis_source = (
+            ROOT / "src/autoslice/analysis/topic_analysis.py"
+        ).read_text(encoding="utf-8")
         for old_definition in (
             "_format_report_time",
             "_format_topic_block",
@@ -1238,9 +1246,13 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         ):
             self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
         self.assertNotIn("_CIRCLED_NUMBERS = \"①", candidate_source)
-        self.assertIn(
+        self.assertNotIn(
             "topic_formatting.format_topic_block(",
             candidate_source,
+        )
+        self.assertIn(
+            "topic_formatting.format_topic_block(",
+            topic_analysis_source,
         )
         self.assertIn(
             "topic_formatting.format_report_time(",
@@ -1268,6 +1280,123 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(
             owner_functions,
             {"format_report_time", "format_topic_block", "topic_index_label"},
+        )
+        self.assertTrue(owner_functions.isdisjoint(candidate_functions))
+
+    def test_topic_analysis_has_one_owner_and_direct_consumers(self):
+        import topic_engine
+        from autoslice import pipeline
+        from autoslice.analysis import candidates, topic_analysis
+
+        aliases = {
+            "_HEADING_RE": "HEADING_RE",
+            "_analyze_topic_chunks": "analyze_topic_chunks",
+            "_build_chunk_prompt": "build_chunk_prompt",
+            "_is_topic_in_chunk": "is_topic_in_chunk",
+            "_load_topic_analysis_checkpoint": (
+                "load_topic_analysis_checkpoint"
+            ),
+            "_make_fallback_topic_from_chunk": (
+                "make_fallback_topic_from_chunk"
+            ),
+            "_parse_json_topics_response": "parse_json_topics_response",
+            "_parse_llm_response": "parse_llm_response",
+            "_repair_short_topic_end": "repair_short_topic_end",
+            "_strip_code_fence": "strip_code_fence",
+            "_strip_prompt_time_labels": "strip_prompt_time_labels",
+            "_topic_analysis_prompt_fingerprint": (
+                "topic_analysis_prompt_fingerprint"
+            ),
+            "_write_topic_analysis_checkpoint": (
+                "write_topic_analysis_checkpoint"
+            ),
+        }
+        for compatibility_name, owner_name in aliases.items():
+            with self.subTest(name=compatibility_name):
+                owner = getattr(topic_analysis, owner_name)
+                self.assertIs(getattr(candidates, compatibility_name), owner)
+                self.assertIs(getattr(topic_engine, compatibility_name), owner)
+
+        for constant_name in (
+            "CHUNK_SEC",
+            "LLM_ANALYSIS_MODEL",
+            "LLM_COMPACT_MAX_TOKENS",
+            "LLM_COMPACT_TEXT_CHARS",
+            "LLM_FULL_TEXT_CHARS",
+            "LLM_MAX_TOKENS",
+            "MAX_INITIAL_FAILED_CHUNKS",
+        ):
+            with self.subTest(constant=constant_name):
+                owner = getattr(topic_analysis, constant_name)
+                self.assertIs(getattr(candidates, constant_name), owner)
+                self.assertIs(getattr(topic_engine, constant_name), owner)
+
+        self.assertIs(candidates.topic_analysis, topic_analysis)
+        self.assertIs(pipeline.topic_analysis, topic_analysis)
+        self.assertIs(topic_engine.topic_analysis, topic_analysis)
+        self.assertIs(
+            pipeline.LLM_ANALYSIS_MODEL,
+            topic_analysis.LLM_ANALYSIS_MODEL,
+        )
+
+        candidate_source = (
+            ROOT / "src/autoslice/analysis/candidates.py"
+        ).read_text(encoding="utf-8")
+        pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
+            encoding="utf-8"
+        )
+        topic_engine_source = (
+            ROOT / "src/autoslice/topic_engine.py"
+        ).read_text(encoding="utf-8")
+        for old_definition in (
+            "_repair_short_topic_end",
+            "_build_chunk_prompt",
+            "_strip_code_fence",
+            "_is_topic_in_chunk",
+            "_parse_json_topics_response",
+            "_parse_llm_response",
+            "_strip_prompt_time_labels",
+            "_make_fallback_topic_from_chunk",
+            "analyze_topic_chunks",
+        ):
+            self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
+        self.assertNotIn("_HEADING_RE = re.compile(", candidate_source)
+        self.assertIn(
+            "topic_analysis.analyze_topic_chunks(",
+            pipeline_source,
+        )
+        self.assertIn(
+            "_analyze_topic_chunks = topic_analysis.analyze_topic_chunks",
+            topic_engine_source,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        candidate_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.candidates"][
+                "top_level_functions"
+            ]
+        }
+        owner_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.topic_analysis"][
+                "top_level_functions"
+            ]
+        }
+        self.assertEqual(
+            owner_functions,
+            {
+                "analyze_topic_chunks",
+                "build_chunk_prompt",
+                "is_topic_in_chunk",
+                "make_fallback_topic_from_chunk",
+                "parse_json_topics_response",
+                "parse_llm_response",
+                "repair_short_topic_end",
+                "strip_code_fence",
+                "strip_prompt_time_labels",
+            },
         )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
 
