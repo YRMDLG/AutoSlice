@@ -25,6 +25,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import candidates as clip_review_candidates
 from autoslice.analysis.review import context_evidence
+from autoslice.analysis.review import context_edges
 from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import finalization
 from autoslice.analysis.review import outro as outro_analysis
@@ -405,7 +406,7 @@ _TOPIC_DECISION_EVIDENCE_RE = transition_analysis._TOPIC_DECISION_EVIDENCE_RE
 _TOPIC_DISCOURSE_CONTINUATION_RE = (
     transition_analysis._TOPIC_DISCOURSE_CONTINUATION_RE
 )
-_TOPIC_LEAD_IN_TRIGGER_RE = boundary_analysis._TOPIC_LEAD_IN_TRIGGER_RE
+_TOPIC_LEAD_IN_TRIGGER_RE = context_edges._TOPIC_LEAD_IN_TRIGGER_RE
 _TOPIC_REFUND_RE = transition_analysis._TOPIC_REFUND_RE
 _TOPIC_REVIEW_TRANSIENT_KEYS = checkpoint_store.TOPIC_REVIEW_TRANSIENT_KEYS
 _TRIGGER_CONTEXT_TOPIC_RE = trigger_analysis._TRIGGER_CONTEXT_TOPIC_RE
@@ -414,8 +415,8 @@ _UNSUPPORTED_AI_AUDIENCE_REACTION_RE = (
     normalization.UNSUPPORTED_AI_AUDIENCE_REACTION_RE
 )
 _VISUAL_CASE_SHIFT_RE = transition_analysis._VISUAL_CASE_SHIFT_RE
-_VISUAL_REACTION_LEAD_IN_RE = boundary_analysis._VISUAL_REACTION_LEAD_IN_RE
-_VISUAL_REVIEW_TOPIC_RE = boundary_analysis._VISUAL_REVIEW_TOPIC_RE
+_VISUAL_REACTION_LEAD_IN_RE = context_edges._VISUAL_REACTION_LEAD_IN_RE
+_VISUAL_REVIEW_TOPIC_RE = context_edges._VISUAL_REVIEW_TOPIC_RE
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 _analyze_topic_chunks = topic_analysis.analyze_topic_chunks
 _append_clip_candidate_source = slice_decisions.append_clip_candidate_source
@@ -466,12 +467,12 @@ _expand_clip_mark_with_context = boundary_analysis._expand_clip_mark_with_contex
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _extract_json_payload = llm_gateway.extract_json_payload
 _filter_unsupported_ai_points = normalization.filter_unsupported_ai_points
-_find_next_topic_hard_end = boundary_analysis._find_next_topic_hard_end
+_find_next_topic_hard_end = context_edges._find_next_topic_hard_end
 _find_relevant_topic_context_end = boundary_analysis._find_relevant_topic_context_end
 _find_relevant_topic_context_start = boundary_analysis._find_relevant_topic_context_start
 _find_sc_context_start = trigger_analysis._find_sc_context_start
-_find_topic_lead_in_start = boundary_analysis._find_topic_lead_in_start
-_find_visual_reaction_context_start = boundary_analysis._find_visual_reaction_context_start
+_find_topic_lead_in_start = context_edges._find_topic_lead_in_start
+_find_visual_reaction_context_start = context_edges._find_visual_reaction_context_start
 _fit_final_clip_to_safe_srt_boundaries = finalization._fit_final_clip_to_safe_srt_boundaries
 _format_report_time = topic_formatting.format_report_time
 _format_topic_block = topic_formatting.format_topic_block

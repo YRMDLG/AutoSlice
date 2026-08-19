@@ -115,16 +115,8 @@ RETAINED_BOUNDARY_FUNCTIONS = {
     "_srt_video_duration",
     "_find_relevant_topic_context_start",
     "_find_relevant_topic_context_end",
-    "_find_topic_lead_in_start",
-    "_find_visual_reaction_context_start",
-    "_find_next_topic_hard_end",
     "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context",
-}
-RETAINED_BOUNDARY_CONSTANTS = {
-    "_TOPIC_LEAD_IN_TRIGGER_RE",
-    "_VISUAL_REVIEW_TOPIC_RE",
-    "_VISUAL_REACTION_LEAD_IN_RE",
 }
 
 
@@ -291,16 +283,7 @@ class ReviewTransitionOwnershipTests(unittest.TestCase):
         functions = {
             node.name for node in tree.body if isinstance(node, ast.FunctionDef)
         }
-        compiled_constants = {
-            target.id
-            for node in tree.body
-            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
-            for target in node.targets
-            if isinstance(target, ast.Name)
-        }
-
         self.assertTrue(RETAINED_BOUNDARY_FUNCTIONS <= functions)
-        self.assertTrue(RETAINED_BOUNDARY_CONSTANTS <= compiled_constants)
         self.assertIs(boundaries.transcription_segments, transcription_segments)
         self.assertIs(
             boundaries.TOPIC_CONTEXT_GAP,

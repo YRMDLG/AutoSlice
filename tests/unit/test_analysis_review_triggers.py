@@ -52,6 +52,7 @@ OWNER_DEPENDENCIES = {
 PRODUCTION_IMPORTERS = {
     "autoslice.analysis.boundaries",
     "autoslice.analysis.candidates",
+    "autoslice.analysis.review.context_edges",
     "autoslice.analysis.review.decisions",
     "autoslice.topic_engine",
 }
@@ -172,29 +173,31 @@ class ReviewTriggerOwnershipTests(unittest.TestCase):
                 importers.add(_module_name(path))
         self.assertEqual(importers, PRODUCTION_IMPORTERS)
 
-    def test_boundaries_implementation_calls_owner_not_local_aliases(self):
-        tree = ast.parse(
-            (SRC_ROOT / "autoslice/analysis/boundaries.py").read_text(
-                encoding="utf-8"
-            )
-        )
+    def test_consumers_call_owner_not_local_aliases(self):
         local_calls = []
         owner_calls = set()
-        for function in (
-            node for node in tree.body if isinstance(node, ast.FunctionDef)
+        for relative_path in (
+            "autoslice/analysis/boundaries.py",
+            "autoslice/analysis/review/context_edges.py",
         ):
-            for node in ast.walk(function):
-                if not isinstance(node, ast.Call):
-                    continue
-                if isinstance(node.func, ast.Name) and node.func.id in FUNCTION_NAMES:
-                    local_calls.append((function.name, node.func.id, node.lineno))
-                if (
-                    isinstance(node.func, ast.Attribute)
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "trigger_analysis"
-                    and node.func.attr in FUNCTION_NAMES
-                ):
-                    owner_calls.add(node.func.attr)
+            tree = ast.parse((SRC_ROOT / relative_path).read_text(encoding="utf-8"))
+            for function in (
+                node for node in tree.body if isinstance(node, ast.FunctionDef)
+            ):
+                for node in ast.walk(function):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    if isinstance(node.func, ast.Name) and node.func.id in FUNCTION_NAMES:
+                        local_calls.append(
+                            (relative_path, function.name, node.func.id, node.lineno)
+                        )
+                    if (
+                        isinstance(node.func, ast.Attribute)
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "trigger_analysis"
+                        and node.func.attr in FUNCTION_NAMES
+                    ):
+                        owner_calls.add(node.func.attr)
 
         self.assertEqual(local_calls, [])
         self.assertEqual(owner_calls, set(FUNCTION_NAMES))

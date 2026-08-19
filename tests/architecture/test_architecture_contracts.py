@@ -581,7 +581,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.report import cleanup as report_cleanup
         from autoslice.analysis.report import formatting as topic_formatting
         from autoslice.analysis.manual import workflow as manual_workflow
-        from autoslice.analysis.review import context_evidence
+        from autoslice.analysis.review import context_edges, context_evidence
         from autoslice.analysis.review import decisions as slice_decisions
         from autoslice.analysis.review import deduplication as clip_deduplication
         from autoslice.analysis.review import finalization
@@ -615,6 +615,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             checkpoints,
             clip_scoring,
             normalization,
+            context_edges,
             context_evidence,
             clip_deduplication,
             finalization,
@@ -3130,8 +3131,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(owner_module["top_level_classes"], [])
 
         boundary_module = modules["autoslice.analysis.boundaries"]
-        self.assertEqual(boundary_module["line_count"], 809)
-        self.assertEqual(len(boundary_module["top_level_functions"]), 9)
+        self.assertEqual(boundary_module["line_count"], 692)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 6)
         self.assertTrue(
             set(aliases).isdisjoint(
                 item["name"] for item in boundary_module["top_level_functions"]
@@ -3241,6 +3242,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             {
                 "autoslice.analysis.boundaries",
                 "autoslice.analysis.candidates",
+                "autoslice.analysis.review.context_edges",
                 "autoslice.topic_engine",
             },
         )
@@ -3479,6 +3481,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_module = "autoslice.analysis.clip_policy"
         consumers = {
             "autoslice.analysis.boundaries",
+            "autoslice.analysis.review.context_edges",
             "autoslice.analysis.review.decisions",
             "autoslice.analysis.review.reconciliation",
             "autoslice.analysis.candidates",

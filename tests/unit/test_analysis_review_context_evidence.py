@@ -106,9 +106,6 @@ BOUNDARY_OWNER_CALLS = {
 BOUNDARY_ORCHESTRATION_FUNCTIONS = {
     "_find_relevant_topic_context_start",
     "_find_relevant_topic_context_end",
-    "_find_topic_lead_in_start",
-    "_find_visual_reaction_context_start",
-    "_find_next_topic_hard_end",
     "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context",
     "parse_srt_segments",
@@ -285,6 +282,7 @@ class ReviewContextEvidenceOwnershipTests(unittest.TestCase):
         ]
         expected = [
             "candidates",
+            "context_edges",
             "context_evidence",
             "decisions",
             "deduplication",

@@ -35,6 +35,7 @@ from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
+from autoslice.analysis.review import context_edges
 from autoslice.analysis.review import context_evidence
 from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import triggers as trigger_analysis
@@ -747,6 +748,7 @@ class CandidateReviewTests(unittest.TestCase):
             llm_execution,
             response,
             normalization,
+            context_edges,
             clip_policy,
             context_evidence,
             clip_deduplication,

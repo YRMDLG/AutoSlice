@@ -241,6 +241,7 @@ class ReviewDeduplicationOwnershipTests(unittest.TestCase):
             ast.literal_eval(all_assignment.value),
             [
                 "candidates",
+                "context_edges",
                 "context_evidence",
                 "decisions",
                 "deduplication",
@@ -256,7 +257,7 @@ class ReviewDeduplicationOwnershipTests(unittest.TestCase):
             ],
         )
         self.assertIn(
-            '__all__ = ["candidates", "context_evidence", "decisions", "deduplication", "finalization", "outro", "policy", "prompt", "reconciliation", "scoring", "transitions", "triggers", "workflow"]',
+            '__all__ = ["candidates", "context_edges", "context_evidence", "decisions", "deduplication", "finalization", "outro", "policy", "prompt", "reconciliation", "scoring", "transitions", "triggers", "workflow"]',
             source.splitlines(),
         )
 
