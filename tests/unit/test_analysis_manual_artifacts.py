@@ -231,20 +231,20 @@ class ManualArtifactTests(unittest.TestCase):
 
             loaded = artifacts.load_optimized_timeline_artifact(
                 str(artifact_path),
-                str(video_path),
+                str(video_path.resolve()),
                 str(source_path),
             )
             with self.assertRaisesRegex(ValueError, "不属于当前选择的录播"):
                 artifacts.load_optimized_timeline_artifact(
                     str(artifact_path),
-                    str(root / "另一场.flv"),
+                    str((root / "另一场.flv").resolve()),
                     str(source_path),
                 )
             with self.assertRaisesRegex(ValueError, "人工 DOCX 不一致"):
                 artifacts.load_optimized_timeline_artifact(
                     str(artifact_path),
-                    str(video_path),
-                    str(root / "另一天.docx"),
+                    str(video_path.resolve()),
+                    str((root / "另一天.docx").resolve()),
                 )
 
         self.assertEqual(loaded["path"], str(source_path))
