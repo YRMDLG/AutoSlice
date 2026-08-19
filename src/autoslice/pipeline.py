@@ -13,6 +13,7 @@ from autoslice.artifact_store import seed_artifact_from_legacy as _seed_artifact
 from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
+from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice import timecode
@@ -69,6 +70,7 @@ FACADE_EXPORTS = {
 # 可替换的公开依赖 seam；默认对象均直接来自各自唯一 owner。
 ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
+prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = analysis_chunking.parse_srt_text
@@ -522,32 +524,21 @@ def run_pipeline_impl(
     streamer_display_name = streamer_profile.report_name
     unified_queue_json_path = artifact_layout["unified_queue_json_path"]
     unified_queue_md_path = artifact_layout["unified_queue_md_path"]
-    _seed_artifact_from_legacy(
-        artifact_layout["asr_checkpoint_path"],
-        _funasr_checkpoint_path(flv_path),
-    )
-
-    # Step 1: 确保 SRT 存在
-    if progress_callback:
-        progress_callback("Step 1/5: 检查/生成字幕...", 0, 100)
-    source_srt_path = ensure_srt(
+    prepared_subtitles = prepare_pipeline_subtitles(
         flv_path,
-        _scaled_progress_callback(progress_callback, 0, 14),
-        checkpoint_path=artifact_layout["asr_checkpoint_path"],
+        artifact_layout,
+        _funasr_checkpoint_path(flv_path),
+        progress_callback=progress_callback,
+        ensure_progress_callback=_scaled_progress_callback(
+            progress_callback, 0, 14
+        ),
+        seed_artifact_from_legacy=_seed_artifact_from_legacy,
+        ensure_srt=ensure_srt,
+        export_corrected_srt=export_corrected_srt,
     )
-    if not source_srt_path:
-        raise RuntimeError("无法生成 SRT 字幕")
-    corrected_srt_path = export_corrected_srt(
-        source_srt_path,
-        output_path=artifact_layout["corrected_srt_path"],
-    )
-    srt_path = corrected_srt_path or source_srt_path
-    if corrected_srt_path and progress_callback:
-        progress_callback(
-            f"已生成剪映校对字幕: {os.path.basename(corrected_srt_path)}",
-            14,
-            100,
-        )
+    source_srt_path = prepared_subtitles["source_srt_path"]
+    corrected_srt_path = prepared_subtitles["corrected_srt_path"]
+    srt_path = prepared_subtitles["srt_path"]
 
     # Step 2: 弹幕分析
     if progress_callback:

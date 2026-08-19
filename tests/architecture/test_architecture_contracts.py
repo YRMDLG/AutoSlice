@@ -2565,7 +2565,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 883)
+        self.assertEqual(current["summary"]["top_level_function_count"], 884)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3152,6 +3152,84 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertFalse(service_functions)
         self.assertIn("ensure_srt", workflow_functions)
         self.assertNotIn("ensure_srt", service.FACADE_EXPORTS)
+
+    def test_pipeline_transcription_has_one_owner_and_preserves_pipeline_seams(self):
+        from autoslice import pipeline, pipeline_transcription
+
+        self.assertIs(
+            pipeline.prepare_pipeline_subtitles,
+            pipeline_transcription.prepare_pipeline_subtitles,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_transcription"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_pipeline_subtitles"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_transcription"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_transcription", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_transcription", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        pipeline_definitions = {
+            node.name
+            for node in pipeline_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        self.assertTrue(
+            {
+                "ensure_srt",
+                "export_corrected_srt",
+                "_seed_artifact_from_legacy",
+            }.isdisjoint(pipeline_definitions)
+        )
+        run_impl = next(
+            node
+            for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "run_pipeline_impl"
+        )
+        direct_calls = {
+            node.func.id
+            for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("prepare_pipeline_subtitles", direct_calls)
+        self.assertTrue(
+            {
+                "ensure_srt",
+                "export_corrected_srt",
+            }.isdisjoint(direct_calls)
+        )
+
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertEqual(
+            current["test_private_patches"]["total"],
+            17,
+        )
 
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -4138,7 +4216,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            883,
+            884,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
