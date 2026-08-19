@@ -16,6 +16,7 @@ from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis import llm_execution
+from autoslice.analysis.manual import artifacts as manual_artifacts
 from autoslice.analysis.manual import candidates as manual_candidates
 from autoslice.analysis.manual import enrichment as manual_enrichment
 from autoslice.analysis.manual import review as manual_review
@@ -660,9 +661,9 @@ _retry_optimized_timeline_entries = (
     manual_timeline_analysis.retry_optimized_timeline_entries
 )
 _optimize_manual_timeline = manual_timeline_analysis.optimize_manual_timeline
-_optimized_timeline_paths = pipeline_service.optimized_timeline_paths
-_write_optimized_timeline_files = pipeline_service.write_optimized_timeline_files
-_load_optimized_timeline_artifact = pipeline_service.load_optimized_timeline_artifact
+_optimized_timeline_paths = manual_artifacts.optimized_timeline_paths
+_write_optimized_timeline_files = manual_artifacts.write_optimized_timeline_files
+_load_optimized_timeline_artifact = manual_artifacts.load_optimized_timeline_artifact
 _prepare_optimized_manual_timeline = pipeline_service.prepare_optimized_manual_timeline
 optimize_manual_timeline_for_video = pipeline_service.optimize_manual_timeline_for_video
 _optimize_manual_timeline_for_video_impl = pipeline_service.optimize_manual_timeline_for_video_impl

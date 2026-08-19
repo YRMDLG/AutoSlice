@@ -2387,6 +2387,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             },
             {
                 "人工时间轴的时间基准、候选、富化、复核与优化工作流。",
+                "artifacts",
                 "candidates",
                 "enrichment",
                 "review",
@@ -2471,8 +2472,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "src/autoslice/analysis/report/cleanup.py": {
                 "manual_alignment_score",
             },
-            "src/autoslice/pipeline.py": {
+            "src/autoslice/analysis/manual/artifacts.py": {
                 "extract_video_start_datetime",
+            },
+            "src/autoslice/pipeline.py": {
                 "filter_manual_timeline_entries",
                 "manual_timeline_summary",
             },
@@ -2514,6 +2517,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         legacy_timebase = "autoslice.analysis.timeline"
         legacy_candidates = "autoslice.analysis.manual_candidates"
         timebase_consumer_names = {
+            "autoslice.analysis.manual.artifacts",
             "autoslice.analysis.review.reconciliation",
             "autoslice.analysis.candidates",
             "autoslice.analysis.manual.review",
@@ -2523,6 +2527,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.topic_engine",
         }
         candidate_consumer_names = {
+            "autoslice.analysis.manual.artifacts",
             "autoslice.analysis.review.reconciliation",
             "autoslice.analysis.candidates",
             "autoslice.analysis.manual.workflow",
@@ -2676,6 +2681,98 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.topic_engine",
         }:
             self.assertNotIn((owner_module, forbidden_target), import_edges)
+
+    def test_manual_artifacts_have_one_owner_and_preserve_pipeline_patch_seam(self):
+        from autoslice import pipeline, topic_engine
+        from autoslice.analysis import manual as manual_package
+        from autoslice.analysis.manual import artifacts
+
+        aliases = {
+            "optimized_timeline_paths": "_optimized_timeline_paths",
+            "write_optimized_timeline_files": "_write_optimized_timeline_files",
+            "load_optimized_timeline_artifact": (
+                "_load_optimized_timeline_artifact"
+            ),
+        }
+        self.assertEqual(
+            artifacts.FACADE_EXPORTS,
+            {
+                topic_engine_name: owner_name
+                for owner_name, topic_engine_name in aliases.items()
+            },
+        )
+        for owner_name, topic_engine_name in aliases.items():
+            with self.subTest(owner=owner_name):
+                owner = getattr(artifacts, owner_name)
+                self.assertIs(getattr(pipeline, owner_name), owner)
+                self.assertIs(getattr(topic_engine, topic_engine_name), owner)
+
+        self.assertEqual(manual_package.__all__, sorted(manual_package.__all__))
+        self.assertIn("artifacts", manual_package.__all__)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = "autoslice.analysis.manual.artifacts"
+        self.assertEqual(
+            [
+                item["name"]
+                for item in modules[owner_module]["top_level_functions"]
+            ],
+            list(aliases),
+        )
+        pipeline_functions = {
+            item["name"]
+            for item in modules["autoslice.pipeline"]["top_level_functions"]
+        }
+        self.assertTrue(set(aliases).isdisjoint(pipeline_functions))
+        self.assertIn("prepare_optimized_manual_timeline", pipeline_functions)
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if target == owner_module
+            },
+            {"autoslice.pipeline", "autoslice.topic_engine"},
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == owner_module
+            },
+            {
+                "autoslice.analysis.manual.candidates",
+                "autoslice.analysis.manual.timebase",
+                "autoslice.streamer_profiles",
+                "autoslice.timecode",
+            },
+        )
+        self.assertNotIn((owner_module, "autoslice.pipeline"), import_edges)
+        self.assertNotIn((owner_module, "autoslice.topic_engine"), import_edges)
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        prepare = next(
+            node
+            for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "prepare_optimized_manual_timeline"
+        )
+        global_calls = {
+            node.func.id
+            for node in ast.walk(prepare)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertTrue(set(aliases).issubset(global_calls))
+
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_media_probe_has_one_owner_and_direct_consumers(self):
         import topic_engine
