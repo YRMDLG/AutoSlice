@@ -582,6 +582,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.report import formatting as topic_formatting
         from autoslice.analysis.manual import workflow as manual_workflow
         from autoslice.analysis.review import context_edges, context_evidence
+        from autoslice.analysis.review import context_ranges
         from autoslice.analysis.review import decisions as slice_decisions
         from autoslice.analysis.review import deduplication as clip_deduplication
         from autoslice.analysis.review import finalization
@@ -617,6 +618,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             normalization,
             context_edges,
             context_evidence,
+            context_ranges,
             clip_deduplication,
             finalization,
             outro,
@@ -3131,8 +3133,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(owner_module["top_level_classes"], [])
 
         boundary_module = modules["autoslice.analysis.boundaries"]
-        self.assertEqual(boundary_module["line_count"], 692)
-        self.assertEqual(len(boundary_module["top_level_functions"]), 6)
+        self.assertEqual(boundary_module["line_count"], 464)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 4)
         self.assertTrue(
             set(aliases).isdisjoint(
                 item["name"] for item in boundary_module["top_level_functions"]

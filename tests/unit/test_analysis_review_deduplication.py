@@ -243,6 +243,7 @@ class ReviewDeduplicationOwnershipTests(unittest.TestCase):
                 "candidates",
                 "context_edges",
                 "context_evidence",
+                "context_ranges",
                 "decisions",
                 "deduplication",
                 "finalization",
@@ -257,7 +258,7 @@ class ReviewDeduplicationOwnershipTests(unittest.TestCase):
             ],
         )
         self.assertIn(
-            '__all__ = ["candidates", "context_edges", "context_evidence", "decisions", "deduplication", "finalization", "outro", "policy", "prompt", "reconciliation", "scoring", "transitions", "triggers", "workflow"]',
+            '__all__ = ["candidates", "context_edges", "context_evidence", "context_ranges", "decisions", "deduplication", "finalization", "outro", "policy", "prompt", "reconciliation", "scoring", "transitions", "triggers", "workflow"]',
             source.splitlines(),
         )
 

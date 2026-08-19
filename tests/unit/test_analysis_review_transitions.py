@@ -108,13 +108,12 @@ OWNER_DEPENDENCIES = {
 PRODUCTION_IMPORTERS = {
     "autoslice.analysis.boundaries",
     "autoslice.analysis.candidates",
+    "autoslice.analysis.review.context_ranges",
     "autoslice.topic_engine",
 }
 RETAINED_BOUNDARY_FUNCTIONS = {
     "parse_srt_segments",
     "_srt_video_duration",
-    "_find_relevant_topic_context_start",
-    "_find_relevant_topic_context_end",
     "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context",
 }
@@ -256,24 +255,32 @@ class ReviewTransitionOwnershipTests(unittest.TestCase):
             ]
             self.assertEqual(stale, [], relative_path)
 
-        tree = ast.parse(BOUNDARIES_PATH.read_text(encoding="utf-8"))
+        trees = [
+            ast.parse(BOUNDARIES_PATH.read_text(encoding="utf-8")),
+            ast.parse(
+                (SRC_ROOT / "autoslice/analysis/review/context_ranges.py").read_text(
+                    encoding="utf-8"
+                )
+            ),
+        ]
         local_calls = []
         owner_calls = set()
-        for function in (
-            node for node in tree.body if isinstance(node, ast.FunctionDef)
-        ):
-            for node in ast.walk(function):
-                if not isinstance(node, ast.Call):
-                    continue
-                if isinstance(node.func, ast.Name) and node.func.id in FUNCTION_NAMES:
-                    local_calls.append((function.name, node.func.id, node.lineno))
-                if (
-                    isinstance(node.func, ast.Attribute)
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "transition_analysis"
-                    and node.func.attr in FUNCTION_NAMES
-                ):
-                    owner_calls.add(node.func.attr)
+        for tree in trees:
+            for function in (
+                node for node in tree.body if isinstance(node, ast.FunctionDef)
+            ):
+                for node in ast.walk(function):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    if isinstance(node.func, ast.Name) and node.func.id in FUNCTION_NAMES:
+                        local_calls.append((function.name, node.func.id, node.lineno))
+                    if (
+                        isinstance(node.func, ast.Attribute)
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "transition_analysis"
+                        and node.func.attr in FUNCTION_NAMES
+                    ):
+                        owner_calls.add(node.func.attr)
 
         self.assertEqual(local_calls, [])
         self.assertEqual(owner_calls, set(FUNCTION_NAMES))

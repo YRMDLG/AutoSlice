@@ -37,6 +37,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import context_edges
 from autoslice.analysis.review import context_evidence
+from autoslice.analysis.review import context_ranges
 from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import triggers as trigger_analysis
 from autoslice.analysis.review import finalization
@@ -751,6 +752,7 @@ class CandidateReviewTests(unittest.TestCase):
             context_edges,
             clip_policy,
             context_evidence,
+            context_ranges,
             clip_deduplication,
             finalization,
             outro_analysis,

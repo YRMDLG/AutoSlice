@@ -152,6 +152,7 @@ class ClipReviewPromptTests(unittest.TestCase):
                 "candidates",
                 "context_edges",
                 "context_evidence",
+                "context_ranges",
                 "decisions",
                 "deduplication",
                 "finalization",

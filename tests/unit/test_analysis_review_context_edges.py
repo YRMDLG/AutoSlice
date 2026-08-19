@@ -65,8 +65,6 @@ PRODUCTION_IMPORTERS = {
 RETAINED_BOUNDARY_FUNCTIONS = {
     "parse_srt_segments",
     "_srt_video_duration",
-    "_find_relevant_topic_context_start",
-    "_find_relevant_topic_context_end",
     "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context",
 }
@@ -74,6 +72,7 @@ EXPECTED_REVIEW_ALL = [
     "candidates",
     "context_edges",
     "context_evidence",
+    "context_ranges",
     "decisions",
     "deduplication",
     "finalization",

@@ -14,8 +14,9 @@ from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import candidates as clip_review_candidates
-from autoslice.analysis.review import context_evidence
 from autoslice.analysis.review import context_edges
+from autoslice.analysis.review import context_evidence
+from autoslice.analysis.review import context_ranges
 from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import finalization
 from autoslice.analysis.review import outro as outro_analysis
@@ -484,8 +485,8 @@ _detect_stream_outro_clip = outro_analysis._detect_stream_outro_clip
 _expand_clip_mark_with_context = boundary_analysis._expand_clip_mark_with_context
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _find_next_topic_hard_end = context_edges._find_next_topic_hard_end
-_find_relevant_topic_context_end = boundary_analysis._find_relevant_topic_context_end
-_find_relevant_topic_context_start = boundary_analysis._find_relevant_topic_context_start
+_find_relevant_topic_context_end = context_ranges._find_relevant_topic_context_end
+_find_relevant_topic_context_start = context_ranges._find_relevant_topic_context_start
 _find_sc_context_start = trigger_analysis._find_sc_context_start
 _find_topic_lead_in_start = context_edges._find_topic_lead_in_start
 _find_visual_reaction_context_start = context_edges._find_visual_reaction_context_start

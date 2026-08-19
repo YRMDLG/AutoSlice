@@ -89,6 +89,7 @@ OWNER_DEPENDENCIES = {
 PRODUCTION_IMPORTERS = {
     "autoslice.analysis.boundaries",
     "autoslice.analysis.candidates",
+    "autoslice.analysis.review.context_ranges",
     "autoslice.analysis.review.transitions",
     "autoslice.topic_engine",
 }
@@ -104,8 +105,6 @@ BOUNDARY_OWNER_CALLS = {
     "_subtitle_speech_chains",
 }
 BOUNDARY_ORCHESTRATION_FUNCTIONS = {
-    "_find_relevant_topic_context_start",
-    "_find_relevant_topic_context_end",
     "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context",
     "parse_srt_segments",
@@ -237,27 +236,37 @@ class ReviewContextEvidenceOwnershipTests(unittest.TestCase):
         self.assertEqual(importers, PRODUCTION_IMPORTERS)
 
     def test_boundaries_calls_owner_directly_and_keeps_orchestration(self):
-        tree = ast.parse(BOUNDARIES_PATH.read_text(encoding="utf-8"))
+        trees = [
+            ast.parse(BOUNDARIES_PATH.read_text(encoding="utf-8")),
+            ast.parse(
+                (SRC_ROOT / "autoslice/analysis/review/context_ranges.py").read_text(
+                    encoding="utf-8"
+                )
+            ),
+        ]
         boundary_functions = {
-            node.name for node in tree.body if isinstance(node, ast.FunctionDef)
+            node.name
+            for node in trees[0].body
+            if isinstance(node, ast.FunctionDef)
         }
         local_calls = []
         owner_calls = set()
-        for function in (
-            node for node in tree.body if isinstance(node, ast.FunctionDef)
-        ):
-            for node in ast.walk(function):
-                if not isinstance(node, ast.Call):
-                    continue
-                if isinstance(node.func, ast.Name) and node.func.id in FUNCTION_NAMES:
-                    local_calls.append((function.name, node.func.id, node.lineno))
-                if (
-                    isinstance(node.func, ast.Attribute)
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "context_evidence"
-                    and node.func.attr in FUNCTION_NAMES
-                ):
-                    owner_calls.add(node.func.attr)
+        for tree in trees:
+            for function in (
+                node for node in tree.body if isinstance(node, ast.FunctionDef)
+            ):
+                for node in ast.walk(function):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    if isinstance(node.func, ast.Name) and node.func.id in FUNCTION_NAMES:
+                        local_calls.append((function.name, node.func.id, node.lineno))
+                    if (
+                        isinstance(node.func, ast.Attribute)
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "context_evidence"
+                        and node.func.attr in FUNCTION_NAMES
+                    ):
+                        owner_calls.add(node.func.attr)
 
         self.assertEqual(local_calls, [])
         self.assertEqual(owner_calls, BOUNDARY_OWNER_CALLS)
@@ -284,6 +293,7 @@ class ReviewContextEvidenceOwnershipTests(unittest.TestCase):
             "candidates",
             "context_edges",
             "context_evidence",
+            "context_ranges",
             "decisions",
             "deduplication",
             "finalization",
