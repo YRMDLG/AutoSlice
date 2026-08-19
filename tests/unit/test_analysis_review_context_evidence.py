@@ -89,6 +89,7 @@ OWNER_DEPENDENCIES = {
 PRODUCTION_IMPORTERS = {
     "autoslice.analysis.boundaries",
     "autoslice.analysis.candidates",
+    "autoslice.analysis.review.transitions",
     "autoslice.topic_engine",
 }
 BOUNDARY_OWNER_CALLS = {
@@ -105,11 +106,6 @@ BOUNDARY_OWNER_CALLS = {
 BOUNDARY_ORCHESTRATION_FUNCTIONS = {
     "_find_relevant_topic_context_start",
     "_find_relevant_topic_context_end",
-    "_looks_like_next_case_transition",
-    "_looks_like_delayed_topic_conclusion",
-    "_looks_like_discourse_continuation",
-    "_looks_like_low_score_visual_case_shift",
-    "_next_report_topic_safe_boundary",
     "_find_topic_lead_in_start",
     "_find_visual_reaction_context_start",
     "_find_next_topic_hard_end",
@@ -298,6 +294,7 @@ class ReviewContextEvidenceOwnershipTests(unittest.TestCase):
             "prompt",
             "reconciliation",
             "scoring",
+            "transitions",
             "triggers",
             "workflow",
         ]

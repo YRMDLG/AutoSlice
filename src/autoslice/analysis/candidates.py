@@ -22,6 +22,7 @@ from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
 from autoslice.analysis.review import scoring as clip_scoring
+from autoslice.analysis.review import transitions as transition_analysis
 from autoslice.analysis.review import triggers as trigger_analysis
 from autoslice.analysis.review import workflow as clip_review
 from autoslice.analysis.review import decisions as slice_decisions
@@ -455,17 +456,19 @@ _is_duplicate_topic = clip_deduplication._is_duplicate_topic
 
 # 边界兼容别名：候选模块直接绑定各领域 owner，不保留本地副本。
 _BOUNDARY_EVIDENCE_STOP_TERMS = context_evidence._BOUNDARY_EVIDENCE_STOP_TERMS
-_NEXT_CASE_ASR_TRIGGER_RE = boundary_analysis._NEXT_CASE_ASR_TRIGGER_RE
+_NEXT_CASE_ASR_TRIGGER_RE = transition_analysis._NEXT_CASE_ASR_TRIGGER_RE
 _OUTRO_ACTIVITY_VARIANT_RE = outro_analysis._OUTRO_ACTIVITY_VARIANT_RE
 _OUTRO_FAREWELL_EVIDENCE = outro_analysis._OUTRO_FAREWELL_EVIDENCE
 _OUTRO_TRIGGER_NORMALISE_RE = outro_analysis._OUTRO_TRIGGER_NORMALISE_RE
-_TOPIC_CONCLUSION_RE = boundary_analysis._TOPIC_CONCLUSION_RE
-_TOPIC_DECISION_EVIDENCE_RE = boundary_analysis._TOPIC_DECISION_EVIDENCE_RE
-_TOPIC_DISCOURSE_CONTINUATION_RE = boundary_analysis._TOPIC_DISCOURSE_CONTINUATION_RE
+_TOPIC_CONCLUSION_RE = transition_analysis._TOPIC_CONCLUSION_RE
+_TOPIC_DECISION_EVIDENCE_RE = transition_analysis._TOPIC_DECISION_EVIDENCE_RE
+_TOPIC_DISCOURSE_CONTINUATION_RE = (
+    transition_analysis._TOPIC_DISCOURSE_CONTINUATION_RE
+)
 _TOPIC_LEAD_IN_TRIGGER_RE = boundary_analysis._TOPIC_LEAD_IN_TRIGGER_RE
-_TOPIC_REFUND_RE = boundary_analysis._TOPIC_REFUND_RE
+_TOPIC_REFUND_RE = transition_analysis._TOPIC_REFUND_RE
 _TRIGGER_CONTEXT_TOPIC_RE = trigger_analysis._TRIGGER_CONTEXT_TOPIC_RE
-_VISUAL_CASE_SHIFT_RE = boundary_analysis._VISUAL_CASE_SHIFT_RE
+_VISUAL_CASE_SHIFT_RE = transition_analysis._VISUAL_CASE_SHIFT_RE
 _VISUAL_REACTION_LEAD_IN_RE = boundary_analysis._VISUAL_REACTION_LEAD_IN_RE
 _VISUAL_REVIEW_TOPIC_RE = boundary_analysis._VISUAL_REVIEW_TOPIC_RE
 _boundary_context_has_speech = context_evidence._boundary_context_has_speech
@@ -492,14 +495,20 @@ _integer_clip_bounds_outside_subtitles = finalization._integer_clip_bounds_outsi
 _is_duplicate_topic = clip_deduplication._is_duplicate_topic
 _is_explicit_sc_topic = trigger_analysis._is_explicit_sc_topic
 _is_explicit_sc_trigger = trigger_analysis._is_explicit_sc_trigger
-_looks_like_delayed_topic_conclusion = boundary_analysis._looks_like_delayed_topic_conclusion
-_looks_like_discourse_continuation = boundary_analysis._looks_like_discourse_continuation
-_looks_like_low_score_visual_case_shift = boundary_analysis._looks_like_low_score_visual_case_shift
-_looks_like_next_case_transition = boundary_analysis._looks_like_next_case_transition
+_looks_like_delayed_topic_conclusion = (
+    transition_analysis._looks_like_delayed_topic_conclusion
+)
+_looks_like_discourse_continuation = (
+    transition_analysis._looks_like_discourse_continuation
+)
+_looks_like_low_score_visual_case_shift = (
+    transition_analysis._looks_like_low_score_visual_case_shift
+)
+_looks_like_next_case_transition = transition_analysis._looks_like_next_case_transition
 _looks_like_sc_or_gift_trigger = trigger_analysis._looks_like_sc_or_gift_trigger
 _merge_expanded_clip_marks = finalization._merge_expanded_clip_marks
 _nearest_safe_srt_boundary = finalization._nearest_safe_srt_boundary
-_next_report_topic_safe_boundary = boundary_analysis._next_report_topic_safe_boundary
+_next_report_topic_safe_boundary = transition_analysis._next_report_topic_safe_boundary
 _normalise_boundary_evidence_text = context_evidence._normalise_boundary_evidence_text
 _normalise_outro_trigger_text = outro_analysis._normalise_outro_trigger_text
 _outro_topic_from_mark = outro_analysis._outro_topic_from_mark

@@ -591,6 +591,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             reconciliation as candidate_reconciliation,
         )
         from autoslice.analysis.review import scoring as clip_scoring
+        from autoslice.analysis.review import transitions
         from autoslice.analysis.review import triggers as trigger_analysis
         from autoslice.analysis.topic import normalization, response, titles
         from autoslice.transcription import model_runtime as transcription_model_runtime
@@ -618,6 +619,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             clip_deduplication,
             finalization,
             outro,
+            transitions,
             trigger_analysis,
             boundaries,
             clip_policy,
@@ -3128,8 +3130,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(owner_module["top_level_classes"], [])
 
         boundary_module = modules["autoslice.analysis.boundaries"]
-        self.assertEqual(boundary_module["line_count"], 887)
-        self.assertEqual(len(boundary_module["top_level_functions"]), 14)
+        self.assertEqual(boundary_module["line_count"], 809)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 9)
         self.assertTrue(
             set(aliases).isdisjoint(
                 item["name"] for item in boundary_module["top_level_functions"]
@@ -3485,6 +3487,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.analysis.review.candidates",
             "autoslice.analysis.review.finalization",
             "autoslice.analysis.review.prompt",
+            "autoslice.analysis.review.transitions",
             "autoslice.analysis.review.triggers",
             "autoslice.analysis.review.workflow",
             "autoslice.analysis.topic.analysis",

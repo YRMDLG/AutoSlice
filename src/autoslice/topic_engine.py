@@ -32,6 +32,7 @@ from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
 from autoslice.analysis.review import scoring as clip_scoring
+from autoslice.analysis.review import transitions as transition_analysis
 from autoslice.analysis.review import triggers as trigger_analysis
 from autoslice.analysis.review import workflow as clip_review
 from autoslice.analysis.review import decisions as slice_decisions
@@ -394,23 +395,25 @@ _FRAGMENT_BODY_LINES = normalization.FRAGMENT_BODY_LINES
 _HEADING_RE = topic_analysis.HEADING_RE
 _MANUAL_AI_PLACEHOLDER_PHRASES = manual_enrichment.MANUAL_AI_PLACEHOLDER_PHRASES
 _META_BODY_KEYWORDS = normalization.META_BODY_KEYWORDS
-_NEXT_CASE_ASR_TRIGGER_RE = boundary_analysis._NEXT_CASE_ASR_TRIGGER_RE
+_NEXT_CASE_ASR_TRIGGER_RE = transition_analysis._NEXT_CASE_ASR_TRIGGER_RE
 _NO_SLICE_HINTS = response.NO_SLICE_HINTS
 _OUTRO_ACTIVITY_VARIANT_RE = outro_analysis._OUTRO_ACTIVITY_VARIANT_RE
 _OUTRO_FAREWELL_EVIDENCE = outro_analysis._OUTRO_FAREWELL_EVIDENCE
 _OUTRO_TRIGGER_NORMALISE_RE = outro_analysis._OUTRO_TRIGGER_NORMALISE_RE
-_TOPIC_CONCLUSION_RE = boundary_analysis._TOPIC_CONCLUSION_RE
-_TOPIC_DECISION_EVIDENCE_RE = boundary_analysis._TOPIC_DECISION_EVIDENCE_RE
-_TOPIC_DISCOURSE_CONTINUATION_RE = boundary_analysis._TOPIC_DISCOURSE_CONTINUATION_RE
+_TOPIC_CONCLUSION_RE = transition_analysis._TOPIC_CONCLUSION_RE
+_TOPIC_DECISION_EVIDENCE_RE = transition_analysis._TOPIC_DECISION_EVIDENCE_RE
+_TOPIC_DISCOURSE_CONTINUATION_RE = (
+    transition_analysis._TOPIC_DISCOURSE_CONTINUATION_RE
+)
 _TOPIC_LEAD_IN_TRIGGER_RE = boundary_analysis._TOPIC_LEAD_IN_TRIGGER_RE
-_TOPIC_REFUND_RE = boundary_analysis._TOPIC_REFUND_RE
+_TOPIC_REFUND_RE = transition_analysis._TOPIC_REFUND_RE
 _TOPIC_REVIEW_TRANSIENT_KEYS = checkpoint_store.TOPIC_REVIEW_TRANSIENT_KEYS
 _TRIGGER_CONTEXT_TOPIC_RE = trigger_analysis._TRIGGER_CONTEXT_TOPIC_RE
 _UNCUTTABLE_CONTENT_KEYWORDS = clip_policy.UNCUTTABLE_CONTENT_KEYWORDS
 _UNSUPPORTED_AI_AUDIENCE_REACTION_RE = (
     normalization.UNSUPPORTED_AI_AUDIENCE_REACTION_RE
 )
-_VISUAL_CASE_SHIFT_RE = boundary_analysis._VISUAL_CASE_SHIFT_RE
+_VISUAL_CASE_SHIFT_RE = transition_analysis._VISUAL_CASE_SHIFT_RE
 _VISUAL_REACTION_LEAD_IN_RE = boundary_analysis._VISUAL_REACTION_LEAD_IN_RE
 _VISUAL_REVIEW_TOPIC_RE = boundary_analysis._VISUAL_REVIEW_TOPIC_RE
 _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
@@ -493,10 +496,16 @@ _json_can_slice = response.json_can_slice
 _json_points_to_body = normalization.json_points_to_body
 _load_repaired_srt_segments = transcription_srt_io.load_repaired_srt_segments
 _load_topic_analysis_checkpoint = topic_analysis.load_topic_analysis_checkpoint
-_looks_like_delayed_topic_conclusion = boundary_analysis._looks_like_delayed_topic_conclusion
-_looks_like_discourse_continuation = boundary_analysis._looks_like_discourse_continuation
-_looks_like_low_score_visual_case_shift = boundary_analysis._looks_like_low_score_visual_case_shift
-_looks_like_next_case_transition = boundary_analysis._looks_like_next_case_transition
+_looks_like_delayed_topic_conclusion = (
+    transition_analysis._looks_like_delayed_topic_conclusion
+)
+_looks_like_discourse_continuation = (
+    transition_analysis._looks_like_discourse_continuation
+)
+_looks_like_low_score_visual_case_shift = (
+    transition_analysis._looks_like_low_score_visual_case_shift
+)
+_looks_like_next_case_transition = transition_analysis._looks_like_next_case_transition
 _looks_like_sc_or_gift_trigger = trigger_analysis._looks_like_sc_or_gift_trigger
 _make_chunk = analysis_chunking.make_chunk
 _make_fallback_topic_from_chunk = topic_analysis.make_fallback_topic_from_chunk
@@ -511,7 +520,7 @@ _manual_text_supports_candidate = timeline_analysis.manual_text_supports_candida
 _merge_expanded_clip_marks = finalization._merge_expanded_clip_marks
 _merge_manual_timeline_topics = manual_candidates.merge_manual_timeline_topics
 _nearest_safe_srt_boundary = finalization._nearest_safe_srt_boundary
-_next_report_topic_safe_boundary = boundary_analysis._next_report_topic_safe_boundary
+_next_report_topic_safe_boundary = transition_analysis._next_report_topic_safe_boundary
 _normalise_body_line = normalization.normalise_body_line
 _normalise_boundary_evidence_text = context_evidence._normalise_boundary_evidence_text
 _normalise_outro_trigger_text = outro_analysis._normalise_outro_trigger_text

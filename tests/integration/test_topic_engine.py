@@ -40,6 +40,7 @@ from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import triggers as trigger_analysis
 from autoslice.analysis.review import finalization
 from autoslice.analysis.review import outro as outro_analysis
+from autoslice.analysis.review import transitions as transition_analysis
 from autoslice.analysis import slice_decisions
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.topic import normalization, response, titles as title_analysis
@@ -751,6 +752,7 @@ class CandidateReviewTests(unittest.TestCase):
             clip_deduplication,
             finalization,
             outro_analysis,
+            transition_analysis,
             trigger_analysis,
             boundary_analysis,
             candidate_reconciliation,

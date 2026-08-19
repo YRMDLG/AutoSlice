@@ -260,10 +260,20 @@
     {
       "from": "autoslice.analysis.boundaries",
       "imports": [
-        "autoslice.analysis.review.triggers"
+        "autoslice.analysis.review.transitions"
       ],
       "lines": [
         13
+      ],
+      "to": "autoslice.analysis.review.transitions"
+    },
+    {
+      "from": "autoslice.analysis.boundaries",
+      "imports": [
+        "autoslice.analysis.review.triggers"
+      ],
+      "lines": [
+        14
       ],
       "to": "autoslice.analysis.review.triggers"
     },
@@ -273,7 +283,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        14
+        15
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -283,7 +293,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        15
+        16
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -433,7 +443,7 @@
         "autoslice.analysis.review.decisions"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice.analysis.review.decisions"
     },
@@ -510,10 +520,20 @@
     {
       "from": "autoslice.analysis.candidates",
       "imports": [
-        "autoslice.analysis.review.triggers"
+        "autoslice.analysis.review.transitions"
       ],
       "lines": [
         25
+      ],
+      "to": "autoslice.analysis.review.transitions"
+    },
+    {
+      "from": "autoslice.analysis.candidates",
+      "imports": [
+        "autoslice.analysis.review.triggers"
+      ],
+      "lines": [
+        26
       ],
       "to": "autoslice.analysis.review.triggers"
     },
@@ -523,7 +543,7 @@
         "autoslice.analysis.review.workflow"
       ],
       "lines": [
-        26
+        27
       ],
       "to": "autoslice.analysis.review.workflow"
     },
@@ -533,7 +553,7 @@
         "autoslice.analysis.topic.analysis"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.analysis.topic.analysis"
     },
@@ -543,7 +563,7 @@
         "autoslice.analysis.topic.chunking"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.analysis.topic.chunking"
     },
@@ -553,7 +573,7 @@
         "autoslice.analysis.topic.normalization"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice.analysis.topic.normalization"
     },
@@ -563,7 +583,7 @@
         "autoslice.analysis.topic.response"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice.analysis.topic.response"
     },
@@ -573,7 +593,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -583,7 +603,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice.llm.transport"
     },
@@ -593,7 +613,7 @@
         "autoslice.timecode"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.timecode"
     },
@@ -603,7 +623,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -613,7 +633,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice.transcription.service"
     },
@@ -623,7 +643,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -1532,6 +1552,26 @@
         10
       ],
       "to": "autoslice.analysis.checkpoints"
+    },
+    {
+      "from": "autoslice.analysis.review.transitions",
+      "imports": [
+        "autoslice.analysis.review.context_evidence"
+      ],
+      "lines": [
+        6
+      ],
+      "to": "autoslice.analysis.review.context_evidence"
+    },
+    {
+      "from": "autoslice.analysis.review.transitions",
+      "imports": [
+        "autoslice.analysis.review.policy"
+      ],
+      "lines": [
+        7
+      ],
+      "to": "autoslice.analysis.review.policy"
     },
     {
       "from": "autoslice.analysis.review.triggers",
@@ -2897,7 +2937,7 @@
         "autoslice.analysis.review.decisions"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.analysis.review.decisions"
     },
@@ -2974,10 +3014,20 @@
     {
       "from": "autoslice.topic_engine",
       "imports": [
-        "autoslice.analysis.review.triggers"
+        "autoslice.analysis.review.transitions"
       ],
       "lines": [
         35
+      ],
+      "to": "autoslice.analysis.review.transitions"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.analysis.review.triggers"
+      ],
+      "lines": [
+        36
       ],
       "to": "autoslice.analysis.review.triggers"
     },
@@ -2987,7 +3037,7 @@
         "autoslice.analysis.review.workflow"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice.analysis.review.workflow"
     },
@@ -2997,7 +3047,7 @@
         "autoslice.analysis.topic.analysis"
       ],
       "lines": [
-        38
+        39
       ],
       "to": "autoslice.analysis.topic.analysis"
     },
@@ -3007,7 +3057,7 @@
         "autoslice.analysis.topic.chunking"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.analysis.topic.chunking"
     },
@@ -3017,7 +3067,7 @@
         "autoslice.analysis.topic.normalization"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.analysis.topic.normalization"
     },
@@ -3027,7 +3077,7 @@
         "autoslice.analysis.topic.response"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.analysis.topic.response"
     },
@@ -3037,7 +3087,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -3062,7 +3112,7 @@
         "autoslice.artifact_store.write_artifact_text"
       ],
       "lines": [
-        78
+        79
       ],
       "to": "autoslice.artifact_store"
     },
@@ -3085,7 +3135,7 @@
         "autoslice.llm.prompts.build_topic_analysis_prompt"
       ],
       "lines": [
-        49
+        50
       ],
       "to": "autoslice.llm.prompts"
     },
@@ -3095,7 +3145,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        48
+        49
       ],
       "to": "autoslice.llm.transport"
     },
@@ -3105,7 +3155,7 @@
         "autoslice.media_probe"
       ],
       "lines": [
-        43
+        44
       ],
       "to": "autoslice.media_probe"
     },
@@ -3115,7 +3165,7 @@
         "autoslice.pipeline"
       ],
       "lines": [
-        46
+        47
       ],
       "to": "autoslice.pipeline"
     },
@@ -3125,7 +3175,7 @@
         "autoslice.reporting"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice.reporting"
     },
@@ -3136,7 +3186,7 @@
         "autoslice.runtime_config.TIMELINE_DIR"
       ],
       "lines": [
-        102
+        103
       ],
       "to": "autoslice.runtime_config"
     },
@@ -3146,7 +3196,7 @@
         "autoslice.slice_encoding"
       ],
       "lines": [
-        44
+        45
       ],
       "to": "autoslice.slice_encoding"
     },
@@ -3156,7 +3206,7 @@
         "autoslice.slice_reuse"
       ],
       "lines": [
-        44
+        45
       ],
       "to": "autoslice.slice_reuse"
     },
@@ -3166,7 +3216,7 @@
         "autoslice.slicing"
       ],
       "lines": [
-        45
+        46
       ],
       "to": "autoslice.slicing"
     },
@@ -3179,7 +3229,7 @@
         "autoslice.streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        96
+        97
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -3189,7 +3239,7 @@
         "autoslice.timecode"
       ],
       "lines": [
-        47
+        48
       ],
       "to": "autoslice.timecode"
     },
@@ -3199,7 +3249,7 @@
         "autoslice.transcription.checkpoints"
       ],
       "lines": [
-        65
+        66
       ],
       "to": "autoslice.transcription.checkpoints"
     },
@@ -3212,7 +3262,7 @@
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
-        72
+        73
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -3222,7 +3272,7 @@
         "autoslice.transcription.model_runtime"
       ],
       "lines": [
-        66
+        67
       ],
       "to": "autoslice.transcription.model_runtime"
     },
@@ -3232,7 +3282,7 @@
         "autoslice.transcription.results"
       ],
       "lines": [
-        67
+        68
       ],
       "to": "autoslice.transcription.results"
     },
@@ -3242,7 +3292,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        68
+        69
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -3252,7 +3302,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        69
+        70
       ],
       "to": "autoslice.transcription.service"
     },
@@ -3262,7 +3312,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        70
+        71
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -3272,7 +3322,7 @@
         "autoslice.transcription.workflow"
       ],
       "lines": [
-        71
+        72
       ],
       "to": "autoslice.transcription.workflow"
     },
@@ -4320,9 +4370,9 @@
       "qualname": "review_peak_selected_topics"
     },
     {
-      "end_line": 838,
+      "end_line": 760,
       "kind": "function",
-      "line": 572,
+      "line": 494,
       "line_count": 267,
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
@@ -4338,10 +4388,10 @@
       "qualname": "organize_existing_artifacts"
     },
     {
-      "end_line": 469,
+      "end_line": 391,
       "kind": "function",
-      "line": 291,
-      "line_count": 179,
+      "line": 210,
+      "line_count": 182,
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
       "qualname": "_find_relevant_topic_context_end"
@@ -4739,101 +4789,71 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 887,
+      "line_count": 809,
       "longest_function": {
-        "end_line": 838,
+        "end_line": 760,
         "kind": "function",
-        "line": 572,
+        "line": 494,
         "line_count": 267,
         "qualname": "_expand_clip_mark_with_context"
       },
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
-      "sha256": "56ecda1a645f96c85fb9ad3bab67bfe08d158036cb26cedd457e80c7864ef8b2",
+      "sha256": "685cf5f452ad1e6a86d2ec7975c9efe596b0002c1d7793921c5e7eadb17ce7c5",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 108,
+          "end_line": 98,
           "kind": "function",
-          "line": 106,
+          "line": 96,
           "name": "parse_srt_segments"
         },
         {
-          "end_line": 115,
+          "end_line": 105,
           "kind": "function",
-          "line": 111,
+          "line": 101,
           "name": "_srt_video_duration"
         },
         {
-          "end_line": 235,
+          "end_line": 207,
           "kind": "function",
-          "line": 191,
+          "line": 163,
           "name": "_find_relevant_topic_context_start"
         },
         {
-          "end_line": 241,
+          "end_line": 391,
           "kind": "function",
-          "line": 238,
-          "name": "_looks_like_next_case_transition"
-        },
-        {
-          "end_line": 258,
-          "kind": "function",
-          "line": 244,
-          "name": "_looks_like_delayed_topic_conclusion"
-        },
-        {
-          "end_line": 265,
-          "kind": "function",
-          "line": 261,
-          "name": "_looks_like_discourse_continuation"
-        },
-        {
-          "end_line": 275,
-          "kind": "function",
-          "line": 268,
-          "name": "_looks_like_low_score_visual_case_shift"
-        },
-        {
-          "end_line": 288,
-          "kind": "function",
-          "line": 278,
-          "name": "_next_report_topic_safe_boundary"
-        },
-        {
-          "end_line": 469,
-          "kind": "function",
-          "line": 291,
+          "line": 210,
           "name": "_find_relevant_topic_context_end"
         },
         {
-          "end_line": 496,
+          "end_line": 418,
           "kind": "function",
-          "line": 472,
+          "line": 394,
           "name": "_find_topic_lead_in_start"
         },
         {
-          "end_line": 527,
+          "end_line": 449,
           "kind": "function",
-          "line": 499,
+          "line": 421,
           "name": "_find_visual_reaction_context_start"
         },
         {
-          "end_line": 569,
+          "end_line": 491,
           "kind": "function",
-          "line": 530,
+          "line": 452,
           "name": "_find_next_topic_hard_end"
         },
         {
-          "end_line": 838,
+          "end_line": 760,
           "kind": "function",
-          "line": 572,
+          "line": 494,
           "name": "_expand_clip_mark_with_context"
         },
         {
-          "end_line": 887,
+          "end_line": 809,
           "kind": "function",
-          "line": 841,
+          "line": 763,
           "name": "_expand_clip_marks_with_context"
         }
       ]
@@ -4850,11 +4870,11 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 558,
+      "line_count": 567,
       "longest_function": null,
       "module": "autoslice.analysis.candidates",
       "path": "src/autoslice/analysis/candidates.py",
-      "sha256": "1f112b80427ad9a9c2ee1b885372a6fd601cf0db418d44dd31c4357d162d18e2",
+      "sha256": "a37d115aa44e5de52840e2bf7f53aa0c7507c99659445a13ccbb9ec4dc60a11b",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -5712,7 +5732,7 @@
       "longest_function": null,
       "module": "autoslice.analysis.review",
       "path": "src/autoslice/analysis/review/__init__.py",
-      "sha256": "6fe1be1806c3b5670c672ef405c1b72c057d8833eee467a0e2aabb94d398b2e5",
+      "sha256": "cab3c395cd6600315fd2fc36ed79b17124a311f353c91a25126fd8fff67e37a8",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -6182,6 +6202,53 @@
           "kind": "function",
           "line": 138,
           "name": "_format_time"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 115,
+      "longest_function": {
+        "end_line": 85,
+        "kind": "function",
+        "line": 71,
+        "line_count": 15,
+        "qualname": "_looks_like_delayed_topic_conclusion"
+      },
+      "module": "autoslice.analysis.review.transitions",
+      "path": "src/autoslice/analysis/review/transitions.py",
+      "sha256": "c31da61317fb3c729a20e418e2b530619ab781cba1331280340512d95c6088a0",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 68,
+          "kind": "function",
+          "line": 65,
+          "name": "_looks_like_next_case_transition"
+        },
+        {
+          "end_line": 85,
+          "kind": "function",
+          "line": 71,
+          "name": "_looks_like_delayed_topic_conclusion"
+        },
+        {
+          "end_line": 92,
+          "kind": "function",
+          "line": 88,
+          "name": "_looks_like_discourse_continuation"
+        },
+        {
+          "end_line": 102,
+          "kind": "function",
+          "line": 95,
+          "name": "_looks_like_low_score_visual_case_shift"
+        },
+        {
+          "end_line": 115,
+          "kind": "function",
+          "line": 105,
+          "name": "_next_report_topic_safe_boundary"
         }
       ]
     },
@@ -9379,23 +9446,23 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 786,
+      "line_count": 795,
       "longest_function": {
-        "end_line": 782,
+        "end_line": 791,
         "kind": "function",
-        "line": 758,
+        "line": 767,
         "line_count": 25,
         "qualname": "main"
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "8d9e0b9fbb0f0f529af0ba76df89049673703fafc7452d2be04927e8de5f3bb7",
+      "sha256": "6ada8dafe7e45cc81570721eb4968c48329f56c4066d030029786c467e73839b",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 782,
+          "end_line": 791,
           "kind": "function",
-          "line": 758,
+          "line": 767,
           "name": "main"
         }
       ]
@@ -12593,6 +12660,7 @@
       "src/autoslice/analysis/review/prompt.py",
       "src/autoslice/analysis/review/reconciliation.py",
       "src/autoslice/analysis/review/scoring.py",
+      "src/autoslice/analysis/review/transitions.py",
       "src/autoslice/analysis/review/triggers.py",
       "src/autoslice/analysis/review/workflow.py",
       "src/autoslice/analysis/topic/__init__.py",
@@ -12673,6 +12741,7 @@
       "tests/unit/test_analysis_review_finalization.py",
       "tests/unit/test_analysis_review_outro.py",
       "tests/unit/test_analysis_review_policy.py",
+      "tests/unit/test_analysis_review_transitions.py",
       "tests/unit/test_analysis_review_triggers.py",
       "tests/unit/test_analysis_slice_decisions.py",
       "tests/unit/test_analysis_topic_analysis.py",
@@ -12713,9 +12782,9 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 398,
-    "production_line_count": 36123,
-    "production_module_count": 150,
+    "import_edge_count": 403,
+    "production_line_count": 36178,
+    "production_module_count": 151,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,
     "top_level_function_count": 884

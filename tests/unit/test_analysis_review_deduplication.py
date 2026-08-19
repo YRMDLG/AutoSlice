@@ -250,12 +250,13 @@ class ReviewDeduplicationOwnershipTests(unittest.TestCase):
                 "prompt",
                 "reconciliation",
                 "scoring",
+                "transitions",
                 "triggers",
                 "workflow",
             ],
         )
         self.assertIn(
-            '__all__ = ["candidates", "context_evidence", "decisions", "deduplication", "finalization", "outro", "policy", "prompt", "reconciliation", "scoring", "triggers", "workflow"]',
+            '__all__ = ["candidates", "context_evidence", "decisions", "deduplication", "finalization", "outro", "policy", "prompt", "reconciliation", "scoring", "transitions", "triggers", "workflow"]',
             source.splitlines(),
         )
 

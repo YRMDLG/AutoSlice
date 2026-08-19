@@ -229,6 +229,7 @@ class ReviewFinalizationOwnershipTests(unittest.TestCase):
                 "prompt",
                 "reconciliation",
                 "scoring",
+                "transitions",
                 "triggers",
                 "workflow",
             ],
