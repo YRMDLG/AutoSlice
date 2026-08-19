@@ -2478,7 +2478,7 @@
         "autoslice.streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -2508,9 +2508,19 @@
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.pipeline",
+      "imports": [
+        "autoslice.transcription.segments"
+      ],
+      "lines": [
+        39
+      ],
+      "to": "autoslice.transcription.segments"
     },
     {
       "from": "autoslice.pipeline",
@@ -2518,7 +2528,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -2528,7 +2538,7 @@
         "autoslice.transcription.workflow"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.transcription.workflow"
     },
@@ -2797,6 +2807,26 @@
         18
       ],
       "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.slicing",
+      "imports": [
+        "autoslice.transcription.segments"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.transcription.segments"
+    },
+    {
+      "from": "autoslice.slicing",
+      "imports": [
+        "autoslice.transcription.srt_io"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.transcription.srt_io"
     },
     {
       "from": "autoslice.streamer_profiles",
@@ -4445,9 +4475,9 @@
   ],
   "longest_functions": [
     {
-      "end_line": 1490,
+      "end_line": 1491,
       "kind": "function",
-      "line": 1065,
+      "line": 1066,
       "line_count": 426,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -4463,9 +4493,9 @@
       "qualname": "create_app"
     },
     {
-      "end_line": 1007,
+      "end_line": 1008,
       "kind": "function",
-      "line": 605,
+      "line": 606,
       "line_count": 403,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -4490,9 +4520,9 @@
       "qualname": "review_peak_selected_topics"
     },
     {
-      "end_line": 415,
+      "end_line": 405,
       "kind": "function",
-      "line": 149,
+      "line": 139,
       "line_count": 267,
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
@@ -4517,9 +4547,9 @@
       "qualname": "_find_relevant_topic_context_end"
     },
     {
-      "end_line": 434,
+      "end_line": 435,
       "kind": "function",
-      "line": 281,
+      "line": 282,
       "line_count": 154,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -4562,9 +4592,9 @@
       "qualname": "update_task"
     },
     {
-      "end_line": 205,
+      "end_line": 207,
       "kind": "function",
-      "line": 71,
+      "line": 73,
       "line_count": 135,
       "module": "autoslice.slicing",
       "path": "src/autoslice/slicing.py",
@@ -4909,41 +4939,29 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 464,
+      "line_count": 454,
       "longest_function": {
-        "end_line": 415,
+        "end_line": 405,
         "kind": "function",
-        "line": 149,
+        "line": 139,
         "line_count": 267,
         "qualname": "_expand_clip_mark_with_context"
       },
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
-      "sha256": "a749b361d0b0c1d4894a121d55ea1222992194bc3d73ce2e813a7ef949b5a841",
+      "sha256": "6d6c596b9d143091a3eeea9242b5ceeebe12256b3afa8f1f2617b6df5aaea21c",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 93,
+          "end_line": 405,
           "kind": "function",
-          "line": 91,
-          "name": "parse_srt_segments"
-        },
-        {
-          "end_line": 100,
-          "kind": "function",
-          "line": 96,
-          "name": "_srt_video_duration"
-        },
-        {
-          "end_line": 415,
-          "kind": "function",
-          "line": 149,
+          "line": 139,
           "name": "_expand_clip_mark_with_context"
         },
         {
-          "end_line": 464,
+          "end_line": 454,
           "kind": "function",
-          "line": 418,
+          "line": 408,
           "name": "_expand_clip_marks_with_context"
         }
       ]
@@ -4964,7 +4982,7 @@
       "longest_function": null,
       "module": "autoslice.analysis.candidates",
       "path": "src/autoslice/analysis/candidates.py",
-      "sha256": "cf9749b4d646b15bbb465c8f8d0da97a5c4308818b683f58ed0cbb3a468f16e3",
+      "sha256": "2a720c8b535c47ea16de7a9fa0b6ce7a400bddc3997b9acd60f1f31384f29778",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -7917,119 +7935,119 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1490,
+      "line_count": 1491,
       "longest_function": {
-        "end_line": 1490,
+        "end_line": 1491,
         "kind": "function",
-        "line": 1065,
+        "line": 1066,
         "line_count": 426,
         "qualname": "retry_clip_review_from_artifacts_impl"
       },
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
-      "sha256": "319847333587fce0fe65169772bf61fe552a13f4a1c30e1db8f8cd7c68c5361c",
+      "sha256": "3d14bb0bdec77eb5f6290afb2fc84f2811197be07d51387a51aa12c35acd3042",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 140,
+          "end_line": 141,
           "kind": "function",
-          "line": 138,
+          "line": 139,
           "name": "title_hook_prompt_guide"
         },
         {
-          "end_line": 145,
+          "end_line": 146,
           "kind": "function",
-          "line": 143,
+          "line": 144,
           "name": "build_system_prompt"
         },
         {
-          "end_line": 155,
+          "end_line": 156,
           "kind": "function",
-          "line": 148,
+          "line": 149,
           "name": "subtitle_title_services"
         },
         {
-          "end_line": 164,
+          "end_line": 165,
           "kind": "function",
-          "line": 158,
+          "line": 159,
           "name": "optimized_timeline_paths"
         },
         {
-          "end_line": 224,
+          "end_line": 225,
           "kind": "function",
-          "line": 167,
+          "line": 168,
           "name": "write_optimized_timeline_files"
         },
         {
-          "end_line": 278,
+          "end_line": 279,
           "kind": "function",
-          "line": 227,
+          "line": 228,
           "name": "load_optimized_timeline_artifact"
         },
         {
-          "end_line": 434,
+          "end_line": 435,
           "kind": "function",
-          "line": 281,
+          "line": 282,
           "name": "prepare_optimized_manual_timeline"
         },
         {
-          "end_line": 452,
+          "end_line": 453,
           "kind": "function",
-          "line": 437,
+          "line": 438,
           "name": "optimize_manual_timeline_for_video"
         },
         {
-          "end_line": 542,
+          "end_line": 543,
           "kind": "function",
-          "line": 455,
+          "line": 456,
           "name": "optimize_manual_timeline_for_video_impl"
         },
         {
-          "end_line": 561,
+          "end_line": 562,
           "kind": "function",
-          "line": 545,
+          "line": 546,
           "name": "_scaled_progress_callback"
         },
         {
-          "end_line": 582,
+          "end_line": 583,
           "kind": "function",
-          "line": 564,
+          "line": 565,
           "name": "_monotonic_progress_callback"
         },
         {
-          "end_line": 602,
+          "end_line": 603,
           "kind": "function",
-          "line": 585,
+          "line": 586,
           "name": "run_pipeline"
         },
         {
-          "end_line": 1007,
+          "end_line": 1008,
           "kind": "function",
-          "line": 605,
+          "line": 606,
           "name": "run_pipeline_impl"
         },
         {
-          "end_line": 1030,
+          "end_line": 1031,
           "kind": "function",
-          "line": 1010,
+          "line": 1011,
           "name": "_manual_timeline_for_rebuilt_report"
         },
         {
-          "end_line": 1042,
+          "end_line": 1043,
           "kind": "function",
-          "line": 1033,
+          "line": 1034,
           "name": "_warning_without_previous_clip_review"
         },
         {
-          "end_line": 1062,
+          "end_line": 1063,
           "kind": "function",
-          "line": 1045,
+          "line": 1046,
           "name": "retry_clip_review_from_artifacts"
         },
         {
-          "end_line": 1490,
+          "end_line": 1491,
           "kind": "function",
-          "line": 1065,
+          "line": 1066,
           "name": "retry_clip_review_from_artifacts_impl"
         }
       ]
@@ -8601,35 +8619,35 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 219,
+      "line_count": 221,
       "longest_function": {
-        "end_line": 205,
+        "end_line": 207,
         "kind": "function",
-        "line": 71,
+        "line": 73,
         "line_count": 135,
         "qualname": "slice_from_marks_impl"
       },
       "module": "autoslice.slicing",
       "path": "src/autoslice/slicing.py",
-      "sha256": "c217df0af326d0b0e329b06dee9d57e4c066756e4a845362922d4f2103692b17",
+      "sha256": "39d8ed038ee78c4db6204f575680f11d07d1601c5badc0a88ce14fead1d80d98",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 68,
+          "end_line": 70,
           "kind": "function",
-          "line": 54,
+          "line": 56,
           "name": "validate_video_path"
         },
         {
-          "end_line": 205,
+          "end_line": 207,
           "kind": "function",
-          "line": 71,
+          "line": 73,
           "name": "slice_from_marks_impl"
         },
         {
-          "end_line": 219,
+          "end_line": 221,
           "kind": "function",
-          "line": 208,
+          "line": 210,
           "name": "slice_from_marks"
         }
       ]
@@ -9610,7 +9628,7 @@
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "98fe398079a9f967d801ffea6a5364428221534cc3e5929818dfcdb254436759",
+      "sha256": "471c9b93e98421c0ea5e807ef2c358a7af425bca122a5c6c24813b1f654668cc",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -9972,132 +9990,138 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 582,
+      "line_count": 590,
       "longest_function": {
-        "end_line": 341,
+        "end_line": 342,
         "kind": "function",
-        "line": 240,
+        "line": 241,
         "line_count": 102,
         "qualname": "segment_timed_tokens"
       },
       "module": "autoslice.transcription.segments",
       "path": "src/autoslice/transcription/segments.py",
-      "sha256": "db2fb4b0f105f7eeae9c7f7554cf9ef8eccbae80f766f69e4d88957ccf3d8759",
+      "sha256": "30b1a41a6f557a490535845e0dec20bdeebdbeb16c96bd4c0a3b4cf8c21af8d6",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 63,
+          "end_line": 64,
           "kind": "function",
-          "line": 61,
+          "line": 62,
           "name": "text_len_for_timing"
         },
         {
-          "end_line": 78,
+          "end_line": 79,
           "kind": "function",
-          "line": 66,
+          "line": 67,
           "name": "repair_srt_end_time"
         },
         {
-          "end_line": 94,
+          "end_line": 95,
           "kind": "function",
-          "line": 81,
+          "line": 82,
           "name": "join_asr_tokens"
         },
         {
-          "end_line": 108,
+          "end_line": 109,
           "kind": "function",
-          "line": 97,
+          "line": 98,
           "name": "strip_asr_subtitle_punctuation"
         },
         {
-          "end_line": 119,
+          "end_line": 120,
           "kind": "function",
-          "line": 111,
+          "line": 112,
           "name": "normalise_asr_text"
         },
         {
-          "end_line": 130,
+          "end_line": 131,
           "kind": "function",
-          "line": 122,
+          "line": 123,
           "name": "normalise_streamer_terms"
         },
         {
-          "end_line": 134,
+          "end_line": 135,
           "kind": "function",
-          "line": 133,
+          "line": 134,
           "name": "subtitle_text_size"
         },
         {
-          "end_line": 173,
+          "end_line": 174,
           "kind": "function",
-          "line": 137,
+          "line": 138,
           "name": "split_subtitle_text_for_display"
         },
         {
-          "end_line": 212,
+          "end_line": 213,
           "kind": "function",
-          "line": 176,
+          "line": 177,
           "name": "split_timed_subtitle_segment"
         },
         {
-          "end_line": 237,
+          "end_line": 238,
           "kind": "function",
-          "line": 215,
+          "line": 216,
           "name": "should_hold_subtitle_for_short_clause"
         },
         {
-          "end_line": 341,
+          "end_line": 342,
           "kind": "function",
-          "line": 240,
+          "line": 241,
           "name": "segment_timed_tokens"
         },
         {
-          "end_line": 383,
+          "end_line": 384,
           "kind": "function",
-          "line": 344,
+          "line": 345,
           "name": "segments_from_funasr_result"
         },
         {
-          "end_line": 413,
+          "end_line": 414,
           "kind": "function",
-          "line": 386,
+          "line": 387,
           "name": "dedupe_overlapping_funasr_segments"
         },
         {
-          "end_line": 417,
+          "end_line": 418,
           "kind": "function",
-          "line": 416,
+          "line": 417,
           "name": "is_funasr_punctuation"
         },
         {
-          "end_line": 474,
+          "end_line": 475,
           "kind": "function",
-          "line": 420,
+          "line": 421,
           "name": "attach_funasr_punctuation_to_tokens"
         },
         {
-          "end_line": 529,
+          "end_line": 530,
           "kind": "function",
-          "line": 477,
+          "line": 478,
           "name": "align_funasr_tokens"
         },
         {
-          "end_line": 557,
+          "end_line": 558,
           "kind": "function",
-          "line": 532,
+          "line": 533,
           "name": "trim_funasr_tokens_to_core"
         },
         {
-          "end_line": 564,
+          "end_line": 565,
           "kind": "function",
-          "line": 560,
+          "line": 561,
           "name": "srt_time"
         },
         {
-          "end_line": 576,
+          "end_line": 577,
           "kind": "function",
-          "line": 567,
+          "line": 568,
           "name": "parse_srt_timestamp"
+        },
+        {
+          "end_line": 584,
+          "kind": "function",
+          "line": 580,
+          "name": "srt_video_duration"
         }
       ]
     },
@@ -12940,12 +12964,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 415,
-    "production_line_count": 36230,
+    "import_edge_count": 418,
+    "production_line_count": 36231,
     "production_module_count": 153,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,
-    "top_level_function_count": 884
+    "top_level_function_count": 883
   },
   "test_private_patches": {
     "by_target_module": {

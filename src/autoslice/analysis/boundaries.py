@@ -27,6 +27,8 @@ FACADE_EXPORTS = {
 _load_repaired_srt_segments = transcription_srt_io.load_repaired_srt_segments
 TOPIC_CONTEXT_GAP = transcription_segments.TOPIC_CONTEXT_GAP
 
+parse_srt_segments = transcription_srt_io.load_repaired_srt_segments
+_srt_video_duration = transcription_segments.srt_video_duration
 _find_relevant_topic_context_end = context_ranges._find_relevant_topic_context_end
 _find_relevant_topic_context_start = context_ranges._find_relevant_topic_context_start
 
@@ -87,18 +89,6 @@ _subtitle_speech_chains = context_evidence._subtitle_speech_chains
 _split_chain_crossing_topic_end = context_evidence._split_chain_crossing_topic_end
 _boundary_context_has_speech = context_evidence._boundary_context_has_speech
 _boundary_context_is_relevant = context_evidence._boundary_context_is_relevant
-
-def parse_srt_segments(srt_path):
-    """解析 SRT，返回 [(start_s, end_s, text), ...]。时间均为视频内时间，并修复明显异常时间戳。"""
-    return _load_repaired_srt_segments(srt_path)
-
-
-def _srt_video_duration(srt_segments):
-    """用最后一句字幕估算可用视频时长。"""
-    if not srt_segments:
-        return None
-    return max(seg_end for _, seg_end, _ in srt_segments)
-
 
 _OUTRO_ACTIVITY_VARIANT_RE = outro_analysis._OUTRO_ACTIVITY_VARIANT_RE
 _OUTRO_FAREWELL_EVIDENCE = outro_analysis._OUTRO_FAREWELL_EVIDENCE

@@ -558,7 +558,7 @@ _serialized_progress_callback = llm_execution.serialized_progress_callback
 _short_llm_error = llm_gateway.short_llm_error
 _snap_clip_to_srt_segments = finalization._snap_clip_to_srt_segments
 _split_chain_crossing_topic_end = context_evidence._split_chain_crossing_topic_end
-_srt_video_duration = boundary_analysis._srt_video_duration
+_srt_video_duration = transcription_segments.srt_video_duration
 _strip_code_fence = topic_analysis.strip_code_fence
 _strip_prompt_time_labels = topic_analysis.strip_prompt_time_labels
 _subtitle_speech_chains = context_evidence._subtitle_speech_chains
@@ -582,7 +582,7 @@ _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_
 _write_topic_analysis_checkpoint = topic_analysis.write_topic_analysis_checkpoint
 chunk_srt = analysis_chunking.chunk_srt
 fmt_time = timecode.format_elapsed
-parse_srt_segments = boundary_analysis.parse_srt_segments
+parse_srt_segments = transcription_srt_io.load_repaired_srt_segments
 parse_srt_text = analysis_chunking.parse_srt_text
 
 

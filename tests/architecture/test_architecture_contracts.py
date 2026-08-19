@@ -2560,7 +2560,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 884)
+        self.assertEqual(current["summary"]["top_level_function_count"], 883)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3133,8 +3133,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(owner_module["top_level_classes"], [])
 
         boundary_module = modules["autoslice.analysis.boundaries"]
-        self.assertEqual(boundary_module["line_count"], 464)
-        self.assertEqual(len(boundary_module["top_level_functions"]), 4)
+        self.assertEqual(boundary_module["line_count"], 454)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 2)
         self.assertTrue(
             set(aliases).isdisjoint(
                 item["name"] for item in boundary_module["top_level_functions"]
@@ -3271,19 +3271,38 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         import topic_engine
         from autoslice import pipeline, reporting, slicing
         from autoslice.analysis import boundaries, candidates
+        from autoslice.transcription import segments as transcription_segments
+        from autoslice.transcription import srt_io as transcription_srt_io
 
         compatibility_names = (
             "_expand_clip_mark_with_context",
             "_expand_clip_marks_with_context",
             "_fit_final_clip_to_safe_srt_boundaries",
-            "_srt_video_duration",
-            "parse_srt_segments",
         )
         for name in compatibility_names:
             with self.subTest(name=name):
                 owner = getattr(boundaries, name)
                 self.assertIs(getattr(candidates, name), owner)
                 self.assertIs(getattr(topic_engine, name), owner)
+
+        self.assertIs(
+            boundaries.parse_srt_segments,
+            transcription_srt_io.load_repaired_srt_segments,
+        )
+        self.assertIs(
+            boundaries._srt_video_duration,
+            transcription_segments.srt_video_duration,
+        )
+        for consumer in (pipeline, slicing, candidates, topic_engine):
+            with self.subTest(consumer=consumer.__name__):
+                self.assertIs(
+                    consumer.parse_srt_segments,
+                    transcription_srt_io.load_repaired_srt_segments,
+                )
+                self.assertIs(
+                    consumer._srt_video_duration,
+                    transcription_segments.srt_video_duration,
+                )
 
         self.assertIs(pipeline.boundary_analysis, boundaries)
         self.assertIs(slicing.boundary_analysis, boundaries)
@@ -3945,7 +3964,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            884,
+            883,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

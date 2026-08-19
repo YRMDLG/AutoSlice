@@ -112,8 +112,6 @@ PRODUCTION_IMPORTERS = {
     "autoslice.topic_engine",
 }
 RETAINED_BOUNDARY_FUNCTIONS = {
-    "parse_srt_segments",
-    "_srt_video_duration",
     "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context",
 }

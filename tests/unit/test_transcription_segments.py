@@ -96,6 +96,15 @@ class TranscriptionSegmentTests(unittest.TestCase):
         self.assertEqual(rendered, "01:02:03,456")
         self.assertAlmostEqual(segments.parse_srt_timestamp(rendered), 3723.456)
 
+    def test_srt_video_duration_uses_last_segment_and_handles_empty_input(self):
+        self.assertIsNone(segments.srt_video_duration([]))
+        self.assertEqual(
+            segments.srt_video_duration(
+                [(1.0, 3.5, "前"), (5.0, 9.25, "后")]
+            ),
+            9.25,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

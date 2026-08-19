@@ -55,6 +55,7 @@ FACADE_EXPORTS = {
     "_trim_funasr_tokens_to_core": "trim_funasr_tokens_to_core",
     "_srt_time": "srt_time",
     "_parse_srt_timestamp": "parse_srt_timestamp",
+    "_srt_video_duration": "srt_video_duration",
 }
 
 
@@ -574,6 +575,13 @@ def parse_srt_timestamp(value):
         + int(seconds)
         + int(milliseconds) / 1000
     )
+
+
+def srt_video_duration(srt_segments):
+    """用最后一句字幕估算可用视频时长。"""
+    if not srt_segments:
+        return None
+    return max(seg_end for _, seg_end, _ in srt_segments)
 
 
 __all__ = [

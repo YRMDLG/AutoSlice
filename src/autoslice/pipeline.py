@@ -36,6 +36,7 @@ from autoslice.analysis.topic import analysis as topic_analysis
 from autoslice.llm.prompts import build_system_prompt as _render_system_prompt
 from autoslice.llm.prompts import build_title_hook_guide as _render_title_hook_guide
 from autoslice.transcription import checkpoints as transcription_checkpoints
+from autoslice.transcription import segments as transcription_segments
 from autoslice.transcription import srt_io as transcription_srt_io
 from autoslice.transcription import workflow as transcription_workflow
 from autoslice.transcription.contracts import SubtitleTitleServices
@@ -71,7 +72,7 @@ export_corrected_srt = transcription_srt_io.export_corrected_srt
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = analysis_chunking.parse_srt_text
-parse_srt_segments = boundary_analysis.parse_srt_segments
+parse_srt_segments = transcription_srt_io.load_repaired_srt_segments
 chunk_srt = analysis_chunking.chunk_srt
 fmt_time = timecode.format_elapsed
 load_manual_timeline = timeline_analysis.load_manual_timeline
@@ -112,7 +113,7 @@ _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_cont
 _high_energy_danmaku_peaks = danmaku_analysis._high_energy_danmaku_peaks
 _outro_topic_from_mark = outro_analysis._outro_topic_from_mark
 _review_peak_selected_topics = clip_review.review_peak_selected_topics
-_srt_video_duration = boundary_analysis._srt_video_duration
+_srt_video_duration = transcription_segments.srt_video_duration
 _validate_unmatched_manual_topics = manual_review.validate_unmatched_manual_topics
 _write_completed_clip_review_checkpoint = checkpoint_store.write_completed_clip_review_checkpoint
 _clip_review_checkpoint_is_complete = checkpoint_store.clip_review_checkpoint_is_complete

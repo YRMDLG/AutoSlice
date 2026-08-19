@@ -107,8 +107,6 @@ BOUNDARY_OWNER_CALLS = {
 BOUNDARY_ORCHESTRATION_FUNCTIONS = {
     "_expand_clip_mark_with_context",
     "_expand_clip_marks_with_context",
-    "parse_srt_segments",
-    "_srt_video_duration",
 }
 
 
