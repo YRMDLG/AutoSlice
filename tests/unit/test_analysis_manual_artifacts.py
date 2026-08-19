@@ -48,11 +48,17 @@ class ManualArtifactTests(unittest.TestCase):
             "write_optimized_timeline_files": "_write_optimized_timeline_files",
             "load_optimized_timeline_artifact": "_load_optimized_timeline_artifact",
         }
+        facade_aliases = {
+            **aliases,
+            "manual_timeline_for_rebuilt_report": (
+                "_manual_timeline_for_rebuilt_report"
+            ),
+        }
         self.assertEqual(
             artifacts.FACADE_EXPORTS,
             {
                 topic_engine_name: owner_name
-                for owner_name, topic_engine_name in aliases.items()
+                for owner_name, topic_engine_name in facade_aliases.items()
             },
         )
         for owner_name, topic_engine_name in aliases.items():
@@ -61,6 +67,11 @@ class ManualArtifactTests(unittest.TestCase):
                 self.assertEqual(owner.__module__, artifacts.__name__)
                 self.assertIs(getattr(pipeline, owner_name), owner)
                 self.assertIs(getattr(topic_engine, topic_engine_name), owner)
+
+        owner = artifacts.manual_timeline_for_rebuilt_report
+        self.assertEqual(owner.__module__, artifacts.__name__)
+        self.assertIs(pipeline._manual_timeline_for_rebuilt_report, owner)
+        self.assertIs(topic_engine._manual_timeline_for_rebuilt_report, owner)
 
         pipeline_tree = ast.parse(Path(pipeline.__file__).read_text(encoding="utf-8"))
         pipeline_functions = {
@@ -83,6 +94,97 @@ class ManualArtifactTests(unittest.TestCase):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
         self.assertTrue(set(aliases).issubset(global_calls))
+
+    def test_manual_timeline_for_rebuilt_report_reuses_valid_artifact(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            video_path = root / "主播-2026年8月15日-20点01分06秒.flv"
+            source_path = root / "人工时间轴.docx"
+            artifact_path = root / "优化时间轴.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "video_path": str(video_path.resolve()),
+                        "source_path": str(source_path),
+                        "streamer_profile_id": "generic",
+                        "optimization_version": 3,
+                        "raw_entry_count": 4,
+                        "entries": [
+                            {
+                                "start": 10,
+                                "end": 80,
+                                "text": "复用的人工话题",
+                                "stars": 2,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            summary = {
+                "optimized_json_path": str(artifact_path),
+                "path": str(source_path),
+                "entry_count": 99,
+                "star_count": 99,
+            }
+            original_summary = dict(summary)
+
+            result = artifacts.manual_timeline_for_rebuilt_report(
+                summary, str(video_path.resolve())
+            )
+
+        self.assertEqual(result["mode"], "optimized_artifact")
+        self.assertEqual(result["entries"][0]["text"], "复用的人工话题")
+        self.assertEqual(result["optimized_json_path"], str(artifact_path))
+        self.assertEqual(summary, original_summary)
+
+    def test_manual_timeline_for_rebuilt_report_falls_back_when_artifact_load_fails(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_path = root / "损坏的优化时间轴.json"
+            artifact_path.write_text("{", encoding="utf-8")
+            summary = {
+                "optimized_json_path": str(artifact_path),
+                "path": str(root / "人工时间轴.docx"),
+                "entry_count": 3,
+                "star_count": 9,
+                "note": "保留",
+            }
+            original_summary = dict(summary)
+
+            result = artifacts.manual_timeline_for_rebuilt_report(
+                summary, str(root / "视频.flv")
+            )
+
+        self.assertEqual(
+            [entry["stars"] for entry in result["entries"]],
+            [1, 1, 1],
+        )
+        self.assertEqual(result["note"], "保留")
+        self.assertEqual(summary, original_summary)
+
+    def test_manual_timeline_for_rebuilt_report_preserves_count_boundaries(self):
+        cases = (
+            (0, 0, []),
+            (3, 0, [0, 0, 0]),
+            (3, 2, [1, 1, 0]),
+            (3, 99, [1, 1, 1]),
+        )
+        for entry_count, star_count, expected_stars in cases:
+            with self.subTest(entry_count=entry_count, star_count=star_count):
+                summary = {
+                    "entry_count": entry_count,
+                    "star_count": star_count,
+                }
+                result = artifacts.manual_timeline_for_rebuilt_report(
+                    summary, "视频.flv"
+                )
+                self.assertEqual(
+                    [entry["stars"] for entry in result["entries"]],
+                    expected_stars,
+                )
+                self.assertNotIn("entries", summary)
 
     def test_owner_imports_only_approved_dependencies_without_reverse_edges(self):
         tree = ast.parse(Path(artifacts.__file__).read_text(encoding="utf-8"))

@@ -2694,11 +2694,17 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "_load_optimized_timeline_artifact"
             ),
         }
+        owner_aliases = {
+            **aliases,
+            "manual_timeline_for_rebuilt_report": (
+                "_manual_timeline_for_rebuilt_report"
+            ),
+        }
         self.assertEqual(
             artifacts.FACADE_EXPORTS,
             {
                 topic_engine_name: owner_name
-                for owner_name, topic_engine_name in aliases.items()
+                for owner_name, topic_engine_name in owner_aliases.items()
             },
         )
         for owner_name, topic_engine_name in aliases.items():
@@ -2706,6 +2712,16 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 owner = getattr(artifacts, owner_name)
                 self.assertIs(getattr(pipeline, owner_name), owner)
                 self.assertIs(getattr(topic_engine, topic_engine_name), owner)
+
+        rebuilt_report_owner = artifacts.manual_timeline_for_rebuilt_report
+        self.assertIs(
+            pipeline._manual_timeline_for_rebuilt_report,
+            rebuilt_report_owner,
+        )
+        self.assertIs(
+            topic_engine._manual_timeline_for_rebuilt_report,
+            rebuilt_report_owner,
+        )
 
         self.assertEqual(manual_package.__all__, sorted(manual_package.__all__))
         self.assertIn("artifacts", manual_package.__all__)
@@ -2718,13 +2734,15 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 item["name"]
                 for item in modules[owner_module]["top_level_functions"]
             ],
-            list(aliases),
+            list(owner_aliases),
         )
         pipeline_functions = {
             item["name"]
             for item in modules["autoslice.pipeline"]["top_level_functions"]
         }
         self.assertTrue(set(aliases).isdisjoint(pipeline_functions))
+        self.assertNotIn("_manual_timeline_for_rebuilt_report", pipeline_functions)
+        self.assertNotIn("manual_timeline_for_rebuilt_report", pipeline_functions)
         self.assertIn("prepare_optimized_manual_timeline", pipeline_functions)
 
         import_edges = {
@@ -2757,6 +2775,65 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         pipeline_tree = ast.parse(
             (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
         )
+        self.assertTrue(
+            any(
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name)
+                    and target.id == "manual_timeline_for_rebuilt_report"
+                    for target in node.targets
+                )
+                and isinstance(node.value, ast.Attribute)
+                and isinstance(node.value.value, ast.Name)
+                and node.value.value.id == "manual_artifacts"
+                and node.value.attr == "manual_timeline_for_rebuilt_report"
+                for node in pipeline_tree.body
+            )
+        )
+        self.assertTrue(
+            any(
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name)
+                    and target.id == "_manual_timeline_for_rebuilt_report"
+                    for target in node.targets
+                )
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "manual_timeline_for_rebuilt_report"
+                for node in pipeline_tree.body
+            )
+        )
+        topic_tree = ast.parse(
+            (ROOT / "src/autoslice/topic_engine.py").read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            any(
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name)
+                    and target.id == "_manual_timeline_for_rebuilt_report"
+                    for target in node.targets
+                )
+                and isinstance(node.value, ast.Attribute)
+                and isinstance(node.value.value, ast.Name)
+                and node.value.value.id == "manual_artifacts"
+                and node.value.attr == "manual_timeline_for_rebuilt_report"
+                for node in topic_tree.body
+            )
+        )
+        retry_impl = next(
+            node
+            for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "retry_clip_review_from_artifacts_impl"
+        )
+        retry_global_calls = {
+            node.func.id
+            for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("_manual_timeline_for_rebuilt_report", retry_global_calls)
+
         prepare = next(
             node
             for node in pipeline_tree.body

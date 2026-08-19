@@ -15,6 +15,7 @@ FACADE_EXPORTS = {
     "_optimized_timeline_paths": "optimized_timeline_paths",
     "_write_optimized_timeline_files": "write_optimized_timeline_files",
     "_load_optimized_timeline_artifact": "load_optimized_timeline_artifact",
+    "_manual_timeline_for_rebuilt_report": "manual_timeline_for_rebuilt_report",
 }
 
 MANUAL_TIMELINE_OPTIMIZATION_VERSION = (
@@ -146,3 +147,26 @@ def load_optimized_timeline_artifact(
         "mode": "optimized_artifact",
         "video_start": timeline_analysis.extract_video_start_datetime(flv_path),
     }
+
+
+def manual_timeline_for_rebuilt_report(summary, flv_path):
+    """从现有 JSON 恢复报告头所需的人工时间轴元数据。"""
+    summary = dict(summary or {})
+    optimized_path = summary.get("optimized_json_path")
+    source_path = summary.get("path")
+    if optimized_path and os.path.isfile(optimized_path):
+        try:
+            return load_optimized_timeline_artifact(
+                optimized_path,
+                flv_path,
+                manual_timeline_path=source_path,
+            )
+        except (OSError, ValueError, TypeError):
+            pass
+    entry_count = int(summary.get("entry_count", 0) or 0)
+    star_count = min(entry_count, int(summary.get("star_count", 0) or 0))
+    summary["entries"] = [
+        {"stars": 1 if index < star_count else 0}
+        for index in range(entry_count)
+    ]
+    return summary

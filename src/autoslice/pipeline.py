@@ -59,7 +59,7 @@ FACADE_EXPORTS = {
     '_monotonic_progress_callback': '_monotonic_progress_callback',
     'run_pipeline': 'run_pipeline',
     '_run_pipeline_impl': 'run_pipeline_impl',
-    '_manual_timeline_for_rebuilt_report': '_manual_timeline_for_rebuilt_report',
+    '_manual_timeline_for_rebuilt_report': 'manual_timeline_for_rebuilt_report',
     '_warning_without_previous_clip_review': '_warning_without_previous_clip_review',
     'retry_clip_review_from_artifacts': 'retry_clip_review_from_artifacts',
     '_retry_clip_review_from_artifacts_impl': 'retry_clip_review_from_artifacts_impl',
@@ -161,6 +161,10 @@ write_optimized_timeline_files = manual_artifacts.write_optimized_timeline_files
 load_optimized_timeline_artifact = (
     manual_artifacts.load_optimized_timeline_artifact
 )
+manual_timeline_for_rebuilt_report = (
+    manual_artifacts.manual_timeline_for_rebuilt_report
+)
+_manual_timeline_for_rebuilt_report = manual_timeline_for_rebuilt_report
 
 
 def prepare_optimized_manual_timeline(
@@ -890,29 +894,6 @@ def run_pipeline_impl(
         "api_precheck_warning": api_precheck_warning,
         "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
     }
-
-
-def _manual_timeline_for_rebuilt_report(summary, flv_path):
-    """从现有 JSON 恢复报告头所需的人工时间轴元数据。"""
-    summary = dict(summary or {})
-    optimized_path = summary.get("optimized_json_path")
-    source_path = summary.get("path")
-    if optimized_path and os.path.isfile(optimized_path):
-        try:
-            return load_optimized_timeline_artifact(
-                optimized_path,
-                flv_path,
-                manual_timeline_path=source_path,
-            )
-        except (OSError, ValueError, TypeError):
-            pass
-    entry_count = int(summary.get("entry_count", 0) or 0)
-    star_count = min(entry_count, int(summary.get("star_count", 0) or 0))
-    summary["entries"] = [
-        {"stars": 1 if index < star_count else 0}
-        for index in range(entry_count)
-    ]
-    return summary
 
 
 def _warning_without_previous_clip_review(data):
