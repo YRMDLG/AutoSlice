@@ -583,6 +583,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.manual import workflow as manual_workflow
         from autoslice.analysis.review import decisions as slice_decisions
         from autoslice.analysis.review import deduplication as clip_deduplication
+        from autoslice.analysis.review import outro
         from autoslice.analysis.review import policy as clip_policy
         from autoslice.analysis.review import (
             reconciliation as candidate_reconciliation,
@@ -611,6 +612,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             clip_scoring,
             normalization,
             clip_deduplication,
+            outro,
             boundaries,
             clip_policy,
             candidate_reconciliation,
@@ -3120,8 +3122,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(owner_module["top_level_classes"], [])
 
         boundary_module = modules["autoslice.analysis.boundaries"]
-        self.assertEqual(boundary_module["line_count"], 1692)
-        self.assertEqual(len(boundary_module["top_level_functions"]), 42)
+        self.assertEqual(boundary_module["line_count"], 1550)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 38)
         self.assertTrue(
             set(aliases).isdisjoint(
                 item["name"] for item in boundary_module["top_level_functions"]
@@ -3174,11 +3176,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis import boundaries, candidates
 
         compatibility_names = (
-            "_detect_stream_outro_clip",
             "_expand_clip_mark_with_context",
             "_expand_clip_marks_with_context",
             "_fit_final_clip_to_safe_srt_boundaries",
-            "_outro_topic_from_mark",
             "_srt_video_duration",
             "parse_srt_segments",
         )
@@ -3201,6 +3201,145 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertTrue(
             set(boundaries.FACADE_EXPORTS.values()).isdisjoint(candidate_functions)
         )
+
+    def test_stream_outro_has_one_owner_and_exact_direct_consumers(self):
+        from autoslice import pipeline, topic_engine
+        from autoslice.analysis import boundaries, candidates
+        from autoslice.analysis import review as review_package
+        from autoslice.analysis.review import outro
+
+        aliases = {
+            "_OUTRO_ACTIVITY_VARIANT_RE": "_OUTRO_ACTIVITY_VARIANT_RE",
+            "_OUTRO_FAREWELL_EVIDENCE": "_OUTRO_FAREWELL_EVIDENCE",
+            "_OUTRO_TRIGGER_NORMALISE_RE": "_OUTRO_TRIGGER_NORMALISE_RE",
+            "_detect_stream_outro_clip": "_detect_stream_outro_clip",
+            "_has_outro_farewell_evidence": "_has_outro_farewell_evidence",
+            "_normalise_outro_trigger_text": "_normalise_outro_trigger_text",
+            "_outro_topic_from_mark": "_outro_topic_from_mark",
+        }
+        self.assertEqual(outro.FACADE_EXPORTS, aliases)
+        for name in aliases:
+            owner = getattr(outro, name)
+            with self.subTest(name=name):
+                self.assertNotIn(name, boundaries.FACADE_EXPORTS)
+                self.assertIs(getattr(boundaries, name), owner)
+                self.assertIs(getattr(candidates, name), owner)
+                self.assertIs(getattr(topic_engine, name), owner)
+        self.assertIs(pipeline.outro_analysis, outro)
+        self.assertIs(
+            pipeline._detect_stream_outro_clip,
+            outro._detect_stream_outro_clip,
+        )
+        self.assertIs(
+            pipeline._outro_topic_from_mark,
+            outro._outro_topic_from_mark,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module_name = "autoslice.analysis.review.outro"
+        owner_module = modules[owner_module_name]
+        self.assertEqual(owner_module["line_count"], 161)
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            [
+                "_normalise_outro_trigger_text",
+                "_has_outro_farewell_evidence",
+                "_detect_stream_outro_clip",
+                "_outro_topic_from_mark",
+            ],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+        boundary_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.boundaries"]["top_level_functions"]
+        }
+        self.assertTrue(
+            {
+                "_normalise_outro_trigger_text",
+                "_has_outro_farewell_evidence",
+                "_detect_stream_outro_clip",
+                "_outro_topic_from_mark",
+            }.isdisjoint(boundary_functions)
+        )
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if target == owner_module_name
+            },
+            {
+                "autoslice.analysis.boundaries",
+                "autoslice.analysis.candidates",
+                "autoslice.pipeline",
+                "autoslice.topic_engine",
+            },
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == owner_module_name
+            },
+            {
+                "autoslice.analysis.review.policy",
+                "autoslice.streamer_profiles",
+            },
+        )
+
+        outro_names = set(aliases)
+        stale_boundary_references = []
+        for relative_path in (
+            "src/autoslice/analysis/candidates.py",
+            "src/autoslice/pipeline.py",
+            "src/autoslice/topic_engine.py",
+        ):
+            tree = ast.parse((ROOT / relative_path).read_text(encoding="utf-8"))
+            stale_boundary_references.extend(
+                (relative_path, node.lineno, node.attr)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "boundary_analysis"
+                and node.attr in outro_names
+            )
+        self.assertEqual(stale_boundary_references, [])
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            {
+                node.func.attr
+                for node in ast.walk(pipeline_tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "outro_analysis"
+            },
+            {"_detect_stream_outro_clip", "_outro_topic_from_mark"},
+        )
+
+        review_init_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/review/__init__.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertFalse(any(
+            isinstance(node, (ast.Import, ast.ImportFrom))
+            for node in ast.walk(review_init_tree)
+        ))
+        self.assertEqual(review_package.__all__, sorted(review_package.__all__))
+        self.assertIn("outro", review_package.__all__)
+
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_clip_policy_has_one_owner_and_direct_consumers(self):
         import topic_engine

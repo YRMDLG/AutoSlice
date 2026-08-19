@@ -25,6 +25,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import candidates as clip_review_candidates
 from autoslice.analysis.review import deduplication as clip_deduplication
+from autoslice.analysis.review import outro as outro_analysis
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import prompt as clip_review_prompt
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
@@ -391,9 +392,9 @@ _MANUAL_AI_PLACEHOLDER_PHRASES = manual_enrichment.MANUAL_AI_PLACEHOLDER_PHRASES
 _META_BODY_KEYWORDS = normalization.META_BODY_KEYWORDS
 _NEXT_CASE_ASR_TRIGGER_RE = boundary_analysis._NEXT_CASE_ASR_TRIGGER_RE
 _NO_SLICE_HINTS = response.NO_SLICE_HINTS
-_OUTRO_ACTIVITY_VARIANT_RE = boundary_analysis._OUTRO_ACTIVITY_VARIANT_RE
-_OUTRO_FAREWELL_EVIDENCE = boundary_analysis._OUTRO_FAREWELL_EVIDENCE
-_OUTRO_TRIGGER_NORMALISE_RE = boundary_analysis._OUTRO_TRIGGER_NORMALISE_RE
+_OUTRO_ACTIVITY_VARIANT_RE = outro_analysis._OUTRO_ACTIVITY_VARIANT_RE
+_OUTRO_FAREWELL_EVIDENCE = outro_analysis._OUTRO_FAREWELL_EVIDENCE
+_OUTRO_TRIGGER_NORMALISE_RE = outro_analysis._OUTRO_TRIGGER_NORMALISE_RE
 _TOPIC_CONCLUSION_RE = boundary_analysis._TOPIC_CONCLUSION_RE
 _TOPIC_DECISION_EVIDENCE_RE = boundary_analysis._TOPIC_DECISION_EVIDENCE_RE
 _TOPIC_DISCOURSE_CONTINUATION_RE = boundary_analysis._TOPIC_DISCOURSE_CONTINUATION_RE
@@ -448,7 +449,7 @@ _danmaku_peak_features = danmaku_analysis._danmaku_peak_features
 _danmaku_prompt_evidence = danmaku_analysis._danmaku_prompt_evidence
 _danmaku_topic_alignment = candidate_reconciliation.danmaku_topic_alignment
 _dedupe_clip_marks = clip_deduplication._dedupe_clip_marks
-_detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
+_detect_stream_outro_clip = outro_analysis._detect_stream_outro_clip
 _enrich_manual_topics_in_batches = manual_review.enrich_manual_topics_in_batches
 _enrich_manual_topics_with_llm = manual_review.enrich_manual_topics_with_llm
 _enriched_manual_topic_from_item = manual_enrichment.enrich_manual_topic_from_item
@@ -468,7 +469,7 @@ _format_topic_block = topic_formatting.format_topic_block
 _fresh_manual_topic_evidence = clip_review_candidates.fresh_manual_topic_evidence
 _gift_trigger_has_question_followup = boundary_analysis._gift_trigger_has_question_followup
 _has_high_star_manual_evidence = slice_decisions.has_high_star_manual_evidence
-_has_outro_farewell_evidence = boundary_analysis._has_outro_farewell_evidence
+_has_outro_farewell_evidence = outro_analysis._has_outro_farewell_evidence
 _high_energy_danmaku_peaks = danmaku_analysis._high_energy_danmaku_peaks
 _integer_clip_bounds_outside_subtitles = boundary_analysis._integer_clip_bounds_outside_subtitles
 _is_content_cuttable_topic = slice_decisions.is_content_cuttable_topic
@@ -507,10 +508,10 @@ _nearest_safe_srt_boundary = boundary_analysis._nearest_safe_srt_boundary
 _next_report_topic_safe_boundary = boundary_analysis._next_report_topic_safe_boundary
 _normalise_body_line = normalization.normalise_body_line
 _normalise_boundary_evidence_text = boundary_analysis._normalise_boundary_evidence_text
-_normalise_outro_trigger_text = boundary_analysis._normalise_outro_trigger_text
+_normalise_outro_trigger_text = outro_analysis._normalise_outro_trigger_text
 _normalise_streamer_terms = transcription_segments.normalise_streamer_terms
 _optimized_entry_semantic_text = manual_candidates.optimized_entry_semantic_text
-_outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
+_outro_topic_from_mark = outro_analysis._outro_topic_from_mark
 _overlap_ratio = clip_deduplication._overlap_ratio
 _parse_clip_interest_score = clip_scoring.parse_clip_interest_score
 _parse_clip_star_bonus = clip_scoring.parse_clip_star_bonus

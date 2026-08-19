@@ -25,6 +25,7 @@ from autoslice.analysis.manual import review as manual_review
 from autoslice.analysis.manual import timebase as timeline_analysis
 from autoslice.analysis.manual import workflow as manual_timeline_analysis
 from autoslice.analysis.report import cleanup as report_cleanup
+from autoslice.analysis.review import outro as outro_analysis
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import scoring as clip_scoring
 from autoslice.analysis.review import workflow as clip_review
@@ -106,10 +107,10 @@ _analysis_topics_snapshot = checkpoint_store.analysis_topics_snapshot
 _average_danmaku_density = danmaku_analysis._average_danmaku_density
 _build_clip_candidate_review_audit = clip_scoring.build_clip_candidate_review_audit
 _danmaku_clip_threshold = danmaku_analysis._danmaku_clip_threshold
-_detect_stream_outro_clip = boundary_analysis._detect_stream_outro_clip
+_detect_stream_outro_clip = outro_analysis._detect_stream_outro_clip
 _expand_clip_marks_with_context = boundary_analysis._expand_clip_marks_with_context
 _high_energy_danmaku_peaks = danmaku_analysis._high_energy_danmaku_peaks
-_outro_topic_from_mark = boundary_analysis._outro_topic_from_mark
+_outro_topic_from_mark = outro_analysis._outro_topic_from_mark
 _review_peak_selected_topics = clip_review.review_peak_selected_topics
 _srt_video_duration = boundary_analysis._srt_video_duration
 _validate_unmatched_manual_topics = manual_review.validate_unmatched_manual_topics
@@ -835,13 +836,13 @@ def run_pipeline_impl(
     candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
     _write_artifact_json(candidate_review_audit_path, candidate_review_audit)
     srt_segments_for_context = parse_srt_segments(srt_path)
-    outro_mark = _detect_stream_outro_clip(
+    outro_mark = outro_analysis._detect_stream_outro_clip(
         srt_segments_for_context,
         probed_video_duration,
         streamer_profile=streamer_profile,
     )
     if outro_mark:
-        accepted_topics.append(_outro_topic_from_mark(outro_mark))
+        accepted_topics.append(outro_analysis._outro_topic_from_mark(outro_mark))
         raw_clip_marks.append(outro_mark)
     clip_marks = _expand_clip_marks_with_context(
         raw_clip_marks,
@@ -1330,13 +1331,13 @@ def retry_clip_review_from_artifacts_impl(
     _write_artifact_json(candidate_review_audit_path, candidate_review_audit)
     probed_video_duration = probe_video_duration(flv_path)
     video_duration = probed_video_duration or _srt_video_duration(srt_segments)
-    outro_mark = _detect_stream_outro_clip(
+    outro_mark = outro_analysis._detect_stream_outro_clip(
         srt_segments,
         probed_video_duration,
         streamer_profile=streamer_profile,
     )
     if outro_mark:
-        accepted_topics.append(_outro_topic_from_mark(outro_mark))
+        accepted_topics.append(outro_analysis._outro_topic_from_mark(outro_mark))
         raw_clip_marks.append(outro_mark)
     clip_marks = _expand_clip_marks_with_context(
         raw_clip_marks,

@@ -114,6 +114,7 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
                 "candidates",
                 "decisions",
                 "deduplication",
+                "outro",
                 "policy",
                 "prompt",
                 "reconciliation",

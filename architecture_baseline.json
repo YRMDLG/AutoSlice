@@ -220,10 +220,20 @@
     {
       "from": "autoslice.analysis.boundaries",
       "imports": [
-        "autoslice.analysis.review.policy"
+        "autoslice.analysis.review.outro"
       ],
       "lines": [
         10
+      ],
+      "to": "autoslice.analysis.review.outro"
+    },
+    {
+      "from": "autoslice.analysis.boundaries",
+      "imports": [
+        "autoslice.analysis.review.policy"
+      ],
+      "lines": [
+        11
       ],
       "to": "autoslice.analysis.review.policy"
     },
@@ -233,7 +243,7 @@
         "autoslice.streamer_profiles.current_streamer_profile"
       ],
       "lines": [
-        11
+        12
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -243,7 +253,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        13
+        14
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -253,7 +263,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        12
+        13
       ],
       "to": "autoslice.transcription.service"
     },
@@ -263,7 +273,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        14
+        15
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -403,7 +413,7 @@
         "autoslice.analysis.review.decisions"
       ],
       "lines": [
-        23
+        24
       ],
       "to": "autoslice.analysis.review.decisions"
     },
@@ -420,10 +430,20 @@
     {
       "from": "autoslice.analysis.candidates",
       "imports": [
-        "autoslice.analysis.review.policy"
+        "autoslice.analysis.review.outro"
       ],
       "lines": [
         18
+      ],
+      "to": "autoslice.analysis.review.outro"
+    },
+    {
+      "from": "autoslice.analysis.candidates",
+      "imports": [
+        "autoslice.analysis.review.policy"
+      ],
+      "lines": [
+        19
       ],
       "to": "autoslice.analysis.review.policy"
     },
@@ -433,7 +453,7 @@
         "autoslice.analysis.review.prompt"
       ],
       "lines": [
-        19
+        20
       ],
       "to": "autoslice.analysis.review.prompt"
     },
@@ -443,7 +463,7 @@
         "autoslice.analysis.review.reconciliation"
       ],
       "lines": [
-        20
+        21
       ],
       "to": "autoslice.analysis.review.reconciliation"
     },
@@ -453,7 +473,7 @@
         "autoslice.analysis.review.scoring"
       ],
       "lines": [
-        21
+        22
       ],
       "to": "autoslice.analysis.review.scoring"
     },
@@ -463,7 +483,7 @@
         "autoslice.analysis.review.workflow"
       ],
       "lines": [
-        22
+        23
       ],
       "to": "autoslice.analysis.review.workflow"
     },
@@ -473,7 +493,7 @@
         "autoslice.analysis.topic.analysis"
       ],
       "lines": [
-        24
+        25
       ],
       "to": "autoslice.analysis.topic.analysis"
     },
@@ -483,7 +503,7 @@
         "autoslice.analysis.topic.chunking"
       ],
       "lines": [
-        25
+        26
       ],
       "to": "autoslice.analysis.topic.chunking"
     },
@@ -493,7 +513,7 @@
         "autoslice.analysis.topic.normalization"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice.analysis.topic.normalization"
     },
@@ -503,7 +523,7 @@
         "autoslice.analysis.topic.response"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice.analysis.topic.response"
     },
@@ -513,7 +533,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        26
+        27
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -523,7 +543,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.llm.transport"
     },
@@ -533,7 +553,7 @@
         "autoslice.timecode"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.timecode"
     },
@@ -543,7 +563,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -553,7 +573,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.transcription.service"
     },
@@ -563,7 +583,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -1270,6 +1290,26 @@
         8
       ],
       "to": "autoslice.timecode"
+    },
+    {
+      "from": "autoslice.analysis.review.outro",
+      "imports": [
+        "autoslice.analysis.review.policy"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.analysis.review.policy"
+    },
+    {
+      "from": "autoslice.analysis.review.outro",
+      "imports": [
+        "autoslice.streamer_profiles.current_streamer_profile"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.streamer_profiles"
     },
     {
       "from": "autoslice.analysis.review.policy",
@@ -2027,9 +2067,19 @@
         "autoslice.analysis.review.decisions"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice.analysis.review.decisions"
+    },
+    {
+      "from": "autoslice.pipeline",
+      "imports": [
+        "autoslice.analysis.review.outro"
+      ],
+      "lines": [
+        28
+      ],
+      "to": "autoslice.analysis.review.outro"
     },
     {
       "from": "autoslice.pipeline",
@@ -2037,7 +2087,7 @@
         "autoslice.analysis.review.policy"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.analysis.review.policy"
     },
@@ -2047,7 +2097,7 @@
         "autoslice.analysis.review.scoring"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.analysis.review.scoring"
     },
@@ -2057,7 +2107,7 @@
         "autoslice.analysis.review.workflow"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.analysis.review.workflow"
     },
@@ -2067,7 +2117,7 @@
         "autoslice.analysis.topic.analysis"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice.analysis.topic.analysis"
     },
@@ -2077,7 +2127,7 @@
         "autoslice.analysis.topic.chunking"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.analysis.topic.chunking"
     },
@@ -2087,7 +2137,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -2116,8 +2166,8 @@
         "autoslice.llm.prompts.build_title_hook_guide"
       ],
       "lines": [
-        35,
-        36
+        36,
+        37
       ],
       "to": "autoslice.llm.prompts"
     },
@@ -2158,7 +2208,7 @@
         "autoslice.streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -2178,7 +2228,7 @@
         "autoslice.transcription.checkpoints"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.transcription.checkpoints"
     },
@@ -2188,7 +2238,7 @@
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -2198,7 +2248,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        38
+        39
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -2208,7 +2258,7 @@
         "autoslice.transcription.workflow"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.transcription.workflow"
     },
@@ -2707,7 +2757,7 @@
         "autoslice.analysis.review.decisions"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice.analysis.review.decisions"
     },
@@ -2724,10 +2774,20 @@
     {
       "from": "autoslice.topic_engine",
       "imports": [
-        "autoslice.analysis.review.policy"
+        "autoslice.analysis.review.outro"
       ],
       "lines": [
         28
+      ],
+      "to": "autoslice.analysis.review.outro"
+    },
+    {
+      "from": "autoslice.topic_engine",
+      "imports": [
+        "autoslice.analysis.review.policy"
+      ],
+      "lines": [
+        29
       ],
       "to": "autoslice.analysis.review.policy"
     },
@@ -2737,7 +2797,7 @@
         "autoslice.analysis.review.prompt"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.analysis.review.prompt"
     },
@@ -2747,7 +2807,7 @@
         "autoslice.analysis.review.reconciliation"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.analysis.review.reconciliation"
     },
@@ -2757,7 +2817,7 @@
         "autoslice.analysis.review.scoring"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice.analysis.review.scoring"
     },
@@ -2767,7 +2827,7 @@
         "autoslice.analysis.review.workflow"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.analysis.review.workflow"
     },
@@ -2777,7 +2837,7 @@
         "autoslice.analysis.topic.analysis"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice.analysis.topic.analysis"
     },
@@ -2787,7 +2847,7 @@
         "autoslice.analysis.topic.chunking"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice.analysis.topic.chunking"
     },
@@ -2797,7 +2857,7 @@
         "autoslice.analysis.topic.normalization"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.analysis.topic.normalization"
     },
@@ -2807,7 +2867,7 @@
         "autoslice.analysis.topic.response"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.analysis.topic.response"
     },
@@ -2817,7 +2877,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -2842,7 +2902,7 @@
         "autoslice.artifact_store.write_artifact_text"
       ],
       "lines": [
-        74
+        75
       ],
       "to": "autoslice.artifact_store"
     },
@@ -2865,7 +2925,7 @@
         "autoslice.llm.prompts.build_topic_analysis_prompt"
       ],
       "lines": [
-        45
+        46
       ],
       "to": "autoslice.llm.prompts"
     },
@@ -2875,7 +2935,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        44
+        45
       ],
       "to": "autoslice.llm.transport"
     },
@@ -2885,7 +2945,7 @@
         "autoslice.media_probe"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.media_probe"
     },
@@ -2895,7 +2955,7 @@
         "autoslice.pipeline"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice.pipeline"
     },
@@ -2905,7 +2965,7 @@
         "autoslice.reporting"
       ],
       "lines": [
-        38
+        39
       ],
       "to": "autoslice.reporting"
     },
@@ -2916,7 +2976,7 @@
         "autoslice.runtime_config.TIMELINE_DIR"
       ],
       "lines": [
-        98
+        99
       ],
       "to": "autoslice.runtime_config"
     },
@@ -2926,7 +2986,7 @@
         "autoslice.slice_encoding"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.slice_encoding"
     },
@@ -2936,7 +2996,7 @@
         "autoslice.slice_reuse"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.slice_reuse"
     },
@@ -2946,7 +3006,7 @@
         "autoslice.slicing"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.slicing"
     },
@@ -2959,7 +3019,7 @@
         "autoslice.streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        92
+        93
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -2969,7 +3029,7 @@
         "autoslice.timecode"
       ],
       "lines": [
-        43
+        44
       ],
       "to": "autoslice.timecode"
     },
@@ -2979,7 +3039,7 @@
         "autoslice.transcription.checkpoints"
       ],
       "lines": [
-        61
+        62
       ],
       "to": "autoslice.transcription.checkpoints"
     },
@@ -2992,7 +3052,7 @@
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
-        68
+        69
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -3002,7 +3062,7 @@
         "autoslice.transcription.model_runtime"
       ],
       "lines": [
-        62
+        63
       ],
       "to": "autoslice.transcription.model_runtime"
     },
@@ -3012,7 +3072,7 @@
         "autoslice.transcription.results"
       ],
       "lines": [
-        63
+        64
       ],
       "to": "autoslice.transcription.results"
     },
@@ -3022,7 +3082,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        64
+        65
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -3032,7 +3092,7 @@
         "autoslice.transcription.service"
       ],
       "lines": [
-        65
+        66
       ],
       "to": "autoslice.transcription.service"
     },
@@ -3042,7 +3102,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        66
+        67
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -3052,7 +3112,7 @@
         "autoslice.transcription.workflow"
       ],
       "lines": [
-        67
+        68
       ],
       "to": "autoslice.transcription.workflow"
     },
@@ -4055,9 +4115,9 @@
   ],
   "longest_functions": [
     {
-      "end_line": 1489,
+      "end_line": 1490,
       "kind": "function",
-      "line": 1064,
+      "line": 1065,
       "line_count": 426,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -4073,9 +4133,9 @@
       "qualname": "create_app"
     },
     {
-      "end_line": 1006,
+      "end_line": 1007,
       "kind": "function",
-      "line": 604,
+      "line": 605,
       "line_count": 403,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -4100,9 +4160,9 @@
       "qualname": "review_peak_selected_topics"
     },
     {
-      "end_line": 1643,
+      "end_line": 1501,
       "kind": "function",
-      "line": 1380,
+      "line": 1238,
       "line_count": 264,
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
@@ -4118,18 +4178,18 @@
       "qualname": "organize_existing_artifacts"
     },
     {
-      "end_line": 1269,
+      "end_line": 1127,
       "kind": "function",
-      "line": 1107,
+      "line": 965,
       "line_count": 163,
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
       "qualname": "_find_relevant_topic_context_end"
     },
     {
-      "end_line": 433,
+      "end_line": 434,
       "kind": "function",
-      "line": 280,
+      "line": 281,
       "line_count": 154,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -4262,9 +4322,9 @@
       "qualname": "call_llm_with_retry"
     },
     {
-      "end_line": 253,
+      "end_line": 247,
       "kind": "function",
-      "line": 145,
+      "line": 139,
       "line_count": 109,
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
@@ -4519,269 +4579,245 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1692,
+      "line_count": 1550,
       "longest_function": {
-        "end_line": 1643,
+        "end_line": 1501,
         "kind": "function",
-        "line": 1380,
+        "line": 1238,
         "line_count": 264,
         "qualname": "_expand_clip_mark_with_context"
       },
       "module": "autoslice.analysis.boundaries",
       "path": "src/autoslice/analysis/boundaries.py",
-      "sha256": "a5a7172c42328014b20ad50df299c21e92d052888a185fb7dfc83233f9d14262",
+      "sha256": "366e8cbac1372ea66ecb5eac1823c12bbf6c36688b5f65d85a886a95b915f2a2",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 142,
+          "end_line": 136,
           "kind": "function",
-          "line": 121,
+          "line": 115,
           "name": "_nearest_safe_srt_boundary"
         },
         {
-          "end_line": 253,
+          "end_line": 247,
           "kind": "function",
-          "line": 145,
+          "line": 139,
           "name": "_merge_expanded_clip_marks"
         },
         {
-          "end_line": 265,
+          "end_line": 259,
           "kind": "function",
-          "line": 256,
+          "line": 250,
           "name": "_refresh_natural_boundary_metadata"
         },
         {
-          "end_line": 360,
+          "end_line": 354,
           "kind": "function",
-          "line": 268,
+          "line": 262,
           "name": "_cap_expanded_clip_mark"
         },
         {
-          "end_line": 365,
+          "end_line": 359,
           "kind": "function",
-          "line": 363,
+          "line": 357,
           "name": "parse_srt_segments"
         },
         {
-          "end_line": 372,
+          "end_line": 366,
           "kind": "function",
-          "line": 368,
+          "line": 362,
           "name": "_srt_video_duration"
         },
         {
-          "end_line": 407,
+          "end_line": 428,
           "kind": "function",
-          "line": 404,
-          "name": "_normalise_outro_trigger_text"
-        },
-        {
-          "end_line": 420,
-          "kind": "function",
-          "line": 410,
-          "name": "_has_outro_farewell_evidence"
-        },
-        {
-          "end_line": 493,
-          "kind": "function",
-          "line": 423,
-          "name": "_detect_stream_outro_clip"
-        },
-        {
-          "end_line": 517,
-          "kind": "function",
-          "line": 496,
-          "name": "_outro_topic_from_mark"
-        },
-        {
-          "end_line": 570,
-          "kind": "function",
-          "line": 520,
+          "line": 378,
           "name": "_snap_clip_to_srt_segments"
         },
         {
-          "end_line": 597,
+          "end_line": 455,
           "kind": "function",
-          "line": 573,
+          "line": 431,
           "name": "_integer_clip_bounds_outside_subtitles"
         },
         {
-          "end_line": 665,
+          "end_line": 523,
           "kind": "function",
-          "line": 600,
+          "line": 458,
           "name": "_fit_final_clip_to_safe_srt_boundaries"
         },
         {
-          "end_line": 710,
+          "end_line": 568,
           "kind": "function",
-          "line": 668,
+          "line": 526,
           "name": "_capped_speech_chain_start"
         },
         {
-          "end_line": 721,
+          "end_line": 579,
           "kind": "function",
-          "line": 713,
+          "line": 571,
           "name": "_looks_like_sc_or_gift_trigger"
         },
         {
-          "end_line": 729,
+          "end_line": 587,
           "kind": "function",
-          "line": 724,
+          "line": 582,
           "name": "_is_explicit_sc_trigger"
         },
         {
-          "end_line": 747,
+          "end_line": 605,
           "kind": "function",
-          "line": 732,
+          "line": 590,
           "name": "_gift_trigger_has_question_followup"
         },
         {
-          "end_line": 785,
+          "end_line": 643,
           "kind": "function",
-          "line": 750,
+          "line": 608,
           "name": "_find_sc_context_start"
         },
         {
-          "end_line": 806,
+          "end_line": 664,
           "kind": "function",
-          "line": 797,
+          "line": 655,
           "name": "_clip_context_requires_trigger"
         },
         {
-          "end_line": 886,
+          "end_line": 744,
           "kind": "function",
-          "line": 885,
+          "line": 743,
           "name": "_normalise_boundary_evidence_text"
         },
         {
-          "end_line": 914,
+          "end_line": 772,
           "kind": "function",
-          "line": 889,
+          "line": 747,
           "name": "_boundary_evidence_term_counts"
         },
         {
-          "end_line": 925,
+          "end_line": 783,
           "kind": "function",
-          "line": 917,
+          "line": 775,
           "name": "_score_boundary_evidence_text"
         },
         {
-          "end_line": 936,
+          "end_line": 794,
           "kind": "function",
-          "line": 928,
+          "line": 786,
           "name": "_boundary_evidence_text_is_relevant"
         },
         {
-          "end_line": 951,
+          "end_line": 809,
           "kind": "function",
-          "line": 939,
+          "line": 797,
           "name": "_boundary_semantic_signals"
         },
         {
-          "end_line": 960,
+          "end_line": 818,
           "kind": "function",
-          "line": 954,
+          "line": 812,
           "name": "_boundary_text_has_semantic_signal"
         },
         {
-          "end_line": 974,
+          "end_line": 832,
           "kind": "function",
-          "line": 963,
+          "line": 821,
           "name": "_subtitle_speech_chains"
         },
         {
-          "end_line": 986,
+          "end_line": 844,
           "kind": "function",
-          "line": 977,
+          "line": 835,
           "name": "_split_chain_crossing_topic_end"
         },
         {
-          "end_line": 1029,
+          "end_line": 887,
           "kind": "function",
-          "line": 989,
+          "line": 847,
           "name": "_find_relevant_topic_context_start"
         },
         {
-          "end_line": 1038,
+          "end_line": 896,
           "kind": "function",
-          "line": 1032,
+          "line": 890,
           "name": "_boundary_context_has_speech"
         },
         {
-          "end_line": 1051,
+          "end_line": 909,
           "kind": "function",
-          "line": 1041,
+          "line": 899,
           "name": "_boundary_context_is_relevant"
         },
         {
-          "end_line": 1057,
+          "end_line": 915,
           "kind": "function",
-          "line": 1054,
+          "line": 912,
           "name": "_looks_like_next_case_transition"
         },
         {
-          "end_line": 1074,
+          "end_line": 932,
           "kind": "function",
-          "line": 1060,
+          "line": 918,
           "name": "_looks_like_delayed_topic_conclusion"
         },
         {
-          "end_line": 1081,
+          "end_line": 939,
           "kind": "function",
-          "line": 1077,
+          "line": 935,
           "name": "_looks_like_discourse_continuation"
         },
         {
-          "end_line": 1091,
+          "end_line": 949,
           "kind": "function",
-          "line": 1084,
+          "line": 942,
           "name": "_looks_like_low_score_visual_case_shift"
         },
         {
-          "end_line": 1104,
+          "end_line": 962,
           "kind": "function",
-          "line": 1094,
+          "line": 952,
           "name": "_next_report_topic_safe_boundary"
         },
         {
-          "end_line": 1269,
+          "end_line": 1127,
           "kind": "function",
-          "line": 1107,
+          "line": 965,
           "name": "_find_relevant_topic_context_end"
         },
         {
-          "end_line": 1296,
+          "end_line": 1154,
           "kind": "function",
-          "line": 1272,
+          "line": 1130,
           "name": "_find_topic_lead_in_start"
         },
         {
-          "end_line": 1327,
+          "end_line": 1185,
           "kind": "function",
-          "line": 1299,
+          "line": 1157,
           "name": "_find_visual_reaction_context_start"
         },
         {
-          "end_line": 1335,
+          "end_line": 1193,
           "kind": "function",
-          "line": 1330,
+          "line": 1188,
           "name": "_is_explicit_sc_topic"
         },
         {
-          "end_line": 1377,
+          "end_line": 1235,
           "kind": "function",
-          "line": 1338,
+          "line": 1196,
           "name": "_find_next_topic_hard_end"
         },
         {
-          "end_line": 1643,
+          "end_line": 1501,
           "kind": "function",
-          "line": 1380,
+          "line": 1238,
           "name": "_expand_clip_mark_with_context"
         },
         {
-          "end_line": 1692,
+          "end_line": 1550,
           "kind": "function",
-          "line": 1646,
+          "line": 1504,
           "name": "_expand_clip_marks_with_context"
         }
       ]
@@ -4798,11 +4834,11 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 554,
+      "line_count": 555,
       "longest_function": null,
       "module": "autoslice.analysis.candidates",
       "path": "src/autoslice/analysis/candidates.py",
-      "sha256": "a3a7facac2173fd59b1c480721837a11711fd1f0c10b74735e4a199e69f3be08",
+      "sha256": "fe348e2d3254b28e5e48d2881c3fef09e9e0a0829b930cf9259bc6f234dfee8d",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -5660,7 +5696,7 @@
       "longest_function": null,
       "module": "autoslice.analysis.review",
       "path": "src/autoslice/analysis/review/__init__.py",
-      "sha256": "72bceac9c6ec3a99349d901bea163def2bc0ae6dccb303e6e87952977ae998d9",
+      "sha256": "adfc088f757d1a336cb39a9fcc924648e198fe21a904102c8516dbc8f503a4d4",
       "top_level_classes": [],
       "top_level_functions": []
     },
@@ -5814,6 +5850,47 @@
           "kind": "function",
           "line": 28,
           "name": "_dedupe_clip_marks"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 161,
+      "longest_function": {
+        "end_line": 137,
+        "kind": "function",
+        "line": 67,
+        "line_count": 71,
+        "qualname": "_detect_stream_outro_clip"
+      },
+      "module": "autoslice.analysis.review.outro",
+      "path": "src/autoslice/analysis/review/outro.py",
+      "sha256": "eccd2e93e85b8f4ccdf73cbf7552783e8047579cff1f911b362322975365241c",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 51,
+          "kind": "function",
+          "line": 48,
+          "name": "_normalise_outro_trigger_text"
+        },
+        {
+          "end_line": 64,
+          "kind": "function",
+          "line": 54,
+          "name": "_has_outro_farewell_evidence"
+        },
+        {
+          "end_line": 137,
+          "kind": "function",
+          "line": 67,
+          "name": "_detect_stream_outro_clip"
+        },
+        {
+          "end_line": 161,
+          "kind": "function",
+          "line": 140,
+          "name": "_outro_topic_from_mark"
         }
       ]
     },
@@ -7408,119 +7485,119 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1489,
+      "line_count": 1490,
       "longest_function": {
-        "end_line": 1489,
+        "end_line": 1490,
         "kind": "function",
-        "line": 1064,
+        "line": 1065,
         "line_count": 426,
         "qualname": "retry_clip_review_from_artifacts_impl"
       },
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
-      "sha256": "24fd1f2c135dc419c0502805193bfb9d20b44d6609b307504fcb4bbc70aa26eb",
+      "sha256": "319847333587fce0fe65169772bf61fe552a13f4a1c30e1db8f8cd7c68c5361c",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 139,
+          "end_line": 140,
           "kind": "function",
-          "line": 137,
+          "line": 138,
           "name": "title_hook_prompt_guide"
         },
         {
-          "end_line": 144,
+          "end_line": 145,
           "kind": "function",
-          "line": 142,
+          "line": 143,
           "name": "build_system_prompt"
         },
         {
-          "end_line": 154,
+          "end_line": 155,
           "kind": "function",
-          "line": 147,
+          "line": 148,
           "name": "subtitle_title_services"
         },
         {
-          "end_line": 163,
+          "end_line": 164,
           "kind": "function",
-          "line": 157,
+          "line": 158,
           "name": "optimized_timeline_paths"
         },
         {
-          "end_line": 223,
+          "end_line": 224,
           "kind": "function",
-          "line": 166,
+          "line": 167,
           "name": "write_optimized_timeline_files"
         },
         {
-          "end_line": 277,
+          "end_line": 278,
           "kind": "function",
-          "line": 226,
+          "line": 227,
           "name": "load_optimized_timeline_artifact"
         },
         {
-          "end_line": 433,
+          "end_line": 434,
           "kind": "function",
-          "line": 280,
+          "line": 281,
           "name": "prepare_optimized_manual_timeline"
         },
         {
-          "end_line": 451,
+          "end_line": 452,
           "kind": "function",
-          "line": 436,
+          "line": 437,
           "name": "optimize_manual_timeline_for_video"
         },
         {
-          "end_line": 541,
+          "end_line": 542,
           "kind": "function",
-          "line": 454,
+          "line": 455,
           "name": "optimize_manual_timeline_for_video_impl"
         },
         {
-          "end_line": 560,
+          "end_line": 561,
           "kind": "function",
-          "line": 544,
+          "line": 545,
           "name": "_scaled_progress_callback"
         },
         {
-          "end_line": 581,
+          "end_line": 582,
           "kind": "function",
-          "line": 563,
+          "line": 564,
           "name": "_monotonic_progress_callback"
         },
         {
-          "end_line": 601,
+          "end_line": 602,
           "kind": "function",
-          "line": 584,
+          "line": 585,
           "name": "run_pipeline"
         },
         {
-          "end_line": 1006,
+          "end_line": 1007,
           "kind": "function",
-          "line": 604,
+          "line": 605,
           "name": "run_pipeline_impl"
         },
         {
-          "end_line": 1029,
+          "end_line": 1030,
           "kind": "function",
-          "line": 1009,
+          "line": 1010,
           "name": "_manual_timeline_for_rebuilt_report"
         },
         {
-          "end_line": 1041,
+          "end_line": 1042,
           "kind": "function",
-          "line": 1032,
+          "line": 1033,
           "name": "_warning_without_previous_clip_review"
         },
         {
-          "end_line": 1061,
+          "end_line": 1062,
           "kind": "function",
-          "line": 1044,
+          "line": 1045,
           "name": "retry_clip_review_from_artifacts"
         },
         {
-          "end_line": 1489,
+          "end_line": 1490,
           "kind": "function",
-          "line": 1064,
+          "line": 1065,
           "name": "retry_clip_review_from_artifacts_impl"
         }
       ]
@@ -9091,23 +9168,23 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 779,
+      "line_count": 780,
       "longest_function": {
-        "end_line": 775,
+        "end_line": 776,
         "kind": "function",
-        "line": 751,
+        "line": 752,
         "line_count": 25,
         "qualname": "main"
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "e45ee332eb2dc0f94a216c63242d375c13bc7b5d3cad2753990c04bf8cfcddee",
+      "sha256": "7dca4b31a09992e354e2f3aedced08fa315356d7addcaf4de2dc512d621833fd",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 775,
+          "end_line": 776,
           "kind": "function",
-          "line": 751,
+          "line": 752,
           "name": "main"
         }
       ]
@@ -12298,6 +12375,7 @@
       "src/autoslice/analysis/review/candidates.py",
       "src/autoslice/analysis/review/decisions.py",
       "src/autoslice/analysis/review/deduplication.py",
+      "src/autoslice/analysis/review/outro.py",
       "src/autoslice/analysis/review/policy.py",
       "src/autoslice/analysis/review/prompt.py",
       "src/autoslice/analysis/review/reconciliation.py",
@@ -12377,6 +12455,7 @@
       "tests/unit/test_analysis_report_cleanup.py",
       "tests/unit/test_analysis_response_parsing.py",
       "tests/unit/test_analysis_review_deduplication.py",
+      "tests/unit/test_analysis_review_outro.py",
       "tests/unit/test_analysis_review_policy.py",
       "tests/unit/test_analysis_slice_decisions.py",
       "tests/unit/test_analysis_topic_analysis.py",
@@ -12417,9 +12496,9 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 376,
-    "production_line_count": 35981,
-    "production_module_count": 146,
+    "import_edge_count": 382,
+    "production_line_count": 36003,
+    "production_module_count": 147,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,
     "top_level_function_count": 884
