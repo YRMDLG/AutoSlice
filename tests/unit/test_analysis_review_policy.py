@@ -12,6 +12,7 @@ OWNER_MODULE = "autoslice.analysis.review.policy"
 LEGACY_MODULE = "autoslice.analysis.clip_policy"
 POLICY_CONSUMERS = {
     "autoslice.analysis.boundaries",
+    "autoslice.analysis.review.context_evidence",
     "autoslice.analysis.review.reconciliation",
     "autoslice.analysis.candidates",
     "autoslice.analysis.manual.candidates",
@@ -114,6 +115,7 @@ class AnalysisReviewPolicyTests(unittest.TestCase):
             declared,
             [
                 "candidates",
+                "context_evidence",
                 "decisions",
                 "deduplication",
                 "finalization",

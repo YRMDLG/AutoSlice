@@ -150,6 +150,7 @@ class ClipReviewPromptTests(unittest.TestCase):
             declared,
             [
                 "candidates",
+                "context_evidence",
                 "decisions",
                 "deduplication",
                 "finalization",
