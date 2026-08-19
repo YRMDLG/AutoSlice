@@ -590,6 +590,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             reconciliation as candidate_reconciliation,
         )
         from autoslice.analysis.review import scoring as clip_scoring
+        from autoslice.analysis.review import triggers as trigger_analysis
         from autoslice.analysis.topic import normalization, response, titles
         from autoslice.transcription import model_runtime as transcription_model_runtime
         from autoslice.transcription import results as transcription_results
@@ -615,6 +616,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             clip_deduplication,
             finalization,
             outro,
+            trigger_analysis,
             boundaries,
             clip_policy,
             candidate_reconciliation,
@@ -3124,8 +3126,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(owner_module["top_level_classes"], [])
 
         boundary_module = modules["autoslice.analysis.boundaries"]
-        self.assertEqual(boundary_module["line_count"], 1116)
-        self.assertEqual(len(boundary_module["top_level_functions"]), 30)
+        self.assertEqual(boundary_module["line_count"], 1013)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 24)
         self.assertTrue(
             set(aliases).isdisjoint(
                 item["name"] for item in boundary_module["top_level_functions"]
@@ -3481,6 +3483,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.analysis.review.candidates",
             "autoslice.analysis.review.finalization",
             "autoslice.analysis.review.prompt",
+            "autoslice.analysis.review.triggers",
             "autoslice.analysis.review.workflow",
             "autoslice.analysis.topic.analysis",
             "autoslice.pipeline",
@@ -4129,7 +4132,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertGreaterEqual(
             owner_direct_calls,
             {
-                ("boundary_analysis", "_clip_context_requires_trigger"),
+                ("trigger_analysis", "_clip_context_requires_trigger"),
                 ("clip_deduplication", "_dedupe_clip_marks"),
                 ("candidate_evidence", "topic_peak_candidates"),
                 ("candidate_reconciliation", "danmaku_topic_alignment"),
@@ -4191,13 +4194,13 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 if source == owner_module_name
             },
             {
-                "autoslice.analysis.boundaries",
                 "autoslice.analysis.danmaku",
                 "autoslice.analysis.evidence",
                 "autoslice.analysis.review.deduplication",
                 "autoslice.analysis.review.policy",
                 "autoslice.analysis.review.reconciliation",
                 "autoslice.analysis.review.scoring",
+                "autoslice.analysis.review.triggers",
                 "autoslice.analysis.topic.titles",
                 "autoslice.timecode",
             },

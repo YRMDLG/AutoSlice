@@ -36,6 +36,7 @@ from autoslice.analysis import llm_execution
 from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import deduplication as clip_deduplication
+from autoslice.analysis.review import triggers as trigger_analysis
 from autoslice.analysis.review import finalization
 from autoslice.analysis.review import outro as outro_analysis
 from autoslice.analysis import slice_decisions
@@ -748,6 +749,7 @@ class CandidateReviewTests(unittest.TestCase):
             clip_deduplication,
             finalization,
             outro_analysis,
+            trigger_analysis,
             boundary_analysis,
             candidate_reconciliation,
             report_cleanup,

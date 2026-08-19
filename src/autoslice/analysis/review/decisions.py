@@ -6,13 +6,13 @@ import re
 from collections import defaultdict
 
 from autoslice import timecode
-from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import danmaku as danmaku_analysis
 from autoslice.analysis import evidence as candidate_evidence
 from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import reconciliation as candidate_reconciliation
 from autoslice.analysis.review import scoring as clip_scoring
+from autoslice.analysis.review import triggers as trigger_analysis
 from autoslice.analysis.topic import titles as title_analysis
 
 FACADE_EXPORTS = {
@@ -537,7 +537,7 @@ def clip_marks_from_topics(topics):
                 "timeline_star_bonus": topic.get("clip_timeline_star_bonus", 0),
                 "reference_start": topic.get("reference_start"),
                 "reference_end": topic.get("reference_end"),
-                "context_requires_trigger": boundary_analysis._clip_context_requires_trigger(topic),
+                "context_requires_trigger": trigger_analysis._clip_context_requires_trigger(topic),
                 "boundary_evidence": list(topic.get("body") or []),
                 "next_report_topic_start": (min(next_topic_starts) if next_topic_starts else None),
             }

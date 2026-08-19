@@ -158,6 +158,7 @@ class ClipReviewPromptTests(unittest.TestCase):
                 "prompt",
                 "reconciliation",
                 "scoring",
+                "triggers",
                 "workflow",
             ],
         )
