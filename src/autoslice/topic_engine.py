@@ -25,6 +25,7 @@ from autoslice.analysis.report import cleanup as report_cleanup
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import candidates as clip_review_candidates
 from autoslice.analysis.review import deduplication as clip_deduplication
+from autoslice.analysis.review import finalization
 from autoslice.analysis.review import outro as outro_analysis
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.review import prompt as clip_review_prompt
@@ -431,8 +432,8 @@ _build_clip_candidate_review_prompt = (
 _build_manual_topic_enrichment_prompt = (
     manual_review.build_manual_topic_enrichment_prompt
 )
-_cap_expanded_clip_mark = boundary_analysis._cap_expanded_clip_mark
-_capped_speech_chain_start = boundary_analysis._capped_speech_chain_start
+_cap_expanded_clip_mark = finalization._cap_expanded_clip_mark
+_capped_speech_chain_start = finalization._capped_speech_chain_start
 _clean_ass_danmaku_text = danmaku_analysis._clean_ass_danmaku_text
 _clean_body_content = normalization.clean_body_content
 _clean_topics_for_report = report_cleanup.clean_topics_for_report
@@ -463,7 +464,7 @@ _find_relevant_topic_context_start = boundary_analysis._find_relevant_topic_cont
 _find_sc_context_start = boundary_analysis._find_sc_context_start
 _find_topic_lead_in_start = boundary_analysis._find_topic_lead_in_start
 _find_visual_reaction_context_start = boundary_analysis._find_visual_reaction_context_start
-_fit_final_clip_to_safe_srt_boundaries = boundary_analysis._fit_final_clip_to_safe_srt_boundaries
+_fit_final_clip_to_safe_srt_boundaries = finalization._fit_final_clip_to_safe_srt_boundaries
 _format_report_time = topic_formatting.format_report_time
 _format_topic_block = topic_formatting.format_topic_block
 _fresh_manual_topic_evidence = clip_review_candidates.fresh_manual_topic_evidence
@@ -471,7 +472,7 @@ _gift_trigger_has_question_followup = boundary_analysis._gift_trigger_has_questi
 _has_high_star_manual_evidence = slice_decisions.has_high_star_manual_evidence
 _has_outro_farewell_evidence = outro_analysis._has_outro_farewell_evidence
 _high_energy_danmaku_peaks = danmaku_analysis._high_energy_danmaku_peaks
-_integer_clip_bounds_outside_subtitles = boundary_analysis._integer_clip_bounds_outside_subtitles
+_integer_clip_bounds_outside_subtitles = finalization._integer_clip_bounds_outside_subtitles
 _is_content_cuttable_topic = slice_decisions.is_content_cuttable_topic
 _is_duplicate_topic = clip_deduplication._is_duplicate_topic
 _is_explicit_sc_topic = boundary_analysis._is_explicit_sc_topic
@@ -502,9 +503,9 @@ _manual_entry_meaningfully_overlaps_topic = (
 _manual_evidence_line = manual_candidates.manual_evidence_line
 _manual_review_anchor = slice_decisions.manual_review_anchor
 _manual_text_supports_candidate = timeline_analysis.manual_text_supports_candidate
-_merge_expanded_clip_marks = boundary_analysis._merge_expanded_clip_marks
+_merge_expanded_clip_marks = finalization._merge_expanded_clip_marks
 _merge_manual_timeline_topics = manual_candidates.merge_manual_timeline_topics
-_nearest_safe_srt_boundary = boundary_analysis._nearest_safe_srt_boundary
+_nearest_safe_srt_boundary = finalization._nearest_safe_srt_boundary
 _next_report_topic_safe_boundary = boundary_analysis._next_report_topic_safe_boundary
 _normalise_body_line = normalization.normalise_body_line
 _normalise_boundary_evidence_text = boundary_analysis._normalise_boundary_evidence_text
@@ -523,7 +524,7 @@ _profile_matches_streamer = transcription_service.profile_matches_streamer
 _reconcile_topic_manual_evidence = (
     candidate_reconciliation.reconcile_topic_manual_evidence
 )
-_refresh_natural_boundary_metadata = boundary_analysis._refresh_natural_boundary_metadata
+_refresh_natural_boundary_metadata = finalization._refresh_natural_boundary_metadata
 _refresh_topic_danmaku_evidence = slice_decisions.refresh_topic_danmaku_evidence
 _repair_short_topic_end = topic_analysis.repair_short_topic_end
 _report_fact_lines = report_cleanup.report_fact_lines
@@ -539,7 +540,7 @@ _sanitize_optimized_manual_entry = (
 _score_boundary_evidence_text = boundary_analysis._score_boundary_evidence_text
 _serialized_progress_callback = llm_execution.serialized_progress_callback
 _short_llm_error = llm_gateway.short_llm_error
-_snap_clip_to_srt_segments = boundary_analysis._snap_clip_to_srt_segments
+_snap_clip_to_srt_segments = finalization._snap_clip_to_srt_segments
 _split_chain_crossing_topic_end = boundary_analysis._split_chain_crossing_topic_end
 _srt_video_duration = boundary_analysis._srt_video_duration
 _strip_code_fence = topic_analysis.strip_code_fence

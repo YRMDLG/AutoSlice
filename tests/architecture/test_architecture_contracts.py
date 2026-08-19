@@ -583,6 +583,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.analysis.manual import workflow as manual_workflow
         from autoslice.analysis.review import decisions as slice_decisions
         from autoslice.analysis.review import deduplication as clip_deduplication
+        from autoslice.analysis.review import finalization
         from autoslice.analysis.review import outro
         from autoslice.analysis.review import policy as clip_policy
         from autoslice.analysis.review import (
@@ -612,6 +613,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             clip_scoring,
             normalization,
             clip_deduplication,
+            finalization,
             outro,
             boundaries,
             clip_policy,
@@ -3122,8 +3124,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(owner_module["top_level_classes"], [])
 
         boundary_module = modules["autoslice.analysis.boundaries"]
-        self.assertEqual(boundary_module["line_count"], 1550)
-        self.assertEqual(len(boundary_module["top_level_functions"]), 38)
+        self.assertEqual(boundary_module["line_count"], 1116)
+        self.assertEqual(len(boundary_module["top_level_functions"]), 30)
         self.assertTrue(
             set(aliases).isdisjoint(
                 item["name"] for item in boundary_module["top_level_functions"]
@@ -3142,6 +3144,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.analysis.manual.review",
             "autoslice.analysis.report.cleanup",
             "autoslice.analysis.review.decisions",
+            "autoslice.analysis.review.finalization",
             "autoslice.analysis.topic.analysis",
             "autoslice.reporting",
             "autoslice.slicing",
@@ -3162,6 +3165,90 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 if source == owner_module_name
             },
             set(),
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
+    def test_clip_finalization_has_one_owner_and_exact_direct_consumers(self):
+        import topic_engine
+        from autoslice.analysis import boundaries, candidates
+        from autoslice.analysis.review import finalization
+
+        aliases = {
+            "_nearest_safe_srt_boundary": "_nearest_safe_srt_boundary",
+            "_merge_expanded_clip_marks": "_merge_expanded_clip_marks",
+            "_refresh_natural_boundary_metadata": (
+                "_refresh_natural_boundary_metadata"
+            ),
+            "_cap_expanded_clip_mark": "_cap_expanded_clip_mark",
+            "_snap_clip_to_srt_segments": "_snap_clip_to_srt_segments",
+            "_integer_clip_bounds_outside_subtitles": (
+                "_integer_clip_bounds_outside_subtitles"
+            ),
+            "_fit_final_clip_to_safe_srt_boundaries": (
+                "_fit_final_clip_to_safe_srt_boundaries"
+            ),
+            "_capped_speech_chain_start": "_capped_speech_chain_start",
+        }
+        self.assertEqual(finalization.FACADE_EXPORTS, aliases)
+        for name in aliases:
+            owner = getattr(finalization, name)
+            with self.subTest(name=name):
+                self.assertNotIn(name, boundaries.FACADE_EXPORTS)
+                self.assertIs(getattr(boundaries, name), owner)
+                self.assertIs(getattr(candidates, name), owner)
+                self.assertIs(getattr(topic_engine, name), owner)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module_name = "autoslice.analysis.review.finalization"
+        owner_module = modules[owner_module_name]
+        self.assertEqual(owner_module["line_count"], 470)
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            list(aliases.values()),
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        boundary_functions = {
+            item["name"]
+            for item in modules["autoslice.analysis.boundaries"][
+                "top_level_functions"
+            ]
+        }
+        self.assertTrue(set(aliases).isdisjoint(boundary_functions))
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if target == owner_module_name
+            },
+            {
+                "autoslice.analysis.boundaries",
+                "autoslice.analysis.candidates",
+                "autoslice.topic_engine",
+            },
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == owner_module_name
+            },
+            {
+                "autoslice.analysis.review.deduplication",
+                "autoslice.analysis.review.policy",
+                "autoslice.transcription.segments",
+            },
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(
@@ -3392,6 +3479,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "autoslice.analysis.manual.candidates",
             "autoslice.analysis.manual.enrichment",
             "autoslice.analysis.review.candidates",
+            "autoslice.analysis.review.finalization",
             "autoslice.analysis.review.prompt",
             "autoslice.analysis.review.workflow",
             "autoslice.analysis.topic.analysis",

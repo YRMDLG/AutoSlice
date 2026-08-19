@@ -152,6 +152,7 @@ class ClipReviewPromptTests(unittest.TestCase):
                 "candidates",
                 "decisions",
                 "deduplication",
+                "finalization",
                 "outro",
                 "policy",
                 "prompt",

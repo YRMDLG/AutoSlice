@@ -23,6 +23,7 @@ PRODUCTION_IMPORTERS = {
     "autoslice.analysis.manual.review",
     "autoslice.analysis.report.cleanup",
     "autoslice.analysis.review.decisions",
+    "autoslice.analysis.review.finalization",
     "autoslice.analysis.topic.analysis",
     "autoslice.reporting",
     "autoslice.slicing",
@@ -242,6 +243,7 @@ class ReviewDeduplicationOwnershipTests(unittest.TestCase):
                 "candidates",
                 "decisions",
                 "deduplication",
+                "finalization",
                 "outro",
                 "policy",
                 "prompt",
@@ -251,7 +253,7 @@ class ReviewDeduplicationOwnershipTests(unittest.TestCase):
             ],
         )
         self.assertIn(
-            '__all__ = ["candidates", "decisions", "deduplication", "outro", "policy", "prompt", "reconciliation", "scoring", "workflow"]',
+            '__all__ = ["candidates", "decisions", "deduplication", "finalization", "outro", "policy", "prompt", "reconciliation", "scoring", "workflow"]',
             source.splitlines(),
         )
 
