@@ -20,6 +20,7 @@ from autoslice import pipeline_llm
 from autoslice import pipeline_manual
 from autoslice import pipeline_review
 from autoslice import pipeline_retry
+from autoslice import pipeline_retry_analysis
 from autoslice import pipeline_titles
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
@@ -153,6 +154,9 @@ retry_optimized_timeline_entries = (
 )
 optimize_manual_timeline = manual_timeline_analysis.optimize_manual_timeline
 prepare_retry_pipeline_state = pipeline_retry.prepare_retry_pipeline_state
+prepare_retry_analysis_state = (
+    pipeline_retry_analysis.prepare_retry_analysis_state
+)
 
 
 def title_hook_prompt_guide(streamer_name=None):
@@ -912,31 +916,24 @@ def retry_clip_review_from_artifacts_impl(
     flv_path = os.path.abspath(flv_path)
     base, _ = os.path.splitext(flv_path)
 
-    corrected_srt_path = data.get("corrected_srt_path")
-    source_srt_path = data.get("source_srt_path") or base + ".srt"
-    srt_path = (
-        corrected_srt_path
-        if corrected_srt_path and os.path.isfile(corrected_srt_path)
-        else source_srt_path
+    analysis_state = prepare_retry_analysis_state(
+        flv_path,
+        ass_path,
+        data,
+        parse_srt_segments=parse_srt_segments,
+        analyze_danmaku=analyze_danmaku,
+        empty_danmaku_series=DanmakuDensitySeries,
+        average_danmaku_density=_average_danmaku_density,
+        high_energy_danmaku_peaks=_high_energy_danmaku_peaks,
     )
-    if not srt_path or not os.path.isfile(srt_path):
-        raise FileNotFoundError(f"复核字幕不存在: {srt_path or '未记录'}")
-    srt_segments = parse_srt_segments(srt_path)
-    if not srt_segments:
-        raise ValueError("复核字幕中没有有效句段")
-
-    if ass_path is None:
-        ass_candidate = base + ".ass"
-        ass_path = ass_candidate if os.path.isfile(ass_candidate) else None
-    peaks = analyze_danmaku(ass_path) if ass_path else DanmakuDensitySeries()
-    avg_den = _average_danmaku_density(peaks)
-    high_energy_peaks = _high_energy_danmaku_peaks(peaks, avg_den)
-    peak_info = (
-        f"弹幕密度 {len(peaks)} 个滑动窗口, "
-        f"独立高能峰值 {len(high_energy_peaks)} 个, "
-        f"全场平均密度 {avg_den:.0f}条/分钟"
-        if peaks else "无弹幕数据"
-    )
+    srt_path = analysis_state["srt_path"]
+    srt_segments = analysis_state["srt_segments"]
+    peaks = analysis_state["peaks"]
+    avg_den = analysis_state["avg_den"]
+    peak_info = analysis_state["peak_info"]
+    source_srt_path = analysis_state["source_srt_path"]
+    corrected_srt_path = analysis_state["corrected_srt_path"]
+    ass_path = analysis_state["ass_path"]
     if progress_callback:
         pending_count = sum(
             1 for topic in accepted_topics

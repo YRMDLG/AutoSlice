@@ -2578,7 +2578,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 893)
+        self.assertEqual(current["summary"]["top_level_function_count"], 894)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3847,6 +3847,84 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             }.issubset({keyword.arg for keyword in owner_calls[0].keywords})
         )
 
+    def test_pipeline_retry_analysis_has_one_owner_direct_consumer_and_safe_direction(self):
+        from autoslice import pipeline, pipeline_retry_analysis
+
+        self.assertIs(
+            pipeline.prepare_retry_analysis_state,
+            pipeline_retry_analysis.prepare_retry_analysis_state,
+        )
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_retry_analysis.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("autoslice.topic_engine", owner_source)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_retry_analysis"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_retry_analysis_state"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_retry_analysis"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_analysis", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_analysis", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        retry_impl = next(
+            node for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "retry_clip_review_from_artifacts_impl"
+        )
+        owner_calls = [
+            node for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "prepare_retry_analysis_state"
+        ]
+        self.assertEqual(len(owner_calls), 1)
+        self.assertEqual(
+            {keyword.arg for keyword in owner_calls[0].keywords},
+            {
+                "parse_srt_segments",
+                "analyze_danmaku",
+                "empty_danmaku_series",
+                "average_danmaku_density",
+                "high_energy_danmaku_peaks",
+            },
+        )
+        self.assertTrue(
+            {
+                "parse_srt_segments",
+                "analyze_danmaku",
+                "DanmakuDensitySeries",
+                "_average_danmaku_density",
+                "_high_energy_danmaku_peaks",
+            }.isdisjoint({
+                node.func.id for node in ast.walk(retry_impl)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+            } - {"prepare_retry_analysis_state"})
+        )
+
     def test_pipeline_boundaries_has_one_owner_direct_consumers_and_hard_limits(self):
         from autoslice import pipeline, pipeline_boundaries, reporting
         from autoslice.analysis import boundaries
@@ -4954,7 +5032,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            893,
+            894,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

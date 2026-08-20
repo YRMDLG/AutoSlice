@@ -2297,7 +2297,7 @@
         "autoslice.analysis.boundaries"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.analysis.boundaries"
     },
@@ -2307,7 +2307,7 @@
         "autoslice.analysis.checkpoints"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.analysis.checkpoints"
     },
@@ -2317,7 +2317,7 @@
         "autoslice.analysis.danmaku"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.analysis.danmaku"
     },
@@ -2327,7 +2327,7 @@
         "autoslice.analysis.manual.artifacts"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice.analysis.manual.artifacts"
     },
@@ -2337,7 +2337,7 @@
         "autoslice.analysis.manual.candidates"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.analysis.manual.candidates"
     },
@@ -2347,7 +2347,7 @@
         "autoslice.analysis.manual.review"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice.analysis.manual.review"
     },
@@ -2357,7 +2357,7 @@
         "autoslice.analysis.manual.timebase"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice.analysis.manual.timebase"
     },
@@ -2367,7 +2367,7 @@
         "autoslice.analysis.manual.workflow"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice.analysis.manual.workflow"
     },
@@ -2377,7 +2377,7 @@
         "autoslice.analysis.report.cleanup"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice.analysis.report.cleanup"
     },
@@ -2387,7 +2387,7 @@
         "autoslice.analysis.review.decisions"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.analysis.review.decisions"
     },
@@ -2397,7 +2397,7 @@
         "autoslice.analysis.review.outro"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.analysis.review.outro"
     },
@@ -2407,7 +2407,7 @@
         "autoslice.analysis.review.policy"
       ],
       "lines": [
-        38
+        39
       ],
       "to": "autoslice.analysis.review.policy"
     },
@@ -2417,7 +2417,7 @@
         "autoslice.analysis.review.scoring"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.analysis.review.scoring"
     },
@@ -2427,7 +2427,7 @@
         "autoslice.analysis.review.workflow"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.analysis.review.workflow"
     },
@@ -2437,7 +2437,7 @@
         "autoslice.analysis.topic.analysis"
       ],
       "lines": [
-        44
+        45
       ],
       "to": "autoslice.analysis.topic.analysis"
     },
@@ -2447,7 +2447,7 @@
         "autoslice.analysis.topic.chunking"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice.analysis.topic.chunking"
     },
@@ -2457,7 +2457,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        43
+        44
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -2486,8 +2486,8 @@
         "autoslice.llm.prompts.build_title_hook_guide"
       ],
       "lines": [
-        45,
-        46
+        46,
+        47
       ],
       "to": "autoslice.llm.prompts"
     },
@@ -2574,6 +2574,16 @@
     {
       "from": "autoslice.pipeline",
       "imports": [
+        "autoslice.pipeline_retry_analysis"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.pipeline_retry_analysis"
+    },
+    {
+      "from": "autoslice.pipeline",
+      "imports": [
         "autoslice.pipeline_review"
       ],
       "lines": [
@@ -2587,7 +2597,7 @@
         "autoslice.pipeline_titles"
       ],
       "lines": [
-        23
+        24
       ],
       "to": "autoslice.pipeline_titles"
     },
@@ -2597,7 +2607,7 @@
         "autoslice.pipeline_transcription"
       ],
       "lines": [
-        24
+        25
       ],
       "to": "autoslice.pipeline_transcription"
     },
@@ -2607,7 +2617,7 @@
         "autoslice.reporting"
       ],
       "lines": [
-        25
+        26
       ],
       "to": "autoslice.reporting"
     },
@@ -2617,7 +2627,7 @@
         "autoslice.slicing"
       ],
       "lines": [
-        26
+        27
       ],
       "to": "autoslice.slicing"
     },
@@ -2628,7 +2638,7 @@
         "autoslice.streamer_profiles.streamer_profile_context"
       ],
       "lines": [
-        52
+        53
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -2638,7 +2648,7 @@
         "autoslice.timecode"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice.timecode"
     },
@@ -2648,7 +2658,7 @@
         "autoslice.transcription.checkpoints"
       ],
       "lines": [
-        47
+        48
       ],
       "to": "autoslice.transcription.checkpoints"
     },
@@ -2658,7 +2668,7 @@
         "autoslice.transcription.contracts.SubtitleTitleServices"
       ],
       "lines": [
-        51
+        52
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -2668,7 +2678,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        48
+        49
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -2678,7 +2688,7 @@
         "autoslice.transcription.srt_io"
       ],
       "lines": [
-        49
+        50
       ],
       "to": "autoslice.transcription.srt_io"
     },
@@ -2688,7 +2698,7 @@
         "autoslice.transcription.workflow"
       ],
       "lines": [
-        50
+        51
       ],
       "to": "autoslice.transcription.workflow"
     },
@@ -4644,19 +4654,19 @@
       "qualname": "create_app"
     },
     {
-      "end_line": 840,
+      "end_line": 844,
       "kind": "function",
-      "line": 513,
+      "line": 517,
       "line_count": 328,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
       "qualname": "run_pipeline_impl"
     },
     {
-      "end_line": 1200,
+      "end_line": 1197,
       "kind": "function",
-      "line": 875,
-      "line_count": 326,
+      "line": 879,
+      "line_count": 319,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
       "qualname": "retry_clip_review_from_artifacts_impl"
@@ -4716,9 +4726,9 @@
       "qualname": "prepare_retry_pipeline_state"
     },
     {
-      "end_line": 342,
+      "end_line": 346,
       "kind": "function",
-      "line": 189,
+      "line": 193,
       "line_count": 154,
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
@@ -8136,95 +8146,95 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1200,
+      "line_count": 1197,
       "longest_function": {
-        "end_line": 840,
+        "end_line": 844,
         "kind": "function",
-        "line": 513,
+        "line": 517,
         "line_count": 328,
         "qualname": "run_pipeline_impl"
       },
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
-      "sha256": "ef4feb1a5d40971f6b1965db8b8a718876471b344c463f98b34c808933053a3e",
+      "sha256": "166c7a04d12debac81a3e5910b69dfe4af6e2cc108936d41945f99b763ee73a9",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 160,
+          "end_line": 164,
           "kind": "function",
-          "line": 158,
+          "line": 162,
           "name": "title_hook_prompt_guide"
         },
         {
-          "end_line": 165,
+          "end_line": 169,
           "kind": "function",
-          "line": 163,
+          "line": 167,
           "name": "build_system_prompt"
         },
         {
-          "end_line": 175,
+          "end_line": 179,
           "kind": "function",
-          "line": 168,
+          "line": 172,
           "name": "subtitle_title_services"
         },
         {
-          "end_line": 342,
+          "end_line": 346,
           "kind": "function",
-          "line": 189,
+          "line": 193,
           "name": "prepare_optimized_manual_timeline"
         },
         {
-          "end_line": 360,
+          "end_line": 364,
           "kind": "function",
-          "line": 345,
+          "line": 349,
           "name": "optimize_manual_timeline_for_video"
         },
         {
-          "end_line": 450,
+          "end_line": 454,
           "kind": "function",
-          "line": 363,
+          "line": 367,
           "name": "optimize_manual_timeline_for_video_impl"
         },
         {
-          "end_line": 469,
+          "end_line": 473,
           "kind": "function",
-          "line": 453,
+          "line": 457,
           "name": "_scaled_progress_callback"
         },
         {
-          "end_line": 490,
+          "end_line": 494,
           "kind": "function",
-          "line": 472,
+          "line": 476,
           "name": "_monotonic_progress_callback"
         },
         {
-          "end_line": 510,
+          "end_line": 514,
           "kind": "function",
-          "line": 493,
+          "line": 497,
           "name": "run_pipeline"
         },
         {
-          "end_line": 840,
+          "end_line": 844,
           "kind": "function",
-          "line": 513,
+          "line": 517,
           "name": "run_pipeline_impl"
         },
         {
-          "end_line": 852,
+          "end_line": 856,
           "kind": "function",
-          "line": 843,
+          "line": 847,
           "name": "_warning_without_previous_clip_review"
         },
         {
-          "end_line": 872,
+          "end_line": 876,
           "kind": "function",
-          "line": 855,
+          "line": 859,
           "name": "retry_clip_review_from_artifacts"
         },
         {
-          "end_line": 1200,
+          "end_line": 1197,
           "kind": "function",
-          "line": 875,
+          "line": 879,
           "name": "retry_clip_review_from_artifacts_impl"
         }
       ]
@@ -8387,6 +8397,29 @@
           "kind": "function",
           "line": 9,
           "name": "prepare_retry_pipeline_state"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 57,
+      "longest_function": {
+        "end_line": 57,
+        "kind": "function",
+        "line": 8,
+        "line_count": 50,
+        "qualname": "prepare_retry_analysis_state"
+      },
+      "module": "autoslice.pipeline_retry_analysis",
+      "path": "src/autoslice/pipeline_retry_analysis.py",
+      "sha256": "ef8e6c84625f8741d64a06f711750123b7b6ece6f79a709d78f6a78708b2a2b1",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 57,
+          "kind": "function",
+          "line": 8,
+          "name": "prepare_retry_analysis_state"
         }
       ]
     },
@@ -13191,6 +13224,7 @@
       "src/autoslice/pipeline_llm.py",
       "src/autoslice/pipeline_manual.py",
       "src/autoslice/pipeline_retry.py",
+      "src/autoslice/pipeline_retry_analysis.py",
       "src/autoslice/pipeline_review.py",
       "src/autoslice/pipeline_titles.py",
       "src/autoslice/pipeline_transcription.py",
@@ -13362,6 +13396,7 @@
       "tests/unit/test_pipeline_llm.py",
       "tests/unit/test_pipeline_manual.py",
       "tests/unit/test_pipeline_retry.py",
+      "tests/unit/test_pipeline_retry_analysis.py",
       "tests/unit/test_pipeline_review.py",
       "tests/unit/test_pipeline_titles.py",
       "tests/unit/test_pipeline_transcription.py",
@@ -13393,12 +13428,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 434,
-    "production_line_count": 36817,
-    "production_module_count": 164,
+    "import_edge_count": 435,
+    "production_line_count": 36871,
+    "production_module_count": 165,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,
-    "top_level_function_count": 893
+    "top_level_function_count": 894
   },
   "test_private_patches": {
     "by_target_module": {
