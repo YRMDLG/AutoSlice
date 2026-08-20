@@ -14,6 +14,7 @@ from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
 from autoslice import pipeline_analysis
+from autoslice import pipeline_boundaries
 from autoslice import pipeline_decisions
 from autoslice import pipeline_llm
 from autoslice import pipeline_manual
@@ -78,6 +79,7 @@ ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
 prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
 prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
+prepare_pipeline_boundaries = pipeline_boundaries.prepare_pipeline_boundaries
 prepare_pipeline_decisions = pipeline_decisions.prepare_pipeline_decisions
 analyze_pipeline_llm_chunks = pipeline_llm.analyze_pipeline_llm_chunks
 prepare_pipeline_manual_timeline = pipeline_manual.prepare_pipeline_manual_timeline
@@ -677,12 +679,18 @@ def run_pipeline_impl(
         "srt_segments_for_context"
     ]
     analysis_topics = decision_preparation["analysis_topics"]
-    clip_marks = _expand_clip_marks_with_context(
+    boundary_preparation = prepare_pipeline_boundaries(
         raw_clip_marks,
-        srt_segments=srt_segments_for_context,
-        video_duration=video_duration or _srt_video_duration(srt_segments_for_context),
+        accepted_topics,
+        srt_segments_for_context,
+        video_duration or _srt_video_duration(srt_segments_for_context),
+        expand_clip_marks_with_context=boundary_analysis._expand_clip_marks_with_context,
+        synchronise_selected_topic_ranges=(
+            reporting_service.synchronise_selected_topic_ranges
+        ),
     )
-    reporting_service.synchronise_selected_topic_ranges(accepted_topics, clip_marks)
+    clip_marks = boundary_preparation["clip_marks"]
+    accepted_topics = boundary_preparation["accepted_topics"]
     if progress_callback:
         progress_callback("Step 5/5: 生成报告...", 97, 100)
     report = reporting_service.build_timeline_report(
@@ -1148,12 +1156,18 @@ def retry_clip_review_from_artifacts_impl(
     if outro_mark:
         accepted_topics.append(outro_analysis._outro_topic_from_mark(outro_mark))
         raw_clip_marks.append(outro_mark)
-    clip_marks = _expand_clip_marks_with_context(
+    boundary_preparation = prepare_pipeline_boundaries(
         raw_clip_marks,
-        srt_segments=srt_segments,
-        video_duration=video_duration,
+        accepted_topics,
+        srt_segments,
+        video_duration,
+        expand_clip_marks_with_context=boundary_analysis._expand_clip_marks_with_context,
+        synchronise_selected_topic_ranges=(
+            reporting_service.synchronise_selected_topic_ranges
+        ),
     )
-    reporting_service.synchronise_selected_topic_ranges(accepted_topics, clip_marks)
+    clip_marks = boundary_preparation["clip_marks"]
+    accepted_topics = boundary_preparation["accepted_topics"]
 
     base_warning = _warning_without_previous_clip_review(data)
     api_warning = "；".join(

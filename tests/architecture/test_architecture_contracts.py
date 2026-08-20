@@ -2578,7 +2578,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 890)
+        self.assertEqual(current["summary"]["top_level_function_count"], 891)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3692,6 +3692,128 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertEqual(current["test_private_patches"]["total"], 17)
 
+    def test_pipeline_boundaries_has_one_owner_direct_consumers_and_hard_limits(self):
+        from autoslice import pipeline, pipeline_boundaries, reporting
+        from autoslice.analysis import boundaries
+
+        self.assertIs(
+            pipeline.prepare_pipeline_boundaries,
+            pipeline_boundaries.prepare_pipeline_boundaries,
+        )
+        self.assertIs(
+            pipeline.pipeline_boundaries,
+            pipeline_boundaries,
+        )
+        self.assertIs(pipeline.reporting_service, reporting)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_boundaries"]
+
+        # 三项硬指标：唯一顶层函数、无顶层类、owner 体量受限。
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_pipeline_boundaries"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+        self.assertLessEqual(owner_module["line_count"], 35)
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_boundaries"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_boundaries", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_boundaries", "autoslice.topic_engine"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_boundaries", "autoslice.reporting"),
+            import_edges,
+        )
+
+        owner_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline_boundaries.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        owner_function = next(
+            node
+            for node in owner_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "prepare_pipeline_boundaries"
+        )
+        owner_calls = [
+            node
+            for node in ast.walk(owner_function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+        ]
+        self.assertEqual(
+            [node.func.id for node in owner_calls],
+            [
+                "expand_clip_marks_with_context",
+                "synchronise_selected_topic_ranges",
+            ],
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        for implementation_name in (
+            "run_pipeline_impl",
+            "retry_clip_review_from_artifacts_impl",
+        ):
+            implementation = next(
+                node
+                for node in pipeline_tree.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name == implementation_name
+            )
+            owner_calls = [
+                node
+                for node in ast.walk(implementation)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "prepare_pipeline_boundaries"
+            ]
+            self.assertEqual(len(owner_calls), 1)
+            owner_call = owner_calls[0]
+            self.assertEqual(
+                {keyword.arg for keyword in owner_call.keywords},
+                {
+                    "expand_clip_marks_with_context",
+                    "synchronise_selected_topic_ranges",
+                },
+            )
+            self.assertTrue(
+                {
+                    "_expand_clip_marks_with_context",
+                    "synchronise_selected_topic_ranges",
+                }.isdisjoint(
+                    {
+                        node.func.id
+                        for node in ast.walk(implementation)
+                        if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                    }
+                )
+            )
+
+        self.assertIs(
+            pipeline.boundary_analysis._expand_clip_marks_with_context,
+            boundaries._expand_clip_marks_with_context,
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
     def test_slice_reuse_has_one_owner_and_direct_consumers(self):
         import topic_engine
         from autoslice import slice_reuse, slicing
@@ -4677,7 +4799,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            890,
+            891,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
