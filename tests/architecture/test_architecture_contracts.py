@@ -2565,7 +2565,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 885)
+        self.assertEqual(current["summary"]["top_level_function_count"], 886)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3284,6 +3284,68 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "parse_srt_text",
                 "chunk_srt",
                 "probe_video_duration",
+            }.isdisjoint(direct_calls)
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertEqual(current["test_private_patches"]["total"], 17)
+
+    def test_pipeline_manual_has_one_owner_and_preserves_explicit_dependency_seams(self):
+        from autoslice import pipeline, pipeline_manual
+
+        self.assertIs(
+            pipeline.prepare_pipeline_manual_timeline,
+            pipeline_manual.prepare_pipeline_manual_timeline,
+        )
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_manual"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_pipeline_manual_timeline"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_manual"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_manual", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_manual", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        run_impl = next(
+            node
+            for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "run_pipeline_impl"
+        )
+        direct_calls = {
+            node.func.id
+            for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("prepare_pipeline_manual_timeline", direct_calls)
+        self.assertTrue(
+            {
+                "_copy_artifact_file",
+                "load_optimized_timeline_artifact",
+                "prepare_optimized_manual_timeline",
             }.isdisjoint(direct_calls)
         )
         self.assertEqual(current["dependency_cycles"], [])
@@ -4279,7 +4341,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            885,
+            886,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

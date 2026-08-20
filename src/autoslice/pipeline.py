@@ -14,6 +14,7 @@ from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
 from autoslice import pipeline_analysis
+from autoslice import pipeline_manual
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
@@ -73,6 +74,7 @@ ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
 prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
 prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
+prepare_pipeline_manual_timeline = pipeline_manual.prepare_pipeline_manual_timeline
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = analysis_chunking.parse_srt_text
@@ -562,52 +564,24 @@ def run_pipeline_impl(
     chunks = analysis_preparation["chunks"]
     probed_video_duration = analysis_preparation["probed_video_duration"]
     video_duration = analysis_preparation["video_duration"]
-    if optimized_timeline_path:
-        selected_optimized_path = os.path.abspath(optimized_timeline_path)
-        _copy_artifact_file(
-            selected_optimized_path,
-            artifact_layout["optimized_timeline_json_path"],
-        )
-        selected_optimized_md_path = os.path.splitext(selected_optimized_path)[0] + ".md"
-        _copy_artifact_file(
-            selected_optimized_md_path,
-            artifact_layout["optimized_timeline_md_path"],
-        )
-        manual_timeline = load_optimized_timeline_artifact(
-            artifact_layout["optimized_timeline_json_path"],
-            flv_path,
-            manual_timeline_path=(
-                manual_timeline_path
-                if manual_timeline_path not in (None, "__none__")
-                else None
-            ),
-        )
-    else:
-        manual_timeline = prepare_optimized_manual_timeline(
-            flv_path,
-            base,
-            segs,
-            peaks,
-            video_duration,
-            manual_timeline_path,
-            streamer_name=streamer_display_name,
-            progress_callback=progress_callback,
-            retry_incomplete_artifact=False,
-            artifact_layout=artifact_layout,
-        )
-    raw_manual_entry_count = int(manual_timeline.get("raw_entry_count", 0))
-    manual_entries = manual_timeline.get("entries") or []
-    optimization_warning = manual_timeline.get("optimization_warning")
-    if manual_entries:
-        if progress_callback:
-            count_label = (
-                f"原始 {raw_manual_entry_count} 条 → 字幕优化 {len(manual_entries)} 个候选"
-            )
-            progress_callback(
-                f"已加载人工时间轴: {os.path.basename(manual_timeline['path'])}，"
-                f"{count_label}",
-                24, 100,
-            )
+    manual_preparation = prepare_pipeline_manual_timeline(
+        flv_path,
+        base,
+        segs,
+        peaks,
+        video_duration,
+        manual_timeline_path,
+        optimized_timeline_path,
+        streamer_display_name,
+        artifact_layout,
+        progress_callback=progress_callback,
+        copy_artifact_file=_copy_artifact_file,
+        load_optimized_timeline_artifact=load_optimized_timeline_artifact,
+        prepare_optimized_manual_timeline=prepare_optimized_manual_timeline,
+    )
+    manual_timeline = manual_preparation["manual_timeline"]
+    manual_entries = manual_preparation["manual_entries"]
+    optimization_warning = manual_preparation["optimization_warning"]
     # Step 4: 首轮只分析字幕和弹幕，避免人工措辞锚定标题与语义边界。
     topic_analysis_checkpoint_path = artifact_layout[
         "topic_analysis_checkpoint_path"
