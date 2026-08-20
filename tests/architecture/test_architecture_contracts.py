@@ -2578,7 +2578,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 889)
+        self.assertEqual(current["summary"]["top_level_function_count"], 890)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3556,6 +3556,132 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         owner_source = (
             ROOT / "src/autoslice/pipeline_titles.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertEqual(current["test_private_patches"]["total"], 17)
+
+    def test_pipeline_decisions_has_one_owner_and_direct_consumer(self):
+        from autoslice import pipeline, pipeline_decisions
+        from autoslice.analysis import checkpoints
+        from autoslice.analysis.review import outro, scoring
+        from autoslice.transcription import srt_io
+
+        self.assertIs(
+            pipeline.prepare_pipeline_decisions,
+            pipeline_decisions.prepare_pipeline_decisions,
+        )
+        self.assertIs(
+            pipeline._build_clip_candidate_review_audit,
+            scoring.build_clip_candidate_review_audit,
+        )
+        self.assertIs(
+            pipeline.parse_srt_segments,
+            srt_io.load_repaired_srt_segments,
+        )
+        self.assertIs(
+            pipeline._detect_stream_outro_clip,
+            outro._detect_stream_outro_clip,
+        )
+        self.assertIs(
+            pipeline._outro_topic_from_mark,
+            outro._outro_topic_from_mark,
+        )
+        self.assertIs(
+            pipeline._analysis_topics_snapshot,
+            checkpoints.analysis_topics_snapshot,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_decisions"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_pipeline_decisions"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_decisions"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_decisions", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_decisions", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        run_impl = next(
+            node
+            for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "run_pipeline_impl"
+        )
+        direct_calls = {
+            node.func.id
+            for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("prepare_pipeline_decisions", direct_calls)
+        self.assertTrue(
+            {
+                "_build_clip_candidate_review_audit",
+                "parse_srt_segments",
+                "_analysis_topics_snapshot",
+            }.isdisjoint(direct_calls)
+        )
+        target_module_calls = {
+            (node.func.value.id, node.func.attr)
+            for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in {"slice_decisions", "outro_analysis"}
+        }
+        self.assertTrue(
+            {
+                ("slice_decisions", "clip_marks_from_topics"),
+                ("outro_analysis", "_detect_stream_outro_clip"),
+                ("outro_analysis", "_outro_topic_from_mark"),
+            }.isdisjoint(target_module_calls)
+        )
+        owner_call = next(
+            node
+            for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "prepare_pipeline_decisions"
+        )
+        self.assertEqual(
+            {keyword.arg for keyword in owner_call.keywords},
+            {
+                "filter_topics",
+                "clip_marks_from_topics",
+                "build_clip_candidate_review_audit",
+                "write_artifact_json",
+                "parse_srt_segments",
+                "detect_stream_outro_clip",
+                "outro_topic_from_mark",
+                "analysis_topics_snapshot",
+            },
+        )
+
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_decisions.py"
         ).read_text(encoding="utf-8")
         self.assertNotIn("autoslice.pipeline", owner_source)
         self.assertEqual(current["dependency_cycles"], [])
@@ -4551,7 +4677,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            889,
+            890,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

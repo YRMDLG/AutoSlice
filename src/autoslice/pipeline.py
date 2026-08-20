@@ -14,6 +14,7 @@ from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
 from autoslice import pipeline_analysis
+from autoslice import pipeline_decisions
 from autoslice import pipeline_llm
 from autoslice import pipeline_manual
 from autoslice import pipeline_review
@@ -77,6 +78,7 @@ ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
 prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
 prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
+prepare_pipeline_decisions = pipeline_decisions.prepare_pipeline_decisions
 analyze_pipeline_llm_chunks = pipeline_llm.analyze_pipeline_llm_chunks
 prepare_pipeline_manual_timeline = pipeline_manual.prepare_pipeline_manual_timeline
 review_pipeline_candidates = pipeline_review.review_pipeline_candidates
@@ -651,32 +653,36 @@ def run_pipeline_impl(
     )
     accepted_topics = title_preparation["accepted_topics"]
     api_precheck_warning = title_preparation["api_precheck_warning"]
-    # 复核旧产物时 analysis_topics 可能已带上一轮生成的收播片；收播片由
-    # 当前字幕和真实视频时长重新判定，避免报告和队列出现重复的系列任务。
-    accepted_topics = [
-        topic for topic in accepted_topics
-        if topic.get("clip_type") != "stream_outro"
-    ]
-    raw_clip_marks = slice_decisions.clip_marks_from_topics(accepted_topics)
-    candidate_review_audit = _build_clip_candidate_review_audit(accepted_topics)
-    candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
-    _write_artifact_json(candidate_review_audit_path, candidate_review_audit)
-    srt_segments_for_context = parse_srt_segments(srt_path)
-    outro_mark = outro_analysis._detect_stream_outro_clip(
-        srt_segments_for_context,
+    decision_preparation = prepare_pipeline_decisions(
+        accepted_topics,
+        srt_path,
+        artifact_layout["candidate_review_audit_path"],
+        streamer_profile,
         probed_video_duration,
-        streamer_profile=streamer_profile,
+        filter_topics=filter,
+        clip_marks_from_topics=slice_decisions.clip_marks_from_topics,
+        build_clip_candidate_review_audit=_build_clip_candidate_review_audit,
+        write_artifact_json=_write_artifact_json,
+        parse_srt_segments=parse_srt_segments,
+        detect_stream_outro_clip=outro_analysis._detect_stream_outro_clip,
+        outro_topic_from_mark=outro_analysis._outro_topic_from_mark,
+        analysis_topics_snapshot=_analysis_topics_snapshot,
     )
-    if outro_mark:
-        accepted_topics.append(outro_analysis._outro_topic_from_mark(outro_mark))
-        raw_clip_marks.append(outro_mark)
+    accepted_topics = decision_preparation["accepted_topics"]
+    raw_clip_marks = decision_preparation["raw_clip_marks"]
+    candidate_review_audit_path = decision_preparation[
+        "candidate_review_audit_path"
+    ]
+    srt_segments_for_context = decision_preparation[
+        "srt_segments_for_context"
+    ]
+    analysis_topics = decision_preparation["analysis_topics"]
     clip_marks = _expand_clip_marks_with_context(
         raw_clip_marks,
         srt_segments=srt_segments_for_context,
         video_duration=video_duration or _srt_video_duration(srt_segments_for_context),
     )
     reporting_service.synchronise_selected_topic_ranges(accepted_topics, clip_marks)
-    analysis_topics = _analysis_topics_snapshot(accepted_topics)
     if progress_callback:
         progress_callback("Step 5/5: 生成报告...", 97, 100)
     report = reporting_service.build_timeline_report(
