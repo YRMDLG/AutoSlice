@@ -2585,7 +2585,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 902)
+        self.assertEqual(current["summary"]["top_level_function_count"], 903)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5154,7 +5154,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            902,
+            903,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
@@ -5608,6 +5608,99 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             set(CURRENT_LLM_IDENTITY_DEBT["local_definitions"]) & local_names,
             msg="topic_engine 不得重新定义已迁入唯一 gateway 的 LLM 实现",
         )
+
+    def test_pipeline_retry_reporting_has_one_owner_direct_consumer_and_safe_direction(self):
+        from autoslice import pipeline, pipeline_retry_reporting
+
+        self.assertIs(
+            pipeline.prepare_retry_report,
+            pipeline_retry_reporting.prepare_retry_report,
+        )
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_retry_reporting.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("autoslice.topic_engine", owner_source)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_retry_reporting"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_retry_report"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_retry_reporting"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_reporting", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_reporting", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        retry_impl = next(
+            node for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "retry_clip_review_from_artifacts_impl"
+        )
+        owner_calls = [
+            node for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "prepare_retry_report"
+        ]
+        self.assertEqual(len(owner_calls), 1)
+        self.assertTrue(
+            {
+                "data",
+                "video_path",
+                "report_path",
+                "artifact_layout",
+                "source_srt_path",
+                "corrected_srt_path",
+                "clip_review_checkpoint_path",
+                "candidate_review_audit_path",
+                "accepted_topics",
+                "clip_marks",
+                "peak_info",
+                "failed_chunks",
+                "clip_review_warning",
+                "rebuilt_manual_timeline",
+                "streamer_profile",
+                "average_density",
+                "density_threshold",
+                "local_peak_radius_sec",
+                "manual_review_min_stars",
+                "min_editorial_interest_score",
+                "context_policy",
+                "clip_review_completed_at",
+                "artifact_layout_version",
+                "build_timeline_report",
+                "analysis_topics_snapshot",
+                "manual_timeline_summary",
+                "warning_without_previous_clip_review",
+            }.issubset({keyword.arg for keyword in owner_calls[0].keywords})
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
 
 if __name__ == "__main__":

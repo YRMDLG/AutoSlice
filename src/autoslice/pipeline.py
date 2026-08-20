@@ -21,6 +21,7 @@ from autoslice import pipeline_manual
 from autoslice import pipeline_review
 from autoslice import pipeline_retry
 from autoslice import pipeline_retry_analysis
+from autoslice import pipeline_retry_reporting
 from autoslice import pipeline_retry_review
 from autoslice import pipeline_titles
 from autoslice import pipeline_transcription
@@ -161,6 +162,7 @@ prepare_retry_analysis_state = (
 review_retry_candidates_and_titles = (
     pipeline_retry_review.review_retry_candidates_and_titles
 )
+prepare_retry_report = pipeline_retry_reporting.prepare_retry_report
 
 
 def title_hook_prompt_guide(streamer_name=None):
@@ -1018,84 +1020,49 @@ def retry_clip_review_from_artifacts_impl(
     clip_marks = boundary_preparation["clip_marks"]
     accepted_topics = boundary_preparation["accepted_topics"]
 
-    base_warning = _warning_without_previous_clip_review(data)
-    api_warning = "；".join(
-        item for item in (base_warning, clip_review_warning) if item
-    ) or None
-    manual_timeline = rebuilt_manual_timeline
-    unified_queue_json_path = data.get("unified_queue_json_path")
-    unified_queue_md_path = data.get("unified_queue_md_path")
-    if not unified_queue_json_path or not unified_queue_md_path:
-        unified_queue_json_path = artifact_layout["unified_queue_json_path"]
-        unified_queue_md_path = artifact_layout["unified_queue_md_path"]
-    video_name = os.path.basename(flv_path)
-    streamer_name = streamer_profile.canonical_name
-    streamer_display_name = streamer_profile.report_name
-    report = reporting_service.build_timeline_report(
-        video_name,
-        peak_info,
-        accepted_topics,
-        failed_chunks=data.get("failed_chunks") or [],
-        api_warning=api_warning,
-        streamer_name=streamer_display_name,
-        group_by_hour=True,
-        manual_timeline=manual_timeline,
-        clip_marks=clip_marks,
-        corrected_srt_path=corrected_srt_path,
-        unified_queue_md_path=unified_queue_md_path,
-        report_dir=artifact_layout["artifact_dir"],
-    )
-    analysis_topics = _analysis_topics_snapshot(accepted_topics)
-
     clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
-    data.update({
-        "video": video_name,
-        "streamer_profile_id": streamer_profile.id,
-        "streamer_name": streamer_name,
-        "streamer_display_name": streamer_display_name,
-        "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
-        "artifact_dir": artifact_layout["artifact_dir"],
-        "overview_path": artifact_layout["overview_path"],
-        "analysis_report_path": report_path,
-        "source_srt_path": source_srt_path,
-        "corrected_srt_path": corrected_srt_path,
-        "unified_queue_json_path": unified_queue_json_path,
-        "unified_queue_md_path": unified_queue_md_path,
-        "clip_review_checkpoint_path": clip_review_checkpoint_path,
-        "candidate_review_audit_path": candidate_review_audit_path,
-        "expanded_with_context": True,
-        "context_policy": {
+    report_preparation = prepare_retry_report(
+        data=data,
+        video_path=flv_path,
+        report_path=report_path,
+        artifact_layout=artifact_layout,
+        source_srt_path=source_srt_path,
+        corrected_srt_path=corrected_srt_path,
+        clip_review_checkpoint_path=clip_review_checkpoint_path,
+        candidate_review_audit_path=candidate_review_audit_path,
+        accepted_topics=accepted_topics,
+        clip_marks=clip_marks,
+        peak_info=peak_info,
+        failed_chunks=data.get("failed_chunks") or [],
+        clip_review_warning=clip_review_warning,
+        rebuilt_manual_timeline=rebuilt_manual_timeline,
+        streamer_profile=streamer_profile,
+        average_density=avg_den,
+        density_threshold=_danmaku_clip_threshold(peaks, avg_den),
+        local_peak_radius_sec=CLIP_LOCAL_PEAK_RADIUS_SEC,
+        manual_review_min_stars=CLIP_MANUAL_REVIEW_MIN_STARS,
+        min_editorial_interest_score=CLIP_MIN_INTEREST_SCORE,
+        context_policy={
             "pre_context_sec": TOPIC_PRE_CONTEXT_SEC,
             "post_context_sec": TOPIC_POST_CONTEXT_SEC,
             "min_clip_sec": TOPIC_MIN_CLIP_SEC,
             "max_clip_sec": TOPIC_MAX_CLIP_SEC,
             "required_context_overflow_sec": TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
         },
-        "danmaku_selection_policy": {
-            "average_density": round(avg_den, 3),
-            "density_threshold": round(_danmaku_clip_threshold(peaks, avg_den), 3),
-            "local_peak_radius_sec": CLIP_LOCAL_PEAK_RADIUS_SEC,
-            "max_clips_per_hour": None,
-            "fixed_hourly_quota": False,
-            "min_editorial_interest_score": CLIP_MIN_INTEREST_SCORE,
-            "manual_star_can_force_slice": False,
-            "manual_star_review_min_stars": CLIP_MANUAL_REVIEW_MIN_STARS,
-            "semantic_review_can_keep_peak_moved_focus": True,
-            "independent_subtitle_review_required": True,
-        },
-        "api_precheck_warning": api_warning,
-        "clip_review_warning": clip_review_warning,
-        "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
-        "analysis_topics": analysis_topics,
-        "clip_marks": clip_marks,
-        "clip_review_completed_at": clip_review_completed_at,
-    })
-
-    task_manifest_json_path = data.get("task_manifest_json_path")
-    task_manifest_md_path = data.get("task_manifest_md_path")
-    if not task_manifest_json_path or not task_manifest_md_path:
-        task_manifest_json_path = artifact_layout["task_manifest_json_path"]
-        task_manifest_md_path = artifact_layout["task_manifest_md_path"]
+        clip_review_completed_at=clip_review_completed_at,
+        artifact_layout_version=ARTIFACT_LAYOUT_VERSION,
+        build_timeline_report=reporting_service.build_timeline_report,
+        analysis_topics_snapshot=_analysis_topics_snapshot,
+        manual_timeline_summary=timeline_analysis.manual_timeline_summary,
+        warning_without_previous_clip_review=_warning_without_previous_clip_review,
+    )
+    report = report_preparation["report"]
+    api_warning = report_preparation["api_warning"]
+    unified_queue_json_path = report_preparation["unified_queue_json_path"]
+    unified_queue_md_path = report_preparation["unified_queue_md_path"]
+    task_manifest_json_path = report_preparation["task_manifest_json_path"]
+    task_manifest_md_path = report_preparation["task_manifest_md_path"]
+    data = report_preparation["payload"]
     artifact_persistence = persist_pipeline_artifacts(
         video_path=flv_path,
         report_path=report_path,
