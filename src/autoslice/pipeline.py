@@ -16,6 +16,7 @@ from autoslice import media_probe
 from autoslice import pipeline_analysis
 from autoslice import pipeline_llm
 from autoslice import pipeline_manual
+from autoslice import pipeline_review
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
@@ -77,6 +78,7 @@ prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
 prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
 analyze_pipeline_llm_chunks = pipeline_llm.analyze_pipeline_llm_chunks
 prepare_pipeline_manual_timeline = pipeline_manual.prepare_pipeline_manual_timeline
+review_pipeline_candidates = pipeline_review.review_pipeline_candidates
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = analysis_chunking.parse_srt_text
@@ -604,64 +606,37 @@ def run_pipeline_impl(
             item for item in (optimization_warning, api_precheck_warning) if item
         )
 
-    manual_candidates.merge_manual_timeline_topics(accepted_topics, manual_entries)
-    manual_validation_warning = manual_review.validate_unmatched_manual_topics(
-        accepted_topics,
-        streamer_name=streamer_display_name,
-        progress_callback=progress_callback,
-        srt_segments=segs,
-        peaks=peaks,
-    )
-    if manual_validation_warning:
-        api_precheck_warning = "；".join(
-            item for item in (api_precheck_warning, manual_validation_warning) if item
-        )
-    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
-    analysis_topics = _analysis_topics_snapshot(accepted_topics)
     clip_review_checkpoint_path = artifact_layout["clip_review_checkpoint_path"]
-    _seed_artifact_from_legacy(
-        clip_review_checkpoint_path,
-        base + "_clip_review_checkpoint.json",
-    )
-    checkpoint_store.write_clip_review_checkpoint(
-        clip_review_checkpoint_path,
-        analysis_topics,
-        stage="ready",
-    )
-    slice_decisions.apply_danmaku_slice_decisions(
+    review_preparation = review_pipeline_candidates(
         accepted_topics,
-        peaks,
-        avg_den,
-    )
-    clip_review_warning = clip_review.review_peak_selected_topics(
-        accepted_topics,
-        srt_segments=segs,
+        manual_entries,
+        streamer_display_name,
+        segs,
         peaks=peaks,
-        streamer_name=streamer_display_name,
+        avg_den=avg_den,
+        clip_review_checkpoint_path=clip_review_checkpoint_path,
+        legacy_clip_review_checkpoint_path=base + "_clip_review_checkpoint.json",
+        api_precheck_warning=api_precheck_warning,
         progress_callback=progress_callback,
-        checkpoint_callback=lambda current, pending, round_label, batch_index, total_batches: (
-            checkpoint_store.write_clip_review_checkpoint(
-                clip_review_checkpoint_path,
-                current,
-                stage="reviewing",
-                pending_count=len(pending),
-                round=round_label,
-                batch_index=batch_index,
-                total_batches=total_batches,
-            )
+        merge_manual_timeline_topics=(
+            manual_candidates.merge_manual_timeline_topics
         ),
+        validate_unmatched_manual_topics=(
+            manual_review.validate_unmatched_manual_topics
+        ),
+        clean_topics_for_report=report_cleanup.clean_topics_for_report,
+        analysis_topics_snapshot=_analysis_topics_snapshot,
+        seed_artifact_from_legacy=_seed_artifact_from_legacy,
+        write_clip_review_checkpoint=checkpoint_store.write_clip_review_checkpoint,
+        apply_danmaku_slice_decisions=(
+            slice_decisions.apply_danmaku_slice_decisions
+        ),
+        review_peak_selected_topics=clip_review.review_peak_selected_topics,
     )
-    if clip_review_warning:
-        api_precheck_warning = "；".join(
-            item for item in (api_precheck_warning, clip_review_warning) if item
-        )
-    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
-    slice_decisions.apply_danmaku_slice_decisions(
-        accepted_topics,
-        peaks,
-        avg_den,
-        require_clip_review=True,
-    )
+    accepted_topics = review_preparation["accepted_topics"]
+    analysis_topics = review_preparation["analysis_topics"]
+    api_precheck_warning = review_preparation["api_precheck_warning"]
+    clip_review_warning = review_preparation["clip_review_warning"]
     title_review_warning = _review_selected_publish_titles(
         accepted_topics,
         streamer_name=streamer_display_name,
