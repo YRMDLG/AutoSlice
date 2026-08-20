@@ -4599,16 +4599,37 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         pipeline_tree = ast.parse(
             (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
         )
+        decision_callback_sets = []
+        for node in ast.walk(pipeline_tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "prepare_pipeline_decisions"
+            ):
+                continue
+            decision_callback_sets.append({
+                keyword.arg: keyword.value.attr
+                for keyword in node.keywords
+                if keyword.arg in {
+                    "detect_stream_outro_clip",
+                    "outro_topic_from_mark",
+                }
+                and isinstance(keyword.value, ast.Attribute)
+                and isinstance(keyword.value.value, ast.Name)
+                and keyword.value.value.id == "outro_analysis"
+            })
         self.assertEqual(
-            {
-                node.func.attr
-                for node in ast.walk(pipeline_tree)
-                if isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "outro_analysis"
-            },
-            {"_detect_stream_outro_clip", "_outro_topic_from_mark"},
+            decision_callback_sets,
+            [
+                {
+                    "detect_stream_outro_clip": "_detect_stream_outro_clip",
+                    "outro_topic_from_mark": "_outro_topic_from_mark",
+                },
+                {
+                    "detect_stream_outro_clip": "_detect_stream_outro_clip",
+                    "outro_topic_from_mark": "_outro_topic_from_mark",
+                },
+            ],
         )
 
         review_init_tree = ast.parse(

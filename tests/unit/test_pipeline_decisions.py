@@ -167,6 +167,36 @@ class PipelineDecisionsTests(unittest.TestCase):
 
         self.assertIs(raised.exception, failure)
 
+    def test_reuses_preloaded_srt_segments_without_reading_again(self):
+        preloaded_segments = [(80, 100, "预加载的收播话术")]
+        parse_calls = []
+        detected = []
+
+        result = prepare_pipeline_decisions(
+            [{"title": "正文"}],
+            "字幕.srt",
+            "审计.json",
+            object(),
+            120,
+            filter_topics=filter,
+            clip_marks_from_topics=lambda _topics: [],
+            build_clip_candidate_review_audit=lambda _topics: {},
+            write_artifact_json=lambda *_args: None,
+            parse_srt_segments=lambda path: parse_calls.append(path),
+            detect_stream_outro_clip=(
+                lambda segments, duration, **_kwargs: detected.append(
+                    (segments, duration)
+                ) or None
+            ),
+            outro_topic_from_mark=lambda mark: mark,
+            analysis_topics_snapshot=lambda topics: topics,
+            srt_segments=preloaded_segments,
+        )
+
+        self.assertEqual(parse_calls, [])
+        self.assertEqual(detected, [(preloaded_segments, 120)])
+        self.assertIs(result["srt_segments_for_context"], preloaded_segments)
+
 
 if __name__ == "__main__":
     unittest.main()

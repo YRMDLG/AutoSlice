@@ -981,24 +981,30 @@ def retry_clip_review_from_artifacts_impl(
     )
     accepted_topics = retry_review["accepted_topics"]
     clip_review_warning = retry_review["clip_review_warning"]
-    accepted_topics = [
-        topic for topic in accepted_topics
-        if topic.get("clip_type") != "stream_outro"
-    ]
-    raw_clip_marks = slice_decisions.clip_marks_from_topics(accepted_topics)
-    candidate_review_audit = _build_clip_candidate_review_audit(accepted_topics)
-    candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
-    _write_artifact_json(candidate_review_audit_path, candidate_review_audit)
     probed_video_duration = probe_video_duration(flv_path)
-    video_duration = probed_video_duration or _srt_video_duration(srt_segments)
-    outro_mark = outro_analysis._detect_stream_outro_clip(
-        srt_segments,
+    candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
+    decision_preparation = prepare_pipeline_decisions(
+        accepted_topics,
+        srt_path,
+        candidate_review_audit_path,
+        streamer_profile,
         probed_video_duration,
-        streamer_profile=streamer_profile,
+        filter_topics=filter,
+        clip_marks_from_topics=slice_decisions.clip_marks_from_topics,
+        build_clip_candidate_review_audit=_build_clip_candidate_review_audit,
+        write_artifact_json=_write_artifact_json,
+        parse_srt_segments=parse_srt_segments,
+        detect_stream_outro_clip=outro_analysis._detect_stream_outro_clip,
+        outro_topic_from_mark=outro_analysis._outro_topic_from_mark,
+        analysis_topics_snapshot=_analysis_topics_snapshot,
+        srt_segments=srt_segments,
     )
-    if outro_mark:
-        accepted_topics.append(outro_analysis._outro_topic_from_mark(outro_mark))
-        raw_clip_marks.append(outro_mark)
+    accepted_topics = decision_preparation["accepted_topics"]
+    raw_clip_marks = decision_preparation["raw_clip_marks"]
+    candidate_review_audit_path = decision_preparation[
+        "candidate_review_audit_path"
+    ]
+    video_duration = probed_video_duration or _srt_video_duration(srt_segments)
     boundary_preparation = prepare_pipeline_boundaries(
         raw_clip_marks,
         accepted_topics,

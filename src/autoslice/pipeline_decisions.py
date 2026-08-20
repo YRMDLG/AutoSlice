@@ -18,6 +18,7 @@ def prepare_pipeline_decisions(
     detect_stream_outro_clip,
     outro_topic_from_mark,
     analysis_topics_snapshot,
+    srt_segments=None,
 ):
     """去除旧收播片并准备边界扩展所需的候选决策产物。
 
@@ -32,7 +33,11 @@ def prepare_pipeline_decisions(
     raw_clip_marks = clip_marks_from_topics(accepted_topics)
     candidate_review_audit = build_clip_candidate_review_audit(accepted_topics)
     write_artifact_json(candidate_review_audit_path, candidate_review_audit)
-    srt_segments_for_context = parse_srt_segments(srt_path)
+    srt_segments_for_context = (
+        parse_srt_segments(srt_path)
+        if srt_segments is None
+        else srt_segments
+    )
     outro_mark = detect_stream_outro_clip(
         srt_segments_for_context,
         probed_video_duration,
