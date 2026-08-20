@@ -2585,7 +2585,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 895)
+        self.assertEqual(current["summary"]["top_level_function_count"], 902)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5133,7 +5133,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            895,
+            902,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
@@ -5434,6 +5434,54 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertEqual(topic_engine["top_level_classes"], [])
         self.assertLess(topic_engine["line_count"], 1000)
+
+    def test_task_result_summary_has_one_owner_and_direct_web_consumer(self):
+        from autoslice import task_results
+        from autoslice.web import app as web_app
+
+        self.assertIs(
+            web_app.build_pipeline_result_summary,
+            task_results.build_pipeline_result_summary,
+        )
+        self.assertIs(
+            web_app.normalize_task_result,
+            task_results.normalize_task_result,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner = modules["autoslice.task_results"]
+        self.assertEqual(
+            [item["name"] for item in owner["top_level_functions"]],
+            [
+                "normalize_task_result",
+                "_non_negative_int",
+                "_failed_chunk_count",
+                "build_pipeline_result_summary",
+            ],
+        )
+        self.assertEqual(owner["top_level_classes"], [])
+        self.assertLessEqual(owner["line_count"], 120)
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.web.app", "autoslice.task_results"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.task_results", "autoslice.web.app"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.task_results", "autoslice.task_store"),
+            import_edges,
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_current_modules_have_no_duplicate_top_level_definitions(self):
         current = architecture_snapshot.build_snapshot(ROOT)

@@ -241,6 +241,18 @@ function renderResultArtifact(taskId,result){
     byId('resultArtifact').hidden=false;
 }
 
+async function renderCompletedReport(taskId,result){
+    const report=byId('report');
+    if(!result?.report_available){report.hidden=true;report.textContent='';return}
+    report.hidden=false;
+    report.textContent='正在读取完整话题分析报告...';
+    try{
+        const response=await fetch(`/api/tasks/${encodeURIComponent(taskId)}/report`);
+        if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||'完整报告读取失败')}
+        report.innerHTML=renderReport(await response.text());
+    }catch(error){report.textContent=`完整报告读取失败：${error.message}`}
+}
+
 async function openResultDirectory(){
     if(!resultTaskId){setNotice('当前没有可打开的结果目录','warning');return}
     try{
@@ -276,7 +288,7 @@ function renderTaskProgress(data){
 function connectSSE(){
     if(sse)sse.close();
     sse=new EventSource('/api/events');
-    sse.addEventListener('task_update',event=>{
+    sse.addEventListener('task_update',async event=>{
         const data=JSON.parse(event.data);
         const relevant=data.task_id&&(data.task_id.startsWith('pipeline_')||data.task_id.startsWith('timeline_opt_')||data.task_id.startsWith('clip_review_'));
         if(!relevant)return;
@@ -289,9 +301,7 @@ function connectSSE(){
                     optimizedTimeline={videoPath:result.video_path,sourcePath:(result.manual_timeline||{}).path,jsonPath:result.optimized_json_path,mdPath:result.optimized_md_path,profileId:result.streamer_profile_id};
                     renderOptimizedTimeline();
                 }else{
-                    const report=byId('report');
-                    report.hidden=!result.report;
-                    report.innerHTML=renderReport(result.report||'');
+                    await renderCompletedReport(data.task_id,result);
                 }
                 renderResultArtifact(data.task_id,result);
                 setNotice(`${taskTypeLabel(data.task_id)}已完成`,'success');

@@ -174,6 +174,25 @@ class TaskRegistryTests(unittest.TestCase):
         self.assertEqual(self.registry.get(first_id).status, "done")
         self.assertEqual(self.registry.get(second_id).status, "queued")
 
+    def test_snapshot_keeps_json_object_in_summary_and_result(self):
+        task_id = self.reserve(
+            "topic_pipeline",
+            source_paths=(self.root / "recording.flv",),
+        )
+        self.registry.mark_running(task_id)
+        self.registry.complete(task_id, {"topic_count": 3, "slice_count": 2})
+
+        snapshot = self.registry.snapshot(task_id)
+
+        self.assertEqual(
+            snapshot["result_summary"],
+            {"topic_count": 3, "slice_count": 2},
+        )
+        self.assertEqual(
+            snapshot["result"],
+            {"topic_count": 3, "slice_count": 2},
+        )
+
     def test_identity_digest_uses_every_full_resource_path(self):
         source = self.root / "input" / "identity.flv"
         first_output = self.root / "one" / "same.srt"

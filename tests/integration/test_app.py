@@ -993,6 +993,17 @@ class TopicPipelineApiTests(unittest.TestCase):
         self.assertIn("emoji_slice", output)
         self.assertEqual(app_module.tasks["emoji_slice"]["status"], "done")
 
+    def test_update_task_stores_decoded_json_summary_without_double_encoding(self):
+        app_module.update_task(
+            "decoded_result",
+            status="done",
+            result=json.dumps({"topic_count": 2}, ensure_ascii=False),
+        )
+
+        task = app_module.tasks["decoded_result"]
+        self.assertEqual(task["result_summary"], {"topic_count": 2})
+        self.assertEqual(json.loads(task["result"]), {"topic_count": 2})
+
     def test_optimize_manual_timeline_rejects_missing_files(self):
         response = self.client.post(
             "/api/optimize-manual-timeline",
@@ -1118,6 +1129,63 @@ class TopicPipelineApiTests(unittest.TestCase):
             run_pipeline.call_args.kwargs["streamer_profile_id"].id,
             "zeyin",
         )
+
+    def test_start_pipeline_persists_compact_summary_for_large_result(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            flv_path = root / "直播.flv"
+            output_dir = root / "自动切片"
+            artifact_dir = output_dir / "直播_自动切片"
+            slice_dir = output_dir / "直播_话题切片"
+            flv_path.write_bytes(b"video")
+            pipeline_result = {
+                "report": "完整报告" * 50_000,
+                "topic_count": 58,
+                "clip_marks": [
+                    {"start": index, "end": index + 30, "subtitle": "字幕" * 500}
+                    for index in range(12)
+                ],
+                "analysis_topics": [{"body": "分析" * 30_000}],
+                "json_path": str(artifact_dir / "数据" / "clip_marks.json"),
+                "md_path": str(artifact_dir / "01_话题分析.md"),
+                "artifact_dir": str(artifact_dir),
+                "overview_path": str(artifact_dir / "00_概览.md"),
+            }
+
+            with (
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "autoslice.topic_engine.run_pipeline",
+                    return_value=pipeline_result,
+                ),
+                patch(
+                    "autoslice.topic_engine.slice_from_marks",
+                    return_value=(12, str(slice_dir)),
+                ),
+            ):
+                response = self.client.post(
+                    "/api/start-pipeline",
+                    json={"flv_path": str(flv_path), "output_dir": str(output_dir)},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        task = app_module.tasks[response.get_json()["task_id"]]
+        summary = task["result_summary"]
+        self.assertEqual(task["status"], "done")
+        self.assertIsInstance(summary, dict)
+        self.assertEqual(summary["topic_count"], 58)
+        self.assertEqual(summary["slice_count"], 12)
+        self.assertEqual(summary["artifact_dir"], str(artifact_dir))
+        self.assertEqual(summary["slice_dir"], str(slice_dir))
+        self.assertNotIn("report", summary)
+        self.assertNotIn("clip_marks", summary)
+        self.assertNotIn("analysis_topics", summary)
+        self.assertLess(
+            len(json.dumps(summary, ensure_ascii=False).encode("utf-8")),
+            64 * 1024,
+        )
+        self.assertEqual(task["artifact_dir"], str(artifact_dir))
+        assert_same_path(self, task["output_dir"], output_dir)
 
     def test_retry_clip_review_reuses_artifacts_reslices_and_blocks_pipeline(self):
         with TemporaryDirectory() as td:
@@ -1677,6 +1745,89 @@ class TaskLifecycleTests(unittest.TestCase):
         task = app_module.tasks[task_id]
         self.assertEqual(task["status"], "done")
         self.assertEqual(json.loads(task["result"])["topic_count"], 2)
+
+    def test_pipeline_completion_retries_minimal_summary_without_business_error(self):
+        root = Path(self.database_dir.name)
+        task_id, conflict = app_module._reserve_task(
+            "completion-retry",
+            "topic_pipeline",
+            "等待处理",
+            source_paths=(root / "source.flv",),
+            output_paths=(root / "output",),
+        )
+        self.assertIsNone(conflict)
+        app_module.update_task(task_id, status="running", progress="处理中")
+        original_complete = app_module.task_registry.complete
+        call_count = 0
+
+        def flaky_complete(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ValueError("result_summary 序列化后不能超过 65536 字节")
+            return original_complete(*args, **kwargs)
+
+        with (
+            patch.object(
+                app_module.task_registry,
+                "complete",
+                side_effect=flaky_complete,
+            ),
+            patch.object(app_module.app.logger, "error") as logger,
+        ):
+            app_module._complete_pipeline_task(
+                task_id,
+                {
+                    "report": "完整报告" * 50_000,
+                    "topic_count": 2,
+                    "clip_marks": [{"start": 1, "end": 2}],
+                    "artifact_dir": str(root / "output" / "source_自动切片"),
+                    "overview_path": str(
+                        root / "output" / "source_自动切片" / "00_概览.md"
+                    ),
+                },
+            )
+
+        task = app_module.tasks[task_id]
+        self.assertEqual(call_count, 2)
+        self.assertEqual(task["status"], "done")
+        self.assertNotIn("report", task["result_summary"])
+        logger.assert_called_once()
+
+    def test_completed_pipeline_report_is_read_from_artifact_directory(self):
+        root = Path(self.database_dir.name)
+        output_dir = root / "自动切片"
+        artifact_dir = output_dir / "录播_自动切片"
+        report_path = artifact_dir / "01_话题分析.md"
+        artifact_dir.mkdir(parents=True)
+        report_path.write_text("# 完整话题分析\n\n测试报告", encoding="utf-8")
+        task_id, conflict = app_module._reserve_task(
+            "report",
+            "topic_pipeline",
+            "等待处理",
+            source_paths=(root / "录播.flv",),
+            output_paths=(artifact_dir, output_dir / "录播_话题切片"),
+        )
+        self.assertIsNone(conflict)
+        app_module._set_task_output_dir(task_id, output_dir)
+        app_module.update_task(task_id, status="running", progress="处理中")
+        app_module._complete_pipeline_task(
+            task_id,
+            {
+                "report": "不进入任务表的完整报告",
+                "topic_count": 1,
+                "clip_marks": [],
+                "artifact_dir": str(artifact_dir),
+                "overview_path": str(artifact_dir / "00_概览.md"),
+                "md_path": str(report_path),
+            },
+        )
+
+        response = self.client.get(f"/api/tasks/{task_id}/report")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "# 完整话题分析\n\n测试报告")
+        self.assertNotIn("report", app_module.tasks[task_id]["result_summary"])
 
     def test_startup_recovers_active_tasks_once_and_init_shows_interrupted(self):
         queued_id, _ = app_module._reserve_task(

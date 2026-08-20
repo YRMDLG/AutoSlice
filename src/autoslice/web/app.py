@@ -24,6 +24,10 @@ from autoslice.task_registry import (
     TaskLifecycleError,
     TaskRegistry,
 )
+from autoslice.task_results import (
+    build_pipeline_result_summary,
+    normalize_task_result,
+)
 from autoslice.task_store import (
     DEFAULT_TASK_DATABASE_PATH,
     MAX_LIST_LIMIT,
@@ -158,6 +162,17 @@ class _TaskMappingView(MutableMapping):
         snapshot = self._registry().snapshot(str(task_id))
         if snapshot is None:
             raise KeyError(task_id)
+        legacy_result = snapshot.get("result")
+        if legacy_result is not None and not isinstance(legacy_result, str):
+            # TaskRegistry 的规范快照保留真实 JSON 类型；旧 Web/SSE 契约继续
+            # 提供 JSON 字符串，供现有页面和外部脚本渐进迁移。
+            snapshot["result"] = json.dumps(
+                legacy_result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
         return snapshot
 
     def __setitem__(self, task_id, value):
@@ -494,7 +509,9 @@ def update_task(task_id, **kwargs):
     message = requested.pop("message", None)
     step = requested.pop("step", None)
     total = requested.pop("total", None)
-    result = requested.pop("result", requested.pop("result_summary", None))
+    result = normalize_task_result(
+        requested.pop("result", requested.pop("result_summary", None))
+    )
     error = requested.pop("error", requested.pop("error_summary", None))
     task_type = requested.pop("task_type", "legacy")
     requested.pop("updated_at", None)
@@ -510,16 +527,10 @@ def update_task(task_id, **kwargs):
     metadata.update(requested)
 
     if requested_status == "done":
-        parsed_result = result
-        if isinstance(parsed_result, str):
-            try:
-                parsed_result = json.loads(parsed_result)
-            except (TypeError, ValueError):
-                parsed_result = None
-        if isinstance(parsed_result, dict):
+        if isinstance(result, dict):
             for key in ("artifact_dir", "output_dir"):
-                if parsed_result.get(key):
-                    metadata[key] = parsed_result[key]
+                if result.get(key):
+                    metadata[key] = result[key]
 
     current = task_registry.get(task_id)
     if current is None:
@@ -629,6 +640,63 @@ def _pipeline_completion_progress(result):
     clip_marks = result.get("clip_marks") or []
     topic_count = result.get("topic_count", len(clip_marks))
     return f"完成! {topic_count} 个话题, {result.get('slice_count', 0)} 个切片"
+
+
+def _complete_pipeline_task(task_id, result):
+    """以紧凑摘要完成流水线任务，失败时再用最小摘要重试。"""
+
+    summary = build_pipeline_result_summary(result)
+    progress = _pipeline_completion_progress(result)
+    try:
+        return update_task(
+            task_id,
+            status="done",
+            progress=progress,
+            result=summary,
+            step=100,
+            total=100,
+        )
+    except Exception as exc:
+        app.logger.error(
+            "流水线产物已完成，但保存任务完成摘要失败；正在使用最小摘要重试",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+
+    minimal_summary = {
+        key: value
+        for key, value in summary.items()
+        if key not in {
+            "api_precheck_warning",
+            "clip_review_warning",
+            "unified_queue_warning",
+        }
+    }
+    try:
+        return update_task(
+            task_id,
+            status="done",
+            progress=progress,
+            result=minimal_summary,
+            step=100,
+            total=100,
+        )
+    except Exception as exc:
+        app.logger.error(
+            "流水线产物已完成，但任务完成状态仍无法持久化；不会误报为业务失败",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        try:
+            return update_task(
+                task_id,
+                status="running",
+                progress="分析和切片产物已完成，但任务状态保存失败；结果文件已保留",
+                step=100,
+                total=100,
+                metadata={"completion_persistence_failed": True},
+            )
+        except Exception:
+            app.logger.error("任务完成状态失败提示也无法持久化", exc_info=True)
+            return None
 
 
 def _reserve_task(
@@ -743,6 +811,25 @@ def _completed_task_artifact_dir(task_id):
             or not artifact_dir.name.endswith("_自动切片")):
         raise PermissionError("任务结果不是有效的自动切片整理包")
     return artifact_dir
+
+
+def _completed_task_report_path(task_id):
+    """返回已完成自动切片任务的报告文件，并限制在整理包内部。"""
+
+    artifact_dir = _completed_task_artifact_dir(task_id)
+    task = task_registry.snapshot(task_id) or {}
+    result = normalize_task_result(task.get("result"))
+    report_value = result.get("md_path") if isinstance(result, dict) else None
+    report_path = Path(report_value or artifact_dir / "01_话题分析.md").resolve(
+        strict=True
+    )
+    if not report_path.is_file() or report_path.suffix.lower() != ".md":
+        raise FileNotFoundError("完整话题分析报告不存在")
+    try:
+        report_path.relative_to(artifact_dir)
+    except ValueError as exc:
+        raise PermissionError("报告路径超出任务整理包") from exc
+    return report_path
 
 
 def _safe_task_error(error):
@@ -972,7 +1059,7 @@ def run_subtitle_review_task(
             task_id,
             status="done",
             progress=f"字幕检查完成，发现 {len(result['suggestions'])} 条建议",
-            result=json.dumps(result, ensure_ascii=False),
+            result=result,
             step=100,
             total=100,
         )
@@ -1020,7 +1107,7 @@ def run_subtitle_title_task(
             task_id,
             status="done",
             progress="参考标题生成完成",
-            result=json.dumps(result, ensure_ascii=False),
+            result=result,
             step=100,
             total=100,
         )
@@ -1077,7 +1164,7 @@ def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
             task_id,
             status="done",
             progress=f"字幕识别完成，共 {result['cue_count']} 条{filter_note}",
-            result=json.dumps(result, ensure_ascii=False),
+            result=result,
             step=100,
             total=100,
         )
@@ -1126,7 +1213,7 @@ def run_subtitle_render_task(
             task_id,
             status="done",
             progress="字幕版视频压制完成",
-            result=json.dumps(result, ensure_ascii=False),
+            result=result,
             step=100,
             total=100,
         )
@@ -1169,7 +1256,7 @@ def run_timeline_optimization_task(
             task_id,
             status="done",
             progress="人工时间轴优化完成",
-            result=json.dumps(result, ensure_ascii=False),
+            result=result,
             step=100,
             total=100,
         )
@@ -1225,16 +1312,10 @@ def run_clip_review_retry_task(
             result["slice_count"] = count
             result["slice_dir"] = out_dir
         _raise_if_task_cancelled(task_id)
-        update_task(
-            task_id,
-            status="done",
-            progress=_pipeline_completion_progress(result),
-            result=json.dumps(result, ensure_ascii=False),
-            step=100,
-            total=100,
-        )
     except Exception as exc:
         _record_task_error(task_id, "候选复核失败", exc)
+        return
+    _complete_pipeline_task(task_id, result)
 
 
 def run_slice_task(
@@ -1517,6 +1598,29 @@ def open_result_directory():
     except OSError as exc:
         return jsonify({"error": f"无法打开结果目录: {exc}"}), 500
     return jsonify({"path": str(artifact_dir)})
+
+
+@app.route("/api/tasks/<task_id>/report", methods=["GET"])
+def completed_task_report(task_id):
+    """按任务读取整理包内的 Markdown 报告，不把完整报告复制进任务表。"""
+
+    try:
+        report_path = _completed_task_report_path(task_id)
+    except KeyError as exc:
+        return jsonify({"error": str(exc).strip("'")}), 404
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 403
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        content = report_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return jsonify({"error": f"无法读取完整话题分析报告: {exc}"}), 500
+    return Response(content, mimetype="text/markdown")
 
 
 # ==================== 字幕校对与压制 ====================
@@ -2087,12 +2191,10 @@ def start_pipeline():
                 result["slice_dir"] = out_dir
 
             _raise_if_task_cancelled(task_id)
-            update_task(task_id, status="done",
-                        progress=_pipeline_completion_progress(result),
-                        result=json.dumps(result, ensure_ascii=False),
-                        step=100)
         except Exception as exc:
             _record_task_error(task_id, "完整分析失败", exc)
+            return
+        _complete_pipeline_task(task_id, result)
 
     try:
         threading.Thread(target=run, daemon=True).start()
