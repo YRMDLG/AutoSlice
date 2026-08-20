@@ -1839,7 +1839,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_topic_analysis_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice import pipeline, reporting
+        from autoslice import pipeline, pipeline_llm, reporting
         from autoslice.analysis import candidates
         from autoslice.analysis import topic_analysis as legacy_topic_analysis
         from autoslice.analysis.manual import workflow as manual_workflow
@@ -1913,9 +1913,9 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         candidate_source = (
             ROOT / "src/autoslice/analysis/candidates.py"
         ).read_text(encoding="utf-8")
-        pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
-            encoding="utf-8"
-        )
+        pipeline_llm_source = (
+            ROOT / "src/autoslice/pipeline_llm.py"
+        ).read_text(encoding="utf-8")
         topic_engine_source = (
             ROOT / "src/autoslice/topic_engine.py"
         ).read_text(encoding="utf-8")
@@ -1932,10 +1932,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         ):
             self.assertNotIn(f"\ndef {old_definition}(", candidate_source)
         self.assertNotIn("_HEADING_RE = re.compile(", candidate_source)
-        self.assertIn(
-            "topic_analysis.analyze_topic_chunks(",
-            pipeline_source,
+        self.assertIs(pipeline.topic_analysis, topic_analysis)
+        self.assertIs(
+            pipeline.analyze_pipeline_llm_chunks,
+            pipeline_llm.analyze_pipeline_llm_chunks,
         )
+        self.assertIn("analyze_topic_chunks(", pipeline_llm_source)
         self.assertIn(
             "_analyze_topic_chunks = topic_analysis.analyze_topic_chunks",
             topic_engine_source,
@@ -2565,7 +2567,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 886)
+        self.assertEqual(current["summary"]["top_level_function_count"], 887)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3346,6 +3348,66 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "_copy_artifact_file",
                 "load_optimized_timeline_artifact",
                 "prepare_optimized_manual_timeline",
+            }.isdisjoint(direct_calls)
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertEqual(current["test_private_patches"]["total"], 17)
+
+    def test_pipeline_llm_has_one_owner_and_preserves_explicit_dependency_seams(self):
+        from autoslice import pipeline, pipeline_llm
+
+        self.assertIs(
+            pipeline.analyze_pipeline_llm_chunks,
+            pipeline_llm.analyze_pipeline_llm_chunks,
+        )
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_llm"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["analyze_pipeline_llm_chunks"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_llm"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_llm", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_llm", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        run_impl = next(
+            node
+            for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "run_pipeline_impl"
+        )
+        direct_calls = {
+            node.func.id
+            for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("analyze_pipeline_llm_chunks", direct_calls)
+        self.assertTrue(
+            {
+                "analyze_topic_chunks",
             }.isdisjoint(direct_calls)
         )
         self.assertEqual(current["dependency_cycles"], [])
@@ -4341,7 +4403,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            886,
+            887,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

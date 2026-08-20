@@ -14,6 +14,7 @@ from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
 from autoslice import pipeline_analysis
+from autoslice import pipeline_llm
 from autoslice import pipeline_manual
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
@@ -74,6 +75,7 @@ ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
 prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
 prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
+analyze_pipeline_llm_chunks = pipeline_llm.analyze_pipeline_llm_chunks
 prepare_pipeline_manual_timeline = pipeline_manual.prepare_pipeline_manual_timeline
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
@@ -586,15 +588,16 @@ def run_pipeline_impl(
     topic_analysis_checkpoint_path = artifact_layout[
         "topic_analysis_checkpoint_path"
     ]
-    _seed_artifact_from_legacy(
-        topic_analysis_checkpoint_path,
-        base + "_topic_analysis_checkpoint.json",
-    )
-    accepted_topics, failed_chunks, api_precheck_warning = topic_analysis.analyze_topic_chunks(
-        chunks,
-        streamer_display_name,
-        progress_callback=progress_callback,
-        checkpoint_path=topic_analysis_checkpoint_path,
+    accepted_topics, failed_chunks, api_precheck_warning = (
+        analyze_pipeline_llm_chunks(
+            chunks,
+            streamer_display_name,
+            topic_analysis_checkpoint_path,
+            base + "_topic_analysis_checkpoint.json",
+            progress_callback=progress_callback,
+            seed_artifact_from_legacy=_seed_artifact_from_legacy,
+            analyze_topic_chunks=topic_analysis.analyze_topic_chunks,
+        )
     )
     if optimization_warning:
         api_precheck_warning = "；".join(
