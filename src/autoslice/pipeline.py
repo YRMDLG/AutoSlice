@@ -21,6 +21,7 @@ from autoslice import pipeline_manual
 from autoslice import pipeline_review
 from autoslice import pipeline_retry
 from autoslice import pipeline_retry_analysis
+from autoslice import pipeline_retry_decisions
 from autoslice import pipeline_retry_reporting
 from autoslice import pipeline_retry_review
 from autoslice import pipeline_titles
@@ -163,6 +164,7 @@ review_retry_candidates_and_titles = (
     pipeline_retry_review.review_retry_candidates_and_titles
 )
 prepare_retry_report = pipeline_retry_reporting.prepare_retry_report
+prepare_retry_decisions = pipeline_retry_decisions.prepare_retry_decisions
 
 
 def title_hook_prompt_guide(streamer_name=None):
@@ -983,15 +985,15 @@ def retry_clip_review_from_artifacts_impl(
     )
     accepted_topics = retry_review["accepted_topics"]
     clip_review_warning = retry_review["clip_review_warning"]
-    probed_video_duration = probe_video_duration(flv_path)
-    candidate_review_audit_path = artifact_layout["candidate_review_audit_path"]
-    decision_preparation = prepare_pipeline_decisions(
+    decision_preparation = prepare_retry_decisions(
+        flv_path,
         accepted_topics,
         srt_path,
-        candidate_review_audit_path,
+        artifact_layout["candidate_review_audit_path"],
         streamer_profile,
-        probed_video_duration,
+        srt_segments,
         filter_topics=filter,
+        probe_video_duration=probe_video_duration,
         clip_marks_from_topics=slice_decisions.clip_marks_from_topics,
         build_clip_candidate_review_audit=_build_clip_candidate_review_audit,
         write_artifact_json=_write_artifact_json,
@@ -999,26 +1001,21 @@ def retry_clip_review_from_artifacts_impl(
         detect_stream_outro_clip=outro_analysis._detect_stream_outro_clip,
         outro_topic_from_mark=outro_analysis._outro_topic_from_mark,
         analysis_topics_snapshot=_analysis_topics_snapshot,
-        srt_segments=srt_segments,
-    )
-    accepted_topics = decision_preparation["accepted_topics"]
-    raw_clip_marks = decision_preparation["raw_clip_marks"]
-    candidate_review_audit_path = decision_preparation[
-        "candidate_review_audit_path"
-    ]
-    video_duration = probed_video_duration or _srt_video_duration(srt_segments)
-    boundary_preparation = prepare_pipeline_boundaries(
-        raw_clip_marks,
-        accepted_topics,
-        srt_segments,
-        video_duration,
-        expand_clip_marks_with_context=boundary_analysis._expand_clip_marks_with_context,
+        prepare_pipeline_decisions=prepare_pipeline_decisions,
+        prepare_pipeline_boundaries=prepare_pipeline_boundaries,
+        expand_clip_marks_with_context=(
+            boundary_analysis._expand_clip_marks_with_context
+        ),
         synchronise_selected_topic_ranges=(
             reporting_service.synchronise_selected_topic_ranges
         ),
+        srt_video_duration=_srt_video_duration,
     )
-    clip_marks = boundary_preparation["clip_marks"]
-    accepted_topics = boundary_preparation["accepted_topics"]
+    accepted_topics = decision_preparation["accepted_topics"]
+    clip_marks = decision_preparation["clip_marks"]
+    candidate_review_audit_path = decision_preparation[
+        "candidate_review_audit_path"
+    ]
 
     clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
     report_preparation = prepare_retry_report(

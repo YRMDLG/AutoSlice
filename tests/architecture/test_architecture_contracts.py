@@ -2585,7 +2585,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 903)
+        self.assertEqual(current["summary"]["top_level_function_count"], 904)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -4101,10 +4101,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         pipeline_tree = ast.parse(
             (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
         )
-        for implementation_name in (
-            "run_pipeline_impl",
-            "retry_clip_review_from_artifacts_impl",
-        ):
+        for implementation_name in ("run_pipeline_impl",):
             implementation = next(
                 node
                 for node in pipeline_tree.body
@@ -4604,7 +4601,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             if not (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
-                and node.func.id == "prepare_pipeline_decisions"
+                and node.func.id in {
+                    "prepare_pipeline_decisions",
+                    "prepare_retry_decisions",
+                }
             ):
                 continue
             decision_callback_sets.append({
@@ -5154,7 +5154,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            903,
+            904,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
@@ -5700,6 +5700,82 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             current["summary"]["duplicate_top_level_definition_count"],
             0,
         )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
+    def test_pipeline_retry_decisions_has_one_owner_direct_consumer_and_safe_direction(self):
+        from autoslice import pipeline, pipeline_retry_decisions
+
+        self.assertIs(
+            pipeline.prepare_retry_decisions,
+            pipeline_retry_decisions.prepare_retry_decisions,
+        )
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_retry_decisions.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("autoslice.topic_engine", owner_source)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_retry_decisions"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_retry_decisions"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_retry_decisions"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_decisions", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_decisions", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        retry_impl = next(
+            node for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "retry_clip_review_from_artifacts_impl"
+        )
+        owner_calls = [
+            node for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "prepare_retry_decisions"
+        ]
+        self.assertEqual(len(owner_calls), 1)
+        self.assertTrue(
+            {
+                "filter_topics",
+                "probe_video_duration",
+                "clip_marks_from_topics",
+                "build_clip_candidate_review_audit",
+                "write_artifact_json",
+                "parse_srt_segments",
+                "detect_stream_outro_clip",
+                "outro_topic_from_mark",
+                "analysis_topics_snapshot",
+                "prepare_pipeline_decisions",
+                "prepare_pipeline_boundaries",
+                "expand_clip_marks_with_context",
+                "synchronise_selected_topic_ranges",
+                "srt_video_duration",
+            }.issubset({keyword.arg for keyword in owner_calls[0].keywords})
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
 
