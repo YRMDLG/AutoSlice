@@ -2578,7 +2578,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 892)
+        self.assertEqual(current["summary"]["top_level_function_count"], 893)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -2845,7 +2845,18 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             for node in ast.walk(retry_impl)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        self.assertIn("_manual_timeline_for_rebuilt_report", retry_global_calls)
+        self.assertNotIn("_manual_timeline_for_rebuilt_report", retry_global_calls)
+        retry_owner_call = next(
+            node
+            for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "prepare_retry_pipeline_state"
+        )
+        self.assertIn(
+            "manual_timeline_for_rebuilt_report",
+            {keyword.arg for keyword in retry_owner_call.keywords},
+        )
 
         prepare = next(
             node
@@ -3765,6 +3776,76 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             current["summary"]["duplicate_top_level_definition_count"], 0,
         )
         self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
+    def test_pipeline_retry_has_one_owner_direct_consumer_and_safe_direction(self):
+        from autoslice import pipeline, pipeline_retry
+
+        self.assertIs(
+            pipeline.prepare_retry_pipeline_state,
+            pipeline_retry.prepare_retry_pipeline_state,
+        )
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_retry.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("autoslice.topic_engine", owner_source)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_retry"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["prepare_retry_pipeline_state"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_retry"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        retry_impl = next(
+            node for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "retry_clip_review_from_artifacts_impl"
+        )
+        owner_calls = [
+            node for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "prepare_retry_pipeline_state"
+        ]
+        self.assertEqual(len(owner_calls), 1)
+        self.assertTrue(
+            {
+                "artifact_bundle_layout",
+                "organize_existing_artifacts",
+                "seed_artifact_from_legacy",
+                "manual_timeline_for_rebuilt_report",
+                "parse_generated_topic_report",
+                "clean_topics_for_report",
+                "analysis_topics_snapshot",
+                "merge_manual_timeline_topics",
+                "clip_review_checkpoint_matches_policy",
+                "clip_review_checkpoint_is_complete",
+                "topic_review_focus_max_sec",
+            }.issubset({keyword.arg for keyword in owner_calls[0].keywords})
+        )
 
     def test_pipeline_boundaries_has_one_owner_direct_consumers_and_hard_limits(self):
         from autoslice import pipeline, pipeline_boundaries, reporting
@@ -4873,7 +4954,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            892,
+            893,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

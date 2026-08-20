@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from datetime import datetime
@@ -20,6 +19,7 @@ from autoslice import pipeline_decisions
 from autoslice import pipeline_llm
 from autoslice import pipeline_manual
 from autoslice import pipeline_review
+from autoslice import pipeline_retry
 from autoslice import pipeline_titles
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
@@ -152,6 +152,7 @@ retry_optimized_timeline_entries = (
     manual_timeline_analysis.retry_optimized_timeline_entries
 )
 optimize_manual_timeline = manual_timeline_analysis.optimize_manual_timeline
+prepare_retry_pipeline_state = pipeline_retry.prepare_retry_pipeline_state
 
 
 def title_hook_prompt_guide(streamer_name=None):
@@ -876,140 +877,40 @@ def retry_clip_review_from_artifacts_impl(
         progress_callback=None, output_dir=None, artifact_dir=None):
     """复用已有逐话题报告，只重做弹幕候选筛选、字幕复核和最终产物。"""
     streamer_profile = current_streamer_profile()
-    flv_path = os.path.abspath(flv_path)
-    base, _ = os.path.splitext(flv_path)
-    if output_dir is None and artifact_dir is None:
-        output_dir = os.path.dirname(flv_path)
-    artifact_layout = reporting_service.artifact_bundle_layout(
+    retry_state = prepare_retry_pipeline_state(
         flv_path,
+        json_path=json_path,
+        report_path=report_path,
         output_dir=output_dir,
         artifact_dir=artifact_dir,
+        artifact_bundle_layout=reporting_service.artifact_bundle_layout,
+        organize_existing_artifacts=reporting_service.organize_existing_artifacts,
+        seed_artifact_from_legacy=_seed_artifact_from_legacy,
+        manual_timeline_for_rebuilt_report=_manual_timeline_for_rebuilt_report,
+        parse_generated_topic_report=reporting_service.parse_generated_topic_report,
+        clean_topics_for_report=report_cleanup.clean_topics_for_report,
+        analysis_topics_snapshot=_analysis_topics_snapshot,
+        merge_manual_timeline_topics=manual_candidates.merge_manual_timeline_topics,
+        clip_review_checkpoint_matches_policy=(
+            _clip_review_checkpoint_matches_policy
+        ),
+        clip_review_checkpoint_is_complete=_clip_review_checkpoint_is_complete,
+        topic_review_focus_max_sec=TOPIC_REVIEW_FOCUS_MAX_SEC,
     )
-    os.makedirs(artifact_layout["data_dir"], exist_ok=True)
-    if json_path is None and not os.path.isfile(artifact_layout["clip_marks_path"]):
-        legacy_json_path = base + "_clip_marks.json"
-        if os.path.isfile(legacy_json_path):
-            reporting_service.organize_existing_artifacts(
-                flv_path,
-                output_dir=artifact_layout["output_root"],
-                json_path=legacy_json_path,
-                report_path=base + "_话题分析.md",
-                artifact_dir=artifact_layout["artifact_dir"],
-            )
-    json_path = json_path or artifact_layout["clip_marks_path"]
-    report_path = report_path or artifact_layout["report_path"]
-    if not os.path.isfile(json_path):
-        raise FileNotFoundError(f"切片标记 JSON 不存在: {json_path}")
-    with open(json_path, encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        raise ValueError("切片标记 JSON 根节点必须是对象")
-
-    rebuilt_manual_timeline = _manual_timeline_for_rebuilt_report(
-        data.get("manual_timeline"),
-        flv_path,
-    )
-    rebuilt_manual_entries = rebuilt_manual_timeline.get("entries") or []
-    recovered_topics = data.get("analysis_topics")
-    if not isinstance(recovered_topics, list) or not recovered_topics:
-        recovered_topics = reporting_service.parse_generated_topic_report(report_path)
-    baseline_topics = report_cleanup.clean_topics_for_report(
-        _analysis_topics_snapshot(recovered_topics)
-    )
-    if rebuilt_manual_entries:
-        manual_candidates.merge_manual_timeline_topics(
-            baseline_topics,
-            rebuilt_manual_entries,
-        )
-        baseline_topics = report_cleanup.clean_topics_for_report(baseline_topics)
-    analysis_topics = _analysis_topics_snapshot(baseline_topics)
-
-    clip_review_checkpoint_path = (
-        data.get("clip_review_checkpoint_path")
-        or artifact_layout["clip_review_checkpoint_path"]
-    )
-    _seed_artifact_from_legacy(
-        clip_review_checkpoint_path,
-        base + "_clip_review_checkpoint.json",
-    )
-    resume_review = False
-    reuse_completed_review = False
-    checkpoint_policy_stale = False
-    stale_review_keys = set()
-    accepted_topics = baseline_topics
-    if os.path.isfile(clip_review_checkpoint_path):
-        try:
-            with open(clip_review_checkpoint_path, encoding="utf-8") as f:
-                checkpoint = json.load(f)
-            if not _clip_review_checkpoint_matches_policy(checkpoint):
-                checkpoint_policy_stale = True
-                checkpoint_topics = checkpoint.get("topics")
-            else:
-                checkpoint_topics = checkpoint.get("topics")
-            resume_stages = {"reviewing", "resuming", "completed_with_warning"}
-            if isinstance(checkpoint_topics, list) and checkpoint_topics:
-                if checkpoint_policy_stale:
-                    # 旧策略的已通过项可能已被收缩到峰值之外；把它们重新
-                    # 送入本版规则复核，同时把最新优化时间轴重新挂回话题。
-                    accepted_topics = report_cleanup.clean_topics_for_report(
-                        checkpoint_topics
-                    )
-                    if rebuilt_manual_entries:
-                        manual_candidates.merge_manual_timeline_topics(
-                            accepted_topics,
-                            rebuilt_manual_entries,
-                        )
-                        accepted_topics = report_cleanup.clean_topics_for_report(
-                            accepted_topics
-                        )
-                    stale_review_keys = {
-                        (
-                            int(topic.get("start", 0) or 0),
-                            int(topic.get("end", 0) or 0),
-                            str(topic.get("title", "")),
-                        )
-                        for topic in accepted_topics
-                        if (
-                            topic.get("clip_review_attempts") is not None
-                            or topic.get("clip_review_validated") is not None
-                        )
-                    }
-                    reuse_completed_review = False
-                    resume_review = False
-                    checkpoint_topics = None
-                else:
-                    for topic in checkpoint_topics:
-                        if (
-                            topic.get("clip_review_validated") is True
-                            and int(topic.get("end", 0)) - int(topic.get("start", 0))
-                            > TOPIC_REVIEW_FOCUS_MAX_SEC
-                        ):
-                            topic["clip_review_validated"] = False
-                            topic["clip_review_rejection"] = "等待独立字幕复核"
-                            topic["can_slice"] = True
-                    pending_topics = [
-                        topic for topic in checkpoint_topics
-                        if (
-                            topic.get("can_slice")
-                            and not topic.get("clip_review_validated")
-                            and topic.get("clip_review_rejection") == "等待独立字幕复核"
-                        )
-                    ]
-                    if pending_topics and checkpoint.get("stage") in resume_stages:
-                        accepted_topics = report_cleanup.clean_topics_for_report(
-                            checkpoint_topics
-                        )
-                        resume_review = True
-                    elif _clip_review_checkpoint_is_complete(
-                            checkpoint, checkpoint_topics):
-                        accepted_topics = report_cleanup.clean_topics_for_report(
-                            checkpoint_topics
-                        )
-                        reuse_completed_review = True
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            resume_review = False
-    if not accepted_topics:
-        raise ValueError("已有产物中没有可用于复核的话题")
+    data = retry_state["data"]
+    artifact_layout = retry_state["artifact_layout"]
+    json_path = retry_state["json_path"]
+    report_path = retry_state["report_path"]
+    rebuilt_manual_timeline = retry_state["rebuilt_manual_timeline"]
+    analysis_topics = retry_state["analysis_topics"]
+    accepted_topics = retry_state["accepted_topics"]
+    clip_review_checkpoint_path = retry_state["clip_review_checkpoint_path"]
+    resume_review = retry_state["resume_review"]
+    reuse_completed_review = retry_state["reuse_completed_review"]
+    checkpoint_policy_stale = retry_state["checkpoint_policy_stale"]
+    stale_review_keys = retry_state["stale_review_keys"]
+    flv_path = os.path.abspath(flv_path)
+    base, _ = os.path.splitext(flv_path)
 
     corrected_srt_path = data.get("corrected_srt_path")
     source_srt_path = data.get("source_srt_path") or base + ".srt"
