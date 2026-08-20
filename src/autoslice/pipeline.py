@@ -17,6 +17,7 @@ from autoslice import pipeline_analysis
 from autoslice import pipeline_llm
 from autoslice import pipeline_manual
 from autoslice import pipeline_review
+from autoslice import pipeline_titles
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
@@ -79,6 +80,7 @@ prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
 analyze_pipeline_llm_chunks = pipeline_llm.analyze_pipeline_llm_chunks
 prepare_pipeline_manual_timeline = pipeline_manual.prepare_pipeline_manual_timeline
 review_pipeline_candidates = pipeline_review.review_pipeline_candidates
+review_pipeline_publish_titles = pipeline_titles.review_pipeline_publish_titles
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = analysis_chunking.parse_srt_text
@@ -637,25 +639,18 @@ def run_pipeline_impl(
     analysis_topics = review_preparation["analysis_topics"]
     api_precheck_warning = review_preparation["api_precheck_warning"]
     clip_review_warning = review_preparation["clip_review_warning"]
-    title_review_warning = _review_selected_publish_titles(
+    title_preparation = review_pipeline_publish_titles(
         accepted_topics,
-        streamer_name=streamer_display_name,
+        streamer_display_name,
+        clip_review_checkpoint_path,
+        api_precheck_warning=api_precheck_warning,
         progress_callback=progress_callback,
-        checkpoint_callback=lambda current, batch_index, total_batches: (
-            checkpoint_store.write_clip_review_checkpoint(
-                clip_review_checkpoint_path,
-                current,
-                stage="title_reviewing",
-                batch_index=batch_index,
-                total_batches=total_batches,
-            )
-        ),
+        review_selected_publish_titles=_review_selected_publish_titles,
+        write_clip_review_checkpoint=checkpoint_store.write_clip_review_checkpoint,
+        clean_topics_for_report=report_cleanup.clean_topics_for_report,
     )
-    if title_review_warning:
-        api_precheck_warning = "；".join(
-            item for item in (api_precheck_warning, title_review_warning) if item
-        )
-    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
+    accepted_topics = title_preparation["accepted_topics"]
+    api_precheck_warning = title_preparation["api_precheck_warning"]
     # 复核旧产物时 analysis_topics 可能已带上一轮生成的收播片；收播片由
     # 当前字幕和真实视频时长重新判定，避免报告和队列出现重复的系列任务。
     accepted_topics = [
