@@ -1425,7 +1425,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
     def test_clip_review_orchestration_has_one_owner_and_direct_consumers(self):
         import topic_engine
-        from autoslice import pipeline
+        from autoslice import pipeline, pipeline_retry_review
         from autoslice.analysis import candidates
         from autoslice.analysis import clip_review as legacy_clip_review
         from autoslice.analysis.review import workflow as clip_review
@@ -1450,12 +1450,19 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         pipeline_source = (ROOT / "src/autoslice/pipeline.py").read_text(
             encoding="utf-8"
         )
+        retry_review_source = (
+            ROOT / "src/autoslice/pipeline_retry_review.py"
+        ).read_text(encoding="utf-8")
         self.assertNotIn("\ndef _review_peak_selected_topics(", candidate_source)
         self.assertIn(
-            "clip_review.review_peak_selected_topics(",
-            pipeline_source,
+            "review_peak_selected_topics(",
+            retry_review_source,
         )
         self.assertNotIn("_review_peak_selected_topics(", pipeline_source)
+        self.assertEqual(
+            pipeline_retry_review.review_retry_candidates_and_titles.__name__,
+            "review_retry_candidates_and_titles",
+        )
 
         current = architecture_snapshot.build_snapshot(ROOT)
         modules = {module["module"]: module for module in current["modules"]}
@@ -2578,7 +2585,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 894)
+        self.assertEqual(current["summary"]["top_level_function_count"], 895)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3925,6 +3932,101 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             } - {"prepare_retry_analysis_state"})
         )
 
+    def test_pipeline_retry_review_has_one_owner_direct_consumer_and_safe_direction(self):
+        from autoslice import pipeline, pipeline_retry_review
+
+        self.assertIs(
+            pipeline.review_retry_candidates_and_titles,
+            pipeline_retry_review.review_retry_candidates_and_titles,
+        )
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_retry_review.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("autoslice.topic_engine", owner_source)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_retry_review"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["review_retry_candidates_and_titles"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_retry_review"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_review", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_retry_review", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        retry_impl = next(
+            node for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "retry_clip_review_from_artifacts_impl"
+        )
+        owner_calls = [
+            node for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "review_retry_candidates_and_titles"
+        ]
+        self.assertEqual(len(owner_calls), 1)
+        self.assertTrue(
+            {
+                "srt_segments",
+                "peaks",
+                "avg_den",
+                "streamer_name",
+                "clip_review_checkpoint_path",
+                "resume_review",
+                "reuse_completed_review",
+                "stale_review_keys",
+                "clean_topics_for_report",
+                "apply_danmaku_slice_decisions",
+                "append_clip_candidate_source",
+                "review_peak_selected_topics",
+                "review_selected_publish_titles",
+                "write_clip_review_checkpoint",
+            }.issubset({keyword.arg for keyword in owner_calls[0].keywords})
+        )
+        self.assertTrue(
+            {
+                "write_clip_review_checkpoint",
+                "apply_danmaku_slice_decisions",
+                "append_clip_candidate_source",
+                "review_peak_selected_topics",
+                "_review_selected_publish_titles",
+            }.isdisjoint({
+                node.func.id
+                for node in ast.walk(retry_impl)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+            } - {"review_retry_candidates_and_titles"})
+        )
+
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
     def test_pipeline_boundaries_has_one_owner_direct_consumers_and_hard_limits(self):
         from autoslice import pipeline, pipeline_boundaries, reporting
         from autoslice.analysis import boundaries
@@ -4985,11 +5087,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         pipeline_direct_calls = [
             node
             for node in ast.walk(pipeline_tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "report_cleanup"
-            and node.func.attr == "clean_topics_for_report"
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "report_cleanup"
+            and node.attr == "clean_topics_for_report"
         ]
         pipeline_compatibility_calls = [
             node
@@ -5032,7 +5133,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            894,
+            895,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
@@ -5170,12 +5271,11 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             "_clip_marks_from_topics": "clip_marks_from_topics",
         }
         direct_pipeline_calls = {
-            node.func.attr
+            node.attr
             for node in ast.walk(pipeline_tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "slice_decisions"
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "slice_decisions"
         }
         self.assertGreaterEqual(
             direct_pipeline_calls,

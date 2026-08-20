@@ -21,6 +21,7 @@ from autoslice import pipeline_manual
 from autoslice import pipeline_review
 from autoslice import pipeline_retry
 from autoslice import pipeline_retry_analysis
+from autoslice import pipeline_retry_review
 from autoslice import pipeline_titles
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
@@ -156,6 +157,9 @@ optimize_manual_timeline = manual_timeline_analysis.optimize_manual_timeline
 prepare_retry_pipeline_state = pipeline_retry.prepare_retry_pipeline_state
 prepare_retry_analysis_state = (
     pipeline_retry_analysis.prepare_retry_analysis_state
+)
+review_retry_candidates_and_titles = (
+    pipeline_retry_review.review_retry_candidates_and_titles
 )
 
 
@@ -954,80 +958,29 @@ def retry_clip_review_from_artifacts_impl(
             100,
         )
 
-    checkpoint_store.write_clip_review_checkpoint(
-        clip_review_checkpoint_path,
-        accepted_topics if (resume_review or reuse_completed_review) else analysis_topics,
-        stage=(
-            "resuming" if resume_review
-            else "rebuilding" if reuse_completed_review
-            else "ready"
-        ),
-        source="artifact_retry",
-    )
-    if not resume_review and not reuse_completed_review:
-        slice_decisions.apply_danmaku_slice_decisions(
-            accepted_topics,
-            peaks,
-            avg_den,
-        )
-        for topic in accepted_topics:
-            key = (
-                int(topic.get("start", 0) or 0),
-                int(topic.get("end", 0) or 0),
-                str(topic.get("title", "")),
-            )
-            if key in stale_review_keys:
-                slice_decisions.append_clip_candidate_source(topic, "语义复核")
-    if reuse_completed_review:
-        clip_review_warning = None
-    else:
-        clip_review_warning = clip_review.review_peak_selected_topics(
-            accepted_topics,
-            srt_segments=srt_segments,
-            peaks=peaks,
-            streamer_name=streamer_profile.report_name,
-            progress_callback=progress_callback,
-            checkpoint_callback=lambda current, pending, round_label, batch_index, total_batches: (
-                checkpoint_store.write_clip_review_checkpoint(
-                    clip_review_checkpoint_path,
-                    current,
-                    stage="reviewing",
-                    source="artifact_retry",
-                    pending_count=len(pending),
-                    round=round_label,
-                    batch_index=batch_index,
-                    total_batches=total_batches,
-                )
-            ),
-            resume=resume_review,
-        )
-    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
-    slice_decisions.apply_danmaku_slice_decisions(
+    retry_review = review_retry_candidates_and_titles(
         accepted_topics,
-        peaks,
-        avg_den,
-        require_clip_review=True,
-    )
-    title_review_warning = _review_selected_publish_titles(
-        accepted_topics,
+        analysis_topics,
+        srt_segments=srt_segments,
+        peaks=peaks,
+        avg_den=avg_den,
         streamer_name=streamer_profile.report_name,
+        clip_review_checkpoint_path=clip_review_checkpoint_path,
+        resume_review=resume_review,
+        reuse_completed_review=reuse_completed_review,
+        stale_review_keys=stale_review_keys,
         progress_callback=progress_callback,
-        checkpoint_callback=lambda current, batch_index, total_batches: (
-            checkpoint_store.write_clip_review_checkpoint(
-                clip_review_checkpoint_path,
-                current,
-                stage="title_reviewing",
-                source="artifact_retry",
-                batch_index=batch_index,
-                total_batches=total_batches,
-            )
+        clean_topics_for_report=report_cleanup.clean_topics_for_report,
+        apply_danmaku_slice_decisions=(
+            slice_decisions.apply_danmaku_slice_decisions
         ),
+        append_clip_candidate_source=slice_decisions.append_clip_candidate_source,
+        review_peak_selected_topics=clip_review.review_peak_selected_topics,
+        review_selected_publish_titles=_review_selected_publish_titles,
+        write_clip_review_checkpoint=checkpoint_store.write_clip_review_checkpoint,
     )
-    if title_review_warning:
-        clip_review_warning = "；".join(
-            item for item in (clip_review_warning, title_review_warning) if item
-        )
-    accepted_topics = report_cleanup.clean_topics_for_report(accepted_topics)
+    accepted_topics = retry_review["accepted_topics"]
+    clip_review_warning = retry_review["clip_review_warning"]
     accepted_topics = [
         topic for topic in accepted_topics
         if topic.get("clip_type") != "stream_outro"
