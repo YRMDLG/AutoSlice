@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from autoslice.pipeline_reporting import build_danmaku_selection_policy
+
 
 def prepare_retry_report(
         *, data, video_path, report_path, artifact_layout,
@@ -65,18 +67,13 @@ def prepare_retry_report(
         "candidate_review_audit_path": candidate_review_audit_path,
         "expanded_with_context": True,
         "context_policy": context_policy,
-        "danmaku_selection_policy": {
-            "average_density": round(average_density, 3),
-            "density_threshold": round(density_threshold, 3),
-            "local_peak_radius_sec": local_peak_radius_sec,
-            "max_clips_per_hour": None,
-            "fixed_hourly_quota": False,
-            "min_editorial_interest_score": min_editorial_interest_score,
-            "manual_star_can_force_slice": False,
-            "manual_star_review_min_stars": manual_review_min_stars,
-            "semantic_review_can_keep_peak_moved_focus": True,
-            "independent_subtitle_review_required": True,
-        },
+        "danmaku_selection_policy": build_danmaku_selection_policy(
+            average_density=average_density,
+            density_threshold=density_threshold,
+            local_peak_radius_sec=local_peak_radius_sec,
+            manual_review_min_stars=manual_review_min_stars,
+            min_editorial_interest_score=min_editorial_interest_score,
+        ),
         "api_precheck_warning": api_warning,
         "clip_review_warning": clip_review_warning,
         "manual_timeline": manual_timeline_summary(rebuilt_manual_timeline),

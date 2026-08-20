@@ -2585,7 +2585,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 904)
+        self.assertEqual(current["summary"]["top_level_function_count"], 907)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5154,7 +5154,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            904,
+            907,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
@@ -5609,6 +5609,141 @@ class ArchitectureDefinitionTests(unittest.TestCase):
             msg="topic_engine 不得重新定义已迁入唯一 gateway 的 LLM 实现",
         )
 
+    def test_pipeline_reporting_has_one_owner_direct_consumers_and_safe_direction(self):
+        from autoslice import pipeline, pipeline_reporting, pipeline_retry_reporting
+
+        self.assertIs(
+            pipeline.prepare_pipeline_report,
+            pipeline_reporting.prepare_pipeline_report,
+        )
+        self.assertIs(
+            pipeline.build_context_policy,
+            pipeline_reporting.build_context_policy,
+        )
+        self.assertIs(
+            pipeline_retry_reporting.build_danmaku_selection_policy,
+            pipeline_reporting.build_danmaku_selection_policy,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_reporting"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            [
+                "build_context_policy",
+                "build_danmaku_selection_policy",
+                "prepare_pipeline_report",
+            ],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_reporting"),
+            import_edges,
+        )
+        self.assertIn(
+            (
+                "autoslice.pipeline_retry_reporting",
+                "autoslice.pipeline_reporting",
+            ),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_reporting", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_reporting", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_reporting.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("topic_engine", owner_source)
+        self.assertNotIn("open(", owner_source)
+        self.assertNotIn("write_text", owner_source)
+        self.assertNotIn("write_bytes", owner_source)
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        run_impl = next(
+            node for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "run_pipeline_impl"
+        )
+        report_calls = [
+            node for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "prepare_pipeline_report"
+        ]
+        self.assertEqual(len(report_calls), 1)
+        self.assertTrue({
+            "video_path",
+            "artifact_layout",
+            "source_srt_path",
+            "corrected_srt_path",
+            "topic_analysis_checkpoint_path",
+            "clip_review_checkpoint_path",
+            "candidate_review_audit_path",
+            "accepted_topics",
+            "analysis_topics",
+            "clip_marks",
+            "peak_info",
+            "failed_chunks",
+            "api_precheck_warning",
+            "clip_review_warning",
+            "manual_timeline",
+            "streamer_profile",
+            "average_density",
+            "density_threshold",
+            "local_peak_radius_sec",
+            "manual_review_min_stars",
+            "min_editorial_interest_score",
+            "context_policy",
+            "topic_analysis_model",
+            "review_model",
+            "clip_review_completed_at",
+            "artifact_layout_version",
+            "build_timeline_report",
+            "manual_timeline_summary",
+        }.issubset({keyword.arg for keyword in report_calls[0].keywords}))
+        direct_report_calls = [
+            node for node in ast.walk(run_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "build_timeline_report"
+        ]
+        self.assertEqual(direct_report_calls, [])
+
+        retry_impl = next(
+            node for node in pipeline_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "retry_clip_review_from_artifacts_impl"
+        )
+        context_policy_calls = [
+            node for node in ast.walk(retry_impl)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "build_context_policy"
+        ]
+        self.assertEqual(len(context_policy_calls), 1)
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
     def test_pipeline_retry_reporting_has_one_owner_direct_consumer_and_safe_direction(self):
         from autoslice import pipeline, pipeline_retry_reporting
 
@@ -5619,7 +5754,8 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         owner_source = (
             ROOT / "src/autoslice/pipeline_retry_reporting.py"
         ).read_text(encoding="utf-8")
-        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("from autoslice.pipeline import", owner_source)
+        self.assertNotIn("import autoslice.pipeline\n", owner_source)
         self.assertNotIn("autoslice.topic_engine", owner_source)
 
         current = architecture_snapshot.build_snapshot(ROOT)
