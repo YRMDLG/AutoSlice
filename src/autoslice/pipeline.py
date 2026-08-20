@@ -13,6 +13,7 @@ from autoslice.artifact_store import seed_artifact_from_legacy as _seed_artifact
 from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
+from autoslice import pipeline_analysis
 from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
@@ -71,6 +72,7 @@ FACADE_EXPORTS = {
 ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
 prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
+prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
 probe_video_duration = media_probe.probe_video_duration
 analyze_danmaku = danmaku_analysis.analyze_danmaku
 parse_srt_text = analysis_chunking.parse_srt_text
@@ -540,29 +542,26 @@ def run_pipeline_impl(
     corrected_srt_path = prepared_subtitles["corrected_srt_path"]
     srt_path = prepared_subtitles["srt_path"]
 
-    # Step 2: 弹幕分析
-    if progress_callback:
-        progress_callback("Step 2/5: 弹幕密度分析...", 15, 100)
-    peaks = analyze_danmaku(ass_path) if ass_path else DanmakuDensitySeries()
-    avg_den = _average_danmaku_density(peaks)
-    if peaks:
-        high_energy_peaks = _high_energy_danmaku_peaks(peaks, avg_den)
-        peak_info = (
-            f"弹幕密度 {len(peaks)} 个滑动窗口, "
-            f"独立高能峰值 {len(high_energy_peaks)} 个, "
-            f"全场平均密度 {avg_den:.0f}条/分钟"
-        )
-    else:
-        peak_info = "无弹幕数据"
-
-    # Step 3: SRT 分块
-    if progress_callback:
-        progress_callback("Step 3/5: SRT 分块中...", 20, 100)
-    segs = parse_srt_text(srt_path)
-    chunks = chunk_srt(segs, peaks)
-    srt_duration = max((end for _, end, _ in segs), default=None)
-    probed_video_duration = probe_video_duration(flv_path)
-    video_duration = probed_video_duration or srt_duration
+    analysis_preparation = prepare_pipeline_analysis(
+        flv_path,
+        ass_path,
+        srt_path,
+        progress_callback=progress_callback,
+        analyze_danmaku=analyze_danmaku,
+        empty_danmaku_series=DanmakuDensitySeries,
+        average_danmaku_density=_average_danmaku_density,
+        high_energy_danmaku_peaks=_high_energy_danmaku_peaks,
+        parse_srt_text=parse_srt_text,
+        chunk_srt=chunk_srt,
+        probe_video_duration=probe_video_duration,
+    )
+    peaks = analysis_preparation["peaks"]
+    avg_den = analysis_preparation["avg_den"]
+    peak_info = analysis_preparation["peak_info"]
+    segs = analysis_preparation["segs"]
+    chunks = analysis_preparation["chunks"]
+    probed_video_duration = analysis_preparation["probed_video_duration"]
+    video_duration = analysis_preparation["video_duration"]
     if optimized_timeline_path:
         selected_optimized_path = os.path.abspath(optimized_timeline_path)
         _copy_artifact_file(
