@@ -14,6 +14,7 @@ from autoslice.artifact_store import write_artifact_json as _write_artifact_json
 from autoslice.artifact_store import write_artifact_text as _write_artifact_text
 from autoslice import media_probe
 from autoslice import pipeline_analysis
+from autoslice import pipeline_artifacts
 from autoslice import pipeline_boundaries
 from autoslice import pipeline_decisions
 from autoslice import pipeline_llm
@@ -79,6 +80,7 @@ ensure_srt = transcription_workflow.ensure_srt
 export_corrected_srt = transcription_srt_io.export_corrected_srt
 prepare_pipeline_subtitles = pipeline_transcription.prepare_pipeline_subtitles
 prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
+persist_pipeline_artifacts = pipeline_artifacts.persist_pipeline_artifacts
 prepare_pipeline_boundaries = pipeline_boundaries.prepare_pipeline_boundaries
 prepare_pipeline_decisions = pipeline_decisions.prepare_pipeline_decisions
 analyze_pipeline_llm_chunks = pipeline_llm.analyze_pipeline_llm_chunks
@@ -712,108 +714,98 @@ def run_pipeline_impl(
     task_manifest_md_path = artifact_layout["task_manifest_md_path"]
     clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
 
-    _write_artifact_text(md_path, report)
-    _write_artifact_json(
-        json_path,
-        {
-            "video": video_name,
-            "streamer_profile_id": streamer_profile.id,
-            "streamer_name": streamer_name,
-            "streamer_display_name": streamer_display_name,
-            "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
-            "artifact_dir": artifact_layout["artifact_dir"],
-            "overview_path": artifact_layout["overview_path"],
-            "analysis_report_path": md_path,
-            "model_policy": {
-                "topic_analysis": LLM_ANALYSIS_MODEL,
-                "manual_timeline_review": LLM_MODEL,
-                "clip_candidate_review": LLM_MODEL,
-            },
-            "source_srt_path": source_srt_path,
-            "corrected_srt_path": corrected_srt_path,
-            "task_manifest_json_path": task_manifest_json_path,
-            "task_manifest_md_path": task_manifest_md_path,
-            "unified_queue_json_path": unified_queue_json_path,
-            "unified_queue_md_path": unified_queue_md_path,
-            "clip_review_checkpoint_path": clip_review_checkpoint_path,
-            "candidate_review_audit_path": candidate_review_audit_path,
-            "topic_analysis_checkpoint_path": topic_analysis_checkpoint_path,
-            "time_basis": "video_elapsed_seconds",
-            "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
-            "expanded_with_context": True,
-            "context_policy": {
-                "pre_context_sec": TOPIC_PRE_CONTEXT_SEC,
-                "post_context_sec": TOPIC_POST_CONTEXT_SEC,
-                "min_clip_sec": TOPIC_MIN_CLIP_SEC,
-                "max_clip_sec": TOPIC_MAX_CLIP_SEC,
-                "required_context_overflow_sec": TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
-            },
-            "danmaku_selection_policy": {
-                "average_density": round(avg_den, 3),
-                "density_threshold": round(_danmaku_clip_threshold(peaks, avg_den), 3),
-                "local_peak_radius_sec": CLIP_LOCAL_PEAK_RADIUS_SEC,
-                "max_clips_per_hour": None,
-                "fixed_hourly_quota": False,
-                "min_editorial_interest_score": CLIP_MIN_INTEREST_SCORE,
-                "manual_star_can_force_slice": False,
-                "manual_star_review_min_stars": CLIP_MANUAL_REVIEW_MIN_STARS,
-                "semantic_review_can_keep_peak_moved_focus": True,
-                "independent_subtitle_review_required": True,
-            },
-            "api_precheck_warning": api_precheck_warning,
-            "clip_review_warning": clip_review_warning,
-            "clip_review_completed_at": clip_review_completed_at,
-            "failed_chunks": failed_chunks,
-            "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
-            "analysis_topics": analysis_topics,
-            "clip_marks": clip_marks,
+    artifact_payload = {
+        "video": video_name,
+        "streamer_profile_id": streamer_profile.id,
+        "streamer_name": streamer_name,
+        "streamer_display_name": streamer_display_name,
+        "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
+        "artifact_dir": artifact_layout["artifact_dir"],
+        "overview_path": artifact_layout["overview_path"],
+        "analysis_report_path": md_path,
+        "model_policy": {
+            "topic_analysis": LLM_ANALYSIS_MODEL,
+            "manual_timeline_review": LLM_MODEL,
+            "clip_candidate_review": LLM_MODEL,
         },
-    )
-
-    refinement_manifest = reporting_service.build_refinement_manifest(
-        flv_path,
-        source_srt_path,
-        corrected_srt_path,
-        md_path,
-        json_path,
-        clip_marks,
-        task_manifest_json_path,
-        task_manifest_md_path,
-    )
-    refinement_manifest["unified_queue_json_path"] = unified_queue_json_path
-    refinement_manifest["unified_queue_md_path"] = unified_queue_md_path
-    refinement_manifest["artifact_layout_version"] = ARTIFACT_LAYOUT_VERSION
-    refinement_manifest["artifact_dir"] = artifact_layout["artifact_dir"]
-    refinement_manifest["overview_path"] = artifact_layout["overview_path"]
-    reporting_service.write_refinement_manifest_files(refinement_manifest)
-    unified_queue_warning = None
-    try:
-        reporting_service.upsert_unified_refinement_queue(
-            refinement_manifest,
-            queue_json_path=unified_queue_json_path,
-            queue_md_path=unified_queue_md_path,
-        )
-    except (OSError, ValueError, TypeError) as e:
-        unified_queue_warning = f"精调总清单更新失败: {e}"
-        if progress_callback:
-            progress_callback(unified_queue_warning, 99, 100)
-
-    _write_completed_clip_review_checkpoint(
-        clip_review_checkpoint_path,
-        accepted_topics,
-        warning=clip_review_warning,
-        source="pipeline",
-        completed_at=clip_review_completed_at,
-    )
-
-    organized = reporting_service.organize_existing_artifacts(
-        flv_path,
-        output_dir=artifact_layout["output_root"],
-        json_path=json_path,
+        "source_srt_path": source_srt_path,
+        "corrected_srt_path": corrected_srt_path,
+        "task_manifest_json_path": task_manifest_json_path,
+        "task_manifest_md_path": task_manifest_md_path,
+        "unified_queue_json_path": unified_queue_json_path,
+        "unified_queue_md_path": unified_queue_md_path,
+        "clip_review_checkpoint_path": clip_review_checkpoint_path,
+        "candidate_review_audit_path": candidate_review_audit_path,
+        "topic_analysis_checkpoint_path": topic_analysis_checkpoint_path,
+        "time_basis": "video_elapsed_seconds",
+        "time_basis_note": "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end 为原话题范围，start/end 为含前后文的实际切片范围。",
+        "expanded_with_context": True,
+        "context_policy": {
+            "pre_context_sec": TOPIC_PRE_CONTEXT_SEC,
+            "post_context_sec": TOPIC_POST_CONTEXT_SEC,
+            "min_clip_sec": TOPIC_MIN_CLIP_SEC,
+            "max_clip_sec": TOPIC_MAX_CLIP_SEC,
+            "required_context_overflow_sec": TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
+        },
+        "danmaku_selection_policy": {
+            "average_density": round(avg_den, 3),
+            "density_threshold": round(_danmaku_clip_threshold(peaks, avg_den), 3),
+            "local_peak_radius_sec": CLIP_LOCAL_PEAK_RADIUS_SEC,
+            "max_clips_per_hour": None,
+            "fixed_hourly_quota": False,
+            "min_editorial_interest_score": CLIP_MIN_INTEREST_SCORE,
+            "manual_star_can_force_slice": False,
+            "manual_star_review_min_stars": CLIP_MANUAL_REVIEW_MIN_STARS,
+            "semantic_review_can_keep_peak_moved_focus": True,
+            "independent_subtitle_review_required": True,
+        },
+        "api_precheck_warning": api_precheck_warning,
+        "clip_review_warning": clip_review_warning,
+        "clip_review_completed_at": clip_review_completed_at,
+        "failed_chunks": failed_chunks,
+        "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
+        "analysis_topics": analysis_topics,
+        "clip_marks": clip_marks,
+    }
+    artifact_persistence = persist_pipeline_artifacts(
+        video_path=flv_path,
         report_path=md_path,
-        slice_dir=artifact_layout["slice_dir"],
-        artifact_dir=artifact_layout["artifact_dir"],
+        report=report,
+        json_path=json_path,
+        payload=artifact_payload,
+        source_srt_path=source_srt_path,
+        corrected_srt_path=corrected_srt_path,
+        clip_marks=clip_marks,
+        task_manifest_json_path=task_manifest_json_path,
+        task_manifest_md_path=task_manifest_md_path,
+        unified_queue_json_path=unified_queue_json_path,
+        unified_queue_md_path=unified_queue_md_path,
+        artifact_layout_version=ARTIFACT_LAYOUT_VERSION,
+        artifact_layout=artifact_layout,
+        clip_review_checkpoint_path=clip_review_checkpoint_path,
+        accepted_topics=accepted_topics,
+        clip_review_warning=clip_review_warning,
+        checkpoint_source="pipeline",
+        clip_review_completed_at=clip_review_completed_at,
+        queue_warning_callback=progress_callback,
+        write_artifact_text=_write_artifact_text,
+        write_artifact_json=_write_artifact_json,
+        build_refinement_manifest=reporting_service.build_refinement_manifest,
+        write_refinement_manifest_files=(
+            reporting_service.write_refinement_manifest_files
+        ),
+        upsert_unified_refinement_queue=(
+            reporting_service.upsert_unified_refinement_queue
+        ),
+        write_completed_clip_review_checkpoint=(
+            _write_completed_clip_review_checkpoint
+        ),
+        organize_existing_artifacts=(
+            reporting_service.organize_existing_artifacts
+        ),
     )
+    organized = artifact_persistence["organized"]
+    unified_queue_warning = artifact_persistence["unified_queue_warning"]
 
     if progress_callback:
         progress_callback(
@@ -1242,55 +1234,49 @@ def retry_clip_review_from_artifacts_impl(
         "clip_review_completed_at": clip_review_completed_at,
     })
 
-    _write_artifact_text(report_path, report)
-    _write_artifact_json(json_path, data)
-
     task_manifest_json_path = data.get("task_manifest_json_path")
     task_manifest_md_path = data.get("task_manifest_md_path")
     if not task_manifest_json_path or not task_manifest_md_path:
         task_manifest_json_path = artifact_layout["task_manifest_json_path"]
         task_manifest_md_path = artifact_layout["task_manifest_md_path"]
-    refinement_manifest = reporting_service.build_refinement_manifest(
-        flv_path,
-        source_srt_path,
-        corrected_srt_path,
-        report_path,
-        json_path,
-        clip_marks,
-        task_manifest_json_path,
-        task_manifest_md_path,
-    )
-    refinement_manifest["unified_queue_json_path"] = unified_queue_json_path
-    refinement_manifest["unified_queue_md_path"] = unified_queue_md_path
-    refinement_manifest["artifact_layout_version"] = ARTIFACT_LAYOUT_VERSION
-    refinement_manifest["artifact_dir"] = artifact_layout["artifact_dir"]
-    refinement_manifest["overview_path"] = artifact_layout["overview_path"]
-    reporting_service.write_refinement_manifest_files(refinement_manifest)
-    try:
-        reporting_service.upsert_unified_refinement_queue(
-            refinement_manifest,
-            queue_json_path=unified_queue_json_path,
-            queue_md_path=unified_queue_md_path,
-        )
-    except (OSError, ValueError, TypeError) as exc:
-        refinement_manifest["unified_queue_warning"] = f"精调总清单更新失败: {exc}"
-        reporting_service.write_refinement_manifest_files(refinement_manifest)
-
-    _write_completed_clip_review_checkpoint(
-        clip_review_checkpoint_path,
-        accepted_topics,
-        warning=clip_review_warning,
-        source="artifact_retry",
-        completed_at=clip_review_completed_at,
-    )
-    organized = reporting_service.organize_existing_artifacts(
-        flv_path,
-        output_dir=artifact_layout["output_root"],
-        json_path=json_path,
+    artifact_persistence = persist_pipeline_artifacts(
+        video_path=flv_path,
         report_path=report_path,
-        slice_dir=artifact_layout["slice_dir"],
-        artifact_dir=artifact_layout["artifact_dir"],
+        report=report,
+        json_path=json_path,
+        payload=data,
+        source_srt_path=source_srt_path,
+        corrected_srt_path=corrected_srt_path,
+        clip_marks=clip_marks,
+        task_manifest_json_path=task_manifest_json_path,
+        task_manifest_md_path=task_manifest_md_path,
+        unified_queue_json_path=unified_queue_json_path,
+        unified_queue_md_path=unified_queue_md_path,
+        artifact_layout_version=ARTIFACT_LAYOUT_VERSION,
+        artifact_layout=artifact_layout,
+        clip_review_checkpoint_path=clip_review_checkpoint_path,
+        accepted_topics=accepted_topics,
+        clip_review_warning=clip_review_warning,
+        checkpoint_source="artifact_retry",
+        clip_review_completed_at=clip_review_completed_at,
+        write_manifest_on_queue_warning=True,
+        write_artifact_text=_write_artifact_text,
+        write_artifact_json=_write_artifact_json,
+        build_refinement_manifest=reporting_service.build_refinement_manifest,
+        write_refinement_manifest_files=(
+            reporting_service.write_refinement_manifest_files
+        ),
+        upsert_unified_refinement_queue=(
+            reporting_service.upsert_unified_refinement_queue
+        ),
+        write_completed_clip_review_checkpoint=(
+            _write_completed_clip_review_checkpoint
+        ),
+        organize_existing_artifacts=(
+            reporting_service.organize_existing_artifacts
+        ),
     )
+    organized = artifact_persistence["organized"]
     if progress_callback:
         progress_callback(
             f"候选复核完成：{len(clip_marks)} 个可切片段 → {json_path}",

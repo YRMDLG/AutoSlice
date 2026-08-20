@@ -2578,7 +2578,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 891)
+        self.assertEqual(current["summary"]["top_level_function_count"], 892)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3692,6 +3692,80 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         )
         self.assertEqual(current["test_private_patches"]["total"], 17)
 
+    def test_pipeline_artifacts_has_one_owner_direct_consumers_and_hard_limits(self):
+        from autoslice import pipeline, pipeline_artifacts
+
+        self.assertIs(
+            pipeline.persist_pipeline_artifacts,
+            pipeline_artifacts.persist_pipeline_artifacts,
+        )
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner_module = modules["autoslice.pipeline_artifacts"]
+        self.assertEqual(
+            [item["name"] for item in owner_module["top_level_functions"]],
+            ["persist_pipeline_artifacts"],
+        )
+        self.assertEqual(owner_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.pipeline_artifacts"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_artifacts", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.pipeline_artifacts", "autoslice.topic_engine"),
+            import_edges,
+        )
+
+        owner_source = (
+            ROOT / "src/autoslice/pipeline_artifacts.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("autoslice.pipeline", owner_source)
+        self.assertNotIn("topic_engine", owner_source)
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        for implementation_name in (
+            "run_pipeline_impl",
+            "retry_clip_review_from_artifacts_impl",
+        ):
+            implementation = next(
+                node for node in pipeline_tree.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name == implementation_name
+            )
+            owner_calls = [
+                node for node in ast.walk(implementation)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "persist_pipeline_artifacts"
+            ]
+            self.assertEqual(len(owner_calls), 1)
+            self.assertTrue(
+                {
+                    "_write_artifact_text",
+                    "_write_completed_clip_review_checkpoint",
+                }.isdisjoint({
+                    node.func.id for node in ast.walk(implementation)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                })
+            )
+
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"], 0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
     def test_pipeline_boundaries_has_one_owner_direct_consumers_and_hard_limits(self):
         from autoslice import pipeline, pipeline_boundaries, reporting
         from autoslice.analysis import boundaries
@@ -4799,7 +4873,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            891,
+            892,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
