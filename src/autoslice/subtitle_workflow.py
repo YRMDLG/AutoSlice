@@ -17,6 +17,7 @@ from pathlib import Path
 
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import PromptContext, build_title_hook_guide
+from autoslice.media_formats import SUPPORTED_VIDEO_EXTENSIONS
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -55,7 +56,9 @@ _GENERATED_SUBTITLE_SUFFIXES = (
     "_字幕版",
     "_字幕预览",
 )
-_SUBMISSION_VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv"}
+# 字幕工作台必须能接住自动切片可能生成的所有受支持容器；压制输出
+# 仍由 DEFAULT_VIDEO_EXPORT 统一生成 MP4，不等于输入容器必须是 MP4。
+_SUBMISSION_VIDEO_SUFFIXES = frozenset(SUPPORTED_VIDEO_EXTENSIONS)
 
 EXACT_SUBTITLE_FONT = "Noto Sans S Chinese Black"
 EXACT_SUBTITLE_FONT_RESOLVED = "NotoSansHans-Black"
@@ -877,7 +880,8 @@ def transcribe_submission_video(
     if not video.is_file():
         raise ValueError("投稿视频文件不存在")
     if video.suffix.casefold() not in _SUBMISSION_VIDEO_SUFFIXES:
-        raise ValueError("投稿视频格式不受支持")
+        supported = ", ".join(sorted(_SUBMISSION_VIDEO_SUFFIXES))
+        raise ValueError(f"投稿视频格式不受支持，字幕工作台支持：{supported}")
 
     if transcription_service is None or not callable(transcription_service):
         raise ValueError("字幕转录必须显式注入 transcription_service")

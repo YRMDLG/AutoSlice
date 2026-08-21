@@ -52,7 +52,11 @@ def install_recommended_models(snapshot_loader=None):
         try:
             from modelscope import snapshot_download
         except ImportError as exc:
-            raise RuntimeError("缺少 modelscope，请先运行 python -m pip install -r requirements.txt") from exc
+            raise RuntimeError(
+                "缺少 modelscope。请先运行 "
+                'python -m pip install -e ".[asr-models]"，'
+                "或执行 python -m pip install modelscope 后重试。"
+            ) from exc
         snapshot_loader = snapshot_download
 
     # 启动器日常运行保持离线；安装脚本被明确执行时才临时允许联网下载。

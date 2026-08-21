@@ -28,6 +28,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["ruff>=0.9,<1.0"]
+asr-models = ["modelscope>=1.20,<2.0"]
+asr-cpu = ["torch>=2.0"]
 
 [project.scripts]
 autoslice = "autoslice.launcher:main"

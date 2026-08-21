@@ -1,9 +1,11 @@
 {
   "base_url": "https://api.example.com/v1",
   "token": "YOUR_API_TOKEN",
-  "model": "YOUR_REVIEW_MODEL",
+  "model": "gpt-5.6-terra",
   "api_type": "openai",
   "proxy_mode": "direct",
   "http_proxy": null,
-  "https_proxy": null
+  "https_proxy": null,
+  "analysis_reasoning_effort": "max",
+  "review_reasoning_effort": "max"
 }

@@ -80,7 +80,7 @@ def is_analyzable_video(path: str | os.PathLike[str]) -> bool:
 
 
 def is_sliceable_video(path: str | os.PathLike[str]) -> bool:
-    """判断文件是否可使用当前 codec-copy 切片流程。"""
+    """判断文件是否可使用当前精确切片流程。"""
 
     capability = media_format_for(path)
     return bool(capability and capability.can_slice)
@@ -107,7 +107,7 @@ def _slice_capability(
 
 
 def preferred_output_extension(source_path: str | os.PathLike[str]) -> str:
-    """返回 codec-copy 切片首选容器；默认保留受支持的源容器。"""
+    """返回精确切片首选容器；默认保留受支持的源容器后缀。"""
 
     capability = _slice_capability(source_path)
     return capability.copy_output_extension

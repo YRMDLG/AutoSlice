@@ -6,7 +6,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, mock_open, patch
 
 import requests
 
@@ -74,6 +74,39 @@ class LLMConfigTransportTests(unittest.TestCase):
         self.assertEqual(config.analysis_reasoning_effort, "xhigh")
         self.assertEqual(config.review_reasoning_effort, "xhigh")
 
+    def test_load_api_config_uses_supplied_environment_for_default_model(self):
+        config = transport.load_api_config(
+            project_dir="unused",
+            environ={
+                "AUTOSLICE_API_BASE_URL": "https://gateway.example/v1",
+                "AUTOSLICE_API_TOKEN": "test-token",
+                "AUTOSLICE_API_TYPE": "openai",
+                "AUTOSLICE_LLM_MODEL": "gpt-5.6-luna",
+            },
+        )
+
+        self.assertEqual(config.model, "gpt-5.6-luna")
+
+    def test_resolve_configured_model_name_reads_project_model_without_exposing_token(self):
+        payload = {
+            "base_url": "https://gateway.example/v1",
+            "token": "secret-token",
+            "model": "gpt-5.6-terra-custom",
+            "api_type": "openai",
+        }
+        with (
+            patch("autoslice.llm.transport.os.path.exists", return_value=True),
+            patch("builtins.open", mock_open(read_data="{}")),
+            patch("autoslice.llm.transport.json.load", return_value=payload),
+        ):
+            model = transport.resolve_configured_model_name(
+                project_dir="C:/private/project",
+                default_model="fallback-model",
+                environ={},
+            )
+
+        self.assertEqual(model, "gpt-5.6-terra-custom")
+
     def test_invalid_config_does_not_echo_token(self):
         with self.assertRaisesRegex(ValueError, "HTTP") as raised:
             transport.normalise_api_config(
@@ -87,6 +120,36 @@ class LLMConfigTransportTests(unittest.TestCase):
             )
 
         self.assertNotIn("do-not-leak", str(raised.exception))
+
+    def test_base_url_rejects_complete_compatibility_endpoint(self):
+        for endpoint in ("/chat/completions", "/messages"):
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaisesRegex(ValueError, "根地址"):
+                    transport.normalise_api_config(
+                        {
+                            "base_url": f"https://gateway.example/v1{endpoint}",
+                            "token": "test-token",
+                            "model": "gpt-5.6-terra",
+                            "api_type": "openai",
+                        },
+                        "test",
+                        default_model="gpt-5.6-terra",
+                    )
+
+    def test_base_url_rejects_query_and_fragment(self):
+        for suffix in ("?key=value", "#messages"):
+            with self.subTest(suffix=suffix):
+                with self.assertRaisesRegex(ValueError, "查询参数或片段"):
+                    transport.normalise_api_config(
+                        {
+                            "base_url": f"https://gateway.example/v1{suffix}",
+                            "token": "test-token",
+                            "model": "gpt-5.6-terra",
+                            "api_type": "openai",
+                        },
+                        "test",
+                        default_model="gpt-5.6-terra",
+                    )
 
 
 class ProxyModeTests(unittest.TestCase):

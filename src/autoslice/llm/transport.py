@@ -133,6 +133,17 @@ def normalise_api_config(
             or parsed.password is not None
             or (valid_port is not None and not 1 <= valid_port <= 65535)):
         raise ValueError(f"API base_url 必须是有效的 HTTP(S) 地址：{source}")
+    endpoint_path = parsed.path.rstrip("/").casefold()
+    if endpoint_path.endswith(("/chat/completions", "/messages")):
+        raise ValueError(
+            "API base_url 必须填写 API 根地址，不要包含 /chat/completions 或 /messages；"
+            f"请修正配置：{source}"
+        )
+    if parsed.query or parsed.fragment:
+        raise ValueError(
+            "API base_url 不能包含查询参数或片段；请填写不带 ? 或 # 的 API 根地址："
+            f"{source}"
+        )
     if not token:
         raise ValueError(f"API 配置缺少 token：{source}")
     if not model:
@@ -201,12 +212,12 @@ def load_api_config(
     project_dir = str(PROJECT_DIR if project_dir is None else project_dir)
     path_module = path_module or os.path
     json_loader = json_loader or json.load
+    environ = os.environ if environ is None else environ
     default_model = str(
         default_model
-        or os.environ.get("AUTOSLICE_LLM_MODEL", "").strip()
+        or str(environ.get("AUTOSLICE_LLM_MODEL") or "").strip()
         or DEFAULT_MODEL
     )
-    environ = os.environ if environ is None else environ
     env_keys = (
         "AUTOSLICE_API_BASE_URL",
         "AUTOSLICE_API_TOKEN",
@@ -264,6 +275,23 @@ def load_api_config(
         "或设置 AUTOSLICE_API_BASE_URL、AUTOSLICE_API_TOKEN 和 "
         "AUTOSLICE_API_TYPE。"
     )
+
+
+def resolve_configured_model_name(
+        *, default_model: Optional[str] = None, project_dir: Any = None,
+        environ: Optional[dict] = None) -> str:
+    """返回当前配置实际使用的模型名，不暴露 token，也不阻断已完成报告。"""
+
+    fallback = str(default_model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    try:
+        config = load_api_config(
+            project_dir=project_dir,
+            default_model=fallback,
+            environ=environ,
+        )
+    except (OSError, TypeError, ValueError):
+        return fallback
+    return str(config.model or fallback).strip() or fallback
 
 
 def extract_json_payload(text: Any) -> Any:
@@ -910,6 +938,7 @@ __all__ = [
     "parse_openai_response",
     "read_json_config",
     "reset_reasoning_effort_capability_cache",
+    "resolve_configured_model_name",
     "response_has_complete_json",
     "short_llm_error",
 ]

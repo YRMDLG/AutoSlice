@@ -7,9 +7,15 @@ from autoslice.setup_asr_model import (
     _download_model,
     install_recommended_models,
 )
+from unittest.mock import patch
 
 
 class SetupAsrModelTests(unittest.TestCase):
+    def test_missing_modelscope_reports_optional_install_command(self):
+        with patch.dict("sys.modules", {"modelscope": None}):
+            with self.assertRaisesRegex(RuntimeError, r'\.\[asr-models\]'):
+                install_recommended_models()
+
     def test_installer_verifies_all_recommended_model_caches(self):
         calls = []
         with TemporaryDirectory() as tmp:

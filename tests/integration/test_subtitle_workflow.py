@@ -759,6 +759,21 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
         self.assertFalse(after[0]["needs_transcription"])
         self.assertEqual(after[0]["cue_count"], 3)
 
+    def test_scan_submission_pairs_accepts_all_supported_input_containers(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for index, suffix in enumerate((".flv", ".mp4", ".mkv", ".mov", ".avi")):
+                folder = root / f"投稿{index}"
+                folder.mkdir()
+                (folder / f"精剪成片{suffix}").write_bytes(b"video")
+
+            pairs = scan_submission_pairs(root)
+
+        self.assertEqual(
+            {Path(item["video_path"]).suffix.casefold() for item in pairs},
+            {".flv", ".mp4", ".mkv", ".mov", ".avi"},
+        )
+
     def test_reflow_long_subtitles_keeps_source_and_scanner_prefers_working_copy(self):
         with tempfile.TemporaryDirectory() as td:
             folder = Path(td) / "待校对投稿"

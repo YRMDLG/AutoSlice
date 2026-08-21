@@ -30,6 +30,7 @@ from autoslice import pipeline_transcription
 from autoslice import reporting as reporting_service
 from autoslice import slicing as slicing_service
 from autoslice import timecode
+from autoslice.llm import transport as llm_gateway
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import danmaku as danmaku_analysis
@@ -738,7 +739,9 @@ def run_pipeline_impl(
             required_context_overflow_sec=TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
         ),
         topic_analysis_model=LLM_ANALYSIS_MODEL,
-        review_model=LLM_MODEL,
+        review_model=llm_gateway.resolve_configured_model_name(
+            default_model=LLM_MODEL,
+        ),
         clip_review_completed_at=clip_review_completed_at,
         artifact_layout_version=ARTIFACT_LAYOUT_VERSION,
         build_timeline_report=reporting_service.build_timeline_report,
@@ -1017,6 +1020,9 @@ def retry_clip_review_from_artifacts_impl(
             min_clip_sec=TOPIC_MIN_CLIP_SEC,
             max_clip_sec=TOPIC_MAX_CLIP_SEC,
             required_context_overflow_sec=TOPIC_REQUIRED_CONTEXT_OVERFLOW_SEC,
+        ),
+        review_model=llm_gateway.resolve_configured_model_name(
+            default_model=LLM_MODEL,
         ),
         clip_review_completed_at=clip_review_completed_at,
         artifact_layout_version=ARTIFACT_LAYOUT_VERSION,

@@ -87,6 +87,21 @@ class TranscriptionModelRuntimeTests(unittest.TestCase):
         self.assertEqual(model._autoslice_foreground_filter, "speaker_diarization")
         self.assertTrue(any("自动改用 CPU" in event[0] for event in progress))
 
+    def test_model_load_reports_actionable_cpu_torch_install_hint(self):
+        def missing_torch(**_kwargs):
+            raise ModuleNotFoundError("No module named 'torch'")
+
+        with patch.object(
+            model_runtime,
+            "resolve_funasr_model_source",
+            return_value="asr-cache",
+        ):
+            with self.assertRaisesRegex(RuntimeError, r'\.\[asr-cpu\]'):
+                model_runtime.load_funasr_model(
+                    missing_torch,
+                    device="cpu",
+                )
+
     def test_public_status_never_returns_local_model_path(self):
         with TemporaryDirectory(prefix="autoslice-private-model-") as directory:
             model_dir = Path(directory) / "Fun-ASR-Nano-2512"

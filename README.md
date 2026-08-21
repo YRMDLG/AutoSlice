@@ -22,7 +22,8 @@ python -m pip install --upgrade pip
 # 推荐：安装统一项目及 AutoSlice/AutoCover 依赖
 python -m pip install -e .
 
-# 首次使用：下载推荐的 ASR/VAD/标点/CAM++ 模型
+# 首次使用：安装模型下载器并下载推荐的 ASR/VAD/标点/CAM++ 模型
+python -m pip install -e ".[asr-models]"
 python setup_asr_model.py
 
 # 可选：64 位 Windows + NVIDIA 显卡安装隔离 CUDA 运行时（约 1.9 GB）
@@ -58,7 +59,7 @@ LLM API、代理、目录、模型和 LAN 设置见[配置说明](docs/配置说
 
 ## 输入、输出与依赖
 
-AutoSlice 的录播扫描、分析和切片支持大小写不敏感的 `.flv`、`.mp4`、`.mkv`、`.mov`、`.avi`。codec-copy 自动切片默认保留源容器，例如 MP4 输入输出 MP4；为兼容旧版本，读取既有结果时仍会识别历史 FLV 切片。字幕工作台仍以剪映等工具导出的精剪 MP4/SRT 流程为主。
+AutoSlice 的录播扫描、分析、精确切片和字幕工作台输入支持大小写不敏感的 `.flv`、`.mp4`、`.mkv`、`.mov`、`.avi`。精确切片会重新编码视频流、尽量直接复制音频流，并默认保留源容器后缀；为兼容旧版本，读取既有结果时仍会识别历史 FLV 切片。字幕压制输出仍以 MP4 为主，便于后续投稿。
 
 `pyproject.toml` 是统一项目的依赖和命令行入口声明；
 `requirements.txt` 保留给现有脚本和不使用 editable 安装的用户，内容与统一依赖同步。
@@ -67,8 +68,10 @@ AutoCover 仍可用自己的依赖文件单独运行：
 | 来源 | 内容 |
 |---|---|
 | `pyproject.toml` / `requirements.txt` | `Flask`、`Pillow`、`FunASR`、`soxr`、`python-docx`、`requests` |
+| `pyproject.toml` 的 `asr-models` 可选组 | `modelscope`，仅在执行 `setup_asr_model.py` 下载模型时需要 |
+| `pyproject.toml` 的 `asr-cpu` 可选组 | `torch`，仅在当前 Python 缺少 CPU FunASR 运行依赖时安装 |
 | `autocover_tool/requirements.txt` | 只单独运行 AutoCover 时使用的 `Flask`、`Pillow` |
-| `setup_gpu_runtime.py` | Windows 隔离 GPU 运行时使用的 `torch`/`torchaudio` 范畴依赖；不属于通用根依赖 |
+| `setup_gpu_runtime.py` | Windows 隔离 GPU 运行时使用的 `torch` 依赖；不属于通用根依赖 |
 | 系统外部依赖 | `ffmpeg`、`ffprobe`，必须单独安装并加入 `PATH` |
 
 ## 完整工作流

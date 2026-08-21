@@ -18,6 +18,7 @@ def prepare_retry_report(
         clip_review_completed_at, artifact_layout_version,
         build_timeline_report, analysis_topics_snapshot,
         manual_timeline_summary, warning_without_previous_clip_review,
+        review_model=None,
 ):
     """构建 retry 报告并更新共同产物 payload，不执行任何文件写入。"""
     base_warning = warning_without_previous_clip_review(data)
@@ -47,6 +48,7 @@ def prepare_retry_report(
         corrected_srt_path=corrected_srt_path,
         unified_queue_md_path=unified_queue_md_path,
         report_dir=artifact_layout["artifact_dir"],
+        review_model=review_model,
     )
     analysis_topics = analysis_topics_snapshot(accepted_topics)
 
@@ -81,6 +83,13 @@ def prepare_retry_report(
         "clip_marks": clip_marks,
         "clip_review_completed_at": clip_review_completed_at,
     })
+    if review_model:
+        model_policy = dict(data.get("model_policy") or {})
+        model_policy.update({
+            "manual_timeline_review": review_model,
+            "clip_candidate_review": review_model,
+        })
+        data["model_policy"] = model_policy
 
     task_manifest_json_path = data.get("task_manifest_json_path")
     task_manifest_md_path = data.get("task_manifest_md_path")

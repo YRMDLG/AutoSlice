@@ -366,6 +366,34 @@ def _annotate_model_runtime(
     return model
 
 
+def _funasr_load_error_message(exc, *, model_source, selected_device):
+    """把常见的 ASR 依赖缺失转换成可直接执行的排查提示。"""
+    error_text = str(exc).casefold()
+    missing_torch = isinstance(exc, ModuleNotFoundError) and (
+        getattr(exc, "name", "") == "torch"
+    )
+    missing_torch = missing_torch or (
+        "no module named 'torch'" in error_text
+        or 'no module named "torch"' in error_text
+    )
+    if missing_torch:
+        if str(selected_device).casefold().startswith("cuda"):
+            install_hint = (
+                '请先运行 python setup_gpu_runtime.py 安装隔离 CUDA 运行时，'
+                "或关闭 GPU 后执行：python -m pip install -e \".[asr-cpu]\"。"
+            )
+        else:
+            install_hint = (
+                '请执行：python -m pip install -e ".[asr-cpu]"，'
+                "然后重新启动 AutoSlice。"
+            )
+        return f"FunASR 缺少 PyTorch 运行依赖。{install_hint}"
+    return (
+        "FunASR 模型加载失败：本地 ModelScope 缓存不可用，或模型下载被网络/SSL 中断。"
+        "请先生成同名 SRT，或在网络正常时预下载 FunASR 模型后重试。"
+    )
+
+
 def load_funasr_model(
         AutoModel, progress_callback=None, device=None, foreground_only=False):
     """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
@@ -439,9 +467,10 @@ def load_funasr_model(
                 )
             except Exception as cpu_exc:
                 exc = cpu_exc
-        message = (
-            "FunASR 模型加载失败：本地 ModelScope 缓存不可用，或模型下载被网络/SSL 中断。"
-            "请先生成同名 SRT，或在网络正常时预下载 FunASR 模型后重试。"
+        message = _funasr_load_error_message(
+            exc,
+            model_source=model_source,
+            selected_device=selected_device,
         )
         if progress_callback:
             progress_callback(f"{message} 原始错误: {exc}", 0, 100)

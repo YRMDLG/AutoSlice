@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -167,7 +168,16 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('"Pillow>=10.0,<13.0"', pyproject)
         self.assertIn("Pillow", autocover_requirements)
         self.assertNotIn("torch", root_requirements.casefold())
-        self.assertNotIn('"torch', pyproject.casefold())
+        project_dependencies = re.search(
+            r"(?ms)^dependencies\s*=\s*\[(.*?)^\]",
+            pyproject,
+        ).group(1)
+        self.assertNotIn(
+            "torch",
+            project_dependencies.casefold(),
+        )
+        self.assertIn('asr-cpu = ["torch>=2.0"]', pyproject)
+        self.assertIn('asr-models = ["modelscope>=1.20,<2.0"]', pyproject)
         self.assertNotIn("PIL", launcher.REQUIRED_IMPORTS)
         self.assertNotIn("torch", launcher.REQUIRED_IMPORTS)
 

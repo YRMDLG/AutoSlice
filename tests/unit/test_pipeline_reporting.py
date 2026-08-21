@@ -107,6 +107,8 @@ class PreparePipelineReportTests(unittest.TestCase):
         self.assertEqual(report_call[2]["api_warning"], "上游警告")
         self.assertEqual(report_call[2]["streamer_name"], "展示名")
         self.assertTrue(report_call[2]["group_by_hour"])
+        self.assertEqual(report_call[2]["topic_analysis_model"], "luna")
+        self.assertEqual(report_call[2]["review_model"], "terra")
         self.assertIs(report_call[2]["manual_timeline"], state["manual_timeline"])
         self.assertIs(report_call[2]["clip_marks"], state["clip_marks"])
         self.assertEqual(report_call[2]["report_dir"], "bundle")

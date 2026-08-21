@@ -33,6 +33,7 @@ from autoslice.llm.transport import (
     read_json_config,
     reset_reasoning_effort_capability_cache,
     response_has_complete_json,
+    resolve_configured_model_name,
     short_llm_error,
 )
 
@@ -70,5 +71,6 @@ __all__ = [
     "read_json_config",
     "reset_reasoning_effort_capability_cache",
     "response_has_complete_json",
+    "resolve_configured_model_name",
     "short_llm_error",
 ]

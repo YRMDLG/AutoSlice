@@ -66,6 +66,8 @@ def prepare_pipeline_report(
         corrected_srt_path=corrected_srt_path,
         unified_queue_md_path=unified_queue_md_path,
         report_dir=artifact_layout["artifact_dir"],
+        topic_analysis_model=topic_analysis_model,
+        review_model=review_model,
     )
     report_path = artifact_layout["report_path"]
     clip_marks_path = artifact_layout["clip_marks_path"]

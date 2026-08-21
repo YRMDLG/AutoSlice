@@ -81,7 +81,8 @@ LLM_ANALYSIS_MODEL = topic_analysis.LLM_ANALYSIS_MODEL
 
 
 LLM_REVIEW_MODEL = (
-    os.environ.get("AUTOSLICE_LLM_REVIEW_MODEL", "").strip()
+    os.environ.get("AUTOSLICE_LLM_MODEL", "").strip()
+    or os.environ.get("AUTOSLICE_LLM_REVIEW_MODEL", "").strip()
     or "gpt-5.6-terra"
 )
 
@@ -980,14 +981,16 @@ def build_timeline_report(
         video_name, peak_info, topics, failed_chunks=None, api_warning=None,
         streamer_name="主播", group_by_hour=False, manual_timeline=None,
         clip_marks=None, corrected_srt_path=None, unified_queue_md_path=None,
-        report_dir=None):
+        report_dir=None, topic_analysis_model=None, review_model=None):
     """生成最终 Markdown：逐话题时间轴 + Part 分组。"""
     manual_timeline = manual_timeline or {}
     manual_entries = manual_timeline.get("entries") or []
+    topic_analysis_model = topic_analysis_model or LLM_ANALYSIS_MODEL
+    review_model = review_model or LLM_REVIEW_MODEL
     lines = [
         f"# {video_name} 话题分析报告",
-        f"> 自动生成 | 模型: {LLM_ANALYSIS_MODEL}（整场话题） + "
-        f"{LLM_REVIEW_MODEL}（人工时间轴/切片复核） | {peak_info}",
+        f"> 自动生成 | 模型: {topic_analysis_model}（整场话题） + "
+        f"{review_model}（人工时间轴/切片复核） | {peak_info}",
         "> 时间基准：视频内时间/播放进度（不是现实钟点）；实际切片会自动向前后扩展保留上下文",
     ]
     if corrected_srt_path:

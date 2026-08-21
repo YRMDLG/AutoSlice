@@ -2,8 +2,8 @@
 $env:AUTOSLICE_API_BASE_URL = "https://api.example.com/v1"
 $env:AUTOSLICE_API_TOKEN = "YOUR_API_TOKEN"
 $env:AUTOSLICE_API_TYPE = "openai"
-$env:AUTOSLICE_ANALYSIS_MODEL = "YOUR_ANALYSIS_MODEL"
-$env:AUTOSLICE_LLM_MODEL = "YOUR_REVIEW_MODEL"
+$env:AUTOSLICE_ANALYSIS_MODEL = "gpt-5.6-luna"
+$env:AUTOSLICE_LLM_MODEL = "gpt-5.6-terra"
 
 # LLM 代理默认 direct：忽略 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY。
 # 使用 requests 环境代理时改为 system；使用 AutoSlice 专用代理时改为 custom，
