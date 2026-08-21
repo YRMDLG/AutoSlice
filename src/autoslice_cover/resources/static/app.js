@@ -208,6 +208,22 @@ function normalizedDraftTimestamp(value) {
   return number < 1_000_000_000_000 ? number * 1000 : number;
 }
 
+function draftPreviewMatches(localDraft, diskDraft) {
+  if (!localDraft?.settings || !diskDraft?.settings) return false;
+  const localTimestamp = Number(localDraft.selected_timestamp);
+  const diskTimestamp = Number(diskDraft.selected_timestamp);
+  const sameTimestamp = (
+    !Number.isFinite(localTimestamp) && !Number.isFinite(diskTimestamp)
+  ) || (
+    Number.isFinite(localTimestamp)
+    && Number.isFinite(diskTimestamp)
+    && Math.abs(localTimestamp - diskTimestamp) <= 0.05
+  );
+  if (!sameTimestamp) return false;
+  return JSON.stringify(serializeTaskSettings(localDraft.settings))
+    === JSON.stringify(serializeTaskSettings(diskDraft.settings));
+}
+
 function loadStoredDrafts() {
   state.drafts.clear();
   try {
@@ -243,9 +259,15 @@ function mergeDiskDrafts(items, workspaceRoot) {
     };
     const local = state.drafts.get(key);
     if (local && normalizedDraftTimestamp(local.updated_at) > diskDraft.updated_at) {
+      const reusableDiskPreviews = draftPreviewMatches(local, diskDraft)
+        ? diskDraft.previews
+        : {};
       state.drafts.set(key, {
         ...local,
-        previews: {},
+        // 浏览器在收到成功预览响应后会比服务端磁盘写入晚几毫秒更新
+        // localStorage。若设置和选中帧完全相同，磁盘预览仍然有效，不能仅因
+        // 时间戳较新就清空，否则每次刷新都会丢失预览并重新渲染。
+        previews: reusableDiskPreviews,
         active: diskDraft.active,
         disk_saved: true,
       });

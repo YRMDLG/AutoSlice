@@ -783,6 +783,92 @@ if (Object.keys(taskDraft(task).previews).length) throw new Error("设置变化�
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证刷新后的磁盘预览恢复")
+    def test_newer_matching_local_draft_keeps_valid_disk_preview(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const storage = new Map();
+global.localStorage = {
+  getItem(key){ return storage.has(key) ? storage.get(key) : null; },
+  setItem(key, value){ storage.set(key, String(value)); },
+};
+window.clearTimeout = clearTimeout;
+window.setTimeout = setTimeout;
+state.options = {
+  templates: [{key: "headline"}],
+  palettes: [{key: "classic"}],
+};
+state.workspaceConfig = {root: "F:\\Videos"};
+const task = {
+  id: "matching-draft-task",
+  relative_path: "投稿/片段.mp4",
+  title: "默认标题",
+  template_key: "headline",
+  palette_key: "classic",
+  selected_timestamp: 12.5,
+};
+state.tasks = [task];
+const settings = {
+  title: "已保存标题",
+  template_key: "headline",
+  palette_key: "classic",
+  copy_lines: ["封面大字"],
+  line_colors: ["#ffffff"],
+  line_stroke_colors: ["#111111"],
+  auto_style: false,
+  layouts: {
+    "4x3": {text: null, stickers: [], focus_x: 0.4, focus_y: 0.6, background_scale: 1.5},
+    "16x9": {text: null, stickers: [], focus_x: 0.5, focus_y: 0.5, background_scale: 1},
+  },
+};
+const key = taskDraftKey(task);
+state.drafts.set(key, {
+  updated_at: 2_000,
+  selected_timestamp: 12.5,
+  settings,
+  previews: {"4x3": {media_token: "stale-browser-token"}},
+  disk_saved: true,
+});
+mergeDiskDrafts([{
+  relative_path: task.relative_path,
+  updated_at: 1_999,
+  selected_timestamp: 12.5,
+  active: true,
+  settings,
+  previews: {"4x3": {media_token: "fresh-disk-token", placements: []}},
+}], state.workspaceConfig.root);
+if (taskDraft(task).previews["4x3"]?.media_token !== "fresh-disk-token") {
+  throw new Error("相同设置的较新本地草稿错误丢弃了有效磁盘预览");
+}
+
+state.drafts.set(key, {
+  ...taskDraft(task),
+  updated_at: 3_000,
+  selected_timestamp: 13.0,
+});
+mergeDiskDrafts([{
+  relative_path: task.relative_path,
+  updated_at: 2_999,
+  selected_timestamp: 12.5,
+  active: true,
+  settings,
+  previews: {"4x3": {media_token: "wrong-frame-token", placements: []}},
+}], state.workspaceConfig.root);
+if (Object.keys(taskDraft(task).previews).length) {
+  throw new Error("选中帧变化后仍错误复用了旧磁盘预览");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证预览图层切换")
     def test_interactive_preview_uses_preloaded_background_layer(self) -> None:
         with self.client.get("/static/app.js") as response:
