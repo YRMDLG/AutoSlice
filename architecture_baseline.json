@@ -4736,6 +4736,15 @@
       "qualname": "create_app"
     },
     {
+      "end_line": 316,
+      "kind": "function",
+      "line": 9,
+      "line_count": 308,
+      "module": "autoslice.pipeline_retry",
+      "path": "src/autoslice/pipeline_retry.py",
+      "qualname": "prepare_retry_pipeline_state"
+    },
+    {
       "end_line": 320,
       "kind": "function",
       "line": 21,
@@ -4761,15 +4770,6 @@
       "module": "autoslice.analysis.topic.analysis",
       "path": "src/autoslice/analysis/topic/analysis.py",
       "qualname": "analyze_topic_chunks"
-    },
-    {
-      "end_line": 281,
-      "kind": "function",
-      "line": 9,
-      "line_count": 273,
-      "module": "autoslice.pipeline_retry",
-      "path": "src/autoslice/pipeline_retry.py",
-      "qualname": "prepare_retry_pipeline_state"
     },
     {
       "end_line": 405,
@@ -8502,21 +8502,21 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 281,
+      "line_count": 316,
       "longest_function": {
-        "end_line": 281,
+        "end_line": 316,
         "kind": "function",
         "line": 9,
-        "line_count": 273,
+        "line_count": 308,
         "qualname": "prepare_retry_pipeline_state"
       },
       "module": "autoslice.pipeline_retry",
       "path": "src/autoslice/pipeline_retry.py",
-      "sha256": "721a97bc142c9a9aad90ddee8cc9d8c08c162dbebec619b50f4745014dc7f001",
+      "sha256": "2bdd105ce4498153b606e65b19523d7968bda1e1891d63abf21e36ca58082fdd",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 281,
+          "end_line": 316,
           "kind": "function",
           "line": 9,
           "name": "prepare_retry_pipeline_state"
@@ -13717,7 +13717,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 443,
-    "production_line_count": 37758,
+    "production_line_count": 37793,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,

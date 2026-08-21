@@ -298,6 +298,49 @@ class PrepareRetryPipelineStateTests(unittest.TestCase):
         self.assertTrue(pending["clip_review_candidate"])
         self.assertEqual(pending["clip_review_rejection"], "等待独立字幕复核")
 
+    def test_warning_checkpoint_reopens_manual_candidate_after_provider_failure(self):
+        manual_entry = {
+            "start": 10,
+            "end": 20,
+            "text": "人工时间轴重点",
+            "stars": 0,
+            "source": "optimized_manual_timeline",
+        }
+        result, _calls = self._run(
+            {
+                "analysis_topics": [{
+                    "title": "最新分析话题",
+                    "start": 10,
+                    "end": 20,
+                    "body": ["·完整事件"],
+                }],
+            },
+            checkpoint={
+                "stage": "completed_with_warning",
+                "topics": [{
+                    "title": "旧已复核话题",
+                    "start": 10,
+                    "end": 20,
+                    "body": ["·完整事件"],
+                    "manual_timeline": [manual_entry],
+                    "clip_review_validated": False,
+                    "clip_review_rejection": "API复核失败：上游推理服务暂不可用",
+                    "clip_review_attempts": 2,
+                    "can_slice": False,
+                }],
+            },
+            manual_entries=[manual_entry],
+            merge_callback=manual_candidates.merge_manual_timeline_topics,
+        )
+
+        pending = result["accepted_topics"][0]
+        self.assertTrue(result["resume_review"])
+        self.assertFalse(result["reuse_completed_review"])
+        self.assertTrue(pending["manual_timeline_review"])
+        self.assertTrue(pending["clip_review_candidate"])
+        self.assertEqual(pending["clip_review_rejection"], "等待独立字幕复核")
+        self.assertEqual(pending["clip_review_attempts"], 0)
+
     def test_organizes_legacy_clip_marks_before_loading_default_artifact(self):
         calls = []
         with tempfile.TemporaryDirectory() as temp_dir:

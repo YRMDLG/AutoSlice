@@ -71,10 +71,20 @@ def prepare_retry_pipeline_state(
                     if isinstance(entry, dict)
                     and entry.get("source") == "optimized_manual_timeline"
                 ]
+                rejection = str(
+                    reviewed.get("clip_review_rejection") or ""
+                )
                 unreviewed_manual_candidate = bool(
                     optimized_manual_entries
-                    and reviewed.get("clip_review_validated") is None
-                    and not reviewed.get("clip_review_rejection")
+                    and reviewed.get("clip_review_validated") is not True
+                    and (
+                        not rejection
+                        or rejection.startswith((
+                            "API复核失败",
+                            "独立字幕复核未完成",
+                            "上游推理服务暂不可用",
+                        ))
+                    )
                 )
                 if new_manual_entries:
                     # 检查点可能已经有同范围的旧复核结果，但最新分析才
@@ -183,6 +193,7 @@ def prepare_retry_pipeline_state(
     checkpoint_policy_stale = False
     stale_review_keys = set()
     accepted_topics = baseline_topics
+    checkpoint_topics = None
     if os.path.isfile(clip_review_checkpoint_path):
         try:
             with open(clip_review_checkpoint_path, encoding="utf-8") as file_obj:
@@ -262,6 +273,30 @@ def prepare_retry_pipeline_state(
                             reuse_completed_review = True
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             resume_review = False
+    if (
+        rebuilt_manual_entries
+        and isinstance(checkpoint_topics, list)
+        and checkpoint_topics
+        and not checkpoint_policy_stale
+        and not resume_review
+        and not reuse_completed_review
+    ):
+        # ``completed_with_warning`` 可能在 API 异常收尾时只保存了部分
+        # 复核字段，不能因此把人工时间轴候选降回普通报告话题。
+        recovered_topics = clean_topics_for_report(
+            merge_completed_review_with_baseline(
+                list(baseline_topics),
+                checkpoint_topics,
+            )
+        )
+        has_pending_manual_review = any(
+            topic.get("manual_timeline_review")
+            and not topic.get("clip_review_validated")
+            for topic in recovered_topics
+        )
+        if has_pending_manual_review:
+            accepted_topics = recovered_topics
+            resume_review = True
     if not accepted_topics:
         raise ValueError("已有产物中没有可用于复核的话题")
 
