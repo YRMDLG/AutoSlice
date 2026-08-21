@@ -66,6 +66,20 @@ class TaskResultSummaryTests(unittest.TestCase):
         self.assertEqual(summary["overview_path"], "overview.md")
         self.assertEqual(summary["slice_dir"], "clips")
 
+    def test_pipeline_summary_stays_within_store_limit_for_oversized_path(self):
+        summary = build_pipeline_result_summary({
+            "topic_count": 1,
+            "slice_count": 1,
+            "artifact_dir": "artifact",
+            "overview_path": "F:\\" + "超长目录\\" * 20_000 + "00_概览.md",
+        })
+
+        encoded = json.dumps(summary, ensure_ascii=False).encode("utf-8")
+
+        self.assertEqual(summary["artifact_dir"], "artifact")
+        self.assertNotIn("overview_path", summary)
+        self.assertLessEqual(len(encoded), 64 * 1024)
+
 
 if __name__ == "__main__":
     unittest.main()

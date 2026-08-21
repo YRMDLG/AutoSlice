@@ -1816,6 +1816,40 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertNotIn("report", task["result_summary"])
         logger.assert_called_once()
 
+    def test_pipeline_completion_with_oversized_path_remains_done(self):
+        root = Path(self.database_dir.name)
+        artifact_dir = root / "output" / "source_自动切片"
+        task_id, conflict = app_module._reserve_task(
+            "completion-large-path",
+            "topic_pipeline",
+            "等待处理",
+            source_paths=(root / "source.flv",),
+            output_paths=(root / "output",),
+        )
+        self.assertIsNone(conflict)
+        app_module.update_task(task_id, status="running", progress="处理中")
+
+        app_module._complete_pipeline_task(
+            task_id,
+            {
+                "report": "产物已经成功生成",
+                "topic_count": 1,
+                "slice_count": 1,
+                "artifact_dir": str(artifact_dir),
+                "overview_path": "F:\\" + "超长目录\\" * 20_000 + "00_概览.md",
+            },
+        )
+
+        task = app_module.tasks[task_id]
+        self.assertEqual(task["status"], "done")
+        self.assertIsNone(task["error_summary"])
+        self.assertEqual(task["result_summary"]["artifact_dir"], str(artifact_dir))
+        self.assertNotIn("overview_path", task["result_summary"])
+
+        response = self.client.get(f"/api/tasks/{task_id}/result")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["topic_count"], 1)
+
     def test_completed_pipeline_report_is_read_from_artifact_directory(self):
         root = Path(self.database_dir.name)
         output_dir = root / "自动切片"

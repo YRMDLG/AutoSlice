@@ -10020,41 +10020,41 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 99,
+      "line_count": 115,
       "longest_function": {
-        "end_line": 93,
+        "end_line": 109,
         "kind": "function",
-        "line": 62,
-        "line_count": 32,
+        "line": 63,
+        "line_count": 47,
         "qualname": "build_pipeline_result_summary"
       },
       "module": "autoslice.task_results",
       "path": "src/autoslice/task_results.py",
-      "sha256": "0d7dfba36c4e18961dc0dbf3eeef86a3f22cad80b9d5be1113bd63340f283ad0",
+      "sha256": "5404133cae0d08a94cc3a3f48ed7812b8fa398f22e6c53bafba4365d7d21da08",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 41,
+          "end_line": 42,
           "kind": "function",
-          "line": 30,
+          "line": 31,
           "name": "normalize_task_result"
         },
         {
-          "end_line": 48,
+          "end_line": 49,
           "kind": "function",
-          "line": 44,
+          "line": 45,
           "name": "_non_negative_int"
         },
         {
-          "end_line": 59,
+          "end_line": 60,
           "kind": "function",
-          "line": 51,
+          "line": 52,
           "name": "_failed_chunk_count"
         },
         {
-          "end_line": 93,
+          "end_line": 109,
           "kind": "function",
-          "line": 62,
+          "line": 63,
           "name": "build_pipeline_result_summary"
         }
       ]
@@ -13684,7 +13684,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 441,
-    "production_line_count": 37464,
+    "production_line_count": 37480,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,

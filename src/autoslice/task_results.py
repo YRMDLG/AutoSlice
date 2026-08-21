@@ -10,7 +10,6 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-
 _PIPELINE_PATH_FIELDS = (
     "artifact_dir",
     "overview_path",
@@ -25,6 +24,7 @@ _PIPELINE_WARNING_FIELDS = (
     "unified_queue_warning",
 )
 _MAX_WARNING_LENGTH = 2000
+_MAX_RESULT_SUMMARY_BYTES = 64 * 1024
 
 
 def normalize_task_result(value: Any) -> Any:
@@ -82,14 +82,29 @@ def build_pipeline_result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         "failed_chunk_count": _failed_chunk_count(result),
         "report_available": bool(result.get("report") or result.get("md_path")),
     }
+
+    def add_if_fits(field: str, value: Any) -> None:
+        """只追加可完整落入 TaskStore 大小上限的可选摘要字段。"""
+
+        candidate = {**summary, field: value}
+        encoded = json.dumps(
+            candidate,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        if len(encoded) <= _MAX_RESULT_SUMMARY_BYTES:
+            summary[field] = value
+
     for field in _PIPELINE_PATH_FIELDS:
         value = result.get(field)
         if value:
-            summary[field] = str(value)
+            add_if_fits(field, str(value))
     for field in _PIPELINE_WARNING_FIELDS:
         value = str(result.get(field) or "").strip()
         if value:
-            summary[field] = value[:_MAX_WARNING_LENGTH]
+            add_if_fits(field, value[:_MAX_WARNING_LENGTH])
     return summary
 
 
