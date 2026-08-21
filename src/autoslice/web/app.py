@@ -103,6 +103,7 @@ _POSIX_PRIVATE_PATH_RE = re.compile(
     r"(?<![\w])/(?:home|Users|tmp|var|etc|opt|mnt)/[^\s,;]+",
     re.IGNORECASE,
 )
+_SSE_PATH_KEY_SUFFIXES = ("path", "paths", "dir", "directory", "directories")
 _UPLOAD_INVALID_CHARS_RE = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
 _SESSION_BOOTSTRAP_PATHS = frozenset({
     "/",
@@ -395,6 +396,28 @@ def _redact_task_error_text(value):
     return message or "后台处理失败"
 
 
+def _is_sse_path_key(normalized_key):
+    """判断 SSE 字段是否表示本机文件系统路径。"""
+
+    return normalized_key.endswith(_SSE_PATH_KEY_SUFFIXES)
+
+
+def _sse_path_display(value):
+    """只保留路径末段，避免 SSE 把本机目录树发送给浏览器。"""
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return stripped
+        # 非 Windows 运行器上的 ``os.path.basename`` 不识别反斜杠；
+        # 任务结果可能来自 Windows 用户配置，因此显式兼容两种分隔符。
+        parts = re.split(r"[\\/]", stripped.rstrip("\\/"))
+        return parts[-1] if parts and parts[-1] else "[本地路径已隐藏]"
+    if isinstance(value, (list, tuple)):
+        return [_sse_path_display(item) for item in value]
+    return value
+
+
 def _sanitize_sse_value(value, *, key="", task_status=""):
     normalized_key = re.sub(r"[^a-z0-9]", "", str(key).casefold())
     if any(marker in normalized_key for marker in (
@@ -402,6 +425,17 @@ def _sanitize_sse_value(value, *, key="", task_status=""):
             "cookie", "password", "privatekey", "clientsecret",
             "traceback")) or normalized_key == "token":
         return "[已隐藏]"
+    if _is_sse_path_key(normalized_key):
+        if isinstance(value, dict):
+            return {
+                str(item_key): _sanitize_sse_value(
+                    item,
+                    key=item_key,
+                    task_status=task_status,
+                )
+                for item_key, item in value.items()
+            }
+        return _sse_path_display(value)
     if isinstance(value, dict):
         nested_status = str(value.get("status") or task_status)
         return {
@@ -420,6 +454,30 @@ def _sanitize_sse_value(value, *, key="", task_status=""):
     if isinstance(value, str) and (
             normalized_key in {"error", "errorsummary"}
             or (normalized_key == "result" and task_status == "error")):
+        return _redact_task_error_text(value)
+    if isinstance(value, str) and normalized_key == "result":
+        # 旧 SSE 契约把完成结果作为 JSON 字符串发送。先解析再按字段脱敏，
+        # 这样仍保留字符串契约，同时不会把 payload 内的绝对路径原样发出。
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return _redact_task_error_text(value)
+        sanitized = _sanitize_sse_value(
+            parsed,
+            key="result_payload",
+            task_status=task_status,
+        )
+        return json.dumps(
+            sanitized,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    if isinstance(value, str) and (
+            _WINDOWS_PATH_RE.search(value)
+            or _POSIX_PRIVATE_PATH_RE.search(value)
+    ):
         return _redact_task_error_text(value)
     return value
 
@@ -1624,6 +1682,23 @@ def completed_task_report(task_id):
     except OSError as exc:
         return jsonify({"error": f"无法读取完整话题分析报告: {exc}"}), 500
     return Response(content, mimetype="text/markdown")
+
+
+@app.route("/api/tasks/<task_id>/result", methods=["GET"])
+def completed_task_result(task_id):
+    """按任务 ID 返回完成结果；绝对路径只在显式本机请求中提供。"""
+
+    task = task_registry.snapshot(task_id)
+    if task is None:
+        return jsonify({"error": "任务不存在"}), 404
+    if task.get("status") != "done":
+        return jsonify({"error": "任务尚未完成"}), 409
+    result = normalize_task_result(task.get("result"))
+    if result is None:
+        return jsonify({})
+    if isinstance(result, dict):
+        return jsonify(result)
+    return jsonify({"result": result})
 
 
 # ==================== 字幕校对与压制 ====================

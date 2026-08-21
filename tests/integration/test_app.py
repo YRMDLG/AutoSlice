@@ -168,6 +168,17 @@ class TopicPageContractTests(unittest.TestCase):
         self.assertIn("name.textContent=video.name", script)
         self.assertNotIn(".flv", script.casefold())
 
+    def test_topic_page_fetches_full_result_by_task_id_after_sse_sanitization(self):
+        _html, script = self._page_script()
+
+        self.assertIn("async function loadTaskResult(taskId)", script)
+        self.assertIn(
+            "/api/tasks/${encodeURIComponent(taskId)}/result",
+            script,
+        )
+        self.assertIn("const result=await loadTaskResult(data.task_id)", script)
+        self.assertNotIn("const result=JSON.parse(data.result)", script)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查文件名派生")
     def test_topic_page_derives_sidecars_for_every_supported_video_suffix(self):
         _html, script = self._page_script()
@@ -646,6 +657,17 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
             "data.task_id.startsWith('subtitle_review_'))applyReview(result)",
             script,
         )
+
+    def test_subtitle_tasks_fetch_full_result_after_sse_sanitization(self):
+        _html, script = self._page_script()
+
+        self.assertIn("async function loadTaskResult(taskId)", script)
+        self.assertIn(
+            "/api/tasks/${encodeURIComponent(taskId)}/result",
+            script,
+        )
+        self.assertIn("const result=await loadTaskResult(data.task_id)", script)
+        self.assertIn("async function handleTask(data)", script)
 
     def test_review_page_exposes_transcription_before_review(self):
         html, script = self._page_script()
@@ -2199,6 +2221,74 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertNotIn(r"C:\private", text)
         self.assertNotIn("Traceback", text)
         self.assertIn("[已隐藏]", text)
+
+    def test_success_sse_hides_absolute_paths_and_result_api_returns_full_payload(self):
+        root = Path(self.database_dir.name)
+        artifact_dir = root / "整理包"
+        task_id, conflict = app_module._reserve_task(
+            "sse-audit",
+            "topic_pipeline",
+            "等待处理",
+            source_paths=(root / "source.flv",),
+            output_paths=(root / "output",),
+        )
+        self.assertIsNone(conflict)
+        app_module.update_task(
+            task_id,
+            status="running",
+            progress="处理中",
+            step=20,
+            total=100,
+        )
+        full_result = {
+            "artifact_dir": str(artifact_dir),
+            "overview_path": str(artifact_dir / "00_概览.md"),
+            "md_path": str(artifact_dir / "01_话题分析.md"),
+            "json_path": str(artifact_dir / "数据" / "clip_marks.json"),
+            "slice_dir": str(root / "话题切片"),
+            "srt_path": str(artifact_dir / "数据" / "校对字幕.srt"),
+            "topic_count": 1,
+        }
+        app_module.update_task(
+            task_id,
+            status="done",
+            progress="完成",
+            result=full_result,
+            step=100,
+            total=100,
+        )
+        event_id = app_module._event_history[-1][0]
+        response = self.client.get(
+            "/api/events",
+            headers={"Last-Event-ID": str(event_id - 1)},
+            buffered=False,
+        )
+        stream = iter(response.response)
+        chunk = next(stream)
+        response.close()
+        text = chunk.decode("utf-8")
+        payload = self._sse_payload(chunk)
+
+        self.assertNotIn(str(root), text)
+        self.assertEqual(payload["artifact_dir"], artifact_dir.name)
+        self.assertEqual(payload["source_path"], "source.flv")
+        self.assertEqual(
+            json.loads(payload["result"])["overview_path"],
+            "00_概览.md",
+        )
+
+        init_response = self.client.get("/api/events", buffered=False)
+        init_stream = iter(init_response.response)
+        init_chunk = next(init_stream)
+        init_response.close()
+        self.assertNotIn(str(root), init_chunk.decode("utf-8"))
+
+        result_response = self.client.get(f"/api/tasks/{task_id}/result")
+        self.assertEqual(result_response.status_code, 200)
+        self.assertEqual(
+            result_response.get_json()["artifact_dir"],
+            str(artifact_dir.resolve()),
+        )
 
 
 class WebTransportSafetyTests(unittest.TestCase):

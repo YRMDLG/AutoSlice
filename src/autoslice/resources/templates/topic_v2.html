@@ -241,6 +241,12 @@ function renderResultArtifact(taskId,result){
     byId('resultArtifact').hidden=false;
 }
 
+async function loadTaskResult(taskId){
+    const response=await fetch(`/api/tasks/${encodeURIComponent(taskId)}/result`);
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||'任务结果读取失败')}
+    return response.json();
+}
+
 async function renderCompletedReport(taskId,result){
     const report=byId('report');
     if(!result?.report_available){report.hidden=true;report.textContent='';return}
@@ -294,9 +300,9 @@ function connectSSE(){
         if(!relevant)return;
         renderTaskProgress(data);
         if(data.status==='error')setNotice(data.progress||'任务执行失败','error');
-        if(data.status==='done'&&data.result){
+        if(data.status==='done'){
             try{
-                const result=JSON.parse(data.result);
+                const result=await loadTaskResult(data.task_id);
                 if(data.task_id.startsWith('timeline_opt_')){
                     optimizedTimeline={videoPath:result.video_path,sourcePath:(result.manual_timeline||{}).path,jsonPath:result.optimized_json_path,mdPath:result.optimized_md_path,profileId:result.streamer_profile_id};
                     renderOptimizedTimeline();
