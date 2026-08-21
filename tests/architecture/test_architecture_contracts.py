@@ -4441,6 +4441,15 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         from autoslice.transcription import segments as transcription_segments
         from autoslice.transcription import srt_io as transcription_srt_io
 
+        self.assertEqual(
+            boundaries.FACADE_EXPORTS,
+            {
+                "_expand_clip_mark_with_context": "_expand_clip_mark_with_context",
+                "_expand_clip_marks_with_context": "_expand_clip_marks_with_context",
+                "_srt_video_duration": "_srt_video_duration",
+                "parse_srt_segments": "parse_srt_segments",
+            },
+        )
         compatibility_names = (
             "_expand_clip_mark_with_context",
             "_expand_clip_marks_with_context",
@@ -4484,6 +4493,60 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertTrue(
             set(boundaries.FACADE_EXPORTS.values()).isdisjoint(candidate_functions)
         )
+        boundary_module = modules["autoslice.analysis.boundaries"]
+        self.assertEqual(
+            [item["name"] for item in boundary_module["top_level_functions"]],
+            [
+                "_expand_clip_mark_with_context",
+                "_expand_clip_marks_with_context",
+            ],
+        )
+        self.assertEqual(boundary_module["top_level_classes"], [])
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        owner_module_name = "autoslice.analysis.boundaries"
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if target == owner_module_name
+            },
+            {
+                "autoslice.analysis.candidates",
+                "autoslice.pipeline",
+                "autoslice.slicing",
+                "autoslice.topic_engine",
+            },
+        )
+        self.assertEqual(
+            {
+                target
+                for source, target in import_edges
+                if source == owner_module_name
+            },
+            {
+                "autoslice.analysis.review.context_edges",
+                "autoslice.analysis.review.context_evidence",
+                "autoslice.analysis.review.context_ranges",
+                "autoslice.analysis.review.deduplication",
+                "autoslice.analysis.review.finalization",
+                "autoslice.analysis.review.outro",
+                "autoslice.analysis.review.policy",
+                "autoslice.analysis.review.transitions",
+                "autoslice.analysis.review.triggers",
+                "autoslice.transcription.segments",
+                "autoslice.transcription.srt_io",
+            },
+        )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(
+            current["summary"]["duplicate_top_level_definition_count"],
+            0,
+        )
+        self.assertLessEqual(current["test_private_patches"]["total"], 17)
 
     def test_stream_outro_has_one_owner_and_exact_direct_consumers(self):
         from autoslice import pipeline, topic_engine

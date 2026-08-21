@@ -13599,6 +13599,7 @@
       "tests/support/__init__.py",
       "tests/support/external_boundary_guard.py",
       "tests/unit/__init__.py",
+      "tests/unit/test_analysis_boundaries.py",
       "tests/unit/test_analysis_candidate_reconciliation.py",
       "tests/unit/test_analysis_checkpoints.py",
       "tests/unit/test_analysis_chunking.py",
