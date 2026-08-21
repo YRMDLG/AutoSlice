@@ -544,7 +544,7 @@ class TaskRegistry:
         }
         if message is not None:
             changes["message"] = message
-        return self._transition(
+        record = self._transition(
             task_id,
             target_status="done",
             allowed_statuses=frozenset({"running"}),
@@ -552,6 +552,8 @@ class TaskRegistry:
             metadata=metadata,
             finish_step=True,
         )
+        self.forget_cancellation_events((task_id,))
+        return record
 
     def fail(
             self,
@@ -578,13 +580,15 @@ class TaskRegistry:
         }
         if message is not None:
             changes["message"] = message
-        return self._transition(
+        record = self._transition(
             task_id,
             target_status="error",
             allowed_statuses=ACTIVE_TASK_STATUSES,
             changes=changes,
             metadata=metadata,
         )
+        self.forget_cancellation_events((task_id,))
+        return record
 
     def cancel(
             self,
@@ -599,8 +603,7 @@ class TaskRegistry:
         if current is None:
             raise TaskNotFoundError(f"任务不存在：{task_id}")
         if current.status == "cancelled":
-            event = self.cancellation_event(task_id)
-            event.set()
+            self._signal_and_forget_cancellation_event(task_id)
             return current
         record = self._transition(
             task_id,
@@ -615,7 +618,7 @@ class TaskRegistry:
             },
             metadata=metadata,
         )
-        self.cancellation_event(task_id).set()
+        self._signal_and_forget_cancellation_event(task_id)
         return record
 
     def cancellation_event(self, task_id: str) -> threading.Event:
@@ -649,7 +652,7 @@ class TaskRegistry:
             self,
             task_ids: Sequence[str] | None = None,
     ) -> None:
-        """丢弃已删除任务的运行期 Event，不触碰持久任务数据。"""
+        """丢弃已结束或已删除任务的运行期 Event，不触碰持久任务数据。"""
 
         with self._event_lock:
             if task_ids is None:
@@ -657,6 +660,14 @@ class TaskRegistry:
                 return
             for task_id in task_ids:
                 self._cancellation_events.pop(str(task_id), None)
+
+    def _signal_and_forget_cancellation_event(self, task_id: str) -> None:
+        """先通知旧 worker，再释放终态任务的注册表引用。"""
+
+        with self._event_lock:
+            event = self._cancellation_events.pop(str(task_id), None)
+            if event is not None:
+                event.set()
 
     def _transition(
             self,

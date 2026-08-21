@@ -257,8 +257,11 @@ class _TaskMappingView(MutableMapping):
             )
 
     def __delitem__(self, task_id):
-        if not self._registry().store.delete_task(str(task_id)):
+        task_id = str(task_id)
+        registry = self._registry()
+        if not registry.store.delete_task(task_id):
             raise KeyError(task_id)
+        registry.forget_cancellation_events((task_id,))
 
     def __iter__(self):
         records = self._registry().list(

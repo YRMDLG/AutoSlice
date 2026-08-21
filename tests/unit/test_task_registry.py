@@ -248,6 +248,38 @@ class TaskRegistryTests(unittest.TestCase):
         with self.assertRaises(TaskLifecycleError):
             self.registry.complete(task_id)
 
+    def test_terminal_transitions_release_cancellation_events(self):
+        completed_id = self.reserve(
+            source_paths=(self.root / "release-done.flv",),
+        )
+        self.registry.mark_running(completed_id)
+        completed_event = self.registry.cancellation_event(completed_id)
+        self.registry.complete(completed_id)
+
+        failed_id = self.reserve(
+            source_paths=(self.root / "release-error.flv",),
+        )
+        self.registry.mark_running(failed_id)
+        self.registry.cancellation_event(failed_id)
+        self.registry.fail(failed_id, "预期失败")
+
+        cancelled_id = self.reserve(
+            source_paths=(self.root / "release-cancelled.flv",),
+        )
+        self.registry.mark_running(cancelled_id)
+        cancelled_event = self.registry.cancellation_event(cancelled_id)
+        self.registry.cancel(cancelled_id)
+
+        self.assertNotIn(completed_id, self.registry._cancellation_events)
+        self.assertNotIn(failed_id, self.registry._cancellation_events)
+        self.assertNotIn(cancelled_id, self.registry._cancellation_events)
+        self.assertFalse(completed_event.is_set())
+        self.assertTrue(cancelled_event.is_set())
+
+        # 终态重复取消必须保持幂等，且不能重新创建泄漏的 Event。
+        self.registry.cancel(cancelled_id)
+        self.assertNotIn(cancelled_id, self.registry._cancellation_events)
+
     def test_startup_recovery_interrupts_only_active_tasks_and_is_idempotent(self):
         profile = {
             "id": "streamer-a",

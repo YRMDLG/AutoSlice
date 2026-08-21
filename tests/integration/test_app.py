@@ -2273,6 +2273,20 @@ class WebTransportSafetyTests(unittest.TestCase):
             {"active", "recent-2", "recent-3"},
         )
 
+    def test_legacy_task_delete_releases_cancellation_event(self):
+        task_id, conflict = app_module.task_registry.reserve(
+            "subtitle_review",
+            source_paths=(Path(tempfile.gettempdir()) / "legacy-delete.flv",),
+        )
+        self.assertIsNone(conflict)
+        app_module.task_registry.mark_running(task_id)
+        app_module.task_registry.cancellation_event(task_id)
+
+        del app_module.tasks[task_id]
+
+        self.assertNotIn(task_id, app_module.task_registry._cancellation_events)
+        self.assertIsNone(app_module.task_registry.get(task_id))
+
     def test_sse_generator_exits_after_subscriber_is_removed(self):
         response = self.client.get("/api/events", buffered=False)
         stream = iter(response.response)
