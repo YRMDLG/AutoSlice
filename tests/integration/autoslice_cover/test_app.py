@@ -466,6 +466,8 @@ class AppTests(unittest.TestCase):
             self.assertIn("function sortTasks(", script_content)
             self.assertIn("function appendManualCopyLine(", script_content)
             self.assertIn("function removeManualCopyLine(", script_content)
+            self.assertIn("restoreTaskKey: reloadTaskDraftKey() || currentTaskKey", script_content)
+            self.assertIn("const localActive = [...state.drafts.entries()]", script_content)
             self.assertIn('data-remove-copy-line', script_content)
             self.assertIn('method: "DELETE"', script_content)
             self.assertIn('return saveCover([state.ratio])', script_content)
@@ -855,9 +857,23 @@ mergeDiskDrafts([{
   settings,
   previews: {"4x3": {media_token: "wrong-frame-token", placements: []}},
 }], state.workspaceConfig.root);
-if (Object.keys(taskDraft(task).previews).length) {
-  throw new Error("选中帧变化后仍错误复用了旧磁盘预览");
-}
+        if (Object.keys(taskDraft(task).previews).length) {
+          throw new Error("选中帧变化后仍错误复用了旧磁盘预览");
+        }
+
+        state.drafts.set(key, {
+          ...taskDraft(task),
+          updated_at: 4_000,
+          previews: {"4x3": {media_token: "orphaned-process-token", placements: []}},
+          active: true,
+        });
+        mergeDiskDrafts([], state.workspaceConfig.root);
+        if (Object.keys(taskDraft(task).previews).length) {
+          throw new Error("没有磁盘草稿时仍恢复了旧服务的预览令牌");
+        }
+        if (taskDraft(task).settings.title !== "已保存标题") {
+          throw new Error("清理失效预览时丢失了用户设置");
+        }
 """
         result = subprocess.run(
             ["node", "-"],
@@ -934,6 +950,8 @@ if (!previewHasContent()) throw new Error("交互图层被误判为空预览");
         )[1].split("function renderCoverOverlay(", 1)[0]
         self.assertNotIn("showInteractivePreview(state.preview)", interaction)
         self.assertIn("文字和贴图交互始终保留完整成品预览", interaction)
+        self.assertIn("setElementEditingLayer(true)", interaction)
+        self.assertIn("preview-editing", script)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required to verify preview loading")
     def test_preview_refresh_keeps_existing_cover_and_delays_first_loader(self) -> None:
@@ -1517,6 +1535,62 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
         )
         self.assertEqual(invalidated_response.status_code, 200)
         self.assertEqual(invalidated_response.get_json()["drafts"], [])
+
+    def test_each_disk_preview_is_bound_to_its_selected_frame(self) -> None:
+        frame_b = self.root / "frame-b.jpg"
+        Image.new("RGB", (1920, 1080), "#4b83d1").save(frame_b)
+        candidate_b = FrameCandidate(
+            path=str(frame_b),
+            timestamp=17.25,
+            score=91.0,
+            metrics=self.candidate.metrics,
+        )
+        task = self._scan()[0]
+        with patch(
+            f"{WORKSPACE_MODULE}.extract_candidate_frames",
+            return_value=[self.candidate, candidate_b],
+        ):
+            ready = self.client.post(
+                f"/api/tasks/{task['id']}/candidates",
+                json={"count": 4},
+            ).get_json()["task"]
+
+        first_preview = self.client.post(
+            f"/api/tasks/{task['id']}/preview",
+            json={"canvas_key": "4x3", "draft_updated_at": 1_800_000_100_000},
+        )
+        self.assertEqual(first_preview.status_code, 200)
+        second_token = ready["candidates"][1]["token"]
+        selected = self.client.post(
+            f"/api/tasks/{task['id']}/select-frame",
+            json={"media_token": second_token},
+        )
+        self.assertEqual(selected.status_code, 200)
+        second_preview = self.client.post(
+            f"/api/tasks/{task['id']}/preview",
+            json={"canvas_key": "16x9", "draft_updated_at": 1_800_000_100_001},
+        )
+        self.assertEqual(second_preview.status_code, 200)
+
+        fresh_app = create_app({
+            "TESTING": True,
+            "STICKER_DIR": str(self.sticker_root),
+            "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
+        })
+        fresh_client = _bootstrapped_client(fresh_app)
+        restored = fresh_client.post(
+            "/api/workspace/scan",
+            json={
+                "root": str(self.clips),
+                "cache_dir": str(self.cache),
+                "output_dir": str(self.output),
+            },
+        ).get_json()
+        self.assertEqual(len(restored["drafts"]), 1)
+        previews = restored["drafts"][0]["previews"]
+        self.assertNotIn("4x3", previews)
+        self.assertIn("16x9", previews)
+        self.assertAlmostEqual(previews["16x9"]["selected_timestamp"], 17.25)
 
     def test_disk_drafts_are_isolated_for_multiple_videos(self) -> None:
         tasks = self._scan()

@@ -195,6 +195,7 @@ def _load_disk_drafts(
             background_path = saved["background_path"]
             metadata["filename"] = image_path.name
             metadata["media_token"] = workspace.media_token(image_path)
+            metadata["selected_timestamp"] = saved.get("selected_timestamp")
             if background_path is not None:
                 metadata["background_media_token"] = workspace.media_token(background_path)
             previews[canvas_key] = metadata

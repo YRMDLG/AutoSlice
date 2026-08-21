@@ -722,6 +722,17 @@ h2 {
   visibility: hidden;
 }
 
+/* 成品预览继续作为稳定底图；元素拖动期间临时显示独立编辑层，
+   让当前位置和对齐辅助线可见，而不把背景切换成另一张或二次缩放。 */
+.cover-overlay.preview-editing .editable-text-content,
+.cover-overlay.preview-editing .sticker-element > img {
+  visibility: visible;
+}
+
+.cover-overlay.preview-editing .editable-element.selected {
+  filter: drop-shadow(0 0 5px rgba(66, 215, 255, 0.92));
+}
+
 .sticker-element {
   z-index: 1;
 }

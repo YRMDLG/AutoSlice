@@ -22,6 +22,7 @@ jobs:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      AUTOSLICE_REQUIRE_NODE_TESTS: "1"
 
     steps:
       - name: Check out repository
@@ -36,6 +37,18 @@ jobs:
             requirements.txt
             pyproject.toml
             autocover_tool/requirements.txt
+
+      - name: Set up Node.js for AutoCover behavior tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify Node.js behavior-test runtime
+        shell: pwsh
+        run: |
+          $node = Get-Command node -ErrorAction SilentlyContinue
+          if (-not $node) { throw "Node.js is required for AutoCover behavior tests" }
+          node --version
 
       - name: Install test dependencies
         shell: pwsh
@@ -103,6 +116,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.10"
+
+      - name: Set up Node.js for consistent CI tooling
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Install minimal logic-test dependencies
         run: |

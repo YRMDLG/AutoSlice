@@ -40,6 +40,7 @@ const state = {
   interactivePreview: null,
   previewRequestId: 0,
   timelineRequestId: 0,
+  elementInteractionActive: false,
   overlayObserver: null,
   activeColorLine: 0,
   syncRatios: true,
@@ -244,9 +245,12 @@ function loadStoredDrafts() {
 
 function mergeDiskDrafts(items, workspaceRoot) {
   if (!Array.isArray(items)) return;
+  const workspacePrefix = `${normalizedWindowsPath(workspaceRoot)}\n`;
+  const diskKeys = new Set();
   items.forEach((item) => {
     if (!item || typeof item.relative_path !== "string" || !item.settings) return;
     const key = `${normalizedWindowsPath(workspaceRoot)}\n${normalizedWindowsPath(item.relative_path)}`;
+    diskKeys.add(key);
     const diskDraft = {
       updated_at: normalizedDraftTimestamp(item.updated_at),
       selected_timestamp: Number.isFinite(Number(item.selected_timestamp))
@@ -275,6 +279,17 @@ function mergeDiskDrafts(items, workspaceRoot) {
       state.drafts.set(key, diskDraft);
     }
   });
+  // 磁盘草稿不存在或因源视频身份变化而失效时，浏览器里残留的 media_token
+  // 可能属于已经重启的服务进程。保留用户设置和选帧，只丢弃无法验证来源的
+  // 预览，避免恢复流程提前 return 后一直停留在旧画面。
+  for (const [key, draft] of state.drafts.entries()) {
+    if (!key.startsWith(workspacePrefix) || diskKeys.has(key) || !draft?.previews) continue;
+    state.drafts.set(key, {
+      ...draft,
+      previews: {},
+      disk_saved: false,
+    });
+  }
   flushStoredDrafts();
 }
 
@@ -1434,10 +1449,14 @@ async function scanWorkspace(
   const diskActive = Array.isArray(payload.drafts)
     ? payload.drafts.find((item) => item?.active && item?.previews)
     : null;
+  const localActive = [...state.drafts.entries()].find(([key, item]) => (
+    key.startsWith(`${normalizedWindowsPath(config.root)}\n`)
+    && item?.active
+  ));
   const effectiveRestoreKey = restoreTaskKey || (
     diskActive
       ? `${normalizedWindowsPath(config.root)}\n${normalizedWindowsPath(diskActive.relative_path)}`
-      : ""
+      : localActive?.[0] || ""
   );
   const restoredTask = effectiveRestoreKey
     ? state.tasks.find((task) => taskDraftKey(task) === effectiveRestoreKey) || null
@@ -1975,6 +1994,9 @@ function beginElementInteraction(event, type, index, mode) {
   const layout = ratioLayout(settings);
   const node = event.currentTarget.closest(".editable-element");
   // 文字和贴图交互始终保留完整成品预览；纯背景层只用于背景取景拖动。
+  // 拖动期间显示独立编辑层，用户可以看到元素的实时轨迹；背景和成品层
+  // 不切换、不缩放，松开后再由最新预览替换。
+  setElementEditingLayer(true);
   const frameRect = elements["cover-overlay"].getBoundingClientRect();
   const nodeRect = node.getBoundingClientRect();
   let model;
@@ -2169,6 +2191,14 @@ function activateInteractivePreviewLayer(preview = state.preview) {
   elements["cover-overlay"].classList.remove("preview-settled");
 }
 
+function setElementEditingLayer(active) {
+  state.elementInteractionActive = Boolean(active);
+  elements["cover-overlay"].classList.toggle(
+    "preview-editing",
+    state.elementInteractionActive,
+  );
+}
+
 function showInteractivePreview(preview = state.preview) {
   if (!preview) return;
   state.interactivePreview = preview;
@@ -2189,6 +2219,7 @@ function showInteractivePreview(preview = state.preview) {
 function showSettledPreview(preview = state.preview) {
   if (!preview?.media_token) return;
   state.interactivePreview = null;
+  setElementEditingLayer(false);
   preparePreviewLayers(preview);
   clearInteractiveBackgroundTransform();
   elements["cover-background-preview"].hidden = true;
@@ -2317,6 +2348,7 @@ async function refreshPreview() {
     );
   } catch (error) {
     if (requestId !== state.previewRequestId) return;
+    setElementEditingLayer(false);
     // 已经有预览时保留旧画面，避免一次网络/渲染失败把正在编辑的封面清空。
     if (!hadPreview) {
       clearPreview("预览生成失败");
@@ -2336,6 +2368,7 @@ function clearPreview(message) {
   elements["preview-loader"].hidden = true;
   state.preview = null;
   state.interactivePreview = null;
+  setElementEditingLayer(false);
   state.selectedElement = null;
   elements["cover-preview"].hidden = true;
   elements["cover-preview"].removeAttribute("src");
@@ -2627,7 +2660,10 @@ function bindEvents() {
   bindRovingTablist(".inspector-tabs");
   bindRovingTablist(".ratio-switch");
   elements.rescan.addEventListener("click", () => {
-    scanWorkspace(state.workspaceConfig).catch(() => {});
+    const currentTaskKey = taskDraftKey(activeTask());
+    scanWorkspace(state.workspaceConfig, {
+      restoreTaskKey: reloadTaskDraftKey() || currentTaskKey,
+    }).catch(() => {});
   });
   elements["task-sort"].addEventListener("change", (event) => {
     state.queueSort = QUEUE_SORT_KEYS.has(event.target.value)

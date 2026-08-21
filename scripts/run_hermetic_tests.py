@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -22,6 +23,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-q", "--quiet", action="store_true", help="减少 unittest 输出")
     args = parser.parse_args(argv)
+
+    # Windows CI 必须实际执行 AutoCover 的 Node 行为测试；不能因为 runner
+    # 没有 Node.js 而让 unittest 的 skipUnless 静默掩盖测试缺失。开发者在
+    # 本地没有 Node 时仍可直接运行此脚本，保持原有的友好行为。
+    if os.environ.get("AUTOSLICE_REQUIRE_NODE_TESTS") == "1" and not shutil.which("node"):
+        print(
+            "AUTOSLICE_REQUIRE_NODE_TESTS=1，但当前环境找不到 node；"
+            "拒绝以跳过 Node 行为测试的方式通过。",
+            file=sys.stderr,
+        )
+        return 2
 
     with TemporaryDirectory(prefix="autoslice-hermetic-tasks-") as directory:
         isolated_root = Path(directory)

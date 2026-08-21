@@ -53,7 +53,11 @@ def _epoch_milliseconds(value: Any = None) -> float:
     return number * 1000.0 if number < 1_000_000_000_000 else number
 
 
-def _preview_fingerprint(settings: dict[str, Any], canvas_key: str) -> str:
+def _preview_fingerprint(
+    settings: dict[str, Any],
+    canvas_key: str,
+    selected_timestamp: float | None = None,
+) -> str:
     relevant = {
         "title": settings.get("title"),
         "template_key": settings.get("template_key"),
@@ -64,6 +68,12 @@ def _preview_fingerprint(settings: dict[str, Any], canvas_key: str) -> str:
         "layout": (
             settings.get("layouts", {}).get(canvas_key)
             if isinstance(settings.get("layouts"), dict)
+            else None
+        ),
+        "selected_timestamp": (
+            round(float(selected_timestamp), 6)
+            if selected_timestamp is not None
+            and math.isfinite(float(selected_timestamp))
             else None
         ),
     }
@@ -224,7 +234,12 @@ class CoverDraftStore:
                     self._relative_asset(background_path) if background_path else None
                 ),
                 "metadata": metadata,
-                "settings_fingerprint": _preview_fingerprint(settings, canvas_key),
+                "selected_timestamp": float(candidate.timestamp),
+                "settings_fingerprint": _preview_fingerprint(
+                    settings,
+                    canvas_key,
+                    float(candidate.timestamp),
+                ),
             }
             source_size, source_modified_at = _source_identity(task.video_path)
             entry.update(
@@ -298,6 +313,19 @@ class CoverDraftStore:
                     for canvas_key, raw_preview in raw_previews.items():
                         if canvas_key not in {"4x3", "16x9"} or not isinstance(raw_preview, dict):
                             continue
+                        try:
+                            preview_timestamp = float(raw_preview["selected_timestamp"])
+                            current_timestamp = float(entry["selected_timestamp"])
+                        except (KeyError, TypeError, ValueError):
+                            # 旧版本没有按比例记录选帧，不能安全恢复其预览，
+                            # 但仍保留同一 entry 的文字和布局设置。
+                            continue
+                        if (
+                            not math.isfinite(preview_timestamp)
+                            or not math.isfinite(current_timestamp)
+                            or abs(preview_timestamp - current_timestamp) > 0.05
+                        ):
+                            continue
                         image = self._asset_path(raw_preview.get("image"))
                         background = self._asset_path(raw_preview.get("background"))
                         metadata = raw_preview.get("metadata")
@@ -305,13 +333,18 @@ class CoverDraftStore:
                             image is None
                             or not isinstance(metadata, dict)
                             or raw_preview.get("settings_fingerprint")
-                            != _preview_fingerprint(entry["settings"], canvas_key)
+                            != _preview_fingerprint(
+                                entry["settings"],
+                                canvas_key,
+                                current_timestamp,
+                            )
                         ):
                             continue
                         previews[canvas_key] = {
                             "image_path": image,
                             "background_path": background,
                             "metadata": dict(metadata),
+                            "selected_timestamp": preview_timestamp,
                         }
                 records.append(
                     {
