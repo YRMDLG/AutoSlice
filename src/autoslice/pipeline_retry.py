@@ -20,6 +20,59 @@ def prepare_retry_pipeline_state(
     领域清洗、人工时间轴和检查点规则均由调用方显式注入，避免 owner
     复制实现或反向依赖高层 façade。
     """
+    def topic_range_key(topic):
+        return (
+            int(topic.get("start", 0) or 0),
+            int(topic.get("end", 0) or 0),
+        )
+
+    def merge_completed_review_with_baseline(baseline_topics, checkpoint_topics):
+        """把已复核状态覆盖回最新分析，保留检查点之外的新候选。"""
+        has_new_manual_candidates = any(
+            topic.get("manual_timeline_review")
+            or topic.get("postcheck_pending")
+            or topic.get("source") in {"manual_timeline", "optimized_manual_timeline"}
+            for topic in baseline_topics or []
+            if isinstance(topic, dict)
+        )
+        if not has_new_manual_candidates:
+            return list(checkpoint_topics or [])
+        checkpoint_by_range = {
+            topic_range_key(topic): topic
+            for topic in checkpoint_topics or []
+            if isinstance(topic, dict)
+        }
+        merged = []
+        matched_ranges = set()
+        for baseline in baseline_topics or []:
+            key = topic_range_key(baseline)
+            reviewed = checkpoint_by_range.get(key)
+            if reviewed is not None:
+                merged.append(reviewed)
+                matched_ranges.add(key)
+                continue
+            topic = dict(baseline)
+            if topic.get("manual_timeline_review"):
+                topic["clip_review_candidate"] = True
+                topic["clip_candidate_sources"] = ["人工时间轴语义复核"]
+                topic["clip_review_validated"] = False
+                topic["clip_review_rejection"] = "等待独立字幕复核"
+                topic["clip_review_attempts"] = 0
+            merged.append(topic)
+
+        # 报告恢复不完整时，仍保留检查点中的已复核话题，避免续跑丢结果。
+        merged.extend(
+            topic
+            for topic in checkpoint_topics or []
+            if isinstance(topic, dict)
+            and topic_range_key(topic) not in matched_ranges
+            and not any(
+                topic_range_key(existing) == topic_range_key(topic)
+                for existing in merged
+            )
+        )
+        return merged
+
     flv_path = os.path.abspath(flv_path)
     base, _ = os.path.splitext(flv_path)
     if output_dir is None and artifact_dir is None:
@@ -140,8 +193,24 @@ def prepare_retry_pipeline_state(
                         resume_review = True
                     elif clip_review_checkpoint_is_complete(
                             checkpoint, checkpoint_topics):
-                        accepted_topics = clean_topics_for_report(checkpoint_topics)
-                        reuse_completed_review = True
+                        if rebuilt_manual_entries:
+                            latest_topics = list(baseline_topics)
+                            accepted_topics = clean_topics_for_report(
+                                merge_completed_review_with_baseline(
+                                    latest_topics,
+                                    checkpoint_topics,
+                                )
+                            )
+                            has_pending_manual_review = any(
+                                topic.get("manual_timeline_review")
+                                and not topic.get("clip_review_validated")
+                                for topic in accepted_topics
+                            )
+                            resume_review = has_pending_manual_review
+                            reuse_completed_review = not has_pending_manual_review
+                        else:
+                            accepted_topics = clean_topics_for_report(checkpoint_topics)
+                            reuse_completed_review = True
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             resume_review = False
     if not accepted_topics:

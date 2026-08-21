@@ -4,11 +4,14 @@ import unittest
 from pathlib import Path
 
 from autoslice import pipeline_retry
+from autoslice.analysis.manual import candidates as manual_candidates
 
 
 class PrepareRetryPipelineStateTests(unittest.TestCase):
 
-    def _run(self, payload, checkpoint=None, *, policy_matches=True, focus=90):
+    def _run(
+            self, payload, checkpoint=None, *, policy_matches=True, focus=90,
+            manual_entries=None, merge_callback=None):
         calls = []
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -45,8 +48,11 @@ class PrepareRetryPipelineStateTests(unittest.TestCase):
 
             def merge(topics, entries):
                 calls.append(("merge", entries))
-                for topic in topics:
-                    topic["manual_merged"] = True
+                if merge_callback:
+                    merge_callback(topics, entries)
+                else:
+                    for topic in topics:
+                        topic["manual_merged"] = True
 
             result = pipeline_retry.prepare_retry_pipeline_state(
                 video_path,
@@ -59,7 +65,7 @@ class PrepareRetryPipelineStateTests(unittest.TestCase):
                     ("seed", args)
                 ),
                 manual_timeline_for_rebuilt_report=lambda *_args: {
-                    "entries": [{"start": 10, "end": 20}]
+                    "entries": manual_entries or [{"start": 10, "end": 20}]
                 },
                 parse_generated_topic_report=lambda _path: [{
                     "title": "报告恢复话题",
@@ -166,6 +172,46 @@ class PrepareRetryPipelineStateTests(unittest.TestCase):
             "checkpoint_policy_stale",
             "stale_review_keys",
         }.issubset(result))
+
+    def test_completed_checkpoint_keeps_new_matching_manual_candidate_pending(self):
+        manual_entry = {
+            "start": 10,
+            "end": 20,
+            "text": "人工时间轴重点",
+            "stars": 0,
+            "source": "optimized_manual_timeline",
+        }
+        result, _calls = self._run(
+            {
+                "analysis_topics": [{
+                    "title": "最新分析话题",
+                    "start": 10,
+                    "end": 20,
+                    "body": ["·完整事件"],
+                    "ai_enriched": True,
+                    "ai_focus_validated": True,
+                }],
+            },
+            checkpoint={
+                "stage": "completed",
+                "topics": [{
+                    "title": "旧已复核话题",
+                    "start": 30,
+                    "end": 40,
+                    "clip_review_validated": True,
+                }],
+            },
+            manual_entries=[manual_entry],
+            merge_callback=manual_candidates.merge_manual_timeline_topics,
+        )
+
+        pending = next(
+            topic for topic in result["accepted_topics"] if topic["start"] == 10
+        )
+        self.assertTrue(result["resume_review"])
+        self.assertFalse(result["reuse_completed_review"])
+        self.assertTrue(pending["clip_review_candidate"])
+        self.assertEqual(pending["clip_review_rejection"], "等待独立字幕复核")
 
     def test_organizes_legacy_clip_marks_before_loading_default_artifact(self):
         calls = []

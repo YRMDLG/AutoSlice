@@ -4781,6 +4781,15 @@
       "qualname": "retry_clip_review_from_artifacts_impl"
     },
     {
+      "end_line": 232,
+      "kind": "function",
+      "line": 9,
+      "line_count": 224,
+      "module": "autoslice.pipeline_retry",
+      "path": "src/autoslice/pipeline_retry.py",
+      "qualname": "prepare_retry_pipeline_state"
+    },
+    {
       "end_line": 616,
       "kind": "function",
       "line": 434,
@@ -4797,15 +4806,6 @@
       "module": "autoslice.analysis.review.context_ranges",
       "path": "src/autoslice/analysis/review/context_ranges.py",
       "qualname": "_find_relevant_topic_context_end"
-    },
-    {
-      "end_line": 163,
-      "kind": "function",
-      "line": 9,
-      "line_count": 155,
-      "module": "autoslice.pipeline_retry",
-      "path": "src/autoslice/pipeline_retry.py",
-      "qualname": "prepare_retry_pipeline_state"
     },
     {
       "end_line": 358,
@@ -8502,21 +8502,21 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 163,
+      "line_count": 232,
       "longest_function": {
-        "end_line": 163,
+        "end_line": 232,
         "kind": "function",
         "line": 9,
-        "line_count": 155,
+        "line_count": 224,
         "qualname": "prepare_retry_pipeline_state"
       },
       "module": "autoslice.pipeline_retry",
       "path": "src/autoslice/pipeline_retry.py",
-      "sha256": "afb6a0a0951d12bcee7a79908ab38b7d718e65d025c8318f8940db8713ca1e3a",
+      "sha256": "b6198e67db3c73a35084c8bd86c91436965ef1a359fb946b31cdef77174be615",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 163,
+          "end_line": 232,
           "kind": "function",
           "line": 9,
           "name": "prepare_retry_pipeline_state"
@@ -13717,7 +13717,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 443,
-    "production_line_count": 37640,
+    "production_line_count": 37709,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,
