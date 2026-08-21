@@ -280,7 +280,13 @@ def funasr_public_status():
     custom_hotwords = bool(
         str(os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")).strip()
     )
-    speaker_filter_ready = bool(resolve_funasr_speaker_model_source())
+    punc_source = resolve_funasr_aux_model_source(
+        FUNASR_PUNC_MODEL,
+        FUNASR_PUNC_CACHE_MODEL_DIR,
+    )
+    speaker_filter_ready = bool(
+        resolve_funasr_speaker_model_source() and punc_source
+    )
 
     if is_nano:
         model_key = "nano"
@@ -405,13 +411,17 @@ def load_funasr_model(
         FUNASR_VAD_MODEL,
         FUNASR_VAD_CACHE_MODEL_DIR,
     )
-    punc_source = None if is_nano else resolve_funasr_aux_model_source(
-        FUNASR_PUNC_MODEL,
-        FUNASR_PUNC_CACHE_MODEL_DIR,
-    )
     speaker_source = (
         resolve_funasr_speaker_model_source() if foreground_only else None
     )
+    punc_source = None if is_nano and not speaker_source else (
+        resolve_funasr_aux_model_source(
+            FUNASR_PUNC_MODEL,
+            FUNASR_PUNC_CACHE_MODEL_DIR,
+        )
+    )
+    if speaker_source and not punc_source:
+        speaker_source = None
     model_kwargs = {
         "model": model_source,
         "device": selected_device,

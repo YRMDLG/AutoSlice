@@ -87,6 +87,42 @@ class TranscriptionModelRuntimeTests(unittest.TestCase):
         self.assertEqual(model._autoslice_foreground_filter, "speaker_diarization")
         self.assertTrue(any("自动改用 CPU" in event[0] for event in progress))
 
+    def test_nano_with_speaker_filter_also_loads_punctuation_model(self):
+        calls = []
+
+        class LoadedModel:
+            pass
+
+        def fake_auto_model(**kwargs):
+            calls.append(kwargs)
+            return LoadedModel()
+
+        with (
+            patch.object(
+                model_runtime,
+                "resolve_funasr_model_source",
+                return_value="C:/models/Fun-ASR-Nano-2512",
+            ),
+            patch.object(
+                model_runtime,
+                "resolve_funasr_aux_model_source",
+                side_effect=("vad-cache", "punc-cache"),
+            ),
+            patch.object(
+                model_runtime,
+                "resolve_funasr_speaker_model_source",
+                return_value="speaker-cache",
+            ),
+        ):
+            model_runtime.load_funasr_model(
+                fake_auto_model,
+                device="cpu",
+                foreground_only=True,
+            )
+
+        self.assertEqual(calls[0]["punc_model"], "punc-cache")
+        self.assertEqual(calls[0]["spk_model"], "speaker-cache")
+
     def test_model_load_reports_actionable_cpu_torch_install_hint(self):
         def missing_torch(**_kwargs):
             raise ModuleNotFoundError("No module named 'torch'")
