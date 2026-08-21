@@ -2285,9 +2285,10 @@ class TaskLifecycleTests(unittest.TestCase):
 
         result_response = self.client.get(f"/api/tasks/{task_id}/result")
         self.assertEqual(result_response.status_code, 200)
-        self.assertEqual(
+        assert_same_path(
+            self,
             result_response.get_json()["artifact_dir"],
-            str(artifact_dir.resolve()),
+            artifact_dir,
         )
 
 
