@@ -32,6 +32,11 @@ def prepare_retry_pipeline_state(
             topic.get("manual_timeline_review")
             or topic.get("postcheck_pending")
             or topic.get("source") in {"manual_timeline", "optimized_manual_timeline"}
+            or any(
+                entry.get("source") == "optimized_manual_timeline"
+                for entry in topic.get("manual_timeline") or []
+                if isinstance(entry, dict)
+            )
             for topic in baseline_topics or []
             if isinstance(topic, dict)
         )
@@ -48,6 +53,50 @@ def prepare_retry_pipeline_state(
             key = topic_range_key(baseline)
             reviewed = checkpoint_by_range.get(key)
             if reviewed is not None:
+                reviewed = dict(reviewed)
+                existing_manual_entries = list(
+                    reviewed.get("manual_timeline") or []
+                )
+                baseline_manual_entries = list(
+                    baseline.get("manual_timeline") or []
+                )
+                new_manual_entries = [
+                    entry
+                    for entry in baseline_manual_entries
+                    if entry not in existing_manual_entries
+                ]
+                optimized_manual_entries = [
+                    entry
+                    for entry in existing_manual_entries + new_manual_entries
+                    if isinstance(entry, dict)
+                    and entry.get("source") == "optimized_manual_timeline"
+                ]
+                unreviewed_manual_candidate = bool(
+                    optimized_manual_entries
+                    and reviewed.get("clip_review_validated") is None
+                    and not reviewed.get("clip_review_rejection")
+                )
+                if new_manual_entries:
+                    # 检查点可能已经有同范围的旧复核结果，但最新分析才
+                    # 挂上人工时间轴。不能因为范围相同就把这条新证据吞掉；
+                    # 合并后必须重新进入 Terra 独立复核。
+                    merge_manual_timeline_topics(
+                        [reviewed],
+                        new_manual_entries,
+                    )
+                if new_manual_entries or unreviewed_manual_candidate:
+                    if any(
+                        entry.get("source") == "optimized_manual_timeline"
+                        for entry in new_manual_entries
+                    ) or unreviewed_manual_candidate:
+                        reviewed["manual_timeline_review"] = True
+                        reviewed["clip_review_candidate"] = True
+                        reviewed["clip_candidate_sources"] = [
+                            "人工时间轴语义复核"
+                        ]
+                        reviewed["clip_review_validated"] = False
+                        reviewed["clip_review_rejection"] = "等待独立字幕复核"
+                        reviewed["clip_review_attempts"] = 0
                 merged.append(reviewed)
                 matched_ranges.add(key)
                 continue

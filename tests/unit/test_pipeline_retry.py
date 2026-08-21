@@ -213,6 +213,91 @@ class PrepareRetryPipelineStateTests(unittest.TestCase):
         self.assertTrue(pending["clip_review_candidate"])
         self.assertEqual(pending["clip_review_rejection"], "等待独立字幕复核")
 
+    def test_completed_checkpoint_reopens_same_range_when_manual_evidence_is_new(self):
+        manual_entry = {
+            "start": 10,
+            "end": 20,
+            "text": "人工时间轴重点",
+            "stars": 0,
+            "source": "optimized_manual_timeline",
+        }
+        result, _calls = self._run(
+            {
+                "analysis_topics": [{
+                    "title": "最新分析话题",
+                    "start": 10,
+                    "end": 20,
+                    "body": ["·完整事件"],
+                    "ai_enriched": True,
+                    "ai_focus_validated": True,
+                }],
+            },
+            checkpoint={
+                "stage": "completed",
+                "topics": [{
+                    "title": "旧已复核话题",
+                    "start": 10,
+                    "end": 20,
+                    "body": ["·完整事件"],
+                    "clip_review_validated": True,
+                    "clip_review_attempts": 1,
+                }],
+            },
+            manual_entries=[manual_entry],
+            merge_callback=manual_candidates.merge_manual_timeline_topics,
+        )
+
+        pending = next(
+            topic for topic in result["accepted_topics"] if topic["start"] == 10
+        )
+        self.assertTrue(result["resume_review"])
+        self.assertFalse(result["reuse_completed_review"])
+        self.assertTrue(pending["clip_review_candidate"])
+        self.assertFalse(pending["clip_review_validated"])
+        self.assertEqual(pending["clip_review_attempts"], 0)
+        self.assertEqual(
+            pending["manual_timeline"][0]["text"],
+            "人工时间轴重点",
+        )
+
+    def test_completed_checkpoint_reopens_persisted_unreviewed_manual_candidate(self):
+        manual_entry = {
+            "start": 10,
+            "end": 20,
+            "text": "人工时间轴重点",
+            "stars": 0,
+            "source": "optimized_manual_timeline",
+        }
+        result, _calls = self._run(
+            {
+                "analysis_topics": [{
+                    "title": "最新分析话题",
+                    "start": 10,
+                    "end": 20,
+                    "body": ["·完整事件"],
+                }],
+            },
+            checkpoint={
+                "stage": "completed",
+                "topics": [{
+                    "title": "旧已复核话题",
+                    "start": 10,
+                    "end": 20,
+                    "body": ["·完整事件"],
+                    "manual_timeline": [manual_entry],
+                }],
+            },
+            manual_entries=[manual_entry],
+            merge_callback=manual_candidates.merge_manual_timeline_topics,
+        )
+
+        pending = result["accepted_topics"][0]
+        self.assertTrue(result["resume_review"])
+        self.assertFalse(result["reuse_completed_review"])
+        self.assertTrue(pending["manual_timeline_review"])
+        self.assertTrue(pending["clip_review_candidate"])
+        self.assertEqual(pending["clip_review_rejection"], "等待独立字幕复核")
+
     def test_organizes_legacy_clip_marks_before_loading_default_artifact(self):
         calls = []
         with tempfile.TemporaryDirectory() as temp_dir:
