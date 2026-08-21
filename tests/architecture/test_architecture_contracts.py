@@ -5283,7 +5283,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(facade_module["top_level_functions"], [])
         self.assertEqual(facade_module["top_level_classes"], [])
         owner_module = modules["autoslice.analysis.review.decisions"]
-        self.assertEqual(owner_module["line_count"], 545)
+        self.assertEqual(owner_module["line_count"], 551)
         self.assertEqual(owner_module["top_level_classes"], [])
         self.assertEqual(
             [

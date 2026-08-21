@@ -20,7 +20,7 @@ class SliceDecisionOwnershipTests(unittest.TestCase):
         facade_tree = ast.parse(facade_path.read_text(encoding="utf-8"))
         definition_types = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
-        self.assertEqual(len(owner_path.read_text(encoding="utf-8").splitlines()), 545)
+        self.assertEqual(len(owner_path.read_text(encoding="utf-8").splitlines()), 551)
         self.assertEqual(
             len([node for node in owner_tree.body if isinstance(node, ast.FunctionDef)]),
             12,
@@ -339,6 +339,29 @@ class SliceDecisionSelectionTests(unittest.TestCase):
         self.assertTrue(topic["clip_review_candidate"])
         self.assertEqual(topic["clip_candidate_sources"], ["人工高星时间轴"])
         self.assertEqual(slice_decisions.clip_marks_from_topics([topic]), [])
+
+    def test_matching_optimized_timeline_review_marker_adds_candidate_without_peak(self):
+        topic = {
+            "start": 796,
+            "end": 996,
+            "title": "熬夜打鸣潮看弹幕想吐",
+            "body": ["·完整事件"],
+            "ai_enriched": True,
+            "ai_focus_validated": True,
+            "manual_timeline": [{"start": 801, "end": 920, "stars": 0}],
+            "manual_timeline_review": True,
+        }
+
+        result = slice_decisions.apply_danmaku_slice_decisions(
+            [topic],
+            peaks=[],
+            avg_density=0,
+        )
+
+        self.assertIs(result[0], topic)
+        self.assertFalse(topic["can_slice"])
+        self.assertTrue(topic["clip_review_candidate"])
+        self.assertEqual(topic["clip_candidate_sources"], ["人工时间轴语义复核"])
 
     def test_danmaku_content_alignment_breaks_same_peak_tie(self):
         windows = [(start, 10) for start in range(0, 601, 15)]

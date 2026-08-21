@@ -76,6 +76,32 @@ class ManualCandidateTests(unittest.TestCase):
         )
         self.assertEqual(entry, source_entry)
 
+    def test_merge_marks_matching_optimized_timeline_for_independent_review(self):
+        topics = [
+            {
+                "start": 796,
+                "end": 996,
+                "title": "熬夜打鸣潮看弹幕想吐",
+                "body": ["·首轮分析已覆盖完整事件"],
+                "ai_enriched": True,
+                "ai_focus_validated": True,
+            }
+        ]
+        entry = {
+            "start": 801,
+            "end": 920,
+            "text": "鸣潮抽卡日发晕",
+            "stars": 0,
+            "source": "optimized_manual_timeline",
+            "ai_enriched": True,
+            "ai_focus_validated": True,
+        }
+
+        manual_candidates.merge_manual_timeline_topics(topics, [entry])
+
+        self.assertTrue(topics[0]["manual_timeline_review"])
+        self.assertEqual(topics[0]["manual_timeline"], [entry])
+
     def test_merge_adds_missed_optimized_candidate_as_reference_only(self):
         entry = {
             "start": 300,

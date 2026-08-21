@@ -4736,6 +4736,15 @@
       "qualname": "create_app"
     },
     {
+      "end_line": 320,
+      "kind": "function",
+      "line": 21,
+      "line_count": 300,
+      "module": "autoslice.analysis.review.workflow",
+      "path": "src/autoslice/analysis/review/workflow.py",
+      "qualname": "review_peak_selected_topics"
+    },
+    {
       "end_line": 827,
       "kind": "function",
       "line": 529,
@@ -4743,15 +4752,6 @@
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
       "qualname": "run_pipeline_impl"
-    },
-    {
-      "end_line": 317,
-      "kind": "function",
-      "line": 21,
-      "line_count": 297,
-      "module": "autoslice.analysis.review.workflow",
-      "path": "src/autoslice/analysis/review/workflow.py",
-      "qualname": "review_peak_selected_topics"
     },
     {
       "end_line": 683,
@@ -4826,6 +4826,15 @@
       "qualname": "suggest_subtitle_corrections"
     },
     {
+      "end_line": 500,
+      "kind": "function",
+      "line": 353,
+      "line_count": 148,
+      "module": "autoslice.analysis.review.decisions",
+      "path": "src/autoslice/analysis/review/decisions.py",
+      "qualname": "apply_danmaku_slice_decisions"
+    },
+    {
       "end_line": 1245,
       "kind": "function",
       "line": 1100,
@@ -4833,15 +4842,6 @@
       "module": "autoslice_cover.renderer",
       "path": "src/autoslice_cover/renderer.py",
       "qualname": "render_cover"
-    },
-    {
-      "end_line": 494,
-      "kind": "function",
-      "line": 353,
-      "line_count": 142,
-      "module": "autoslice.analysis.review.decisions",
-      "path": "src/autoslice/analysis/review/decisions.py",
-      "qualname": "apply_danmaku_slice_decisions"
     },
     {
       "end_line": 207,
@@ -4925,9 +4925,9 @@
       "qualname": "review_selected_publish_titles"
     },
     {
-      "end_line": 242,
+      "end_line": 250,
       "kind": "function",
-      "line": 131,
+      "line": 139,
       "line_count": 112,
       "module": "autoslice.analysis.manual.candidates",
       "path": "src/autoslice/analysis/manual/candidates.py",
@@ -5664,17 +5664,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 302,
+      "line_count": 310,
       "longest_function": {
-        "end_line": 242,
+        "end_line": 250,
         "kind": "function",
-        "line": 131,
+        "line": 139,
         "line_count": 112,
         "qualname": "topics_from_manual_timeline"
       },
       "module": "autoslice.analysis.manual.candidates",
       "path": "src/autoslice/analysis/manual/candidates.py",
-      "sha256": "0615909530778d48f88b53dcae36df6ca56d29394a6f88c8a496118f5f34f1cf",
+      "sha256": "8669e9065d70bb2e58fcc168724ec3c24ec4f579206146d03d78be904536b4ac",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -5690,33 +5690,33 @@
           "name": "is_manual_merge_target"
         },
         {
-          "end_line": 128,
+          "end_line": 136,
           "kind": "function",
           "line": 49,
           "name": "merge_manual_timeline_topics"
         },
         {
-          "end_line": 242,
+          "end_line": 250,
           "kind": "function",
-          "line": 131,
+          "line": 139,
           "name": "topics_from_manual_timeline"
         },
         {
-          "end_line": 252,
+          "end_line": 260,
           "kind": "function",
-          "line": 245,
+          "line": 253,
           "name": "optimized_entry_semantic_text"
         },
         {
-          "end_line": 261,
+          "end_line": 269,
           "kind": "function",
-          "line": 255,
+          "line": 263,
           "name": "manual_evidence_line"
         },
         {
-          "end_line": 302,
+          "end_line": 310,
           "kind": "function",
-          "line": 264,
+          "line": 272,
           "name": "sanitize_optimized_manual_entry"
         }
       ]
@@ -6309,17 +6309,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 545,
+      "line_count": 551,
       "longest_function": {
-        "end_line": 494,
+        "end_line": 500,
         "kind": "function",
         "line": 353,
-        "line_count": 142,
+        "line_count": 148,
         "qualname": "apply_danmaku_slice_decisions"
       },
       "module": "autoslice.analysis.review.decisions",
       "path": "src/autoslice/analysis/review/decisions.py",
-      "sha256": "0ff7536ec8ae7187dafaf9f3366ef50bd78a2feaa5df75a768d0147b068d86bf",
+      "sha256": "640a1de6991beac5596acdefdcbebb5353ac346d159edf5b039b745eff71e048",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6383,15 +6383,15 @@
           "name": "apply_reviewed_slice_decisions"
         },
         {
-          "end_line": 494,
+          "end_line": 500,
           "kind": "function",
           "line": 353,
           "name": "apply_danmaku_slice_decisions"
         },
         {
-          "end_line": 545,
+          "end_line": 551,
           "kind": "function",
-          "line": 497,
+          "line": 503,
           "name": "clip_marks_from_topics"
         }
       ]
@@ -6772,21 +6772,21 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 317,
+      "line_count": 320,
       "longest_function": {
-        "end_line": 317,
+        "end_line": 320,
         "kind": "function",
         "line": 21,
-        "line_count": 297,
+        "line_count": 300,
         "qualname": "review_peak_selected_topics"
       },
       "module": "autoslice.analysis.review.workflow",
       "path": "src/autoslice/analysis/review/workflow.py",
-      "sha256": "89aa1e5af6f4835ac56bb0c9f46a8c2e2844bea580932380cb0eab6d39109514",
+      "sha256": "0c5ddd12b61ba745ff1ef54cb4abe4f1508a615b27c7697938cc47c8541d98a6",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 317,
+          "end_line": 320,
           "kind": "function",
           "line": 21,
           "name": "review_peak_selected_topics"
@@ -13717,7 +13717,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 443,
-    "production_line_count": 37623,
+    "production_line_count": 37640,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,

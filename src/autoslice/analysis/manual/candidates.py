@@ -60,6 +60,14 @@ def merge_manual_timeline_topics(topics, entries):
         for entry in matched:
             if entry not in existing_entries:
                 existing_entries.append(entry)
+        if any(
+                entry.get("source") == "optimized_manual_timeline"
+                for entry in matched
+        ):
+            # 优化时间轴可能命中已有的 Luna 话题，而不是新增独立话题。
+            # 仍要把它标记为独立 Terra 复核候选，且复核后保留该话题的
+            # 已校准范围，不能因为候选窗口重建而丢失人工边界。
+            topic["manual_timeline_review"] = True
         topic["manual_stars"] = max(
             [topic.get("manual_stars", 0)] + [entry.get("stars", 0) for entry in existing_entries]
         )

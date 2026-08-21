@@ -263,8 +263,11 @@ def review_peak_selected_topics(
                             retry_items.append(original)
                             continue
                         if (
-                            original.get("source")
-                            in {"manual_timeline", "optimized_manual_timeline"}
+                            (
+                                original.get("source")
+                                in {"manual_timeline", "optimized_manual_timeline"}
+                                or original.get("manual_timeline_review")
+                            )
                             and original.get("ai_focus_validated")
                         ):
                             enriched["start"] = int(original["start"])
