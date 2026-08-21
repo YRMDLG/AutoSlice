@@ -70,7 +70,20 @@ jobs:
       - name: Install FFmpeg
         shell: pwsh
         run: |
-          choco install ffmpeg --yes --no-progress
+          $installed = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install ffmpeg --yes --no-progress --limit-output
+            if ($LASTEXITCODE -eq 0) {
+              $installed = $true
+              break
+            }
+            if ($attempt -lt 3) {
+              Start-Sleep -Seconds (15 * $attempt)
+            }
+          }
+          if (-not $installed) {
+            throw "FFmpeg installation failed after 3 attempts"
+          }
           $ffmpeg = Get-ChildItem "$env:ChocolateyInstall\lib" -Filter ffmpeg.exe -Recurse |
             Select-Object -First 1
           if (-not $ffmpeg) {
