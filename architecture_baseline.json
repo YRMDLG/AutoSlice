@@ -9210,41 +9210,41 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 179,
+      "line_count": 182,
       "longest_function": {
-        "end_line": 179,
+        "end_line": 182,
         "kind": "function",
-        "line": 129,
+        "line": 132,
         "line_count": 51,
         "qualname": "reuse_topic_clip_after_title_change"
       },
       "module": "autoslice.slice_reuse",
       "path": "src/autoslice/slice_reuse.py",
-      "sha256": "76cbaa42feac179ba5c7fbd771821c06c1e9741f9b13f9cad31ebc36429a4291",
+      "sha256": "297e17882a89a5bee9a47b9a815ab8eebb26a72d17ec7380bd31838e369bb46f",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 84,
+          "end_line": 87,
           "kind": "function",
-          "line": 54,
+          "line": 57,
           "name": "cleanup_stale_topic_clips"
         },
         {
-          "end_line": 105,
+          "end_line": 108,
           "kind": "function",
-          "line": 87,
+          "line": 90,
           "name": "is_reusable_topic_clip"
         },
         {
-          "end_line": 126,
+          "end_line": 129,
           "kind": "function",
-          "line": 108,
+          "line": 111,
           "name": "reuse_compatible_topic_clip"
         },
         {
-          "end_line": 179,
+          "end_line": 182,
           "kind": "function",
-          "line": 129,
+          "line": 132,
           "name": "reuse_topic_clip_after_title_change"
         }
       ]
@@ -10461,17 +10461,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 487,
+      "line_count": 497,
       "longest_function": {
-        "end_line": 477,
+        "end_line": 487,
         "kind": "function",
-        "line": 397,
-        "line_count": 81,
+        "line": 403,
+        "line_count": 85,
         "qualname": "load_funasr_model"
       },
       "module": "autoslice.transcription.model_runtime",
       "path": "src/autoslice/transcription/model_runtime.py",
-      "sha256": "51e45eff7062cf3b62e52dde6b626f7e3e9a59ae1f500f1cb8487b3accd6fb0a",
+      "sha256": "d590e2f652628c9a51a3a426347a018de8ec31824e26636b1f17a545ed000dc7",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -10529,33 +10529,33 @@
           "name": "resolve_funasr_device"
         },
         {
-          "end_line": 347,
+          "end_line": 353,
           "kind": "function",
           "line": 271,
           "name": "funasr_public_status"
         },
         {
-          "end_line": 366,
+          "end_line": 372,
           "kind": "function",
-          "line": 350,
+          "line": 356,
           "name": "_annotate_model_runtime"
         },
         {
-          "end_line": 394,
+          "end_line": 400,
           "kind": "function",
-          "line": 369,
+          "line": 375,
           "name": "_funasr_load_error_message"
-        },
-        {
-          "end_line": 477,
-          "kind": "function",
-          "line": 397,
-          "name": "load_funasr_model"
         },
         {
           "end_line": 487,
           "kind": "function",
-          "line": 480,
+          "line": 403,
+          "name": "load_funasr_model"
+        },
+        {
+          "end_line": 497,
+          "kind": "function",
+          "line": 490,
           "name": "clear_funasr_cuda_cache"
         }
       ]
@@ -13717,7 +13717,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 443,
-    "production_line_count": 37793,
+    "production_line_count": 37806,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,

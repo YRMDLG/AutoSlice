@@ -4499,18 +4499,23 @@ class TopicEngineParseTests(unittest.TestCase):
             self.assertLessEqual(previous["end"], current["start"])
         self.assertTrue(all(item["end"] - item["start"] <= 300 for item in expanded))
 
-    def test_cleanup_stale_topic_clips_only_removes_generated_video_and_subtitle_files(self):
+    def test_cleanup_stale_topic_clips_preserves_subtitle_workflow_artifacts(self):
         with TemporaryDirectory() as td:
             output_dir = Path(td)
             generated = [
                 output_dir / "01_124s_旧自动切片.flv",
-                output_dir / "01_124s_旧自动切片.srt",
                 output_dir / "105_3600s_旧自动切片.flv",
-                output_dir / "105_3600s_旧自动切片.srt",
                 output_dir / "01_124s_旧自动切片.flv.part.flv",
                 output_dir / ".autoslice_seek_index_1234.mkv",
             ]
             preserved = [
+                output_dir / "01_124s_旧自动切片.srt",
+                output_dir / "01_124s_旧自动切片_校对.srt",
+                output_dir / "01_124s_旧自动切片_排版.srt",
+                output_dir / "01_124s_旧自动切片_字幕版.mp4",
+                output_dir / "01_124s_旧自动切片_字幕样式.ass",
+                output_dir / "01_124s_旧自动切片_字幕样式.json",
+                output_dir / "105_3600s_旧自动切片.srt",
                 output_dir / "手工精剪.flv",
                 output_dir / "手工精剪.srt",
                 output_dir / "说明.txt",
@@ -4520,7 +4525,7 @@ class TopicEngineParseTests(unittest.TestCase):
 
             removed = _cleanup_stale_topic_clips(str(output_dir))
 
-            self.assertEqual(removed, 6)
+            self.assertEqual(removed, 4)
             self.assertTrue(all(not path.exists() for path in generated))
             self.assertTrue(all(path.exists() for path in preserved))
 
@@ -4891,7 +4896,7 @@ class TopicEngineParseTests(unittest.TestCase):
         duration_index = ffmpeg_calls[0].index("-t") + 1
         self.assertEqual(float(ffmpeg_calls[0][duration_index]), 10.2)
 
-    def test_slice_from_marks_reuses_valid_clips_and_removes_old_auto_subtitles(self):
+    def test_slice_from_marks_reuses_valid_clips_and_preserves_subtitles(self):
         mark = {"start": 10, "end": 90, "title": "开场聊天"}
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4944,7 +4949,7 @@ class TopicEngineParseTests(unittest.TestCase):
         self.assertEqual(output_bytes, b"validated-existing-clip")
         self.assertFalse(stale_exists)
         self.assertTrue(manual_exists)
-        self.assertFalse(subtitle_exists)
+        self.assertTrue(subtitle_exists)
         self.assertIn("已复用 1 个现有切片，无需重新编码", progress)
         probe.assert_called_once_with(str(output_path))
         prepare_source.assert_not_called()

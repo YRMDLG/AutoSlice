@@ -35,7 +35,10 @@ _GENERATED_VIDEO_SUFFIX_PATTERN = "|".join(
 
 
 _GENERATED_TOPIC_ARTIFACT_RE = re.compile(
-    rf"^\d{{2,3}}_\d+s_.+\.(?:{_GENERATED_VIDEO_SUFFIX_PATTERN}|srt)$",
+    # 这里只匹配自动生成的原始切片视频。片段目录中的 SRT、ASS、校对
+    # 字幕和字幕版视频都可能已经进入用户的后续制作流程，不能在重复
+    # 切片时被当作失效自动产物删除。
+    rf"^\d{{2,3}}_\d+s_.+(?<!_字幕版)\.(?:{_GENERATED_VIDEO_SUFFIX_PATTERN})$",
     re.IGNORECASE,
 )
 
