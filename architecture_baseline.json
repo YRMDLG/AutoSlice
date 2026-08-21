@@ -13585,6 +13585,7 @@
       "tests/architecture/test_architecture_contracts.py",
       "tests/architecture/test_autocover_compatibility.py",
       "tests/architecture/test_external_boundaries.py",
+      "tests/architecture/test_pipeline_contracts.py",
       "tests/integration/__init__.py",
       "tests/integration/test_app.py",
       "tests/integration/test_core_compat.py",
