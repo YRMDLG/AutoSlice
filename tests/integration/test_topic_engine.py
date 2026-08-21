@@ -6088,6 +6088,68 @@ Part 1: 模型不该决定最终分组 (00:00－15:00)
         self.assertEqual(topics[0]["slice_anchor_source"], "语义复核")
         self.assertEqual((marks[0]["start"], marks[0]["end"]), (100, 175))
 
+    def test_validated_manual_timeline_without_peak_enters_independent_review(self):
+        topics = [{
+            "start": 796,
+            "end": 996,
+            "title": "熬夜打鸣潮看弹幕想吐",
+            "body": [
+                "·音音只睡两个小时，快速弹幕让她想吐",
+                "●人工时间轴：鸣潮抽卡日发晕",
+            ],
+            "source": "optimized_manual_timeline",
+            "ai_enriched": True,
+            "ai_focus_validated": True,
+            "reference_only": True,
+            "manual_timeline": [{
+                "start": 801,
+                "end": 920,
+                "text": "鸣潮抽卡日发晕",
+                "stars": 0,
+                "source": "optimized_manual_timeline",
+            }],
+        }]
+
+        _apply_danmaku_slice_decisions(topics, peaks=[], avg_density=0)
+
+        self.assertTrue(topics[0]["clip_review_candidate"])
+        self.assertIn("人工时间轴语义复核", topics[0]["clip_candidate_sources"])
+
+        response = json.dumps({"topics": [{
+            "id": 1,
+            "valid": True,
+            "title": "只睡两小时看弹幕看到想吐",
+            "publish_title": "【泽音】只睡两小时看弹幕看到想吐🤢",
+            "focus_start": "0:13:16",
+            "focus_end": "0:16:36",
+            "base_interest_score": 85,
+            "timeline_star_bonus": 0,
+            "interest_reason": "熬夜、弹幕过快和身体反应形成完整事件",
+            "points": [
+                "音音回忆抽卡前只睡了两个小时",
+                "弹幕快到电脑和弹幕姬卡住，她看到想吐并接近低血糖眩晕收尾",
+            ],
+        }]}, ensure_ascii=False)
+
+        with patch("autoslice.llm.transport.call_llm_with_retry", return_value=response):
+            warning = _review_peak_selected_topics(
+                topics,
+                srt_segments=[(790, 1000, "音音只睡两个小时，弹幕太快看到想吐，后来快晕过去")],
+                peaks=[],
+            )
+
+        self.assertIsNone(warning)
+        self.assertTrue(topics[0]["clip_review_validated"])
+        _apply_danmaku_slice_decisions(
+            topics,
+            peaks=[],
+            avg_density=0,
+            require_clip_review=True,
+        )
+        marks = _clip_marks_from_topics(topics)
+        self.assertEqual(len(marks), 1)
+        self.assertEqual((marks[0]["start"], marks[0]["end"]), (796, 996))
+
     def test_high_star_original_line_survives_summary_wording_change(self):
         topics = [{
             "start": 15229,

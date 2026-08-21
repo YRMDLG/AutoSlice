@@ -4745,6 +4745,15 @@
       "qualname": "run_pipeline_impl"
     },
     {
+      "end_line": 317,
+      "kind": "function",
+      "line": 21,
+      "line_count": 297,
+      "module": "autoslice.analysis.review.workflow",
+      "path": "src/autoslice/analysis/review/workflow.py",
+      "qualname": "review_peak_selected_topics"
+    },
+    {
       "end_line": 683,
       "kind": "function",
       "line": 396,
@@ -4752,15 +4761,6 @@
       "module": "autoslice.analysis.topic.analysis",
       "path": "src/autoslice/analysis/topic/analysis.py",
       "qualname": "analyze_topic_chunks"
-    },
-    {
-      "end_line": 307,
-      "kind": "function",
-      "line": 21,
-      "line_count": 287,
-      "module": "autoslice.analysis.review.workflow",
-      "path": "src/autoslice/analysis/review/workflow.py",
-      "qualname": "review_peak_selected_topics"
     },
     {
       "end_line": 405,
@@ -6319,7 +6319,7 @@
       },
       "module": "autoslice.analysis.review.decisions",
       "path": "src/autoslice/analysis/review/decisions.py",
-      "sha256": "92635ef47a4ad926ab373d8ce87776c2e1218d1f76b75af0973f332f381865ea",
+      "sha256": "0ff7536ec8ae7187dafaf9f3366ef50bd78a2feaa5df75a768d0147b068d86bf",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6772,21 +6772,21 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 307,
+      "line_count": 317,
       "longest_function": {
-        "end_line": 307,
+        "end_line": 317,
         "kind": "function",
         "line": 21,
-        "line_count": 287,
+        "line_count": 297,
         "qualname": "review_peak_selected_topics"
       },
       "module": "autoslice.analysis.review.workflow",
       "path": "src/autoslice/analysis/review/workflow.py",
-      "sha256": "510c375180a4566197f86d02a4fdf53555c9b09c6f646180a8f0c5cdcd378546",
+      "sha256": "89aa1e5af6f4835ac56bb0c9f46a8c2e2844bea580932380cb0eab6d39109514",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 307,
+          "end_line": 317,
           "kind": "function",
           "line": 21,
           "name": "review_peak_selected_topics"
@@ -13717,7 +13717,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 443,
-    "production_line_count": 37613,
+    "production_line_count": 37623,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,

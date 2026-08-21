@@ -94,7 +94,7 @@ def is_content_cuttable_topic(topic):
     """判断话题内容本身是否适合切片，避免只有背景语音/兜底说明被高弹幕误切。"""
     if topic.get("fallback"):
         return False
-    if topic.get("reference_only"):
+    if topic.get("reference_only") and not (topic.get("source") in {"manual_timeline", "optimized_manual_timeline"} and all(topic.get(key) for key in ("ai_enriched", "ai_focus_validated", "manual_timeline"))):
         return False
     if topic.get("source") in {"manual_timeline", "optimized_manual_timeline"} and not topic.get(
         "ai_enriched"
@@ -485,12 +485,12 @@ def apply_danmaku_slice_decisions(
         used_peak_starts.add(peak_start)
         if max_per_hour is not None:
             selected_per_hour[hour] += 1
-
     # 高星人工时间轴只增加独立字幕复核候选，不在这一阶段直接切片。
     # 这让低密度但有完整事件的片段有一次机会，同时避免按星标机械凑片。
     for topic in topics:
-        if is_content_cuttable_topic(topic) and has_high_star_manual_evidence(topic):
-            append_clip_candidate_source(topic, "人工高星时间轴")
+        manual_source = topic.get("source") in {"manual_timeline", "optimized_manual_timeline"} and all(topic.get(key) for key in ("ai_enriched", "ai_focus_validated", "manual_timeline"))
+        if is_content_cuttable_topic(topic) and (has_high_star_manual_evidence(topic) or manual_source):
+            append_clip_candidate_source(topic, "人工高星时间轴" if has_high_star_manual_evidence(topic) else "人工时间轴语义复核")
     return topics
 
 

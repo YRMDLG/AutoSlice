@@ -262,6 +262,16 @@ def review_peak_selected_topics(
                             last_errors[id(original)] = "复核边界或正文无效"
                             retry_items.append(original)
                             continue
+                        if (
+                            original.get("source")
+                            in {"manual_timeline", "optimized_manual_timeline"}
+                            and original.get("ai_focus_validated")
+                        ):
+                            enriched["start"] = int(original["start"])
+                            enriched["end"] = int(original["end"])
+                            enriched["start_str"] = original.get("start_str")
+                            enriched["end_str"] = original.get("end_str")
+                            enriched["ai_focus_validated"] = True
                         enriched["clip_review_validated"] = True
                         enriched["clip_review_rejection"] = None
                         enriched["clip_review_attempts"] = original[
