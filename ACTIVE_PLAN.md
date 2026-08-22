@@ -21,7 +21,7 @@ last_completed_action: FE-S0
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
 - 一次只执行一个 Action；本 Action 完成、提交、CI 双绿并登记后停止。
-- `FE-PREP-1`、`FE-PREP-2` 均已登记完成，不得重复运行；后续从 `FE-S0` 继续。
+- `FE-PREP-1`、`FE-PREP-2`、`FE-S0` 均已登记完成，不得重复运行；后续从 `FE-S1` 继续。
 
 ## 当前计划范围
 
