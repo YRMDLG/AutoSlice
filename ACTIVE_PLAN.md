@@ -9,19 +9,19 @@ plan_ref: docs/plans/frontend-features.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: FE-PREP-1
-current_action_status: awaiting_ci
+current_action: FE-PREP-2
+current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: null
+last_completed_action: FE-PREP-1
 
 ## 执行规则
 
-- 当前处于 active，`FE-PREP-1` 已完成本地实现与验证，等待提交后的 CI 双绿。
+- 当前处于 active，`FE-PREP-1` 已完成实现、验证、提交和 Windows/Linux CI 双绿；下一 Action 为 `FE-PREP-2`。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
 - 一次只执行一个 Action；本 Action 完成、提交、CI 双绿并登记后停止。
-- `FE-PREP-1` 已获得本目标授权；完成治理收口后执行一次，不重复运行。
+- `FE-PREP-1` 已登记完成，不得重复运行；后续从 `FE-PREP-2` 继续。
 
 ## 当前计划范围
 

@@ -18,7 +18,7 @@
 
 | 全局 ID | 来源计划 | 完成时间 | Commit | CI | 摘要 |
 |---|---|---|---|---|---|
-| — | — | — | — | — | 当前公开活动计划尚未完成新的 Action |
+| FE-PREP-1 | frontend-features | 2026-08-23 | [a224c7d](../commit/a224c7db6a48cf31dda6fe2f285b464adbed45c3) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32601658949) | 清理字幕工作台重复顶层函数并增加唯一 owner 护栏 |
 
 ## 记录规则
 
