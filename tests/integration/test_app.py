@@ -92,29 +92,46 @@ class ResourcePathTests(unittest.TestCase):
                 client = app_module.app.test_client()
                 page = client.get("/")
                 stylesheet = client.get("/static/workbench.css")
+                subtitle_script = client.get("/static/subtitle_workflow.js")
             finally:
                 os.chdir(previous)
 
         self.assertEqual(page.status_code, 200)
         self.assertEqual(stylesheet.status_code, 200)
+        self.assertEqual(subtitle_script.status_code, 200)
         page.close()
         stylesheet.close()
+        subtitle_script.close()
 
     def test_subtitle_template_has_one_owner_per_top_level_function(self):
+        project_root = Path(__file__).resolve().parents[2]
         template_path = (
-            Path(__file__).resolve().parents[2]
+            project_root
             / "src"
             / "autoslice"
             / "resources"
             / "templates"
             / "subtitle_workflow.html"
         )
+        script_path = (
+            project_root
+            / "src"
+            / "autoslice"
+            / "resources"
+            / "static"
+            / "subtitle_workflow.js"
+        )
         template = template_path.read_text(encoding="utf-8")
-        scripts = re.findall(r"<script>(.*?)</script>", template, re.DOTALL)
-        self.assertEqual(len(scripts), 1)
+        script = script_path.read_text(encoding="utf-8")
+        self.assertNotIn("<script>", template)
+        expected_script_tag = (
+            '<script src="{{ url_for(\'static\', filename=\'subtitle_workflow.js\') }}" '
+            "defer></script>"
+        )
+        self.assertIn(expected_script_tag, template)
         function_names = re.findall(
             r"(?m)^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(",
-            scripts[0],
+            script,
         )
         self.assertEqual(
             len(function_names),
@@ -631,9 +648,15 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
         response = self.client.get("/subtitle-workflow")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        matches = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
-        self.assertTrue(matches)
-        return html, matches[-1]
+        self.assertIn(
+            '<script src="/static/subtitle_workflow.js" defer></script>',
+            html,
+        )
+        with self.client.get("/static/subtitle_workflow.js") as script_response:
+            self.assertEqual(script_response.status_code, 200)
+            self.assertIn("javascript", script_response.mimetype)
+            script = script_response.get_data(as_text=True)
+        return html, script
 
     def test_subtitle_workspace_keeps_all_three_desktop_panels_reachable(self):
         html, _script = self._page_script()
