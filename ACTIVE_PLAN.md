@@ -8,7 +8,7 @@ plan_id: frontend-features
 plan_ref: docs/plans/frontend-features.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
-plan_status: paused
+plan_status: active
 current_action: FE-PREP-1
 current_action_status: pending
 execution_mode: single-action-stop
@@ -16,12 +16,12 @@ last_completed_action: null
 
 ## 执行规则
 
-- 当前处于 paused，未授权执行任何代码 Action。
+- 当前处于 active，已授权从 `FE-PREP-1` 开始执行；本轮先完成治理收口，随后进入该 Action。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
 - 一次只执行一个 Action；本 Action 完成、提交、CI 双绿并登记后停止。
-- `FE-PREP-1` 需要用户单独授权后才能开始。
+- `FE-PREP-1` 已获得本目标授权；完成治理收口后执行一次，不重复运行。
 
 ## 当前计划范围
 

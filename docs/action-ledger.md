@@ -6,14 +6,13 @@
 > 每个专项计划的目标、范围和验收标准见 [`docs/plans/`](plans/) 下对应的公开规格。
 > 本文件只登记已经完成验证、提交并满足项目要求的 Action；未完成 Action 不在这里登记。
 
-## 当前活动计划
+## 当前活动计划入口
 
-- 计划：`frontend-features`
-- 状态：`paused`
-- 当前 Action：`FE-PREP-1`（`pending`，等待用户单独授权）
-- 执行模式：`single-action-stop`
 - 计划规格：[`docs/plans/frontend-features.md`](plans/frontend-features.md)
-- 当前状态：[`ACTIVE_PLAN.md`](../ACTIVE_PLAN.md)
+- 当前运行状态：[`ACTIVE_PLAN.md`](../ACTIVE_PLAN.md)
+
+> `ACTIVE_PLAN.md` 才是当前计划、当前 Action、状态和执行模式的唯一权威；
+> 本总账不复制这些运行时字段，避免出现两份可相互漂移的状态。
 
 ## 已完成 Action
 
