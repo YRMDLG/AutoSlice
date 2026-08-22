@@ -19,6 +19,7 @@
 | 全局 ID | 来源计划 | 完成时间 | Commit | CI | 摘要 |
 |---|---|---|---|---|---|
 | FE-PREP-1 | frontend-features | 2026-08-23 | [a224c7d](../commit/a224c7db6a48cf31dda6fe2f285b464adbed45c3) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32601658949) | 清理字幕工作台重复顶层函数并增加唯一 owner 护栏 |
+| FE-PREP-2 | frontend-features | 2026-08-23 | [941c819](../commit/941c8199913d9d9fa3f79ad2ae994fa975fc1955) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32602956293) | 外置字幕工作台 JavaScript 并覆盖真实静态资源加载路径 |
 
 ## 记录规则
 
