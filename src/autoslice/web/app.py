@@ -2,7 +2,7 @@
 AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 """
 
-import os, sys, json, time, threading, queue, glob as glob_mod, secrets, subprocess, re, traceback
+import os, sys, json, time, threading, queue, glob as glob_mod, secrets, subprocess, re, traceback, hashlib
 from collections import deque
 from collections.abc import MutableMapping
 from pathlib import Path
@@ -10,7 +10,11 @@ from urllib.parse import urlsplit
 
 from flask import Flask, render_template, request, jsonify, Response, redirect, abort
 
-from autoslice.media_formats import is_scannable_video
+from autoslice.media_formats import (
+    SUPPORTED_VIDEO_EXTENSIONS,
+    is_analyzable_video,
+    is_scannable_video,
+)
 from autoslice.subtitle_workflow import SUBTITLE_ASR_VERSION, SUBTITLE_REVIEW_VERSION
 from autoslice.streamer_profiles import (
     public_streamer_profiles,
@@ -1005,14 +1009,17 @@ def _reserve_subtitle_title_task(srt_path, streamer_profile=None):
 def _validate_subtitle_video(video_path):
     if not video_path or not os.path.isfile(video_path):
         raise ValueError("投稿视频文件不存在")
-    if os.path.splitext(video_path)[1].lower() not in {".mp4", ".mov", ".mkv"}:
-        raise ValueError("投稿视频格式不受支持")
+    if not is_analyzable_video(video_path):
+        supported = "、".join(SUPPORTED_VIDEO_EXTENSIONS)
+        raise ValueError(f"投稿视频格式不受支持，字幕工作台支持：{supported}")
     return os.path.abspath(video_path)
 
 
-def _reserve_subtitle_transcription_task(video_path):
+def _reserve_subtitle_transcription_task(video_path, foreground_only=True):
     """同一成片同时只允许一个转录任务，并预约同名 SRT 输出。"""
     srt_path = os.path.splitext(video_path)[0] + ".srt"
+    pair_key = os.path.normcase(str(Path(video_path).expanduser().resolve()))
+    pair_id = hashlib.sha256(pair_key.encode("utf-8")).hexdigest()[:16]
     return _reserve_task(
         "subtitle_transcribe",
         "subtitle_transcription",
@@ -1023,6 +1030,8 @@ def _reserve_subtitle_transcription_task(video_path):
         metadata={
             "source_video_path": os.path.abspath(video_path),
             "output_srt_path": os.path.abspath(srt_path),
+            "subtitle_pair_id": pair_id,
+            "foreground_only": bool(foreground_only),
         },
     )
 
@@ -1773,7 +1782,10 @@ def subtitle_transcribe():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    task_id, active_task_id = _reserve_subtitle_transcription_task(video_path)
+    task_id, active_task_id = _reserve_subtitle_transcription_task(
+        video_path,
+        foreground_only,
+    )
     if active_task_id:
         return jsonify({
             "error": "该视频正在识别字幕，请等待当前任务完成",

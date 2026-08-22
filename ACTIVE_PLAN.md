@@ -10,7 +10,7 @@ ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
 current_action: FE-S0
-current_action_status: pending
+current_action_status: running
 execution_mode: single-action-stop
 last_completed_action: FE-PREP-2
 

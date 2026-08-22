@@ -732,6 +732,10 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
                 "function startTranscription()",
                 "'/api/subtitles/transcribe'",
                 "context.kind==='transcribe'",
+                "subtitle_pair_id",
+                "function restoreTaskContext(data)",
+                "function reapplyKnownTaskStates()",
+                "transcription_status",
                 "pair.has_source_srt=true",
                 "selectPair(state.selectedIndex)",
                 "function reflowSubtitles()",
@@ -741,6 +745,7 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
 
         self.assertIn('id="asrGuidance"', html)
         self.assertIn("'/api/asr-status'", script)
+        self.assertIn("await scan();connectSSE();", script)
 
     def test_review_page_exposes_adjacent_merge_and_restores_saved_groups(self):
         _html, script = self._page_script()
@@ -2563,7 +2568,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         with TemporaryDirectory() as td:
             folder = Path(td) / "精剪投稿"
             folder.mkdir()
-            video = folder / "最终成片.mp4"
+            video = folder / "最终成片.flv"
             video.write_bytes(b"video")
             scan = self.client.post("/api/subtitles/scan", json={"root_dir": td})
 
@@ -2620,6 +2625,11 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         self.assertEqual(task["status"], "done")
         self.assertEqual(task["task_type"], "subtitle_transcription")
         self.assertEqual(result["cue_count"], 1)
+        self.assertEqual(
+            task["subtitle_pair_id"],
+            scan.get_json()["pairs"][0]["id"],
+        )
+        self.assertTrue(task["foreground_only"])
         self.assertEqual(
             result["background_filter"]["mode"],
             "speaker_diarization",
