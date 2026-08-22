@@ -9,10 +9,10 @@ plan_ref: docs/plans/frontend-features.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: FE-S0
-current_action_status: running
+current_action: FE-S1
+current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: FE-PREP-2
+last_completed_action: FE-S0
 
 ## 执行规则
 
