@@ -4577,12 +4577,62 @@
     {
       "from": "scripts.smoke_packaging",
       "imports": [
-        "autoslice.launcher"
+        "autoslice.analysis.manual"
       ],
       "lines": [
         35
       ],
+      "to": "autoslice.analysis.manual"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice.analysis.report"
+      ],
+      "lines": [
+        36
+      ],
+      "to": "autoslice.analysis.report"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice.analysis.review"
+      ],
+      "lines": [
+        37
+      ],
+      "to": "autoslice.analysis.review"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice.analysis.topic"
+      ],
+      "lines": [
+        38
+      ],
+      "to": "autoslice.analysis.topic"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice.launcher"
+      ],
+      "lines": [
+        39
+      ],
       "to": "autoslice.launcher"
+    },
+    {
+      "from": "scripts.smoke_packaging",
+      "imports": [
+        "autoslice.pipeline"
+      ],
+      "lines": [
+        40
+      ],
+      "to": "autoslice.pipeline"
     },
     {
       "from": "scripts.smoke_packaging",
@@ -4590,7 +4640,7 @@
         "autoslice.runtime_config"
       ],
       "lines": [
-        36
+        41
       ],
       "to": "autoslice.runtime_config"
     },
@@ -4600,7 +4650,7 @@
         "autoslice.web.app"
       ],
       "lines": [
-        37
+        42
       ],
       "to": "autoslice.web.app"
     },
@@ -4610,7 +4660,7 @@
         "autoslice_cover"
       ],
       "lines": [
-        38
+        43
       ],
       "to": "autoslice_cover"
     },
@@ -4620,7 +4670,7 @@
         "autoslice_cover.app"
       ],
       "lines": [
-        39
+        44
       ],
       "to": "autoslice_cover.app"
     },
@@ -4835,10 +4885,10 @@
       "qualname": "render_cover"
     },
     {
-      "end_line": 339,
+      "end_line": 338,
       "kind": "function",
       "line": 204,
-      "line_count": 136,
+      "line_count": 135,
       "module": "autoslice.analysis.review.workflow",
       "path": "src/autoslice/analysis/review/workflow.py",
       "qualname": "review_peak_selected_topics"
@@ -6772,17 +6822,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 339,
+      "line_count": 338,
       "longest_function": {
-        "end_line": 339,
+        "end_line": 338,
         "kind": "function",
         "line": 204,
-        "line_count": 136,
+        "line_count": 135,
         "qualname": "review_peak_selected_topics"
       },
       "module": "autoslice.analysis.review.workflow",
       "path": "src/autoslice/analysis/review/workflow.py",
-      "sha256": "d9b6d039bacccfa523b840b6bebadebfca4240a5531e2a36e36c9d0d461d9803",
+      "sha256": "24caf7f7bac135f32da1a9ddff1636c19eba91accd72e155c898bfd8e1430945",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -6798,7 +6848,7 @@
           "name": "_apply_review_response"
         },
         {
-          "end_line": 339,
+          "end_line": 338,
           "kind": "function",
           "line": 204,
           "name": "review_peak_selected_topics"
@@ -13120,21 +13170,21 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 81,
+      "line_count": 86,
       "longest_function": {
-        "end_line": 77,
+        "end_line": 82,
         "kind": "function",
         "line": 14,
-        "line_count": 64,
+        "line_count": 69,
         "qualname": "main"
       },
       "module": "scripts.smoke_packaging",
       "path": "scripts/smoke_packaging.py",
-      "sha256": "398c263871a5b614d8c25040f467d4946c757d3c7db4a14d13f0d10c01a3364a",
+      "sha256": "e02bd4316a4a347f946ec937f4025512504d91152ae1e4a1d05144512486107c",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 77,
+          "end_line": 82,
           "kind": "function",
           "line": 14,
           "name": "main"
@@ -13728,8 +13778,8 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 443,
-    "production_line_count": 37876,
+    "import_edge_count": 448,
+    "production_line_count": 37880,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,

@@ -46,6 +46,10 @@ package-dir = {"" = "src"}
 packages = [
   "autoslice",
   "autoslice.analysis",
+  "autoslice.analysis.manual",
+  "autoslice.analysis.report",
+  "autoslice.analysis.review",
+  "autoslice.analysis.topic",
   "autoslice.llm",
   "autoslice.transcription",
   "autoslice.web",

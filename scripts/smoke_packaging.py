@@ -32,7 +32,12 @@ def main() -> int:
         return 1
 
     import autoslice
+    import autoslice.analysis.manual
+    import autoslice.analysis.report
+    import autoslice.analysis.review
+    import autoslice.analysis.topic
     import autoslice.launcher
+    import autoslice.pipeline
     import autoslice.runtime_config
     import autoslice.web.app
     import autoslice_cover
