@@ -100,6 +100,36 @@ class ResourcePathTests(unittest.TestCase):
         page.close()
         stylesheet.close()
 
+    def test_subtitle_template_has_one_owner_per_top_level_function(self):
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "autoslice"
+            / "resources"
+            / "templates"
+            / "subtitle_workflow.html"
+        )
+        template = template_path.read_text(encoding="utf-8")
+        scripts = re.findall(r"<script>(.*?)</script>", template, re.DOTALL)
+        self.assertEqual(len(scripts), 1)
+        function_names = re.findall(
+            r"(?m)^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(",
+            scripts[0],
+        )
+        self.assertEqual(
+            len(function_names),
+            len(set(function_names)),
+            "字幕工作台模板不得为同一顶层函数保留多个实现",
+        )
+        for name in (
+            "selectPair",
+            "renderCues",
+            "deleteCue",
+            "saveCorrections",
+            "corrections",
+        ):
+            self.assertEqual(function_names.count(name), 1, name)
+
 
 class ScanApiTests(unittest.TestCase):
 

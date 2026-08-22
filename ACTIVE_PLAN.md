@@ -10,13 +10,13 @@ ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
 current_action: FE-PREP-1
-current_action_status: pending
+current_action_status: awaiting_ci
 execution_mode: single-action-stop
 last_completed_action: null
 
 ## 执行规则
 
-- 当前处于 active，已授权从 `FE-PREP-1` 开始执行；本轮先完成治理收口，随后进入该 Action。
+- 当前处于 active，`FE-PREP-1` 已完成本地实现与验证，等待提交后的 CI 双绿。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
