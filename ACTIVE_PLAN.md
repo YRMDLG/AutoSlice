@@ -16,7 +16,7 @@ last_completed_action: FE-S0
 
 ## 执行规则
 
-- 当前处于 active，`FE-PREP-2` 已完成实现、验证、提交和 Windows/Linux CI 双绿；下一 Action 为 `FE-S0`。
+- 当前处于 active，`FE-S0` 已完成实现、验证、提交和 Windows/Linux CI 双绿；下一 Action 为 `FE-S1`。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
