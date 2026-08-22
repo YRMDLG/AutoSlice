@@ -356,7 +356,7 @@ def render_artifact_overview(layout, clip_data=None, manifest=None, slice_dir=No
         f"# {os.path.basename(layout['source_video_path'])} 自动切片概览",
         "",
         f"> 自动生成 | 最终切片 {len(marks)} 个 | "
-        f"更新时间: {datetime.now().isoformat(timespec='seconds')}",
+        f"更新时间: {manifest.get('updated_at') or clip_data.get('updated_at') or datetime.now().isoformat(timespec='seconds')}",
         "",
         "## 入口",
         "",
@@ -525,6 +525,10 @@ def organize_existing_artifacts(
             "slice_output_dir": actual_slice_dir,
             "unified_queue_json_path": layout["unified_queue_json_path"],
             "unified_queue_md_path": layout["unified_queue_md_path"],
+            "updated_at": manifest.get(
+                "updated_at",
+                datetime.now().isoformat(timespec="seconds"),
+            ),
         })
         for task in manifest.get("tasks") or []:
             if not isinstance(task, dict) or not task.get("clip_filename"):
@@ -867,9 +871,15 @@ def upsert_unified_refinement_queue(manifest, queue_json_path=None, queue_md_pat
         ]
         recordings.append(record)
         recordings.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
-        queue.update({
+        recordings_changed = recordings != queue.get("recordings")
+        candidate_queue = dict(queue)
+        candidate_queue.update({
             "schema_version": 1,
-            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "updated_at": (
+                datetime.now().isoformat(timespec="seconds")
+                if recordings_changed
+                else queue.get("updated_at", datetime.now().isoformat(timespec="seconds"))
+            ),
             "recording_count": len(recordings),
             "task_count": sum(int(item.get("task_count", 0)) for item in recordings),
             "pending_count": sum(int(item.get("pending_count", 0)) for item in recordings),
@@ -878,12 +888,21 @@ def upsert_unified_refinement_queue(manifest, queue_json_path=None, queue_md_pat
             "completed_count": sum(int(item.get("completed_count", 0)) for item in recordings),
             "recordings": recordings,
         })
+        candidate_markdown = render_unified_refinement_queue_markdown(candidate_queue)
+        if candidate_queue == queue and os.path.isfile(md_path):
+            try:
+                with open(md_path, encoding="utf-8") as handle:
+                    if handle.read() == candidate_markdown:
+                        return json_path, md_path
+            except (OSError, UnicodeError):
+                pass
+        queue = candidate_queue
         json_temp_path = json_path + ".tmp"
         md_temp_path = md_path + ".tmp"
         with open(json_temp_path, "w", encoding="utf-8") as f:
             json.dump(queue, f, ensure_ascii=False, indent=2)
         with open(md_temp_path, "w", encoding="utf-8") as f:
-            f.write(render_unified_refinement_queue_markdown(queue))
+            f.write(candidate_markdown)
         os.replace(json_temp_path, json_path)
         os.replace(md_temp_path, md_path)
     return json_path, md_path
@@ -893,12 +912,8 @@ def write_refinement_manifest_files(manifest):
     """同步写入 JSON 和 Markdown 两种任务清单。"""
     json_path = manifest["manifest_json_path"]
     md_path = manifest["manifest_md_path"]
-    os.makedirs(os.path.dirname(os.path.abspath(json_path)), exist_ok=True)
-    os.makedirs(os.path.dirname(os.path.abspath(md_path)), exist_ok=True)
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(render_refinement_manifest_markdown(manifest))
+    _write_artifact_json(json_path, manifest)
+    _write_artifact_text(md_path, render_refinement_manifest_markdown(manifest))
     return json_path, md_path
 
 
@@ -908,6 +923,9 @@ def update_refinement_manifest_after_slice(manifest_json_path, report_dir, marks
         return False
     with open(manifest_json_path, encoding="utf-8") as f:
         manifest = json.load(f)
+    previous_state = {
+        key: value for key, value in manifest.items() if key != "updated_at"
+    }
     tasks_by_name = {
         task.get("clip_filename"): task
         for task in manifest.get("tasks") or []
@@ -960,10 +978,21 @@ def update_refinement_manifest_after_slice(manifest_json_path, report_dir, marks
             task["status"] = "切片文件缺失"
     manifest["slice_output_dir"] = os.path.abspath(report_dir)
     manifest["status"] = "待精调" if found_count else "切片文件缺失"
-    manifest["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    current_state = {
+        key: value for key, value in manifest.items() if key != "updated_at"
+    }
+    manifest_changed = current_state != previous_state
+    if manifest_changed:
+        manifest["updated_at"] = datetime.now().isoformat(timespec="seconds")
     queue_json_path = manifest.get("unified_queue_json_path")
     queue_md_path = manifest.get("unified_queue_md_path")
-    if queue_json_path or queue_md_path:
+    queue_missing = not (
+        queue_json_path
+        and queue_md_path
+        and os.path.isfile(queue_json_path)
+        and os.path.isfile(queue_md_path)
+    )
+    if (manifest_changed or queue_missing) and (queue_json_path or queue_md_path):
         try:
             upsert_unified_refinement_queue(
                 manifest,
@@ -973,7 +1002,11 @@ def update_refinement_manifest_after_slice(manifest_json_path, report_dir, marks
             manifest["unified_queue_warning"] = None
         except (OSError, ValueError, TypeError) as e:
             manifest["unified_queue_warning"] = f"精调总清单更新失败: {e}"
-    write_refinement_manifest_files(manifest)
+    final_state = {
+        key: value for key, value in manifest.items() if key != "updated_at"
+    }
+    if manifest_changed or final_state != previous_state:
+        write_refinement_manifest_files(manifest)
     return True
 
 

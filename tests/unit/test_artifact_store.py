@@ -53,6 +53,9 @@ class ArtifactStoreTests(unittest.TestCase):
             seeded_path = root / "整理包" / "数据" / "规范检查点.json"
 
             write_artifact_text(text_path, "第一版\n")
+            first_mtime = text_path.stat().st_mtime_ns
+            write_artifact_text(text_path, "第一版\n")
+            self.assertEqual(text_path.stat().st_mtime_ns, first_mtime)
             write_artifact_text(text_path, "第二版\n")
             write_artifact_json(json_path, {"标题": "测试"})
             legacy_path.write_text('{"ok": true}\n', encoding="utf-8")

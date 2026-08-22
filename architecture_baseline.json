@@ -4790,10 +4790,10 @@
       "qualname": "retry_clip_review_from_artifacts_impl"
     },
     {
-      "end_line": 616,
+      "end_line": 620,
       "kind": "function",
       "line": 434,
-      "line_count": 183,
+      "line_count": 187,
       "module": "autoslice.reporting",
       "path": "src/autoslice/reporting.py",
       "qualname": "organize_existing_artifacts"
@@ -4907,9 +4907,9 @@
       "qualname": "recognize_missing_chunks"
     },
     {
-      "end_line": 1098,
+      "end_line": 1131,
       "kind": "function",
-      "line": 980,
+      "line": 1013,
       "line_count": 119,
       "module": "autoslice.reporting",
       "path": "src/autoslice/reporting.py",
@@ -7306,7 +7306,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 211,
+      "line_count": 229,
       "longest_function": {
         "end_line": 94,
         "kind": "function",
@@ -7316,7 +7316,7 @@
       },
       "module": "autoslice.artifact_store",
       "path": "src/autoslice/artifact_store.py",
-      "sha256": "038f6af78658333ef63066786342597d0f7d9dfc8a4fa6f3e4c43f1676af0e82",
+      "sha256": "979787d948581a7480588896538e8d76c2ecc4a374af7fe456c627ebd25f0524",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -7332,51 +7332,51 @@
           "name": "artifact_bundle_layout"
         },
         {
-          "end_line": 112,
+          "end_line": 120,
           "kind": "function",
           "line": 97,
           "name": "write_artifact_text"
         },
         {
-          "end_line": 119,
+          "end_line": 127,
           "kind": "function",
-          "line": 115,
+          "line": 123,
           "name": "write_artifact_json"
-        },
-        {
-          "end_line": 143,
-          "kind": "function",
-          "line": 122,
-          "name": "copy_artifact_file"
-        },
-        {
-          "end_line": 154,
-          "kind": "function",
-          "line": 146,
-          "name": "load_artifact_json"
         },
         {
           "end_line": 161,
           "kind": "function",
-          "line": 157,
+          "line": 130,
+          "name": "copy_artifact_file"
+        },
+        {
+          "end_line": 172,
+          "kind": "function",
+          "line": 164,
+          "name": "load_artifact_json"
+        },
+        {
+          "end_line": 179,
+          "kind": "function",
+          "line": 175,
           "name": "first_existing_artifact_path"
         },
         {
-          "end_line": 173,
+          "end_line": 191,
           "kind": "function",
-          "line": 164,
+          "line": 182,
           "name": "seed_artifact_from_legacy"
         },
         {
-          "end_line": 181,
+          "end_line": 199,
           "kind": "function",
-          "line": 176,
+          "line": 194,
           "name": "markdown_relative_artifact_link"
         },
         {
-          "end_line": 211,
+          "end_line": 229,
           "kind": "function",
-          "line": 184,
+          "line": 202,
           "name": "rewrite_organized_report_links"
         }
       ]
@@ -8686,17 +8686,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1098,
+      "line_count": 1131,
       "longest_function": {
-        "end_line": 616,
+        "end_line": 620,
         "kind": "function",
         "line": 434,
-        "line_count": 183,
+        "line_count": 187,
         "qualname": "organize_existing_artifacts"
       },
       "module": "autoslice.reporting",
       "path": "src/autoslice/reporting.py",
-      "sha256": "06c14ad7006e7584c981d98aa40d93cba1e32e7fe4703d5aa0ebabaf4140e483",
+      "sha256": "fa8b703c18f3f53da3708787b130315397d6d665d78cdd58ef5b80b203597b39",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -8778,69 +8778,69 @@
           "name": "render_artifact_overview"
         },
         {
-          "end_line": 616,
+          "end_line": 620,
           "kind": "function",
           "line": 434,
           "name": "organize_existing_artifacts"
         },
         {
-          "end_line": 668,
+          "end_line": 672,
           "kind": "function",
-          "line": 619,
+          "line": 623,
           "name": "build_refinement_manifest"
         },
         {
-          "end_line": 715,
+          "end_line": 719,
           "kind": "function",
-          "line": 671,
+          "line": 675,
           "name": "render_refinement_manifest_markdown"
         },
         {
-          "end_line": 726,
+          "end_line": 730,
           "kind": "function",
-          "line": 718,
+          "line": 722,
           "name": "_unified_refinement_queue_paths"
         },
         {
-          "end_line": 734,
+          "end_line": 738,
           "kind": "function",
-          "line": 729,
+          "line": 733,
           "name": "_refinement_task_is_completed"
         },
         {
-          "end_line": 786,
+          "end_line": 790,
           "kind": "function",
-          "line": 737,
+          "line": 741,
           "name": "_unified_refinement_record"
         },
         {
-          "end_line": 843,
+          "end_line": 847,
           "kind": "function",
-          "line": 789,
+          "line": 793,
           "name": "render_unified_refinement_queue_markdown"
         },
         {
-          "end_line": 889,
+          "end_line": 908,
           "kind": "function",
-          "line": 846,
+          "line": 850,
           "name": "upsert_unified_refinement_queue"
         },
         {
-          "end_line": 902,
+          "end_line": 917,
           "kind": "function",
-          "line": 892,
+          "line": 911,
           "name": "write_refinement_manifest_files"
         },
         {
-          "end_line": 977,
+          "end_line": 1010,
           "kind": "function",
-          "line": 905,
+          "line": 920,
           "name": "update_refinement_manifest_after_slice"
         },
         {
-          "end_line": 1098,
+          "end_line": 1131,
           "kind": "function",
-          "line": 980,
+          "line": 1013,
           "name": "build_timeline_report"
         }
       ]
@@ -13717,7 +13717,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 443,
-    "production_line_count": 37806,
+    "production_line_count": 37857,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,

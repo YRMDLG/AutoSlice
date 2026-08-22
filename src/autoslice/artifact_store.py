@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import filecmp
 import json
 import os
 import re
 import shutil
 import threading
-
 
 ARTIFACT_LAYOUT_VERSION = 1
 ARTIFACT_BUNDLE_SUFFIX = "_自动切片"
@@ -96,12 +96,20 @@ def artifact_bundle_layout(
 
 def write_artifact_text(path, content):
     """原子写入整理包文本，失败时不破坏上一个完整版本。"""
+    content = str(content)
     path = os.path.abspath(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8", newline="") as handle:
+                if handle.read() == content:
+                    return path
+        except (OSError, UnicodeError):
+            pass
     temp_path = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}"
     try:
         with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(str(content))
+            handle.write(content)
         os.replace(temp_path, path)
     finally:
         if os.path.exists(temp_path):
@@ -128,6 +136,16 @@ def copy_artifact_file(source_path, destination_path):
     if os.path.normcase(source_path) == os.path.normcase(destination_path):
         return destination_path
     os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+    if os.path.isfile(destination_path):
+        try:
+            if (
+                os.stat(source_path).st_mtime_ns
+                <= os.stat(destination_path).st_mtime_ns
+                or filecmp.cmp(source_path, destination_path, shallow=False)
+            ):
+                return destination_path
+        except OSError:
+            pass
     temp_path = (
         f"{destination_path}.tmp-{os.getpid()}-{threading.get_ident()}"
     )

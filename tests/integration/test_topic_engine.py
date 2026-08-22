@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -1557,6 +1558,15 @@ class ArtifactBundleTests(unittest.TestCase):
                 Path(first["unified_queue_json_path"]).is_file(),
                 Path(first["unified_queue_md_path"]).is_file(),
             )
+            before_second_snapshot = {
+                str(path.relative_to(output_dir)): (
+                    path.stat().st_size,
+                    path.stat().st_mtime_ns,
+                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                )
+                for path in output_dir.rglob("*")
+                if path.is_file()
+            }
 
             second = organize_existing_artifacts(
                 str(flv_path),
@@ -1569,6 +1579,15 @@ class ArtifactBundleTests(unittest.TestCase):
                 for path in Path(second["artifact_dir"]).rglob("*")
                 if path.is_file()
             )
+            after_second_snapshot = {
+                str(path.relative_to(output_dir)): (
+                    path.stat().st_size,
+                    path.stat().st_mtime_ns,
+                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                )
+                for path in output_dir.rglob("*")
+                if path.is_file()
+            }
 
             legacy_preserved = []
             for path, expected in {
@@ -1593,6 +1612,15 @@ class ArtifactBundleTests(unittest.TestCase):
         self.assertEqual(first["clip_count"], 1)
         self.assertEqual(first["artifact_dir"], second["artifact_dir"])
         self.assertEqual(files_after_first, files_after_second)
+        self.assertEqual(
+            before_second_snapshot,
+            after_second_snapshot,
+            {
+                key: (before_second_snapshot.get(key), after_second_snapshot.get(key))
+                for key in sorted(set(before_second_snapshot) | set(after_second_snapshot))
+                if before_second_snapshot.get(key) != after_second_snapshot.get(key)
+            },
+        )
         self.assertIn("00_概览.md", files_after_first)
         self.assertIn("01_话题分析.md", files_after_first)
         self.assertIn("02_精调任务.md", files_after_first)
