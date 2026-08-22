@@ -4745,15 +4745,6 @@
       "qualname": "prepare_retry_pipeline_state"
     },
     {
-      "end_line": 320,
-      "kind": "function",
-      "line": 21,
-      "line_count": 300,
-      "module": "autoslice.analysis.review.workflow",
-      "path": "src/autoslice/analysis/review/workflow.py",
-      "qualname": "review_peak_selected_topics"
-    },
-    {
       "end_line": 827,
       "kind": "function",
       "line": 529,
@@ -4844,6 +4835,15 @@
       "qualname": "render_cover"
     },
     {
+      "end_line": 339,
+      "kind": "function",
+      "line": 204,
+      "line_count": 136,
+      "module": "autoslice.analysis.review.workflow",
+      "path": "src/autoslice/analysis/review/workflow.py",
+      "qualname": "review_peak_selected_topics"
+    },
+    {
       "end_line": 207,
       "kind": "function",
       "line": 73,
@@ -4907,6 +4907,15 @@
       "qualname": "recognize_missing_chunks"
     },
     {
+      "end_line": 201,
+      "kind": "function",
+      "line": 80,
+      "line_count": 122,
+      "module": "autoslice.analysis.review.workflow",
+      "path": "src/autoslice/analysis/review/workflow.py",
+      "qualname": "_apply_review_response"
+    },
+    {
       "end_line": 1131,
       "kind": "function",
       "line": 1013,
@@ -4941,15 +4950,6 @@
       "module": "autoslice.llm.transport",
       "path": "src/autoslice/llm/transport.py",
       "qualname": "call_llm_with_retry"
-    },
-    {
-      "end_line": 170,
-      "kind": "function",
-      "line": 62,
-      "line_count": 109,
-      "module": "autoslice.analysis.review.finalization",
-      "path": "src/autoslice/analysis/review/finalization.py",
-      "qualname": "_merge_expanded_clip_marks"
     }
   ],
   "modules": [
@@ -6772,23 +6772,35 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 320,
+      "line_count": 339,
       "longest_function": {
-        "end_line": 320,
+        "end_line": 339,
         "kind": "function",
-        "line": 21,
-        "line_count": 300,
+        "line": 204,
+        "line_count": 136,
         "qualname": "review_peak_selected_topics"
       },
       "module": "autoslice.analysis.review.workflow",
       "path": "src/autoslice/analysis/review/workflow.py",
-      "sha256": "0c5ddd12b61ba745ff1ef54cb4abe4f1508a615b27c7697938cc47c8541d98a6",
+      "sha256": "d9b6d039bacccfa523b840b6bebadebfca4240a5531e2a36e36c9d0d461d9803",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 320,
+          "end_line": 77,
           "kind": "function",
           "line": 21,
+          "name": "_build_review_jobs"
+        },
+        {
+          "end_line": 201,
+          "kind": "function",
+          "line": 80,
+          "name": "_apply_review_response"
+        },
+        {
+          "end_line": 339,
+          "kind": "function",
+          "line": 204,
           "name": "review_peak_selected_topics"
         }
       ]
@@ -13717,11 +13729,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 443,
-    "production_line_count": 37857,
+    "production_line_count": 37876,
     "production_module_count": 170,
     "test_private_patch_count": 17,
     "top_level_class_count": 87,
-    "top_level_function_count": 912
+    "top_level_function_count": 914
   },
   "test_private_patches": {
     "by_target_module": {

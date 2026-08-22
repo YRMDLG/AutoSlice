@@ -1478,7 +1478,14 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "top_level_functions"
             ]
         }
-        self.assertEqual(owner_functions, {"review_peak_selected_topics"})
+        self.assertEqual(
+            owner_functions,
+            {
+                "_build_review_jobs",
+                "_apply_review_response",
+                "review_peak_selected_topics",
+            },
+        )
         self.assertTrue(owner_functions.isdisjoint(candidate_functions))
         self.assertEqual(
             modules["autoslice.analysis.review.workflow"]["top_level_classes"],
@@ -2585,7 +2592,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 912)
+        self.assertEqual(current["summary"]["top_level_function_count"], 914)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5217,7 +5224,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            912,
+            914,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

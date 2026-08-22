@@ -42,7 +42,14 @@ class ClipReviewTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
 
-        self.assertEqual(owner_functions, {"review_peak_selected_topics"})
+        self.assertEqual(
+            owner_functions,
+            {
+                "_build_review_jobs",
+                "_apply_review_response",
+                "review_peak_selected_topics",
+            },
+        )
         self.assertFalse(
             any(isinstance(node, ast.ClassDef) for node in owner_tree.body)
         )
@@ -127,6 +134,36 @@ class ClipReviewTests(unittest.TestCase):
         self.assertIs(checkpoints[0][0], topics)
         self.assertEqual(checkpoints[0][1], [])
         self.assertEqual(checkpoints[0][2:], ("首轮", 1, 1))
+
+    def test_review_batch_preparation_isolated_from_entrypoint(self):
+        topics = [self._topic(), self._topic(title="第二个候选")]
+        progress = []
+        with patch(
+            "autoslice.analysis.review.prompt.build_clip_candidate_review_prompt",
+            side_effect=lambda candidates, **kwargs: (
+                progress.append((len(candidates), kwargs["compact"]))
+                or ("compact" if kwargs["compact"] else "full")
+            ),
+        ):
+            jobs, total_batches = clip_review._build_review_jobs(
+                topics,
+                1,
+                [(100, 180, "字幕")],
+                [],
+                [],
+                "音音",
+                None,
+                "首轮",
+            )
+
+        self.assertEqual(total_batches, 2)
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual([topic["clip_review_attempts"] for topic in topics], [1, 1])
+        self.assertEqual(progress, [(1, False), (1, True), (1, False), (1, True)])
+        self.assertEqual(
+            [(job["prompt"], job["compact_prompt"]) for job in jobs],
+            [("full", "compact"), ("full", "compact")],
+        )
 
     def test_explicit_rejection_finishes_without_retry(self):
         topics = [self._topic(manual_stars=5)]
