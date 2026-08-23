@@ -49,6 +49,7 @@ body{overflow:hidden}
 .segments button.active{background:var(--surface-raised);color:var(--text)}
 .change-count{color:var(--muted);font-size:13px}
 .suggestion-tools{padding:9px 13px;border-bottom:1px solid var(--line);background:#121914}.suggestion-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.suggestion-toolbar-copy{color:var(--muted);font-size:11px}.suggestion-toolbar-actions{display:flex;gap:6px;flex-wrap:wrap}.suggestion-toolbar-actions .button{min-height:28px;padding:4px 9px;font-size:11px}.suggestion-group{padding:7px 0;border-top:1px solid #29362e;line-height:1.45}.suggestion-group:first-child{border-top:0;padding-top:0}.suggestion-group-main{display:flex;gap:8px;align-items:flex-start;color:var(--text);font-size:12px}.suggestion-group-main strong{flex:0 0 auto;color:#9de0b8;font-variant-numeric:tabular-nums}.suggestion-group-main span{overflow-wrap:anywhere}.suggestion-group-meta{margin-top:2px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}.suggestion-protected{margin-top:6px;color:#e7c989;font-size:11px}.suggestion-empty{color:#768279;font-size:11px}
+.quality-panel{min-width:0;max-width:100%;border-bottom:1px solid var(--line);background:#171713;overflow:hidden}.quality-head{padding:9px 13px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.quality-title{min-width:0}.quality-title-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.quality-title-row strong{font-size:12px;color:#f0d99b}.quality-count{padding:2px 6px;border:1px solid #665b36;border-radius:999px;color:#e9d89b;font-size:10px;font-variant-numeric:tabular-nums}.quality-copy{margin-top:3px;color:#8f968e;font-size:10px;line-height:1.4;overflow-wrap:anywhere}.quality-reset{min-height:26px;padding:3px 8px;font-size:10px;flex:0 0 auto}.quality-summary{padding:0 13px 8px;display:flex;gap:5px;flex-wrap:wrap;color:#a8aaa3;font-size:10px;overflow-wrap:anywhere}.quality-summary span{padding:2px 6px;border:1px solid #3c3c32;border-radius:999px;background:#202018}.quality-list{max-height:250px;padding:0 13px 9px;display:grid;gap:7px;overflow:auto;overflow-x:hidden;min-width:0}.quality-empty{padding:5px 0 2px;color:#7f867e;font-size:11px;overflow-wrap:anywhere}.quality-card{min-width:0;max-width:100%;padding:8px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;border:1px solid #454434;border-radius:5px;background:#202019;box-sizing:border-box}.quality-card-main{min-width:0;overflow-wrap:anywhere}.quality-card-title{display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap;color:#f0e8c8;font-size:12px;line-height:1.4}.quality-card-title strong{color:#f2cf76}.quality-card-location{margin-top:3px;color:#a9a795;font-size:10px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.quality-card-context{margin-top:5px;color:#d0d1ca;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}.quality-card-recommendation{margin-top:5px;color:#b5d1bd;font-size:10px;line-height:1.45;overflow-wrap:anywhere}.quality-card-actions{display:flex;align-content:flex-start;justify-content:flex-end;gap:5px;flex-wrap:wrap;min-width:0}.quality-card-actions .button{min-height:27px;padding:3px 8px;font-size:10px;white-space:normal}.quality-action-receipt{border-color:#356249;background:#17251d}.quality-action-receipt .quality-card-title strong{color:#8ee0b3}.quality-action-status{margin-top:4px;color:#9bc5aa;font-size:10px;overflow-wrap:anywhere}
 .task-status{min-height:38px;padding:9px 13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);background:var(--info-bg);color:#b7d9ed;font-size:13px;overflow-wrap:anywhere}
 .task-status::before{content:"";width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--info)}
 .task-status.error{background:var(--danger-bg);color:#ffc1bd}.task-status.error::before{background:var(--danger)}
@@ -116,7 +117,7 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
 .settings-actions{padding:11px 13px;border-top:1px solid var(--line);background:#141715}
 .settings-actions .button{width:100%}
 @media(max-width:1220px){.subtitle-layout{grid-template-columns:240px minmax(560px,1fr) 310px}}
-@media(max-width:760px){.cue-row{grid-template-columns:20px 78px minmax(0,1fr) auto;gap:7px;padding:10px 9px}.cue-content{grid-template-columns:minmax(0,1fr)}.cue-detail{grid-column:2/-1;grid-template-columns:minmax(0,1fr)!important;gap:9px}.cue-actions{justify-content:flex-start}.cue-time-fields,.cue-shift-fields{width:100%}.cue-time-field{min-width:0}.cue-time-input{width:100%;box-sizing:border-box}.cue-delete-preview{margin-left:9px;margin-right:9px}.cue-delete-preview li{grid-template-columns:minmax(0,1fr)}.cue-delete-preview-time{white-space:normal}}
+@media(max-width:760px){.cue-row{grid-template-columns:20px 78px minmax(0,1fr) auto;gap:7px;padding:10px 9px}.cue-content{grid-template-columns:minmax(0,1fr)}.cue-detail{grid-column:2/-1;grid-template-columns:minmax(0,1fr)!important;gap:9px}.cue-actions{justify-content:flex-start}.cue-time-fields,.cue-shift-fields{width:100%}.cue-time-field{min-width:0}.cue-time-input{width:100%;box-sizing:border-box}.cue-delete-preview{margin-left:9px;margin-right:9px}.cue-delete-preview li{grid-template-columns:minmax(0,1fr)}.cue-delete-preview-time{white-space:normal}.quality-card{grid-template-columns:minmax(0,1fr)}.quality-card-actions{justify-content:flex-start}.quality-list{max-height:220px}.quality-head{flex-wrap:wrap}.quality-reset{flex:0 0 auto}}
 </style>
 </head>
 <body>
@@ -217,6 +218,17 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
             </div>
             <div id="suggestionSummary"><span class="suggestion-empty">当前筛选没有待处理的 AI 建议</span></div>
         </div>
+        <section class="quality-panel" id="qualityPanel" aria-labelledby="qualityTitle">
+            <div class="quality-head">
+                <div class="quality-title">
+                    <div class="quality-title-row"><strong id="qualityTitle">字幕质检</strong><span class="quality-count" id="qualityCount">0 条</span></div>
+                    <div class="quality-copy">本地确定性规则，只展示候选；不会自动删除或写入字幕，也不属于 AI 建议批量工具。</div>
+                </div>
+                <button class="button quiet quality-reset" id="qualityResetIgnored" type="button" hidden>恢复本次忽略</button>
+            </div>
+            <div class="quality-summary" id="qualitySummary"><span>加载字幕后自动检查</span></div>
+            <div class="quality-list" id="qualityList" aria-live="polite"><div class="quality-empty">尚未加载字幕</div></div>
+        </section>
         <div id="taskStatus" class="task-status" role="status" aria-live="polite">等待选择投稿</div>
         <div id="cueList" class="cue-list"><div class="queue-empty">选择左侧投稿后加载字幕</div></div>
         <div class="editor-footer">

@@ -943,6 +943,247 @@ if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略覆盖了�
         self.assertIn("min-width:0", html.split(".cue-detail{", 1)[1].split("}", 1)[0])
         self.assertIn(".cue-time-input{width:100%;box-sizing:border-box}", html)
 
+    def test_review_page_exposes_local_subtitle_quality_contract(self):
+        html, script = self._page_script()
+
+        for marker in (
+                'id="qualityPanel"',
+                'id="qualityCount"',
+                'id="qualitySummary"',
+                'id="qualityList"',
+                "本地确定性规则",
+                "不会自动删除或写入字幕",
+                "不属于 AI 建议批量工具"):
+            self.assertIn(marker, html)
+        for marker in (
+                "qualityIgnored:new Set()",
+                "qualityActions:[]",
+                "function qualityIssues()",
+                "function renderQualityList()",
+                "function locateQualityIssue(issue)",
+                "function ignoreQualityIssue(issueId)",
+                "function executeQualityAction(issue)",
+                "function undoQualityAction(actionId)",
+                "QUALITY_RENDER_DELAY_MS=140",
+                "function scheduleQualityRender()",
+                "function cancelScheduledQualityRender()",
+                "background-noise",
+                "exact-duplicate",
+                "symbol-or-short",
+                "low-confidence-semantic",
+                "deletion-blank",
+                "abnormal-gap",
+                "overflow-risk",
+                "segmentation-residue"):
+            self.assertIn(marker, script)
+        self.assertIn("overflow-wrap:anywhere", html.split(".quality-panel{", 1)[1])
+        self.assertIn(
+            ".quality-card{grid-template-columns:minmax(0,1fr)}",
+            html,
+        )
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查字幕质检行为")
+    def test_review_quality_rules_are_local_conservative_and_reversible(self):
+        _html, script = self._page_script()
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r"""
+const node=()=>({textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,
+  value:'',style:{},dataset:{},classList:{toggle:()=>{}},setAttribute:()=>{},
+  removeAttribute:()=>{},focus:()=>{},querySelector:()=>null,querySelectorAll:()=>[],
+  addEventListener:()=>{}});
+const nodes=new Map();
+globalThis.window={confirm:()=>true,getSelection:()=>({type:'None',toString:()=>''})};
+globalThis.requestAnimationFrame=(callback)=>callback();
+let located=false;
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);},
+  querySelectorAll:()=>[],
+  querySelector:(selector)=>selector.includes('.cue-row[data-index="7"]')?{
+    scrollIntoView:()=>{located=true;},focus:()=>{located=true;}
+  }:null,
+};
+document.getElementById('fontSize').value='20';
+document.getElementById('outlineWidth').value='100';
+state.sourceCues=[
+  {index:1,text:'[音乐]',start_seconds:0,end_seconds:1,start:'00:00:00,000',end:'00:00:01,000'},
+  {index:2,text:'重复内容',start_seconds:1.1,end_seconds:2,start:'00:00:01,100',end:'00:00:02,000'},
+  {index:3,text:'重复内容',start_seconds:2.1,end_seconds:3,start:'00:00:02,100',end:'00:00:03,000'},
+  {index:4,text:'***',start_seconds:3.1,end_seconds:3.8,start:'00:00:03,100',end:'00:00:03,800'},
+  {index:5,text:'啊',start_seconds:3.9,end_seconds:4.3,start:'00:00:03,900',end:'00:00:04,300'},
+  {index:6,text:'这句完全不通',start_seconds:4.4,end_seconds:5.6,start:'00:00:04,400',end:'00:00:05,600'},
+  {index:7,text:'本来填补空白',start_seconds:5.7,end_seconds:11.8,start:'00:00:05,700',end:'00:00:11,800'},
+  {index:8,text:'继续说话',start_seconds:12,end_seconds:13,start:'00:00:12,000',end:'00:00:13,000'},
+  {index:9,text:'正常前句',start_seconds:20,end_seconds:21,start:'00:00:20,000',end:'00:00:21,000'},
+  {index:10,text:'这是一个明显超过默认单行安全字数并可能溢出屏幕的字幕',start_seconds:21.1,end_seconds:22.5,start:'00:00:21,100',end:'00:00:22,500'},
+  {index:11,text:'所以',start_seconds:22.6,end_seconds:23,start:'00:00:22,600',end:'00:00:23,000'},
+  {index:12,text:'接着说明情况',start_seconds:23.1,end_seconds:24,start:'00:00:23,100',end:'00:00:24,000'},
+  {index:13,text:'了 后面的尾字漂移',start_seconds:24.1,end_seconds:25,start:'00:00:24,100',end:'00:00:25,000'},
+  {index:14,text:'巨大重叠',start_seconds:30,end_seconds:40,start:'00:00:30,000',end:'00:00:40,000'},
+  {index:15,text:'巨大重叠',start_seconds:31,end_seconds:32,start:'00:00:31,000',end:'00:00:32,000'},
+  {index:16,text:'轻微重叠',start_seconds:42,end_seconds:44,start:'00:00:42,000',end:'00:00:44,000'},
+  {index:17,text:'轻微重叠',start_seconds:43,end_seconds:45,start:'00:00:43,000',end:'00:00:45,000'},
+];
+state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));
+state.deleted.clear();
+state.deleted.add(7);
+state.mergePrevious.clear();
+state.mergeOverrides.clear();
+state.timeOverrides.clear();
+state.suggestions=new Map([[6,{index:6,original:'这句完全不通',corrected:'这句话需要人工确认',reason:'语义异常，无法确认',confidence:.55}]]);
+state.qualityIgnored.clear();
+state.qualityActions=[];
+renderCues=()=>{};
+
+let issues=qualityIssues();
+const types=new Set(issues.map(issue=>issue.type));
+for(const type of ['background-noise','exact-duplicate','symbol-or-short','low-confidence-semantic','deletion-blank','abnormal-gap','overflow-risk','segmentation-residue']){
+  if(!types.has(type))throw new Error(`缺少质检类型 ${type}`);
+}
+if(issues.some(issue=>issue.type==='exact-duplicate'&&issue.indices.includes(15)))throw new Error('巨大负 overlap 被误判为完全重复');
+if(!issues.some(issue=>issue.type==='exact-duplicate'&&issue.indices.includes(17)))throw new Error('轻微 overlap 没有进入完全重复候选');
+if(state.deleted.size!==1||state.deleteSelection.size!==0)throw new Error('质检分析自动改变了删除状态');
+
+state.qualityActions=[];
+state.qualityActionSerial=0;
+for(let index=0;index<21;index+=1){state.deleteSelection.add(100+index);recordQualityAction({issueId:`history-${index}`,kind:'preview-delete',root:100+index,label:'test',location:'test'});}
+pruneStaleQualityActions();
+if(state.qualityActions.length!==21||state.qualityActions[0].issueId!=='history-0')throw new Error('超过 20 条后静默丢弃了仍生效的撤销记录');
+state.qualityActions=[];
+state.qualityActionSerial=0;
+state.deleteSelection.clear();
+
+const duplicate=issues.find(issue=>issue.type==='exact-duplicate');
+if(duplicate?.action?.kind!=='preview-delete')throw new Error('重复字幕没有使用删除预览建议');
+if(!duplicate.context.includes('重复内容')||!duplicate.recommendation.includes('删除预览'))throw new Error('质检结果缺少可见上下文或保守建议');
+executeQualityAction(duplicate);
+if(!state.deleteSelection.has(3)||state.deleted.has(3))throw new Error('建议动作直接删除字幕或没有加入预览');
+state.deleteSelection.delete(3);
+renderQualityList();
+if(state.qualityActions.length!==0)throw new Error('手工取消删除预览后没有清理陈旧 action');
+if(!executeQualityAction(duplicate)||!state.deleteSelection.has(3))throw new Error('清理删除预览陈旧记录后无法重新执行建议');
+const previewAction=state.qualityActions.at(-1);
+undoQualityAction(previewAction.id);
+if(state.deleteSelection.has(3))throw new Error('删除预览建议无法撤销');
+executeQualityAction(duplicate);
+const confirmedDeleteAction=state.qualityActions.at(-1);
+state.deleteSelection.delete(3);
+state.deleted.add(3);
+if(undoQualityAction(confirmedDeleteAction.id)!==false||state.qualityActions.length!==1)throw new Error('已确认删除被质检撤销或丢失动作记录');
+state.deleted.delete(3);
+state.qualityActions=[];
+
+const mergeIssue=issues.find(issue=>issue.type==='segmentation-residue'&&issue.action?.kind==='merge');
+if(!mergeIssue)throw new Error('连接词残留没有保守合并建议');
+executeQualityAction(mergeIssue);
+if(state.mergePrevious.get(12)!==11)throw new Error('合并建议没有复用现有相邻合并 owner');
+state.mergePrevious.delete(12);
+renderQualityList();
+if(state.qualityActions.length!==0)throw new Error('手工拆开质检合并后没有清理陈旧 action');
+if(!executeQualityAction(mergeIssue)||state.mergePrevious.get(12)!==11)throw new Error('清理合并陈旧记录后无法重新执行建议');
+const mergeAction=state.qualityActions.at(-1);
+undoQualityAction(mergeAction.id);
+if(state.mergePrevious.has(12))throw new Error('合并建议无法撤销');
+executeQualityAction(mergeIssue);
+const protectedMergeAction=state.qualityActions.at(-1);
+state.mergeOverrides.set(11,'用户合并后手工改写');
+if(undoQualityAction(protectedMergeAction.id)!==false||state.mergeOverrides.get(11)!=='用户合并后手工改写')throw new Error('撤销覆盖了合并后的手工编辑');
+state.mergeOverrides.delete(11);
+state.mergePrevious.delete(12);
+state.qualityActions=[];
+
+const overflow=qualityIssues().find(issue=>issue.type==='overflow-risk'&&issue.indices.includes(10));
+ignoreQualityIssue(overflow.id);
+if(visibleQualityIssues().some(issue=>issue.id===overflow.id))throw new Error('忽略没有只隐藏质检候选');
+if(state.edited.get(10)!==state.sourceCues[9].text||state.deleted.size!==1)throw new Error('忽略修改了字幕正文或删除状态');
+
+state.edited.set(10,'长度正常');
+if(qualityIssues().some(issue=>issue.type==='overflow-risk'&&issue.indices.includes(10)))throw new Error('编辑后没有实时消除超长候选');
+state.timeOverrides.set(9,{start:13.4,end:21});
+if(qualityIssues().some(issue=>issue.type==='abnormal-gap'&&issue.indices.includes(9)))throw new Error('时间调整后没有实时重算 gap');
+state.deleted.add(3);
+if(qualityIssues().some(issue=>issue.type==='exact-duplicate'&&issue.indices.includes(3)))throw new Error('删除状态没有实时重算重复候选');
+state.suggestions.clear();
+if(qualityIssues().some(issue=>issue.type==='low-confidence-semantic'))throw new Error('没有 AI confidence 证据仍生成低置信候选');
+
+const blank=qualityIssues().find(issue=>issue.type==='deletion-blank');
+locateQualityIssue(blank);
+if(state.filter!=='changed'||state.selectedCueIndex!==7||!located)throw new Error('已删除候选无法定位并展开');
+state.qualityIgnored.add('stale-issue');
+state.qualityActions.push({id:99,issueId:'stale-issue'});
+clearEditor();
+if(state.qualityIgnored.size||state.qualityActions.length)throw new Error('重新加载没有安全清空质检忽略和撤销状态');
+"""
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查质检重算调度")
+    def test_review_quality_render_scheduler_debounces_and_cancels_stale_work(self):
+        _html, script = self._page_script()
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r"""
+const scheduled=[];
+const cleared=[];
+globalThis.setTimeout=(callback,delay)=>{const id=scheduled.length+1;scheduled.push({id,callback,delay});return id;};
+globalThis.clearTimeout=(id)=>{cleared.push(id);};
+const node=()=>({textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,
+  value:'',style:{},classList:{toggle:()=>{}},setAttribute:()=>{},removeAttribute:()=>{},
+  querySelector:()=>null,querySelectorAll:()=>[],addEventListener:()=>{}});
+globalThis.window={};
+globalThis.document={getElementById:()=>node(),querySelectorAll:()=>[],querySelector:()=>null};
+let renders=0;
+renderQualityList=()=>{renders+=1;};
+state.selectionVersion=7;
+scheduleQualityRender();
+if(scheduled.length!==1||scheduled[0].delay<100||scheduled[0].delay>180||renders!==0)throw new Error('quality render was not debounced');
+scheduleQualityRender();
+if(!cleared.includes(1)||scheduled.length!==2||renders!==0)throw new Error('second schedule did not replace the first timer');
+scheduled[0].callback();
+if(renders!==0)throw new Error('cancelled timer still rendered');
+scheduled[1].callback();
+if(renders!==1||state.qualityRenderTimer!==null)throw new Error('latest timer did not render exactly once');
+scheduleQualityRender();
+const staleCallback=scheduled[2].callback;
+clearEditor();
+const rendersAfterClear=renders;
+if(!cleared.includes(3)||state.qualityRenderTimer!==null)throw new Error('clearEditor did not cancel pending quality render');
+staleCallback();
+if(renders!==rendersAfterClear)throw new Error('old video timer polluted the cleared editor');
+"""
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_review_queue_exposes_persistent_folder_and_name_sorting(self):
         html, script = self._page_script()
 
@@ -1133,6 +1374,9 @@ for(const key of ['srt_path','corrections','deleted_indices','merge_pairs','merg
 if(JSON.stringify(payload.merge_pairs)!==JSON.stringify([{first:1,second:2}]))throw new Error('合并 payload 字段不兼容');
 if(JSON.stringify(payload.deleted_indices)!==JSON.stringify([3]))throw new Error('删除 payload 字段不兼容');
 if(payload.time_overrides['1'].start!==.25||payload.time_overrides['1'].end!==2.25)throw new Error('时间 payload 字段不兼容');
+const payloadKeys=Object.keys(payload).sort();
+const expectedKeys=['corrections','deleted_indices','merge_overrides','merge_pairs','srt_path','time_overrides'];
+if(JSON.stringify(payloadKeys)!==JSON.stringify(expectedKeys))throw new Error(`质检状态污染保存 payload：${payloadKeys}`);
 
 const handlers={};
 const row={dataset:{index:'1'},querySelector:()=>null,querySelectorAll:()=>[],
