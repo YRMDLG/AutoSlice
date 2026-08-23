@@ -7,6 +7,201 @@ from autoslice.transcription import workflow
 
 
 class TranscriptionWorkflowTests(unittest.TestCase):
+    @staticmethod
+    def _speaker_checkpoint():
+        return {
+            "speaker_model_used": True,
+            "chunks": {
+                "0": {
+                    "result": [{
+                        "text": "主播背景继续",
+                        "timestamp": [
+                            [0, 1000],
+                            [1000, 2000],
+                            [2000, 3000],
+                            [3000, 4000],
+                            [4000, 5000],
+                            [5000, 6000],
+                        ],
+                        "speaker_segments": [
+                            {
+                                "speaker": "0",
+                                "start": 0,
+                                "end": 2000,
+                                "text": "主播",
+                                "timestamp": [[0, 1000], [1000, 2000]],
+                            },
+                            {
+                                "speaker": "1",
+                                "start": 2000,
+                                "end": 4000,
+                                "text": "背景",
+                                "timestamp": [[2000, 3000], [3000, 4000]],
+                            },
+                            {
+                                "speaker": "0",
+                                "start": 4000,
+                                "end": 6000,
+                                "text": "继续",
+                                "timestamp": [[4000, 5000], [5000, 6000]],
+                            },
+                        ],
+                    }],
+                },
+            },
+        }
+
+    def test_soft_keeps_candidates_and_strict_only_removes_them(self):
+        strict_checkpoint = self._speaker_checkpoint()
+        soft_segments, soft_stats = workflow._collect_checkpoint_segments(
+            self._speaker_checkpoint(),
+            chunk_count=1,
+            duration=120.0,
+            streamer_name="",
+            background_filter_mode="soft",
+        )
+        strict_segments, strict_stats = workflow._collect_checkpoint_segments(
+            strict_checkpoint,
+            chunk_count=1,
+            duration=120.0,
+            streamer_name="",
+            background_filter_mode="strict",
+        )
+
+        self.assertIn("背景", "".join(segment[2] for segment in soft_segments))
+        self.assertNotIn("背景", "".join(segment[2] for segment in strict_segments))
+        self.assertEqual(soft_stats["detected_speaker_count"], 2)
+        self.assertEqual(soft_stats["candidate_segment_count"], 1)
+        self.assertEqual(soft_stats["candidate_seconds"], 2.0)
+        self.assertEqual(soft_stats["removed_segment_count"], 0)
+        self.assertEqual(strict_stats["candidate_segment_count"], 0)
+        self.assertEqual(strict_stats["removed_segment_count"], 1)
+        self.assertEqual(strict_stats["removed_seconds"], 2.0)
+        self.assertEqual(
+            len(strict_checkpoint["chunks"]["0"]["result"][0]["speaker_segments"]),
+            3,
+        )
+
+    def test_default_ensure_srt_mode_is_off_for_full_analysis(self):
+        observed = {}
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_path = root / "recording.flv"
+            video_path.write_bytes(b"video")
+            checkpoint = {
+                "speaker_model_ready": False,
+                "speaker_model_used": False,
+                "device": "cpu",
+                "chunks": {
+                    "0": {
+                        "result": [{
+                            "text": "完整人声",
+                            "timestamp": [
+                                [0, 500],
+                                [500, 1000],
+                                [1000, 1500],
+                                [1500, 2000],
+                            ],
+                        }],
+                    },
+                },
+            }
+
+            def prepare(*_args, **kwargs):
+                observed.update(kwargs)
+                return str(root / "checkpoint.json"), checkpoint
+
+            with (
+                patch.object(workflow, "probe_video_duration", return_value=120.0),
+                patch.object(workflow.model_runtime, "funasr_hotwords", return_value=[]),
+                patch.object(
+                    workflow.checkpoint_store,
+                    "prepare_funasr_checkpoint",
+                    side_effect=prepare,
+                ),
+                patch.object(
+                    workflow.checkpoint_store,
+                    "write_funasr_checkpoint",
+                ),
+            ):
+                workflow.ensure_srt(str(video_path))
+
+        self.assertEqual(observed["background_filter_mode"], "off")
+        self.assertEqual(checkpoint["background_filter"]["actual_mode"], "off")
+        self.assertEqual(
+            checkpoint["background_filter"]["removed_segment_count"],
+            0,
+        )
+
+    def test_strict_campp_load_failure_generates_complete_soft_fallback_srt(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_path = root / "recording.flv"
+            video_path.write_bytes(b"video")
+            checkpoint = {
+                "speaker_model_ready": True,
+                "speaker_model_used": False,
+                "speaker_model_load_failed": True,
+                "device": "cpu",
+                "chunks": {
+                    "0": {
+                        "result": [{
+                            "text": "主播和背景都保留",
+                            "timestamp": [
+                                [0, 500],
+                                [500, 1000],
+                                [1000, 1500],
+                                [1500, 2000],
+                                [2000, 2500],
+                                [2500, 3000],
+                                [3000, 3500],
+                                [3500, 4000],
+                            ],
+                        }],
+                    },
+                },
+            }
+            with (
+                patch.object(workflow, "probe_video_duration", return_value=120.0),
+                patch.object(
+                    workflow.model_runtime,
+                    "funasr_hotwords",
+                    return_value=[],
+                ),
+                patch.object(
+                    workflow.checkpoint_store,
+                    "prepare_funasr_checkpoint",
+                    return_value=(str(root / "checkpoint.json"), checkpoint),
+                ),
+                patch.object(
+                    workflow.checkpoint_store,
+                    "write_funasr_checkpoint",
+                ),
+                patch.object(
+                    workflow.recognition,
+                    "recognize_missing_chunks",
+                ) as recognize,
+            ):
+                srt_path = workflow.ensure_srt(
+                    str(video_path),
+                    background_filter_mode="strict",
+                )
+            content = Path(srt_path).read_text(encoding="utf-8")
+
+        recognize.assert_not_called()
+        self.assertIn("主播和背景都保留", content)
+        result = checkpoint["background_filter"]
+        self.assertEqual(result["requested_mode"], "strict")
+        self.assertEqual(result["actual_mode"], "soft")
+        self.assertTrue(result["speaker_model_ready"])
+        self.assertFalse(result["speaker_model_used"])
+        self.assertTrue(result["speaker_model_load_failed"])
+        self.assertEqual(result["mode"], "adaptive_gate")
+        self.assertEqual(result["removed_segment_count"], 0)
+        self.assertEqual(result["removed_seconds"], 0.0)
+        self.assertIn("加载失败", result["fallback_reason"])
+        self.assertIn("未区分或删除", result["fallback_reason"])
+
     def test_reuses_complete_srt_without_probing_or_recognizing(self):
         events = []
         with TemporaryDirectory() as directory:

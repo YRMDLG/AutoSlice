@@ -7,6 +7,7 @@ import os
 import re
 
 from autoslice.streamer_profiles import current_streamer_profile
+from autoslice.transcription import background_filter
 from autoslice.transcription.contracts import DEFAULT_SUBTITLE_GLOSSARY
 
 FACADE_EXPORTS = {
@@ -190,6 +191,18 @@ def resolve_funasr_speaker_model_source():
     return None
 
 
+def funasr_speaker_model_ready():
+    """CAM++ 与其说话人结果所需标点模型都完整时才视为可用。"""
+
+    return bool(
+        resolve_funasr_speaker_model_source()
+        and resolve_funasr_aux_model_source(
+            FUNASR_PUNC_MODEL,
+            FUNASR_PUNC_CACHE_MODEL_DIR,
+        )
+    )
+
+
 def funasr_hotwords(video_path=None, streamer_name=""):
     """构造受限的 ASR 热词串；普通 Paraformer 会忽略它。"""
     del video_path
@@ -280,13 +293,7 @@ def funasr_public_status():
     custom_hotwords = bool(
         str(os.environ.get("AUTOSLICE_FUNASR_HOTWORDS", "")).strip()
     )
-    punc_source = resolve_funasr_aux_model_source(
-        FUNASR_PUNC_MODEL,
-        FUNASR_PUNC_CACHE_MODEL_DIR,
-    )
-    speaker_filter_ready = bool(
-        resolve_funasr_speaker_model_source() and punc_source
-    )
+    speaker_filter_ready = funasr_speaker_model_ready()
 
     if is_nano:
         model_key = "nano"
@@ -341,31 +348,54 @@ def funasr_public_status():
         ),
         "foreground_filter_available": True,
         "speaker_filter_ready": speaker_filter_ready,
+        "background_filter_modes": (
+            background_filter.public_background_filter_modes()
+        ),
+        "subtitle_background_filter_default": (
+            background_filter.BACKGROUND_FILTER_SOFT
+        ),
+        "analysis_background_filter_default": (
+            background_filter.BACKGROUND_FILTER_OFF
+        ),
+        "background_filter_limit": (
+            "单一混合音轨无法保证 100% 分离同时且等音量的人声；"
+            "严格过滤可能吞掉有效人声。"
+        ),
         "foreground_filter_mode": (
-            "speaker_diarization" if speaker_filter_ready else "adaptive_gate"
+            background_filter.technical_filter_mode(
+                background_filter.BACKGROUND_FILTER_SOFT,
+                speaker_model_used=speaker_filter_ready,
+            )
         ),
         "foreground_filter_hint": (
-            "字幕工作台可用 CAM++ 主要说话人识别，能进一步排除背景对白。"
+            "CAM++ 已就绪：软过滤只统计并保留候选，严格过滤才删除非主要说话人。"
             if speaker_filter_ready
-            else "字幕工作台已启用基础背景音门限；重新运行 python setup_asr_model.py "
-                 "可安装 CAM++，进一步区分主要说话人与背景对白。"
+            else "软/严格模式可使用基础背景音门限；重新运行 python setup_asr_model.py "
+                 "可安装 CAM++。缺少 CAM++ 时不会声称已经区分说话人。"
         ),
     }
 
 
 def _annotate_model_runtime(
         model, *, device, model_source, vad_source, punc_source,
-        speaker_source, foreground_only):
+        speaker_source, background_filter_mode,
+        speaker_model_load_failed=False):
+    policy = background_filter.background_filter_policy(background_filter_mode)
     try:
         model._autoslice_device = device
         model._autoslice_model_source = model_source
         model._autoslice_vad_source = vad_source
         model._autoslice_punc_source = punc_source
         model._autoslice_spk_source = speaker_source
+        model._autoslice_speaker_model_load_failed = bool(
+            speaker_model_load_failed
+        )
+        model._autoslice_background_filter_mode = policy.mode
         model._autoslice_foreground_filter = (
-            "speaker_diarization" if speaker_source
-            else "adaptive_gate" if foreground_only
-            else "off"
+            background_filter.technical_filter_mode(
+                policy.mode,
+                speaker_model_used=bool(speaker_source),
+            )
         )
     except (AttributeError, TypeError):
         pass
@@ -401,8 +431,13 @@ def _funasr_load_error_message(exc, *, model_source, selected_device):
 
 
 def load_funasr_model(
-        AutoModel, progress_callback=None, device=None, foreground_only=False):
+        AutoModel, progress_callback=None, device=None, foreground_only=None,
+        background_filter_mode=None):
     """加载 FunASR 模型；本地无缓存时抛出带排查提示的异常。"""
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=foreground_only,
+    )
     prepare_funasr_environment()
     selected_device = resolve_funasr_device(device)
     model_source = resolve_funasr_model_source()
@@ -412,7 +447,9 @@ def load_funasr_model(
         FUNASR_VAD_CACHE_MODEL_DIR,
     )
     speaker_source = (
-        resolve_funasr_speaker_model_source() if foreground_only else None
+        resolve_funasr_speaker_model_source()
+        if policy.request_speaker_model
+        else None
     )
     punc_source = None if is_nano and not speaker_source else (
         resolve_funasr_aux_model_source(
@@ -443,48 +480,110 @@ def load_funasr_model(
             "spk_mode": "vad_segment",
         })
 
-    try:
-        model = AutoModel(**model_kwargs)
+    def annotate(
+            model, *, actual_device, actual_speaker_source,
+            speaker_model_load_failed=False):
         return _annotate_model_runtime(
             model,
-            device=selected_device,
+            device=actual_device,
             model_source=model_source,
             vad_source=vad_source,
             punc_source=punc_source,
-            speaker_source=speaker_source,
-            foreground_only=foreground_only,
+            speaker_source=actual_speaker_source,
+            background_filter_mode=policy.mode,
+            speaker_model_load_failed=speaker_model_load_failed,
         )
-    except Exception as exc:
-        if selected_device.startswith("cuda"):
-            if progress_callback:
-                progress_callback(
-                    f"FunASR GPU 加载失败，自动改用 CPU: {exc}",
-                    10,
-                    100,
-                )
+
+    load_error = None
+    if speaker_source:
+        try:
+            model = AutoModel(**model_kwargs)
+            return annotate(
+                model,
+                actual_device=selected_device,
+                actual_speaker_source=speaker_source,
+            )
+        except Exception as exc:
+            load_error = exc
+            if selected_device.startswith("cuda"):
+                if progress_callback:
+                    progress_callback(
+                        "FunASR GPU + CAM++ 加载失败，自动改用 CPU + CAM++ 重试",
+                        10,
+                        100,
+                    )
+                try:
+                    cpu_kwargs = dict(model_kwargs)
+                    cpu_kwargs["device"] = "cpu"
+                    model = AutoModel(**cpu_kwargs)
+                    return annotate(
+                        model,
+                        actual_device="cpu",
+                        actual_speaker_source=speaker_source,
+                    )
+                except Exception as cpu_exc:
+                    load_error = cpu_exc
+
+            base_kwargs = dict(model_kwargs)
+            base_kwargs["device"] = "cpu"
+            base_kwargs.pop("spk_model", None)
+            base_kwargs.pop("spk_mode", None)
             try:
-                cpu_kwargs = dict(model_kwargs)
-                cpu_kwargs["device"] = "cpu"
-                model = AutoModel(**cpu_kwargs)
-                return _annotate_model_runtime(
+                model = AutoModel(**base_kwargs)
+            except Exception as base_exc:
+                load_error = base_exc
+            else:
+                if progress_callback:
+                    progress_callback(
+                        "CAM++ 文件已检测到但加载失败，已回退到 CPU 基础 ASR；"
+                        "未启用说话人区分",
+                        10,
+                        100,
+                    )
+                return annotate(
                     model,
-                    device="cpu",
-                    model_source=model_source,
-                    vad_source=vad_source,
-                    punc_source=punc_source,
-                    speaker_source=speaker_source,
-                    foreground_only=foreground_only,
+                    actual_device="cpu",
+                    actual_speaker_source=None,
+                    speaker_model_load_failed=True,
                 )
-            except Exception as cpu_exc:
-                exc = cpu_exc
-        message = _funasr_load_error_message(
-            exc,
-            model_source=model_source,
-            selected_device=selected_device,
-        )
-        if progress_callback:
-            progress_callback(f"{message} 原始错误: {exc}", 0, 100)
-        raise RuntimeError(message) from exc
+    else:
+        try:
+            model = AutoModel(**model_kwargs)
+            return annotate(
+                model,
+                actual_device=selected_device,
+                actual_speaker_source=None,
+            )
+        except Exception as exc:
+            load_error = exc
+            if selected_device.startswith("cuda"):
+                if progress_callback:
+                    progress_callback(
+                        f"FunASR GPU 加载失败，自动改用 CPU: {exc}",
+                        10,
+                        100,
+                    )
+                try:
+                    cpu_kwargs = dict(model_kwargs)
+                    cpu_kwargs["device"] = "cpu"
+                    model = AutoModel(**cpu_kwargs)
+                    return annotate(
+                        model,
+                        actual_device="cpu",
+                        actual_speaker_source=None,
+                    )
+                except Exception as cpu_exc:
+                    load_error = cpu_exc
+
+    failure_device = "cpu" if speaker_source else selected_device
+    message = _funasr_load_error_message(
+        load_error,
+        model_source=model_source,
+        selected_device=failure_device,
+    )
+    if progress_callback:
+        progress_callback(f"{message} 原始错误: {load_error}", 0, 100)
+    raise RuntimeError(message) from load_error
 
 
 def clear_funasr_cuda_cache():

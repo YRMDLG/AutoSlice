@@ -861,16 +861,34 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
 
             def fake_ensure(
                     video_path, progress_callback=None, checkpoint_path=None,
-                    foreground_only=False):
+                    foreground_only=False, background_filter_mode=None):
                 observed_call.update({
                     "checkpoint_path": checkpoint_path,
                     "foreground_only": foreground_only,
+                    "background_filter_mode": background_filter_mode,
                 })
                 Path(checkpoint_path).write_text(json.dumps({
                     "status": "completed",
-                    "foreground_filter_mode": "speaker_diarization",
-                    "speaker_filtered_segment_count": 2,
-                    "speaker_filtered_chunk_count": 1,
+                    "background_filter": {
+                        "requested_mode": "soft",
+                        "actual_mode": "soft",
+                        "enabled": True,
+                        "speaker_model_ready": True,
+                        "speaker_model_used": True,
+                        "used": True,
+                        "detected_speaker_count": 2,
+                        "detected_speaker_count_scope": "max_per_chunk",
+                        "removed_segment_count": 0,
+                        "removed_seconds": 0.0,
+                        "candidate_segment_count": 2,
+                        "candidate_seconds": 1.5,
+                        "model": "CAM++",
+                        "device": "cuda:0",
+                        "fallback_reason": "",
+                        "mode": "speaker_diarization",
+                        "speaker_filtered_segment_count": 0,
+                        "speaker_filtered_chunk_count": 0,
+                    },
                 }), encoding="utf-8")
                 srt = Path(video_path).with_suffix(".srt")
                 srt.write_text(SAMPLE_SRT, encoding="utf-8")
@@ -893,12 +911,11 @@ class SubtitleParsingAndReviewTests(unittest.TestCase):
             checkpoint,
         )
         self.assertTrue(observed_call["foreground_only"])
-        self.assertEqual(result["background_filter"], {
-            "enabled": True,
-            "mode": "speaker_diarization",
-            "speaker_filtered_segment_count": 2,
-            "speaker_filtered_chunk_count": 1,
-        })
+        self.assertEqual(result["background_filter"]["requested_mode"], "soft")
+        self.assertEqual(result["background_filter"]["actual_mode"], "soft")
+        self.assertEqual(result["background_filter"]["candidate_segment_count"], 2)
+        self.assertEqual(result["background_filter"]["removed_segment_count"], 0)
+        self.assertEqual(result["background_filter"]["device"], "cuda:0")
 
     def test_transcription_failure_keeps_checkpoint_for_resume(self):
         with tempfile.TemporaryDirectory() as td:

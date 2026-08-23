@@ -2999,7 +2999,10 @@ class TranscriptionTests(unittest.TestCase):
 
         self.assertEqual(ffmpeg_calls[0][ffmpeg_calls[0].index("-af") + 1],
                          FUNASR_FOREGROUND_AUDIO_FILTER)
-        self.assertTrue(load_model.call_args.kwargs["foreground_only"])
+        self.assertEqual(
+            load_model.call_args.kwargs["background_filter_mode"],
+            "soft",
+        )
         self.assertIn("主要声音", srt_text)
 
     def test_funasr_boundary_dedupe_prefers_complete_overlapping_sentence(self):
@@ -3072,7 +3075,9 @@ class TranscriptionTests(unittest.TestCase):
                     "timestamp": [[0, 500], [500, 1000]],
                 }]
 
-        def fake_load(_auto_model, progress_callback=None, device=None):
+        def fake_load(
+                _auto_model, progress_callback=None, device=None,
+                **_kwargs):
             load_devices.append(device)
             return GpuModel() if str(device).startswith("cuda") else CpuModel()
 

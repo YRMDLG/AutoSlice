@@ -9,7 +9,7 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-from autoslice.transcription import model_runtime
+from autoslice.transcription import background_filter, model_runtime
 from autoslice.transcription import results as result_contracts
 
 FUNASR_CHUNK_SEC = 120.0
@@ -34,9 +34,16 @@ FACADE_EXPORTS = {
 replace_file_atomically = os.replace
 
 
-def funasr_model_runtime_signature(foreground_only: bool = False) -> dict[str, Any]:
+def funasr_model_runtime_signature(
+    foreground_only: bool | None = None,
+    background_filter_mode: str | None = None,
+) -> dict[str, Any]:
     """返回影响检查点兼容性的完整模型运行签名。"""
 
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=foreground_only,
+    )
     model_source = model_runtime.resolve_funasr_model_source()
     contextual_active = "contextual" in str(model_source).casefold()
     vad_source = model_runtime.resolve_funasr_aux_model_source(
@@ -49,7 +56,7 @@ def funasr_model_runtime_signature(foreground_only: bool = False) -> dict[str, A
     )
     speaker_source = (
         model_runtime.resolve_funasr_speaker_model_source()
-        if foreground_only
+        if policy.request_speaker_model
         else None
     )
     return {
@@ -66,11 +73,16 @@ def funasr_model_runtime_signature(foreground_only: bool = False) -> dict[str, A
             if speaker_source
             else None
         ),
-        "foreground_only": bool(foreground_only),
+        "background_filter_mode": policy.mode,
+        "foreground_only": background_filter.legacy_foreground_only(policy.mode),
         "foreground_audio_filter": (
             model_runtime.FUNASR_FOREGROUND_AUDIO_FILTER
-            if foreground_only
+            if policy.apply_audio_gate
             else None
+        ),
+        "request_speaker_model": policy.request_speaker_model,
+        "discard_non_primary_speakers": (
+            policy.discard_non_primary_speakers
         ),
         "funasr_chunk_sec": FUNASR_CHUNK_SEC,
         "funasr_chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
@@ -85,8 +97,13 @@ def funasr_source_fingerprint(
     video_path: str | os.PathLike[str],
     duration: float,
     hotwords: str = "",
-    foreground_only: bool = False,
+    foreground_only: bool | None = None,
+    background_filter_mode: str | None = None,
 ) -> str:
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=foreground_only,
+    )
     stat = os.stat(video_path)
     payload = {
         "path": os.path.normcase(os.path.abspath(video_path)),
@@ -98,7 +115,7 @@ def funasr_source_fingerprint(
         "chunk_sec": FUNASR_CHUNK_SEC,
         "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
         "runtime_signature": funasr_model_runtime_signature(
-            foreground_only=foreground_only
+            background_filter_mode=policy.mode
         ),
         "hotword_digest": hashlib.sha256(
             str(hotwords or "").encode("utf-8")
@@ -144,13 +161,18 @@ def _new_checkpoint_payload(
     duration: float,
     chunk_count: int,
     source_fingerprint: str,
-    foreground_only: bool,
+    background_filter_mode: str,
 ) -> dict[str, Any]:
+    policy = background_filter.background_filter_policy(background_filter_mode)
+    speaker_model_ready = bool(
+        policy.request_speaker_model
+        and model_runtime.funasr_speaker_model_ready()
+    )
     return {
         "version": FUNASR_CHECKPOINT_VERSION,
         "source_fingerprint": source_fingerprint,
         "runtime_signature": funasr_model_runtime_signature(
-            foreground_only=foreground_only
+            background_filter_mode=policy.mode
         ),
         "video_path": os.path.abspath(video_path),
         "duration": float(duration),
@@ -158,14 +180,16 @@ def _new_checkpoint_payload(
         "chunk_pre_context_sec": FUNASR_CHUNK_PRE_CONTEXT_SEC,
         "chunk_count": int(chunk_count),
         "status": "pending",
-        "foreground_only": bool(foreground_only),
+        "background_filter_mode": policy.mode,
+        "foreground_only": background_filter.legacy_foreground_only(policy.mode),
+        "speaker_model_ready": speaker_model_ready,
+        "speaker_model_used": False,
+        "speaker_model_load_failed": False,
         "foreground_filter_mode": (
-            "speaker_diarization"
-            if foreground_only
-            and model_runtime.resolve_funasr_speaker_model_source()
-            else "adaptive_gate"
-            if foreground_only
-            else "off"
+            background_filter.technical_filter_mode(
+                policy.mode,
+                speaker_model_used=speaker_model_ready,
+            )
         ),
         "chunks": {},
     }
@@ -177,10 +201,15 @@ def prepare_funasr_checkpoint(
     chunk_count: int,
     checkpoint_path: str | os.PathLike[str] | None = None,
     hotwords: str = "",
-    foreground_only: bool = False,
+    foreground_only: bool | None = None,
+    background_filter_mode: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """建立新检查点，并只恢复与当前运行契约完全匹配的分块。"""
 
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=foreground_only,
+    )
     resolved_path = os.path.abspath(
         checkpoint_path or funasr_checkpoint_path(video_path)
     )
@@ -188,14 +217,14 @@ def prepare_funasr_checkpoint(
         video_path,
         duration,
         hotwords=hotwords,
-        foreground_only=foreground_only,
+        background_filter_mode=policy.mode,
     )
     payload = _new_checkpoint_payload(
         video_path,
         duration,
         chunk_count,
         source_fingerprint,
-        foreground_only,
+        policy.mode,
     )
     try:
         with open(resolved_path, encoding="utf-8") as handle:
@@ -216,6 +245,18 @@ def prepare_funasr_checkpoint(
         return resolved_path, payload
     if isinstance(existing.get("last_failure"), dict):
         payload["last_failure"] = existing["last_failure"]
+    for key in (
+        "device",
+        "speaker_model_ready",
+        "speaker_model_used",
+        "speaker_model_load_failed",
+        "foreground_filter_mode",
+        "background_filter",
+        "speaker_filtered_segment_count",
+        "speaker_filtered_chunk_count",
+    ):
+        if key in existing:
+            payload[key] = existing[key]
     for index in range(chunk_count):
         start, chunk_duration, input_start, input_duration = (
             funasr_chunk_input_window(index, duration)
@@ -269,6 +310,7 @@ def existing_srt_is_reusable(
     checkpoint_path: str | os.PathLike[str],
     *,
     read_srt_entries: Callable[[str | os.PathLike[str]], list[Any]],
+    expected_source_fingerprint: str | None = None,
 ) -> bool:
     """仅复用结构完整且未被失败检查点标记为残缺的正式字幕。"""
 
@@ -290,6 +332,12 @@ def existing_srt_is_reusable(
             return os.stat(srt_path).st_mtime_ns > os.stat(checkpoint_path).st_mtime_ns
         except OSError:
             return False
+
+    if (
+        expected_source_fingerprint is not None
+        and checkpoint.get("source_fingerprint") != expected_source_fingerprint
+    ):
+        return False
 
     chunks = checkpoint.get("chunks")
     chunk_count = checkpoint.get("chunk_count")

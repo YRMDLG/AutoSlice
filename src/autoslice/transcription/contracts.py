@@ -8,7 +8,6 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Optional, Protocol
 
-
 DEFAULT_SUBTITLE_MAX_CHARS = 13
 DEFAULT_MAX_PUBLISH_TITLE_CHARS = 80
 DEFAULT_SUBTITLE_GLOSSARY = (
@@ -26,7 +25,8 @@ class TranscriptionService(Protocol):
     def __call__(
             self, video_path: str, progress_callback: Optional[Callable] = None,
             checkpoint_path: Optional[str] = None,
-            foreground_only: bool = False) -> Optional[str]:
+            foreground_only: bool | None = None,
+            background_filter_mode: str | None = None) -> Optional[str]:
         ...
 
 

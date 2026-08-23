@@ -19,6 +19,7 @@ from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import PromptContext, build_title_hook_guide
 from autoslice.media_formats import SUPPORTED_VIDEO_EXTENSIONS
 from autoslice.streamer_profiles import StreamerProfile, merge_profile_subtitle_glossary
+from autoslice.transcription import background_filter as background_filter_contract
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -894,8 +895,15 @@ def scan_submission_pairs(root_dir):
 
 def transcribe_submission_video(
         video_path, progress_callback=None, foreground_only=True,
-        transcription_service=None):
+        transcription_service=None, background_filter_mode=None):
     """为精剪成片生成同名 SRT；成功后清理检查点，失败时保留续跑数据。"""
+    policy = background_filter_contract.background_filter_policy(
+        background_filter_mode,
+        foreground_only=(
+            foreground_only if background_filter_mode is None else None
+        ),
+        default=background_filter_contract.BACKGROUND_FILTER_SOFT,
+    )
     video = Path(video_path).expanduser().resolve()
     if not video.is_file():
         raise ValueError("投稿视频文件不存在")
@@ -908,12 +916,17 @@ def transcribe_submission_video(
 
     expected_srt = video.with_suffix(".srt")
     checkpoint_path = video.with_name(f"{video.stem}_asr_checkpoint.json")
-    srt_path = transcription_service(
-        str(video),
-        progress_callback=progress_callback,
-        checkpoint_path=str(checkpoint_path),
-        foreground_only=bool(foreground_only),
-    )
+    transcription_kwargs = {
+        "progress_callback": progress_callback,
+        "checkpoint_path": str(checkpoint_path),
+    }
+    if background_filter_mode is None:
+        transcription_kwargs["foreground_only"] = (
+            background_filter_contract.legacy_foreground_only(policy.mode)
+        )
+    else:
+        transcription_kwargs["background_filter_mode"] = policy.mode
+    srt_path = transcription_service(str(video), **transcription_kwargs)
     if not srt_path or not Path(srt_path).is_file():
         raise RuntimeError("未识别到有效语音，没有生成 SRT 字幕")
     generated_srt = Path(srt_path).resolve()
@@ -922,26 +935,40 @@ def transcribe_submission_video(
     cues = parse_srt_document(generated_srt)
     if not cues:
         raise RuntimeError("生成的 SRT 没有有效字幕")
-    filter_result = {
-        "enabled": bool(foreground_only),
-        "mode": "off",
-        "speaker_filtered_segment_count": 0,
-        "speaker_filtered_chunk_count": 0,
-    }
+    filter_result = background_filter_contract.build_background_filter_result(
+        policy.mode,
+        speaker_model_ready=False,
+        speaker_model_used=False,
+    )
     try:
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         checkpoint = {}
     if isinstance(checkpoint, dict):
-        filter_result.update({
-            "mode": str(checkpoint.get("foreground_filter_mode") or "off"),
-            "speaker_filtered_segment_count": int(
+        checkpoint_filter = checkpoint.get("background_filter")
+        if isinstance(checkpoint_filter, dict):
+            filter_result.update(checkpoint_filter)
+        else:
+            removed_count = int(
                 checkpoint.get("speaker_filtered_segment_count") or 0
-            ),
-            "speaker_filtered_chunk_count": int(
-                checkpoint.get("speaker_filtered_chunk_count") or 0
-            ),
-        })
+            )
+            filter_result = background_filter_contract.build_background_filter_result(
+                policy.mode,
+                speaker_model_ready=bool(checkpoint.get("speaker_model_ready")),
+                speaker_model_used=(
+                    background_filter_contract.technical_mode_uses_speaker_model(
+                        checkpoint.get("foreground_filter_mode")
+                    )
+                ),
+                speaker_model_load_failed=bool(
+                    checkpoint.get("speaker_model_load_failed")
+                ),
+                removed_segment_count=removed_count,
+                speaker_filtered_chunk_count=int(
+                    checkpoint.get("speaker_filtered_chunk_count") or 0
+                ),
+                device=str(checkpoint.get("device") or ""),
+            )
     checkpoint_path.unlink(missing_ok=True)
     return {
         "video_path": str(video),

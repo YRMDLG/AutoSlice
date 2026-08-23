@@ -54,12 +54,14 @@ from autoslice.task_store import (
     TaskNotFoundError,
     TaskStore,
 )
+from autoslice.transcription import background_filter
 
 app = Flask(
     __name__,
     static_folder=str(STATIC_DIR),
     template_folder=str(TEMPLATE_DIR),
 )
+
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
 task_lock = threading.RLock()
@@ -1057,8 +1059,16 @@ def _validate_subtitle_video(video_path):
     return os.path.abspath(video_path)
 
 
-def _reserve_subtitle_transcription_task(video_path, foreground_only=True):
+def _reserve_subtitle_transcription_task(
+        video_path, foreground_only=True, background_filter_mode=None):
     """同一成片同时只允许一个转录任务，并预约同名 SRT 输出。"""
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=(
+            foreground_only if background_filter_mode is None else None
+        ),
+        default=background_filter.BACKGROUND_FILTER_SOFT,
+    )
     srt_path = os.path.splitext(video_path)[0] + ".srt"
     pair_key = os.path.normcase(str(Path(video_path).expanduser().resolve()))
     pair_id = hashlib.sha256(pair_key.encode("utf-8")).hexdigest()[:16]
@@ -1073,7 +1083,10 @@ def _reserve_subtitle_transcription_task(video_path, foreground_only=True):
             "source_video_path": os.path.abspath(video_path),
             "output_srt_path": os.path.abspath(srt_path),
             "subtitle_pair_id": pair_id,
-            "foreground_only": bool(foreground_only),
+            "background_filter_mode": policy.mode,
+            "foreground_only": background_filter.legacy_foreground_only(
+                policy.mode
+            ),
         },
     )
 
@@ -1247,8 +1260,16 @@ def run_subtitle_title_task(
         _record_task_error(task_id, "参考标题生成失败", exc)
 
 
-def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
+def run_subtitle_transcription_task(
+        task_id, video_path, foreground_only=True, background_filter_mode=None):
     """后台为精剪成片生成同名 SRT，完成后可直接进入字幕校对。"""
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=(
+            foreground_only if background_filter_mode is None else None
+        ),
+        default=background_filter.BACKGROUND_FILTER_SOFT,
+    )
     if _task_cancellation_requested(task_id):
         return
     update_task(
@@ -1277,26 +1298,35 @@ def run_subtitle_transcription_task(task_id, video_path, foreground_only=True):
         result = transcribe_submission_video(
             video_path,
             progress_callback=callback,
-            foreground_only=foreground_only,
+            background_filter_mode=policy.mode,
             transcription_service=ensure_srt,
         )
         filter_result = result.get("background_filter") or {}
-        filter_mode = filter_result.get("mode")
-        if filter_mode == "speaker_diarization":
-            filtered_count = int(
-                filter_result.get("speaker_filtered_segment_count") or 0
-            )
-            filter_note = f"，主要说话人过滤 {filtered_count} 段背景对白"
-        elif filter_mode == "adaptive_gate":
-            filter_note = "，已应用基础背景音门限"
-        else:
-            filter_note = ""
+        actual_policy = background_filter.background_filter_policy(
+            filter_result.get("actual_mode") or policy.mode
+        )
+        filter_note = f"，实际模式：{actual_policy.label}"
+        removed_count = int(filter_result.get("removed_segment_count") or 0)
+        candidate_count = int(filter_result.get("candidate_segment_count") or 0)
+        if removed_count:
+            filter_note += f"，删除 {removed_count} 段非主要说话人"
+        elif candidate_count:
+            filter_note += f"，保留 {candidate_count} 段候选人声"
+        if filter_result.get("fallback_reason"):
+            filter_note += "，已安全回退"
         _raise_if_task_cancelled(task_id)
         update_task(
             task_id,
             status="done",
             progress=f"字幕识别完成，共 {result['cue_count']} 条{filter_note}",
             result=result,
+            metadata={
+                "background_filter_mode": policy.mode,
+                "foreground_only": background_filter.legacy_foreground_only(
+                    policy.mode
+                ),
+                "background_filter": filter_result,
+            },
             step=100,
             total=100,
         )
@@ -1838,15 +1868,27 @@ def subtitle_transcribe():
     data = request.get_json(silent=True) or {}
     try:
         video_path = _validate_subtitle_video(data.get("video_path", ""))
-        foreground_only = data.get("foreground_only", True)
-        if not isinstance(foreground_only, bool):
-            raise ValueError("foreground_only 必须是布尔值")
+        background_filter_mode = (
+            data.get("background_filter_mode")
+            if "background_filter_mode" in data
+            else None
+        )
+        foreground_only = (
+            data.get("foreground_only") if "foreground_only" in data else None
+        )
+        background_filter_mode = (
+            background_filter.normalise_background_filter_mode(
+                background_filter_mode,
+                foreground_only=foreground_only,
+                default=background_filter.BACKGROUND_FILTER_SOFT,
+            )
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
     task_id, active_task_id = _reserve_subtitle_transcription_task(
         video_path,
-        foreground_only,
+        background_filter_mode=background_filter_mode,
     )
     if active_task_id:
         return jsonify({
@@ -1856,7 +1898,8 @@ def subtitle_transcribe():
     try:
         threading.Thread(
             target=run_subtitle_transcription_task,
-            args=(task_id, video_path, foreground_only),
+            args=(task_id, video_path),
+            kwargs={"background_filter_mode": background_filter_mode},
             daemon=True,
         ).start()
     except Exception as exc:

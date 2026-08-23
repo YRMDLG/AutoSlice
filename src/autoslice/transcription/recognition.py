@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from autoslice.transcription import background_filter, model_runtime
 from autoslice.transcription import checkpoints as checkpoint_store
-from autoslice.transcription import model_runtime
 from autoslice.transcription import results as result_contracts
 
 
@@ -33,6 +33,7 @@ class FunASRRecognitionSession:
     generate_kwargs: dict[str, Any]
     model_load_options: dict[str, Any]
     hotwords: str
+    requested_background_filter_mode: str
     progress_callback: Any = None
 
     @classmethod
@@ -41,13 +42,18 @@ class FunASRRecognitionSession:
         auto_model_type: Any,
         *,
         hotwords: str,
-        foreground_only: bool,
+        foreground_only: bool | None = None,
+        background_filter_mode: str | None = None,
         progress_callback: Any = None,
     ) -> FunASRRecognitionSession:
+        policy = background_filter.background_filter_policy(
+            background_filter_mode,
+            foreground_only=foreground_only,
+        )
         requested_device = model_runtime.resolve_funasr_device()
         if progress_callback:
             progress_callback(f"加载 FunASR 模型({requested_device})...", 10, 100)
-        model_load_options = {"foreground_only": True} if foreground_only else {}
+        model_load_options = {"background_filter_mode": policy.mode}
         model = model_runtime.load_funasr_model(
             auto_model_type,
             progress_callback=progress_callback,
@@ -65,6 +71,7 @@ class FunASRRecognitionSession:
             ),
             model_load_options=model_load_options,
             hotwords=hotwords,
+            requested_background_filter_mode=policy.mode,
             progress_callback=progress_callback,
         )
 
@@ -74,7 +81,24 @@ class FunASRRecognitionSession:
             getattr(
                 self.model,
                 "_autoslice_foreground_filter",
-                "adaptive_gate" if self.model_load_options else "off",
+                background_filter.technical_filter_mode(
+                    self.requested_background_filter_mode,
+                    speaker_model_used=self.speaker_model_used,
+                ),
+            )
+        )
+
+    @property
+    def speaker_model_used(self) -> bool:
+        return bool(getattr(self.model, "_autoslice_spk_source", None))
+
+    @property
+    def speaker_model_load_failed(self) -> bool:
+        return bool(
+            getattr(
+                self.model,
+                "_autoslice_speaker_model_load_failed",
+                False,
             )
         )
 
@@ -131,6 +155,10 @@ class FunASRRecognitionSession:
 class FunASRRecognitionResult:
     completed_indices: tuple[int, ...]
     foreground_filter_mode: str
+    device: str
+    speaker_model_ready: bool
+    speaker_model_used: bool
+    speaker_model_load_failed: bool
 
 
 def _run_ffmpeg(command: list[str], run_command: Any = None) -> None:
@@ -149,9 +177,14 @@ def extract_source_audio(
     video_path: str,
     wav_path: str,
     *,
-    foreground_only: bool = False,
+    foreground_only: bool | None = None,
+    background_filter_mode: str | None = None,
     run_command: Any = None,
 ) -> None:
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=foreground_only,
+    )
     command = [
         "ffmpeg",
         "-i",
@@ -164,7 +197,7 @@ def extract_source_audio(
         "-ac",
         "1",
     ]
-    if foreground_only:
+    if policy.apply_audio_gate:
         command.extend(["-af", model_runtime.FUNASR_FOREGROUND_AUDIO_FILTER])
     command.extend(["-y", wav_path])
     _run_ffmpeg(command, run_command=run_command)
@@ -249,19 +282,38 @@ def recognize_missing_chunks(
     checkpoint: dict[str, Any],
     *,
     hotwords: str = "",
-    foreground_only: bool = False,
+    foreground_only: bool | None = None,
+    background_filter_mode: str | None = None,
     progress_callback: Any = None,
     auto_model_type: Any = None,
     run_command: Any = None,
 ) -> FunASRRecognitionResult:
     """识别所有缺失分块，每块成功后立即原子更新检查点。"""
 
+    policy = background_filter.background_filter_policy(
+        background_filter_mode,
+        foreground_only=foreground_only,
+    )
     indices = tuple(int(index) for index in missing_indices)
     if not indices:
         return FunASRRecognitionResult(
             completed_indices=(),
             foreground_filter_mode=str(
-                checkpoint.get("foreground_filter_mode", "off")
+                checkpoint.get("foreground_filter_mode")
+                or background_filter.technical_filter_mode(
+                    policy.mode,
+                    speaker_model_used=bool(
+                        checkpoint.get("speaker_model_used")
+                    ),
+                )
+            ),
+            device=str(checkpoint.get("device") or ""),
+            speaker_model_ready=bool(
+                checkpoint.get("speaker_model_ready", False)
+            ),
+            speaker_model_used=bool(checkpoint.get("speaker_model_used", False)),
+            speaker_model_load_failed=bool(
+                checkpoint.get("speaker_model_load_failed", False)
             ),
         )
 
@@ -274,23 +326,35 @@ def recognize_missing_chunks(
         extract_source_audio(
             video_path,
             wav_path,
-            foreground_only=foreground_only,
+            background_filter_mode=policy.mode,
             run_command=run_command,
         )
         session = FunASRRecognitionSession.load(
             auto_model_type,
             hotwords=hotwords,
-            foreground_only=foreground_only,
+            background_filter_mode=policy.mode,
             progress_callback=progress_callback,
         )
-        foreground_filter_mode = session.foreground_filter_mode
-        checkpoint["foreground_filter_mode"] = foreground_filter_mode
-        if progress_callback and foreground_only:
+        checkpoint["foreground_filter_mode"] = session.foreground_filter_mode
+        checkpoint["device"] = session.device
+        checkpoint["speaker_model_ready"] = bool(
+            checkpoint.get("speaker_model_ready")
+            or session.speaker_model_used
+        )
+        checkpoint["speaker_model_used"] = session.speaker_model_used
+        checkpoint["speaker_model_load_failed"] = (
+            session.speaker_model_load_failed
+        )
+        if progress_callback and policy.enabled:
             progress_callback(
                 (
-                    "已启用主要说话人识别，将排除其他说话人与低音量背景声"
-                    if foreground_filter_mode == "speaker_diarization"
-                    else "未安装 CAM++，已启用基础背景音门限；仍可能保留较响的背景对白"
+                    "CAM++ 已启用；软过滤只统计候选，严格过滤才会删除非主要说话人"
+                    if session.speaker_model_used
+                    else "CAM++ 文件已检测到但加载失败，已回退基础背景音门限；"
+                         "未区分说话人"
+                    if session.speaker_model_load_failed
+                    else "CAM++ 所需本地文件缺失或不完整，已启用基础背景音门限；"
+                         "未区分说话人"
                 ),
                 12,
                 100,
@@ -327,6 +391,14 @@ def recognize_missing_chunks(
                 chunk_index=index,
                 chunk_count=chunk_count,
             )
+            checkpoint["foreground_filter_mode"] = (
+                session.foreground_filter_mode
+            )
+            checkpoint["device"] = session.device
+            checkpoint["speaker_model_used"] = session.speaker_model_used
+            checkpoint["speaker_model_load_failed"] = (
+                session.speaker_model_load_failed
+            )
             _record_completed_chunk(
                 checkpoint_path,
                 checkpoint,
@@ -345,7 +417,11 @@ def recognize_missing_chunks(
 
         return FunASRRecognitionResult(
             completed_indices=tuple(completed_indices),
-            foreground_filter_mode=foreground_filter_mode,
+            foreground_filter_mode=session.foreground_filter_mode,
+            device=session.device,
+            speaker_model_ready=bool(checkpoint.get("speaker_model_ready")),
+            speaker_model_used=session.speaker_model_used,
+            speaker_model_load_failed=session.speaker_model_load_failed,
         )
     except Exception as exc:
         if getattr(exc, "chunk_index", None) is None:

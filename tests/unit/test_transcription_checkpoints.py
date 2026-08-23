@@ -10,6 +10,67 @@ from autoslice.transcription import checkpoints
 
 
 class TranscriptionCheckpointTests(unittest.TestCase):
+    def test_three_background_modes_have_distinct_source_fingerprints(self):
+        with TemporaryDirectory() as directory:
+            video_path = Path(directory) / "recording.flv"
+            video_path.write_bytes(b"source")
+            with (
+                patch.object(
+                    checkpoints.model_runtime,
+                    "resolve_funasr_model_source",
+                    return_value="asr-cache",
+                ),
+                patch.object(
+                    checkpoints.model_runtime,
+                    "resolve_funasr_aux_model_source",
+                    return_value=None,
+                ),
+                patch.object(
+                    checkpoints.model_runtime,
+                    "resolve_funasr_speaker_model_source",
+                    return_value=None,
+                ),
+            ):
+                fingerprints = {
+                    mode: checkpoints.funasr_source_fingerprint(
+                        video_path,
+                        120.0,
+                        background_filter_mode=mode,
+                    )
+                    for mode in ("off", "soft", "strict")
+                }
+
+        self.assertEqual(len(set(fingerprints.values())), 3)
+        self.assertEqual(checkpoints.FUNASR_CHECKPOINT_VERSION, 3)
+
+    def test_old_checkpoint_mismatch_safely_starts_without_old_chunks(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_path = root / "recording.flv"
+            checkpoint_path = root / "checkpoint.json"
+            video_path.write_bytes(b"source")
+            checkpoint_path.write_text(
+                json.dumps({
+                    "version": checkpoints.FUNASR_CHECKPOINT_VERSION,
+                    "source_fingerprint": "legacy-fingerprint",
+                    "chunk_count": 1,
+                    "foreground_only": True,
+                    "chunks": {"0": {"result": "legacy-shape"}},
+                }),
+                encoding="utf-8",
+            )
+
+            _, refreshed = checkpoints.prepare_funasr_checkpoint(
+                video_path,
+                120.0,
+                1,
+                checkpoint_path=checkpoint_path,
+                background_filter_mode="strict",
+            )
+
+        self.assertEqual(refreshed["background_filter_mode"], "strict")
+        self.assertEqual(refreshed["chunks"], {})
+
     def test_streamer_mapping_change_invalidates_funasr_checkpoint(self):
         profile_before = SimpleNamespace(
             subtitle_glossary=("音音",),
@@ -181,9 +242,16 @@ class TranscriptionCheckpointTests(unittest.TestCase):
                     (1.0, 2.0, "多余"),
                 ],
             )
+            wrong_mode_fingerprint = checkpoints.existing_srt_is_reusable(
+                srt_path,
+                checkpoint_path,
+                read_srt_entries=lambda _path: [(0.0, 1.0, "测试")],
+                expected_source_fingerprint="different-mode",
+            )
 
         self.assertTrue(reusable)
         self.assertFalse(mismatched)
+        self.assertFalse(wrong_mode_fingerprint)
 
     def test_new_user_srt_can_supersede_failed_checkpoint(self):
         with TemporaryDirectory() as directory:

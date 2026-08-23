@@ -2592,7 +2592,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 922)
+        self.assertEqual(current["summary"]["top_level_function_count"], 933)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3007,6 +3007,45 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "clear_funasr_cuda_cache",
             }.isdisjoint(service_functions)
         )
+
+    def test_background_filter_has_one_owner_and_safe_dependency_direction(self):
+        from autoslice import subtitle_workflow
+        from autoslice.transcription import (
+            background_filter,
+            checkpoints,
+            model_runtime,
+            recognition,
+            workflow,
+        )
+        from autoslice.web import app as web_app
+
+        self.assertIs(model_runtime.background_filter, background_filter)
+        self.assertIs(checkpoints.background_filter, background_filter)
+        self.assertIs(recognition.background_filter, background_filter)
+        self.assertIs(workflow.background_filter, background_filter)
+        self.assertIs(
+            subtitle_workflow.background_filter_contract,
+            background_filter,
+        )
+        self.assertIs(web_app.background_filter, background_filter)
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        import_edges = {
+            (edge["from"], edge["to"]) for edge in current["import_edges"]
+        }
+        owner_module = "autoslice.transcription.background_filter"
+        direct_consumers = {
+            "autoslice.subtitle_workflow",
+            "autoslice.transcription.checkpoints",
+            "autoslice.transcription.model_runtime",
+            "autoslice.transcription.recognition",
+            "autoslice.transcription.workflow",
+            "autoslice.web.app",
+        }
+        for consumer in direct_consumers:
+            with self.subTest(consumer=consumer):
+                self.assertIn((consumer, owner_module), import_edges)
+                self.assertNotIn((owner_module, consumer), import_edges)
 
     def test_funasr_checkpoints_have_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -5224,7 +5263,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            922,
+            933,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

@@ -669,6 +669,14 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             "recommendation": "识别专名不准时调整热词",
             "hotword_hint": "已读取自定义热词",
             "correction_hint": "固定纠错见主播配置",
+            "background_filter_modes": [
+                {"mode": "off", "label": "关闭"},
+                {"mode": "soft", "label": "软过滤"},
+                {"mode": "strict", "label": "严格过滤"},
+            ],
+            "subtitle_background_filter_default": "soft",
+            "analysis_background_filter_default": "off",
+            "background_filter_limit": "单音轨无法保证 100% 分离同时人声",
         }
         with patch("autoslice.topic_engine.funasr_public_status", return_value=public_status):
             response = self.client.get("/api/asr-status")
@@ -678,6 +686,11 @@ class AutoCoverIntegrationTests(unittest.TestCase):
         serialized = json.dumps(response.get_json(), ensure_ascii=False)
         self.assertNotIn("model_path", serialized)
         self.assertNotIn("model_source", serialized)
+        self.assertEqual(
+            [item["mode"] for item in response.get_json()["background_filter_modes"]],
+            ["off", "soft", "strict"],
+        )
+        self.assertIn("无法保证 100%", response.get_json()["background_filter_limit"])
 
     def test_workspace_paths_are_generic_configurable_and_browser_persisted(self):
         with patch.dict(
@@ -732,13 +745,71 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
         self.assertIn("overflow-x: auto", css)
         self.assertIn("overflow-x: auto", css.split(".topnav", 1)[1])
 
-    def test_subtitle_transcription_defaults_to_foreground_audio(self):
+    def test_subtitle_transcription_defaults_to_soft_three_mode_control(self):
         html, script = self._page_script()
 
-        self.assertIn('id="foregroundOnly" type="checkbox" checked', html)
-        self.assertIn("排除背景音", html)
-        self.assertIn("foreground_only:foregroundOnly", script)
+        self.assertIn('id="backgroundFilterMode"', html)
+        self.assertIn('<option value="off">关闭：完整音轨</option>', html)
+        self.assertIn('<option value="soft" selected>', html)
+        self.assertIn('<option value="strict">', html)
+        self.assertIn("可能吞掉有效人声，仅单人直播使用", html)
+        self.assertIn("background_filter_mode:mode", script)
+        self.assertIn("autoslice.subtitle-background-filter-mode", script)
         self.assertIn("autoslice.subtitle-foreground-only", script)
+        self.assertIn("renderBackgroundFilterResult(pair?.background_filter)", script)
+        self.assertIn("过滤模型 ${result.model}", script)
+        self.assertIn("推理设备 ${result.device}", script)
+        for marker in (
+            "data.background_filter_mode",
+            "pair.background_filter=data.background_filter",
+            "result.detected_speaker_count",
+            "result.candidate_segment_count",
+            "result.removed_segment_count",
+            "result.removed_seconds",
+            "result.fallback_reason",
+        ):
+            self.assertIn(marker, script)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证背景音模式迁移")
+    def test_subtitle_background_filter_storage_migrates_legacy_boolean(self):
+        _html, script = self._page_script()
+        start = script.index("const BACKGROUND_FILTER_STORAGE_KEY")
+        end = script.index("function selectedBackgroundFilterMode")
+        helpers = script[start:end]
+        node_script = f"""
+const QUEUE_SORT_KEYS=new Set();
+const storedQueueSort=null;
+{helpers}
+function migrate(initial){{
+  const values=new Map(Object.entries(initial));
+  global.localStorage={{
+    getItem:key=>values.has(key)?values.get(key):null,
+    setItem:(key,value)=>values.set(key,String(value)),
+    removeItem:key=>values.delete(key),
+  }};
+  const mode=loadStoredBackgroundFilterMode();
+  return {{mode,stored:values.get(BACKGROUND_FILTER_STORAGE_KEY),legacy:values.has(LEGACY_FOREGROUND_FILTER_STORAGE_KEY)}};
+}}
+process.stdout.write(JSON.stringify([
+  migrate({{'autoslice.subtitle-foreground-only':'1'}}),
+  migrate({{'autoslice.subtitle-foreground-only':'0'}}),
+  migrate({{}}),
+]));
+"""
+        completed = subprocess.run(
+            ["node", "-"],
+            input=node_script,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        migrated = json.loads(completed.stdout)
+        self.assertEqual([item["mode"] for item in migrated], ["soft", "off", "soft"])
+        self.assertTrue(all(item["stored"] == item["mode"] for item in migrated))
+        self.assertTrue(all(not item["legacy"] for item in migrated))
 
     def test_review_script_tracks_task_ownership_and_protects_manual_edits(self):
         html, script = self._page_script()
@@ -3115,7 +3186,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
 
             def fake_transcribe(
                     video_path, progress_callback=None, foreground_only=True,
-                    transcription_service=None):
+                    transcription_service=None, background_filter_mode=None):
                 self.assertTrue(callable(transcription_service))
                 srt = Path(video_path).with_suffix(".srt")
                 srt.write_text(
@@ -3129,10 +3200,24 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
                     "srt_path": str(srt.resolve()),
                     "cue_count": 1,
                     "background_filter": {
-                        "enabled": foreground_only,
+                        "requested_mode": background_filter_mode or "soft",
+                        "actual_mode": background_filter_mode or "soft",
+                        "enabled": True,
+                        "speaker_model_ready": True,
+                        "speaker_model_used": True,
+                        "used": True,
+                        "detected_speaker_count": 2,
+                        "detected_speaker_count_scope": "max_per_chunk",
+                        "removed_segment_count": 0,
+                        "removed_seconds": 0.0,
+                        "candidate_segment_count": 2,
+                        "candidate_seconds": 1.5,
+                        "model": "CAM++",
+                        "device": "cuda:0",
+                        "fallback_reason": "",
                         "mode": "speaker_diarization",
-                        "speaker_filtered_segment_count": 2,
-                        "speaker_filtered_chunk_count": 1,
+                        "speaker_filtered_segment_count": 0,
+                        "speaker_filtered_chunk_count": 0,
                     },
                 }
 
@@ -3147,7 +3232,7 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
                     "/api/subtitles/transcribe",
                     json={
                         "video_path": str(video),
-                        "foreground_only": True,
+                        "background_filter_mode": "soft",
                     },
                 )
             rescanned = self.client.post(
@@ -3171,13 +3256,18 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             scan.get_json()["pairs"][0]["id"],
         )
         self.assertTrue(task["foreground_only"])
+        self.assertEqual(task["background_filter_mode"], "soft")
+        self.assertEqual(task["background_filter"], result["background_filter"])
         self.assertEqual(
-            result["background_filter"]["mode"],
-            "speaker_diarization",
+            result["background_filter"]["actual_mode"],
+            "soft",
         )
         self.assertTrue(generated_srt_exists)
         transcribe.assert_called_once()
-        self.assertTrue(transcribe.call_args.kwargs["foreground_only"])
+        self.assertEqual(
+            transcribe.call_args.kwargs["background_filter_mode"],
+            "soft",
+        )
         from autoslice.topic_engine import ensure_srt
         self.assertIs(
             transcribe.call_args.kwargs["transcription_service"],
@@ -3200,6 +3290,68 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("foreground_only", response.get_json()["error"])
+
+    def test_transcribe_accepts_new_and_legacy_background_filter_payloads(self):
+        cases = (
+            ({}, "soft", True),
+            ({"foreground_only": False}, "off", False),
+            ({"foreground_only": True}, "soft", True),
+            ({"background_filter_mode": "strict"}, "strict", True),
+            (
+                {
+                    "background_filter_mode": "soft",
+                    "foreground_only": True,
+                },
+                "soft",
+                True,
+            ),
+        )
+        with TemporaryDirectory() as td, patch.object(
+            app_module.threading,
+            "Thread",
+            DeferredThread,
+        ):
+            for index, (fields, expected_mode, expected_legacy) in enumerate(cases):
+                with self.subTest(fields=fields):
+                    video = Path(td) / f"case-{index}.mp4"
+                    video.write_bytes(b"video")
+                    response = self.client.post(
+                        "/api/subtitles/transcribe",
+                        json={"video_path": str(video), **fields},
+                    )
+                    task = app_module.tasks[response.get_json()["task_id"]]
+
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(
+                        task["background_filter_mode"],
+                        expected_mode,
+                    )
+                    self.assertIs(task["foreground_only"], expected_legacy)
+
+    def test_transcribe_rejects_invalid_or_conflicting_new_mode(self):
+        with TemporaryDirectory() as td:
+            video = Path(td) / "最终成片.mp4"
+            video.write_bytes(b"video")
+            invalid = self.client.post(
+                "/api/subtitles/transcribe",
+                json={
+                    "video_path": str(video),
+                    "background_filter_mode": "aggressive",
+                },
+            )
+            conflicting = self.client.post(
+                "/api/subtitles/transcribe",
+                json={
+                    "video_path": str(video),
+                    "background_filter_mode": "strict",
+                    "foreground_only": True,
+                },
+            )
+
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("background_filter_mode", invalid.get_json()["error"])
+        self.assertEqual(conflicting.status_code, 400)
+        self.assertIn("含义不一致", conflicting.get_json()["error"])
 
     def test_reflow_api_preserves_source_and_scanner_prefers_layout_copy(self):
         with TemporaryDirectory() as td:
