@@ -9,19 +9,19 @@ plan_ref: docs/plans/frontend-features.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: COVER-C0
+current_action: COVER-C1
 current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: ASR-A2
+last_completed_action: COVER-C0
 
 ## 执行规则
 
-- 当前处于 active，`ASR-A2` 已完成实现、验证、提交和 Windows/Linux CI 双绿并登记；下一 Action 为 `COVER-C0`。
+- 当前处于 active，`COVER-C0` 已完成实现、验证、提交和 Windows/Linux CI 双绿并登记；下一 Action 为 `COVER-C1`。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
 - 一次只执行一个 Action；本 Action 完成、提交、CI 双绿并登记后停止。
-- `FE-PREP-1`、`FE-PREP-2`、`FE-S0`、`FE-S1`、`FE-S2`、`FE-S3`、`FE-S4`、`FE-S5`、`ASR-A1`、`ASR-A2` 均已登记完成，不得重复运行；下一轮从 `COVER-C0` 开始。
+- `FE-PREP-1`、`FE-PREP-2`、`FE-S0`、`FE-S1`、`FE-S2`、`FE-S3`、`FE-S4`、`FE-S5`、`ASR-A1`、`ASR-A2`、`COVER-C0` 均已登记完成，不得重复运行；下一轮从 `COVER-C1` 开始。
 
 ## 当前计划范围
 
