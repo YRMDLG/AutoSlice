@@ -48,6 +48,7 @@ body{overflow:hidden}
 .segments button:hover{color:var(--text);background:var(--surface-hover)}
 .segments button.active{background:var(--surface-raised);color:var(--text)}
 .change-count{color:var(--muted);font-size:13px}
+.suggestion-tools{padding:9px 13px;border-bottom:1px solid var(--line);background:#121914}.suggestion-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.suggestion-toolbar-copy{color:var(--muted);font-size:11px}.suggestion-toolbar-actions{display:flex;gap:6px;flex-wrap:wrap}.suggestion-toolbar-actions .button{min-height:28px;padding:4px 9px;font-size:11px}.suggestion-group{padding:7px 0;border-top:1px solid #29362e;line-height:1.45}.suggestion-group:first-child{border-top:0;padding-top:0}.suggestion-group-main{display:flex;gap:8px;align-items:flex-start;color:var(--text);font-size:12px}.suggestion-group-main strong{flex:0 0 auto;color:#9de0b8;font-variant-numeric:tabular-nums}.suggestion-group-main span{overflow-wrap:anywhere}.suggestion-group-meta{margin-top:2px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}.suggestion-protected{margin-top:6px;color:#e7c989;font-size:11px}.suggestion-empty{color:#768279;font-size:11px}
 .task-status{min-height:38px;padding:9px 13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);background:var(--info-bg);color:#b7d9ed;font-size:13px;overflow-wrap:anywhere}
 .task-status::before{content:"";width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--info)}
 .task-status.error{background:var(--danger-bg);color:#ffc1bd}.task-status.error::before{background:var(--danger)}
@@ -190,6 +191,17 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
                 <button type="button" data-filter="changed">已改</button>
             </div>
             <div id="changeCount" class="change-count">0 条修改</div>
+        </div>
+        <div class="suggestion-tools" id="suggestionTools" aria-live="polite">
+            <div class="suggestion-toolbar">
+                <span class="suggestion-toolbar-copy">当前筛选中的 AI 建议</span>
+                <div class="suggestion-toolbar-actions">
+                    <button class="button" id="acceptSuggestionsButton" type="button" disabled>全部采纳</button>
+                    <button class="button quiet" id="ignoreSuggestionsButton" type="button" disabled>全部忽略</button>
+                    <button class="button quiet" id="undoSuggestionButton" type="button" disabled>撤销</button>
+                </div>
+            </div>
+            <div id="suggestionSummary"><span class="suggestion-empty">当前筛选没有待处理的 AI 建议</span></div>
         </div>
         <div id="taskStatus" class="task-status" role="status" aria-live="polite">等待选择投稿</div>
         <div id="cueList" class="cue-list"><div class="queue-empty">选择左侧投稿后加载字幕</div></div>

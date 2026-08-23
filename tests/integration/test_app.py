@@ -711,6 +711,83 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
             script,
         )
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查批量建议交互")
+    def test_review_batch_suggestions_respect_filter_protection_and_undo(self):
+        html, script = self._page_script()
+        for marker in (
+                'id="acceptSuggestionsButton"',
+                'id="ignoreSuggestionsButton"',
+                'id="undoSuggestionButton"',
+                'id="suggestionSummary"'):
+            self.assertIn(marker, html)
+        for marker in (
+                "function visibleSuggestionEntries()",
+                "function suggestionGroups(entries)",
+                "function acceptVisibleSuggestions()",
+                "function ignoreVisibleSuggestions()",
+                "function undoSuggestionAction()",
+                "singleCharacterReplacement",
+                "state.protectedEdits"):
+            self.assertIn(marker, script)
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r'''
+globalThis.window={confirm:()=>true};
+const emptyNode={querySelectorAll:()=>[],querySelector:()=>({textContent:''}),
+  classList:{toggle:()=>{}},style:{},setAttribute:()=>{}};
+globalThis.document={
+  getElementById:()=>({...emptyNode}),
+  querySelectorAll:()=>[],
+};
+state.sourceCues=[
+  {index:1,text:'原文一',start_seconds:0,end_seconds:1,start:'00:00:00,000',end:'00:00:01,000'},
+  {index:2,text:'原文一',start_seconds:1,end_seconds:2,start:'00:00:01,000',end:'00:00:02,000'},
+  {index:3,text:'原文三',start_seconds:2,end_seconds:3,start:'00:00:02,000',end:'00:00:03,000'},
+  {index:4,text:'没有建议',start_seconds:3,end_seconds:4,start:'00:00:03,000',end:'00:00:04,000'},
+];
+state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));
+state.suggestions=new Map([
+  [1,{index:1,original:'原文一',corrected:'校正结果',reason:'上下文确认',confidence:.99}],
+  [2,{index:2,original:'原文一',corrected:'校正结果',reason:'上下文确认',confidence:.91}],
+  [3,{index:3,original:'原文三',corrected:'另一结果',reason:'固定词',confidence:.88}],
+]);
+state.protectedEdits.add(3);
+state.edited.set(3,'用户手工修改');
+state.filter='suggested';
+if(visibleSuggestionEntries().length!==3)throw new Error('当前筛选没有完整收集建议');
+if(suggestionGroups(visibleSuggestionEntries()).length!==2)throw new Error('相同建议没有合并展示');
+acceptVisibleSuggestions();
+if(state.edited.get(1)!=='校正结果'||state.edited.get(2)!=='校正结果')throw new Error('批量采纳未应用到未保护建议');
+if(state.edited.get(3)!=='用户手工修改')throw new Error('批量采纳覆盖了手工修改');
+undoSuggestionAction();
+if(state.edited.get(1)!=='原文一'||state.edited.get(2)!=='原文一')throw new Error('采纳撤销未恢复原文');
+ignoreVisibleSuggestions();
+if(state.ignoredSuggestions.size!==3)throw new Error('批量忽略没有作用于当前筛选');
+if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略操作覆盖了手工修改');
+undoSuggestionAction();
+if(state.ignoredSuggestions.size!==0||state.edited.get(1)!=='原文一')throw new Error('忽略撤销未恢复建议状态');
+acceptVisibleSuggestions();
+ignoreVisibleSuggestions();
+if(state.edited.get(1)!=='原文一'||state.edited.get(2)!=='原文一')throw new Error('忽略没有撤回此前自动采纳的建议');
+if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略覆盖了手工修改');
+'''
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_subtitle_tasks_fetch_full_result_after_sse_sanitization(self):
         _html, script = self._page_script()
 
