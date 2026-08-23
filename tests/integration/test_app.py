@@ -754,7 +754,7 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
             "sourceText(index)!==item.original",
             "correctedTimelineMatches",
             "deleted:new Set()",
-            "function deleteCue(index)",
+            "function deleteCue(index,render=true)",
             "function restoreCue(index)",
             "deleted_indices:removed",
             "cue-delete",
@@ -900,15 +900,18 @@ if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略覆盖了�
                 "mergeOverrides:new Map()",
                 "function mergeWithPrevious(index)",
                 "function mergeWithNext(index)",
-                "function unmergeGroup(index)",
+                "function unmergeGroup(index,force=false)",
                 "function restoreCorrectedState(",
                 "merge_pairs:pairs",
                 "merge_overrides:overrides",
                 "合并原文",
                 "合上",
                 "合下",
-                "拆开"):
+                "拆开",
+                "cue-delete-preview",
+                "cue-shift-actions"):
             self.assertIn(marker, script)
+        self.assertIn("@media(max-width:760px)", _html)
 
     def test_review_page_exposes_selected_cue_timing_editor(self):
         html, script = self._page_script()
@@ -926,7 +929,19 @@ if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略覆盖了�
                 "'/api/subtitles/edit-state'",
                 "cue-detail"):
             self.assertIn(marker, script if marker != "cue-detail" else html)
-        self.assertNotIn("row.addEventListener('click'", script)
+        self.assertIn("row.addEventListener('click'", script)
+        self.assertIn(
+            "event.target?.closest?.('textarea,input,button,label,a,select')",
+            script,
+        )
+        self.assertIn(".cue-detail{", html)
+        self.assertIn("display:none", html.split(".cue-detail{", 1)[1].split("}", 1)[0])
+        self.assertIn(
+            ".cue-row.selected .cue-detail,.cue-row:focus-within .cue-detail{display:grid;",
+            html,
+        )
+        self.assertIn("min-width:0", html.split(".cue-detail{", 1)[1].split("}", 1)[0])
+        self.assertIn(".cue-time-input{width:100%;box-sizing:border-box}", html)
 
     def test_review_queue_exposes_persistent_folder_and_name_sorting(self):
         html, script = self._page_script()
@@ -1000,6 +1015,143 @@ if(state.mergePrevious.get(2)!==1||state.mergePrevious.get(3)!==2)throw new Erro
 if(mergedDisplayText(1)!=='完整合并句子')throw new Error('合并正文恢复错误');
 const pairs=JSON.stringify(mergePairs());
 if(pairs!==JSON.stringify([{first:1,second:2},{first:2,second:3}]))throw new Error('保存关系错误');
+"""
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查字幕编辑行为")
+    def test_review_edit_actions_keep_timeline_restore_and_payload_contract(self):
+        _html, script = self._page_script()
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r"""
+const node=()=>({textContent:'',className:'',hidden:false,disabled:false,value:'',style:{},
+  classList:{toggle:()=>{}},setAttribute:()=>{},removeAttribute:()=>{},focus:()=>{},
+  querySelector:()=>null,querySelectorAll:()=>[],addEventListener:()=>{}});
+globalThis.window={confirm:()=>true,getSelection:()=>({type:'None',toString:()=>''})};
+globalThis.requestAnimationFrame=(callback)=>callback();
+globalThis.document={getElementById:()=>node(),querySelectorAll:()=>[],querySelector:()=>null};
+state.sourceCues=[
+  {index:1,start:'00:00:00,000',end:'00:00:01,000',start_seconds:0,end_seconds:1,text:'第一句'},
+  {index:2,start:'00:00:01,000',end:'00:00:02,000',start_seconds:1,end_seconds:2,text:'第二句'},
+  {index:3,start:'00:00:02,000',end:'00:00:03,000',start_seconds:2,end_seconds:3,text:'第三句'}
+];
+state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));
+state.mergePrevious.clear();
+state.mergeOverrides.clear();
+state.timeOverrides.clear();
+state.deleted.clear();
+state.deletedSnapshots.clear();
+state.deleteSelection.clear();
+mergeGroups(1,2);
+if(groupTiming(1).start!==0||groupTiming(1).end!==2)throw new Error('首次合并没有覆盖首条到末条时间');
+mergeGroups(1,3);
+if(groupTiming(1).start!==0||groupTiming(1).end!==3)throw new Error('链式合并没有覆盖首条到末条时间');
+if(validateTiming(2,1,1.5)!=='合并字幕必须调整整组时间')throw new Error('合并子条仍可单独调整');
+state.mergePrevious.clear();
+state.mergeOverrides.clear();
+state.timeOverrides.clear();
+state.edited.set(1,'手工第一句');
+state.edited.set(2,'手工第二句');
+mergeGroups(1,2);
+state.timeOverrides.set(1,{start:.25,end:2.5});
+if(mergedDisplayText(1)!=='手工第一句手工第二句')throw new Error('合并没有保留成员正文');
+if(!unmergeGroup(1)||state.mergePrevious.size!==0)throw new Error('拆分合并组失败');
+if(state.edited.get(1)!=='手工第一句'||state.edited.get(2)!=='手工第二句')throw new Error('拆分丢失成员正文');
+if(state.timeOverrides.get(1)?.start!==.25||state.timeOverrides.get(2)?.end!==2.5)throw new Error('拆分丢失两端时间调整');
+mergeGroups(1,2);
+if(groupTiming(1).start!==.25||groupTiming(1).end!==2.5)throw new Error('重新合并没有保留时间调整');
+state.mergeOverrides.set(1,'手工改写的合并正文');
+if(unmergeGroup(1)!==false||state.mergePrevious.get(2)!==1)throw new Error('手工合并正文被静默丢失');
+state.mergeOverrides.clear();
+if(!unmergeGroup(1))throw new Error('恢复原文后仍无法拆分合并组');
+state.mergePrevious.clear();
+state.mergeOverrides.clear();
+state.timeOverrides.clear();
+if(validateTiming(1,.25,1.5)!=='')throw new Error('后端允许的时间重叠被前端误拒绝');
+if(!validateTiming(1,-.1,.5))throw new Error('负开始时间未被拒绝');
+if(!validateTiming(1,1,.5))throw new Error('结束早于开始未被拒绝');
+if(!validateTiming(1,1.1,1.8))throw new Error('开始时间跨越下一条时间轴未被拒绝');
+let shiftInput={value:'1',focus:()=>{}};
+document.querySelector=()=>shiftInput;
+if(validateTiming(1,.25,1.5)!=='')throw new Error('时间轴安全校验错误');
+shiftCueTiming(1,-1);
+if(state.timeOverrides.size!==0)throw new Error('整段前移越过 0 未被拒绝');
+
+let renderCount=0;
+renderCues=()=>{renderCount+=1;};
+const cancelNode={addEventListener:(type,callback)=>{if(type==='click')cancelNode.click=callback;}};
+const confirmNode={addEventListener:(type,callback)=>{if(type==='click')confirmNode.click=callback;}};
+const previewList={querySelector:(selector)=>selector.includes('cancel')?cancelNode:confirmNode};
+state.deleteSelection.add(2);
+wireDeletePreview(previewList);
+cancelNode.click();
+if(state.deleteSelection.size!==0||state.deleted.size!==0)throw new Error('删除预览取消没有恢复待删除状态');
+state.deleteSelection.add(2);
+confirmNode.click();
+if(!state.deleted.has(2)||state.deleteSelection.size!==0)throw new Error('删除预览确认没有提交删除');
+restoreCue(2);
+if(state.deleted.has(2))throw new Error('删除后无法恢复字幕');
+
+state.deleted.clear();
+state.deletedSnapshots.clear();
+state.filter='changed';
+if(!applySavedEditState({deleted_indices:[2]}))throw new Error('已保存删除状态无法重新加载');
+if(!state.deletedSnapshots.has(2)||!renderCueRow(state.sourceCues[1]).includes('恢复'))throw new Error('重新加载后没有恢复入口');
+restoreCue(2);
+state.filter='all';
+
+state.pairs=[{id:'pair-1',srt_path:'source.srt'}];
+state.selectedIndex=0;
+state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));
+state.edited.set(1,'修改第一句');
+state.deleted.add(3);
+state.mergePrevious.set(2,1);
+state.mergeOverrides.set(1,'合并正文');
+state.timeOverrides.set(1,{start:.25,end:2.25});
+persistSubtitleSettings=()=>{};
+renderQueue=()=>{};
+updateArtifact=()=>{};
+let payload=null;
+globalThis.fetch=async (_url,options)=>({ok:true,json:async()=>{payload=JSON.parse(options.body);return{corrected_srt_path:'corrected.srt'};}});
+saveCorrections().then(()=>{
+for(const key of ['srt_path','corrections','deleted_indices','merge_pairs','merge_overrides','time_overrides'])if(!(key in payload))throw new Error(`payload 缺少 ${key}`);
+if(JSON.stringify(payload.merge_pairs)!==JSON.stringify([{first:1,second:2}]))throw new Error('合并 payload 字段不兼容');
+if(JSON.stringify(payload.deleted_indices)!==JSON.stringify([3]))throw new Error('删除 payload 字段不兼容');
+if(payload.time_overrides['1'].start!==.25||payload.time_overrides['1'].end!==2.25)throw new Error('时间 payload 字段不兼容');
+
+const handlers={};
+const row={dataset:{index:'1'},querySelector:()=>null,querySelectorAll:()=>[],
+  addEventListener:(type,callback)=>{handlers[type]=callback;}};
+state.selectedCueIndex=null;
+renderCount=0;
+wireCueRow(row);
+handlers.click({target:{closest:()=>null}});
+if(state.selectedCueIndex!==1||renderCount!==1)throw new Error('字幕行单击没有选中');
+for(const type of ['textarea','input','button']){
+  state.selectedCueIndex=null;
+  handlers.click({target:{closest:()=>({nodeName:type.toUpperCase()})}});
+  if(state.selectedCueIndex!==null)throw new Error(`${type} 点击错误触发行切换`);
+}
+state.selectedCueIndex=null;
+window.getSelection=()=>({type:'Range',toString:()=> '用户选择文本'});
+handlers.click({target:{closest:()=>null}});
+if(state.selectedCueIndex!==null||renderCount!==1)throw new Error('长按选择文本被 renderCues 打断');
+}).catch(error=>{console.error(error);process.exitCode=1;});
 """
         result = subprocess.run(
             [
