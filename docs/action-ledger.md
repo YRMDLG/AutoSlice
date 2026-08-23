@@ -24,6 +24,7 @@
 | FE-S1 | frontend-features | 2026-08-23 | [2c34c13](../commit/2c34c138ec5554fad81e2588769fa52001e41804) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32618372222) | 增加字幕 AI 建议批量采纳、忽略、分组展示和可撤销操作 |
 | FE-S2 | frontend-features | 2026-08-23 | [21999b0](../commit/21999b003a1bf54f9548f1bef896ec75a8bd5fbb) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32626570926) | 增加本视频额外词条、主播错词映射、本机安全覆盖和缓存失效契约 |
 | FE-S3 | frontend-features | 2026-08-23 | [d244802](../commit/d244802eab76385a1f5e6d59dad1dc5020e7bcb7) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32633581563) | 预览使用临时编辑字幕，显式保存后才允许压制和生成标题 |
+| FE-S4 | frontend-features | 2026-08-23 | [a7a08ea](../commit/a7a08ea336476e35e03ddff0596db9a6ed5f8950) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32636722609) | 合并、删除、时间调整统一交互 |
 
 ## 记录规则
 
