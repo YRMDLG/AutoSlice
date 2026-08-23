@@ -2592,7 +2592,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 933)
+        self.assertEqual(current["summary"]["top_level_function_count"], 935)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -3136,6 +3136,32 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertIs(candidates.transcription_segments, segments)
         self.assertIs(titles.transcription_segments, segments)
         self.assertIs(boundaries.transcription_segments, segments)
+        self.assertIs(
+            topic_engine._segment_timed_tokens,
+            segments.segment_timed_tokens,
+        )
+        self.assertIs(
+            topic_engine._segments_from_funasr_result,
+            segments.segments_from_funasr_result,
+        )
+        self.assertEqual(
+            segments.segment_timed_tokens_with_trace.__module__,
+            segments.__name__,
+        )
+        self.assertEqual(
+            segments.segments_from_funasr_result_with_trace.__module__,
+            segments.__name__,
+        )
+        self.assertIs(
+            segments.segment_timed_tokens.__globals__["segment_timed_tokens_with_trace"],
+            segments.segment_timed_tokens_with_trace,
+        )
+        self.assertIs(
+            segments.segments_from_funasr_result.__globals__[
+                "segments_from_funasr_result_with_trace"
+            ],
+            segments.segments_from_funasr_result_with_trace,
+        )
 
         for facade_name, owner_name in segments.FACADE_EXPORTS.items():
             with self.subTest(name=facade_name):
@@ -3151,14 +3177,69 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "top_level_functions"
             ]
         }
+        owner_module = modules["autoslice.transcription.segments"]
         owner_functions = {
             item["name"]
-            for item in modules["autoslice.transcription.segments"][
-                "top_level_functions"
-            ]
+            for item in owner_module["top_level_functions"]
         }
-        self.assertTrue(owner_functions)
+        self.assertEqual(owner_functions, {
+            "align_funasr_tokens",
+            "attach_funasr_punctuation_to_tokens",
+            "dedupe_overlapping_funasr_segments",
+            "is_funasr_punctuation",
+            "join_asr_tokens",
+            "normalise_asr_text",
+            "normalise_streamer_terms",
+            "parse_srt_timestamp",
+            "repair_srt_end_time",
+            "segment_timed_tokens",
+            "segment_timed_tokens_with_trace",
+            "segments_from_funasr_result",
+            "segments_from_funasr_result_with_trace",
+            "should_hold_subtitle_for_short_clause",
+            "split_subtitle_text_for_display",
+            "split_timed_subtitle_segment",
+            "srt_time",
+            "srt_video_duration",
+            "strip_asr_subtitle_punctuation",
+            "subtitle_text_size",
+            "text_len_for_timing",
+            "trim_funasr_tokens_to_core",
+        })
+        self.assertEqual(
+            {item["name"] for item in owner_module["top_level_classes"]},
+            {
+                "_SubtitleSegmentationPlanner",
+                "SubtitleBoundaryDecision",
+                "SubtitleBoundaryReason",
+                "SubtitleSegmentationTrace",
+            },
+        )
         self.assertTrue(owner_functions.isdisjoint(service_functions))
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        owner_name = "autoslice.transcription.segments"
+        for consumer in {
+            "autoslice.analysis.boundaries",
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.topic.titles",
+            "autoslice.topic_engine",
+            "autoslice.transcription.service",
+        }:
+            with self.subTest(consumer=consumer):
+                self.assertIn((consumer, owner_name), import_edges)
+        for forbidden_target in {
+            "autoslice.analysis.boundaries",
+            "autoslice.analysis.candidates",
+            "autoslice.analysis.topic.titles",
+            "autoslice.topic_engine",
+            "autoslice.transcription.service",
+        }:
+            with self.subTest(forbidden_target=forbidden_target):
+                self.assertNotIn((owner_name, forbidden_target), import_edges)
 
     def test_srt_io_has_one_owner_and_direct_consumers(self):
         import topic_engine
@@ -5263,7 +5344,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            933,
+            935,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

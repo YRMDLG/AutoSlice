@@ -4,7 +4,154 @@ import unittest
 from autoslice.transcription import segments
 
 
+def _timed_characters(text, *, step=0.3, gaps_after=None):
+    """构造不依赖媒体和 ASR 运行时的代表性字级时间戳。"""
+    gaps_after = gaps_after or {}
+    cursor = 0.0
+    timed_tokens = []
+    for index, char in enumerate(text):
+        end = cursor + step
+        timed_tokens.append((cursor, end, char))
+        cursor = end + gaps_after.get(index, 0.0)
+    return timed_tokens
+
+
+REPRESENTATIVE_SHORT_CLIP_FIXTURES = (
+    {
+        "name": "target_gap",
+        "tokens": _timed_characters(
+            "今天先把这个问题讲清楚再继续",
+            step=0.12,
+            gaps_after={9: 0.2},
+        ),
+        "reason": segments.SubtitleBoundaryReason.TARGET_GAP,
+    },
+    {
+        "name": "pause",
+        "tokens": _timed_characters(
+            "先说明白然后继续",
+            step=0.12,
+            gaps_after={4: 0.8},
+        ),
+        "reason": segments.SubtitleBoundaryReason.PAUSE,
+    },
+    {
+        "name": "sentence_punctuation",
+        "tokens": _timed_characters("今天天气很好。我们出门", step=0.2),
+        "reason": segments.SubtitleBoundaryReason.SENTENCE_PUNCTUATION,
+    },
+    {
+        "name": "target_duration",
+        "tokens": _timed_characters("持续讲话没有任何停顿后面继续", step=0.5),
+        "reason": segments.SubtitleBoundaryReason.TARGET_DURATION,
+    },
+    {
+        "name": "max_duration",
+        "tokens": _timed_characters("慢慢说", step=4.0),
+        "reason": segments.SubtitleBoundaryReason.MAX_DURATION,
+    },
+    {
+        "name": "max_chars",
+        "tokens": _timed_characters("完全没有停顿标点仍要按字数强制拆开", step=0.05),
+        "reason": segments.SubtitleBoundaryReason.MAX_CHARS,
+    },
+)
+
+
 class TranscriptionSegmentTests(unittest.TestCase):
+    def test_representative_short_clip_boundaries_expose_structured_reasons(self):
+        for fixture in REPRESENTATIVE_SHORT_CLIP_FIXTURES:
+            with self.subTest(fixture=fixture["name"]):
+                trace = segments.segment_timed_tokens_with_trace(fixture["tokens"])
+
+                self.assertGreater(len(trace.segments), 1)
+                self.assertTrue(trace.boundaries)
+                self.assertIsInstance(
+                    trace.boundaries[0].reason,
+                    segments.SubtitleBoundaryReason,
+                )
+                self.assertIs(trace.boundaries[0].reason, fixture["reason"])
+                self.assertEqual(
+                    segments.segment_timed_tokens(fixture["tokens"]),
+                    list(trace.segments),
+                )
+
+    def test_tail_rebalance_keeps_phrase_whole_and_connectors_as_natural_starts(self):
+        source_text = "我我这几天头已经越来越好看了，但是后面还有重点"
+
+        trace = segments.segment_timed_tokens_with_trace(
+            _timed_characters(source_text, step=0.3)
+        )
+        texts = [item[2] for item in trace.segments]
+
+        self.assertEqual(
+            texts,
+            ["我我这几天头已经", "越来越好看了", "但是后面还有重点"],
+        )
+        self.assertEqual(
+            [boundary.reason for boundary in trace.boundaries],
+            [
+                segments.SubtitleBoundaryReason.MAX_CHARS,
+                segments.SubtitleBoundaryReason.CLAUSE_PUNCTUATION,
+            ],
+        )
+        self.assertEqual(
+            "".join(re.sub(r"\s+", "", text) for text in texts),
+            source_text.replace("，", ""),
+        )
+        self.assertFalse(any(re.match(r"^.{1,2}\s+", text) for text in texts))
+        self.assertTrue(all(
+            segments.subtitle_text_size(text) <= segments.SUBTITLE_MAX_CHARS
+            for text in texts
+        ))
+
+    def test_natural_sentence_connectors_are_never_shifted_to_previous_cue(self):
+        connectors = ("所以", "但是", "然后", "不过", "其实", "因为", "如果")
+        for connector in connectors:
+            with self.subTest(connector=connector):
+                source_text = f"前面的内容已经说完了，{connector}后面继续说明"
+                result = segments.segment_timed_tokens(
+                    _timed_characters(source_text, step=0.25)
+                )
+                texts = [item[2] for item in result]
+
+                connector_index = next(
+                    index for index, text in enumerate(texts)
+                    if text.startswith(connector)
+                )
+                self.assertGreater(connector_index, 0)
+                self.assertFalse(texts[connector_index - 1].endswith(connector))
+                self.assertEqual(
+                    "".join(re.sub(r"\s+", "", text) for text in texts),
+                    source_text.replace("，", ""),
+                )
+
+    def test_unaligned_long_cue_trace_records_proportional_text_limit_boundaries(self):
+        source_text = "这是时间戳无法对齐时仍需连续拆分的超长字幕内容" * 3
+
+        trace = segments.segments_from_funasr_result_with_trace(
+            source_text,
+            [[0, 6000], [6000, 12000]],
+        )
+
+        self.assertGreater(len(trace.segments), 1)
+        self.assertEqual(trace.segments[0][0], 0.0)
+        self.assertEqual(trace.segments[-1][1], 12.0)
+        self.assertEqual("".join(item[2] for item in trace.segments), source_text)
+        self.assertEqual(len(trace.boundaries), len(trace.segments) - 1)
+        self.assertTrue(all(
+            boundary.reason is segments.SubtitleBoundaryReason.UNALIGNED_TEXT_LIMIT
+            for boundary in trace.boundaries
+        ))
+        self.assertTrue(all(
+            later[0] == earlier[1]
+            for earlier, later in zip(trace.segments, trace.segments[1:])
+        ))
+        self.assertTrue(all(
+            segments.subtitle_text_size(text) <= segments.SUBTITLE_MAX_CHARS
+            for _start, _end, text in trace.segments
+        ))
+
     def test_final_text_keeps_comma_spacing_and_removes_other_punctuation(self):
         text = segments.normalise_asr_text(
             "只有三条SC，昨天没看到啊。真的没事吗？“不要怕！”"

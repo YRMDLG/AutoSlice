@@ -2577,6 +2577,26 @@ class TranscriptionTests(unittest.TestCase):
             for text in texts
         ))
 
+    def test_funasr_facade_keeps_clause_tail_and_sentence_connector_separate(self):
+        source_text = "我我这几天头已经越来越好看了，但是后面还有重点"
+        timestamps = [
+            [index * 300, (index + 1) * 300]
+            for index in range(len(source_text))
+        ]
+
+        result = _segments_from_funasr_result(source_text, timestamps)
+
+        self.assertEqual(
+            [segment[2] for segment in result],
+            ["我我这几天头已经", "越来越好看了", "但是后面还有重点"],
+        )
+        self.assertTrue(all(isinstance(segment, tuple) for segment in result))
+        self.assertTrue(all(len(segment) == 3 for segment in result))
+        self.assertTrue(all(
+            len(re.sub(r"\s+", "", segment[2])) <= SUBTITLE_MAX_CHARS
+            for segment in result
+        ))
+
     def test_split_long_subtitle_in_very_short_valid_interval_stays_ordered(self):
         source_text = "极短时间内也不能让字幕超出屏幕范围" * 5
 
