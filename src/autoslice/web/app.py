@@ -11,6 +11,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -2090,21 +2091,68 @@ def subtitle_save():
 
 @app.route("/api/subtitles/preview", methods=["POST"])
 def subtitle_preview():
-    from autoslice.subtitle_workflow import render_subtitle_preview
+    from autoslice.subtitle_workflow import (
+        render_subtitle_preview,
+        save_corrected_srt,
+    )
 
     data = request.get_json(silent=True) or {}
+    corrections = data.get("corrections", [])
+    deleted_indices = data.get("deleted_indices", [])
+    merge_pairs = data.get("merge_pairs", [])
+    merge_overrides = data.get("merge_overrides", {})
+    time_overrides = data.get("time_overrides", {})
+    if not isinstance(corrections, list):
+        return jsonify({"error": "字幕修正必须是数组"}), 400
+    if not isinstance(deleted_indices, list):
+        return jsonify({"error": "删除字幕序号必须是数组"}), 400
+    if not isinstance(merge_pairs, list):
+        return jsonify({"error": "字幕合并关系必须是数组"}), 400
+    if not isinstance(merge_overrides, dict):
+        return jsonify({"error": "合并字幕正文必须是对象"}), 400
+    if not isinstance(time_overrides, dict):
+        return jsonify({"error": "字幕时间调整必须是对象"}), 400
     try:
         video_path, srt_path = _validate_subtitle_pair(
             data.get("video_path", ""),
             data.get("srt_path", ""),
         )
-        image_bytes, selected_time = render_subtitle_preview(
-            video_path,
-            srt_path,
-            style=data.get("style"),
-            preview_time=data.get("preview_time"),
-            export_settings=data.get("export"),
+        has_edits = bool(
+            corrections
+            or deleted_indices
+            or merge_pairs
+            or merge_overrides
+            or time_overrides
         )
+        if not has_edits:
+            image_bytes, selected_time = render_subtitle_preview(
+                video_path,
+                srt_path,
+                style=data.get("style"),
+                preview_time=data.get("preview_time"),
+                export_settings=data.get("export"),
+            )
+        else:
+            with tempfile.TemporaryDirectory(
+                    prefix="autoslice_subtitle_preview_srt_") as directory:
+                preview_srt = Path(directory) / "preview.srt"
+                save_corrected_srt(
+                    srt_path,
+                    corrections,
+                    output_path=preview_srt,
+                    deleted_indices=deleted_indices,
+                    merge_pairs=merge_pairs,
+                    merge_overrides=merge_overrides,
+                    time_overrides=time_overrides,
+                    persist_state=False,
+                )
+                image_bytes, selected_time = render_subtitle_preview(
+                    video_path,
+                    str(preview_srt),
+                    style=data.get("style"),
+                    preview_time=data.get("preview_time"),
+                    export_settings=data.get("export"),
+                )
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         return jsonify({"error": str(exc)}), 400
     response = Response(image_bytes, mimetype="image/jpeg")

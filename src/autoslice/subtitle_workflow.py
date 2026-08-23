@@ -18,6 +18,7 @@ from pathlib import Path
 from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import PromptContext, build_title_hook_guide
 from autoslice.media_formats import SUPPORTED_VIDEO_EXTENSIONS
+from autoslice.streamer_profiles import StreamerProfile, merge_profile_subtitle_glossary
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -25,10 +26,10 @@ from autoslice.transcription.contracts import (
     SubtitleCue,
     SubtitleTitleServices,
     normalise_generic_publish_title,
+)
+from autoslice.transcription.contracts import (
     srt_timestamp_seconds as _srt_timestamp_seconds,
 )
-from autoslice.streamer_profiles import StreamerProfile, merge_profile_subtitle_glossary
-
 
 SUBTITLE_REVIEW_VERSION = 5
 SUBTITLE_ASR_VERSION = 2
@@ -587,8 +588,16 @@ def reflow_subtitle_srt_for_display(
 
 def save_corrected_srt(
         source_srt_path, corrections, output_path=None, *, deleted_indices=None,
-        merge_pairs=None, merge_overrides=None, time_overrides=None):
-    """校验并保存正文、删除、合并和时间调整；原 SRT 保持只读。"""
+        merge_pairs=None, merge_overrides=None, time_overrides=None,
+        persist_state=True):
+    """校验并保存正文、删除、合并和时间调整；原 SRT 保持只读。
+
+    预览可以将 ``persist_state`` 设为 ``False``，只生成临时 SRT，不改变
+    用户上次显式保存的校对状态。
+    """
+    if not persist_state and output_path is None:
+        raise ValueError("预览临时字幕必须显式指定输出路径")
+
     cues = parse_srt_document(source_srt_path)
     cue_by_index = {cue.index: cue for cue in cues}
     updates = {}
@@ -632,6 +641,16 @@ def save_corrected_srt(
         time_overrides,
     )
     destination = Path(output_path) if output_path else _corrected_srt_path(source_srt_path)
+    if not persist_state:
+        source = Path(source_srt_path).resolve()
+        resolved_destination = destination.resolve()
+        protected_paths = {
+            source,
+            _corrected_srt_path(source).resolve(),
+            _subtitle_edit_state_path(source).resolve(),
+        }
+        if resolved_destination in protected_paths:
+            raise ValueError("预览临时字幕不能覆盖正式字幕或校对状态")
     _atomic_write_text(
         destination,
         serialise_srt(
@@ -643,41 +662,42 @@ def save_corrected_srt(
             time_overrides=time_overrides,
         ),
     )
-    state_payload = {
-        "version": SUBTITLE_EDIT_STATE_VERSION,
-        "source_srt_path": str(Path(source_srt_path).resolve()),
-        "source_fingerprint": _subtitle_content_fingerprint(source_srt_path),
-        "corrected_srt_path": str(destination.resolve()),
-        "corrected_fingerprint": _subtitle_content_fingerprint(destination),
-        "corrections": [
-            {
-                "index": index,
-                "original": cue_by_index[index].text,
-                "corrected": corrected,
-            }
-            for index, corrected in sorted(updates.items())
-        ],
-        "deleted_indices": sorted(deleted),
-        "merge_pairs": [
-            {"first": first, "second": second}
-            for second, first in sorted(previous_by_child.items())
-        ],
-        "merge_overrides": {
-            str(index): text
-            for index, text in sorted(normalized_merge_overrides.items())
-        },
-        "time_overrides": {
-            str(index): {
-                "start": timing["start_seconds"],
-                "end": timing["end_seconds"],
-            }
-            for index, timing in sorted(normalized_time_overrides.items())
-        },
-    }
-    _atomic_write_text(
-        _subtitle_edit_state_path(source_srt_path),
-        json.dumps(state_payload, ensure_ascii=False, indent=2),
-    )
+    if persist_state:
+        state_payload = {
+            "version": SUBTITLE_EDIT_STATE_VERSION,
+            "source_srt_path": str(Path(source_srt_path).resolve()),
+            "source_fingerprint": _subtitle_content_fingerprint(source_srt_path),
+            "corrected_srt_path": str(destination.resolve()),
+            "corrected_fingerprint": _subtitle_content_fingerprint(destination),
+            "corrections": [
+                {
+                    "index": index,
+                    "original": cue_by_index[index].text,
+                    "corrected": corrected,
+                }
+                for index, corrected in sorted(updates.items())
+            ],
+            "deleted_indices": sorted(deleted),
+            "merge_pairs": [
+                {"first": first, "second": second}
+                for second, first in sorted(previous_by_child.items())
+            ],
+            "merge_overrides": {
+                str(index): text
+                for index, text in sorted(normalized_merge_overrides.items())
+            },
+            "time_overrides": {
+                str(index): {
+                    "start": timing["start_seconds"],
+                    "end": timing["end_seconds"],
+                }
+                for index, timing in sorted(normalized_time_overrides.items())
+            },
+        }
+        _atomic_write_text(
+            _subtitle_edit_state_path(source_srt_path),
+            json.dumps(state_payload, ensure_ascii=False, indent=2),
+        )
     return str(destination)
 
 

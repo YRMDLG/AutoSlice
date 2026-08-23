@@ -20,7 +20,7 @@ os.environ["AUTOSLICE_TASK_DB"] = str(
 )
 
 import autoslice.web.app as app_module
-from autoslice.subtitle_workflow import parse_srt_document
+from autoslice.subtitle_workflow import parse_srt_document, save_corrected_srt
 from autoslice.task_registry import TaskRegistry
 from autoslice.task_store import TaskStore
 
@@ -146,6 +146,67 @@ class ResourcePathTests(unittest.TestCase):
             "corrections",
         ):
             self.assertEqual(function_names.count(name), 1, name)
+        preview_source = script.split(
+            "async function preview", 1
+        )[1].split("async function renderVideo", 1)[0]
+        self.assertNotIn("saveCorrections()", preview_source)
+        self.assertIn("未修改正式校对字幕", preview_source)
+        render_source = script.split(
+            "async function renderVideo", 1
+        )[1].split("function rememberTaskEvent", 1)[0]
+        self.assertNotIn("saveCorrections()", render_source)
+        self.assertIn("has_corrected_srt", render_source)
+        title_source = script.split(
+            "async function generateReferenceTitle", 1
+        )[1].split("function copyRecommendedTitle", 1)[0]
+        self.assertNotIn("saveCorrections()", title_source)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查字幕预览清理")
+    def test_subtitle_preview_url_cleanup_is_executable(self):
+        script_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "autoslice"
+            / "resources"
+            / "static"
+            / "subtitle_workflow.js"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r'''
+const image={src:'',style:{display:'block'},removeAttribute(name){if(name==='src')this.src='';}};
+const placeholder={style:{display:'none'}};
+globalThis.document={getElementById(id){
+  if(id==='previewImage')return image;
+  if(id==='previewPlaceholder')return placeholder;
+  return null;
+}};
+globalThis.URL={revoked:[],revokeObjectURL(value){this.revoked.push(value);}};
+state.previewUrl='blob:subtitle-preview';
+image.src=state.previewUrl;
+clearPreview();
+if(URL.revoked.length!==1||URL.revoked[0]!=='blob:subtitle-preview')throw new Error('预览 URL 未释放');
+if(state.previewUrl!=='')throw new Error('预览 URL 状态未清空');
+if(image.src!==''||image.style.display!=='none')throw new Error('预览图片未清理');
+if(placeholder.style.display!=='block')throw new Error('预览占位符未恢复');
+'''
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class ScanApiTests(unittest.TestCase):
@@ -3304,6 +3365,125 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         preview.assert_called_once()
         self.assertEqual(mismatch.status_code, 400)
         self.assertIn("同一投稿目录", mismatch.get_json()["error"])
+
+    def test_preview_uses_temporary_edited_srt_without_persisting_state(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            original = srt.read_bytes()
+            preview_paths = []
+
+            def inspect_preview(_video_path, preview_srt, **_kwargs):
+                preview_path = Path(preview_srt)
+                preview_paths.append(preview_path)
+                self.assertNotEqual(preview_path.resolve(), srt.resolve())
+                self.assertEqual(
+                    parse_srt_document(preview_path)[0].text,
+                    "娃衣",
+                )
+                return b"\xff\xd8preview", 0.5
+
+            with patch(
+                "autoslice.subtitle_workflow.render_subtitle_preview",
+                side_effect=inspect_preview,
+            ) as preview:
+                response = self.client.post(
+                    "/api/subtitles/preview",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "corrections": [{
+                            "index": 1,
+                            "original": "瓦衣",
+                            "corrected": "娃衣",
+                        }],
+                    },
+                )
+            corrected = srt.with_name(f"{srt.stem}_校对.srt")
+            edit_state = srt.with_name(f"{srt.stem}_校对状态.json")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(preview_paths), 1)
+            self.assertFalse(preview_paths[0].exists())
+            self.assertFalse(corrected.exists())
+            self.assertFalse(edit_state.exists())
+            self.assertEqual(srt.read_bytes(), original)
+            preview.assert_called_once()
+
+    def test_preview_failure_preserves_last_explicitly_saved_subtitle(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            saved = self.client.post(
+                "/api/subtitles/save",
+                json={
+                    "srt_path": str(srt),
+                    "corrections": [{
+                        "index": 1,
+                        "original": "瓦衣",
+                        "corrected": "已保存字幕",
+                    }],
+                },
+            )
+            corrected = Path(saved.get_json()["corrected_srt_path"])
+            edit_state = srt.with_name(f"{srt.stem}_校对状态.json")
+            corrected_before = corrected.read_bytes()
+            state_before = edit_state.read_bytes()
+            preview_paths = []
+
+            def fail_preview(_video_path, preview_srt, **_kwargs):
+                preview_path = Path(preview_srt)
+                preview_paths.append(preview_path)
+                self.assertTrue(preview_path.is_file())
+                raise RuntimeError("模拟预览失败")
+
+            with patch(
+                "autoslice.subtitle_workflow.render_subtitle_preview",
+                side_effect=fail_preview,
+            ):
+                response = self.client.post(
+                    "/api/subtitles/preview",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "corrections": [{
+                            "index": 1,
+                            "original": "瓦衣",
+                            "corrected": "未保存预览",
+                        }],
+                    },
+                )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(len(preview_paths), 1)
+            self.assertFalse(preview_paths[0].exists())
+            self.assertFalse(preview_paths[0].parent.exists())
+            self.assertEqual(corrected.read_bytes(), corrected_before)
+            self.assertEqual(edit_state.read_bytes(), state_before)
+
+    def test_preview_mode_requires_non_formal_temporary_output(self):
+        with TemporaryDirectory() as td:
+            _video, srt = self._write_pair(td)
+            corrected = srt.with_name(f"{srt.stem}_校对.srt")
+            state_path = srt.with_name(f"{srt.stem}_校对状态.json")
+            corrected.write_text(srt.read_text(encoding="utf-8"), encoding="utf-8")
+            state_path.write_text("{}", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                save_corrected_srt(
+                    srt,
+                    [{"index": 1, "original": "瓦衣", "corrected": "娃衣"}],
+                    persist_state=False,
+                )
+            with self.assertRaises(ValueError):
+                save_corrected_srt(
+                    srt,
+                    [{"index": 1, "original": "瓦衣", "corrected": "娃衣"}],
+                    output_path=corrected,
+                    persist_state=False,
+                )
+            self.assertEqual(
+                corrected.read_text(encoding="utf-8"),
+                srt.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(state_path.read_text(encoding="utf-8"), "{}")
 
     def test_render_task_completes_and_rejects_source_overwrite(self):
         with TemporaryDirectory() as td:
