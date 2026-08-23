@@ -2,27 +2,41 @@
 AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 """
 
-import os, sys, json, time, threading, queue, glob as glob_mod, secrets, subprocess, re, traceback, hashlib
+import glob as glob_mod
+import hashlib
+import json
+import os
+import queue
+import re
+import secrets
+import subprocess
+import sys
+import threading
+import time
+import traceback
 from collections import deque
 from collections.abc import MutableMapping
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import Flask, render_template, request, jsonify, Response, redirect, abort
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request
 
 from autoslice.media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
     is_analyzable_video,
     is_scannable_video,
 )
-from autoslice.subtitle_workflow import SUBTITLE_ASR_VERSION, SUBTITLE_REVIEW_VERSION
+from autoslice.paths import APPLICATION_DATA_ROOT, STATIC_DIR, TEMPLATE_DIR
+from autoslice.runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
+from autoslice.security_policy import SecurityPolicy
 from autoslice.streamer_profiles import (
+    add_streamer_profile_replacement,
     public_streamer_profiles,
+    remove_streamer_profile_replacement,
     resolve_streamer_profile,
     streamer_profile_context,
 )
-from autoslice.runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
-from autoslice.security_policy import SecurityPolicy
+from autoslice.subtitle_workflow import SUBTITLE_ASR_VERSION, SUBTITLE_REVIEW_VERSION
 from autoslice.task_registry import (
     ACTIVE_TASK_STATUSES,
     TaskLifecycleError,
@@ -39,7 +53,6 @@ from autoslice.task_store import (
     TaskNotFoundError,
     TaskStore,
 )
-from autoslice.paths import APPLICATION_DATA_ROOT, STATIC_DIR, TEMPLATE_DIR
 
 app = Flask(
     __name__,
@@ -829,6 +842,34 @@ def _subtitle_review_rules(streamer_profile, extra_glossary=None):
     return subtitle_review_profile_rules(streamer_profile, extra_glossary)
 
 
+def _subtitle_review_profile_summary(streamer_profile, extra_glossary=None):
+    """返回页面可见的词典统计，不暴露本机配置路径或完整私有规则。"""
+
+    base_glossary, replacements = _subtitle_review_rules(streamer_profile)
+    active_glossary, _ = _subtitle_review_rules(streamer_profile, extra_glossary)
+    submitted = tuple(
+        dict.fromkeys(
+            str(item).strip()
+            for item in (extra_glossary or ())
+            if str(item).strip()
+        )
+    )
+    base_terms = set(base_glossary)
+    extra_count = sum(1 for item in submitted if item not in base_terms)
+    return {
+        "id": streamer_profile.id,
+        "label": streamer_profile.label,
+        "glossary_count": len(active_glossary),
+        "default_glossary_count": len(base_glossary),
+        "extra_glossary_count": extra_count,
+        "replacement_count": len(replacements),
+        "replacements": [list(pair) for pair in replacements],
+        "profile_fingerprint": streamer_profile.subtitle_review_fingerprint(),
+        "profile_write_available": streamer_profile.id != "generic",
+        "profile_write_scope": "本机用户覆盖词库，不修改仓库默认配置",
+    }
+
+
 def _topic_task_output_paths(flv_path, output_dir):
     base_name = os.path.splitext(os.path.basename(flv_path))[0]
     return (
@@ -1122,7 +1163,27 @@ def run_subtitle_review_task(
         result.setdefault("streamer_profile_id", streamer_profile.id)
         result.setdefault("streamer_profile_label", streamer_profile.label)
         result.setdefault("glossary_count", len(active_glossary))
+        result.setdefault(
+            "default_glossary_count",
+            _subtitle_review_profile_summary(streamer_profile)[
+                "default_glossary_count"
+            ],
+        )
+        result.setdefault(
+            "extra_glossary_count",
+            _subtitle_review_profile_summary(streamer_profile, glossary)[
+                "extra_glossary_count"
+            ],
+        )
         result.setdefault("replacement_count", len(active_replacements))
+        result.setdefault(
+            "replacements",
+            [list(pair) for pair in active_replacements],
+        )
+        result.setdefault(
+            "streamer_profile_fingerprint",
+            streamer_profile.subtitle_review_fingerprint(),
+        )
         result["default_corrections"] = high_confidence_corrections(result)
         _raise_if_task_cancelled(task_id)
         update_task(
@@ -1867,7 +1928,7 @@ def subtitle_review():
             video_path,
             context_hint=context_title,
         )
-        review_glossary, review_replacements = _subtitle_review_rules(
+        review_profile = _subtitle_review_profile_summary(
             streamer_profile,
             glossary,
         )
@@ -1905,13 +1966,38 @@ def subtitle_review():
         }), 500
     return jsonify({
         "task_id": task_id,
-        "review_profile": {
-            "id": streamer_profile.id,
-            "label": streamer_profile.label,
-            "glossary_count": len(review_glossary),
-            "replacement_count": len(review_replacements),
-        },
+        "review_profile": review_profile,
     })
+
+
+@app.route("/api/subtitles/profile-replacements", methods=["POST", "DELETE"])
+def subtitle_profile_replacements():
+    """在明确确认影响范围后增删本机主播错词映射。"""
+
+    data = request.get_json(silent=True) or {}
+    if data.get("confirm_scope") is not True:
+        return jsonify({"error": "保存主播词库前必须确认影响范围"}), 400
+    profile_id = str(data.get("streamer_profile_id") or "").strip().casefold()
+    source = str(data.get("source") or "").strip()
+    target = str(data.get("target") or "").strip()
+    expected_fingerprint = str(data.get("profile_fingerprint") or "").strip()
+    if not profile_id or not source or not target:
+        return jsonify({"error": "主播、错误词和正确词不能为空"}), 400
+    try:
+        operation = (
+            remove_streamer_profile_replacement
+            if request.method == "DELETE"
+            else add_streamer_profile_replacement
+        )
+        result = operation(
+            profile_id,
+            source,
+            target,
+            expected_fingerprint=expected_fingerprint,
+        )
+    except (OSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
 
 
 @app.route("/api/subtitles/generate-title", methods=["POST"])

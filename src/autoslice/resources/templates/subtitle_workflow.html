@@ -56,7 +56,7 @@ body{overflow:hidden}
     .asr-guidance{padding:9px 13px;border-bottom:1px solid var(--line);background:#131a16;color:var(--text-secondary);font-size:12px;line-height:1.5;display:flex;align-items:center;justify-content:space-between;gap:14px}
     .asr-guidance-copy{min-width:0;overflow-wrap:anywhere}.asr-guidance strong{color:var(--text);margin-right:8px}.asr-guidance.warning{border-left:3px solid var(--warning);padding-left:10px}.asr-guidance.success{border-left:3px solid var(--success);padding-left:10px}
     .asr-filter-option{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid #355044;border-radius:5px;background:#17231d;color:#cde8d8;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap}.asr-filter-option:hover{border-color:#589471;background:#1c3025}.asr-filter-option:has(input:disabled){opacity:.5;cursor:not-allowed}.asr-filter-option input{width:15px;height:15px;margin:0;accent-color:var(--accent)}
-    .review-dictionary{padding:7px 13px;border-bottom:1px solid var(--line);background:#111713;color:var(--muted);font-size:11px;line-height:1.45}.review-dictionary strong{color:#93dec0;margin-right:7px}
+.review-dictionary{padding:7px 13px;border-bottom:1px solid var(--line);background:#111713;color:var(--muted);font-size:11px;line-height:1.45}.review-dictionary strong{color:#93dec0;margin-right:7px}.review-dictionary-summary{display:flex;align-items:center;gap:7px;min-width:0}.review-dictionary-summary span{min-width:0;overflow-wrap:anywhere}.review-dictionary-editor{margin-top:6px}.review-dictionary-editor summary{cursor:pointer;color:#a9d9bd;font-size:11px}.review-dictionary-editor textarea{width:100%;min-height:42px;margin-top:6px;padding:6px 8px;resize:vertical;font-size:12px;line-height:1.4}.review-dictionary-editor small{display:block;margin-top:4px;color:#78847c}.profile-write-hint{margin-top:5px;color:#e5c987}.suggestion-group-context{margin-top:4px;color:#9aa79e;font-size:11px;line-height:1.45;overflow-wrap:anywhere}.suggestion-profile-action{margin-top:6px;padding:4px 8px;border:1px solid #806a3c;border-radius:4px;background:#2a2517;color:#f0d99b;cursor:pointer;font-size:11px}.suggestion-profile-action:hover{border-color:#c4a64f;background:#3b341c;color:#fff}.suggestion-profile-known{display:inline-block;margin-top:6px;color:#8ebba1}
 .cue-list{overflow:auto;flex:1;padding-bottom:66px;background:#111412}
 .cue-row{display:grid;grid-template-columns:24px 94px minmax(0,1fr) auto;gap:10px;padding:11px 13px;border-bottom:1px solid #262b28;align-items:start}
 .cue-row:hover{background:#151916}
@@ -171,7 +171,15 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
                 <span>排除背景音</span>
             </label>
         </div>
-        <div id="reviewDictionary" class="review-dictionary" role="status" aria-live="polite"><strong>校对词库</strong><span>点击 AI 检查后自动识别当前主播并加载专名规则</span></div>
+        <div id="reviewDictionary" class="review-dictionary" role="status" aria-live="polite">
+            <div class="review-dictionary-summary"><strong>校对词库</strong><span data-review-summary>点击 AI 检查后自动识别当前主播并加载专名规则</span></div>
+            <details class="review-dictionary-editor">
+                <summary>本视频额外词条 <span id="extraGlossaryCount">0</span></summary>
+                <textarea id="extraGlossary" rows="2" placeholder="每行一个专名、作品名或活动名"></textarea>
+                <small>只作用于当前视频，自动保存在本机；修改后重新执行 AI 检查才会使用。</small>
+            </details>
+            <div class="profile-write-hint" data-profile-write-hint hidden>AI 建议中可确认加入主播词库的错词映射，影响该主播后续识别和校对。</div>
+        </div>
         <div class="title-reference" aria-live="polite">
             <div class="title-reference-head">
                 <span class="title-reference-label">参考标题</span>

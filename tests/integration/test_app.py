@@ -700,9 +700,13 @@ class SubtitleWorkflowPageTests(unittest.TestCase):
             "reviewDictionary",
             "renderReviewDictionary(data.review_profile)",
             "renderReviewDictionary(result)",
-            "renderReferenceTitles();renderReviewDictionary();",
-            "replacement_count",
-            "streamer_profile_id",
+                "renderReferenceTitles();renderReviewDictionary();",
+                "replacement_count",
+                "extraGlossary",
+                "default_glossary_count",
+                "profile-replacements",
+                "suggestionReplacementCandidate",
+                "streamer_profile_id",
         ):
             self.assertIn(marker, script)
         self.assertIn("重新检查", html)
@@ -755,6 +759,9 @@ state.suggestions=new Map([
 ]);
 state.protectedEdits.add(3);
 state.edited.set(3,'用户手工修改');
+const candidate=suggestionReplacementCandidate({original:'英英晚上好',corrected:'音音晚上好'});
+if(candidate?.source!=='英英'||candidate?.target!=='音音')throw new Error('没有提取安全的错词映射');
+if(suggestionReplacementCandidate({original:'abc',corrected:'xyz'})!==null)throw new Error('整句建议不应直接成为主播映射');
 state.filter='suggested';
 if(visibleSuggestionEntries().length!==3)throw new Error('当前筛选没有完整收集建议');
 if(suggestionGroups(visibleSuggestionEntries()).length!==2)throw new Error('相同建议没有合并展示');
@@ -3002,6 +3009,8 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
         profile = response.get_json()["review_profile"]
         self.assertEqual(profile["id"], "zeyin")
         self.assertGreaterEqual(profile["glossary_count"], 40)
+        self.assertGreaterEqual(profile["default_glossary_count"], 40)
+        self.assertEqual(profile["extra_glossary_count"], 0)
         self.assertEqual(profile["replacement_count"], 11)
         self.assertEqual(app_module.tasks[task_id]["task_type"], "subtitle_review")
         assert_same_path(
@@ -3010,6 +3019,59 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             str(srt.resolve()),
         )
         self.assertFalse(app_module.tasks[task_id]["force"])
+
+    def test_review_passes_extra_glossary_and_profile_replacement_requires_confirmation(self):
+        with TemporaryDirectory() as td:
+            video, srt = self._write_pair(td)
+            override_path = Path(td) / "profile-overrides.json"
+            with (
+                patch.dict(
+                    os.environ,
+                    {"AUTOSLICE_STREAMER_PROFILE_OVERRIDES": str(override_path)},
+                    clear=False,
+                ),
+                patch.object(app_module.threading, "Thread", ImmediateThread),
+                patch(
+                    "autoslice.subtitle_workflow.suggest_subtitle_corrections",
+                    return_value={"suggestions": []},
+                ) as review,
+            ):
+                response = self.client.post(
+                    "/api/subtitles/review",
+                    json={
+                        "video_path": str(video),
+                        "srt_path": str(srt),
+                        "glossary": ["本视频专名"],
+                    },
+                )
+                missing_confirmation = self.client.post(
+                    "/api/subtitles/profile-replacements",
+                    json={
+                        "streamer_profile_id": "zeyin",
+                        "source": "测试错词",
+                        "target": "测试正词",
+                    },
+                )
+                profile = response.get_json()["review_profile"]
+                saved = self.client.post(
+                    "/api/subtitles/profile-replacements",
+                    json={
+                        "streamer_profile_id": "zeyin",
+                        "source": "测试错词",
+                        "target": "测试正词",
+                        "profile_fingerprint": profile["profile_fingerprint"],
+                        "confirm_scope": True,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(review.call_args.kwargs["glossary"], ["本视频专名"])
+        self.assertEqual(profile["extra_glossary_count"], 1)
+        self.assertEqual(missing_confirmation.status_code, 400)
+        self.assertIn("确认影响范围", missing_confirmation.get_json()["error"])
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.get_json()["added"])
+        self.assertEqual(saved.get_json()["replacement_count"], 12)
 
     def test_review_unknown_streamer_uses_generic_dictionary_without_zeyin_mapping(self):
         with TemporaryDirectory() as td:
@@ -3094,8 +3156,8 @@ class SubtitleWorkflowApiTests(unittest.TestCase):
             generate.call_args.kwargs["context_title"],
             "【泽音】测试投稿",
         )
-        from autoslice.transcription.contracts import SubtitleTitleServices
         from autoslice.topic_engine import subtitle_title_services
+        from autoslice.transcription.contracts import SubtitleTitleServices
         injected_services = generate.call_args.kwargs["title_services"]
         expected_services = subtitle_title_services()
         self.assertIsInstance(injected_services, SubtitleTitleServices)

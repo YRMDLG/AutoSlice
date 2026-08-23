@@ -1,17 +1,21 @@
 import json
+import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from autoslice.streamer_profiles import (
     PACKAGE_PROFILE_PATH,
     active_streamer_profile,
+    add_streamer_profile_replacement,
     current_streamer_profile,
     infer_streamer_name_from_filename,
     merge_profile_subtitle_glossary,
     public_streamer_profiles,
+    remove_streamer_profile_replacement,
     resolve_streamer_profile,
     streamer_profile_context,
 )
@@ -222,6 +226,50 @@ class StreamerProfileTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "default_profile_id"):
                 resolve_streamer_profile("auto", config_path=path)
+
+    def test_user_profile_replacement_override_is_reversible_and_does_not_edit_defaults(self):
+        with TemporaryDirectory() as td:
+            override_path = Path(td) / "profile-overrides.json"
+            with patch.dict(
+                    os.environ,
+                    {"AUTOSLICE_STREAMER_PROFILE_OVERRIDES": str(override_path)},
+                    clear=False):
+                before = resolve_streamer_profile("zeyin")
+                added = add_streamer_profile_replacement(
+                    "zeyin",
+                    "测试错词",
+                    "测试正词",
+                    expected_fingerprint=before.subtitle_review_fingerprint(),
+                )
+                after = resolve_streamer_profile("zeyin")
+                removed = remove_streamer_profile_replacement(
+                    "zeyin",
+                    "测试错词",
+                    "测试正词",
+                    expected_fingerprint=after.subtitle_review_fingerprint(),
+                )
+                final = resolve_streamer_profile("zeyin")
+
+            self.assertTrue(added["added"])
+            self.assertIn(("测试错词", "测试正词"), after.asr_replacements)
+            self.assertEqual(added["storage_scope"], "本机用户覆盖词库，不修改仓库默认配置")
+            self.assertEqual(removed["replacement_count"], len(before.asr_replacements))
+            self.assertNotIn(("测试错词", "测试正词"), final.asr_replacements)
+            self.assertNotIn("测试错词", (REPOSITORY_ROOT / "streamer_profiles.json").read_text(encoding="utf-8"))
+
+    def test_user_profile_replacement_rejects_stale_profile(self):
+        with TemporaryDirectory() as td:
+            with patch.dict(
+                    os.environ,
+                    {"AUTOSLICE_STREAMER_PROFILE_OVERRIDES": str(Path(td) / "overrides.json")},
+                    clear=False):
+                with self.assertRaisesRegex(ValueError, "配置已变化"):
+                    add_streamer_profile_replacement(
+                        "zeyin",
+                        "测试错词",
+                        "测试正词",
+                        expected_fingerprint="stale",
+                    )
 
 
 class StreamerResolutionTests(unittest.TestCase):

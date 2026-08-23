@@ -6,15 +6,18 @@ import hashlib
 import json
 import os
 import re
+import tempfile
+import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path, PureWindowsPath
 from typing import Iterator
 
-from autoslice.paths import SOURCE_WORKSPACE_ROOT
+from autoslice.paths import SOURCE_WORKSPACE_ROOT, state_dir
 
 PROFILE_SCHEMA_VERSION = 1
+PROFILE_OVERRIDE_SCHEMA_VERSION = 1
 AUTO_PROFILE_ID = "auto"
 GENERIC_PROFILE_ID = "generic"
 PACKAGE_PROFILE_PATH = Path(__file__).with_name("streamer_profiles.json")
@@ -39,6 +42,7 @@ _ACTIVE_PROFILE: ContextVar["StreamerProfile | None"] = ContextVar(
     "autoslice_streamer_profile",
     default=None,
 )
+_PROFILE_OVERRIDE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,19 @@ def _config_path(path: str | os.PathLike[str] | None = None) -> Path:
     return Path(configured or DEFAULT_PROFILE_PATH).expanduser().resolve()
 
 
+def streamer_profile_override_path() -> Path:
+    """返回本机覆盖词库路径，不默认指向仓库公开配置。"""
+
+    configured = str(os.environ.get("AUTOSLICE_STREAMER_PROFILE_OVERRIDES", "")).strip()
+    if configured:
+        path = Path(configured).expanduser().resolve()
+    else:
+        path = (state_dir() / "streamer_profile_overrides.json").resolve()
+    if path.name.casefold() == "streamer_profiles.json":
+        raise ValueError("主播覆盖词库不能覆盖公开 streamer_profiles.json")
+    return path
+
+
 def _required_text(payload: dict[str, object], key: str, *, maximum: int) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
@@ -153,6 +170,208 @@ def _replacement_pairs(payload: dict[str, object]) -> tuple[tuple[str, str], ...
     if len(pairs) > 100:
         raise ValueError("主播配置 asr_replacements 最多包含 100 项")
     return tuple(pairs)
+
+
+def _load_profile_overrides(path: Path) -> dict[str, tuple[tuple[str, str], ...]]:
+    """读取只允许包含错词映射的本机覆盖文件。"""
+
+    if not path.is_file():
+        return {}
+    try:
+        with path.open(encoding="utf-8-sig") as handle:
+            payload = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"主播覆盖词库 JSON 无效: {exc}") from exc
+    except OSError as exc:
+        raise ValueError(f"无法读取主播覆盖词库: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != PROFILE_OVERRIDE_SCHEMA_VERSION:
+        raise ValueError(
+            f"主播覆盖词库 schema_version 必须为 {PROFILE_OVERRIDE_SCHEMA_VERSION}"
+        )
+    raw_profiles = payload.get("profiles", {})
+    if not isinstance(raw_profiles, dict):
+        raise ValueError("主播覆盖词库 profiles 必须是对象")
+    overrides: dict[str, tuple[tuple[str, str], ...]] = {}
+    for profile_id, raw_profile in raw_profiles.items():
+        profile_id = str(profile_id).strip().casefold()
+        if not _PROFILE_ID_RE.fullmatch(profile_id):
+            raise ValueError(f"主播覆盖词库 id 格式无效: {profile_id}")
+        if not isinstance(raw_profile, dict):
+            raise ValueError("主播覆盖词库 profile 必须是对象")
+        overrides[profile_id] = _replacement_pairs(raw_profile)
+    return overrides
+
+
+def _merge_profile_overrides(
+        payload: dict[str, object],
+        overrides: dict[str, tuple[tuple[str, str], ...]],
+) -> dict[str, object]:
+    """把本机新增映射追加到公开 profile，不允许覆盖已有映射。"""
+
+    if not overrides:
+        return payload
+    raw_profiles = payload.get("profiles")
+    if not isinstance(raw_profiles, list):
+        return payload
+    merged_payload = dict(payload)
+    merged_profiles = []
+    known_ids = set()
+    for raw_profile in raw_profiles:
+        if not isinstance(raw_profile, dict):
+            merged_profiles.append(raw_profile)
+            continue
+        profile = dict(raw_profile)
+        profile_id = str(profile.get("id") or "").strip().casefold()
+        known_ids.add(profile_id)
+        additions = overrides.get(profile_id, ())
+        if additions:
+            existing = list(_replacement_pairs(profile))
+            for pair in additions:
+                if pair not in existing:
+                    if any(source == pair[0] and target != pair[1] for source, target in existing):
+                        raise ValueError(f"主播覆盖词库与默认映射冲突: {profile_id}/{pair[0]}")
+                    existing.append(pair)
+            if len(existing) > 100:
+                raise ValueError(f"主播覆盖词库 {profile_id} 的固定纠错超过 100 项")
+            profile["asr_replacements"] = [list(pair) for pair in existing]
+        merged_profiles.append(profile)
+    unknown_ids = sorted(set(overrides) - known_ids)
+    if unknown_ids:
+        raise ValueError(f"主播覆盖词库包含未知 profile: {', '.join(unknown_ids)}")
+    merged_payload["profiles"] = merged_profiles
+    return merged_payload
+
+
+def _atomic_write_profile_overrides(
+        path: Path,
+        overrides: dict[str, tuple[tuple[str, str], ...]],
+) -> None:
+    """原子保存本机覆盖词库，避免中断留下半个 JSON。"""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": PROFILE_OVERRIDE_SCHEMA_VERSION,
+        "profiles": {
+            profile_id: {"asr_replacements": [list(pair) for pair in pairs]}
+            for profile_id, pairs in sorted(overrides.items())
+            if pairs
+        },
+    }
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="\n",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False) as handle:
+            temporary_path = Path(handle.name)
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink(missing_ok=True)
+
+
+def add_streamer_profile_replacement(
+        profile_id: str,
+        source: str,
+        target: str,
+        *,
+        expected_fingerprint: str = "",
+) -> dict[str, object]:
+    """把用户确认后的映射写入本机覆盖词库并返回新 profile 摘要。"""
+
+    profile_id = str(profile_id or "").strip().casefold()
+    source = str(source or "").strip()
+    target = str(target or "").strip()
+    if not _PROFILE_ID_RE.fullmatch(profile_id) or profile_id == AUTO_PROFILE_ID:
+        raise ValueError("只能为已配置的具体主播保存固定纠错")
+    if not source or not target or source == target:
+        raise ValueError("错词和正确词必须是不同的非空文本")
+    if len(source) > 100 or len(target) > 100:
+        raise ValueError("错词和正确词不能超过 100 个字符")
+
+    with _PROFILE_OVERRIDE_LOCK:
+        profiles, _ = load_streamer_profiles()
+        profile = profiles.get(profile_id)
+        if profile is None:
+            raise ValueError(f"未知主播配置: {profile_id}")
+        if expected_fingerprint and profile.subtitle_review_fingerprint() != expected_fingerprint:
+            raise ValueError("主播配置已变化，请重新执行 AI 检查后再保存")
+        existing = tuple(profile.asr_replacements)
+        conflicting = next(
+            (pair for pair in existing if pair[0] == source and pair[1] != target),
+            None,
+        )
+        if conflicting:
+            raise ValueError(f"错词“{source}”已有固定纠错“{conflicting[1]}”，请先确认替换目标")
+        override_path = streamer_profile_override_path()
+        overrides = _load_profile_overrides(override_path)
+        additions = list(overrides.get(profile_id, ()))
+        pair = (source, target)
+        already_present = pair in existing
+        if pair not in additions and not already_present:
+            if len(existing) + 1 > 100:
+                raise ValueError("该主播固定纠错最多保存 100 条")
+            additions.append(pair)
+            overrides[profile_id] = tuple(additions)
+            _atomic_write_profile_overrides(override_path, overrides)
+        updated = resolve_streamer_profile(profile_id)
+    return {
+        "profile_id": updated.id,
+        "profile_label": updated.label,
+        "profile_fingerprint": updated.subtitle_review_fingerprint(),
+        "replacement_count": len(updated.asr_replacements),
+        "added": not already_present and pair in additions,
+        "storage_scope": "本机用户覆盖词库，不修改仓库默认配置",
+    }
+
+
+def remove_streamer_profile_replacement(
+        profile_id: str,
+        source: str,
+        target: str,
+        *,
+        expected_fingerprint: str = "",
+) -> dict[str, object]:
+    """只删除本机新增映射；公开默认 profile 的映射不能被误删。"""
+
+    profile_id = str(profile_id or "").strip().casefold()
+    pair = (str(source or "").strip(), str(target or "").strip())
+    with _PROFILE_OVERRIDE_LOCK:
+        profiles, _ = load_streamer_profiles()
+        profile = profiles.get(profile_id)
+        if profile is None:
+            raise ValueError(f"未知主播配置: {profile_id}")
+        if expected_fingerprint and profile.subtitle_review_fingerprint() != expected_fingerprint:
+            raise ValueError("主播配置已变化，请重新执行 AI 检查后再操作")
+        override_path = streamer_profile_override_path()
+        overrides = _load_profile_overrides(override_path)
+        additions = list(overrides.get(profile_id, ()))
+        if pair not in additions:
+            if pair in profile.asr_replacements:
+                raise ValueError("默认主播配置中的固定纠错不能通过页面删除")
+            raise ValueError("本机覆盖词库中没有这条映射")
+        additions.remove(pair)
+        if additions:
+            overrides[profile_id] = tuple(additions)
+        else:
+            overrides.pop(profile_id, None)
+        _atomic_write_profile_overrides(override_path, overrides)
+        updated = resolve_streamer_profile(profile_id)
+    return {
+        "profile_id": updated.id,
+        "profile_label": updated.label,
+        "profile_fingerprint": updated.subtitle_review_fingerprint(),
+        "replacement_count": len(updated.asr_replacements),
+        "storage_scope": "本机用户覆盖词库，不修改仓库默认配置",
+    }
 
 
 def _title_style_path(config_path: Path, payload: dict[str, object]) -> Path | None:
@@ -241,6 +460,11 @@ def load_streamer_profiles(
     raw_profiles = payload.get("profiles")
     if not isinstance(raw_profiles, list) or not raw_profiles:
         raise ValueError("主播配置 profiles 必须是非空数组")
+    payload = _merge_profile_overrides(
+        payload,
+        _load_profile_overrides(streamer_profile_override_path()),
+    )
+    raw_profiles = payload.get("profiles")
 
     profiles: dict[str, StreamerProfile] = {}
     for item in raw_profiles:

@@ -3,12 +3,83 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from autoslice.transcription import checkpoints
 
 
 class TranscriptionCheckpointTests(unittest.TestCase):
+    def test_streamer_mapping_change_invalidates_funasr_checkpoint(self):
+        profile_before = SimpleNamespace(
+            subtitle_glossary=("音音",),
+            asr_replacements=(("错词", "正词"),),
+            canonical_name="泽音",
+            report_name="音音",
+            aliases=(),
+        )
+        profile_after = SimpleNamespace(
+            subtitle_glossary=("音音",),
+            asr_replacements=(("错词", "新正词"),),
+            canonical_name="泽音",
+            report_name="音音",
+            aliases=(),
+        )
+        with patch.object(
+            checkpoints.model_runtime,
+            "current_streamer_profile",
+            side_effect=(profile_before, profile_after),
+        ):
+            hotwords_before = checkpoints.model_runtime.funasr_hotwords()
+            hotwords_after = checkpoints.model_runtime.funasr_hotwords()
+
+        self.assertNotEqual(hotwords_before, hotwords_after)
+
+        valid_result = [{"text": "测试", "timestamp": [[0, 1000]]}]
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_path = root / "recording.flv"
+            video_path.write_bytes(b"source")
+            checkpoint_path = root / "checkpoint.json"
+            with patch.object(
+                checkpoints,
+                "funasr_model_runtime_signature",
+                return_value={"runtime": "stable"},
+            ):
+                _, original = checkpoints.prepare_funasr_checkpoint(
+                    video_path,
+                    120.0,
+                    1,
+                    checkpoint_path=checkpoint_path,
+                    hotwords=hotwords_before,
+                )
+                original["chunks"] = {
+                    "0": {
+                        "fingerprint": checkpoints.funasr_chunk_fingerprint(
+                            original["source_fingerprint"],
+                            0,
+                            0.0,
+                            120.0,
+                        ),
+                        "input_start": 0.0,
+                        "input_duration": 120.0,
+                        "result": valid_result,
+                    }
+                }
+                checkpoints.write_funasr_checkpoint(checkpoint_path, original)
+                _, refreshed = checkpoints.prepare_funasr_checkpoint(
+                    video_path,
+                    120.0,
+                    1,
+                    checkpoint_path=checkpoint_path,
+                    hotwords=hotwords_after,
+                )
+
+        self.assertNotEqual(
+            original["source_fingerprint"], refreshed["source_fingerprint"]
+        )
+        self.assertEqual(refreshed["chunks"], {})
+
     def test_chunk_window_keeps_context_outside_core_ownership(self):
         self.assertEqual(
             checkpoints.funasr_chunk_input_window(0, 250.0),
