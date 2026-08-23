@@ -9,19 +9,19 @@ plan_ref: docs/plans/frontend-features.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: FE-S1
+current_action: FE-S2
 current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: FE-S0
+last_completed_action: FE-S1
 
 ## 执行规则
 
-- 当前处于 active，`FE-S0` 已完成实现、验证、提交和 Windows/Linux CI 双绿；下一 Action 为 `FE-S1`。
+- 当前处于 active，`FE-S1` 已完成实现、验证、提交和 Windows/Linux CI 双绿；下一 Action 为 `FE-S2`。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
 - 一次只执行一个 Action；本 Action 完成、提交、CI 双绿并登记后停止。
-- `FE-PREP-1`、`FE-PREP-2`、`FE-S0` 均已登记完成，不得重复运行；后续从 `FE-S1` 继续。
+- `FE-PREP-1`、`FE-PREP-2`、`FE-S0`、`FE-S1` 均已登记完成，不得重复运行；后续从 `FE-S2` 继续。
 
 ## 当前计划范围
 

@@ -21,6 +21,7 @@
 | FE-PREP-1 | frontend-features | 2026-08-23 | [a224c7d](../commit/a224c7db6a48cf31dda6fe2f285b464adbed45c3) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32601658949) | 清理字幕工作台重复顶层函数并增加唯一 owner 护栏 |
 | FE-PREP-2 | frontend-features | 2026-08-23 | [941c819](../commit/941c8199913d9d9fa3f79ad2ae994fa975fc1955) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32602956293) | 外置字幕工作台 JavaScript 并覆盖真实静态资源加载路径 |
 | FE-S0 | frontend-features | 2026-08-23 | [952a7d1](../commit/952a7d13d559e358a9e77b74cfde1c7f0aeaba02) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32605419982) | 完善无字幕成片识别入口、格式契约和刷新/断线任务恢复 |
+| FE-S1 | frontend-features | 2026-08-23 | [2c34c13](../commit/2c34c138ec5554fad81e2588769fa52001e41804) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32618372222) | 增加字幕 AI 建议批量采纳、忽略、分组展示和可撤销操作 |
 
 ## 记录规则
 
