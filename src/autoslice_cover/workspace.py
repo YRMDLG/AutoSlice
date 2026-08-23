@@ -11,6 +11,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .manifest_contract import (
+    CoverContractMatch,
+    RefinementManifestContract,
+    discover_refinement_manifest,
+    empty_public_contract,
+)
 from .paths import (
     CACHE_DIR,
 )
@@ -85,6 +91,7 @@ class CoverTask:
     video_height: int | None = None
     error: str | None = None
     output_paths: dict[str, str] = field(default_factory=dict)
+    cover_contract: CoverContractMatch | None = None
 
 
 class CoverWorkspace:
@@ -97,6 +104,7 @@ class CoverWorkspace:
         title_file: str | Path | None = None,
         cache_dir: str | Path | None = None,
         output_dir: str | Path | None = None,
+        manifest_json_path: str | Path | None = None,
         recursive: bool = True,
     ) -> None:
         workspace_root = Path(root).expanduser().resolve()
@@ -107,6 +115,11 @@ class CoverWorkspace:
         self.title_file = Path(title_file).expanduser().resolve() if title_file else None
         self.cache_dir = Path(cache_dir or CACHE_DIR).expanduser().resolve()
         self.output_dir = Path(output_dir or DEFAULT_OUTPUT_DIR).expanduser().resolve()
+        self.manifest_json_path = (
+            Path(manifest_json_path).expanduser().resolve()
+            if manifest_json_path
+            else discover_refinement_manifest(workspace_root)
+        )
         self.recursive = recursive
         self._title_map = load_title_map(self.title_file)
         self._tasks: dict[str, CoverTask] = {}
@@ -173,6 +186,9 @@ class CoverWorkspace:
     def scan(self) -> list[CoverTask]:
         """扫描支持的视频并重建任务列表。"""
 
+        if self.manifest_json_path is None:
+            self.manifest_json_path = discover_refinement_manifest(self.root)
+        contract = RefinementManifestContract.load(self.manifest_json_path)
         iterator = self.root.rglob("*") if self.recursive else self.root.glob("*")
         videos = sorted(
             (
@@ -208,7 +224,10 @@ class CoverWorkspace:
                 for video_path in videos:
                     relative_path = relative_paths[video_path]
                     task_id = self._task_id(relative_path)
+                    contract_match = contract.match(video_path)
                     title = match_title(video_path.name, self._title_map)
+                    if contract_match is not None and contract_match.publish_title:
+                        title = contract_match.publish_title
                     recommendation = recommend_visual_style(title)
                     folder_created_at, folder_modified_at = _path_timestamps(
                         video_path.parent
@@ -239,6 +258,7 @@ class CoverWorkspace:
                             ] > 1
                             else provisional_outputs[relative_path]
                         ),
+                        cover_contract=contract_match,
                     )
                     if previous is not None and previous.video_path == task.video_path:
                         task.status = previous.status
@@ -294,6 +314,7 @@ class CoverWorkspace:
                     else None
                 ),
                 output_paths=dict(task.output_paths),
+                cover_contract=task.cover_contract,
             )
 
     def remove_task(self, task_id: str) -> CoverTask:
@@ -627,6 +648,11 @@ class CoverWorkspace:
                 "output_files": {
                     key: Path(path).name for key, path in task.output_paths.items()
                 },
+                "cover_contract": (
+                    task.cover_contract.to_public_dict()
+                    if task.cover_contract is not None
+                    else empty_public_contract()
+                ),
             }
 
     def all_payloads(self) -> list[dict[str, Any]]:

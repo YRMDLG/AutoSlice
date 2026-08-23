@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import os
 import subprocess
@@ -13,6 +14,21 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 class AutoCoverCompatibilityTests(unittest.TestCase):
+    def test_manifest_contract_owner_does_not_import_autoslice(self):
+        path = REPOSITORY_ROOT / "src" / "autoslice_cover" / "manifest_contract.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+
+        self.assertFalse(
+            any(name == "autoslice" or name.startswith("autoslice.") for name in imported),
+            imported,
+        )
+
     def test_autocover_tool_modules_alias_owner_objects(self):
         aliases = {
             "autocover_tool.app": "autoslice_cover.app",

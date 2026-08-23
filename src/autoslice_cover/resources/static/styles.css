@@ -1001,6 +1001,18 @@ h2 {
   font-weight: 800;
 }
 
+.field > .field-hint {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.field-hint code {
+  color: var(--text-secondary);
+}
+
 .full-field {
   margin-bottom: 14px;
 }

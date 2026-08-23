@@ -240,6 +240,11 @@
         <input id="title-file" name="title_file" type="text" autocomplete="off" placeholder="可选">
       </label>
       <label class="field full-field">
+        <span>AutoSlice 成果 JSON（可选）</span>
+        <input id="manifest-json-path" name="manifest_json_path" type="text" autocomplete="off" placeholder="精调任务.json" aria-describedby="manifest-json-path-hint">
+        <small class="field-hint" id="manifest-json-path-hint">不填时按规范 sibling 自动发现对应的 <code>*_自动切片\数据\精调任务.json</code></small>
+      </label>
+      <label class="field full-field">
         <span>封面输出目录</span>
         <input id="output-path" name="output_dir" type="text" autocomplete="off" placeholder="covers">
       </label>

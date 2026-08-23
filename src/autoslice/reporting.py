@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -12,8 +13,10 @@ from autoslice import timecode
 from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.topic import analysis as topic_analysis
-from autoslice.analysis.topic import titles as title_analysis
 from autoslice.analysis.topic import normalization
+from autoslice.analysis.topic import titles as title_analysis
+
+# isort: off
 from autoslice.artifact_store import (
     ARTIFACT_LAYOUT_VERSION,
     ARTIFACT_QUEUE_DIRNAME,
@@ -28,6 +31,7 @@ from autoslice.artifact_store import (
     write_artifact_json as _write_artifact_json,
     write_artifact_text as _write_artifact_text,
 )
+# isort: on
 from autoslice.media_formats import (
     compatible_output_extensions,
     preferred_output_extension,
@@ -620,34 +624,147 @@ def organize_existing_artifacts(
     }
 
 
+def _finite_manifest_number(value):
+    """把 JSON 契约数值规范为有限浮点数，拒绝 bool 和字符串。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _optional_manifest_text(value):
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _manifest_clip_timebase(mark):
+    if "clip_timebase" not in mark:
+        return "source_video_seconds"
+    return _optional_manifest_text(mark.get("clip_timebase"))
+
+
+def _manifest_source_segment_count(mark):
+    if "source_segment_count" not in mark:
+        return 1
+    value = mark.get("source_segment_count")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
+def _refinement_task_mark_fields(mark):
+    """从当前 mark 生成生产者拥有的任务字段，供新建和重切片共用。"""
+    clip_start = _finite_manifest_number(mark.get("start"))
+    clip_end = _finite_manifest_number(mark.get("end"))
+    slice_anchor = _finite_manifest_number(mark.get("slice_anchor"))
+    valid_slice_anchor = (
+        clip_start is not None
+        and clip_end is not None
+        and clip_end > clip_start
+        and slice_anchor is not None
+        and clip_start <= slice_anchor <= clip_end
+    )
+    topic_title = mark.get("title", "未命名片段")
+    return {
+        "clip_timebase": _manifest_clip_timebase(mark),
+        "source_segment_count": _manifest_source_segment_count(mark),
+        "clip_start_seconds": clip_start,
+        "clip_end_seconds": clip_end,
+        "slice_anchor": slice_anchor if valid_slice_anchor else None,
+        "slice_anchor_source": _optional_manifest_text(
+            mark.get("slice_anchor_source")
+        ),
+        "cover_anchor_seconds": (
+            slice_anchor - clip_start if valid_slice_anchor else None
+        ),
+        "editorial_interest_score": _finite_manifest_number(
+            mark.get("editorial_interest_score")
+        ),
+        "editorial_interest_reason": _optional_manifest_text(
+            mark.get("editorial_interest_reason")
+        ),
+        "start": int(mark["start"]),
+        "end": int(mark["end"]),
+        "duration": int(mark["end"] - mark["start"]),
+        "topic_start": int(mark.get("topic_start", mark["start"])),
+        "topic_end": int(mark.get("topic_end", mark["end"])),
+        "topic_title": topic_title,
+        "clip_type": mark.get("clip_type", "topic"),
+        "series_title": mark.get("series_title"),
+        "outro_trigger": mark.get("outro_trigger"),
+        "preserve_to_video_end": bool(mark.get("preserve_to_video_end")),
+        "publish_title": _normalise_publish_title(
+            mark.get("publish_title"), topic_title
+        ),
+        "natural_boundary_pre_sec": int(mark.get("natural_boundary_pre_sec", 0)),
+        "natural_boundary_post_sec": int(mark.get("natural_boundary_post_sec", 0)),
+    }
+
+
+def _same_manifest_path(left, right):
+    if not isinstance(left, str) or not isinstance(right, str):
+        return False
+    if not left.strip() or not right.strip():
+        return False
+    return os.path.normcase(os.path.abspath(left)) == os.path.normcase(
+        os.path.abspath(right)
+    )
+
+
+def _refresh_refinement_task_after_slice(task, mark, output_path, subtitle_path):
+    """刷新生产者派生字段，同时保护显式登记的最终精剪成果。"""
+    final_clip_path = task.get("final_clip_path")
+    anchor_media_path = task.get("cover_anchor_media_path")
+    previous_subtitle_path = task.get("subtitle_path")
+    final_anchor = _finite_manifest_number(task.get("cover_anchor_seconds"))
+    preserve_final_anchor = (
+        final_anchor is not None
+        and final_anchor >= 0
+        and _same_manifest_path(anchor_media_path, final_clip_path)
+    )
+    corrected_srt_path = task.get("corrected_srt_path")
+    preserve_corrected_srt = (
+        isinstance(corrected_srt_path, str)
+        and bool(corrected_srt_path.strip())
+        and not _same_manifest_path(corrected_srt_path, previous_subtitle_path)
+    )
+
+    task.update(_refinement_task_mark_fields(mark))
+    task["slice_path"] = output_path
+    task["original_slice_path"] = output_path
+    task["subtitle_path"] = subtitle_path
+    task.setdefault("final_clip_path", None)
+    if preserve_final_anchor:
+        task["cover_anchor_seconds"] = final_anchor
+        task["cover_anchor_media_path"] = anchor_media_path
+    else:
+        task["cover_anchor_media_path"] = (
+            output_path if task.get("cover_anchor_seconds") is not None else None
+        )
+    task["corrected_srt_path"] = (
+        corrected_srt_path if preserve_corrected_srt else subtitle_path
+    )
+
+
 def build_refinement_manifest(video_path, source_srt_path, corrected_srt_path,
                                analysis_report_path, clip_marks_path, clip_marks,
                                manifest_json_path, manifest_md_path):
     """构造一场录播的统一精调任务数据。"""
     tasks = []
     for index, mark in enumerate(_dedupe_clip_marks(clip_marks or []), 1):
-        filename = topic_clip_filename(index, mark, video_path)
         tasks.append({
             "id": f"{index:02d}",
             "status": "等待自动切片",
-            "clip_filename": filename,
+            "clip_filename": topic_clip_filename(index, mark, video_path),
             "slice_path": None,
             "subtitle_path": None,
-            "start": int(mark["start"]),
-            "end": int(mark["end"]),
-            "duration": int(mark["end"] - mark["start"]),
-            "topic_start": int(mark.get("topic_start", mark["start"])),
-            "topic_end": int(mark.get("topic_end", mark["end"])),
-            "topic_title": mark.get("title", "未命名片段"),
-            "clip_type": mark.get("clip_type", "topic"),
-            "series_title": mark.get("series_title"),
-            "outro_trigger": mark.get("outro_trigger"),
-            "preserve_to_video_end": bool(mark.get("preserve_to_video_end")),
-            "publish_title": _normalise_publish_title(
-                mark.get("publish_title"), mark.get("title", "未命名片段")
-            ),
-            "natural_boundary_pre_sec": int(mark.get("natural_boundary_pre_sec", 0)),
-            "natural_boundary_post_sec": int(mark.get("natural_boundary_post_sec", 0)),
+            **_refinement_task_mark_fields(mark),
+            "cover_anchor_media_path": None,
+            "original_slice_path": None,
+            "final_clip_path": None,
+            "corrected_srt_path": None,
             "steps": [
                 {"key": key, "label": label, "status": "待处理"}
                 for key, label in REFINEMENT_WORKFLOW_STEPS
@@ -761,6 +878,19 @@ def _unified_refinement_record(manifest):
             "clip_filename": task.get("clip_filename"),
             "slice_path": task.get("slice_path"),
             "subtitle_path": task.get("subtitle_path"),
+            "clip_timebase": task.get("clip_timebase"),
+            "source_segment_count": task.get("source_segment_count"),
+            "clip_start_seconds": task.get("clip_start_seconds"),
+            "clip_end_seconds": task.get("clip_end_seconds"),
+            "slice_anchor": task.get("slice_anchor"),
+            "slice_anchor_source": task.get("slice_anchor_source"),
+            "cover_anchor_seconds": task.get("cover_anchor_seconds"),
+            "cover_anchor_media_path": task.get("cover_anchor_media_path"),
+            "editorial_interest_score": task.get("editorial_interest_score"),
+            "editorial_interest_reason": task.get("editorial_interest_reason"),
+            "original_slice_path": task.get("original_slice_path"),
+            "final_clip_path": task.get("final_clip_path"),
+            "corrected_srt_path": task.get("corrected_srt_path"),
             "steps": [dict(step) for step in task.get("steps") or []],
         })
     completed_count = sum(_refinement_task_is_completed(task) for task in tasks)
@@ -963,11 +1093,15 @@ def update_refinement_manifest_after_slice(manifest_json_path, report_dir, marks
         )
         task["clip_filename"] = filename
         output_path = os.path.abspath(os.path.join(report_dir, filename))
-        task["slice_path"] = output_path
         subtitle_path = os.path.abspath(
             os.path.join(report_dir, clip_subtitle_filename(filename))
         )
-        task["subtitle_path"] = subtitle_path if os.path.isfile(subtitle_path) else None
+        _refresh_refinement_task_after_slice(
+            task,
+            mark,
+            output_path,
+            subtitle_path if os.path.isfile(subtitle_path) else None,
+        )
         for step in task.get("steps") or []:
             if step.get("key") == "correct_subtitles":
                 step["label"] = "精剪导出后自动识别、校对并压制字幕"

@@ -69,7 +69,7 @@ function cacheElements() {
     "focus-x", "focus-y", "focus-x-value", "focus-y-value", "background-scale", "background-scale-value",
     "frame-timeline", "timeline-range", "timeline-current", "timeline-duration", "timeline-status", "refresh-preview",
     "reset-layout", "save-current", "save-cover", "status-dot", "status-text", "status-detail", "workspace-dialog",
-    "workspace-form", "root-path", "title-file", "output-path", "recursive-scan",
+    "workspace-form", "root-path", "title-file", "manifest-json-path", "output-path", "recursive-scan",
     "font-status", "workspace-error", "scan-submit",
   ].forEach((id) => {
     elements[id] = byId(id);
@@ -118,6 +118,10 @@ function migrateWorkspaceConfig(config) {
   ) {
     migrated.root = defaultInput;
   }
+  const manifestPath = typeof migrated.manifest_json_path === "string"
+    ? migrated.manifest_json_path.trim()
+    : "";
+  migrated.manifest_json_path = manifestPath || null;
   return migrated;
 }
 
@@ -1408,6 +1412,7 @@ async function scanWorkspace(
   config,
   { preserveDialog = false, autoSelect = false, restoreTaskKey = "" } = {},
 ) {
+  const normalizedConfig = migrateWorkspaceConfig(config);
   setBusy(true, "正在扫描切片目录...");
   setWorkspaceError();
   let payload;
@@ -1417,7 +1422,7 @@ async function scanWorkspace(
     state.previewRequestId += 1;
     payload = await api("/api/workspace/scan", {
       method: "POST",
-      body: JSON.stringify(config),
+      body: JSON.stringify(normalizedConfig),
     });
   } catch (error) {
     setStatus("目录扫描失败", error.message, "error");
@@ -1430,18 +1435,18 @@ async function scanWorkspace(
     setBusy(false);
   }
 
-  state.workspaceConfig = config;
+  state.workspaceConfig = normalizedConfig;
   state.tasks = payload.tasks;
   state.fileDraftPath = typeof payload.draft_path === "string" ? payload.draft_path : "";
-  mergeDiskDrafts(payload.drafts, config.root);
+  mergeDiskDrafts(payload.drafts, normalizedConfig.root);
   sortTasks();
   state.settings.clear();
   // 启动时只扫描并展示队列，不主动选中第一个视频。候选帧提取和预览
   // 会读取/解码整段媒体，必须等用户明确点击某个切片后再开始，避免打开页面就卡住。
   state.activeTaskId = autoSelect ? state.tasks[0]?.id || null : null;
-  localStorage.setItem("autocover.workspace", JSON.stringify(config));
-  elements["workspace-summary"].textContent = config.root;
-  elements["workspace-summary"].title = config.root;
+  localStorage.setItem("autocover.workspace", JSON.stringify(normalizedConfig));
+  elements["workspace-summary"].textContent = normalizedConfig.root;
+  elements["workspace-summary"].title = normalizedConfig.root;
   renderTaskList();
   renderInspector(activeTask());
   renderCandidates(activeTask());
@@ -1450,12 +1455,12 @@ async function scanWorkspace(
     ? payload.drafts.find((item) => item?.active && item?.previews)
     : null;
   const localActive = [...state.drafts.entries()].find(([key, item]) => (
-    key.startsWith(`${normalizedWindowsPath(config.root)}\n`)
+    key.startsWith(`${normalizedWindowsPath(normalizedConfig.root)}\n`)
     && item?.active
   ));
   const effectiveRestoreKey = restoreTaskKey || (
     diskActive
-      ? `${normalizedWindowsPath(config.root)}\n${normalizedWindowsPath(diskActive.relative_path)}`
+      ? `${normalizedWindowsPath(normalizedConfig.root)}\n${normalizedWindowsPath(diskActive.relative_path)}`
       : localActive?.[0] || ""
   );
   const restoredTask = effectiveRestoreKey
@@ -2469,11 +2474,15 @@ function openWorkspaceDialog(errorMessage = "") {
   if (state.workspaceConfig) {
     elements["root-path"].value = state.workspaceConfig.root || "";
     elements["title-file"].value = state.workspaceConfig.title_file || "";
+    elements["manifest-json-path"].value = state.workspaceConfig.manifest_json_path || "";
     elements["output-path"].value = state.workspaceConfig.output_dir || defaultOutput;
     elements["recursive-scan"].checked = state.workspaceConfig.recursive !== false;
   } else {
     elements["root-path"].value = defaultInput;
+    elements["title-file"].value = "";
+    elements["manifest-json-path"].value = "";
     elements["output-path"].value = defaultOutput;
+    elements["recursive-scan"].checked = true;
   }
   setWorkspaceError(errorMessage);
   elements["workspace-dialog"].showModal();
@@ -2651,20 +2660,43 @@ function bindRovingTablist(selector) {
   });
 }
 
-function bindEvents() {
+function readWorkspaceFormConfig() {
+  return {
+    root: elements["root-path"].value.trim(),
+    title_file: elements["title-file"].value.trim() || null,
+    manifest_json_path: elements["manifest-json-path"].value.trim() || null,
+    output_dir: elements["output-path"].value.trim() || null,
+    recursive: elements["recursive-scan"].checked,
+  };
+}
+
+function bindWorkspaceEvents() {
   elements["open-workspace"].addEventListener("click", () => openWorkspaceDialog());
   elements["root-path"].addEventListener("input", () => setWorkspaceError());
+  elements.rescan.addEventListener("click", () => {
+    const currentTaskKey = taskDraftKey(activeTask());
+    return scanWorkspace(state.workspaceConfig, {
+      restoreTaskKey: reloadTaskDraftKey() || currentTaskKey,
+    }).catch(() => {});
+  });
+  elements["scan-submit"].addEventListener("click", () => {
+    const config = readWorkspaceFormConfig();
+    if (!config.root) {
+      setWorkspaceError("请输入要扫描的切片目录");
+      elements["root-path"].focus();
+      return;
+    }
+    return scanWorkspace(config).catch(() => {});
+  });
+}
+
+function bindEvents() {
+  bindWorkspaceEvents();
   document.querySelectorAll("[data-inspector-tab]").forEach((button) => {
     button.addEventListener("click", () => activateInspectorTab(button));
   });
   bindRovingTablist(".inspector-tabs");
   bindRovingTablist(".ratio-switch");
-  elements.rescan.addEventListener("click", () => {
-    const currentTaskKey = taskDraftKey(activeTask());
-    scanWorkspace(state.workspaceConfig, {
-      restoreTaskKey: reloadTaskDraftKey() || currentTaskKey,
-    }).catch(() => {});
-  });
   elements["task-sort"].addEventListener("change", (event) => {
     state.queueSort = QUEUE_SORT_KEYS.has(event.target.value)
       ? event.target.value
@@ -2672,21 +2704,6 @@ function bindEvents() {
     localStorage.setItem("autocover.task-sort", state.queueSort);
     sortTasks();
     renderTaskList();
-  });
-  elements["scan-submit"].addEventListener("click", () => {
-    const root = elements["root-path"].value.trim();
-    if (!root) {
-      setWorkspaceError("请输入要扫描的切片目录");
-      elements["root-path"].focus();
-      return;
-    }
-    const config = {
-      root,
-      title_file: elements["title-file"].value.trim() || null,
-      output_dir: elements["output-path"].value.trim() || null,
-      recursive: elements["recursive-scan"].checked,
-    };
-    scanWorkspace(config).catch(() => {});
   });
   elements["timeline-range"].addEventListener("input", (event) => {
     elements["timeline-current"].textContent = formatTimelineTimestamp(event.target.value);

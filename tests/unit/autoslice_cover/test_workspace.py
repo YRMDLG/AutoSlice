@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import threading
@@ -9,6 +10,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
+
+from PIL import Image
 
 from autoslice_cover.paths import DATA_ROOT
 from autoslice_cover.video import FrameCandidate, FrameMetrics, VideoMetadata
@@ -18,7 +21,6 @@ from autoslice_cover.workspace import (
     MEDIA_TOKEN_TTL_SEC,
     CoverWorkspace,
 )
-from PIL import Image
 
 
 def _candidate(path: Path, timestamp: float, score: float) -> FrameCandidate:
@@ -75,6 +77,188 @@ class WorkspaceTests(unittest.TestCase):
             ):
                 self.assertIsInstance(getattr(task, field), float)
                 self.assertGreater(getattr(task, field), 0)
+
+    def test_discovers_sibling_manifest_and_uses_exact_original_slice_contract(self) -> None:
+        recording_root = self.root / "测试录播_话题切片"
+        recording_root.mkdir()
+        clip_path = (recording_root / "01_爆点.mp4").resolve()
+        clip_path.write_bytes(b"clip")
+        subtitle_path = (recording_root / "01_爆点.srt").resolve()
+        subtitle_path.write_text("字幕", encoding="utf-8")
+        data_dir = self.root / "测试录播_自动切片" / "数据"
+        data_dir.mkdir(parents=True)
+        (data_dir / "精调任务.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tasks": [
+                        {
+                            "id": "01",
+                            "clip_timebase": "source_video_seconds",
+                            "source_segment_count": 1,
+                            "clip_start_seconds": 80,
+                            "clip_end_seconds": 140,
+                            "slice_anchor": 112,
+                            "slice_anchor_source": "弹幕峰值",
+                            "cover_anchor_seconds": 32,
+                            "cover_anchor_media_path": str(clip_path),
+                            "editorial_interest_score": 4,
+                            "editorial_interest_reason": "反应完整",
+                            "publish_title": "【测试】礼物送出后当场后悔",
+                            "original_slice_path": str(clip_path),
+                            "final_clip_path": None,
+                            "corrected_srt_path": str(subtitle_path),
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        workspace = CoverWorkspace(
+            recording_root,
+            cache_dir=self.root / "契约缓存",
+            output_dir=self.root / "契约输出",
+        )
+
+        task = workspace.scan()[0]
+        payload = workspace.task_payload(task.id)
+
+        self.assertEqual(task.title, "【测试】礼物送出后当场后悔")
+        self.assertEqual(payload["cover_contract"]["match_source"], "manifest_original_slice")
+        self.assertEqual(payload["cover_contract"]["cover_anchor_seconds"], 32.0)
+        self.assertTrue(payload["cover_contract"]["subtitle_exists"])
+
+    def test_renamed_clip_and_legacy_manifest_keep_existing_title_workflow(self) -> None:
+        recording_root = self.root / "旧录播_话题切片"
+        recording_root.mkdir()
+        renamed = recording_root / "人工重命名.mp4"
+        renamed.write_bytes(b"clip")
+        data_dir = self.root / "旧录播_自动切片" / "数据"
+        data_dir.mkdir(parents=True)
+        (data_dir / "精调任务.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tasks": [
+                        {
+                            "id": "01",
+                            "slice_path": str(recording_root / "01_旧文件.mp4"),
+                            "publish_title": "不应猜到的标题",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        workspace = CoverWorkspace(
+            recording_root,
+            cache_dir=self.root / "旧契约缓存",
+            output_dir=self.root / "旧契约输出",
+        )
+
+        task = workspace.scan()[0]
+        payload = workspace.task_payload(task.id)
+
+        self.assertEqual(task.title, "人工重命名")
+        self.assertFalse(payload["cover_contract"]["matched"])
+
+    def test_explicit_final_clip_path_is_preferred_with_its_own_internal_anchor(self) -> None:
+        final_root = self.root / "人工精剪"
+        final_root.mkdir()
+        final_path = (final_root / "发布版.mp4").resolve()
+        final_path.write_bytes(b"final")
+        manifest_path = self.root / "最终精剪契约.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tasks": [
+                        {
+                            "id": "01",
+                            "clip_timebase": "source_video_seconds",
+                            "source_segment_count": 1,
+                            "clip_start_seconds": 12,
+                            "clip_end_seconds": 42,
+                            "slice_anchor": 25,
+                            "slice_anchor_source": "语义复核",
+                            "cover_anchor_seconds": 4.25,
+                            "cover_anchor_media_path": str(final_path),
+                            "editorial_interest_score": 5,
+                            "editorial_interest_reason": "最终精剪保留完整反转",
+                            "publish_title": "【测试】人工精剪后的最终标题",
+                            "final_clip_path": str(final_path),
+                            "corrected_srt_path": None,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        workspace = CoverWorkspace(
+            final_root,
+            manifest_json_path=manifest_path,
+            cache_dir=self.root / "最终精剪缓存",
+            output_dir=self.root / "最终精剪输出",
+        )
+
+        task = workspace.scan()[0]
+        payload = workspace.task_payload(task.id)
+
+        self.assertEqual(task.title, "【测试】人工精剪后的最终标题")
+        self.assertEqual(payload["cover_contract"]["match_source"], "manifest_final_clip")
+        self.assertEqual(payload["cover_contract"]["cover_anchor_seconds"], 4.25)
+        self.assertEqual(payload["cover_contract"]["editorial_interest_score"], 5.0)
+        self.assertEqual(
+            payload["cover_contract"]["editorial_interest_reason"],
+            "最终精剪保留完整反转",
+        )
+
+    def test_missing_manifest_title_keeps_title_file_match_and_contract_metadata(self) -> None:
+        clip_path = (self.clips / "01_12.5s_司机回头.mp4").resolve()
+        manifest_path = self.root / "无标题契约.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tasks": [
+                        {
+                            "id": "01",
+                            "clip_timebase": "source_video_seconds",
+                            "source_segment_count": 1,
+                            "clip_start_seconds": 12.5,
+                            "clip_end_seconds": 42.5,
+                            "slice_anchor": 20,
+                            "slice_anchor_source": "语义复核",
+                            "cover_anchor_seconds": 7.5,
+                            "cover_anchor_media_path": str(clip_path),
+                            "editorial_interest_score": 4,
+                            "editorial_interest_reason": "标题仍由旧工作流提供",
+                            "original_slice_path": str(clip_path),
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        workspace = CoverWorkspace(
+            self.clips,
+            title_file=self.title_file,
+            manifest_json_path=manifest_path,
+            cache_dir=self.root / "无标题缓存",
+            output_dir=self.root / "无标题输出",
+        )
+
+        task = workspace.scan()[0]
+        payload = workspace.task_payload(task.id)
+
+        self.assertEqual(task.title, "【泽音】打车聊3D被司机回头盯上")
+        self.assertTrue(payload["cover_contract"]["matched"])
+        self.assertEqual(payload["cover_contract"]["cover_anchor_seconds"], 7.5)
+        self.assertEqual(payload["cover_contract"]["editorial_interest_score"], 4.0)
 
     def test_output_paths_preserve_relative_directory(self) -> None:
         nested_task = self.workspace.scan()[1]

@@ -304,6 +304,91 @@ class AppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return response.get_json()["tasks"]
 
+    def test_scan_accepts_explicit_manifest_and_never_exposes_absolute_paths(self) -> None:
+        clip_path = (self.clips / "01_司机回头.mp4").resolve()
+        subtitle_path = (self.root / "司机回头_校对.srt").resolve()
+        subtitle_path.write_text("字幕", encoding="utf-8")
+        manifest_path = self.root / "精调任务.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tasks": [
+                        {
+                            "id": "01",
+                            "clip_timebase": "source_video_seconds",
+                            "source_segment_count": 1,
+                            "clip_start_seconds": 20,
+                            "clip_end_seconds": 80,
+                            "slice_anchor": 47,
+                            "slice_anchor_source": "语义复核",
+                            "cover_anchor_seconds": 27,
+                            "cover_anchor_media_path": str(clip_path),
+                            "editorial_interest_score": 5,
+                            "editorial_interest_reason": "司机回头形成反差",
+                            "publish_title": "【测试】聊到关键处司机突然回头",
+                            "original_slice_path": str(clip_path),
+                            "final_clip_path": None,
+                            "corrected_srt_path": str(subtitle_path),
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        response = self.client.post(
+            "/api/workspace/scan",
+            json={
+                "root": str(self.clips),
+                "cache_dir": str(self.cache),
+                "output_dir": str(self.output),
+                "manifest_json_path": str(manifest_path),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        task = next(item for item in payload["tasks"] if item["filename"] == clip_path.name)
+        self.assertEqual(task["title"], "【测试】聊到关键处司机突然回头")
+        self.assertEqual(
+            task["cover_contract"],
+            {
+                "matched": True,
+                "match_source": "manifest_original_slice",
+                "cover_anchor_seconds": 27.0,
+                "slice_anchor_source": "语义复核",
+                "editorial_interest_score": 5.0,
+                "editorial_interest_reason": "司机回头形成反差",
+                "subtitle_exists": True,
+                "subtitle_filename": subtitle_path.name,
+            },
+        )
+        response_text = response.get_data(as_text=True)
+        self.assertNotIn(str(clip_path), response_text)
+        self.assertNotIn(str(subtitle_path), response_text)
+        self.assertNotIn(str(manifest_path), response_text)
+
+    def test_damaged_manifest_does_not_break_existing_scan_workflow(self) -> None:
+        manifest_path = self.root / "损坏.json"
+        manifest_path.write_text("{broken", encoding="utf-8")
+
+        response = self.client.post(
+            "/api/workspace/scan",
+            json={
+                "root": str(self.clips),
+                "cache_dir": str(self.cache),
+                "output_dir": str(self.output),
+                "manifest_json_path": str(manifest_path),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        tasks = response.get_json()["tasks"]
+        self.assertEqual(len(tasks), 2)
+        self.assertTrue(all(not task["cover_contract"]["matched"] for task in tasks))
+
     def _ready_task(self) -> dict[str, object]:
         task = self._scan()[0]
         with patch(
@@ -443,6 +528,12 @@ class AppTests(unittest.TestCase):
             self.assertIn('value="name_desc"', page_content)
             self.assertIn('placeholder="input"', page_content)
             self.assertIn('placeholder="covers"', page_content)
+            self.assertIn('id="manifest-json-path"', page_content)
+            self.assertIn('name="manifest_json_path"', page_content)
+            self.assertIn('aria-describedby="manifest-json-path-hint"', page_content)
+            self.assertIn('id="manifest-json-path-hint"', page_content)
+            self.assertIn("AutoSlice 成果 JSON（可选）", page_content)
+            self.assertIn("不填时按规范 sibling 自动发现", page_content)
         with self.client.get("/static/app.js") as script:
             self.assertEqual(script.status_code, 200)
             script_content = script.get_data(as_text=True)
@@ -500,6 +591,8 @@ class AppTests(unittest.TestCase):
             self.assertIn('data-alignment-guide="vertical"', script_content)
             self.assertIn('data-alignment-guide="horizontal"', script_content)
             self.assertIn("function bindRovingTablist(", script_content)
+            self.assertIn('"manifest-json-path"', script_content)
+            self.assertIn("manifest_json_path", script_content)
         with self.client.get("/static/styles.css") as stylesheet:
             self.assertEqual(stylesheet.status_code, 200)
             css = stylesheet.get_data(as_text=True)
@@ -526,6 +619,92 @@ class AppTests(unittest.TestCase):
             self.assertIn("container-type: size", css)
             self.assertIn("repeat(3, 1fr)", css)
             self.assertIn("calc(177.777cqh - 64px)", css)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证成果 JSON 工作区配置")
+    def test_manifest_json_path_submits_persists_restores_and_rescans(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+const storage = new Map();
+global.localStorage = {
+  getItem(key){ return storage.has(key) ? storage.get(key) : null; },
+  setItem(key, value){ storage.set(key, String(value)); },
+  removeItem(key){ storage.delete(key); },
+};
+window.clearTimeout = clearTimeout;
+window.setTimeout = setTimeout;
+const listeners = new Map();
+function fakeInput(value = "") {
+  return {
+    value,
+    checked: true,
+    disabled: false,
+    open: false,
+    addEventListener(type, handler){ listeners.set(`${this.id || "field"}:${type}`, handler); },
+    setAttribute(){},
+    focus(){},
+    classList:{toggle(){}},
+  };
+}
+elements["root-path"] = Object.assign(fakeInput("F:\\Cuts"), {id:"root-path"});
+elements["title-file"] = Object.assign(fakeInput("F:\\Titles.md"), {id:"title-file"});
+elements["manifest-json-path"] = Object.assign(fakeInput("F:\\Bundle\\数据\\精调任务.json"), {id:"manifest-json-path"});
+elements["output-path"] = Object.assign(fakeInput("F:\\Covers"), {id:"output-path"});
+elements["recursive-scan"] = Object.assign(fakeInput(), {id:"recursive-scan", checked:true});
+elements["scan-submit"] = Object.assign(fakeInput(), {id:"scan-submit"});
+elements["open-workspace"] = Object.assign(fakeInput(), {id:"open-workspace"});
+elements.rescan = Object.assign(fakeInput(), {id:"rescan"});
+elements["workspace-dialog"] = {open:false, close(){}, showModal(){this.open=true;}};
+elements["workspace-error"] = {textContent:"", hidden:true};
+elements["workspace-summary"] = {textContent:"", title:""};
+state.options = {default_input_dir:"input", default_output_dir:"covers"};
+const scanCalls = [];
+api = async (_path, options = {}) => {
+  scanCalls.push(JSON.parse(options.body));
+  return {tasks:[], drafts:[], draft_path:""};
+};
+setBusy = () => {};
+setWorkspaceError = () => {};
+mergeDiskDrafts = () => {};
+sortTasks = () => {};
+renderTaskList = () => {};
+renderInspector = () => {};
+renderCandidates = () => {};
+renderTimeline = () => {};
+clearPreview = () => {};
+setStatus = () => {};
+bindWorkspaceEvents();
+await listeners.get("scan-submit:click")();
+if (scanCalls[0].manifest_json_path !== "F:\\Bundle\\数据\\精调任务.json") {
+  throw new Error("表单提交没有传递成果 JSON");
+}
+const persisted = JSON.parse(localStorage.getItem("autocover.workspace"));
+if (persisted.manifest_json_path !== "F:\\Bundle\\数据\\精调任务.json") {
+  throw new Error("成果 JSON 没有持久化到 workspaceConfig");
+}
+state.workspaceConfig = migrateWorkspaceConfig(persisted);
+openWorkspaceDialog();
+if (elements["manifest-json-path"].value !== "F:\\Bundle\\数据\\精调任务.json") {
+  throw new Error("重新打开工作区表单没有回填成果 JSON");
+}
+await listeners.get("rescan:click")();
+if (scanCalls[1].manifest_json_path !== "F:\\Bundle\\数据\\精调任务.json") {
+  throw new Error("重新扫描没有保留成果 JSON");
+}
+const legacy = migrateWorkspaceConfig({root:"F:\\Legacy", title_file:null, output_dir:null, recursive:true});
+if (legacy.manifest_json_path !== null) {
+  throw new Error("旧 localStorage 配置没有兼容迁移为空成果 JSON");
+}
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证画布键盘操作")
     def test_keyboard_transform_moves_and_resizes_editable_elements(self) -> None:

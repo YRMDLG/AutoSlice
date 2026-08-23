@@ -40,7 +40,6 @@ from .workspace import (
     CoverWorkspace,
 )
 
-
 MAX_TITLE_LENGTH = 500
 MAX_COPY_LINES = 8
 MAX_COPY_LINE_LENGTH = 120
@@ -765,7 +764,12 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         if not isinstance(recursive, bool):
             raise ApiError("recursive 必须是布尔值")
         optional_paths = {}
-        for key in ("title_file", "cache_dir", "output_dir"):
+        for key in (
+            "title_file",
+            "cache_dir",
+            "output_dir",
+            "manifest_json_path",
+        ):
             value = payload.get(key)
             if value is not None and not isinstance(value, str):
                 raise ApiError(f"{key} 必须是路径字符串")
@@ -776,6 +780,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             title_file=optional_paths["title_file"],
             cache_dir=optional_paths["cache_dir"],
             output_dir=optional_paths["output_dir"],
+            manifest_json_path=optional_paths["manifest_json_path"],
             recursive=recursive,
         )
         workspace.scan()

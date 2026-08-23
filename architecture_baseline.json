@@ -2769,7 +2769,7 @@
         "autoslice.analysis.report.formatting"
       ],
       "lines": [
-        12
+        13
       ],
       "to": "autoslice.analysis.report.formatting"
     },
@@ -2779,7 +2779,7 @@
         "autoslice.analysis.review.deduplication"
       ],
       "lines": [
-        13
+        14
       ],
       "to": "autoslice.analysis.review.deduplication"
     },
@@ -2789,7 +2789,7 @@
         "autoslice.analysis.topic.analysis"
       ],
       "lines": [
-        14
+        15
       ],
       "to": "autoslice.analysis.topic.analysis"
     },
@@ -2809,7 +2809,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        15
+        17
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -2830,7 +2830,7 @@
         "autoslice.artifact_store.write_artifact_text"
       ],
       "lines": [
-        17
+        20
       ],
       "to": "autoslice.artifact_store"
     },
@@ -2841,7 +2841,7 @@
         "autoslice.media_formats.preferred_output_extension"
       ],
       "lines": [
-        31
+        35
       ],
       "to": "autoslice.media_formats"
     },
@@ -2851,7 +2851,7 @@
         "autoslice.runtime_config.OUTPUT_DIR"
       ],
       "lines": [
-        35
+        39
       ],
       "to": "autoslice.runtime_config"
     },
@@ -2861,7 +2861,7 @@
         "autoslice.timecode"
       ],
       "lines": [
-        11
+        12
       ],
       "to": "autoslice.timecode"
     },
@@ -4511,14 +4511,27 @@
     {
       "from": "autoslice_cover.workspace",
       "imports": [
+        "autoslice_cover.manifest_contract.CoverContractMatch",
+        "autoslice_cover.manifest_contract.RefinementManifestContract",
+        "autoslice_cover.manifest_contract.discover_refinement_manifest",
+        "autoslice_cover.manifest_contract.empty_public_contract"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice_cover.manifest_contract"
+    },
+    {
+      "from": "autoslice_cover.workspace",
+      "imports": [
         "autoslice_cover.paths.CACHE_DIR",
         "autoslice_cover.paths.DEFAULT_INPUT_DIR",
         "autoslice_cover.paths.DEFAULT_OUTPUT_DIR"
       ],
       "lines": [
-        14,
-        17,
-        20
+        20,
+        23,
+        26
       ],
       "to": "autoslice_cover.paths"
     },
@@ -4529,7 +4542,7 @@
         "autoslice_cover.style.get_template"
       ],
       "lines": [
-        23
+        29
       ],
       "to": "autoslice_cover.style"
     },
@@ -4541,7 +4554,7 @@
         "autoslice_cover.titles.recommend_visual_style"
       ],
       "lines": [
-        24
+        30
       ],
       "to": "autoslice_cover.titles"
     },
@@ -4556,7 +4569,7 @@
         "autoslice_cover.video.probe_video"
       ],
       "lines": [
-        25
+        31
       ],
       "to": "autoslice_cover.video"
     },
@@ -4843,10 +4856,10 @@
   ],
   "longest_functions": [
     {
-      "end_line": 978,
+      "end_line": 983,
       "kind": "function",
-      "line": 571,
-      "line_count": 408,
+      "line": 570,
+      "line_count": 414,
       "module": "autoslice_cover.app",
       "path": "src/autoslice_cover/app.py",
       "qualname": "create_app"
@@ -4897,9 +4910,9 @@
       "qualname": "retry_clip_review_from_artifacts_impl"
     },
     {
-      "end_line": 620,
+      "end_line": 624,
       "kind": "function",
-      "line": 434,
+      "line": 438,
       "line_count": 187,
       "module": "autoslice.reporting",
       "path": "src/autoslice/reporting.py",
@@ -5041,9 +5054,9 @@
       "qualname": "_apply_review_response"
     },
     {
-      "end_line": 1131,
+      "end_line": 1265,
       "kind": "function",
-      "line": 1013,
+      "line": 1147,
       "line_count": 119,
       "module": "autoslice.reporting",
       "path": "src/autoslice/reporting.py",
@@ -8814,161 +8827,203 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1131,
+      "line_count": 1265,
       "longest_function": {
-        "end_line": 620,
+        "end_line": 624,
         "kind": "function",
-        "line": 434,
+        "line": 438,
         "line_count": 187,
         "qualname": "organize_existing_artifacts"
       },
       "module": "autoslice.reporting",
       "path": "src/autoslice/reporting.py",
-      "sha256": "fa8b703c18f3f53da3708787b130315397d6d665d78cdd58ef5b80b203597b39",
+      "sha256": "03c9b8c6672c25225a4304e1add8e58e186fa06a9f1a95c590abe9c1db39a910",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 171,
+          "end_line": 175,
           "kind": "function",
-          "line": 117,
+          "line": 121,
           "name": "parse_generated_topic_report"
         },
         {
-          "end_line": 176,
+          "end_line": 180,
           "kind": "function",
-          "line": 174,
+          "line": 178,
           "name": "_strip_emoji_for_title"
         },
         {
-          "end_line": 189,
+          "end_line": 193,
           "kind": "function",
-          "line": 179,
+          "line": 183,
           "name": "_make_part_title"
         },
         {
-          "end_line": 211,
+          "end_line": 215,
           "kind": "function",
-          "line": 192,
+          "line": 196,
           "name": "_group_topics_for_parts"
         },
         {
-          "end_line": 234,
+          "end_line": 238,
           "kind": "function",
-          "line": 214,
+          "line": 218,
           "name": "_group_topics_by_hour"
         },
         {
-          "end_line": 246,
+          "end_line": 250,
           "kind": "function",
-          "line": 237,
+          "line": 241,
           "name": "topic_clip_filename"
         },
         {
-          "end_line": 257,
+          "end_line": 261,
           "kind": "function",
-          "line": 249,
+          "line": 253,
           "name": "compatible_topic_clip_filenames"
         },
         {
-          "end_line": 279,
+          "end_line": 283,
           "kind": "function",
-          "line": 260,
+          "line": 264,
           "name": "synchronise_selected_topic_ranges"
         },
         {
-          "end_line": 284,
+          "end_line": 288,
           "kind": "function",
-          "line": 282,
+          "line": 286,
           "name": "clip_subtitle_filename"
         },
         {
-          "end_line": 306,
+          "end_line": 310,
           "kind": "function",
-          "line": 287,
+          "line": 291,
           "name": "resolve_clip_subtitle_source"
         },
         {
-          "end_line": 330,
+          "end_line": 334,
           "kind": "function",
-          "line": 309,
+          "line": 313,
           "name": "publish_title_report_lines"
         },
         {
-          "end_line": 339,
+          "end_line": 343,
           "kind": "function",
-          "line": 333,
+          "line": 337,
           "name": "artifact_bundle_layout"
         },
         {
-          "end_line": 431,
+          "end_line": 435,
           "kind": "function",
-          "line": 342,
+          "line": 346,
           "name": "render_artifact_overview"
         },
         {
-          "end_line": 620,
+          "end_line": 624,
           "kind": "function",
-          "line": 434,
+          "line": 438,
           "name": "organize_existing_artifacts"
         },
         {
-          "end_line": 672,
+          "end_line": 632,
           "kind": "function",
-          "line": 623,
+          "line": 627,
+          "name": "_finite_manifest_number"
+        },
+        {
+          "end_line": 639,
+          "kind": "function",
+          "line": 635,
+          "name": "_optional_manifest_text"
+        },
+        {
+          "end_line": 645,
+          "kind": "function",
+          "line": 642,
+          "name": "_manifest_clip_timebase"
+        },
+        {
+          "end_line": 654,
+          "kind": "function",
+          "line": 648,
+          "name": "_manifest_source_segment_count"
+        },
+        {
+          "end_line": 703,
+          "kind": "function",
+          "line": 657,
+          "name": "_refinement_task_mark_fields"
+        },
+        {
+          "end_line": 713,
+          "kind": "function",
+          "line": 706,
+          "name": "_same_manifest_path"
+        },
+        {
+          "end_line": 748,
+          "kind": "function",
+          "line": 716,
+          "name": "_refresh_refinement_task_after_slice"
+        },
+        {
+          "end_line": 789,
+          "kind": "function",
+          "line": 751,
           "name": "build_refinement_manifest"
         },
         {
-          "end_line": 719,
+          "end_line": 836,
           "kind": "function",
-          "line": 675,
+          "line": 792,
           "name": "render_refinement_manifest_markdown"
-        },
-        {
-          "end_line": 730,
-          "kind": "function",
-          "line": 722,
-          "name": "_unified_refinement_queue_paths"
-        },
-        {
-          "end_line": 738,
-          "kind": "function",
-          "line": 733,
-          "name": "_refinement_task_is_completed"
-        },
-        {
-          "end_line": 790,
-          "kind": "function",
-          "line": 741,
-          "name": "_unified_refinement_record"
         },
         {
           "end_line": 847,
           "kind": "function",
-          "line": 793,
+          "line": 839,
+          "name": "_unified_refinement_queue_paths"
+        },
+        {
+          "end_line": 855,
+          "kind": "function",
+          "line": 850,
+          "name": "_refinement_task_is_completed"
+        },
+        {
+          "end_line": 920,
+          "kind": "function",
+          "line": 858,
+          "name": "_unified_refinement_record"
+        },
+        {
+          "end_line": 977,
+          "kind": "function",
+          "line": 923,
           "name": "render_unified_refinement_queue_markdown"
         },
         {
-          "end_line": 908,
+          "end_line": 1038,
           "kind": "function",
-          "line": 850,
+          "line": 980,
           "name": "upsert_unified_refinement_queue"
         },
         {
-          "end_line": 917,
+          "end_line": 1047,
           "kind": "function",
-          "line": 911,
+          "line": 1041,
           "name": "write_refinement_manifest_files"
         },
         {
-          "end_line": 1010,
+          "end_line": 1144,
           "kind": "function",
-          "line": 920,
+          "line": 1050,
           "name": "update_refinement_manifest_after_slice"
         },
         {
-          "end_line": 1131,
+          "end_line": 1265,
           "kind": "function",
-          "line": 1013,
+          "line": 1147,
           "name": "build_timeline_report"
         }
       ]
@@ -11779,156 +11834,156 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 985,
+      "line_count": 990,
       "longest_function": {
-        "end_line": 978,
+        "end_line": 983,
         "kind": "function",
-        "line": 571,
-        "line_count": 408,
+        "line": 570,
+        "line_count": 414,
         "qualname": "create_app"
       },
       "module": "autoslice_cover.app",
       "path": "src/autoslice_cover/app.py",
-      "sha256": "391a59dcc04c956a8d86fa3febbaf659a94cf27cbe2262d7b0fb3ed214e3d205",
+      "sha256": "155a1aba614c6f5adca20dc638eac3fb437e5e7f2bec9e3e8d8cefca4f94759e",
       "top_level_classes": [
         {
-          "end_line": 61,
+          "end_line": 60,
           "kind": "class",
-          "line": 55,
+          "line": 54,
           "name": "ApiError"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 71,
+          "end_line": 70,
           "kind": "function",
-          "line": 64,
+          "line": 63,
           "name": "_mark_deprecated_endpoint"
         },
         {
-          "end_line": 80,
+          "end_line": 79,
           "kind": "function",
-          "line": 74,
+          "line": 73,
           "name": "_json_body"
         },
         {
-          "end_line": 87,
+          "end_line": 86,
           "kind": "function",
-          "line": 83,
+          "line": 82,
           "name": "_workspace"
         },
         {
-          "end_line": 94,
+          "end_line": 93,
           "kind": "function",
-          "line": 90,
+          "line": 89,
           "name": "_sticker_library"
         },
         {
-          "end_line": 101,
+          "end_line": 100,
           "kind": "function",
-          "line": 97,
+          "line": 96,
           "name": "_draft_store"
         },
         {
-          "end_line": 166,
+          "end_line": 165,
           "kind": "function",
-          "line": 104,
+          "line": 103,
           "name": "_draft_settings"
         },
         {
-          "end_line": 212,
+          "end_line": 211,
           "kind": "function",
-          "line": 169,
+          "line": 168,
           "name": "_load_disk_drafts"
         },
         {
-          "end_line": 233,
+          "end_line": 232,
           "kind": "function",
-          "line": 215,
+          "line": 214,
           "name": "_optional_list"
         },
         {
-          "end_line": 252,
+          "end_line": 251,
           "kind": "function",
-          "line": 236,
+          "line": 235,
           "name": "_optional_string"
         },
         {
-          "end_line": 262,
+          "end_line": 261,
           "kind": "function",
-          "line": 255,
+          "line": 254,
           "name": "_focus_value"
         },
         {
-          "end_line": 279,
+          "end_line": 278,
           "kind": "function",
-          "line": 265,
+          "line": 264,
           "name": "_number_value"
         },
         {
-          "end_line": 291,
+          "end_line": 290,
           "kind": "function",
-          "line": 282,
+          "line": 281,
           "name": "_canvas_layout"
         },
         {
-          "end_line": 303,
+          "end_line": 302,
           "kind": "function",
-          "line": 294,
+          "line": 293,
           "name": "_boolean_value"
         },
         {
-          "end_line": 330,
+          "end_line": 329,
           "kind": "function",
-          "line": 306,
+          "line": 305,
           "name": "_text_transforms"
         },
         {
-          "end_line": 367,
+          "end_line": 366,
           "kind": "function",
-          "line": 333,
+          "line": 332,
           "name": "_sticker_overlays"
         },
         {
-          "end_line": 421,
+          "end_line": 420,
           "kind": "function",
-          "line": 370,
+          "line": 369,
           "name": "_render_options"
         },
         {
-          "end_line": 433,
+          "end_line": 432,
           "kind": "function",
-          "line": 424,
+          "line": 423,
           "name": "_apply_task_edits"
         },
         {
-          "end_line": 447,
+          "end_line": 446,
           "kind": "function",
-          "line": 436,
+          "line": 435,
           "name": "_render_result_payload"
         },
         {
-          "end_line": 485,
+          "end_line": 484,
           "kind": "function",
-          "line": 450,
+          "line": 449,
           "name": "_render_task_result"
         },
         {
-          "end_line": 507,
+          "end_line": 506,
           "kind": "function",
-          "line": 488,
+          "line": 487,
           "name": "_render_task"
         },
         {
-          "end_line": 568,
+          "end_line": 567,
           "kind": "function",
-          "line": 510,
+          "line": 509,
           "name": "_save_task"
         },
         {
-          "end_line": 978,
+          "end_line": 983,
           "kind": "function",
-          "line": 571,
+          "line": 570,
           "name": "create_app"
         }
       ]
@@ -12192,6 +12247,72 @@
           "kind": "function",
           "line": 156,
           "name": "resolve_font_stack"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 249,
+      "longest_function": {
+        "end_line": 236,
+        "kind": "function",
+        "line": 142,
+        "line_count": 95,
+        "qualname": "RefinementManifestContract._task_declarations"
+      },
+      "module": "autoslice_cover.manifest_contract",
+      "path": "src/autoslice_cover/manifest_contract.py",
+      "sha256": "3eecbbd0e2454d8e4e874c5ae71a09eb41ccd5c4e8fc6ebaf3e41dd6d8e19fc7",
+      "top_level_classes": [
+        {
+          "end_line": 70,
+          "kind": "class",
+          "line": 46,
+          "name": "CoverContractMatch"
+        },
+        {
+          "end_line": 241,
+          "kind": "class",
+          "line": 106,
+          "name": "RefinementManifestContract"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 24,
+          "kind": "function",
+          "line": 18,
+          "name": "_exact_path"
+        },
+        {
+          "end_line": 28,
+          "kind": "function",
+          "line": 27,
+          "name": "_path_key"
+        },
+        {
+          "end_line": 35,
+          "kind": "function",
+          "line": 31,
+          "name": "_finite_number"
+        },
+        {
+          "end_line": 42,
+          "kind": "function",
+          "line": 38,
+          "name": "_optional_text"
+        },
+        {
+          "end_line": 85,
+          "kind": "function",
+          "line": 73,
+          "name": "empty_public_contract"
+        },
+        {
+          "end_line": 103,
+          "kind": "function",
+          "line": 88,
+          "name": "discover_refinement_manifest"
         }
       ]
     },
@@ -12873,42 +12994,42 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 636,
+      "line_count": 662,
       "longest_function": {
-        "end_line": 266,
+        "end_line": 286,
         "kind": "function",
-        "line": 173,
-        "line_count": 94,
+        "line": 186,
+        "line_count": 101,
         "qualname": "CoverWorkspace.scan"
       },
       "module": "autoslice_cover.workspace",
       "path": "src/autoslice_cover/workspace.py",
-      "sha256": "cdb5db74ff3d109bba61ea5f21be5b0e6a301f8c94de79b2d214e404250486ab",
+      "sha256": "220dd42307b980678313b48997b8cf1fd75dbe15ea3493156d6f7045bd540954",
       "top_level_classes": [
         {
-          "end_line": 87,
+          "end_line": 94,
           "kind": "class",
-          "line": 65,
+          "line": 71,
           "name": "CoverTask"
         },
         {
-          "end_line": 636,
+          "end_line": 662,
           "kind": "class",
-          "line": 90,
+          "line": 97,
           "name": "CoverWorkspace"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 52,
+          "end_line": 58,
           "kind": "function",
-          "line": 45,
+          "line": 51,
           "name": "_is_ignored_video"
         },
         {
-          "end_line": 61,
+          "end_line": 67,
           "kind": "function",
-          "line": 55,
+          "line": 61,
           "name": "_path_timestamps"
         }
       ]
@@ -13907,6 +14028,7 @@
       "src/autoslice_cover/drafts.py",
       "src/autoslice_cover/emoji.py",
       "src/autoslice_cover/fonts.py",
+      "src/autoslice_cover/manifest_contract.py",
       "src/autoslice_cover/paths.py",
       "src/autoslice_cover/renderer.py",
       "src/autoslice_cover/stickers.py",
@@ -13991,6 +14113,7 @@
       "tests/unit/test_pipeline_review.py",
       "tests/unit/test_pipeline_titles.py",
       "tests/unit/test_pipeline_transcription.py",
+      "tests/unit/test_refinement_cover_contract.py",
       "tests/unit/test_runtime_config.py",
       "tests/unit/test_security_policy.py",
       "tests/unit/test_setup_asr_model.py",
@@ -14011,6 +14134,7 @@
       "tests/unit/test_transcription_workflow.py",
       "tests/unit/autoslice_cover/__init__.py",
       "tests/unit/autoslice_cover/test_fonts.py",
+      "tests/unit/autoslice_cover/test_manifest_contract.py",
       "tests/unit/autoslice_cover/test_paths.py",
       "tests/unit/autoslice_cover/test_renderer.py",
       "tests/unit/autoslice_cover/test_stickers.py",
@@ -14021,12 +14145,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 454,
-    "production_line_count": 39375,
-    "production_module_count": 171,
+    "import_edge_count": 455,
+    "production_line_count": 39789,
+    "production_module_count": 172,
     "test_private_patch_count": 17,
-    "top_level_class_count": 92,
-    "top_level_function_count": 935
+    "top_level_class_count": 94,
+    "top_level_function_count": 948
   },
   "test_private_patches": {
     "by_target_module": {
