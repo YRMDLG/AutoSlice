@@ -23,6 +23,7 @@
 | FE-S0 | frontend-features | 2026-08-23 | [952a7d1](../commit/952a7d13d559e358a9e77b74cfde1c7f0aeaba02) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32605419982) | 完善无字幕成片识别入口、格式契约和刷新/断线任务恢复 |
 | FE-S1 | frontend-features | 2026-08-23 | [2c34c13](../commit/2c34c138ec5554fad81e2588769fa52001e41804) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32618372222) | 增加字幕 AI 建议批量采纳、忽略、分组展示和可撤销操作 |
 | FE-S2 | frontend-features | 2026-08-23 | [21999b0](../commit/21999b003a1bf54f9548f1bef896ec75a8bd5fbb) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32626570926) | 增加本视频额外词条、主播错词映射、本机安全覆盖和缓存失效契约 |
+| FE-S3 | frontend-features | 2026-08-23 | [d244802](../commit/d244802eab76385a1f5e6d59dad1dc5020e7bcb7) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32633581563) | 预览使用临时编辑字幕，显式保存后才允许压制和生成标题 |
 
 ## 记录规则
 
