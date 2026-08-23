@@ -17,6 +17,15 @@ from autoslice.reporting import (
 class RefinementCoverContractTests(unittest.TestCase):
     """稳定字段必须使用明确时间基准，且无效锚点不得伪造。"""
 
+    def _assert_same_file(self, actual_path: object, expected_path: Path) -> None:
+        self.assertIsInstance(actual_path, str)
+        actual = Path(actual_path)
+        self.assertTrue(actual.is_absolute(), f"{actual} 不是绝对路径")
+        self.assertTrue(
+            actual.samefile(expected_path),
+            f"{actual} 与 {expected_path} 未指向同一文件",
+        )
+
     def _build(self, root: Path, mark: dict[str, object]) -> dict[str, object]:
         return build_refinement_manifest(
             root / "录播.flv",
@@ -107,10 +116,10 @@ class RefinementCoverContractTests(unittest.TestCase):
             )
             saved = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-        task = saved["tasks"][0]
-        self.assertEqual(task["slice_path"], str(clip_path))
-        self.assertEqual(task["original_slice_path"], str(clip_path))
-        self.assertEqual(task["cover_anchor_media_path"], str(clip_path))
+            task = saved["tasks"][0]
+            self._assert_same_file(task["slice_path"], clip_path)
+            self._assert_same_file(task["original_slice_path"], clip_path)
+            self._assert_same_file(task["cover_anchor_media_path"], clip_path)
 
     def test_slice_update_recomputes_producer_fields_from_current_mark(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -157,17 +166,17 @@ class RefinementCoverContractTests(unittest.TestCase):
             )
             saved = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-        task = saved["tasks"][0]
-        self.assertEqual(task["clip_timebase"], "source_video_seconds")
-        self.assertEqual(task["source_segment_count"], 2)
-        self.assertEqual(task["clip_start_seconds"], 15.0)
-        self.assertEqual(task["clip_end_seconds"], 75.0)
-        self.assertEqual(task["slice_anchor"], 48.0)
-        self.assertEqual(task["slice_anchor_source"], "人工高星时间轴")
-        self.assertEqual(task["cover_anchor_seconds"], 33.0)
-        self.assertEqual(task["cover_anchor_media_path"], str(clip_path))
-        self.assertEqual(task["editorial_interest_score"], 5.0)
-        self.assertEqual(task["editorial_interest_reason"], "新爆点证据完整")
+            task = saved["tasks"][0]
+            self.assertEqual(task["clip_timebase"], "source_video_seconds")
+            self.assertEqual(task["source_segment_count"], 2)
+            self.assertEqual(task["clip_start_seconds"], 15.0)
+            self.assertEqual(task["clip_end_seconds"], 75.0)
+            self.assertEqual(task["slice_anchor"], 48.0)
+            self.assertEqual(task["slice_anchor_source"], "人工高星时间轴")
+            self.assertEqual(task["cover_anchor_seconds"], 33.0)
+            self._assert_same_file(task["cover_anchor_media_path"], clip_path)
+            self.assertEqual(task["editorial_interest_score"], 5.0)
+            self.assertEqual(task["editorial_interest_reason"], "新爆点证据完整")
 
     def test_slice_update_preserves_explicit_final_anchor_and_corrected_srt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -250,9 +259,9 @@ class RefinementCoverContractTests(unittest.TestCase):
             )
             saved = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-        task = saved["tasks"][0]
-        self.assertEqual(task["subtitle_path"], str(current_subtitle))
-        self.assertEqual(task["corrected_srt_path"], str(current_subtitle))
+            task = saved["tasks"][0]
+            self._assert_same_file(task["subtitle_path"], current_subtitle)
+            self._assert_same_file(task["corrected_srt_path"], current_subtitle)
 
     def test_slice_update_clears_legacy_automatic_srt_when_current_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
