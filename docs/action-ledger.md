@@ -27,6 +27,7 @@
 | FE-S4 | frontend-features | 2026-08-23 | [a7a08ea](../commit/a7a08ea336476e35e03ddff0596db9a6ed5f8950) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32636722609) | 合并、删除、时间调整统一交互 |
 | FE-S5 | frontend-features | 2026-08-23 | [e9dc202](../commit/e9dc202aab7b6672863d656fbe9a8137da5417bc) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32656930831) | 字幕质检列表 |
 | ASR-A1 | frontend-features | 2026-08-23 | [a5b72c9](https://github.com/YRMDLG/AutoSlice/commit/a5b72c9e676ed38057c289ef5f3441458fd82d5d) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32663710559) | 增加背景音 off/soft/strict 三模式、安全回退和可见统计信息 |
+| ASR-A2 | frontend-features | 2026-08-23 | [909450e](https://github.com/YRMDLG/AutoSlice/commit/909450e88b200ed6e8bc92d8b24cb21b9c260107) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32667949178) | 增加可追踪断句决策，修复尾字漂移并保护自然开句连接词 |
 
 ## 记录规则
 
