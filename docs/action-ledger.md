@@ -30,6 +30,7 @@
 | ASR-A2 | frontend-features | 2026-08-23 | [909450e](https://github.com/YRMDLG/AutoSlice/commit/909450e88b200ed6e8bc92d8b24cb21b9c260107) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32667949178) | 增加可追踪断句决策，修复尾字漂移并保护自然开句连接词 |
 | COVER-C0 | frontend-features | 2026-08-23 | [d38fc1a](https://github.com/YRMDLG/AutoSlice/commit/d38fc1ac0ac72f1bc08a5047b4bbd40fb69da3b9) / [3cd441e](https://github.com/YRMDLG/AutoSlice/commit/3cd441ea3bd8e6569d7e7e18a6361c2a2ba39c14) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32673279361) | 稳定关联 AutoSlice 标题、爆点锚点与最终短片，匹配不可靠时安全回退 |
 | COVER-C1 | frontend-features | 2026-08-24 | [8a6f0d4](https://github.com/YRMDLG/AutoSlice/commit/8a6f0d4f74ee6345d1599f903627057a8f00f6c3) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32676897922) | 围绕可靠爆点锚点加密选帧，优先无字幕原片并保留人工时间轴 |
+| COVER-C2 | frontend-features | 2026-08-24 | [020ce66](https://github.com/YRMDLG/AutoSlice/commit/020ce667cd27d0a519372d8150b22d00eb5abd5a) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32681082161) | 基于校对字幕和切片理由生成 Luna/Terra 两阶段封面文案，并支持角色配色与候选切换 |
 
 ## 记录规则
 

@@ -9,19 +9,19 @@ plan_ref: docs/plans/frontend-features.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: COVER-C2
+current_action: COVER-C3
 current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: COVER-C1
+last_completed_action: COVER-C2
 
 ## 执行规则
 
-- 当前处于 active，`COVER-C1` 已完成实现、验证、提交和 Windows/Linux CI 双绿并登记；当前 Action 为 `COVER-C2`，状态为 pending。
+- 当前处于 active，`COVER-C2` 已完成实现、验证、提交和 Windows/Linux CI 双绿并登记；当前 Action 为 `COVER-C3`，状态为 pending。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
-- 一次只执行一个 Action；本轮仅登记 `COVER-C1`，登记后立即停止，不得开始 `COVER-C2`。
-- `FE-PREP-1`、`FE-PREP-2`、`FE-S0`、`FE-S1`、`FE-S2`、`FE-S3`、`FE-S4`、`FE-S5`、`ASR-A1`、`ASR-A2`、`COVER-C0`、`COVER-C1` 均已登记完成，不得重复运行；下一轮从 `COVER-C2` 开始。
+- 一次只执行一个 Action；本轮仅登记 `COVER-C2`，登记后立即停止，不得开始 `COVER-C3`。
+- `FE-PREP-1`、`FE-PREP-2`、`FE-S0`、`FE-S1`、`FE-S2`、`FE-S3`、`FE-S4`、`FE-S5`、`ASR-A1`、`ASR-A2`、`COVER-C0`、`COVER-C1`、`COVER-C2` 均已登记完成，不得重复运行；下一轮从 `COVER-C3` 开始。
 
 ## 当前计划范围
 
