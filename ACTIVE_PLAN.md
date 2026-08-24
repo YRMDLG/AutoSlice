@@ -9,17 +9,18 @@ plan_ref: docs/plans/frontend-next.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: F1-A11Y
+current_action: F1-STATE
 current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: G0-COPY
+last_completed_action: F1-A11Y
 
 ## 执行规则
 
 - 当前活动计划为 `frontend-next`；上一轮 `frontend-features` 已完成，新计划从 G0 收口阶段开始。
 - `G0-SUB` 已完成实现、定向验证、独立提交、推送和 Windows/Linux CI 双绿，并已登记到总账。
 - `G0-COPY` 已完成实现、定向验证、架构护栏修正、独立提交、推送和 Windows/Linux CI 双绿，并已登记到总账。
-- 下一个可执行 Action 为 `F1-A11Y`，当前仅登记为 pending；不得在本次状态收口中自动开始。
+- `F1-A11Y` 已完成实现、主任务复核、完整门禁、独立提交、推送和 Windows/Linux CI 双绿，并已登记到总账。
+- 下一个可执行 Action 为 `F1-STATE`，当前仅登记为 pending；不得在本次状态收口中自动开始。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
