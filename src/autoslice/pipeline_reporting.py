@@ -42,6 +42,7 @@ def prepare_pipeline_report(
         candidate_review_audit_path, accepted_topics, analysis_topics,
         clip_marks, peak_info, failed_chunks, api_precheck_warning,
         clip_review_warning, manual_timeline, streamer_profile,
+        video_duration=None,
         average_density, density_threshold, local_peak_radius_sec,
         manual_review_min_stars, min_editorial_interest_score,
         context_policy, topic_analysis_model, review_model,
@@ -102,6 +103,7 @@ def prepare_pipeline_report(
             "start/end 均为视频内秒数，不是真实钟点；topic_start/topic_end "
             "为原话题范围，start/end 为含前后文的实际切片范围。"
         ),
+        "video_duration": video_duration,
         "expanded_with_context": True,
         "context_policy": context_policy,
         "danmaku_selection_policy": build_danmaku_selection_policy(

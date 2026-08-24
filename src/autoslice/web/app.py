@@ -22,6 +22,8 @@ from pathlib import Path
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request
 
 from autoslice import autocover_service
+from autoslice import timeline_contract
+from autoslice.artifact_store import artifact_bundle_layout
 from autoslice.media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
     is_analyzable_video,
@@ -118,6 +120,7 @@ _TASK_HISTORY_TTL_SEC = 24 * 60 * 60
 _SSE_EVENT_HISTORY_LIMIT = 500
 _SSE_EVENT_HISTORY_TTL_SEC = 60 * 60
 _SSE_SUBSCRIBER_QUEUE_SIZE = 50
+_MAX_TIMELINE_ARTIFACT_BYTES = 4 * 1024 * 1024
 _OPENABLE_RESULT_TASK_TYPES = {
     "topic_pipeline",
     "timeline_optimization",
@@ -927,6 +930,121 @@ def _completed_task_report_path(task_id):
     except ValueError as exc:
         raise PermissionError("报告路径超出任务整理包") from exc
     return report_path
+
+
+def _timeline_result_mapping(task):
+    """返回任务已登记的结果摘要，不从请求参数接受产物路径。"""
+
+    result = normalize_task_result(task.get("result"))
+    return result if isinstance(result, dict) else {}
+
+
+def _timeline_artifact_path(task, artifact_dir, result, field, layout_key):
+    """返回固定布局中的已登记时间轴产物，并拒绝路径替换。"""
+
+    layout = artifact_bundle_layout(
+        task.get("source_path") or f"{task['task_id']}.flv",
+        artifact_dir=str(artifact_dir),
+        default_output_dir=task.get("output_dir") or str(artifact_dir.parent),
+    )
+    # ``artifact_dir`` 已经通过 ``_completed_task_artifact_dir`` 校验过，
+    # 但整理包内部仍可能存在指向外部文件的符号链接。先拒绝任何会被
+    # ``resolve`` 改写的固定产物路径，再做一次目录边界检查，避免把
+    # “固定文件名”退化成任意本机文件读取入口。
+    canonical_path = Path(layout[layout_key]).absolute()
+    resolved_canonical_path = canonical_path.resolve()
+    if resolved_canonical_path != canonical_path:
+        raise PermissionError("任务时间轴产物不能是符号链接")
+    try:
+        resolved_canonical_path.relative_to(Path(artifact_dir).resolve())
+    except ValueError as exc:
+        raise PermissionError("任务时间轴产物超出整理包边界") from exc
+    registered_path = result.get(field) or task.get(field)
+    if registered_path:
+        try:
+            resolved_registered_path = Path(registered_path).expanduser().resolve()
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise PermissionError("任务产物登记无效") from exc
+        if resolved_registered_path != resolved_canonical_path:
+            raise PermissionError("任务产物不属于登记的时间轴整理包")
+    return resolved_canonical_path
+
+
+def _read_registered_timeline_json(path):
+    """只读取已校验的固定时间轴产物；缺失或损坏按旧数据处理。"""
+
+    try:
+        if not path.is_file() or path.stat().st_size > _MAX_TIMELINE_ARTIFACT_BYTES:
+            return None
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def _timeline_records(payload, field):
+    """把固定产物解包为 serializer owner 需要的原始记录。"""
+
+    if isinstance(payload, dict):
+        if field in payload:
+            return payload[field]
+        if field == "clip_marks" and "clips" in payload:
+            return payload["clips"]
+        if field == "candidates" and "edge_candidates" in payload:
+            return payload["edge_candidates"]
+        return None
+    if isinstance(payload, (list, tuple)):
+        return payload
+    return payload
+
+
+def _timeline_video_duration(task, result, *payloads):
+    """只使用任务/时间轴产物显式登记的时长，不探测真实媒体。"""
+
+    candidates = [task.get("video_duration"), result.get("video_duration")]
+    for payload in payloads:
+        if isinstance(payload, dict):
+            candidates.append(payload.get("video_duration"))
+    for value in candidates:
+        if value is not None:
+            return value
+    return None
+
+
+def _load_registered_timeline_inputs(task_id, task):
+    """读取任务登记的两个固定时间轴 owner 输入；没有产物则返回缺失数据。"""
+
+    result = _timeline_result_mapping(task)
+    artifact_ref = result.get("artifact_dir") or task.get("artifact_dir")
+    # 旧任务可能记录了整理包路径，却没有记录用于证明归属的输出根目录。
+    # 这种情况下不能读取该路径，也不应把“缺少新版权限元数据”误报成越权；
+    # 返回显式不完整契约供前端提示即可。
+    if not artifact_ref or not task.get("output_dir"):
+        return result, None, None, None
+
+    artifact_dir = _completed_task_artifact_dir(task_id)
+    clip_path = _timeline_artifact_path(
+        task,
+        artifact_dir,
+        result,
+        "json_path",
+        "clip_marks_path",
+    )
+    audit_path = _timeline_artifact_path(
+        task,
+        artifact_dir,
+        result,
+        "candidate_review_audit_path",
+        "candidate_review_audit_path",
+    )
+    clip_payload = _read_registered_timeline_json(clip_path)
+    audit_payload = _read_registered_timeline_json(audit_path)
+    return (
+        result,
+        _timeline_records(clip_payload, "clip_marks"),
+        _timeline_records(audit_payload, "candidates"),
+        _timeline_video_duration(task, result, clip_payload, audit_payload),
+    )
 
 
 def _safe_task_error(error):
@@ -1788,6 +1906,56 @@ def completed_task_result(task_id):
     if isinstance(result, dict):
         return jsonify(result)
     return jsonify({"result": result})
+
+
+@app.route("/api/tasks/<task_id>/timeline", methods=["GET"])
+def completed_task_timeline(task_id):
+    """返回已登记任务的只读时间轴；请求方不能指定本机路径。"""
+
+    if "path" in request.args:
+        return jsonify({"error": "不支持 path 参数"}), 400
+    try:
+        task = task_registry.snapshot(task_id)
+    except (TypeError, ValueError):
+        task = None
+    if task is None:
+        return jsonify({"error": "任务不存在"}), 404
+    if task.get("status") != "done":
+        return jsonify({"error": "任务尚未完成"}), 409
+    if task.get("task_type") not in _OPENABLE_RESULT_TASK_TYPES:
+        return jsonify({"error": "该任务没有可读取的时间轴产物"}), 403
+
+    try:
+        result, clips, edge_candidates, video_duration = (
+            _load_registered_timeline_inputs(task_id, task)
+        )
+    except KeyError:
+        return jsonify({"error": "任务不存在"}), 404
+    except RuntimeError:
+        # 整理包尚未存在或任务输出根目录已失效时，不读取任何外部路径；
+        # 仍返回旧任务可消费的显式不完整契约。
+        result = _timeline_result_mapping(task)
+        clips = edge_candidates = video_duration = None
+    except PermissionError:
+        return jsonify({"error": "任务时间轴产物归属校验失败"}), 403
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        result = _timeline_result_mapping(task)
+        clips = edge_candidates = video_duration = None
+
+    video_duration = video_duration if video_duration is not None else (
+        _timeline_video_duration(task, result)
+    )
+    try:
+        payload = timeline_contract.serialize_timeline(
+            task_id,
+            video_duration,
+            clips,
+            edge_candidates,
+        )
+    except Exception:
+        app.logger.exception("只读时间轴序列化失败")
+        return jsonify({"error": "无法生成时间轴"}), 500
+    return jsonify(payload)
 
 
 # ==================== 字幕校对与压制 ====================

@@ -7,7 +7,7 @@ from autoslice.pipeline_retry_reporting import prepare_retry_report
 class PrepareRetryReportTests(unittest.TestCase):
 
     def _run(self, data=None, *, warning="已有警告", clip_warning="复核警告"):
-        data = {} if data is None else data
+        data = {"video_duration": 300.25} if data is None else data
         layout = {
             "artifact_dir": "bundle",
             "overview_path": "bundle/00_概览.md",
@@ -83,13 +83,14 @@ class PrepareRetryReportTests(unittest.TestCase):
         self.assertEqual(report_call[2]["report_dir"], "bundle")
 
     def test_payload_preserves_policy_and_uses_artifact_fallback_paths(self):
-        data = {"unrelated": "保留"}
+        data = {"unrelated": "保留", "video_duration": 300.25}
         result, _calls, layout = self._run(data)
         payload = result["payload"]
 
         self.assertIs(payload, data)
         self.assertEqual(payload["unrelated"], "保留")
         self.assertEqual(payload["video"], "recording.flv")
+        self.assertEqual(payload["video_duration"], 300.25)
         self.assertEqual(payload["streamer_profile_id"], "profile-id")
         self.assertEqual(payload["streamer_name"], "canonical-name")
         self.assertEqual(payload["streamer_display_name"], "展示名")

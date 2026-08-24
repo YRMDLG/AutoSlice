@@ -66,6 +66,7 @@ class PreparePipelineReportTests(unittest.TestCase):
                 canonical_name="canonical-name",
                 report_name="展示名",
             ),
+            video_duration=120.5,
             average_density=12.3456,
             density_threshold=20.9876,
             local_peak_radius_sec=8,
@@ -126,6 +127,7 @@ class PreparePipelineReportTests(unittest.TestCase):
         self.assertEqual(payload["artifact_dir"], layout["artifact_dir"])
         self.assertEqual(payload["overview_path"], layout["overview_path"])
         self.assertEqual(payload["analysis_report_path"], layout["report_path"])
+        self.assertEqual(payload["video_duration"], 120.5)
         self.assertEqual(payload["model_policy"], {
             "topic_analysis": "luna",
             "manual_timeline_review": "terra",

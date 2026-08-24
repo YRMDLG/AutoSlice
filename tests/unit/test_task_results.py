@@ -18,6 +18,7 @@ class TaskResultSummaryTests(unittest.TestCase):
         result = {
             "report": "完整报告" * 50_000,
             "topic_count": 58,
+            "video_duration": 3600.5,
             "clip_marks": [
                 {"start": index, "end": index + 30, "subtitle": "字幕" * 500}
                 for index in range(12)
@@ -47,6 +48,7 @@ class TaskResultSummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["topic_count"], 58)
         self.assertEqual(summary["slice_count"], 12)
+        self.assertEqual(summary["video_duration"], 3600.5)
         self.assertEqual(summary["failed_chunk_count"], 2)
         self.assertTrue(summary["report_available"])
         self.assertNotIn("report", summary)

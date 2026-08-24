@@ -733,6 +733,7 @@ def run_pipeline_impl(
         clip_review_warning=clip_review_warning,
         manual_timeline=manual_timeline,
         streamer_profile=streamer_profile,
+        video_duration=video_duration,
         average_density=avg_den,
         density_threshold=_danmaku_clip_threshold(peaks, avg_den),
         local_peak_radius_sec=CLIP_LOCAL_PEAK_RADIUS_SEC,
@@ -811,6 +812,7 @@ def run_pipeline_impl(
     return {
         "report": report,
         "topic_count": len(accepted_topics),
+        "video_duration": video_duration,
         "clip_marks": clip_marks,
         "json_path": json_path,
         "md_path": md_path,
@@ -1098,6 +1100,7 @@ def retry_clip_review_from_artifacts_impl(
     return {
         "report": report,
         "topic_count": len(accepted_topics),
+        "video_duration": data.get("video_duration"),
         "clip_marks": clip_marks,
         "json_path": json_path,
         "md_path": report_path,

@@ -3644,6 +3644,252 @@ class TopicPipelineApiTests(unittest.TestCase):
         logger.assert_called_once()
 
 
+class TimelineApiTests(unittest.TestCase):
+
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        app_module.tasks.clear()
+        self.directory = TemporaryDirectory(prefix="autoslice-timeline-api-")
+        self.root = Path(self.directory.name)
+        self.client = _bootstrapped_client()
+
+    def tearDown(self):
+        app_module.tasks.clear()
+        self.directory.cleanup()
+
+    def _create_done_task(
+            self,
+            task_id="timeline-success",
+            *,
+            with_artifacts=True,
+            artifact_root=None,
+            result=None,
+            video_duration=120,
+            task_type="topic_pipeline",
+    ):
+        output_dir = self.root / f"{task_id}-output"
+        artifact_dir = (
+            Path(artifact_root)
+            if artifact_root is not None
+            else output_dir / f"{task_id}_自动切片"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if with_artifacts:
+            data_dir = artifact_dir / "数据"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            (data_dir / "clip_marks.json").write_text(
+                json.dumps({
+                    "video_duration": video_duration,
+                    "clip_marks": [{
+                        "id": "clip-1",
+                        "start": 10,
+                        "end": 30,
+                        "title": "真实片段",
+                        "source": "切片标记",
+                        "reason": "成功样本",
+                    }],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (data_dir / "候选复核明细.json").write_text(
+                json.dumps({
+                    "candidates": [{
+                        "id": "edge-1",
+                        "start": 45,
+                        "end": 60,
+                        "title": "边缘候选",
+                        "source": "候选复核",
+                        "reason": "待人工确认",
+                    }],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        metadata = {"output_dir": str(output_dir)}
+        if artifact_root is not None or with_artifacts:
+            metadata["artifact_dir"] = str(artifact_dir)
+        task_result = {
+            "artifact_dir": str(artifact_dir),
+            "quality_overview": {
+                "clips": [{"start": 900, "end": 901}],
+                "edge_candidates": [],
+            },
+        }
+        if result is not None:
+            task_result.update(result)
+        app_module.task_registry.store.create_task(
+            task_id,
+            task_type,
+            source_path=self.root / f"{task_id}.flv",
+            output_paths=(output_dir,),
+            status="done",
+            result_summary=task_result,
+            metadata=metadata,
+        )
+        return output_dir, artifact_dir
+
+    def test_timeline_returns_registered_records_and_integrity_fields(self):
+        self._create_done_task()
+
+        response = self.client.get("/api/tasks/timeline-success/timeline")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["task_id"], "timeline-success")
+        self.assertEqual(payload["video_duration"], 120.0)
+        self.assertEqual(payload["clips"][0]["id"], "clip-1")
+        self.assertEqual(payload["edge_candidates"][0]["id"], "edge-1")
+        self.assertTrue(payload["complete"])
+        self.assertFalse(payload["truncated"])
+        self.assertEqual(payload["incomplete_reasons"], [])
+        self.assertNotIn("quality_overview", payload)
+
+    def test_timeline_returns_404_for_unknown_task(self):
+        response = self.client.get("/api/tasks/not-registered/timeline")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.get_json(), {"error": "任务不存在"})
+
+    def test_timeline_rejects_unowned_artifact_and_arbitrary_path_query(self):
+        _, foreign_artifact = self._create_done_task("foreign-artifact")
+        output_dir, _ = self._create_done_task(
+            "timeline-owned",
+            with_artifacts=False,
+            artifact_root=foreign_artifact,
+        )
+        # 让输出根目录仍然属于当前任务，但登记的整理包位于另一个任务目录。
+        self.assertTrue(output_dir.is_dir())
+        forbidden = self.client.get(
+            "/api/tasks/timeline-owned/timeline",
+            query_string={"path": str(foreign_artifact / "数据" / "clip_marks.json")},
+        )
+
+        self.assertEqual(forbidden.status_code, 400)
+        self.assertEqual(forbidden.get_json(), {"error": "不支持 path 参数"})
+
+        forbidden_without_query = self.client.get(
+            "/api/tasks/timeline-owned/timeline"
+        )
+        self.assertEqual(forbidden_without_query.status_code, 403)
+
+    def test_timeline_rejects_symlinked_artifact_file(self):
+        output_dir, artifact_dir = self._create_done_task(
+            "timeline-symlink",
+            with_artifacts=False,
+        )
+        data_dir = artifact_dir / "数据"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        outside = self.root / "outside.json"
+        outside.write_text(
+            json.dumps({"clip_marks": [{"start": 1, "end": 2}]}),
+            encoding="utf-8",
+        )
+        try:
+            os.symlink(outside, data_dir / "clip_marks.json")
+            (data_dir / "候选复核明细.json").write_text(
+                json.dumps({"candidates": []}),
+                encoding="utf-8",
+            )
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"当前环境不支持创建符号链接：{exc}")
+
+        response = self.client.get(
+            "/api/tasks/timeline-symlink/timeline"
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(output_dir.is_dir())
+
+    def test_timeline_rejects_unfinished_and_disallowed_tasks(self):
+        output_dir = self.root / "unfinished-output"
+        app_module.task_registry.store.create_task(
+            "timeline-running",
+            "topic_pipeline",
+            source_path=self.root / "running.flv",
+            output_paths=(output_dir,),
+            status="queued",
+        )
+        running_response = self.client.get(
+            "/api/tasks/timeline-running/timeline"
+        )
+        self.assertEqual(running_response.status_code, 409)
+
+        output_dir, artifact_dir = self._create_done_task(
+            "timeline-disallowed",
+            with_artifacts=False,
+            task_type="subtitle_review",
+        )
+        disallowed_response = self.client.get(
+            "/api/tasks/timeline-disallowed/timeline"
+        )
+        self.assertEqual(disallowed_response.status_code, 403)
+        self.assertTrue(output_dir.is_dir())
+        self.assertTrue(artifact_dir.parent.is_dir())
+
+    def test_old_task_and_missing_timeline_data_are_explicitly_incomplete(self):
+        self._create_done_task(
+            "timeline-old",
+            with_artifacts=False,
+            result={},
+            video_duration=None,
+        )
+        old_response = self.client.get("/api/tasks/timeline-old/timeline")
+        old_payload = old_response.get_json()
+        self.assertEqual(old_response.status_code, 200)
+        self.assertFalse(old_payload["complete"])
+        self.assertIn("clips_missing", old_payload["incomplete_reasons"])
+        self.assertIn("edge_candidates_missing", old_payload["incomplete_reasons"])
+
+        legacy_artifact = self.root / "legacy-output" / "legacy_自动切片"
+        app_module.task_registry.store.create_task(
+            "timeline-legacy-without-output-root",
+            "topic_pipeline",
+            source_path=self.root / "legacy.flv",
+            status="done",
+            result_summary={"artifact_dir": str(legacy_artifact)},
+        )
+        legacy_response = self.client.get(
+            "/api/tasks/timeline-legacy-without-output-root/timeline"
+        )
+        legacy_payload = legacy_response.get_json()
+        self.assertEqual(legacy_response.status_code, 200)
+        self.assertFalse(legacy_payload["complete"])
+        self.assertIn("clips_missing", legacy_payload["incomplete_reasons"])
+        self.assertIn(
+            "edge_candidates_missing",
+            legacy_payload["incomplete_reasons"],
+        )
+
+        _, artifact_dir = self._create_done_task(
+            "timeline-missing-data",
+            with_artifacts=False,
+        )
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        missing_response = self.client.get(
+            "/api/tasks/timeline-missing-data/timeline"
+        )
+        missing_payload = missing_response.get_json()
+        self.assertEqual(missing_response.status_code, 200)
+        self.assertFalse(missing_payload["complete"])
+        self.assertIn("clips_missing", missing_payload["incomplete_reasons"])
+        self.assertIn("edge_candidates_missing", missing_payload["incomplete_reasons"])
+
+    def test_timeline_serializer_failure_is_safe_server_error(self):
+        self._create_done_task("timeline-serializer-error")
+
+        with patch.object(
+                app_module.timeline_contract,
+                "serialize_timeline",
+                side_effect=RuntimeError("不应泄露的本机路径"),
+        ):
+            response = self.client.get(
+                "/api/tasks/timeline-serializer-error/timeline"
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.get_json(), {"error": "无法生成时间轴"})
+        self.assertNotIn("不应泄露", response.get_data(as_text=True))
+
+
 class TaskLifecycleTests(unittest.TestCase):
 
     def setUp(self):

@@ -156,6 +156,8 @@ def build_pipeline_result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     quality_overview = _compact_quality_overview(result.get("quality_overview"))
     if quality_overview is not None:
         add_if_fits("quality_overview", quality_overview)
+    if result.get("video_duration") is not None:
+        add_if_fits("video_duration", result.get("video_duration"))
     for field in _PIPELINE_PATH_FIELDS:
         value = result.get(field)
         if value:
