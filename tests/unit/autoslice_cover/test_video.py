@@ -23,6 +23,7 @@ from autoslice_cover.video import (
     _extract_frame,
     _improve_subtitle_candidates,
     _read_cached_candidates,
+    _sort_candidates,
     extract_candidate_frames,
     extract_frame_at_timestamp,
     plan_candidate_timestamps,
@@ -48,6 +49,70 @@ class TimestampPlanningTests(unittest.TestCase):
 
         self.assertGreater(timestamps[0], 4.0)
         self.assertLess(timestamps[-1], 27.0)
+
+    def test_anchor_planning_keeps_global_coverage_and_adds_local_density(self) -> None:
+        timestamps = plan_candidate_timestamps(
+            100.0,
+            count=12,
+            cover_anchor_seconds=50.0,
+        )
+
+        self.assertEqual(len(timestamps), 12)
+        self.assertEqual(len(set(timestamps)), 12)
+        self.assertIn(50.0, timestamps)
+        self.assertTrue(any(timestamp < 25.0 for timestamp in timestamps))
+        self.assertTrue(any(timestamp > 75.0 for timestamp in timestamps))
+        self.assertGreaterEqual(
+            sum(abs(timestamp - 50.0) <= 6.0 for timestamp in timestamps),
+            4,
+        )
+
+    def test_invalid_anchor_falls_back_to_existing_uniform_plan(self) -> None:
+        expected = plan_candidate_timestamps(30.0, count=6)
+
+        for anchor in (None, float("nan"), float("inf"), -0.1, 30.1, "12", True):
+            with self.subTest(anchor=anchor):
+                self.assertEqual(
+                    plan_candidate_timestamps(
+                        30.0,
+                        count=6,
+                        cover_anchor_seconds=anchor,
+                    ),
+                    expected,
+                )
+
+    def test_anchor_planning_is_stable_at_both_ends_of_short_video(self) -> None:
+        for anchor in (0.0, 0.1, 2.0):
+            with self.subTest(anchor=anchor):
+                timestamps = plan_candidate_timestamps(
+                    2.0,
+                    count=12,
+                    cover_anchor_seconds=anchor,
+                )
+
+                self.assertEqual(len(timestamps), 12)
+                self.assertEqual(len(set(timestamps)), 12)
+                self.assertTrue(all(0.0 < timestamp < 2.0 for timestamp in timestamps))
+                self.assertGreaterEqual(
+                    sum(abs(timestamp - anchor) <= 0.75 for timestamp in timestamps),
+                    4,
+                )
+        self.assertIn(0.04, plan_candidate_timestamps(2.0, count=12, cover_anchor_seconds=0.0))
+        self.assertIn(1.96, plan_candidate_timestamps(2.0, count=12, cover_anchor_seconds=2.0))
+
+    def test_single_candidate_uses_anchor_or_nearest_safe_boundary(self) -> None:
+        self.assertEqual(
+            plan_candidate_timestamps(100.0, count=1, cover_anchor_seconds=50.0),
+            [50.0],
+        )
+        self.assertEqual(
+            plan_candidate_timestamps(2.0, count=1, cover_anchor_seconds=0.0),
+            [0.05],
+        )
+        self.assertEqual(
+            plan_candidate_timestamps(2.0, count=1, cover_anchor_seconds=2.0),
+            [1.95],
+        )
 
     def test_rejects_invalid_duration_and_count(self) -> None:
         with self.assertRaisesRegex(ValueError, "时长必须为正数"):
@@ -186,6 +251,98 @@ class SubtitleNeighborhoodTests(unittest.TestCase):
             self.assertEqual(extract.call_count, 2)
             self.assertTrue(all(Path(item.path).is_file() for item in improved))
 
+    def test_anchor_sorting_keeps_local_moment_ahead_of_clean_remote_frame(self) -> None:
+        local_subtitle = FrameCandidate(
+            path="local-subtitle.jpg",
+            timestamp=50.2,
+            score=18.0,
+            metrics=FrameMetrics(0.5, 0.7, 0.6, 0.6, 0.6, 0.9),
+        )
+        local_clean = FrameCandidate(
+            path="local-clean.jpg",
+            timestamp=50.4,
+            score=55.0,
+            metrics=FrameMetrics(0.5, 0.7, 0.6, 0.6, 0.6, 0.05),
+        )
+        remote_clean = FrameCandidate(
+            path="remote-clean.jpg",
+            timestamp=10.0,
+            score=99.0,
+            metrics=FrameMetrics(0.5, 1.0, 1.0, 1.0, 1.0, 0.0),
+        )
+
+        ranked = _sort_candidates(
+            [remote_clean, local_subtitle, local_clean],
+            cover_anchor_seconds=50.0,
+            duration=100.0,
+        )
+
+        self.assertEqual(ranked[:2], [local_clean, local_subtitle])
+        self.assertEqual(ranked[-1], remote_clean)
+
+    def test_anchor_sorting_prefers_lower_subtitle_risk_when_quality_is_close(self) -> None:
+        slightly_better_but_risky = FrameCandidate(
+            path="risky.jpg",
+            timestamp=50.2,
+            score=22.7,
+            metrics=FrameMetrics(0.5, 0.7, 0.6, 0.6, 0.6, 0.9),
+        )
+        nearly_equal_clean = FrameCandidate(
+            path="clean.jpg",
+            timestamp=50.4,
+            score=57.9,
+            metrics=FrameMetrics(0.5, 0.7, 0.6, 0.6, 0.6, 0.05),
+        )
+
+        ranked = _sort_candidates(
+            [slightly_better_but_risky, nearly_equal_clean],
+            cover_anchor_seconds=50.0,
+            duration=100.0,
+        )
+
+        self.assertGreater(
+            slightly_better_but_risky.score
+            + slightly_better_but_risky.metrics.subtitle_risk * 42.0,
+            nearly_equal_clean.score + nearly_equal_clean.metrics.subtitle_risk * 42.0,
+        )
+        self.assertEqual(ranked[0], nearly_equal_clean)
+
+    def test_anchor_subtitle_search_does_not_rewrite_remote_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "video.mp4"
+            source.write_bytes(b"video")
+            local_path = root / "local.jpg"
+            remote_path = root / "remote.jpg"
+            Image.new("RGB", (320, 180), "#b98aa5").save(local_path)
+            Image.new("RGB", (320, 180), "#b98aa5").save(remote_path)
+            risky = FrameMetrics(0.5, 0.8, 0.6, 0.6, 0.4, 0.8)
+            candidates = [
+                FrameCandidate(str(local_path), 10.0, 40.0, risky),
+                FrameCandidate(str(remote_path), 80.0, 40.0, risky),
+            ]
+
+            def fake_run(command, **_kwargs):
+                Image.new("RGB", (320, 180), "#d986ad").save(Path(command[-1]))
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            clean = FrameMetrics(0.5, 0.8, 0.6, 0.6, 0.4, 0.0)
+            with (
+                patch("autoslice_cover.video.subprocess.run", side_effect=fake_run) as run,
+                patch("autoslice_cover.video.score_frame", return_value=(70.0, clean)),
+            ):
+                improved = _improve_subtitle_candidates(
+                    candidates,
+                    ffmpeg="ffmpeg",
+                    source=source,
+                    duration=100.0,
+                    cover_anchor_seconds=10.0,
+                )
+
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(improved[0].metrics.subtitle_risk, 0.0)
+            self.assertEqual(improved[1], candidates[1])
+
 
 class MediaReliabilityTests(unittest.TestCase):
     """验证媒体进程超时和候选缓存的安全事务。"""
@@ -251,6 +408,42 @@ class MediaReliabilityTests(unittest.TestCase):
             (cache / "frame.jpg").write_bytes(b"not-a-jpeg")
             manifest.write_text(json.dumps(payload), encoding="utf-8")
             self.assertIsNone(_read_cached_candidates(manifest, expected_count=1))
+
+    def test_cache_rejects_non_object_video_metadata(self) -> None:
+        metrics = FrameMetrics(0.5, 1.0, 0.5, 0.5, 0.4, 0.0).to_dict()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "manifest.json"
+            Image.new("RGB", (32, 18), "red").save(root / "frame.jpg")
+            payload = {
+                "version": CACHE_VERSION,
+                "cover_anchor_seconds": 1.0,
+                "video": None,
+                "candidates": [{
+                    "filename": "frame.jpg",
+                    "timestamp": 1.0,
+                    "score": 50.0,
+                    "metrics": metrics,
+                }],
+            }
+
+            for invalid_video in (None, [], "invalid"):
+                with self.subTest(video=invalid_video):
+                    payload["video"] = invalid_video
+                    manifest.write_text(json.dumps(payload), encoding="utf-8")
+                    self.assertIsNone(
+                        _read_cached_candidates(
+                            manifest,
+                            expected_count=1,
+                            expected_cover_anchor_seconds=1.0,
+                        )
+                    )
+                    payload["cover_anchor_seconds"] = None
+                    manifest.write_text(json.dumps(payload), encoding="utf-8")
+                    self.assertIsNone(
+                        _read_cached_candidates(manifest, expected_count=1)
+                    )
+                    payload["cover_anchor_seconds"] = 1.0
 
     def test_concurrent_same_key_builds_once_and_waiter_reuses_cache(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -348,6 +541,60 @@ class MediaReliabilityTests(unittest.TestCase):
                 {Path(item.path).name: Path(item.path).read_bytes() for item in reused},
             )
             self.assertEqual(leftovers, [])
+
+    def test_candidate_cache_is_isolated_by_cover_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "video.mp4"
+            source.write_bytes(b"video")
+            cache = root / "cache"
+            metadata = VideoMetadata(str(source.resolve()), 30.0, 640, 360, 30.0)
+            metrics = FrameMetrics(0.5, 1.0, 0.5, 0.5, 0.4, 0.0)
+            calls = []
+
+            def fake_run(command, **_kwargs):
+                timestamp = float(command[command.index("-ss") + 1])
+                calls.append(timestamp)
+                Image.new("RGB", (64, 36), "#d884ad").save(Path(command[-1]))
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with (
+                patch("autoslice_cover.video.probe_video", return_value=metadata) as probe,
+                patch("autoslice_cover.video.find_media_binary", return_value="ffmpeg"),
+                patch("autoslice_cover.video.subprocess.run", side_effect=fake_run),
+                patch("autoslice_cover.video.score_frame", return_value=(70.0, metrics)),
+            ):
+                first = extract_candidate_frames(
+                    source,
+                    cache_dir=cache,
+                    count=2,
+                    cover_anchor_seconds=8.0,
+                )
+                second = extract_candidate_frames(
+                    source,
+                    cache_dir=cache,
+                    count=2,
+                    cover_anchor_seconds=16.0,
+                )
+                reused = extract_candidate_frames(
+                    source,
+                    cache_dir=cache,
+                    count=2,
+                    cover_anchor_seconds=8.0,
+                )
+
+            self.assertEqual(len(calls), 4)
+            self.assertEqual(probe.call_count, 2)
+            self.assertNotEqual(
+                {Path(candidate.path).parent for candidate in first},
+                {Path(candidate.path).parent for candidate in second},
+            )
+            self.assertTrue(all(not candidate.cached for candidate in first + second))
+            self.assertTrue(all(candidate.cached for candidate in reused))
+            self.assertEqual(
+                [candidate.timestamp for candidate in reused],
+                [candidate.timestamp for candidate in first],
+            )
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "需要 ffmpeg/ffprobe")

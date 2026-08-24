@@ -17,9 +17,13 @@ from PIL import Image, ImageFilter, ImageStat
 
 from .paths import CACHE_DIR
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 LOW_SUBTITLE_RISK = 0.05
 SUBTITLE_NEIGHBOR_OFFSETS = (-1.0, 1.0, -0.5, 0.5)
+ANCHOR_LOCAL_MIN_SECONDS = 0.75
+ANCHOR_LOCAL_MAX_SECONDS = 6.0
+ANCHOR_LOCAL_DURATION_RATIO = 0.08
+ANCHOR_LOCAL_SUBTITLE_PENALTY = 2.0
 FFPROBE_TIMEOUT_SECONDS = 30
 FFMPEG_FRAME_TIMEOUT_SECONDS = 90
 _CACHE_LOCKS: dict[str, threading.Lock] = {}
@@ -171,22 +175,13 @@ def probe_video(
     )
 
 
-def plan_candidate_timestamps(
+def _uniform_candidate_timestamps(
     duration: float,
-    count: int = 12,
+    count: int,
     *,
-    intro_seconds: float = 4.0,
-    outro_seconds: float = 3.0,
+    intro_seconds: float,
+    outro_seconds: float,
 ) -> list[float]:
-    """避开成品片头片尾，在主体内容区间内均匀规划时间点。"""
-
-    if duration <= 0:
-        raise ValueError("视频时长必须为正数")
-    if count <= 0:
-        raise ValueError("候选帧数量必须为正数")
-    if intro_seconds < 0 or outro_seconds < 0:
-        raise ValueError("片头片尾安全时长不能为负数")
-
     intro_margin = min(max(duration * 0.06, intro_seconds), duration * 0.22)
     outro_margin = min(max(duration * 0.06, outro_seconds), duration * 0.22)
     usable_duration = duration - intro_margin - outro_margin
@@ -197,6 +192,117 @@ def plan_candidate_timestamps(
     start = intro_margin
     step = usable_duration / count
     return [round(start + step * (index + 0.5), 3) for index in range(count)]
+
+
+def _valid_cover_anchor(duration: float, value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    anchor = float(value)
+    if not math.isfinite(anchor) or anchor < 0 or anchor > duration:
+        return None
+    return anchor
+
+
+def _anchor_local_radius(duration: float) -> float:
+    return min(
+        duration,
+        ANCHOR_LOCAL_MAX_SECONDS,
+        max(ANCHOR_LOCAL_MIN_SECONDS, duration * ANCHOR_LOCAL_DURATION_RATIO),
+    )
+
+
+def plan_candidate_timestamps(
+    duration: float,
+    count: int = 12,
+    *,
+    intro_seconds: float = 4.0,
+    outro_seconds: float = 3.0,
+    cover_anchor_seconds: float | None = None,
+) -> list[float]:
+    """规划全片均匀候选；可靠爆点存在时额外在其邻域加密采样。"""
+
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("视频时长必须为正数")
+    if count <= 0:
+        raise ValueError("候选帧数量必须为正数")
+    if intro_seconds < 0 or outro_seconds < 0:
+        raise ValueError("片头片尾安全时长不能为负数")
+
+    uniform_fallback = _uniform_candidate_timestamps(
+        duration,
+        count,
+        intro_seconds=intro_seconds,
+        outro_seconds=outro_seconds,
+    )
+    anchor = _valid_cover_anchor(duration, cover_anchor_seconds)
+    if anchor is None:
+        return uniform_fallback
+
+    edge_margin = min(0.05, duration / (count * 4 + 2))
+    safe_start = edge_margin
+    safe_end = max(safe_start, duration - edge_margin)
+    safe_anchor = round(max(safe_start, min(safe_end, anchor)), 6)
+    if count == 1:
+        return [safe_anchor]
+
+    local_count = min(max(1, (count + 2) // 3), count - 1)
+    uniform_count = count - local_count
+    selected = _uniform_candidate_timestamps(
+        duration,
+        uniform_count,
+        intro_seconds=intro_seconds,
+        outro_seconds=outro_seconds,
+    )
+    used = {round(timestamp, 6) for timestamp in selected}
+
+    radius = _anchor_local_radius(duration)
+    local_start = max(safe_start, anchor - radius)
+    local_end = min(safe_end, anchor + radius)
+    pool_size = max(64, count * 16)
+    if local_end <= local_start:
+        local_pool = [safe_anchor, local_start]
+    else:
+        segment_midpoints = [
+            local_start + (local_end - local_start) * (index + 0.5) / local_count
+            for index in range(local_count)
+        ]
+        segment_midpoints.sort(
+            key=lambda timestamp: (abs(timestamp - safe_anchor), timestamp)
+        )
+        local_pool = [safe_anchor, *segment_midpoints]
+        fallback_pool = [
+            local_start + (local_end - local_start) * index / (pool_size - 1)
+            for index in range(pool_size)
+        ]
+        fallback_pool.sort(
+            key=lambda timestamp: (abs(timestamp - safe_anchor), timestamp)
+        )
+        local_pool.extend(fallback_pool)
+
+    for timestamp in local_pool:
+        rounded = round(timestamp, 6)
+        if rounded in used:
+            continue
+        selected.append(rounded)
+        used.add(rounded)
+        if len(selected) == count:
+            break
+
+    if len(selected) < count:
+        fill_count = max(1000, count * 100)
+        for index in range(fill_count):
+            timestamp = safe_start + (safe_end - safe_start) * index / max(1, fill_count - 1)
+            rounded = round(timestamp, 6)
+            if rounded in used:
+                continue
+            selected.append(rounded)
+            used.add(rounded)
+            if len(selected) == count:
+                break
+
+    if len(selected) != count:
+        raise ValueError("视频过短，无法规划足够的唯一候选时间点")
+    return sorted(selected)
 
 
 def _clamp(value: float) -> float:
@@ -278,11 +384,22 @@ def score_frame(image_path: str | Path) -> tuple[float, FrameMetrics]:
     return round(score, 2), metrics
 
 
-def _cache_key(source: Path, count: int, intro_seconds: float, outro_seconds: float) -> str:
+def _cache_key(
+    source: Path,
+    count: int,
+    intro_seconds: float,
+    outro_seconds: float,
+    cover_anchor_seconds: float | None = None,
+) -> str:
     stat = source.stat()
+    anchor_identity = (
+        "uniform"
+        if cover_anchor_seconds is None
+        else f"anchor:{cover_anchor_seconds:.6f}"
+    )
     raw = (
         f"{source.resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{count}|"
-        f"{intro_seconds:.3f}|{outro_seconds:.3f}|{CACHE_VERSION}"
+        f"{intro_seconds:.3f}|{outro_seconds:.3f}|{anchor_identity}|{CACHE_VERSION}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
@@ -320,6 +437,7 @@ def _read_cached_candidates(
     manifest_path: Path,
     *,
     expected_count: int | None = None,
+    expected_cover_anchor_seconds: float | None = None,
 ) -> list[FrameCandidate] | None:
     if not manifest_path.is_file():
         return None
@@ -327,6 +445,27 @@ def _read_cached_candidates(
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("version") != CACHE_VERSION:
             return None
+        cached_anchor = payload.get("cover_anchor_seconds")
+        if expected_cover_anchor_seconds is None:
+            if cached_anchor is not None:
+                return None
+        else:
+            if isinstance(cached_anchor, bool):
+                return None
+            try:
+                cached_anchor_number = float(cached_anchor)
+            except (TypeError, ValueError):
+                return None
+            if (
+                not math.isfinite(cached_anchor_number)
+                or not math.isclose(
+                    cached_anchor_number,
+                    expected_cover_anchor_seconds,
+                    rel_tol=0.0,
+                    abs_tol=1e-6,
+                )
+            ):
+                return None
         raw_candidates = payload.get("candidates")
         if not isinstance(raw_candidates, list) or not raw_candidates:
             return None
@@ -373,7 +512,22 @@ def _read_cached_candidates(
                     cached=True,
                 )
             )
-        return sorted(candidates, key=_subtitle_candidate_key)
+        raw_video = payload.get("video")
+        if not isinstance(raw_video, dict):
+            return None
+        raw_duration = raw_video.get("duration")
+        duration = float(raw_duration)
+        if not math.isfinite(duration) or duration <= 0:
+            return None
+        if expected_cover_anchor_seconds is None:
+            return sorted(candidates, key=_subtitle_candidate_key)
+        if expected_cover_anchor_seconds > duration:
+            return None
+        return _sort_candidates(
+            candidates,
+            cover_anchor_seconds=expected_cover_anchor_seconds,
+            duration=duration,
+        )
     except (
         KeyError,
         OSError,
@@ -398,7 +552,7 @@ def _extract_frame(
         "-loglevel",
         "error",
         "-ss",
-        f"{timestamp:.3f}",
+        f"{timestamp:.6f}",
         "-i",
         str(source),
         "-frames:v",
@@ -436,31 +590,101 @@ def _subtitle_candidate_key(candidate: FrameCandidate) -> tuple[float, float, fl
     return 1.0, risk, -candidate.score
 
 
+def _anchor_candidate_key(
+    candidate: FrameCandidate,
+    *,
+    cover_anchor_seconds: float,
+    duration: float,
+) -> tuple[float, ...]:
+    distance = abs(candidate.timestamp - cover_anchor_seconds)
+    radius = _anchor_local_radius(duration)
+    quality = min(100.0, candidate.score + candidate.metrics.subtitle_risk * 42.0)
+    if distance <= radius:
+        proximity_band_width = max(0.25, min(1.0, radius / 3.0))
+        proximity_band = math.floor(distance / proximity_band_width)
+        local_suitability = (
+            quality
+            - candidate.metrics.subtitle_risk * ANCHOR_LOCAL_SUBTITLE_PENALTY
+        )
+        return (
+            0.0,
+            float(proximity_band),
+            -local_suitability,
+            -quality,
+            candidate.metrics.subtitle_risk,
+            distance,
+            -candidate.score,
+        )
+    return 1.0, -quality, distance, -candidate.score
+
+
+def _sort_candidates(
+    candidates: list[FrameCandidate],
+    *,
+    cover_anchor_seconds: float | None,
+    duration: float,
+) -> list[FrameCandidate]:
+    if cover_anchor_seconds is None:
+        return sorted(candidates, key=_subtitle_candidate_key)
+    return sorted(
+        candidates,
+        key=lambda candidate: _anchor_candidate_key(
+            candidate,
+            cover_anchor_seconds=cover_anchor_seconds,
+            duration=duration,
+        ),
+    )
+
+
 def _improve_subtitle_candidates(
     candidates: list[FrameCandidate],
     *,
     ffmpeg: str,
     source: Path,
     duration: float,
+    cover_anchor_seconds: float | None = None,
 ) -> list[FrameCandidate]:
-    """仅在低风险帧不足时搜索邻近瞬间，优先避开烧录字幕。"""
+    """在允许的候选邻域内搜索相近瞬间，优先避开烧录字幕。"""
 
-    target_count = min(3, len(candidates))
+    anchor = _valid_cover_anchor(duration, cover_anchor_seconds)
+    radius = _anchor_local_radius(duration) if anchor is not None else None
+    eligible_indexes = [
+        index
+        for index, candidate in enumerate(candidates)
+        if anchor is None or abs(candidate.timestamp - anchor) <= radius
+    ]
+    target_count = min(3, len(eligible_indexes))
+    if target_count == 0:
+        return candidates
     low_risk_count = sum(
-        candidate.metrics.subtitle_risk <= LOW_SUBTITLE_RISK for candidate in candidates
+        candidates[index].metrics.subtitle_risk <= LOW_SUBTITLE_RISK
+        for index in eligible_indexes
     )
     if low_risk_count >= target_count:
         return candidates
 
     improved = list(candidates)
-    for index, candidate in enumerate(candidates):
+    safe_margin = min(0.05, duration / 4.0)
+    safe_start = safe_margin
+    safe_end = max(safe_start, duration - safe_margin)
+    for index in eligible_indexes:
+        candidate = candidates[index]
         if candidate.metrics.subtitle_risk <= LOW_SUBTITLE_RISK:
             continue
         best = candidate
         temporary_paths: list[Path] = []
+        attempted_timestamps: set[float] = set()
         try:
             for offset_index, offset in enumerate(SUBTITLE_NEIGHBOR_OFFSETS, start=1):
-                timestamp = max(0.05, min(duration - 0.05, candidate.timestamp + offset))
+                timestamp = round(
+                    max(safe_start, min(safe_end, candidate.timestamp + offset)),
+                    6,
+                )
+                if timestamp in attempted_timestamps:
+                    continue
+                attempted_timestamps.add(timestamp)
+                if anchor is not None and abs(timestamp - anchor) > radius:
+                    continue
                 temporary = Path(candidate.path).with_name(
                     f"{Path(candidate.path).stem}-neighbor-{offset_index}.jpg"
                 )
@@ -506,6 +730,7 @@ def extract_candidate_frames(
     count: int = 12,
     intro_seconds: float = 4.0,
     outro_seconds: float = 3.0,
+    cover_anchor_seconds: float | None = None,
     force: bool = False,
     ffmpeg_path: str | Path | None = None,
     ffprobe_path: str | Path | None = None,
@@ -515,27 +740,62 @@ def extract_candidate_frames(
     source = Path(video_path).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(f"视频文件不存在：{source}")
+    requested_anchor = _valid_cover_anchor(math.inf, cover_anchor_seconds)
     cache_root = Path(cache_dir or CACHE_DIR).expanduser().resolve()
     cache_root.mkdir(parents=True, exist_ok=True)
-    frame_dir = cache_root / _cache_key(source, count, intro_seconds, outro_seconds)
+    if requested_anchor is not None and not force:
+        requested_frame_dir = cache_root / _cache_key(
+            source,
+            count,
+            intro_seconds,
+            outro_seconds,
+            requested_anchor,
+        )
+        with _cache_lock(requested_frame_dir):
+            cached = _read_cached_candidates(
+                requested_frame_dir / "manifest.json",
+                expected_count=count,
+                expected_cover_anchor_seconds=requested_anchor,
+            )
+            if cached is not None:
+                return cached
+
+    metadata: VideoMetadata | None = None
+    if requested_anchor is not None:
+        metadata = probe_video(source, ffprobe_path=ffprobe_path)
+    anchor = (
+        _valid_cover_anchor(metadata.duration, requested_anchor)
+        if metadata is not None
+        else None
+    )
+    frame_dir = cache_root / _cache_key(
+        source,
+        count,
+        intro_seconds,
+        outro_seconds,
+        anchor,
+    )
     manifest_path = frame_dir / "manifest.json"
     with _cache_lock(frame_dir):
         if not force:
             cached = _read_cached_candidates(
                 manifest_path,
                 expected_count=count,
+                expected_cover_anchor_seconds=anchor,
             )
             if cached is not None:
                 return cached
 
         source_stat = source.stat()
         source_signature = (source_stat.st_size, source_stat.st_mtime_ns)
-        metadata = probe_video(source, ffprobe_path=ffprobe_path)
+        if metadata is None:
+            metadata = probe_video(source, ffprobe_path=ffprobe_path)
         timestamps = plan_candidate_timestamps(
             metadata.duration,
             count,
             intro_seconds=intro_seconds,
             outro_seconds=outro_seconds,
+            cover_anchor_seconds=anchor,
         )
         ffmpeg = find_media_binary("ffmpeg", ffmpeg_path)
         staging_dir = cache_root / (
@@ -562,13 +822,19 @@ def extract_candidate_frames(
                 ffmpeg=ffmpeg,
                 source=source,
                 duration=metadata.duration,
+                cover_anchor_seconds=anchor,
             )
-            candidates.sort(key=_subtitle_candidate_key)
+            candidates = _sort_candidates(
+                candidates,
+                cover_anchor_seconds=anchor,
+                duration=metadata.duration,
+            )
             current_stat = source.stat()
             if (current_stat.st_size, current_stat.st_mtime_ns) != source_signature:
                 raise RuntimeError("源视频在候选帧提取期间发生变化，请重新生成")
             manifest = {
                 "version": CACHE_VERSION,
+                "cover_anchor_seconds": anchor,
                 "video": metadata.to_dict(),
                 "candidates": [
                     {

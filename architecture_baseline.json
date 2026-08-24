@@ -4517,7 +4517,7 @@
         "autoslice_cover.manifest_contract.empty_public_contract"
       ],
       "lines": [
-        14
+        16
       ],
       "to": "autoslice_cover.manifest_contract"
     },
@@ -4529,9 +4529,9 @@
         "autoslice_cover.paths.DEFAULT_OUTPUT_DIR"
       ],
       "lines": [
-        20,
-        23,
-        26
+        22,
+        25,
+        28
       ],
       "to": "autoslice_cover.paths"
     },
@@ -4542,7 +4542,7 @@
         "autoslice_cover.style.get_template"
       ],
       "lines": [
-        29
+        31
       ],
       "to": "autoslice_cover.style"
     },
@@ -4554,7 +4554,7 @@
         "autoslice_cover.titles.recommend_visual_style"
       ],
       "lines": [
-        30
+        32
       ],
       "to": "autoslice_cover.titles"
     },
@@ -4569,7 +4569,7 @@
         "autoslice_cover.video.probe_video"
       ],
       "lines": [
-        31
+        33
       ],
       "to": "autoslice_cover.video"
     },
@@ -4991,6 +4991,15 @@
       "qualname": "render_cover"
     },
     {
+      "end_line": 864,
+      "kind": "function",
+      "line": 726,
+      "line_count": 139,
+      "module": "autoslice_cover.video",
+      "path": "src/autoslice_cover/video.py",
+      "qualname": "extract_candidate_frames"
+    },
+    {
       "end_line": 338,
       "kind": "function",
       "line": 204,
@@ -5070,15 +5079,6 @@
       "module": "autoslice.analysis.topic.titles",
       "path": "src/autoslice/analysis/topic/titles.py",
       "qualname": "review_selected_publish_titles"
-    },
-    {
-      "end_line": 702,
-      "kind": "function",
-      "line": 590,
-      "line_count": 113,
-      "module": "autoslice.subtitle_workflow",
-      "path": "src/autoslice/subtitle_workflow.py",
-      "qualname": "save_corrected_srt"
     }
   ],
   "modules": [
@@ -12850,186 +12850,222 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 692,
+      "line_count": 958,
       "longest_function": {
-        "end_line": 598,
+        "end_line": 864,
         "kind": "function",
-        "line": 502,
-        "line_count": 97,
+        "line": 726,
+        "line_count": 139,
         "qualname": "extract_candidate_frames"
       },
       "module": "autoslice_cover.video",
       "path": "src/autoslice_cover/video.py",
-      "sha256": "adba22aa56fd67107ee5aedd9c6cc5fd94783b0ba12ec36c5793acacd388e92d",
+      "sha256": "6ff36d1ffa1adcddec768eea66819c7e603dada18f79489ba89ecaa772231d05",
       "top_level_classes": [
         {
-          "end_line": 42,
+          "end_line": 46,
           "kind": "class",
-          "line": 30,
+          "line": 34,
           "name": "VideoMetadata"
         },
         {
-          "end_line": 59,
+          "end_line": 63,
           "kind": "class",
-          "line": 46,
+          "line": 50,
           "name": "FrameMetrics"
         },
         {
-          "end_line": 77,
+          "end_line": 81,
           "kind": "class",
-          "line": 63,
+          "line": 67,
           "name": "FrameCandidate"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 92,
+          "end_line": 96,
           "kind": "function",
-          "line": 80,
+          "line": 84,
           "name": "find_media_binary"
         },
         {
-          "end_line": 104,
+          "end_line": 108,
           "kind": "function",
-          "line": 95,
+          "line": 99,
           "name": "_parse_frame_rate"
         },
         {
-          "end_line": 171,
+          "end_line": 175,
           "kind": "function",
-          "line": 107,
+          "line": 111,
           "name": "probe_video"
         },
         {
-          "end_line": 199,
+          "end_line": 194,
           "kind": "function",
-          "line": 174,
-          "name": "plan_candidate_timestamps"
+          "line": 178,
+          "name": "_uniform_candidate_timestamps"
         },
         {
           "end_line": 203,
           "kind": "function",
-          "line": 202,
+          "line": 197,
+          "name": "_valid_cover_anchor"
+        },
+        {
+          "end_line": 211,
+          "kind": "function",
+          "line": 206,
+          "name": "_anchor_local_radius"
+        },
+        {
+          "end_line": 305,
+          "kind": "function",
+          "line": 214,
+          "name": "plan_candidate_timestamps"
+        },
+        {
+          "end_line": 309,
+          "kind": "function",
+          "line": 308,
           "name": "_clamp"
         },
         {
-          "end_line": 236,
+          "end_line": 342,
           "kind": "function",
-          "line": 206,
+          "line": 312,
           "name": "_subtitle_risk"
         },
         {
-          "end_line": 278,
+          "end_line": 384,
           "kind": "function",
-          "line": 239,
+          "line": 345,
           "name": "score_frame"
         },
         {
-          "end_line": 287,
+          "end_line": 404,
           "kind": "function",
-          "line": 281,
+          "line": 387,
           "name": "_cache_key"
         },
         {
-          "end_line": 293,
+          "end_line": 410,
           "kind": "function",
-          "line": 290,
+          "line": 407,
           "name": "_cache_lock"
         },
         {
-          "end_line": 298,
+          "end_line": 415,
           "kind": "function",
-          "line": 296,
+          "line": 413,
           "name": "_short_process_error"
         },
         {
-          "end_line": 316,
+          "end_line": 433,
           "kind": "function",
-          "line": 301,
+          "line": 418,
           "name": "_valid_metric_values"
         },
         {
-          "end_line": 385,
+          "end_line": 539,
           "kind": "function",
-          "line": 319,
+          "line": 436,
           "name": "_read_cached_candidates"
         },
         {
-          "end_line": 429,
+          "end_line": 583,
           "kind": "function",
-          "line": 388,
+          "line": 542,
           "name": "_extract_frame"
         },
         {
-          "end_line": 436,
+          "end_line": 590,
           "kind": "function",
-          "line": 432,
+          "line": 586,
           "name": "_subtitle_candidate_key"
         },
         {
-          "end_line": 499,
+          "end_line": 618,
           "kind": "function",
-          "line": 439,
+          "line": 593,
+          "name": "_anchor_candidate_key"
+        },
+        {
+          "end_line": 636,
+          "kind": "function",
+          "line": 621,
+          "name": "_sort_candidates"
+        },
+        {
+          "end_line": 723,
+          "kind": "function",
+          "line": 639,
           "name": "_improve_subtitle_candidates"
         },
         {
-          "end_line": 598,
+          "end_line": 864,
           "kind": "function",
-          "line": 502,
+          "line": 726,
           "name": "extract_candidate_frames"
         },
         {
-          "end_line": 670,
+          "end_line": 936,
           "kind": "function",
-          "line": 601,
+          "line": 867,
           "name": "extract_frame_at_timestamp"
         },
         {
-          "end_line": 692,
+          "end_line": 958,
           "kind": "function",
-          "line": 673,
+          "line": 939,
           "name": "_replace_cache_directory"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 662,
+      "line_count": 705,
       "longest_function": {
-        "end_line": 286,
+        "end_line": 313,
         "kind": "function",
-        "line": 186,
-        "line_count": 101,
+        "line": 211,
+        "line_count": 103,
         "qualname": "CoverWorkspace.scan"
       },
       "module": "autoslice_cover.workspace",
       "path": "src/autoslice_cover/workspace.py",
-      "sha256": "220dd42307b980678313b48997b8cf1fd75dbe15ea3493156d6f7045bd540954",
+      "sha256": "a0a134c00feb397b537ed2889fd1c89c76d552f57d06a9ddc556b9142278646e",
       "top_level_classes": [
         {
-          "end_line": 94,
+          "end_line": 119,
           "kind": "class",
-          "line": 71,
+          "line": 96,
           "name": "CoverTask"
         },
         {
-          "end_line": 662,
+          "end_line": 705,
           "kind": "class",
-          "line": 97,
+          "line": 122,
           "name": "CoverWorkspace"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 58,
+          "end_line": 60,
           "kind": "function",
-          "line": 51,
+          "line": 53,
           "name": "_is_ignored_video"
         },
         {
-          "end_line": 67,
+          "end_line": 83,
           "kind": "function",
-          "line": 61,
+          "line": 63,
+          "name": "_prefer_unsubtitled_videos"
+        },
+        {
+          "end_line": 92,
+          "kind": "function",
+          "line": 86,
           "name": "_path_timestamps"
         }
       ]
@@ -14146,11 +14182,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 455,
-    "production_line_count": 39789,
+    "production_line_count": 40098,
     "production_module_count": 172,
     "test_private_patch_count": 17,
     "top_level_class_count": 94,
-    "top_level_function_count": 948
+    "top_level_function_count": 954
   },
   "test_private_patches": {
     "by_target_module": {

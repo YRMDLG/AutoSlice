@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
+from autoslice_cover.manifest_contract import CoverContractMatch
 from autoslice_cover.paths import DATA_ROOT
 from autoslice_cover.video import FrameCandidate, FrameMetrics, VideoMetadata
 from autoslice_cover.workspace import (
@@ -128,6 +129,20 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(payload["cover_contract"]["match_source"], "manifest_original_slice")
         self.assertEqual(payload["cover_contract"]["cover_anchor_seconds"], 32.0)
         self.assertTrue(payload["cover_contract"]["subtitle_exists"])
+
+        candidate = _candidate(self.root / "契约候选.jpg", 32.0, 88.0)
+        with patch(
+            "autoslice_cover.workspace.extract_candidate_frames",
+            return_value=[candidate],
+        ) as extract:
+            workspace.generate_candidates(task.id)
+        extract.assert_called_once_with(
+            str(clip_path),
+            cache_dir=(self.root / "契约缓存").resolve(),
+            count=12,
+            cover_anchor_seconds=32.0,
+            force=False,
+        )
 
     def test_renamed_clip_and_legacy_manifest_keep_existing_title_workflow(self) -> None:
         recording_root = self.root / "旧录播_话题切片"
@@ -310,6 +325,40 @@ class WorkspaceTests(unittest.TestCase):
             )
         )
 
+    def test_scan_prefers_exact_unsubtitled_pair_and_keeps_subtitle_fallback(self) -> None:
+        paired = self.clips / "同目录"
+        paired.mkdir()
+        (paired / "爆点.mp4").write_bytes(b"original")
+        (paired / "爆点_字幕版.mkv").write_bytes(b"subtitled")
+        (paired / "只有成品_字幕版.mov").write_bytes(b"fallback")
+        (paired / "字幕说明正常文件.mp4").write_bytes(b"normal")
+        other_directory = self.clips / "另一目录"
+        other_directory.mkdir()
+        (other_directory / "爆点_字幕版.mp4").write_bytes(b"other-directory")
+
+        relative_paths = {task.relative_path for task in self.workspace.scan()}
+
+        self.assertIn("同目录/爆点.mp4", relative_paths)
+        self.assertNotIn("同目录/爆点_字幕版.mkv", relative_paths)
+        self.assertIn("同目录/只有成品_字幕版.mov", relative_paths)
+        self.assertIn("同目录/字幕说明正常文件.mp4", relative_paths)
+        self.assertIn("另一目录/爆点_字幕版.mp4", relative_paths)
+
+    def test_scan_uses_platform_case_semantics_for_exact_stem_match(self) -> None:
+        directory = self.clips / "大小写"
+        directory.mkdir()
+        (directory / "CaseClip.mp4").write_bytes(b"original")
+        (directory / "caseclip_字幕版.mkv").write_bytes(b"subtitled")
+
+        relative_paths = {task.relative_path for task in self.workspace.scan()}
+
+        self.assertIn("大小写/CaseClip.mp4", relative_paths)
+        subtitle_path = "大小写/caseclip_字幕版.mkv"
+        if os.path.normcase("CaseClip") == os.path.normcase("caseclip"):
+            self.assertNotIn(subtitle_path, relative_paths)
+        else:
+            self.assertIn(subtitle_path, relative_paths)
+
     def test_default_output_keeps_source_folder_to_avoid_same_name_collisions(self) -> None:
         videos_root = self.root / "Videos"
         title_folder = videos_root / "【泽音】下飞机遇到狂风"
@@ -332,8 +381,19 @@ class WorkspaceTests(unittest.TestCase):
             _candidate(frames / "other.jpg", 15.0, 72.0),
         ]
 
-        with patch("autoslice_cover.workspace.extract_candidate_frames", return_value=candidates):
+        with patch(
+            "autoslice_cover.workspace.extract_candidate_frames",
+            return_value=candidates,
+        ) as extract:
             updated = self.workspace.generate_candidates(task.id)
+
+        extract.assert_called_once_with(
+            task.video_path,
+            cache_dir=(self.root / "缓存").resolve(),
+            count=12,
+            cover_anchor_seconds=None,
+            force=False,
+        )
 
         payload = self.workspace.task_payload(task.id)
         self.assertEqual(updated.status, "ready")
@@ -446,6 +506,16 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_exact_timestamp_selection_becomes_current_frame(self) -> None:
         task = self.workspace.scan()[0]
+        task.cover_contract = CoverContractMatch(
+            match_source="manifest_original_slice",
+            publish_title=None,
+            cover_anchor_seconds=12.0,
+            slice_anchor_source="语义复核",
+            editorial_interest_score=4.0,
+            editorial_interest_reason="时间轴仍允许人工覆盖自动爆点候选",
+            subtitle_exists=False,
+            subtitle_filename=None,
+        )
         frame = _candidate(self.root / "精确选帧.jpg", 18.25, 75.0)
         metadata = VideoMetadata(task.video_path, 60.0, 1920, 1080, 30.0)
         with (

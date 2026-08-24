@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import math
+import os
 import secrets
 import threading
 import time
@@ -56,6 +58,29 @@ def _is_ignored_video(path: Path, root: Path) -> bool:
         part.casefold() in DEFAULT_IGNORED_DIRECTORY_NAMES
         for part in relative.parts[:-1]
     )
+
+
+def _prefer_unsubtitled_videos(videos: list[Path]) -> list[Path]:
+    """同目录存在精确同名原片时，忽略固定 ``_字幕版`` 后缀的视频。"""
+
+    stems = {
+        (os.path.normcase(str(path.parent)), os.path.normcase(path.stem))
+        for path in videos
+    }
+    preferred = []
+    subtitle_suffix = "_字幕版"
+    for path in videos:
+        stem = path.stem
+        if stem.endswith(subtitle_suffix):
+            original_stem = stem[: -len(subtitle_suffix)]
+            original_key = (
+                os.path.normcase(str(path.parent)),
+                os.path.normcase(original_stem),
+            )
+            if original_stem and original_key in stems:
+                continue
+        preferred.append(path)
+    return preferred
 
 
 def _path_timestamps(path: Path) -> tuple[float, float]:
@@ -191,14 +216,16 @@ class CoverWorkspace:
         contract = RefinementManifestContract.load(self.manifest_json_path)
         iterator = self.root.rglob("*") if self.recursive else self.root.glob("*")
         videos = sorted(
-            (
-                path.resolve()
-                for path in iterator
-                if (
-                    path.is_file()
-                    and path.suffix.casefold() in VIDEO_EXTENSIONS
-                    and not _is_ignored_video(path, self.root)
-                )
+            _prefer_unsubtitled_videos(
+                [
+                    path.resolve()
+                    for path in iterator
+                    if (
+                        path.is_file()
+                        and path.suffix.casefold() in VIDEO_EXTENSIONS
+                        and not _is_ignored_video(path, self.root)
+                    )
+                ]
             ),
             key=lambda path: path.relative_to(self.root).as_posix().casefold(),
         )
@@ -372,12 +399,28 @@ class CoverWorkspace:
             task.status = "extracting"
             task.error = None
             source_path = task.video_path
+            contract_anchor = (
+                task.cover_contract.cover_anchor_seconds
+                if task.cover_contract is not None
+                else None
+            )
+            cover_anchor_seconds = (
+                float(contract_anchor)
+                if (
+                    not isinstance(contract_anchor, bool)
+                    and isinstance(contract_anchor, (int, float))
+                    and math.isfinite(contract_anchor)
+                    and contract_anchor >= 0
+                )
+                else None
+            )
         try:
             candidates = tuple(
                 extract_candidate_frames(
                     source_path,
                     cache_dir=self.cache_dir,
                     count=count,
+                    cover_anchor_seconds=cover_anchor_seconds,
                     force=force,
                 )
             )
