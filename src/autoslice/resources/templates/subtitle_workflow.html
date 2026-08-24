@@ -49,6 +49,7 @@ body{overflow:hidden}
 .segments button.active{background:var(--surface-raised);color:var(--text)}
 .change-count{color:var(--muted);font-size:13px}
 .suggestion-tools{padding:9px 13px;border-bottom:1px solid var(--line);background:#121914}.suggestion-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.suggestion-toolbar-copy{color:var(--muted);font-size:11px}.suggestion-toolbar-actions{display:flex;gap:6px;flex-wrap:wrap}.suggestion-toolbar-actions .button{min-height:28px;padding:4px 9px;font-size:11px}.suggestion-group{padding:7px 0;border-top:1px solid #29362e;line-height:1.45}.suggestion-group:first-child{border-top:0;padding-top:0}.suggestion-group-main{display:flex;gap:8px;align-items:flex-start;color:var(--text);font-size:12px}.suggestion-group-main strong{flex:0 0 auto;color:#9de0b8;font-variant-numeric:tabular-nums}.suggestion-group-main span{overflow-wrap:anywhere}.suggestion-group-meta{margin-top:2px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}.suggestion-protected{margin-top:6px;color:#e7c989;font-size:11px}.suggestion-empty{color:#768279;font-size:11px}
+.workflow-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin:0;padding:8px 13px;border-bottom:1px solid var(--line);background:#111713;list-style:none}.workflow-step{min-width:0;padding:6px 7px;border:1px solid #2d3931;border-radius:5px;color:#7e8b82;font-size:10px;line-height:1.3}.workflow-step strong{display:block;color:#a9b8ad;font-size:11px}.workflow-step.active{border-color:#4f9d73;background:#17261d;color:#d7f0df}.workflow-step.active strong{color:#9de0b8}.workflow-step.done{border-color:#395b46;color:#a6c5ae}.workflow-step.done strong{color:#8dd7a7}.asr-disclosure{border-bottom:1px solid var(--line);background:#131a16}.asr-disclosure>summary,.suggestion-disclosure>summary,.quality-disclosure>summary{cursor:pointer;list-style:none}.asr-disclosure>summary::-webkit-details-marker,.suggestion-disclosure>summary::-webkit-details-marker,.quality-disclosure>summary::-webkit-details-marker{display:none}.asr-disclosure>summary{padding:8px 13px;color:#cde8d8;font-size:12px;font-weight:700}.asr-disclosure>summary::before,.suggestion-disclosure>summary::before,.quality-disclosure>summary::before{content:'▶';display:inline-block;margin-right:6px;color:#7fb895;font-size:9px;transition:transform .15s ease}.asr-disclosure[open]>summary::before,.suggestion-disclosure[open]>summary::before,.quality-disclosure[open]>summary::before{transform:rotate(90deg)}.asr-disclosure[hidden]{display:none}.asr-disclosure .asr-guidance{border-top:1px solid #243229;border-bottom:0}.suggestion-disclosure>summary{padding:2px 0;color:#bfd4c5;font-size:11px}.suggestion-disclosure>summary strong{color:#9de0b8}.suggestion-disclosure[open]>summary{padding-bottom:8px}.suggestion-details{padding-top:1px}.quality-disclosure>summary{display:flex;align-items:center;gap:6px;padding:0 13px 8px;color:#c1c4b9;font-size:10px}.quality-disclosure>summary::before{flex:0 0 auto}.quality-disclosure>summary .quality-summary{padding:0;flex:1}.quality-disclosure>summary .quality-summary-hint{color:#7f887d;font-size:10px}.quality-disclosure[open]>summary{padding-bottom:8px}.save-dependency-note{margin-top:7px;color:#9da99f;font-size:10px;line-height:1.4}.save-dependency-note strong{color:#b9ddc5}
 .quality-panel{min-width:0;max-width:100%;border-bottom:1px solid var(--line);background:#171713;overflow:hidden}.quality-head{padding:9px 13px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.quality-title{min-width:0}.quality-title-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.quality-title-row strong{font-size:12px;color:#f0d99b}.quality-count{padding:2px 6px;border:1px solid #665b36;border-radius:999px;color:#e9d89b;font-size:10px;font-variant-numeric:tabular-nums}.quality-copy{margin-top:3px;color:#8f968e;font-size:10px;line-height:1.4;overflow-wrap:anywhere}.quality-reset{min-height:26px;padding:3px 8px;font-size:10px;flex:0 0 auto}.quality-summary{padding:0 13px 8px;display:flex;gap:5px;flex-wrap:wrap;color:#a8aaa3;font-size:10px;overflow-wrap:anywhere}.quality-summary span{padding:2px 6px;border:1px solid #3c3c32;border-radius:999px;background:#202018}.quality-list{max-height:250px;padding:0 13px 9px;display:grid;gap:7px;overflow:auto;overflow-x:hidden;min-width:0}.quality-empty{padding:5px 0 2px;color:#7f867e;font-size:11px;overflow-wrap:anywhere}.quality-card{min-width:0;max-width:100%;padding:8px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;border:1px solid #454434;border-radius:5px;background:#202019;box-sizing:border-box}.quality-card-main{min-width:0;overflow-wrap:anywhere}.quality-card-title{display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap;color:#f0e8c8;font-size:12px;line-height:1.4}.quality-card-title strong{color:#f2cf76}.quality-card-location{margin-top:3px;color:#a9a795;font-size:10px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.quality-card-context{margin-top:5px;color:#d0d1ca;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}.quality-card-recommendation{margin-top:5px;color:#b5d1bd;font-size:10px;line-height:1.45;overflow-wrap:anywhere}.quality-card-actions{display:flex;align-content:flex-start;justify-content:flex-end;gap:5px;flex-wrap:wrap;min-width:0}.quality-card-actions .button{min-height:27px;padding:3px 8px;font-size:10px;white-space:normal}.quality-action-receipt{border-color:#356249;background:#17251d}.quality-action-receipt .quality-card-title strong{color:#8ee0b3}.quality-action-status{margin-top:4px;color:#9bc5aa;font-size:10px;overflow-wrap:anywhere}
 .task-status{min-height:38px;padding:9px 13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);background:var(--info-bg);color:#b7d9ed;font-size:13px;overflow-wrap:anywhere}
 .task-status::before{content:"";width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--info)}
@@ -189,21 +190,31 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
                 <button class="button quiet" type="button" id="forceReviewButton" title="忽略已有缓存并重新调用 AI" disabled>强制重新检查</button>
             </div>
         </div>
-        <div id="asrGuidance" class="asr-guidance">
-            <div class="asr-guidance-copy" role="status" aria-live="polite"><strong>FunASR</strong><span>正在检查模型和设备...</span></div>
-            <div class="asr-filter-control" title="只处理临时识别音轨，绝不修改视频原音轨">
-                <label class="asr-filter-label" for="backgroundFilterMode">
-                    <span>背景音模式</span>
-                    <select id="backgroundFilterMode">
-                        <option value="off">关闭：完整音轨</option>
-                        <option value="soft" selected>软过滤（默认）：保守保留</option>
-                        <option value="strict">严格过滤：仅单人直播</option>
-                    </select>
-                </label>
-                <span id="backgroundFilterRisk" class="asr-filter-risk" hidden>可能吞掉有效人声，仅单人直播使用</span>
+        <ol class="workflow-steps" id="workflowSteps" aria-label="字幕工作流阶段">
+            <li class="workflow-step active" data-workflow-step="prepare"><strong>1. 准备字幕</strong><span>识别或处理异常</span></li>
+            <li class="workflow-step" data-workflow-step="proofread"><strong>2. 校对</strong><span>检查并编辑正文</span></li>
+            <li class="workflow-step" data-workflow-step="suggestions"><strong>3. 建议</strong><span>按需查看 AI 建议</span></li>
+            <li class="workflow-step" data-workflow-step="quality"><strong>4. 质检</strong><span>处理确定性候选</span></li>
+            <li class="workflow-step" data-workflow-step="save"><strong>5. 保存 / 导出</strong><span>保存后再压制</span></li>
+        </ol>
+        <details id="asrDisclosure" class="asr-disclosure" hidden>
+            <summary id="asrDisclosureSummary">准备字幕：需要识别或处理异常</summary>
+            <div id="asrGuidance" class="asr-guidance">
+                <div class="asr-guidance-copy" role="status" aria-live="polite"><strong>FunASR</strong><span>正在检查模型和设备...</span></div>
+                <div class="asr-filter-control" title="只处理临时识别音轨，绝不修改视频原音轨">
+                    <label class="asr-filter-label" for="backgroundFilterMode">
+                        <span>背景音模式</span>
+                        <select id="backgroundFilterMode">
+                            <option value="off">关闭：完整音轨</option>
+                            <option value="soft" selected>软过滤（默认）：保守保留</option>
+                            <option value="strict">严格过滤：仅单人直播</option>
+                        </select>
+                    </label>
+                    <span id="backgroundFilterRisk" class="asr-filter-risk" hidden>可能吞掉有效人声，仅单人直播使用</span>
+                </div>
             </div>
-        </div>
-        <div id="backgroundFilterResult" class="asr-filter-result" role="status" aria-live="polite" hidden></div>
+            <div id="backgroundFilterResult" class="asr-filter-result" role="status" aria-live="polite" hidden></div>
+        </details>
         <div id="reviewDictionary" class="review-dictionary" role="status" aria-live="polite">
             <div class="review-dictionary-summary"><strong>校对词库</strong><span data-review-summary>点击 AI 检查后自动识别当前主播并加载专名规则</span></div>
             <details class="review-dictionary-editor">
@@ -235,15 +246,20 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
             <div id="changeCount" class="change-count">0 条修改</div>
         </div>
         <div class="suggestion-tools" id="suggestionTools" aria-live="polite">
-            <div class="suggestion-toolbar">
-                <span class="suggestion-toolbar-copy">当前筛选中的 AI 建议</span>
-                <div class="suggestion-toolbar-actions">
-                    <button class="button" id="acceptSuggestionsButton" type="button" disabled>全部采纳</button>
-                    <button class="button quiet" id="ignoreSuggestionsButton" type="button" disabled>全部忽略</button>
-                    <button class="button quiet" id="undoSuggestionButton" type="button" disabled>撤销</button>
+            <details id="suggestionDisclosure" class="suggestion-disclosure">
+                <summary id="suggestionSummary"><strong>建议</strong>：当前筛选没有待处理的 AI 建议</summary>
+                <div class="suggestion-details" id="suggestionDetails">
+                    <div class="suggestion-toolbar">
+                        <span class="suggestion-toolbar-copy">当前筛选中的 AI 建议</span>
+                        <div class="suggestion-toolbar-actions">
+                            <button class="button" id="acceptSuggestionsButton" type="button" disabled>全部采纳</button>
+                            <button class="button quiet" id="ignoreSuggestionsButton" type="button" disabled>全部忽略</button>
+                            <button class="button quiet" id="undoSuggestionButton" type="button" disabled>撤销</button>
+                        </div>
+                    </div>
+                    <div id="suggestionGroups"><span class="suggestion-empty">当前筛选没有待处理的 AI 建议</span></div>
                 </div>
-            </div>
-            <div id="suggestionSummary"><span class="suggestion-empty">当前筛选没有待处理的 AI 建议</span></div>
+            </details>
         </div>
         <section class="quality-panel" id="qualityPanel" aria-labelledby="qualityTitle">
             <div class="quality-head">
@@ -253,8 +269,10 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
                 </div>
                 <button class="button quiet quality-reset" id="qualityResetIgnored" type="button" hidden>恢复本次忽略</button>
             </div>
-            <div class="quality-summary" id="qualitySummary"><span>加载字幕后自动检查</span></div>
-            <div class="quality-list" id="qualityList" aria-live="polite"><div class="quality-empty">尚未加载字幕</div></div>
+            <details id="qualityDisclosure" class="quality-disclosure">
+                <summary><span class="quality-summary" id="qualitySummary"><span>加载字幕后自动检查</span></span><span class="quality-summary-hint">展开详情</span></summary>
+                <div class="quality-list" id="qualityList" aria-live="polite"><div class="quality-empty">尚未加载字幕</div></div>
+            </details>
         </section>
         <div id="taskStatus" class="task-status" role="status" aria-live="polite">等待选择投稿</div>
         <div id="cueList" class="cue-list"><div class="queue-empty">选择左侧投稿后加载字幕</div></div>
@@ -307,7 +325,7 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
                 </div>
             </div>
         </div>
-        <div class="settings-actions"><button class="button primary" id="renderButton" type="button" disabled>保存并开始压制</button></div>
+        <div class="settings-actions"><button class="button primary" id="renderButton" type="button" disabled>使用已保存字幕开始压制</button><div class="save-dependency-note" id="saveDependencyNote"><strong>预览</strong>只使用当前编辑态，不写入正式字幕；<strong>压制</strong>需先显式保存并保持当前编辑态已保存。</div></div>
     </aside>
 </main>
 

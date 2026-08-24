@@ -1882,6 +1882,183 @@ if(state.edited.get(1)!=='原文一'||state.edited.get(2)!=='原文一'||state.e
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证字幕渐进披露和保存依赖")
+    def test_subtitle_progressive_disclosure_and_saved_artifact_dependency(self):
+        html, script = self._page_script()
+        for marker in (
+                'id="workflowSteps"',
+                'data-workflow-step="prepare"',
+                'data-workflow-step="proofread"',
+                'data-workflow-step="suggestions"',
+                'data-workflow-step="quality"',
+                'data-workflow-step="save"',
+                '<details id="asrDisclosure"',
+                '<details id="suggestionDisclosure"',
+                '<details id="qualityDisclosure"',
+                'id="saveDependencyNote"',
+                '使用已保存字幕开始压制',
+        ):
+            self.assertIn(marker, html)
+        for marker in (
+                "function asrDisclosureNeeded(pair=selectedPair())",
+                "function savedSubtitleReady(pair=selectedPair())",
+                "state.savedEditFingerprint",
+                "details.open=wasOpen",
+                "Boolean(visible.length||receipts)&&wasOpen",
+                "压制</strong>和参考标题需先显式保存",
+        ):
+            self.assertIn(marker, script)
+
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r'''
+const makeNode=()=>({
+  textContent:'',innerHTML:'',hidden:false,disabled:false,value:'',open:false,dataset:{},style:{},
+  classList:{toggle(){},add(){},remove(){}},querySelector(){return null},querySelectorAll(){return[]},
+  setAttribute(){},removeAttribute(){},addEventListener(){},focus(){},
+});
+const nodes=new Map();
+globalThis.document={
+  getElementById:id=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id)},
+  querySelectorAll:()=>[],querySelector:()=>null,
+};
+globalThis.window={confirm:()=>true};
+state.pairs=[{id:'pair-1',needs_transcription:true,subtitle_error:'',has_corrected_srt:true}];
+state.selectedIndex=0;
+if(!asrDisclosureNeeded())throw new Error('缺字幕没有展开 ASR 设置');
+state.pairs[0].needs_transcription=false;
+state.pairs[0].has_source_srt=true;
+if(asrDisclosureNeeded())throw new Error('正常字幕错误展开 ASR 设置');
+state.pairs[0].subtitle_error='字幕损坏';
+if(!asrDisclosureNeeded())throw new Error('字幕异常没有展开 ASR 设置');
+state.pairs[0].subtitle_error='';
+state.sourceCues=[{index:1,text:'原文',start_seconds:0,end_seconds:1}];
+state.edited=new Map([[1,'原文']]);
+state.correctedPath='C:\\saved.srt';
+state.savedEditFingerprint=subtitleEditFingerprint();
+if(!savedSubtitleReady())throw new Error('保存结果存在时没有解锁依赖操作');
+state.edited.set(1,'未保存修改');
+if(savedSubtitleReady())throw new Error('未保存修改仍解锁依赖操作');
+state.edited.set(1,'原文');
+state.suggestions=new Map([[1,{index:1,original:'原文',corrected:'校正',reason:'上下文',confidence:.9}]]);
+const suggestionDetails=nodes.get('suggestionDisclosure')||makeNode();
+nodes.set('suggestionDisclosure',suggestionDetails);
+renderSuggestionTools();
+if(nodes.get('suggestionSummary').innerHTML.includes('1 条待处理')===false)throw new Error('建议默认摘要没有显示数量');
+if(suggestionDetails.open)throw new Error('建议详情默认没有收起');
+suggestionDetails.open=true;
+renderSuggestionTools();
+if(!suggestionDetails.open)throw new Error('用户展开的建议详情被无故收起');
+'''
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证参考标题的保存依赖")
+    def test_reference_title_copy_requires_currently_saved_subtitle(self):
+        _html, script = self._page_script()
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r'''
+const makeNode=()=>(
+  {textContent:'',innerHTML:'',hidden:false,disabled:false,value:'',open:false,dataset:{},style:{},
+   classList:{toggle(){},add(){},remove(){}},querySelector(){return null},querySelectorAll(){return[]},
+   setAttribute(){},removeAttribute(){},addEventListener(){},focus(){}}
+);
+const nodes=new Map();
+globalThis.document={
+  getElementById:id=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id)},
+  querySelectorAll:()=>[],querySelector:()=>null,
+};
+globalThis.window={confirm:()=>true};
+let copied='';
+globalThis.navigator.clipboard={writeText:async value=>{copied=value;}};
+state.pairs=[{
+  id:'pair-1',title:'测试投稿',video_path:'C:\\video.mp4',srt_path:'C:\\source.srt',
+  corrected_srt_path:'C:\\saved.srt',has_source_srt:true,has_corrected_srt:true,
+  needs_transcription:false,subtitle_error:'',
+}];
+state.selectedIndex=0;
+state.sourceCues=[{index:1,text:'原文',start_seconds:0,end_seconds:1}];
+state.edited=new Map([[1,'原文']]);
+state.correctedPath='C:\\saved.srt';
+state.savedEditFingerprint=subtitleEditFingerprint();
+jsonRequest=async()=>({task_id:'subtitle_title_1'});
+registerTask=()=>{};
+const cueEvents={};
+const textarea={value:'原文',style:{},scrollHeight:42,addEventListener:(type,handler)=>{cueEvents[`textarea:${type}`]=handler;}};
+const checkbox={checked:false,addEventListener:(type,handler)=>{cueEvents[`checkbox:${type}`]=handler;}};
+const cueRow={
+  dataset:{index:'1'},
+  classList:{toggle(){}},
+  addEventListener(){},
+  querySelector(selector){if(selector==='.cue-edit')return textarea;if(selector==='.cue-check')return checkbox;return null;},
+  querySelectorAll:()=>[],
+};
+wireCueRow(cueRow);
+(async()=>{
+  if(!savedSubtitleReady())throw new Error('保存后的字幕没有满足标题依赖');
+  await generateReferenceTitle();
+  state.referenceTitles={recommended_title:'推荐标题'};
+  setBusy(false);
+  renderReferenceTitles();
+  if(nodes.get('copyTitleButton').disabled)throw new Error('保存并生成标题后复制按钮仍被禁用');
+  await copyRecommendedTitle();
+  if(copied!=='推荐标题')throw new Error('保存并生成标题后复制函数没有复制标题');
+
+  textarea.value='未保存修改';
+  cueEvents['textarea:input']();
+  if(!nodes.get('generateTitleButton').disabled)throw new Error('字幕未保存时生成按钮没有禁用');
+  if(!nodes.get('copyTitleButton').disabled)throw new Error('字幕未保存时复制按钮没有禁用');
+  copied='';
+  await copyRecommendedTitle();
+  if(copied!=='')throw new Error('字幕未保存时复制函数仍然写入剪贴板');
+
+  state.edited.set(1,'原文');
+  state.savedEditFingerprint=subtitleEditFingerprint();
+  renderReferenceTitles();
+  state.suggestions=new Map([[1,{corrected:'勾选后的修改'}]]);
+  checkbox.checked=true;
+  cueEvents['checkbox:change']();
+  if(!nodes.get('copyTitleButton').disabled)throw new Error('checkbox 修改后复制按钮没有禁用');
+  let titleRequests=0;
+  jsonRequest=async()=>{titleRequests+=1;return{task_id:'unexpected_title_task'};};
+  await generateReferenceTitle();
+  if(titleRequests!==0)throw new Error('字幕未保存时生成函数仍然发起标题请求');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+'''
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_subtitle_tasks_fetch_full_result_after_sse_sanitization(self):
         _html, script = self._page_script()
 
