@@ -2142,6 +2142,87 @@ if(renders!==rendersAfterClear)throw new Error('old video timer polluted the cle
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查字幕无障碍行为")
+    def test_subtitle_accessibility_behaviour_uses_fixed_browser_mock(self):
+        html, script = self._page_script()
+        with self.client.get("/static/workbench.css") as stylesheet_response:
+            css = stylesheet_response.get_data(as_text=True)
+
+        self.assertIn('<label for="extraGlossary">本视频额外词条</label>', html)
+        self.assertIn('id="settings-tab-style"', html)
+        self.assertIn('aria-controls="settings-view-style"', html)
+        self.assertIn('role="tabpanel" aria-labelledby="settings-tab-style"', html)
+        self.assertIn('data-filter="all" class="active" aria-pressed="true"', html)
+        self.assertIn('aria-pressed="${current}"', script)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn("transition-duration: 0.01ms", css)
+
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        runtime_assertions = r'''
+const makeNode=(name,dataset={})=>{
+  const attributes=new Map();
+  const handlers={};
+  const node={name,dataset,hidden:false,handlers,
+    classList:{values:new Set(),toggle:(value,active)=>{if(active)node.classList.values.add(value);else node.classList.values.delete(value);}},
+    setAttribute:(key,value)=>attributes.set(key,String(value)),
+    getAttribute:(key)=>attributes.get(key),
+    addEventListener:(type,handler)=>{handlers[type]=handler;},
+    focus:()=>{node.focused=true;globalThis.document.activeElement=node;},
+  };
+  return node;
+};
+const tabs=[makeNode('style',{settingsTab:'style'}),makeNode('export',{settingsTab:'export'})];
+const views=[makeNode('style-view',{settingsView:'style'}),makeNode('export-view',{settingsView:'export'})];
+const filters=[makeNode('suggested',{filter:'suggested'}),makeNode('all',{filter:'all'}),makeNode('changed',{filter:'changed'})];
+globalThis.document={activeElement:null,querySelectorAll:(selector)=>{
+  if(selector==='.settings-tabs [data-settings-tab]')return tabs;
+  if(selector==='.settings-view[data-settings-view]')return views;
+  if(selector==='#cueFilters button')return filters;
+  return [];
+}};
+initSettingsTabs();
+if(tabs[0].getAttribute('tabindex')!=='0'||tabs[1].getAttribute('tabindex')!=='-1')throw new Error('字幕 tab 初始 roving tabindex 错误');
+let prevented=false;
+tabs[0].handlers.keydown({key:'ArrowRight',currentTarget:tabs[0],preventDefault:()=>{prevented=true;}});
+if(!prevented||document.activeElement!==tabs[1]||tabs[1].getAttribute('aria-selected')!=='true'||tabs[0].getAttribute('tabindex')!=='-1')throw new Error('ArrowRight 没有移动焦点或更新 roving 状态');
+tabs[1].handlers.keydown({key:'ArrowLeft',currentTarget:tabs[1],preventDefault:()=>{}});
+if(document.activeElement!==tabs[0]||tabs[0].getAttribute('aria-selected')!=='true')throw new Error('ArrowLeft 没有移动焦点');
+tabs[0].handlers.keydown({key:'End',currentTarget:tabs[0],preventDefault:()=>{}});
+if(document.activeElement!==tabs[1]||tabs[1].getAttribute('tabindex')!=='0')throw new Error('End 没有移动到末尾 tab');
+tabs[1].handlers.keydown({key:'Home',currentTarget:tabs[1],preventDefault:()=>{}});
+if(document.activeElement!==tabs[0]||tabs[0].getAttribute('tabindex')!=='0')throw new Error('Home 没有移动到首个 tab');
+state.filter='changed';
+updateCueFilterButtons();
+if(filters[2].getAttribute('aria-pressed')!=='true'||filters[0].getAttribute('aria-pressed')!=='false')throw new Error('筛选按钮 aria-pressed 没有同步');
+state.sourceCues=[
+  {index:1,start:'00:00:01,000',end:'00:00:02,500',start_seconds:1,end_seconds:2.5,text:'第一句'},
+  {index:2,start:'00:00:02,500',end:'00:00:04,000',start_seconds:2.5,end_seconds:4,text:'第二句'}
+];
+state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));
+state.filter='all';
+const firstCue=renderCueRow(state.sourceCues[0]);
+const secondCue=renderCueRow(state.sourceCues[1]);
+if(!firstCue.includes('id="cue-edit-1"')||!secondCue.includes('id="cue-edit-2"'))throw new Error('动态字幕编辑框 id 不唯一');
+if(!firstCue.includes('for="cue-edit-1"')||!firstCue.includes('第 1 条字幕')||!firstCue.includes('00:00:01,000–00:00:02,500')||!firstCue.includes('校对后文本'))throw new Error('动态字幕编辑框缺少真实时间范围 label');
+'''
+        result = subprocess.run(
+            [
+                "node",
+                "-e",
+                "globalThis.localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};"
+                "new Function(require('fs').readFileSync(0,'utf8'))();",
+            ],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查字幕合并状态")
     def test_review_page_restores_saved_merged_timeline(self):
         _, script = self._page_script()
