@@ -10862,6 +10862,77 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 351,
+      "longest_function": {
+        "end_line": 335,
+        "kind": "function",
+        "line": 232,
+        "line_count": 104,
+        "qualname": "serialize_timeline"
+      },
+      "module": "autoslice.timeline_contract",
+      "path": "src/autoslice/timeline_contract.py",
+      "sha256": "acd8396992ca5c867e3ac53bba49dedf3be30bcd407e7b917a970960b57941cb",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 45,
+          "kind": "function",
+          "line": 42,
+          "name": "_is_sequence"
+        },
+        {
+          "end_line": 57,
+          "kind": "function",
+          "line": 48,
+          "name": "_number"
+        },
+        {
+          "end_line": 70,
+          "kind": "function",
+          "line": 60,
+          "name": "_safe_text"
+        },
+        {
+          "end_line": 107,
+          "kind": "function",
+          "line": 73,
+          "name": "_stable_id"
+        },
+        {
+          "end_line": 124,
+          "kind": "function",
+          "line": 110,
+          "name": "_records"
+        },
+        {
+          "end_line": 220,
+          "kind": "function",
+          "line": 127,
+          "name": "_serialize_records"
+        },
+        {
+          "end_line": 225,
+          "kind": "function",
+          "line": 223,
+          "name": "_add_issue"
+        },
+        {
+          "end_line": 229,
+          "kind": "function",
+          "line": 228,
+          "name": "_encoded_size"
+        },
+        {
+          "end_line": 335,
+          "kind": "function",
+          "line": 232,
+          "name": "serialize_timeline"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 798,
       "longest_function": {
         "end_line": 794,
@@ -14538,6 +14609,7 @@
       "src/autoslice/task_results.py",
       "src/autoslice/task_store.py",
       "src/autoslice/timecode.py",
+      "src/autoslice/timeline_contract.py",
       "src/autoslice/topic_engine.py",
       "src/autoslice/analysis/__init__.py",
       "src/autoslice/analysis/boundaries.py",
@@ -14725,6 +14797,7 @@
       "tests/unit/test_task_results.py",
       "tests/unit/test_task_store.py",
       "tests/unit/test_timecode.py",
+      "tests/unit/test_timeline_contract.py",
       "tests/unit/test_transcription_background_filter.py",
       "tests/unit/test_transcription_checkpoints.py",
       "tests/unit/test_transcription_model_runtime.py",
@@ -14747,11 +14820,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 471,
-    "production_line_count": 42239,
-    "production_module_count": 177,
+    "production_line_count": 42590,
+    "production_module_count": 178,
     "test_private_patch_count": 17,
     "top_level_class_count": 103,
-    "top_level_function_count": 995
+    "top_level_function_count": 1004
   },
   "test_private_patches": {
     "by_target_module": {
