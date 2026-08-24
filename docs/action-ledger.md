@@ -38,6 +38,7 @@
 | UI-U1 | frontend-features | 2026-08-24 | [9665c9e](https://github.com/YRMDLG/AutoSlice/commit/9665c9ef68260b9fb8c801c53bd21496c614909c) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32710486579) | 为三个页面增加紧凑的当前任务上下文条，展示视频、主播、阶段、产物、下一步、结果目录及字幕校对与 AutoCover 入口 |
 | UI-U2 | frontend-features | 2026-08-24 | [63ae73b](https://github.com/YRMDLG/AutoSlice/commit/63ae73b9902372bc068bc9be4e52f937922ed787) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32716545852) | 在跳转 AutoCover 前通过共享本机探测 owner 检查实际动态端口；未启动时显示 503 明确提示，端口占用或服务不兼容时显示 409 安全实际原因，同时保持 loopback、Host/Origin 和无代理边界。 |
 | UI-U3 | frontend-features | 2026-08-24 | [fabbb8c](https://github.com/YRMDLG/AutoSlice/commit/fabbb8c5314aec42f4bf3b4fbdaf8e797858ab17) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32722236154) | 完成 1440×900 与 1920×1080 桌面截图审阅，将文案与样式收拢同区，画布文字选中同步右侧且低频控件按选中出现，预览刷新不闪烁；修复缩放后立即拖动时旧预览响应覆盖交互层的竞态，并验证背景拖动实时轨迹、文字/贴图不二次缩放背景、刷新后恢复草稿/选帧/最后成功预览。 |
+| G0-SUB | frontend-next | 2026-08-25 | [52e1389](../commit/52e1389488c0283f89724f2df00d326521faf6b2) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32764409776) | 收口字幕工作台批量建议立即收口、撤销恢复与质检 gap 可逆处理，并保护人工时间修改。 |
 
 ## 记录规则
 
