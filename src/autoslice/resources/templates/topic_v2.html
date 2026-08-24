@@ -49,6 +49,13 @@
     </div>
 
     <div id="pageNotice" class="notice" role="status" aria-live="polite">正在扫描录播目录...</div>
+    <div id="scanRecovery" class="scan-recovery" role="status" aria-live="polite" hidden>
+        <span id="scanRecoveryMessage"></span>
+        <div class="scan-recovery-actions">
+            <button class="button small" id="rescanButton" type="button" onclick="scan()">重新扫描当前目录</button>
+            <button class="button small quiet" id="restoreLastValidDirButton" type="button" onclick="restoreLastValidDirectory()" hidden>恢复上次有效目录</button>
+        </div>
+    </div>
 
     <div class="workspace-grid">
         <section class="panel" aria-labelledby="workflowTitle">
@@ -167,12 +174,13 @@
 </main>
 
 <script>
-let selVideo=null,selAss=null,selectedVideoMeta=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,currentTaskResult=null,contextTaskId=null,scanBusy=false,taskBusy=false,cancelBusy=false;
+let selVideo=null,selAss=null,selectedVideoMeta=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,currentTaskResult=null,contextTaskId=null,scanBusy=false,taskBusy=false,cancelBusy=false,acceptUnboundTask=true;
 const STREAMER_PROFILE_STORAGE_KEY='autoslice.streamer-profile';
 const DEFAULT_VIDEO_DIR={{ default_video_dir|tojson }};
 const DEFAULT_OUTPUT_DIR={{ default_output_dir|tojson }};
 const VIDEO_DIR_STORAGE_KEY='autoslice.video-dir';
 const OUTPUT_DIR_STORAGE_KEY='autoslice.output-dir';
+const LAST_VALID_VIDEO_DIR_STORAGE_KEY='autoslice.last-valid-video-dir';
 
 function byId(id){return document.getElementById(id)}
 function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}
@@ -292,6 +300,45 @@ function rememberWorkspacePaths(){
     }catch(error){}
 }
 
+function rememberLastValidVideoDir(){
+    try{
+        const directory=byId('videoDir').value.trim();
+        if(directory)localStorage.setItem(LAST_VALID_VIDEO_DIR_STORAGE_KEY,directory);
+    }catch(error){}
+}
+
+function lastValidVideoDir(){
+    try{return String(localStorage.getItem(LAST_VALID_VIDEO_DIR_STORAGE_KEY)||'').trim()}catch(error){return ''}
+}
+
+function showScanRecovery(kind){
+    const recovery=byId('scanRecovery');
+    const message=byId('scanRecoveryMessage');
+    const restore=byId('restoreLastValidDirButton');
+    if(!recovery||!message||!restore)return;
+    message.textContent=kind==='error'
+        ?'当前没有可执行的旧录播选择。请重新扫描当前目录，或恢复上次有效目录后再选择录播。'
+        :'当前没有可执行的录播选择。请重新扫描当前目录，或恢复上次有效目录后再选择录播。';
+    restore.hidden=!lastValidVideoDir();
+    recovery.hidden=false;
+}
+
+function hideScanRecovery(){
+    const recovery=byId('scanRecovery');
+    if(recovery)recovery.hidden=true;
+}
+
+function restoreLastValidDirectory(){
+    const directory=lastValidVideoDir();
+    if(!directory){
+        setNotice('没有可恢复的上次有效目录，请重新扫描当前目录','warning');
+        showScanRecovery('empty');
+        return;
+    }
+    byId('videoDir').value=directory;
+    scan();
+}
+
 function renderReport(markdown){
     const sliceTag='<span class="slice-tag">已切片</span>';
     return String(markdown||'').split(/\r?\n/).map(raw=>{
@@ -304,10 +351,17 @@ function renderReport(markdown){
 
 function updateActions(){
     const manualReady=byId('timelineMode').value==='manual'&&Boolean(byId('timelinePath').value.trim());
-    byId('startButton').disabled=!selVideo||taskBusy;
-    byId('retryButton').disabled=!selVideo||taskBusy;
-    byId('optimizeButton').disabled=!selVideo||!manualReady||taskBusy;
+    byId('startButton').disabled=!selVideo||taskBusy||scanBusy;
+    byId('retryButton').disabled=!selVideo||taskBusy||scanBusy;
+    byId('optimizeButton').disabled=!selVideo||!manualReady||taskBusy||scanBusy;
     byId('scanButton').disabled=scanBusy||taskBusy;
+    byId('videoDir').disabled=scanBusy;
+    byId('streamerProfile').disabled=scanBusy;
+    byId('timelineMode').disabled=scanBusy;
+    byId('refreshTimelineButton').disabled=scanBusy;
+    byId('timelineSelect').disabled=scanBusy;
+    byId('timelinePath').disabled=scanBusy;
+    document.querySelectorAll('.video-item').forEach(item=>{item.disabled=scanBusy});
     const cancelButton=byId('cancelTaskButton');
     const cancellable=Boolean(currentTaskId)&&taskBusy&&(currentTaskSnapshot?.status==='queued'||currentTaskSnapshot?.status==='running');
     cancelButton.hidden=!cancellable;
@@ -562,7 +616,7 @@ function renderTaskProgress(data){
         cancelBusy=false;
         clearTaskArtifacts();
     }
-    if(!selVideo&&(!currentTaskId||!contextTaskId||contextTaskId===currentTaskId))contextTaskId=data.task_id||null;
+    if(!selVideo&&acceptUnboundTask&&(!currentTaskId||!contextTaskId||contextTaskId===currentTaskId))contextTaskId=data.task_id||null;
     currentTaskId=data.task_id||null;
     currentTaskSnapshot={...data,status,task_id:currentTaskId};
     byId('progressBox').innerHTML=`
@@ -602,6 +656,7 @@ async function restoreCompletedTask(data){
 }
 
 async function handleTaskSnapshot(data){
+    if(!selVideo&&!acceptUnboundTask&&!contextTaskId)return;
     if(!isRelevantTask(data)||!shouldAcceptTaskSnapshot(data))return;
     renderTaskProgress(data);
     if(data.status==='done')await restoreCompletedTask(data);
@@ -659,6 +714,7 @@ function renderVideoList(videos){
         const item=document.createElement('button');
         item.type='button';
         item.className='video-item';
+        item.dataset.videoPath=video.path;
         item.title=video.path;
         item.addEventListener('click',()=>pick(item,video));
         const name=document.createElement('span');
@@ -676,10 +732,52 @@ function renderVideoList(videos){
     if(!videos.length)list.innerHTML='<div class="empty-state">目录中没有可分析的录播文件。</div>';
 }
 
+function clearSelectionState(){
+    acceptUnboundTask=false;
+    selVideo=null;
+    selAss=null;
+    selectedVideoMeta=null;
+    contextTaskId=null;
+    currentTaskId=null;
+    currentTaskSnapshot=null;
+    taskBusy=false;
+    cancelBusy=false;
+    clearOptimizedTimeline();
+    clearTaskArtifacts();
+    byId('selectedName').textContent='';
+    byId('selectedName').title='';
+    byId('selectedPath').textContent='';
+    byId('selectedPath').title='';
+    byId('selectedSummary').hidden=true;
+    byId('selectionState').textContent='未选择录播';
+    byId('selectionState').title='';
+    byId('progressBox').innerHTML='<div class="empty-state">选择录播后显示任务进度</div>';
+    byId('activityState').textContent='等待选择';
+}
+
+function videoPathKey(path){
+    return String(path||'').replace(/[\\/]+/g,'/').replace(/\/$/,'').toLocaleLowerCase();
+}
+
+function restoreSelectionIfPresent(videos,previousPath){
+    const previousKey=videoPathKey(previousPath);
+    if(!previousKey)return false;
+    const match=videos.find(video=>videoPathKey(video.path)===previousKey);
+    if(!match)return false;
+    const item=[...document.querySelectorAll('.video-item')].find(candidate=>videoPathKey(candidate.dataset.videoPath)===previousKey);
+    if(!item)return false;
+    pick(item,match);
+    return true;
+}
+
 async function scan(){
+    if(scanBusy||taskBusy)return;
     rememberWorkspacePaths();
+    const previousPath=selVideo;
     scanBusy=true;
+    clearSelectionState();
     updateActions();
+    hideScanRecovery();
     setNotice('正在扫描录播目录...');
     byId('vlist').innerHTML='<div class="empty-state">正在读取视频、字幕和弹幕文件...</div>';
     try{
@@ -687,10 +785,18 @@ async function scan(){
         const videos=result.videos||[];
         renderVideoList(videos);
         byId('videoCount').textContent=`${videos.length} 个可用文件`;
-        setNotice(videos.length?`扫描完成，找到 ${videos.length} 个录播文件`:'扫描完成，但目录中没有找到录播','success');
+        if(videos.length){
+            rememberLastValidVideoDir();
+            restoreSelectionIfPresent(videos,previousPath);
+            setNotice(`扫描完成，找到 ${videos.length} 个录播文件`,'success');
+        }else{
+            showScanRecovery('empty');
+            setNotice('扫描完成，但目录中没有找到录播。当前没有可执行选择，请重新扫描或恢复上次有效目录','warning');
+        }
     }catch(error){
         renderVideoList([]);
         byId('videoCount').textContent='0 个可用文件';
+        showScanRecovery('error');
         setNotice(`扫描失败：${error.message}`,'error');
     }finally{scanBusy=false;updateActions()}
 }

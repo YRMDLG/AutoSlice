@@ -274,6 +274,118 @@ class TopicPageContractTests(unittest.TestCase):
         self.assertTrue(matches)
         return html, matches[-1]
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查扫描状态行为")
+    def test_topic_page_scan_state_clears_stale_selection_and_restores_only_present_path(self):
+        _html, script = self._page_script()
+        script_prefix = script.split("restoreWorkspacePaths();", 1)[0]
+        runtime_assertions = r"""
+const makeNode=()=>({
+  textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,value:'',title:'',
+  style:{},options:[],selectedIndex:0,selectedOptions:[],dataset:{},children:[],
+  classList:{add:()=>{},remove:()=>{},toggle:()=>{}},
+  replaceChildren(){this.children=[];if(this.id==='vlist')videoItems.length=0},
+  add:()=>{},append(...nodes){this.textContent+=nodes.map(node=>node.textContent||'').join('')},
+  appendChild(node){this.children.push(node);if(this.id==='vlist'&&node.className==='video-item')videoItems.push(node)},
+  addEventListener:()=>{},setAttribute(name,value){this[name]=String(value)},removeAttribute:()=>{},
+  querySelector:()=>null,querySelectorAll:()=>[],focus:()=>{},
+});
+const nodes=new Map();
+const videoItems=[];
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id)){const node=makeNode();node.id=id;nodes.set(id,node)}return nodes.get(id)},
+  querySelectorAll:(selector)=>selector==='.video-item'?videoItems:[],
+  createElement:()=>makeNode(),querySelector:()=>null,
+};
+document.getElementById('timelineMode').value='none';
+globalThis.window={};
+const storage=new Map([['autoslice.last-valid-video-dir','C:\\recordings']]);
+globalThis.localStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,String(value))};
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+const makeResponse=(status,payload)=>({ok:status>=200&&status<300,status,json:async()=>payload});
+let pendingScanResolve=null;
+let nextScanResponse={status:200,payload:{videos:[],count:0}};
+globalThis.fetch=(url)=>{
+  if(url==='/api/scan')return new Promise(resolve=>{pendingScanResolve=()=>resolve(makeResponse(nextScanResponse.status,nextScanResponse.payload))});
+  throw new Error(`意外请求 ${url}`);
+};
+const oldPath='C:\\recordings\\旧录播.mp4';
+const newPath='C:\\recordings\\新录播.mp4';
+function seedOldSelection(){
+  selVideo=oldPath;selAss='C:\\recordings\\旧录播.ass';selectedVideoMeta={name:'旧录播.mp4',has_ass:true,has_srt:true};
+  contextTaskId='pipeline_old';currentTaskId='pipeline_old';currentTaskSnapshot={task_id:'pipeline_old',status:'done'};resultTaskId='pipeline_old';currentTaskResult={kind:'pipeline'};optimizedTimeline={jsonPath:'旧时间轴.json'};
+  document.getElementById('selectedSummary').hidden=false;document.getElementById('selectedName').textContent='旧录播.mp4';
+  document.getElementById('selectedPath').textContent=oldPath;document.getElementById('selectionState').textContent='旧录播.mp4';document.getElementById('progressBox').innerHTML='旧任务进度';
+  document.getElementById('qualityOverview').hidden=false;document.getElementById('report').hidden=false;
+  updateActions();
+}
+async function finishScan(status,payload){
+  nextScanResponse={status,payload};
+  const promise=scan();
+  await Promise.resolve();
+  assert(scanBusy===true,'扫描未立即进入 scanning 状态');
+  assert(document.getElementById('scanButton').disabled===true,'扫描期间扫描按钮未禁用');
+  assert(document.getElementById('startButton').disabled===true,'扫描期间开始分析+切片未禁用');
+  assert(document.getElementById('retryButton').disabled===true,'扫描期间重试主动作未禁用');
+  assert(document.getElementById('optimizeButton').disabled===true,'扫描期间时间轴主动作未禁用');
+  assert(document.getElementById('videoDir').disabled===true,'扫描期间目录选择未禁用');
+  assert(document.getElementById('timelineMode').disabled===true,'扫描期间分析选择未禁用');
+  pendingScanResolve();
+  if(status!==200)await promise.catch(()=>{});else await promise;
+  assert(scanBusy===false,'扫描结束后仍保持 scanning 状态');
+}
+(async()=>{
+  seedOldSelection();
+  await finishScan(200,{videos:[{name:'旧录播.mp4',path:oldPath,has_ass:true,has_srt:true}],count:1});
+  assert(selVideo===oldPath,'旧路径仍在结果中时没有恢复选择');
+  assert(selectedVideoMeta?.name==='旧录播.mp4','恢复选择没有恢复视频元数据');
+  assert(document.getElementById('selectedSummary').hidden===false,'成功扫描恢复选择后摘要仍隐藏');
+
+  seedOldSelection();
+  await finishScan(200,{videos:[{name:'新录播.mp4',path:newPath,has_ass:false,has_srt:false}],count:1});
+  assert(selVideo===null,'旧路径不在新结果时错误恢复旧选择');
+  assert(selectedVideoMeta===null,'旧路径不在新结果时仍保留元数据');
+  assert(document.getElementById('selectedSummary').hidden===true,'替换选择失败后仍显示旧摘要');
+  assert(contextTaskId===null,'替换选择失败后仍保留旧任务上下文');
+  assert(resultTaskId===null&&currentTaskResult===null,'替换选择失败后仍保留旧结果上下文');
+  assert(document.getElementById('qualityOverview').hidden===true&&document.getElementById('report').hidden===true,'替换选择失败后仍显示旧摘要或报告');
+  assert(document.getElementById('startButton').disabled===true,'旧路径不在新结果时仍可执行开始分析');
+
+  seedOldSelection();
+  nextScanResponse={status:500,payload:{error:'目录不存在'}};
+  const failed=scan();
+  await Promise.resolve();
+  assert(scanBusy===true,'失败扫描未立即进入 scanning 状态');
+  pendingScanResolve();
+  await failed;
+  assert(selVideo===null&&selectedVideoMeta===null,'扫描失败后仍保留旧选择');
+  assert(contextTaskId===null&&resultTaskId===null,'扫描失败后仍保留旧任务上下文');
+  assert(currentTaskId===null&&currentTaskSnapshot===null&&document.getElementById('progressBox').innerHTML.includes('选择录播后显示任务进度'),'扫描失败后仍保留旧任务进度');
+  await handleTaskSnapshot({task_id:'pipeline_old',status:'done',progress:'旧任务迟到更新',step:100,total:100});
+  assert(currentTaskId===null&&contextTaskId===null,'清除选择后旧 SSE 更新重新绑定了任务上下文');
+  assert(document.getElementById('qualityOverview').hidden===true&&document.getElementById('report').hidden===true,'扫描失败后仍保留旧摘要');
+  assert(document.getElementById('scanRecovery').hidden===false,'扫描失败没有显示恢复入口');
+  assert(document.getElementById('pageNotice').textContent.includes('扫描失败'),'扫描失败被伪装成成功');
+
+  seedOldSelection();
+  await finishScan(200,{videos:[],count:0});
+  assert(selVideo===null&&selectedVideoMeta===null,'空结果后仍保留旧选择');
+  assert(contextTaskId===null&&resultTaskId===null,'空结果后仍保留旧任务上下文');
+  assert(document.getElementById('qualityOverview').hidden===true&&document.getElementById('report').hidden===true,'空结果后仍保留旧摘要');
+  assert(document.getElementById('scanRecovery').hidden===false,'空结果没有显示重新扫描入口');
+  assert(document.getElementById('pageNotice').textContent.includes('没有找到录播'),'空结果没有明确提示');
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_topic_page_uses_generic_video_filename_derivation(self):
         _html, script = self._page_script()
 

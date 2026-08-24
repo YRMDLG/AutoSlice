@@ -543,6 +543,29 @@ textarea:hover {
   background: var(--warning);
 }
 
+.scan-recovery {
+  margin-top: 10px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #6e5a32;
+  border-radius: 6px;
+  background: var(--warning-bg);
+  color: #f2d89e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.scan-recovery-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .runtime-guidance {
   margin: 0 0 14px 170px;
   padding: 10px 12px;
