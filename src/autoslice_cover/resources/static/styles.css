@@ -26,6 +26,7 @@
   --warning: #e7bc62;
   --success: #63d59d;
   --shadow: 0 16px 42px rgba(0, 0, 0, 0.38);
+  --task-context-height: 68px;
   font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   letter-spacing: 0;
@@ -183,6 +184,97 @@ h2 {
   background: var(--accent);
 }
 
+.task-context-bar {
+  height: var(--task-context-height);
+  min-height: var(--task-context-height);
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: #111513;
+}
+
+.task-context-scroll {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.task-context-facts {
+  min-width: 940px;
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.35fr) 118px minmax(160px, 0.9fr) minmax(180px, 1fr) 118px minmax(138px, 0.72fr);
+  flex: 1 0 auto;
+}
+
+.task-context-fact {
+  min-width: 0;
+  padding: 8px 12px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border-right: 1px solid #252b27;
+}
+
+.task-context-fact dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.task-context-fact dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-context-fact.primary dd,
+.task-context-fact.phase dd,
+.task-context-fact.next dd {
+  color: var(--text);
+}
+
+.task-context-actions {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.task-context-link {
+  min-height: 30px;
+  padding: 5px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.task-context-link:hover {
+  border-color: #59635d;
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
 .workspace-summary {
   min-width: 0;
   overflow: hidden;
@@ -266,7 +358,7 @@ h2 {
 }
 
 .workbench {
-  height: calc(100vh - 88px);
+  height: calc(100vh - 88px - var(--task-context-height));
   min-height: 0;
   display: grid;
   grid-template-columns: clamp(244px, 13vw, 284px) minmax(480px, 1fr) clamp(410px, 24vw, 500px);

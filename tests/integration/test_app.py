@@ -287,6 +287,125 @@ class TopicPageContractTests(unittest.TestCase):
         self.assertIn("const result=await loadTaskResult(data.task_id)", script)
         self.assertNotIn("const result=JSON.parse(data.result)", script)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查当前任务上下文行为")
+    def test_topic_page_current_task_context_tracks_selection_status_and_safe_result(self):
+        html, script = self._page_script()
+        script_prefix = script.split("restoreWorkspacePaths();", 1)[0]
+        self.assertIn('aria-label="当前任务上下文"', html)
+        self.assertIn('href="/subtitle-workflow"', html)
+        self.assertIn('href="/autocover"', html)
+        self.assertNotIn("<iframe", html.casefold())
+        self.assertNotIn("setInterval(", script)
+        self.assertNotIn("safeTaskId", script)
+        runtime_assertions = r"""
+const makeNode=()=>({
+  textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,value:'',title:'',
+  style:{},options:[],selectedIndex:0,selectedOptions:[],dataset:{},
+  classList:{add:()=>{},remove:()=>{},toggle:()=>{}},
+  replaceChildren:()=>{},add:()=>{},append:()=>{},addEventListener:()=>{},
+  setAttribute(name,value){this[name]=String(value)},removeAttribute:()=>{},
+  querySelector:()=>null,querySelectorAll:()=>[],focus:()=>{},
+});
+const nodes=new Map();
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id);},
+  querySelectorAll:()=>[],createElement:()=>makeNode(),querySelector:()=>null,
+};
+globalThis.window={};
+globalThis.localStorage={getItem:()=>null,setItem:()=>{}};
+document.getElementById('timelineMode').value='none';
+const streamer=document.getElementById('streamerProfile');
+streamer.value='auto';streamer.selectedOptions=[{textContent:'自动识别'}];
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+
+updateCurrentTaskContext();
+assert(document.getElementById('contextPhase').textContent==='未选择','初始阶段错误');
+assert(document.getElementById('contextOpenResultButton').disabled===true,'无结果时目录按钮未禁用');
+
+const restoredTaskId='pipeline_中文恢复任务#1';
+renderTaskProgress({
+  task_id:restoredTaskId,status:'running',progress:'刷新恢复处理中',step:5,total:10,
+  source_paths:['C:\\private\\recordings\\中文录播.flv','C:\\private\\recordings\\中文录播.srt'],
+  streamer_profile:{id:'restored',label:'恢复任务主播'},
+});
+assert(contextTaskId===restoredTaskId,'恢复任务没有接入当前上下文');
+assert(document.getElementById('contextVideo').textContent==='中文录播.flv','恢复任务没有从路径推导安全文件名');
+assert(document.getElementById('contextPhase').textContent==='进行中','恢复任务没有显示真实阶段');
+assert(document.getElementById('contextStreamer').textContent==='恢复任务主播','自动主播没有显示恢复任务公开标签');
+assert(!document.getElementById('contextVideo').textContent.includes('private'),'恢复任务视频暴露了目录');
+
+const dangerous='<img src=x onerror=globalThis.contextExecuted=true>.mp4';
+selVideo=`C:\\private\\recordings\\${dangerous}`;
+selectedVideoMeta={name:dangerous,has_srt:true};
+contextTaskId=null;
+streamer.value='zeyin';streamer.selectedOptions=[{textContent:'测试主播 <script>危险</script>'}];
+updateCurrentTaskContext();
+assert(document.getElementById('contextVideo').textContent===dangerous,'当前视频没有使用安全文件名');
+assert(document.getElementById('contextVideo').innerHTML==='','危险标题被写入 innerHTML');
+assert(document.getElementById('contextStreamer').textContent.includes('<script>'),'主播可见文本没有通过 textContent 写入');
+assert(document.getElementById('contextPhase').textContent==='等待启动','选择录播后阶段错误');
+assert(document.getElementById('contextPrevious').textContent==='原视频与源 SRT','选择录播后产物推导错误');
+
+renderTaskProgress({
+  task_id:'pipeline_后台旧任务',status:'running',progress:'旧任务仍在运行',step:6,total:10,
+  source_path:'C:\\private\\old\\旧录播.flv',streamer_profile:{label:'旧任务主播'},
+});
+assert(contextTaskId===null,'后台旧任务覆盖了用户手工选择的上下文任务');
+assert(document.getElementById('contextVideo').textContent===dangerous,'后台旧任务覆盖了用户手工选择的录播');
+assert(document.getElementById('contextPhase').textContent==='等待启动','后台旧任务覆盖了用户选择后的阶段');
+assert(document.getElementById('contextStreamer').textContent.includes('<script>'),'后台旧任务覆盖了用户显式主播选择');
+
+const statusLabels={queued:'排队中',running:'进行中',done:'已完成',error:'失败',cancelled:'已取消',interrupted:'已中断'};
+for(const [status,label] of Object.entries(statusLabels)){
+  const taskId=`pipeline_context_${status}`;
+  contextTaskId=taskId;
+  renderTaskProgress({task_id:taskId,status,progress:status,step:5,total:10});
+  assert(document.getElementById('contextPhase').textContent===label,`${status} 上下文阶段错误`);
+}
+
+selVideo='';selectedVideoMeta=null;streamer.value='auto';streamer.selectedOptions=[{textContent:'自动识别'}];
+currentTaskId=null;currentTaskSnapshot=null;contextTaskId=null;
+const unicodeTaskId='pipeline_中文兼容任务#完成';
+renderTaskProgress({
+  task_id:unicodeTaskId,status:'done',progress:'完成',step:10,total:10,
+  source_path:'C:\\private\\result\\中文结果录播.flv',streamer_profile:{label:'兼容任务主播'},
+});
+renderResultArtifact(unicodeTaskId,{
+  artifact_dir:'C:\\private\\result',overview_path:'C:\\private\\result\\00.md',
+});
+assert(resultTaskId===unicodeTaskId,'Unicode task_id 没有按不透明标识原样恢复');
+assert(document.getElementById('contextPrevious').textContent==='整理包与切片结果','完成产物没有更新');
+assert(document.getElementById('contextNext').textContent==='打开结果目录','完成后的下一步错误');
+assert(document.getElementById('contextOpenResultButton').disabled===false,'Unicode task_id 没有启用现有目录按钮');
+const contextText=['contextVideo','contextPhase','contextPrevious','contextNext','contextStreamer','contextResult']
+  .map(id=>`${document.getElementById(id).textContent}\n${document.getElementById(id).title}`).join('\n');
+assert(!contextText.includes('C:\\private'),'上下文条暴露了本机绝对路径');
+assert(!contextText.includes(unicodeTaskId),'上下文 DOM 显示了 task_id');
+
+contextTaskId='timeline_opt_context_done';
+renderTaskProgress({task_id:contextTaskId,status:'done',progress:'完成',step:10,total:10});
+currentTaskResult={kind:'timeline'};
+renderResultArtifact(contextTaskId,{optimized_json_path:'C:\\private\\timeline.json'});
+assert(document.getElementById('contextPrevious').textContent==='优化时间轴','时间轴完成产物被清理');
+assert(document.getElementById('contextNext').textContent==='开始分析+切片','时间轴完成后的下一步错误');
+assert(document.getElementById('contextVideo').textContent==='当前任务视频','恢复任务缺少源路径时回退文案错误');
+
+selectedVideoMeta={};selVideo='';currentTaskSnapshot=null;currentTaskId=null;contextTaskId=null;resultTaskId=null;
+updateCurrentTaskContext();
+assert(document.getElementById('contextVideo').textContent==='未选择录播','缺字段回退错误');
+assert(globalThis.contextExecuted!==true,'危险标题被执行');
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查任务恢复与取消行为")
     def test_topic_page_restores_six_task_states_and_cancels_without_polling(self):
         _html, script = self._page_script()
@@ -409,7 +528,11 @@ const assert=(condition,message)=>{if(!condition)throw new Error(message)};
     pipeline_done:{status:'done',updated_at:90,created_at:10},
     clip_review_interrupted:{status:'interrupted',updated_at:80,created_at:20},
     pipeline_queued:{status:'queued',updated_at:100,created_at:30},
-    timeline_opt_running:{status:'running',updated_at:110,created_at:25},
+    timeline_opt_running:{
+      status:'running',updated_at:110,created_at:25,
+      source_paths:['C:\\private\\restore\\SSE恢复录播.flv','C:\\private\\restore\\SSE恢复录播.srt'],
+      streamer_profile:{id:'sse-restored',label:'SSE 恢复主播'},
+    },
   };
   assert(selectInitTask(activeSnapshot).task_id==='timeline_opt_running','init 未优先选择最新活动任务');
   const interruptedSnapshot={...activeSnapshot};
@@ -435,6 +558,11 @@ const assert=(condition,message)=>{if(!condition)throw new Error(message)};
   currentTaskId=null;
   await FakeEventSource.instances[0].listeners.init({data:JSON.stringify(activeSnapshot)});
   assert(currentTaskId==='timeline_opt_running','SSE init 没有恢复选中的任务');
+  assert(contextTaskId==='timeline_opt_running','SSE init 没有把恢复任务接入上下文');
+  assert(document.getElementById('contextVideo').textContent==='SSE恢复录播.flv','SSE init 没有恢复安全视频文件名');
+  assert(document.getElementById('contextPhase').textContent==='进行中','SSE init 恢复任务没有显示真实阶段');
+  assert(document.getElementById('contextStreamer').textContent==='SSE 恢复主播','SSE init 没有显示主播公开标签');
+  assert(!document.getElementById('contextVideo').textContent.includes('private'),'SSE init 上下文暴露了源目录');
 
   const resultFetchCount=()=>fetchCalls.filter(call=>call.url.endsWith('/result')).length;
   const resultFetchesBeforeIgnoredTerminal=resultFetchCount();
@@ -654,7 +782,8 @@ const assert=(condition,message)=>{if(!condition)throw new Error(message)};
 })().catch(error=>{process.stderr.write(error.stack||String(error));process.exitCode=1});
 """
         result = subprocess.run(
-            ["node", "-e", script_prefix + runtime_assertions],
+            ["node", "-"],
+            input=script_prefix + runtime_assertions,
             text=True,
             encoding="utf-8",
             capture_output=True,
@@ -1223,6 +1352,128 @@ process.stdout.write(JSON.stringify([
             "data.task_id.startsWith('subtitle_review_'))applyReview(result)",
             script,
         )
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查字幕当前任务上下文")
+    def test_subtitle_current_task_context_tracks_workflow_and_safe_fallbacks(self):
+        html, script = self._page_script()
+        script_prefix = script.split(
+            "document.getElementById('scanButton').addEventListener",
+            1,
+        )[0]
+        self.assertIn('aria-label="当前任务上下文"', html)
+        self.assertIn('href="/">智能分析</a>', html)
+        self.assertIn('href="/autocover"', html)
+        self.assertIn(
+            "height:calc(100vh - var(--topbar-height) - var(--task-context-height))",
+            html,
+        )
+        self.assertNotIn("<iframe", html.casefold())
+        self.assertNotIn("setInterval(", script)
+        runtime_prelude = r"""
+const makeNode=()=>({
+  textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,value:'',title:'',
+  style:{},dataset:{},classList:{add(){},remove(){},toggle(){}},
+  setAttribute(name,value){this[name]=String(value)},removeAttribute(){},
+  querySelector(){return null},querySelectorAll(){return[]},addEventListener(){},focus(){},
+});
+const nodes=new Map();
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id);},
+  querySelectorAll:()=>[],querySelector:()=>null,
+};
+globalThis.window={confirm:()=>true};
+globalThis.localStorage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
+"""
+        runtime_assertions = r"""
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+renderCurrentTaskContext();
+assert(document.getElementById('contextPhase').textContent==='未选投稿','初始阶段错误');
+
+const dangerous='<svg onload=globalThis.contextExecuted=true>危险投稿</svg>';
+state.pairs=[{
+  id:'pair-1',title:dangerous,video_path:'C:\\private\\投稿.mp4',filename:'投稿.mp4',
+  needs_transcription:true,has_source_srt:false,has_corrected_srt:false,has_output_video:false,
+}];
+state.selectedIndex=0;
+renderCurrentTaskContext();
+assert(document.getElementById('contextVideo').textContent===dangerous,'投稿标题没有安全显示');
+assert(document.getElementById('contextVideo').innerHTML==='','投稿标题被写入 innerHTML');
+assert(document.getElementById('contextPhase').textContent==='等待自动识别','待识别阶段错误');
+assert(document.getElementById('contextPrevious').textContent==='原视频','待识别产物错误');
+
+const restoredTask={
+  task_id:'subtitle_transcription_restored',task_type:'subtitle_transcription',
+  subtitle_pair_id:'pair-1',status:'running',progress:'刷新后继续识别',
+};
+state.taskEvents.set(restoredTask.task_id,restoredTask);
+const restoredContext=restoreTaskContext(restoredTask);
+updateTranscriptionTaskState(restoredTask,restoredContext);
+renderCurrentTaskContext();
+assert(document.getElementById('contextPhase').textContent==='识别任务中','识别任务阶段错误');
+
+Object.assign(state.pairs[0],{needs_transcription:false,has_source_srt:true,transcription_status:null});
+state.taskEvents.clear();state.taskContexts.clear();
+state.sourceCues=[{index:1,text:'字幕'}];
+renderCurrentTaskContext();
+assert(document.getElementById('contextPhase').textContent==='字幕已加载','源字幕加载阶段错误');
+assert(document.getElementById('contextPrevious').textContent==='源 SRT','源字幕产物错误');
+
+for(const status of [undefined,'queued','running']){
+  const taskId=`subtitle_review_active_${status||'pending'}`;
+  state.taskContexts.set(taskId,{kind:'review',pairId:'pair-1'});
+  if(status)state.taskEvents.set(taskId,{task_id:taskId,status});
+  assert(activeSubtitleTaskKind(state.pairs[0])==='review',`${status||'尚无事件'} 没有保持活动任务`);
+  state.taskContexts.clear();state.taskEvents.clear();
+}
+for(const status of ['done','error','interrupted','cancelled']){
+  const taskId=`subtitle_review_terminal_${status}`;
+  state.taskContexts.set(taskId,{kind:'review',pairId:'pair-1'});
+  state.taskEvents.set(taskId,{task_id:taskId,status});
+  assert(activeSubtitleTaskKind(state.pairs[0])==='',`${status} 被错误视为活动任务`);
+  renderCurrentTaskContext();
+  assert(document.getElementById('contextPhase').textContent==='字幕已加载',`${status} 仍保持忙碌阶段`);
+  state.taskContexts.clear();state.taskEvents.clear();
+}
+
+state.reviewProfile={label:'主播 <img src=x onerror=1>'};
+state.busy=true;
+setTask('启动 AI 检查...');
+assert(document.getElementById('contextPhase').textContent==='AI 校对中','AI 校对忙碌阶段错误');
+assert(document.getElementById('contextStreamer').textContent.includes('<img'),'主播标签没有通过 textContent 写入');
+
+state.busy=false;
+Object.assign(state.pairs[0],{has_corrected_srt:true,has_output_video:false});
+state.correctedPath='C:\\private\\投稿_校对.srt';
+renderCurrentTaskContext();
+assert(document.getElementById('contextPhase').textContent==='已保存校对字幕','保存后的阶段错误');
+assert(document.getElementById('contextPrevious').textContent==='校对 SRT','保存后的产物错误');
+assert(document.getElementById('contextNext').textContent==='生成标题或压制成片','保存后的下一步错误');
+
+state.pairs[0].has_output_video=true;
+renderCurrentTaskContext();
+assert(document.getElementById('contextPrevious').textContent==='压制成片','压制后的产物错误');
+assert(document.getElementById('contextNext').textContent==='前往 AutoCover','压制后的下一步错误');
+const contextText=['contextVideo','contextPhase','contextPrevious','contextNext','contextStreamer','contextResult']
+  .map(id=>`${document.getElementById(id).textContent}\n${document.getElementById(id).title}`).join('\n');
+assert(!contextText.includes('C:\\private'),'字幕上下文暴露了本机绝对路径');
+
+state.reviewProfile=null;state.pairs[0].title='';state.pairs[0].video_path='C:\\private\\fallback.mp4';
+renderCurrentTaskContext();
+assert(document.getElementById('contextVideo').textContent==='fallback.mp4','缺标题时没有回退安全文件名');
+assert(document.getElementById('contextStreamer').textContent==='待识别','缺主播字段回退错误');
+assert(document.getElementById('contextResult').textContent==='随投稿目录保存','结果目录描述错误');
+assert(globalThis.contextExecuted!==true,'危险投稿标题被执行');
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input=runtime_prelude + script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查批量建议交互")
     def test_review_batch_suggestions_respect_filter_protection_and_undo(self):

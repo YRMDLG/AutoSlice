@@ -706,6 +706,108 @@ class AppTests(unittest.TestCase):
             self.assertIn("repeat(3, 1fr)", css)
             self.assertIn("calc(177.777cqh - 64px)", css)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证 AutoCover 当前任务上下文")
+    def test_current_task_context_tracks_workspace_edit_and_export_without_paths(self) -> None:
+        with self.client.get("/") as page:
+            html = page.get_data(as_text=True)
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        with self.client.get("/static/styles.css") as response:
+            css = response.get_data(as_text=True)
+        self.assertIn('aria-label="当前任务上下文"', html)
+        self.assertIn("智能分析", html)
+        self.assertIn("字幕校对", html)
+        self.assertNotIn("<iframe", html.casefold())
+        self.assertNotIn("setInterval(", script)
+        self.assertIn(
+            "height: calc(100vh - 88px - var(--task-context-height))",
+            css,
+        )
+        probe = r"""
+const storage=new Map();
+global.localStorage={
+  getItem(key){return storage.has(key)?storage.get(key):null},
+  setItem(key,value){storage.set(key,String(value))},removeItem(key){storage.delete(key)},
+};
+global.sessionStorage={setItem(){},getItem(){return null}};
+window.clearTimeout=clearTimeout;window.setTimeout=setTimeout;
+const makeNode=()=>({
+  textContent:'',innerHTML:'',title:'',className:'',hidden:false,disabled:false,value:'',
+  style:{},dataset:{},classList:{add(){},remove(){},toggle(){},contains(){return false}},
+  setAttribute(name,value){this[name]=String(value)},removeAttribute(){},replaceChildren(){},
+  querySelector(){return null},querySelectorAll(){return[]},addEventListener(){},focus(){},
+});
+['context-video','context-phase','context-previous','context-next','context-streamer','context-result',
+ 'status-text','status-detail','status-dot'].forEach(id=>{elements[id]=makeNode()});
+refreshInteractionState=()=>{};
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+
+renderCurrentTaskContext();
+assert(elements['context-phase'].textContent==='未载入目录','初始阶段错误');
+
+state.workspaceConfig={root:'F:\\private\\workspace',output_dir:'F:\\private\\covers'};
+state.tasks=[];state.activeTaskId=null;
+renderCurrentTaskContext();
+assert(elements['context-phase'].textContent==='目录已载入，未选任务','载入目录后的阶段错误');
+assert(elements['context-next'].textContent==='选择切片','载入目录后的下一步错误');
+
+const dangerous='<img src=x onerror=globalThis.contextExecuted=true>封面标题</img>';
+const task={
+  id:'task-1',title:dangerous,filename:'01_切片.mp4',relative_path:'投稿/01_切片.mp4',
+  streamer_profile_label:'测试主播 <script>危险</script>',status:'pending',candidates:[],
+  cover_contract:{matched:true,match_source:'manifest_final_clip',subtitle_exists:true},
+};
+state.tasks=[task];state.activeTaskId=task.id;
+renderCurrentTaskContext();
+assert(elements['context-video'].textContent===dangerous,'当前标题没有安全显示');
+assert(elements['context-video'].innerHTML==='','当前标题被写入 innerHTML');
+assert(elements['context-phase'].textContent==='编辑中','选择任务后的阶段错误');
+assert(elements['context-previous'].textContent==='最终短片','上一步产物没有使用任务证据');
+assert(elements['context-next'].textContent==='选帧编辑','无选帧时下一步错误');
+assert(elements['context-streamer'].textContent.includes('<script>'),'主播标签没有通过 textContent 写入');
+
+state.drafts.set(taskDraftKey(task),{disk_saved:true,previews:{}});
+renderCurrentTaskContext();
+assert(elements['context-phase'].textContent==='草稿恢复','磁盘草稿阶段错误');
+
+setBusy(true,'正在生成预览...');
+assert(elements['context-phase'].textContent==='忙碌','忙碌阶段错误');
+setBusy(false);
+
+state.preview={media_token:'preview',width:1440,height:1080};
+previewPayload=()=>({});
+api=async()=>({outputs:[{filename:'01_切片-4x3.jpg'},{filename:'01_切片-16x9.jpg'}]});
+await saveCover(['4x3','16x9']);
+assert(elements['context-phase'].textContent==='导出完成','导出完成后阶段未更新');
+assert(elements['context-next'].textContent==='导出封面','有选帧后的下一步错误');
+
+api=async()=>{throw new Error('模拟导出失败')};
+await saveCover(['4x3']);
+assert(elements['context-phase'].textContent==='导出失败','导出失败后阶段未更新');
+
+const contextText=['context-video','context-phase','context-previous','context-next','context-streamer','context-result']
+  .map(id=>`${elements[id].textContent}\n${elements[id].title}`).join('\n');
+assert(!contextText.includes('F:\\private'),'AutoCover 上下文暴露 workspace 绝对路径');
+assert(elements['context-result'].textContent==='封面输出目录','结果目录没有使用安全描述');
+
+state.tasks=[{id:'task-missing',title:'',filename:'',relative_path:'missing.mp4',candidates:[],cover_contract:{}}];
+state.activeTaskId='task-missing';state.preview=null;state.drafts.clear();state.exportStates.clear();
+renderCurrentTaskContext();
+assert(elements['context-video'].textContent==='未命名切片','缺视频字段回退错误');
+assert(elements['context-streamer'].textContent==='待识别','缺主播字段回退错误');
+assert(globalThis.contextExecuted!==true,'危险封面标题被执行');
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证成果 JSON 工作区配置")
     def test_manifest_json_path_submits_persists_restores_and_rescans(self) -> None:
         with self.client.get("/static/app.js") as response:

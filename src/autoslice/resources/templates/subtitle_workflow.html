@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
 <style>
 body{overflow:hidden}
-.subtitle-layout{height:calc(100vh - var(--topbar-height));min-height:690px;display:grid;grid-template-columns:minmax(270px,310px) minmax(650px,1fr) minmax(330px,370px);overflow-x:auto;overflow-y:hidden}
+.subtitle-layout{height:calc(100vh - var(--topbar-height) - var(--task-context-height));min-height:622px;display:grid;grid-template-columns:minmax(270px,310px) minmax(650px,1fr) minmax(330px,370px);overflow-x:auto;overflow-y:hidden}
 .subtitle-panel{min-width:0;overflow:hidden;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line)}
 .subtitle-panel:last-child{border-right:0}
 .subtitle-panel-head{min-height:64px;padding:13px 14px;border-bottom:1px solid var(--line)}
@@ -133,6 +133,22 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
         <a href="/autocover" target="_blank" rel="noopener">自动封面</a>
     </nav>
 </header>
+<section class="task-context-bar" aria-label="当前任务上下文">
+    <div class="task-context-scroll">
+        <dl class="task-context-facts">
+            <div class="task-context-fact primary"><dt>当前视频</dt><dd id="contextVideo" title="未选投稿">未选投稿</dd></div>
+            <div class="task-context-fact phase"><dt>阶段</dt><dd id="contextPhase" aria-live="polite">未选投稿</dd></div>
+            <div class="task-context-fact"><dt>上一步产物</dt><dd id="contextPrevious">尚无产物</dd></div>
+            <div class="task-context-fact next"><dt>下一步操作</dt><dd id="contextNext">选择投稿</dd></div>
+            <div class="task-context-fact"><dt>主播</dt><dd id="contextStreamer">待识别</dd></div>
+            <div class="task-context-fact"><dt>结果目录</dt><dd id="contextResult">随投稿目录保存</dd></div>
+        </dl>
+        <div class="task-context-actions" aria-label="当前任务跨页入口">
+            <a class="task-context-link" href="/">智能分析</a>
+            <a class="task-context-link" href="/autocover" target="_blank" rel="noopener">AutoCover</a>
+        </div>
+    </div>
+</section>
 <main class="subtitle-layout">
     <section class="subtitle-panel queue-panel">
         <div class="subtitle-panel-head">

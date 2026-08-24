@@ -29,6 +29,23 @@
     </div>
   </header>
 
+  <section class="task-context-bar" aria-label="当前任务上下文">
+    <div class="task-context-scroll">
+      <dl class="task-context-facts">
+        <div class="task-context-fact primary"><dt>当前视频</dt><dd id="context-video" title="未选择切片">未选择切片</dd></div>
+        <div class="task-context-fact phase"><dt>阶段</dt><dd id="context-phase" aria-live="polite">未载入目录</dd></div>
+        <div class="task-context-fact"><dt>上一步产物</dt><dd id="context-previous">尚无产物</dd></div>
+        <div class="task-context-fact next"><dt>下一步操作</dt><dd id="context-next">选择目录</dd></div>
+        <div class="task-context-fact"><dt>主播</dt><dd id="context-streamer">待识别</dd></div>
+        <div class="task-context-fact"><dt>结果目录</dt><dd id="context-result">载入目录后确定</dd></div>
+      </dl>
+      <div class="task-context-actions" aria-label="当前任务跨页入口">
+        <a class="task-context-link" href="{{ autoslice_base_url }}/">智能分析</a>
+        <a class="task-context-link" href="{{ autoslice_base_url }}/subtitle-workflow">字幕校对</a>
+      </div>
+    </div>
+  </section>
+
   <main class="workbench" id="workbench" aria-busy="false">
     <aside class="task-panel" aria-label="切片队列">
       <div class="panel-heading">

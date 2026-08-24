@@ -21,6 +21,24 @@
     </nav>
 </header>
 
+<section class="task-context-bar" aria-label="当前任务上下文">
+    <div class="task-context-scroll">
+        <dl class="task-context-facts">
+            <div class="task-context-fact primary"><dt>当前视频</dt><dd id="contextVideo" title="未选择录播">未选择录播</dd></div>
+            <div class="task-context-fact phase"><dt>阶段</dt><dd id="contextPhase" aria-live="polite">未选择</dd></div>
+            <div class="task-context-fact"><dt>上一步产物</dt><dd id="contextPrevious">尚无产物</dd></div>
+            <div class="task-context-fact next"><dt>下一步操作</dt><dd id="contextNext">选择录播</dd></div>
+            <div class="task-context-fact"><dt>主播</dt><dd id="contextStreamer">自动识别</dd></div>
+            <div class="task-context-fact"><dt>结果目录</dt><dd id="contextResult">暂无结果</dd></div>
+        </dl>
+        <div class="task-context-actions" aria-label="当前任务快捷入口">
+            <button class="button" id="contextOpenResultButton" type="button" onclick="openResultDirectory()" disabled aria-disabled="true">打开结果目录</button>
+            <a class="task-context-link" href="/subtitle-workflow">字幕校对</a>
+            <a class="task-context-link" href="/autocover" target="_blank" rel="noopener">AutoCover</a>
+        </div>
+    </div>
+</section>
+
 <main class="page-shell">
     <div class="page-heading">
         <div>
@@ -149,7 +167,7 @@
 </main>
 
 <script>
-let selVideo=null,selAss=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,scanBusy=false,taskBusy=false,cancelBusy=false;
+let selVideo=null,selAss=null,selectedVideoMeta=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,currentTaskResult=null,contextTaskId=null,scanBusy=false,taskBusy=false,cancelBusy=false;
 const STREAMER_PROFILE_STORAGE_KEY='autoslice.streamer-profile';
 const DEFAULT_VIDEO_DIR={{ default_video_dir|tojson }};
 const DEFAULT_OUTPUT_DIR={{ default_output_dir|tojson }};
@@ -158,6 +176,70 @@ const OUTPUT_DIR_STORAGE_KEY='autoslice.output-dir';
 
 function byId(id){return document.getElementById(id)}
 function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}
+function safeFileName(value,fallback='未选择录播'){
+    const name=String(value??'').split(/[\\/]/).pop().trim();
+    return name||fallback;
+}
+function taskSourceName(data){
+    const sources=[];
+    if(Array.isArray(data?.source_paths))sources.push(...data.source_paths);
+    else if(data?.source_paths)sources.push(data.source_paths);
+    sources.push(data?.source_path);
+    for(const source of sources){
+        const name=safeFileName(source,'');
+        if(name)return name;
+    }
+    return '当前任务视频';
+}
+function taskStreamerLabel(data){
+    const profile=data?.streamer_profile;
+    return String(profile?.label||data?.streamer_profile_label||'').trim();
+}
+function selectedStreamerLabel(data=null){
+    const select=byId('streamerProfile');
+    if(select&&select.value!=='auto'&&select.value){
+        return String(select.selectedOptions?.[0]?.textContent||select.options?.[select.selectedIndex]?.text||select.value).trim()||'自动识别';
+    }
+    return taskStreamerLabel(data)||'自动识别';
+}
+function taskContextState(){
+    const status=currentTaskSnapshot?.status;
+    const ownsTask=Boolean(status&&currentTaskId&&currentTaskId===contextTaskId);
+    const video=selVideo
+        ?safeFileName(selectedVideoMeta?.name||selVideo)
+        :ownsTask?taskSourceName(currentTaskSnapshot):'未选择录播';
+    let phase='未选择',previous='尚无产物',next='选择录播';
+    if(selVideo){
+        phase='等待启动';
+        previous=optimizedTimeline?.jsonPath?'优化时间轴':selectedVideoMeta?.has_srt?'原视频与源 SRT':'原视频';
+        next='开始分析+切片';
+    }
+    if(ownsTask){
+        phase={queued:'排队中',running:'进行中',done:'已完成',error:'失败',cancelled:'已取消',interrupted:'已中断'}[status]||'失败';
+        if(status==='queued')previous='任务已提交';
+        else if(status==='running')previous=optimizedTimeline?.jsonPath?'优化时间轴':'已选录播与分析配置';
+        else if(status==='done')previous=currentTaskResult?.kind==='timeline'?'优化时间轴':currentTaskResult?'整理包与切片结果':'任务已完成（结果待恢复）';
+        else previous='已选录播与任务记录';
+        if(status==='queued'||status==='running')next='等待任务完成';
+        else if(status==='done'&&currentTaskResult?.kind==='timeline')next='开始分析+切片';
+        else if(status==='done'&&resultTaskId)next='打开结果目录';
+        else if(status==='done')next='检查任务结果';
+        else next='检查状态后重新启动';
+    }
+    return {video,phase,previous,next,streamer:selectedStreamerLabel(ownsTask?currentTaskSnapshot:null),hasResult:Boolean(resultTaskId)};
+}
+function updateCurrentTaskContext(){
+    const context=taskContextState();
+    const values={contextVideo:context.video,contextPhase:context.phase,contextPrevious:context.previous,contextNext:context.next,contextStreamer:context.streamer,contextResult:context.hasResult?'任务结果目录':'暂无结果'};
+    for(const [id,value] of Object.entries(values)){
+        const element=byId(id);
+        if(!element)continue;
+        element.textContent=value;
+        element.title=value;
+    }
+    const openButton=byId('contextOpenResultButton');
+    if(openButton){openButton.disabled=!context.hasResult;openButton.setAttribute?.('aria-disabled',String(!context.hasResult));}
+}
 function replaceFileExtension(path,extension){
     const separatorIndex=Math.max(path.lastIndexOf('/'),path.lastIndexOf('\\'));
     const dotIndex=path.lastIndexOf('.');
@@ -231,12 +313,15 @@ function updateActions(){
     cancelButton.hidden=!cancellable;
     cancelButton.disabled=!cancellable||cancelBusy;
     cancelButton.textContent=cancelBusy?'正在取消...':'取消任务';
+    updateCurrentTaskContext();
 }
 
-function clearResultArtifact(){
+function clearResultArtifact(clearTaskResult=true){
     resultTaskId=null;
+    if(clearTaskResult)currentTaskResult=null;
     byId('resultArtifact').hidden=true;
     byId('resultPaths').textContent='';
+    updateCurrentTaskContext();
 }
 
 function clearQualityOverview(){
@@ -330,14 +415,16 @@ function renderQualityOverview(overview){
 }
 
 function renderResultArtifact(taskId,result){
-    if(!result||!result.artifact_dir){clearResultArtifact();return}
-    resultTaskId=taskId;
+    if(!result||!result.artifact_dir){clearResultArtifact(!taskId?.startsWith('timeline_opt_'));return}
+    resultTaskId=typeof taskId==='string'&&taskId.trim()?taskId:null;
+    currentTaskResult={kind:taskId?.startsWith('timeline_opt_')?'timeline':'pipeline'};
     const lines=[`整理包：${result.artifact_dir}`];
     if(result.overview_path)lines.push(`优先查看：${result.overview_path}`);
     if(result.slice_dir)lines.push(`实际切片：${result.slice_dir}`);
     byId('resultPaths').textContent=lines.join('\n');
     byId('resultPaths').title=lines.join('\n');
     byId('resultArtifact').hidden=false;
+    updateCurrentTaskContext();
 }
 
 async function loadTaskResult(taskId){
@@ -475,6 +562,7 @@ function renderTaskProgress(data){
         cancelBusy=false;
         clearTaskArtifacts();
     }
+    if(!selVideo&&(!currentTaskId||!contextTaskId||contextTaskId===currentTaskId))contextTaskId=data.task_id||null;
     currentTaskId=data.task_id||null;
     currentTaskSnapshot={...data,status,task_id:currentTaskId};
     byId('progressBox').innerHTML=`
@@ -499,6 +587,7 @@ async function restoreCompletedTask(data){
         if(currentTaskId!==taskId)return;
         if(taskId.startsWith('timeline_opt_')){
             optimizedTimeline={videoPath:result.video_path,sourcePath:(result.manual_timeline||{}).path,jsonPath:result.optimized_json_path,mdPath:result.optimized_md_path,profileId:result.streamer_profile_id};
+            currentTaskResult={kind:'timeline'};
             renderOptimizedTimeline();
         }else{
             await renderCompletedReport(taskId,result);
@@ -625,10 +714,11 @@ async function loadStreamerProfiles(){
         (result.profiles||[]).forEach(profile=>select.add(new Option(profile.label,profile.id)));
         select.value=[...select.options].some(option=>option.value===remembered)?remembered:'auto';
     }catch(error){select.replaceChildren(new Option('自动识别','auto'))}
+    updateCurrentTaskContext();
 }
 
 function selectedStreamerProfile(){return byId('streamerProfile').value||'auto'}
-function onStreamerProfileChange(){try{localStorage.setItem(STREAMER_PROFILE_STORAGE_KEY,selectedStreamerProfile())}catch(error){}clearOptimizedTimeline()}
+function onStreamerProfileChange(){try{localStorage.setItem(STREAMER_PROFILE_STORAGE_KEY,selectedStreamerProfile())}catch(error){}clearOptimizedTimeline();updateCurrentTaskContext()}
 
 function toggleTimelineMode(){
     const mode=byId('timelineMode').value;
@@ -642,6 +732,8 @@ function pick(element,video){
     document.querySelectorAll('.video-item').forEach(item=>item.classList.remove('selected'));
     element.classList.add('selected');
     selVideo=video.path;
+    selectedVideoMeta={...video,name:safeFileName(video.name||video.path)};
+    contextTaskId=null;
     selAss=video.has_ass?replaceFileExtension(video.path,'.ass'):'';
     byId('selectedName').textContent=video.name;
     byId('selectedName').title=video.name;
@@ -657,16 +749,18 @@ function pick(element,video){
 }
 
 function onTimelineSelection(path){byId('timelinePath').value=path;clearOptimizedTimeline();updateActions()}
-function clearOptimizedTimeline(){optimizedTimeline=null;byId('timelineArtifact').hidden=true;byId('timelineArtifact').textContent=''}
+function clearOptimizedTimeline(){optimizedTimeline=null;byId('timelineArtifact').hidden=true;byId('timelineArtifact').textContent='';updateCurrentTaskContext()}
 function renderOptimizedTimeline(){
     if(!optimizedTimeline?.jsonPath){clearOptimizedTimeline();return}
     const text=`优化 JSON：${optimizedTimeline.jsonPath}\n审阅文档：${optimizedTimeline.mdPath||'未生成'}`;
     byId('timelineArtifact').textContent=text;
     byId('timelineArtifact').title=text;
     byId('timelineArtifact').hidden=false;
+    updateCurrentTaskContext();
 }
 
 async function runAction({url,body,starting,failure}){
+    contextTaskId=null;
     taskBusy=true;
     updateActions();
     byId('progressBox').innerHTML=`<div class="empty-state">${esc(starting)}</div>`;
@@ -675,10 +769,15 @@ async function runAction({url,body,starting,failure}){
     try{
         const result=await jsonRequest(url,{method:'POST',body:JSON.stringify(body)});
         if(result.task_id&&currentTaskSnapshot?.task_id!==result.task_id){
+            contextTaskId=result.task_id;
             renderTaskProgress({task_id:result.task_id,status:'queued',progress:starting,step:0,total:100,created_at:Date.now()/1000,updated_at:Date.now()/1000});
+        }else if(result.task_id){
+            contextTaskId=result.task_id;
+            updateCurrentTaskContext();
         }
         setNotice('任务已启动，可在右侧查看实时进度','success');
     }catch(error){
+        contextTaskId=null;
         taskBusy=false;
         updateActions();
         byId('activityState').textContent='启动失败';

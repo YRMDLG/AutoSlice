@@ -55,6 +55,7 @@ const state = {
   drafts: new Map(),
   draftTimer: null,
   fileDraftPath: "",
+  exportStates: new Map(),
 };
 
 const elements = {};
@@ -66,6 +67,7 @@ function byId(id) {
 function cacheElements() {
   [
     "workbench", "workspace-summary", "open-workspace", "batch-export", "rescan",
+    "context-video", "context-phase", "context-previous", "context-next", "context-streamer", "context-result",
     "task-count", "task-sort", "task-list", "preview-state", "cover-frame", "cover-preview", "cover-background-preview",
     "preview-empty", "preview-loader", "candidate-summary", "candidate-strip",
     "refresh-candidates", "active-filename", "reset-copy", "editor-controls",
@@ -138,6 +140,80 @@ function setStatus(message, detail = "", kind = "ready") {
   elements["status-detail"].textContent = detail;
   elements["status-detail"].title = detail;
   elements["status-dot"].className = `status-dot ${kind === "ready" ? "" : kind}`.trim();
+  renderCurrentTaskContext();
+}
+
+function safeContextFilename(value, fallback = "未选择切片") {
+  const name = String(value ?? "").split(/[\\/]/).pop().trim();
+  return name || fallback;
+}
+
+function coverStreamerLabel(task) {
+  return String(
+    task?.streamer_profile_label
+    || task?.streamer_label
+    || task?.cover_contract?.streamer_profile_label
+    || task?.cover_contract?.streamer_label
+    || task?.manifest?.streamer_profile_label
+    || task?.manifest?.streamer_label
+    || "",
+  ).trim() || "待识别";
+}
+
+function coverPreviousArtifact(task) {
+  const contract = task?.cover_contract || {};
+  if (contract.match_source === "manifest_final_clip") return "最终短片";
+  if (contract.subtitle_exists) return "校对字幕";
+  if (Number.isFinite(Number(contract.cover_anchor_seconds))) {
+    const source = String(contract.slice_anchor_source || "").trim();
+    return source ? `分析锚点 · ${source}` : "分析锚点";
+  }
+  if (contract.matched && String(task?.title || "").trim()) return "分析标题";
+  if (contract.match_source === "manifest_original_slice") return "自动切片";
+  return task ? "切片视频" : "尚无产物";
+}
+
+function coverContextState() {
+  const task = activeTask();
+  if (!state.workspaceConfig) {
+    return { video: "未选择切片", phase: "未载入目录", previous: "尚无产物", next: "选择目录", streamer: "待识别", result: "载入目录后确定" };
+  }
+  if (!task) {
+    return { video: "未选择切片", phase: "目录已载入，未选任务", previous: "切片目录", next: "选择切片", streamer: "待识别", result: "封面输出目录" };
+  }
+  const exportState = state.exportStates.get(task.id);
+  const draft = taskDraft(task);
+  let phase = draft?.disk_saved ? "草稿恢复" : "编辑中";
+  if (isBusy()) phase = "忙碌";
+  else if (exportState === "done") phase = "导出完成";
+  else if (exportState === "error") phase = "导出失败";
+  const hasFrame = Boolean(state.preview || task.selected_frame_token || task.candidates?.some((candidate) => candidate.selected));
+  return {
+    video: String(task.title || "").trim() || safeContextFilename(task.filename, "未命名切片"),
+    phase,
+    previous: coverPreviousArtifact(task),
+    next: hasFrame ? "导出封面" : "选帧编辑",
+    streamer: coverStreamerLabel(task),
+    result: "封面输出目录",
+  };
+}
+
+function renderCurrentTaskContext() {
+  const context = coverContextState();
+  const values = {
+    "context-video": context.video,
+    "context-phase": context.phase,
+    "context-previous": context.previous,
+    "context-next": context.next,
+    "context-streamer": context.streamer,
+    "context-result": context.result,
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const element = elements[id];
+    if (!element) return;
+    element.textContent = value;
+    element.title = value;
+  });
 }
 
 function setWorkspaceError(message = "") {
@@ -504,6 +580,7 @@ function setBusy(active, message = "处理中...") {
   } else if (!busy && elements["status-dot"].classList.contains("busy")) {
     setStatus("就绪");
   }
+  renderCurrentTaskContext();
 }
 
 function activeTask() {
@@ -1627,6 +1704,7 @@ async function scanWorkspace(
 
   state.workspaceConfig = normalizedConfig;
   state.tasks = payload.tasks;
+  state.exportStates.clear();
   state.fileDraftPath = typeof payload.draft_path === "string" ? payload.draft_path : "";
   mergeDiskDrafts(payload.drafts, normalizedConfig.root);
   sortTasks();
@@ -1641,6 +1719,7 @@ async function scanWorkspace(
   renderInspector(activeTask());
   renderCandidates(activeTask());
   renderTimeline(activeTask());
+  renderCurrentTaskContext();
   const diskActive = Array.isArray(payload.drafts)
     ? payload.drafts.find((item) => item?.active && item?.previews)
     : null;
@@ -1729,6 +1808,7 @@ async function selectTask(taskId) {
   state.previewRequestId += 1;
   state.selectedElement = null;
   state.activeTaskId = taskId;
+  renderCurrentTaskContext();
   try {
     sessionStorage.setItem(ACTIVE_TASK_SESSION_KEY, taskDraftKey(activeTask()));
   } catch (error) {
@@ -1755,6 +1835,7 @@ async function selectTask(taskId) {
         "已恢复磁盘草稿",
         state.fileDraftPath || activeTask().filename,
       );
+      renderCurrentTaskContext();
       return;
     }
     if (!settings.variants.length) {
@@ -1814,6 +1895,7 @@ async function removeTaskFromQueue(taskId) {
         renderCandidates(null);
         renderTimeline(null);
         clearPreview("当前队列已清空");
+        renderCurrentTaskContext();
       }
     } else {
       renderTaskList();
@@ -2613,11 +2695,13 @@ async function saveCover(canvases) {
       method: "POST",
       body: JSON.stringify(payload),
     });
+    state.exportStates.set(task.id, "done");
     setStatus(
       currentOnly ? `${ratioLabel} 封面已导出` : "双比例封面已保存",
       result.outputs.map((item) => item.filename).join("、"),
     );
   } catch (error) {
+    state.exportStates.set(task.id, "error");
     setStatus(currentOnly ? "单独导出失败" : "保存失败", error.message, "error");
   } finally {
     setBusy(false);
@@ -2654,11 +2738,13 @@ async function batchExport() {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      state.exportStates.set(current.id, "done");
       completed += 1;
       setStatus("正在批量导出", `${completed}/${state.tasks.length} ${current.filename}`, "busy");
     }
     setStatus("批量导出完成", `${completed} 个切片，${completed * 2} 张封面`);
   } catch (error) {
+    if (activeTask()) state.exportStates.set(activeTask().id, "error");
     setStatus("批量导出中断", `${completed}/${state.tasks.length}：${error.message}`, "error");
   } finally {
     setBusy(false);
@@ -2984,6 +3070,7 @@ function bindEvents() {
 
 async function boot() {
   cacheElements();
+  renderCurrentTaskContext();
   loadStoredDrafts();
   const storedQueueSort = localStorage.getItem("autocover.task-sort");
   state.queueSort = QUEUE_SORT_KEYS.has(storedQueueSort)
