@@ -113,12 +113,20 @@ def _validated_text(value: Any, maximum: int, field: str) -> str:
     return cleaned
 
 
-def _fallback_candidates(title: str, editorial_reason: str | None) -> tuple[LayoutVariant, ...]:
+def _fallback_candidates(
+    title: str,
+    editorial_reason: str | None,
+    *,
+    video_path: str | Path | None = None,
+) -> tuple[LayoutVariant, ...]:
     cleaned_title = _bounded_text(title, MAX_CONTEXT_TEXT) or "未命名切片"
     reason = _bounded_text(editorial_reason, 160)
-    base_variants = recommend_layout_variants(cleaned_title)
+    base_variants = recommend_layout_variants(cleaned_title, video_path=video_path)
     enriched_variants = (
-        recommend_layout_variants(f"{cleaned_title}，{reason}")
+        recommend_layout_variants(
+            f"{cleaned_title}，{reason}",
+            video_path=video_path,
+        )
         if reason and reason.casefold() not in cleaned_title.casefold()
         else []
     )
@@ -331,7 +339,11 @@ def generate_copy_recommendations(
 ) -> CopyRecommendationResult:
     """显式执行 Luna 生成 + Terra 复核；任何正常失败均安全回退。"""
 
-    fallback = _fallback_candidates(current_title, editorial_interest_reason)
+    fallback = _fallback_candidates(
+        current_title,
+        editorial_interest_reason,
+        video_path=video_path,
+    )
     srt_path = resolve_task_srt_path(video_path, corrected_srt_path)
     srt_content = _read_limited_srt(srt_path) if srt_path is not None else None
     if not srt_content:

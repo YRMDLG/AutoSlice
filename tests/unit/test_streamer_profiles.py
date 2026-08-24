@@ -78,6 +78,43 @@ class StreamerProfileTests(unittest.TestCase):
             ("见音乐声", "见音悦生"),
         ))
 
+    def test_cover_rules_are_owned_by_profiles_and_generic_is_neutral(self):
+        generic = resolve_streamer_profile("generic")
+        zeyin = resolve_streamer_profile("zeyin")
+
+        self.assertEqual(generic.cover_rules.copy_replacements, ())
+        self.assertEqual(generic.cover_rules.series_rules, ())
+        self.assertEqual(zeyin.cover_rules.copy_replacements, (
+            ("时守星沙", "SSXS"),
+            ("建模设计师", "建模师"),
+            ("被司机回头盯上", "被司机盯上"),
+            ("保安都认识音音了", "保安都认识音音"),
+        ))
+        self.assertEqual(len(zeyin.cover_rules.series_rules), 1)
+        series_rule = zeyin.cover_rules.series_rules[0]
+        self.assertEqual(series_rule.keywords, ("晚安小音音", "小音的一晚", "歌回点评音"))
+        self.assertEqual((series_rule.template_key, series_rule.palette_key), ("night", "night_purple"))
+
+    def test_autocover_modules_do_not_duplicate_profile_owned_special_cases(self):
+        titles_source = (
+            REPOSITORY_ROOT / "src/autoslice_cover/titles.py"
+        ).read_text(encoding="utf-8")
+        style_source = (
+            REPOSITORY_ROOT / "src/autoslice_cover/style.py"
+        ).read_text(encoding="utf-8")
+
+        for special_case in (
+            "COVER_COPY_REPLACEMENTS",
+            "时守星沙",
+            "保安都认识音音了",
+            "晚安小音音",
+            "小音的一晚",
+            "歌回点评音",
+        ):
+            self.assertNotIn(special_case, titles_source)
+        self.assertNotIn("泽音", style_source)
+        self.assertNotIn("音音", style_source)
+
     def test_extra_glossary_only_appends_without_replacing_defaults(self):
         zeyin = resolve_streamer_profile("zeyin")
         merged = merge_profile_subtitle_glossary(
@@ -112,6 +149,7 @@ class StreamerProfileTests(unittest.TestCase):
         self.assertNotIn("path_keywords", public[-1])
         self.assertNotIn("title_style_profile", public[-1])
         self.assertNotIn("asr_replacements", public[-1])
+        self.assertNotIn("cover_rules", public[-1])
 
     def test_auto_profile_uses_streamer_name_before_filename_date(self):
         paths = (
@@ -227,6 +265,92 @@ class StreamerProfileTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "default_profile_id"):
                 resolve_streamer_profile("auto", config_path=path)
 
+    def test_cover_rules_strictly_validate_shape_and_limits(self):
+        valid_rule = {
+            "keywords": ["系列标题"],
+            "template_key": "night",
+            "palette_key": "night_purple",
+            "reason": "命中系列规则",
+        }
+        invalid_values = (
+            ("对象", "not-an-object"),
+            (
+                "最多包含 50 项",
+                {"copy_replacements": [[f"源{index}", f"目标{index}"] for index in range(51)]},
+            ),
+            ("不能超过 80", {"copy_replacements": [["源" * 81, "目标"]]}),
+            ("最多包含 12 项", {"series_rules": [valid_rule for _ in range(13)]}),
+            (
+                "keywords 最多包含 20 项",
+                {"series_rules": [{**valid_rule, "keywords": ["系列"] * 21}]},
+            ),
+            ("未知字段", {"script_path": "C:/do-not-run.py"}),
+        )
+        with TemporaryDirectory() as td:
+            path = Path(td) / "profiles.json"
+            for expected_error, cover_rules in invalid_values:
+                with self.subTest(expected_error=expected_error):
+                    path.write_text(json.dumps({
+                        "schema_version": 1,
+                        "default_profile_id": "generic",
+                        "profiles": [{
+                            "id": "generic",
+                            "label": "通用",
+                            "canonical_name": "主播",
+                            "report_name": "主播",
+                            "cover_rules": cover_rules,
+                        }],
+                    }, ensure_ascii=False), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, expected_error):
+                        resolve_streamer_profile("generic", config_path=path)
+
+    def test_profile_owner_preserves_opaque_cover_style_keys(self):
+        with TemporaryDirectory() as td:
+            path = Path(td) / "profiles.json"
+            path.write_text(json.dumps({
+                "schema_version": 1,
+                "default_profile_id": "generic",
+                "profiles": [{
+                    "id": "generic",
+                    "label": "通用",
+                    "canonical_name": "主播",
+                    "report_name": "主播",
+                    "cover_rules": {
+                        "series_rules": [{
+                            "keywords": ["系列标题"],
+                            "template_key": "consumer-owned-template",
+                            "palette_key": "consumer-owned-palette",
+                            "reason": "由封面消费者校验引用",
+                        }],
+                    },
+                }],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            profile = resolve_streamer_profile("generic", config_path=path)
+
+        rule = profile.cover_rules.series_rules[0]
+        self.assertEqual(rule.template_key, "consumer-owned-template")
+        self.assertEqual(rule.palette_key, "consumer-owned-palette")
+
+    def test_subtitle_override_file_rejects_cover_rules(self):
+        with TemporaryDirectory() as td:
+            override_path = Path(td) / "profile-overrides.json"
+            override_path.write_text(json.dumps({
+                "schema_version": 1,
+                "profiles": {
+                    "zeyin": {
+                        "asr_replacements": [],
+                        "cover_rules": {"copy_replacements": [["错误", "正确"]]},
+                    },
+                },
+            }, ensure_ascii=False), encoding="utf-8")
+            with patch.dict(
+                    os.environ,
+                    {"AUTOSLICE_STREAMER_PROFILE_OVERRIDES": str(override_path)},
+                    clear=False):
+                with self.assertRaisesRegex(ValueError, "不能保存封面规则"):
+                    resolve_streamer_profile("zeyin")
+
     def test_user_profile_replacement_override_is_reversible_and_does_not_edit_defaults(self):
         with TemporaryDirectory() as td:
             override_path = Path(td) / "profile-overrides.json"
@@ -322,6 +446,8 @@ class StreamerResolutionTests(unittest.TestCase):
             self.assertEqual(profile.subtitle_glossary, ("SC",))
             self.assertEqual(profile.asr_replacements, ())
             self.assertIsNone(profile.outro_clip)
+            self.assertEqual(profile.cover_rules.copy_replacements, ())
+            self.assertEqual(profile.cover_rules.series_rules, ())
             self.assertNotIn("泽音", profile.title_prefix)
         self.assertEqual(plain.title_prefix, "")
         self.assertEqual(named.title_prefix, "【未知主播】")

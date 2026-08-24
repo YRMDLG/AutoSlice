@@ -11,12 +11,23 @@ from math import ceil, floor, isfinite
 from pathlib import Path
 from typing import Sequence
 
-from PIL import Image, ImageColor, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageStat
+from PIL import (
+    Image,
+    ImageColor,
+    ImageDraw,
+    ImageEnhance,
+    ImageFilter,
+    ImageFont,
+    ImageOps,
+    ImageStat,
+)
 
 from .emoji import get_emoji_font_path, is_emoji_character, render_emoji_image
-from .fonts import resolve_font_path, resolve_font_stack
+
+# resolve_font_path 保留为历史公开导入，供外部调用继续从 renderer 获取同一对象。
+from .fonts import resolve_font_path, resolve_font_stack  # noqa: F401
 from .style import (
-    MELODY_STYLE,
+    DEFAULT_COVER_STYLE,
     CanvasSpec,
     CoverPalette,
     CoverTemplate,
@@ -25,7 +36,6 @@ from .style import (
     get_template,
 )
 from .titles import CoverLine, create_cover_copy, recommend_visual_style
-
 
 PRESERVE_FRAME_MODES = {
     "evidence",
@@ -544,8 +554,10 @@ def compose_background(
     if template.background_mode == "minimal":
         background = background.filter(ImageFilter.GaussianBlur(radius=max(target_size) // 80))
         background = ImageEnhance.Brightness(background).enhance(1.08)
-    elif template.background_mode != "portrait_latest" and MELODY_STYLE.background_dim > 0:
-        background = ImageEnhance.Brightness(background).enhance(1.0 - MELODY_STYLE.background_dim)
+    elif template.background_mode != "portrait_latest" and DEFAULT_COVER_STYLE.background_dim > 0:
+        background = ImageEnhance.Brightness(background).enhance(
+            1.0 - DEFAULT_COVER_STYLE.background_dim
+        )
     return _zoom_background(
         background,
         canvas,
@@ -1102,6 +1114,7 @@ def render_cover(
     title: str,
     output_path: str | Path,
     *,
+    video_path: str | Path | None = None,
     canvas_key: str = "16x9",
     template_key: str | None = None,
     palette_key: str | None = None,
@@ -1128,7 +1141,7 @@ def render_cover(
     if not 1.0 <= float(background_scale) <= 2.5:
         raise ValueError("背景缩放必须在 1.0 到 2.5 之间")
 
-    recommendation = recommend_visual_style(title)
+    recommendation = recommend_visual_style(title, video_path=video_path)
     effective_template_key = template_key or recommendation.template_key
     template = get_template(effective_template_key)
     effective_palette_key = palette_key or (
@@ -1168,6 +1181,7 @@ def render_cover(
                 title,
                 template_key=effective_template_key,
                 max_line_units=max_line_units,
+                video_path=video_path,
             )
         if base_output is None:
             image = compose_background(

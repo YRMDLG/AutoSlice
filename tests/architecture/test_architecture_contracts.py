@@ -420,6 +420,26 @@ class ArchitectureDependencyTests(unittest.TestCase):
 
         self.assertEqual(reverse_edges, [])
 
+    def test_low_level_autoslice_modules_do_not_import_autocover_implementation(self):
+        current = architecture_snapshot.build_snapshot(ROOT)
+
+        reverse_edges = [
+            edge
+            for edge in current["import_edges"]
+            if edge["from"].startswith("autoslice.")
+            and not any(
+                edge["from"] == module
+                or edge["from"].startswith(f"{module}.")
+                for module in architecture_snapshot.HIGH_LEVEL_SOURCE_MODULES
+            )
+            and (
+                edge["to"] == "autoslice_cover"
+                or edge["to"].startswith("autoslice_cover.")
+            )
+        ]
+
+        self.assertEqual(reverse_edges, [])
+
 
 class ArchitectureDefinitionTests(unittest.TestCase):
 
@@ -2592,7 +2612,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 968)
+        self.assertEqual(current["summary"]["top_level_function_count"], 969)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5344,7 +5364,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            968,
+            969,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

@@ -12,6 +12,7 @@
       "path_keywords": [],
       "subtitle_glossary": ["SC", "提督", "舰长", "娃衣", "bangumi"],
       "asr_replacements": [],
+      "cover_rules": {},
       "title_style_profile": null
     },
     {
@@ -77,6 +78,22 @@
         ["感谢音乐声", "感谢音悦生"],
         ["见音乐声", "见音悦生"]
       ],
+      "cover_rules": {
+        "copy_replacements": [
+          ["时守星沙", "SSXS"],
+          ["建模设计师", "建模师"],
+          ["被司机回头盯上", "被司机盯上"],
+          ["保安都认识音音了", "保安都认识音音"]
+        ],
+        "series_rules": [
+          {
+            "keywords": ["晚安小音音", "小音的一晚", "歌回点评音"],
+            "template_key": "night",
+            "palette_key": "night_purple",
+            "reason": "命中晚安系列固定主题封面"
+          }
+        ]
+      },
       "outro_clip": {
         "enabled": true,
         "series_title": "晚安小音音",

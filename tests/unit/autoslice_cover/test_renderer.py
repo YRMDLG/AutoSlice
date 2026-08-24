@@ -9,11 +9,13 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw, ImageFont
 
+from autoslice_cover import fonts
 from autoslice_cover.emoji import (
     get_chromium_path,
     get_emoji_font_path,
     render_emoji_image,
 )
+from autoslice_cover.fonts import LOCAL_FONT_PATH
 from autoslice_cover.renderer import (
     StickerOverlay,
     TextTransform,
@@ -22,13 +24,21 @@ from autoslice_cover.renderer import (
     render_cover,
     resolve_font_path,
 )
-from autoslice_cover.fonts import LOCAL_FONT_PATH
-from autoslice_cover.style import HOME_4_3, TEMPLATES, get_canvas_spec, get_palette, get_template
+from autoslice_cover.style import (
+    HOME_4_3,
+    TEMPLATES,
+    get_canvas_spec,
+    get_palette,
+    get_template,
+)
 from autoslice_cover.titles import CoverLine
 
 
 class RendererTests(unittest.TestCase):
     """验证画布、布局、字体和输出体积。"""
+
+    def test_resolve_font_path_is_fonts_compatibility_alias(self) -> None:
+        self.assertIs(resolve_font_path, fonts.resolve_font_path)
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -56,6 +66,22 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(wide.template_key, "evidence")
         self.assertEqual(home.template_key, "evidence")
         self.assertNotEqual([item.box for item in wide.placements], [item.box for item in home.placements])
+
+    def test_render_uses_actual_zeyin_video_path_without_title_prefix(self) -> None:
+        video_dir = self.root / "泽音Melody" / "切片"
+        video_dir.mkdir(parents=True)
+        video_path = video_dir / "01_采访.mp4"
+        video_path.write_bytes(b"video")
+
+        result = render_cover(
+            self.frame_path,
+            "采访时守星沙",
+            self.root / "profile-path.jpg",
+            video_path=video_path,
+            template_key="dialog",
+        )
+
+        self.assertEqual([placement.text for placement in result.placements], ["采访SSXS"])
 
     def test_all_templates_keep_text_inside_canvas(self) -> None:
         title = "【泽音】看视频发现离谱场面😰音音当场吐槽🤣“这也太夸张了吧！”"

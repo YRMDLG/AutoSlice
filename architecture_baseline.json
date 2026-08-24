@@ -4482,6 +4482,30 @@
       "to": "autoslice_cover.paths"
     },
     {
+      "from": "autoslice_cover.profile_validation",
+      "imports": [
+        "autoslice.streamer_profiles.AUTO_PROFILE_ID",
+        "autoslice.streamer_profiles.StreamerProfile",
+        "autoslice.streamer_profiles.active_streamer_profile",
+        "autoslice.streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        7
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice_cover.profile_validation",
+      "imports": [
+        "autoslice_cover.style.PALETTES",
+        "autoslice_cover.style.TEMPLATES"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice_cover.style"
+    },
+    {
       "from": "autoslice_cover.renderer",
       "imports": [
         "autoslice_cover.emoji.get_emoji_font_path",
@@ -4489,18 +4513,17 @@
         "autoslice_cover.emoji.render_emoji_image"
       ],
       "lines": [
-        16
+        25
       ],
       "to": "autoslice_cover.emoji"
     },
     {
       "from": "autoslice_cover.renderer",
       "imports": [
-        "autoslice_cover.fonts.resolve_font_path",
         "autoslice_cover.fonts.resolve_font_stack"
       ],
       "lines": [
-        17
+        26
       ],
       "to": "autoslice_cover.fonts"
     },
@@ -4510,13 +4533,13 @@
         "autoslice_cover.style.CanvasSpec",
         "autoslice_cover.style.CoverPalette",
         "autoslice_cover.style.CoverTemplate",
-        "autoslice_cover.style.MELODY_STYLE",
+        "autoslice_cover.style.DEFAULT_COVER_STYLE",
         "autoslice_cover.style.get_canvas_spec",
         "autoslice_cover.style.get_palette",
         "autoslice_cover.style.get_template"
       ],
       "lines": [
-        18
+        27
       ],
       "to": "autoslice_cover.style"
     },
@@ -4528,7 +4551,7 @@
         "autoslice_cover.titles.recommend_visual_style"
       ],
       "lines": [
-        27
+        36
       ],
       "to": "autoslice_cover.titles"
     },
@@ -4546,12 +4569,31 @@
     {
       "from": "autoslice_cover.titles",
       "imports": [
-        "autoslice_cover.style.MELODY_STYLE",
+        "autoslice.streamer_profiles.StreamerProfile"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice_cover.titles",
+      "imports": [
+        "autoslice_cover.profile_validation.resolve_cover_profile"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice_cover.profile_validation"
+    },
+    {
+      "from": "autoslice_cover.titles",
+      "imports": [
         "autoslice_cover.style.VisualStyleRecommendation",
         "autoslice_cover.style.get_template"
       ],
       "lines": [
-        10
+        13
       ],
       "to": "autoslice_cover.style"
     },
@@ -4913,9 +4955,9 @@
   ],
   "longest_functions": [
     {
-      "end_line": 1065,
+      "end_line": 1066,
       "kind": "function",
-      "line": 623,
+      "line": 624,
       "line_count": 443,
       "module": "autoslice_cover.app",
       "path": "src/autoslice_cover/app.py",
@@ -5039,10 +5081,10 @@
       "qualname": "apply_danmaku_slice_decisions"
     },
     {
-      "end_line": 1245,
+      "end_line": 1257,
       "kind": "function",
-      "line": 1100,
-      "line_count": 146,
+      "line": 1110,
+      "line_count": 148,
       "module": "autoslice_cover.renderer",
       "path": "src/autoslice_cover/renderer.py",
       "qualname": "render_cover"
@@ -9526,198 +9568,210 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 779,
+      "line_count": 907,
       "longest_function": {
-        "end_line": 521,
+        "end_line": 638,
         "kind": "function",
-        "line": 443,
-        "line_count": 79,
+        "line": 549,
+        "line_count": 90,
         "qualname": "load_streamer_profiles"
       },
       "module": "autoslice.streamer_profiles",
       "path": "src/autoslice/streamer_profiles.py",
-      "sha256": "00bd413705d16307d047b9e8b74dd57e632ce8674d74411ffbcc87b7dbe6d76b",
+      "sha256": "051f013a6bcfddcb289516a55607c3d3a4cd400a183810423e6ecff0b06dd86b",
       "top_level_classes": [
         {
-          "end_line": 54,
+          "end_line": 57,
           "kind": "class",
-          "line": 49,
+          "line": 52,
           "name": "OutroClipConfig"
         },
         {
-          "end_line": 114,
+          "end_line": 67,
           "kind": "class",
-          "line": 58,
+          "line": 61,
+          "name": "CoverSeriesRule"
+        },
+        {
+          "end_line": 156,
+          "kind": "class",
+          "line": 71,
+          "name": "CoverRulesConfig"
+        },
+        {
+          "end_line": 217,
+          "kind": "class",
+          "line": 160,
           "name": "StreamerProfile"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 119,
+          "end_line": 222,
           "kind": "function",
-          "line": 117,
+          "line": 220,
           "name": "_config_path"
         },
         {
-          "end_line": 132,
+          "end_line": 235,
           "kind": "function",
-          "line": 122,
+          "line": 225,
           "name": "streamer_profile_override_path"
         },
         {
-          "end_line": 142,
+          "end_line": 245,
           "kind": "function",
-          "line": 135,
+          "line": 238,
           "name": "_required_text"
         },
         {
-          "end_line": 153,
+          "end_line": 256,
           "kind": "function",
-          "line": 145,
+          "line": 248,
           "name": "_string_list"
         },
         {
-          "end_line": 172,
+          "end_line": 275,
           "kind": "function",
-          "line": 156,
+          "line": 259,
           "name": "_replacement_pairs"
         },
         {
-          "end_line": 202,
+          "end_line": 308,
           "kind": "function",
-          "line": 175,
+          "line": 278,
           "name": "_load_profile_overrides"
         },
         {
-          "end_line": 242,
+          "end_line": 348,
           "kind": "function",
-          "line": 205,
+          "line": 311,
           "name": "_merge_profile_overrides"
         },
         {
-          "end_line": 278,
+          "end_line": 384,
           "kind": "function",
-          "line": 245,
+          "line": 351,
           "name": "_atomic_write_profile_overrides"
         },
         {
-          "end_line": 333,
+          "end_line": 439,
           "kind": "function",
-          "line": 281,
+          "line": 387,
           "name": "add_streamer_profile_replacement"
         },
         {
-          "end_line": 374,
+          "end_line": 480,
           "kind": "function",
-          "line": 336,
+          "line": 442,
           "name": "remove_streamer_profile_replacement"
         },
         {
-          "end_line": 409,
+          "end_line": 515,
           "kind": "function",
-          "line": 377,
+          "line": 483,
           "name": "_title_style_path"
         },
         {
-          "end_line": 440,
+          "end_line": 546,
           "kind": "function",
-          "line": 412,
+          "line": 518,
           "name": "_outro_clip_config"
         },
         {
-          "end_line": 521,
+          "end_line": 638,
           "kind": "function",
-          "line": 443,
+          "line": 549,
           "name": "load_streamer_profiles"
         },
         {
-          "end_line": 542,
+          "end_line": 659,
           "kind": "function",
-          "line": 524,
+          "line": 641,
           "name": "infer_streamer_name_from_filename"
         },
         {
-          "end_line": 548,
+          "end_line": 665,
           "kind": "function",
-          "line": 545,
+          "line": 662,
           "name": "_normalise_profile_name"
         },
         {
-          "end_line": 559,
+          "end_line": 676,
           "kind": "function",
-          "line": 551,
+          "line": 668,
           "name": "_profile_filename_names"
-        },
-        {
-          "end_line": 574,
-          "kind": "function",
-          "line": 562,
-          "name": "_match_profile_by_filename_name"
-        },
-        {
-          "end_line": 602,
-          "kind": "function",
-          "line": 577,
-          "name": "_match_profile_by_context"
-        },
-        {
-          "end_line": 627,
-          "kind": "function",
-          "line": 605,
-          "name": "_dynamic_filename_profile"
-        },
-        {
-          "end_line": 670,
-          "kind": "function",
-          "line": 630,
-          "name": "resolve_streamer_profile"
         },
         {
           "end_line": 691,
           "kind": "function",
-          "line": 673,
+          "line": 679,
+          "name": "_match_profile_by_filename_name"
+        },
+        {
+          "end_line": 729,
+          "kind": "function",
+          "line": 694,
+          "name": "_match_profile_by_context"
+        },
+        {
+          "end_line": 755,
+          "kind": "function",
+          "line": 732,
+          "name": "_dynamic_filename_profile"
+        },
+        {
+          "end_line": 798,
+          "kind": "function",
+          "line": 758,
+          "name": "resolve_streamer_profile"
+        },
+        {
+          "end_line": 819,
+          "kind": "function",
+          "line": 801,
           "name": "profile_identity_names"
         },
         {
-          "end_line": 699,
+          "end_line": 827,
           "kind": "function",
-          "line": 694,
+          "line": 822,
           "name": "profile_matches_streamer"
         },
         {
-          "end_line": 708,
+          "end_line": 836,
           "kind": "function",
-          "line": 702,
+          "line": 830,
           "name": "infer_streamer_name"
         },
         {
-          "end_line": 721,
+          "end_line": 849,
           "kind": "function",
-          "line": 711,
+          "line": 839,
           "name": "merge_profile_subtitle_glossary"
         },
         {
-          "end_line": 727,
+          "end_line": 855,
           "kind": "function",
-          "line": 724,
+          "line": 852,
           "name": "active_streamer_profile"
         },
         {
-          "end_line": 737,
+          "end_line": 865,
           "kind": "function",
-          "line": 730,
+          "line": 858,
           "name": "current_streamer_profile"
         },
         {
-          "end_line": 762,
+          "end_line": 890,
           "kind": "function",
-          "line": 741,
+          "line": 869,
           "name": "streamer_profile_context"
         },
         {
-          "end_line": 779,
+          "end_line": 907,
           "kind": "function",
-          "line": 765,
+          "line": 893,
           "name": "public_streamer_profiles"
         }
       ]
@@ -11891,17 +11945,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1072,
+      "line_count": 1073,
       "longest_function": {
-        "end_line": 1065,
+        "end_line": 1066,
         "kind": "function",
-        "line": 623,
+        "line": 624,
         "line_count": 443,
         "qualname": "create_app"
       },
       "module": "autoslice_cover.app",
       "path": "src/autoslice_cover/app.py",
-      "sha256": "cf92166bddb4f635ffb3514c8ddbfe21becf7096e8b99a2178511b64bca14c87",
+      "sha256": "5ecb205fcb81293e5ede139fc6b7c368b53fded10fe259a2ddea491e31bd4483",
       "top_level_classes": [
         {
           "end_line": 61,
@@ -12020,27 +12074,27 @@
           "name": "_render_result_payload"
         },
         {
-          "end_line": 537,
+          "end_line": 538,
           "kind": "function",
           "line": 502,
           "name": "_render_task_result"
         },
         {
-          "end_line": 559,
+          "end_line": 560,
           "kind": "function",
-          "line": 540,
+          "line": 541,
           "name": "_render_task"
         },
         {
-          "end_line": 620,
+          "end_line": 621,
           "kind": "function",
-          "line": 562,
+          "line": 563,
           "name": "_save_task"
         },
         {
-          "end_line": 1065,
+          "end_line": 1066,
           "kind": "function",
-          "line": 623,
+          "line": 624,
           "name": "create_app"
         }
       ]
@@ -12124,17 +12178,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 424,
+      "line_count": 436,
       "longest_function": {
-        "end_line": 415,
+        "end_line": 427,
         "kind": "function",
-        "line": 322,
-        "line_count": 94,
+        "line": 330,
+        "line_count": 98,
         "qualname": "generate_copy_recommendations"
       },
       "module": "autoslice_cover.copy_recommendations",
       "path": "src/autoslice_cover/copy_recommendations.py",
-      "sha256": "ca4624800ea495964c093509f3efa0e3690a611bac481c4d27e38d9e8eda202e",
+      "sha256": "811b4dc1ca92e922cb0668eb79b4f805937dbde193960e96980d049653011f81",
       "top_level_classes": [
         {
           "end_line": 50,
@@ -12181,51 +12235,51 @@
           "name": "_validated_text"
         },
         {
-          "end_line": 161,
+          "end_line": 169,
           "kind": "function",
           "line": 116,
           "name": "_fallback_candidates"
         },
         {
-          "end_line": 205,
+          "end_line": 213,
           "kind": "function",
-          "line": 164,
+          "line": 172,
           "name": "_candidate_from_payload"
         },
         {
-          "end_line": 225,
+          "end_line": 233,
           "kind": "function",
-          "line": 208,
+          "line": 216,
           "name": "validate_candidate_payload"
         },
         {
-          "end_line": 261,
+          "end_line": 269,
           "kind": "function",
-          "line": 228,
+          "line": 236,
           "name": "_validate_review_payload"
         },
         {
-          "end_line": 288,
+          "end_line": 296,
           "kind": "function",
-          "line": 264,
+          "line": 272,
           "name": "_analysis_prompt"
         },
         {
-          "end_line": 313,
+          "end_line": 321,
           "kind": "function",
-          "line": 291,
+          "line": 299,
           "name": "_review_prompt"
         },
         {
-          "end_line": 319,
+          "end_line": 327,
           "kind": "function",
-          "line": 316,
+          "line": 324,
           "name": "_safe_warning"
         },
         {
-          "end_line": 415,
+          "end_line": 427,
           "kind": "function",
-          "line": 322,
+          "line": 330,
           "name": "generate_copy_recommendations"
         }
       ]
@@ -12518,288 +12572,311 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1245,
+      "line_count": 48,
       "longest_function": {
-        "end_line": 1245,
+        "end_line": 48,
         "kind": "function",
-        "line": 1100,
-        "line_count": 146,
+        "line": 17,
+        "line_count": 32,
+        "qualname": "resolve_cover_profile"
+      },
+      "module": "autoslice_cover.profile_validation",
+      "path": "src/autoslice_cover/profile_validation.py",
+      "sha256": "4abc0aa6e8bbc1ae35a7c26d7c11795e7e2947c828721ac42cc47ef6fd379277",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 48,
+          "kind": "function",
+          "line": 17,
+          "name": "resolve_cover_profile"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1257,
+      "longest_function": {
+        "end_line": 1257,
+        "kind": "function",
+        "line": 1110,
+        "line_count": 148,
         "qualname": "render_cover"
       },
       "module": "autoslice_cover.renderer",
       "path": "src/autoslice_cover/renderer.py",
-      "sha256": "7646bc4ce55a28b11fb4cb2814e27250b54410208e013446dbd7cfec45c70da4",
+      "sha256": "e29891708a95b883905c3d10939e5140725af1e8f7594b99fa4772d7a59efdaf",
       "top_level_classes": [
         {
-          "end_line": 68,
+          "end_line": 76,
           "kind": "class",
-          "line": 54,
+          "line": 62,
           "name": "TextPlacement"
         },
         {
-          "end_line": 80,
+          "end_line": 88,
           "kind": "class",
-          "line": 72,
+          "line": 80,
           "name": "TextTransform"
         },
         {
-          "end_line": 90,
+          "end_line": 98,
           "kind": "class",
-          "line": 84,
+          "line": 92,
           "name": "_FontRun"
         },
         {
-          "end_line": 100,
+          "end_line": 108,
           "kind": "class",
-          "line": 94,
+          "line": 102,
           "name": "_TextFontLayout"
         },
         {
-          "end_line": 114,
+          "end_line": 122,
           "kind": "class",
-          "line": 104,
+          "line": 112,
           "name": "StickerOverlay"
         },
         {
-          "end_line": 128,
+          "end_line": 136,
           "kind": "class",
-          "line": 118,
+          "line": 126,
           "name": "StickerPlacement"
         },
         {
-          "end_line": 162,
+          "end_line": 170,
           "kind": "class",
-          "line": 132,
+          "line": 140,
           "name": "RenderResult"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 177,
+          "end_line": 185,
           "kind": "function",
-          "line": 165,
+          "line": 173,
           "name": "_load_font"
         },
         {
-          "end_line": 182,
+          "end_line": 190,
           "kind": "function",
-          "line": 180,
+          "line": 188,
           "name": "_glyph_signature"
         },
         {
-          "end_line": 197,
+          "end_line": 205,
           "kind": "function",
-          "line": 186,
+          "line": 194,
           "name": "_font_supports_character"
         },
         {
-          "end_line": 214,
+          "end_line": 222,
           "kind": "function",
-          "line": 201,
+          "line": 209,
           "name": "_font_path_for_character"
         },
         {
-          "end_line": 230,
+          "end_line": 238,
           "kind": "function",
-          "line": 217,
+          "line": 225,
           "name": "_font_run_specs"
         },
         {
-          "end_line": 282,
+          "end_line": 290,
           "kind": "function",
-          "line": 233,
+          "line": 241,
           "name": "_measure_font_layout"
         },
         {
-          "end_line": 313,
+          "end_line": 321,
           "kind": "function",
-          "line": 285,
+          "line": 293,
           "name": "_draw_emoji_run"
         },
         {
-          "end_line": 358,
+          "end_line": 366,
           "kind": "function",
-          "line": 316,
+          "line": 324,
           "name": "_draw_text_layout"
         },
         {
-          "end_line": 367,
+          "end_line": 375,
           "kind": "function",
-          "line": 361,
+          "line": 369,
           "name": "_focus_from_template"
         },
         {
-          "end_line": 378,
+          "end_line": 386,
           "kind": "function",
-          "line": 370,
+          "line": 378,
           "name": "_side_edge_energy"
         },
         {
-          "end_line": 392,
+          "end_line": 400,
           "kind": "function",
-          "line": 381,
+          "line": 389,
           "name": "_third_edge_energy"
         },
         {
-          "end_line": 452,
+          "end_line": 460,
           "kind": "function",
-          "line": 395,
+          "line": 403,
           "name": "_auto_adjust_text_side"
         },
         {
-          "end_line": 469,
+          "end_line": 477,
           "kind": "function",
-          "line": 455,
+          "line": 463,
           "name": "_blurred_backdrop"
         },
         {
-          "end_line": 494,
+          "end_line": 502,
           "kind": "function",
-          "line": 472,
+          "line": 480,
           "name": "_zoom_background"
         },
         {
-          "end_line": 555,
+          "end_line": 565,
           "kind": "function",
-          "line": 497,
+          "line": 505,
           "name": "compose_background"
         },
         {
-          "end_line": 582,
+          "end_line": 592,
           "kind": "function",
-          "line": 558,
+          "line": 568,
           "name": "_text_area"
-        },
-        {
-          "end_line": 591,
-          "kind": "function",
-          "line": 585,
-          "name": "_role_scale"
         },
         {
           "end_line": 601,
           "kind": "function",
-          "line": 594,
+          "line": 595,
+          "name": "_role_scale"
+        },
+        {
+          "end_line": 611,
+          "kind": "function",
+          "line": 604,
           "name": "_measure_text"
         },
         {
-          "end_line": 621,
+          "end_line": 631,
           "kind": "function",
-          "line": 604,
+          "line": 614,
           "name": "_measure_text_at_size"
         },
         {
-          "end_line": 653,
+          "end_line": 663,
           "kind": "function",
-          "line": 624,
+          "line": 634,
           "name": "_manual_measurement"
         },
         {
-          "end_line": 674,
+          "end_line": 684,
           "kind": "function",
-          "line": 656,
+          "line": 666,
           "name": "_fit_text"
         },
         {
-          "end_line": 706,
+          "end_line": 716,
           "kind": "function",
-          "line": 677,
+          "line": 687,
           "name": "_fit_independent_text"
         },
         {
-          "end_line": 737,
+          "end_line": 747,
           "kind": "function",
-          "line": 709,
+          "line": 719,
           "name": "_stack_positions"
         },
         {
-          "end_line": 768,
+          "end_line": 778,
           "kind": "function",
-          "line": 740,
+          "line": 750,
           "name": "_edge_positions"
         },
         {
-          "end_line": 801,
+          "end_line": 811,
           "kind": "function",
-          "line": 771,
+          "line": 781,
           "name": "_portrait_latest_positions"
         },
         {
-          "end_line": 825,
+          "end_line": 835,
           "kind": "function",
-          "line": 804,
+          "line": 814,
           "name": "_positions_for_template"
         },
         {
-          "end_line": 851,
+          "end_line": 861,
           "kind": "function",
-          "line": 828,
+          "line": 838,
           "name": "_manual_position"
         },
         {
-          "end_line": 906,
+          "end_line": 916,
           "kind": "function",
-          "line": 854,
+          "line": 864,
           "name": "draw_stickers"
         },
         {
-          "end_line": 910,
+          "end_line": 920,
           "kind": "function",
-          "line": 909,
+          "line": 919,
           "name": "_rgb"
-        },
-        {
-          "end_line": 998,
-          "kind": "function",
-          "line": 913,
-          "name": "draw_cover_text"
         },
         {
           "end_line": 1008,
           "kind": "function",
-          "line": 1001,
+          "line": 923,
+          "name": "draw_cover_text"
+        },
+        {
+          "end_line": 1018,
+          "kind": "function",
+          "line": 1011,
           "name": "_save_jpeg"
         },
         {
-          "end_line": 1014,
+          "end_line": 1024,
           "kind": "function",
-          "line": 1011,
+          "line": 1021,
           "name": "_temporary_output_path"
         },
         {
-          "end_line": 1021,
+          "end_line": 1031,
           "kind": "function",
-          "line": 1017,
+          "line": 1027,
           "name": "_cleanup_file"
         },
         {
-          "end_line": 1028,
+          "end_line": 1038,
           "kind": "function",
-          "line": 1024,
+          "line": 1034,
           "name": "commit_output_transaction"
         },
         {
-          "end_line": 1062,
+          "end_line": 1072,
           "kind": "function",
-          "line": 1031,
+          "line": 1041,
           "name": "_commit_output_transaction_locked"
-        },
-        {
-          "end_line": 1087,
-          "kind": "function",
-          "line": 1065,
-          "name": "_save_jpeg_batch"
         },
         {
           "end_line": 1097,
           "kind": "function",
-          "line": 1090,
+          "line": 1075,
+          "name": "_save_jpeg_batch"
+        },
+        {
+          "end_line": 1107,
+          "kind": "function",
+          "line": 1100,
           "name": "_jpeg_output_path"
         },
         {
-          "end_line": 1245,
+          "end_line": 1257,
           "kind": "function",
-          "line": 1100,
+          "line": 1110,
           "name": "render_cover"
         }
       ]
@@ -12835,7 +12912,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 464,
+      "line_count": 467,
       "longest_function": {
         "end_line": 79,
         "kind": "function",
@@ -12845,7 +12922,7 @@
       },
       "module": "autoslice_cover.style",
       "path": "src/autoslice_cover/style.py",
-      "sha256": "1cc35105126a291fee1ee0fa1d86aa25607ccff0cbb56a4390027e6731de9213",
+      "sha256": "29127ac56472f3ca813f6667891058aad3d657972334fb4731be92a0363a8a6d",
       "top_level_classes": [
         {
           "end_line": 30,
@@ -12880,135 +12957,135 @@
       ],
       "top_level_functions": [
         {
-          "end_line": 444,
+          "end_line": 447,
           "kind": "function",
-          "line": 433,
+          "line": 436,
           "name": "get_canvas_spec"
         },
         {
-          "end_line": 454,
+          "end_line": 457,
           "kind": "function",
-          "line": 447,
+          "line": 450,
           "name": "get_palette"
         },
         {
-          "end_line": 464,
+          "end_line": 467,
           "kind": "function",
-          "line": 457,
+          "line": 460,
           "name": "get_template"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 467,
+      "line_count": 503,
       "longest_function": {
-        "end_line": 311,
+        "end_line": 325,
         "kind": "function",
-        "line": 242,
-        "line_count": 70,
+        "line": 245,
+        "line_count": 81,
         "qualname": "recommend_visual_style"
       },
       "module": "autoslice_cover.titles",
       "path": "src/autoslice_cover/titles.py",
-      "sha256": "54922a89f7ef58b8610cc06cb6a14eeaf81ccfd7d67eef3cc0b7ee3a01f49943",
+      "sha256": "e887209f181a3f8649e5c0abf4f115c14209666150abb726d46f696113fd2073",
       "top_level_classes": [
         {
-          "end_line": 37,
+          "end_line": 34,
           "kind": "class",
-          "line": 33,
+          "line": 30,
           "name": "CoverLine"
         },
         {
-          "end_line": 61,
+          "end_line": 58,
           "kind": "class",
-          "line": 41,
+          "line": 38,
           "name": "LayoutVariant"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 76,
+          "end_line": 73,
           "kind": "function",
-          "line": 64,
+          "line": 61,
           "name": "read_text"
         },
         {
-          "end_line": 97,
+          "end_line": 94,
           "kind": "function",
-          "line": 79,
+          "line": 76,
           "name": "parse_title_markdown"
         },
         {
-          "end_line": 108,
+          "end_line": 105,
           "kind": "function",
-          "line": 100,
+          "line": 97,
           "name": "load_title_map"
         },
         {
-          "end_line": 115,
+          "end_line": 112,
           "kind": "function",
-          "line": 111,
+          "line": 108,
           "name": "strip_title_prefix"
         },
         {
-          "end_line": 123,
+          "end_line": 120,
           "kind": "function",
-          "line": 118,
+          "line": 115,
           "name": "title_from_filename"
         },
         {
-          "end_line": 146,
+          "end_line": 143,
           "kind": "function",
-          "line": 126,
+          "line": 123,
           "name": "match_title"
         },
         {
-          "end_line": 160,
+          "end_line": 157,
           "kind": "function",
-          "line": 149,
+          "line": 146,
           "name": "visual_units"
         },
         {
-          "end_line": 204,
+          "end_line": 201,
           "kind": "function",
-          "line": 163,
+          "line": 160,
           "name": "_wrap_visual"
         },
         {
-          "end_line": 239,
+          "end_line": 242,
           "kind": "function",
-          "line": 207,
+          "line": 204,
           "name": "_split_clauses"
         },
         {
-          "end_line": 311,
+          "end_line": 325,
           "kind": "function",
-          "line": 242,
+          "line": 245,
           "name": "recommend_visual_style"
         },
         {
-          "end_line": 338,
+          "end_line": 352,
           "kind": "function",
-          "line": 314,
+          "line": 328,
           "name": "_assign_line_roles"
         },
         {
-          "end_line": 357,
+          "end_line": 378,
           "kind": "function",
-          "line": 341,
+          "line": 355,
           "name": "create_cover_copy"
         },
         {
-          "end_line": 414,
+          "end_line": 438,
           "kind": "function",
-          "line": 360,
+          "line": 381,
           "name": "create_cover_lines"
         },
         {
-          "end_line": 467,
+          "end_line": 503,
           "kind": "function",
-          "line": 417,
+          "line": 441,
           "name": "recommend_layout_variants"
         }
       ]
@@ -13189,17 +13266,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 705,
+      "line_count": 708,
       "longest_function": {
-        "end_line": 313,
+        "end_line": 316,
         "kind": "function",
         "line": 211,
-        "line_count": 103,
+        "line_count": 106,
         "qualname": "CoverWorkspace.scan"
       },
       "module": "autoslice_cover.workspace",
       "path": "src/autoslice_cover/workspace.py",
-      "sha256": "a0a134c00feb397b537ed2889fd1c89c76d552f57d06a9ddc556b9142278646e",
+      "sha256": "dae1e752a3cfcad8b8b5c9c1bcd544448f5a0758409e8cb49cec8596dcdce31e",
       "top_level_classes": [
         {
           "end_line": 119,
@@ -13208,7 +13285,7 @@
           "name": "CoverTask"
         },
         {
-          "end_line": 705,
+          "end_line": 708,
           "kind": "class",
           "line": 122,
           "name": "CoverWorkspace"
@@ -14232,6 +14309,7 @@
       "src/autoslice_cover/fonts.py",
       "src/autoslice_cover/manifest_contract.py",
       "src/autoslice_cover/paths.py",
+      "src/autoslice_cover/profile_validation.py",
       "src/autoslice_cover/renderer.py",
       "src/autoslice_cover/stickers.py",
       "src/autoslice_cover/style.py",
@@ -14348,12 +14426,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 460,
-    "production_line_count": 40606,
-    "production_module_count": 173,
+    "import_edge_count": 464,
+    "production_line_count": 40849,
+    "production_module_count": 174,
     "test_private_patch_count": 17,
-    "top_level_class_count": 95,
-    "top_level_function_count": 968
+    "top_level_class_count": 97,
+    "top_level_function_count": 969
   },
   "test_private_patches": {
     "by_target_module": {

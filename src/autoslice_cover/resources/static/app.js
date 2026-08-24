@@ -775,7 +775,7 @@ async function loadDefaultCoverFont() {
     return;
   }
   try {
-    await document.fonts.load('48px "AutoCover Seto"', "音音封面");
+    await document.fonts.load('48px "AutoCover Seto"', "封面预览");
   } catch (error) {
     console.warn("濑户体网页预览加载失败，将使用浏览器回退字体", error);
   }

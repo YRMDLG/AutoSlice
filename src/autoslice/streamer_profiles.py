@@ -38,6 +38,9 @@ _FILENAME_STREAMER_RE = re.compile(
     re.IGNORECASE,
 )
 _PROFILE_NAME_SEPARATOR_RE = re.compile(r"[\s._\-·•【】\[\]()（）]+")
+_CONTEXT_TITLE_PREFIX_RE = re.compile(
+    r"^\s*(?:【(?P<book>[^【】\r\n]{1,32})】|\[(?P<bracket>[^\[\]\r\n]{1,32})\])"
+)
 _ACTIVE_PROFILE: ContextVar["StreamerProfile | None"] = ContextVar(
     "autoslice_streamer_profile",
     default=None,
@@ -55,6 +58,105 @@ class OutroClipConfig:
 
 
 @dataclass(frozen=True)
+class CoverSeriesRule:
+    """主播专属系列标题对应的封面模板规则。"""
+
+    keywords: tuple[str, ...]
+    template_key: str
+    palette_key: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CoverRulesConfig:
+    """主播专属封面文案替换与系列推荐规则。"""
+
+    copy_replacements: tuple[tuple[str, str], ...] = ()
+    series_rules: tuple[CoverSeriesRule, ...] = ()
+
+    @staticmethod
+    def _copy_replacements(payload: dict[str, object]) -> tuple[tuple[str, str], ...]:
+        value = payload.get("copy_replacements", [])
+        if not isinstance(value, list):
+            raise ValueError("主播配置 cover_rules.copy_replacements 必须是二维字符串数组")
+        if len(value) > 50:
+            raise ValueError("主播配置 cover_rules.copy_replacements 最多包含 50 项")
+        pairs: list[tuple[str, str]] = []
+        for item in value:
+            if not isinstance(item, list) or len(item) != 2:
+                raise ValueError("主播配置 cover_rules.copy_replacements 每项必须包含两个字符串")
+            source, target = item
+            if not isinstance(source, str) or not isinstance(target, str):
+                raise ValueError("主播配置 cover_rules.copy_replacements 每项必须包含两个字符串")
+            pair = (
+                re.sub(r"\s+", " ", source).strip(),
+                re.sub(r"\s+", " ", target).strip(),
+            )
+            if not pair[0] or not pair[1] or pair[0] == pair[1]:
+                raise ValueError("主播配置 cover_rules.copy_replacements 必须替换为不同的非空文本")
+            if len(pair[0]) > 80 or len(pair[1]) > 80:
+                raise ValueError("主播配置 cover_rules.copy_replacements 单项不能超过 80 个字符")
+            if pair not in pairs:
+                pairs.append(pair)
+        return tuple(pairs)
+
+    @classmethod
+    def from_profile_payload(cls, payload: dict[str, object]) -> "CoverRulesConfig":
+        """严格校验可选封面规则；旧配置缺少该字段时使用通用默认。"""
+
+        value = payload.get("cover_rules")
+        if value is None:
+            return cls()
+        if not isinstance(value, dict):
+            raise ValueError("主播配置 cover_rules 必须是对象或 null")
+        unknown = set(value) - {"copy_replacements", "series_rules"}
+        if unknown:
+            raise ValueError(f"主播配置 cover_rules 包含未知字段: {', '.join(sorted(unknown))}")
+
+        raw_rules = value.get("series_rules", [])
+        if not isinstance(raw_rules, list):
+            raise ValueError("主播配置 cover_rules.series_rules 必须是对象数组")
+        if len(raw_rules) > 12:
+            raise ValueError("主播配置 cover_rules.series_rules 最多包含 12 项")
+        series_rules: list[CoverSeriesRule] = []
+        for raw_rule in raw_rules:
+            if not isinstance(raw_rule, dict):
+                raise ValueError("主播配置 cover_rules.series_rules 每项必须是对象")
+            unknown_rule = set(raw_rule) - {
+                "keywords",
+                "template_key",
+                "palette_key",
+                "reason",
+            }
+            if unknown_rule:
+                raise ValueError(
+                    "主播配置 cover_rules.series_rules 包含未知字段: "
+                    f"{', '.join(sorted(unknown_rule))}"
+                )
+            raw_keywords = raw_rule.get("keywords", [])
+            if isinstance(raw_keywords, list) and len(raw_keywords) > 20:
+                raise ValueError("主播配置 cover_rules.series_rules.keywords 最多包含 20 项")
+            keywords = _string_list(raw_rule, "keywords", maximum=20)
+            if not keywords:
+                raise ValueError("主播配置 cover_rules.series_rules.keywords 至少包含一项")
+            if any(len(keyword) > 80 for keyword in keywords):
+                raise ValueError("主播配置 cover_rules.series_rules.keywords 单项不能超过 80 个字符")
+            template_key = _required_text(raw_rule, "template_key", maximum=64)
+            palette_key = _required_text(raw_rule, "palette_key", maximum=64)
+            reason = _required_text(raw_rule, "reason", maximum=160)
+            series_rules.append(CoverSeriesRule(
+                keywords=keywords,
+                template_key=template_key,
+                palette_key=palette_key,
+                reason=reason,
+            ))
+        return cls(
+            copy_replacements=cls._copy_replacements(value),
+            series_rules=tuple(series_rules),
+        )
+
+
+@dataclass(frozen=True)
 class StreamerProfile:
     """单个主播工作流所需的稳定配置。"""
 
@@ -69,6 +171,7 @@ class StreamerProfile:
     asr_replacements: tuple[tuple[str, str], ...]
     title_style_profile: Path | None
     outro_clip: OutroClipConfig | None
+    cover_rules: CoverRulesConfig = CoverRulesConfig()
 
     def to_public_dict(self) -> dict[str, object]:
         """只返回前端选择所需字段，不暴露本机配置路径。"""
@@ -83,7 +186,7 @@ class StreamerProfile:
         }
 
     def subtitle_review_fingerprint(self) -> str:
-        """返回覆盖完整冻结 profile 的稳定摘要，供字幕缓存隔离。"""
+        """返回字幕复核相关配置的稳定摘要，供字幕缓存隔离。"""
 
         outro_clip = None
         if self.outro_clip is not None:
@@ -198,6 +301,9 @@ def _load_profile_overrides(path: Path) -> dict[str, tuple[tuple[str, str], ...]
             raise ValueError(f"主播覆盖词库 id 格式无效: {profile_id}")
         if not isinstance(raw_profile, dict):
             raise ValueError("主播覆盖词库 profile 必须是对象")
+        unknown = set(raw_profile) - {"asr_replacements"}
+        if unknown:
+            raise ValueError("主播覆盖词库只能包含 asr_replacements，不能保存封面规则")
         overrides[profile_id] = _replacement_pairs(raw_profile)
     return overrides
 
@@ -494,6 +600,7 @@ def load_streamer_profiles(
             asr_replacements=_replacement_pairs(item),
             title_style_profile=_title_style_path(config_path, item),
             outro_clip=_outro_clip_config(item),
+            cover_rules=CoverRulesConfig.from_profile_payload(item),
         )
         profiles[profile_id] = profile
 
@@ -517,6 +624,16 @@ def load_streamer_profiles(
                 *generic_profile.subtitle_glossary,
                 *profile.subtitle_glossary,
             ))),
+            cover_rules=CoverRulesConfig(
+                copy_replacements=tuple(dict.fromkeys((
+                    *generic_profile.cover_rules.copy_replacements,
+                    *profile.cover_rules.copy_replacements,
+                ))),
+                series_rules=tuple(dict.fromkeys((
+                    *generic_profile.cover_rules.series_rules,
+                    *profile.cover_rules.series_rules,
+                ))),
+            ),
         )
     return profiles, default_profile_id
 
@@ -583,6 +700,11 @@ def _match_profile_by_context(
     context = str(context_hint or "").strip().casefold()
     if not context:
         return None
+    prefix_match = _CONTEXT_TITLE_PREFIX_RE.match(str(context_hint or ""))
+    if prefix_match is not None:
+        prefix_name = prefix_match.group("book") or prefix_match.group("bracket") or ""
+        matched_prefix = _match_profile_by_filename_name(profiles, prefix_name)
+        return matched_prefix or profiles.get(GENERIC_PROFILE_ID)
     matches: list[tuple[int, int, str, StreamerProfile]] = []
     for profile in profiles.values():
         prefix_name = profile.title_prefix.strip("【】[] \t\r\n")
@@ -592,6 +714,11 @@ def _match_profile_by_context(
             (400, profile.canonical_name, 2),
             (300, profile.report_name, 2),
             *((200, alias, 2) for alias in profile.aliases),
+            *(
+                (150, keyword, 2)
+                for rule in profile.cover_rules.series_rules
+                for keyword in rule.keywords
+            ),
         )
         for priority, candidate, minimum_length in candidates:
             normalized = str(candidate or "").strip().casefold()
@@ -624,6 +751,7 @@ def _dynamic_filename_profile(
         asr_replacements=base_profile.asr_replacements,
         title_style_profile=base_profile.title_style_profile,
         outro_clip=base_profile.outro_clip,
+        cover_rules=base_profile.cover_rules,
     )
 
 
@@ -661,12 +789,12 @@ def resolve_streamer_profile(
                 matches.append((len(normalized_keyword), profile.id, profile))
     if matches:
         return max(matches, key=lambda item: (item[0], item[1]))[2]
-    context_profile = _match_profile_by_context(profiles, context_hint)
-    if context_profile is not None:
-        return context_profile
     default_profile = profiles[GENERIC_PROFILE_ID]
     if filename_streamer:
         return _dynamic_filename_profile(default_profile, filename_streamer)
+    context_profile = _match_profile_by_context(profiles, context_hint)
+    if context_profile is not None:
+        return context_profile
     return default_profile
 
 

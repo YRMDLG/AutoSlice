@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from autoslice.streamer_profiles import resolve_streamer_profile
 from autoslice_cover.style import (
+    DEFAULT_COVER_STYLE,
     HOME_4_3,
     MELODY_STYLE,
     PALETTES,
@@ -146,6 +149,48 @@ class CoverCopyTests(unittest.TestCase):
 
         self.assertEqual(lines, ["最近来太勤连保安都认识音音"])
 
+    def test_zeyin_keeps_all_historical_cover_copy_replacements(self) -> None:
+        cases = {
+            "【泽音】采访时守星沙": "采访SSXS",
+            "【泽音】现场扮演建模设计师": "现场扮演建模师",
+            "【泽音】打车时被司机回头盯上": "打车时被司机盯上",
+            "【泽音】最近来太勤连保安都认识音音了": "最近来太勤连保安都认识音音",
+        }
+
+        for title, expected in cases.items():
+            with self.subTest(title=title):
+                self.assertEqual(
+                    create_cover_lines(title, template_key="dialog", max_line_units=80),
+                    [expected],
+                )
+
+    def test_generic_and_unknown_streamers_do_not_use_zeyin_cover_rules(self) -> None:
+        generic_lines = create_cover_lines(
+            "【其他主播】最近来太勤连保安都认识音音了",
+            template_key="dialog",
+            max_line_units=80,
+        )
+        generic_style = recommend_visual_style("【其他主播】晚安小音音")
+
+        self.assertEqual(generic_lines, ["最近来太勤连保安都认识音音了"])
+        self.assertNotEqual(generic_style.template_key, "night")
+
+    def test_title_only_series_context_can_identify_zeyin(self) -> None:
+        recommendation = recommend_visual_style("本周歌回点评音")
+
+        self.assertEqual(
+            (recommendation.template_key, recommendation.palette_key),
+            ("night", "night_purple"),
+        )
+
+    def test_explicit_unknown_streamer_filename_stays_generic(self) -> None:
+        recommendation = recommend_visual_style(
+            "晚安小音音",
+            video_path=r"X:\fixtures\其他主播-2026-08-24-切片.mp4",
+        )
+
+        self.assertNotEqual(recommendation.template_key, "night")
+
     def test_low_information_reaction_does_not_displace_the_punchline(self) -> None:
         lines = create_cover_lines(
             "【泽音】亲手量了老鼠的长度，为什么是长度？多少？秘密！不是姐们你在说啥"
@@ -176,6 +221,38 @@ class CoverCopyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "必须为正数"):
             create_cover_lines("测试", max_lines=0)
 
+    def test_invalid_profile_style_references_raise_clear_autocover_errors(self) -> None:
+        cases = (
+            ("template_key", "missing-template", "night_purple"),
+            ("palette_key", "night", "missing-palette"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            for field, template_key, palette_key in cases:
+                with self.subTest(field=field):
+                    path.write_text(json.dumps({
+                        "schema_version": 1,
+                        "default_profile_id": "generic",
+                        "profiles": [{
+                            "id": "generic",
+                            "label": "通用",
+                            "canonical_name": "主播",
+                            "report_name": "主播",
+                            "cover_rules": {
+                                "series_rules": [{
+                                    "keywords": ["系列标题"],
+                                    "template_key": template_key,
+                                    "palette_key": palette_key,
+                                    "reason": "测试无效样式引用",
+                                }],
+                            },
+                        }],
+                    }, ensure_ascii=False), encoding="utf-8")
+                    profile = resolve_streamer_profile("generic", config_path=path)
+
+                    with self.assertRaisesRegex(ValueError, field):
+                        recommend_visual_style("系列标题", profile=profile)
+
 
 class StyleTests(unittest.TestCase):
     """验证双比例规格和历史配色。"""
@@ -187,6 +264,7 @@ class StyleTests(unittest.TestCase):
         self.assertAlmostEqual(HOME_4_3.aspect_ratio, 4 / 3)
 
     def test_style_uses_semantic_colors_instead_of_blind_rotation(self) -> None:
+        self.assertIs(MELODY_STYLE, DEFAULT_COVER_STYLE)
         self.assertEqual(MELODY_STYLE.color_for_role("context"), "#FFE438")
         self.assertEqual(MELODY_STYLE.color_for_role("quote"), "#16D8ED")
         self.assertEqual(MELODY_STYLE.color_for_role("emphasis"), "#16D8ED")
@@ -215,6 +293,17 @@ class StyleTests(unittest.TestCase):
         self.assertEqual(get_palette("conflict").color_for_role("emphasis"), "#FF4E43")
         self.assertEqual(get_template("night").background_mode, "series_asset")
         self.assertEqual(get_template("evidence").layout, "evidence_split")
+
+    def test_generic_style_labels_do_not_expose_streamer_branding(self) -> None:
+        public_labels = [
+            DEFAULT_COVER_STYLE.label,
+            *(template.label for template in TEMPLATES.values()),
+        ]
+
+        for label in public_labels:
+            self.assertNotIn("泽音", label)
+            self.assertNotIn("音音", label)
+            self.assertNotIn("晚安小音音", label)
 
     def test_style_recommendation_handles_historical_series(self) -> None:
         night = recommend_visual_style("【泽音】晚安小音音💤唱歌小音的一晚")

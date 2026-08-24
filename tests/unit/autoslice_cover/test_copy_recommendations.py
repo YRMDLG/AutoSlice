@@ -135,6 +135,27 @@ class CopyRecommendationTests(unittest.TestCase):
         self.assertEqual(len(result.candidates), 3)
         self.assertIn("未调用 AI", result.warning or "")
 
+    def test_fallback_uses_actual_video_path_for_profile_rules(self) -> None:
+        video_dir = self.root / "泽音Melody" / "切片"
+        video_dir.mkdir(parents=True)
+        video = video_dir / "01_采访.mp4"
+        video.write_bytes(b"video")
+
+        result = generate_copy_recommendations(
+            video_path=video,
+            current_title="采访时守星沙",
+            runner=lambda *_args, **_kwargs: self.fail("没有 SRT 时不得调用 LLM"),
+        )
+
+        self.assertEqual(result.source, "fallback")
+        self.assertTrue(
+            any(
+                "SSXS" in line.text
+                for candidate in result.candidates
+                for line in candidate.lines
+            )
+        )
+
     def test_bad_output_and_sensitive_error_are_redacted_in_warning(self) -> None:
         def runner(_prompt: str, **_kwargs: object) -> str:
             raise RuntimeError(

@@ -255,7 +255,10 @@ class CoverWorkspace:
                     title = match_title(video_path.name, self._title_map)
                     if contract_match is not None and contract_match.publish_title:
                         title = contract_match.publish_title
-                    recommendation = recommend_visual_style(title)
+                    recommendation = recommend_visual_style(
+                        title,
+                        video_path=video_path,
+                    )
                     folder_created_at, folder_modified_at = _path_timestamps(
                         video_path.parent
                     )

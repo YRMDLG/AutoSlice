@@ -529,6 +529,7 @@ def _render_task_result(
         candidate.path,
         task.title,
         output_path,
+        video_path=task.video_path,
         canvas_key=canvas_key,
         template_key=task.template_key,
         palette_key=task.palette_key,

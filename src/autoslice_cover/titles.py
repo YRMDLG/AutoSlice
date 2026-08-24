@@ -7,7 +7,10 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from .style import MELODY_STYLE, VisualStyleRecommendation, get_template
+from autoslice.streamer_profiles import StreamerProfile
+
+from .profile_validation import resolve_cover_profile
+from .style import VisualStyleRecommendation, get_template
 
 TITLE_PREFIX_RE = re.compile(
     r"^\s*(?:【[^【】\r\n]{1,32}】|\[[^\[\]\r\n]{1,32}\])\s*"
@@ -20,12 +23,6 @@ EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]")
 QUOTE_RE = re.compile(r"[“”‘’「」『』\"']")
 CLAUSE_BOUNDARY_RE = re.compile(r"(?<=[，,。！？!?；;：:])")
 PREFERRED_BREAK_AFTER = frozenset("，,。！？!?；;：:的了呢吧啊呀啦嘛和但却又还就也再去来在给把被让说问看想是当要会能连")
-COVER_COPY_REPLACEMENTS = (
-    ("时守星沙", "SSXS"),
-    ("建模设计师", "建模师"),
-    ("被司机回头盯上", "被司机盯上"),
-    ("保安都认识音音了", "保安都认识音音"),
-)
 LOW_INFORMATION_CLAUSES = frozenset({"别搞笑了", "不是姐们何意味", "不是姐们你在说啥"})
 
 
@@ -204,9 +201,15 @@ def _wrap_visual(text: str, max_units: int) -> list[str]:
     return lines
 
 
-def _split_clauses(title: str) -> list[str]:
+def _split_clauses(
+    title: str,
+    *,
+    video_path: str | Path | None = None,
+    profile: StreamerProfile | str | None = None,
+) -> list[str]:
+    cover_profile = resolve_cover_profile(title, video_path=video_path, profile=profile)
     text = strip_title_prefix(title)
-    for source, replacement in COVER_COPY_REPLACEMENTS:
+    for source, replacement in cover_profile.cover_rules.copy_replacements:
         text = text.replace(source, replacement)
     text = QUOTE_RE.sub("", text)
     text = EMOJI_BOUNDARY_RE.sub(r"\1|", text)
@@ -239,12 +242,23 @@ def _split_clauses(title: str) -> list[str]:
     return merged
 
 
-def recommend_visual_style(title: str) -> VisualStyleRecommendation:
+def recommend_visual_style(
+    title: str,
+    *,
+    video_path: str | Path | None = None,
+    profile: StreamerProfile | str | None = None,
+) -> VisualStyleRecommendation:
     """根据历史封面规律推荐构图模板与调色板。"""
 
+    cover_profile = resolve_cover_profile(title, video_path=video_path, profile=profile)
     cleaned = strip_title_prefix(title)
-    if any(keyword in cleaned for keyword in ("晚安小音音", "小音的一晚", "歌回点评音")):
-        return VisualStyleRecommendation("night", "night_purple", "命中晚安系列固定主题封面")
+    for rule in cover_profile.cover_rules.series_rules:
+        if any(keyword in cleaned for keyword in rule.keywords):
+            return VisualStyleRecommendation(
+                rule.template_key,
+                rule.palette_key,
+                rule.reason,
+            )
 
     if any(keyword in cleaned for keyword in ("警告", "请勿外放", "太隐晦", "禁止外放")):
         return VisualStyleRecommendation("warning", "warning", "命中警告或整活关键词")
@@ -276,7 +290,7 @@ def recommend_visual_style(title: str) -> VisualStyleRecommendation:
         for keyword in ("生日", "朋友", "开心", "可爱", "唱歌", "温柔", "保安", "新衣", "萤火虫")
     ):
         palette_key = "latest_soft"
-    elif len(_split_clauses(cleaned)) <= 2 and visual_units(cleaned) <= 22:
+    elif len(_split_clauses(cleaned, profile=cover_profile)) <= 2 and visual_units(cleaned) <= 22:
         palette_key = "latest_yellow"
     else:
         palette_key = "latest_cyan"
@@ -305,7 +319,7 @@ def recommend_visual_style(title: str) -> VisualStyleRecommendation:
     if any(keyword in cleaned for keyword in ("看二创", "看视频", "看AI", "看《", "锐评", "复盘", "采访")):
         return VisualStyleRecommendation("reaction", "media", "标题以外部视频或二创内容为主要视觉证据")
 
-    clauses = _split_clauses(cleaned)
+    clauses = _split_clauses(cleaned, profile=cover_profile)
     if len(clauses) <= 2 and visual_units(cleaned) <= 38:
         return VisualStyleRecommendation("headline", palette_key, "标题较短，适合两行头条构图")
     return VisualStyleRecommendation("dialog", palette_key, "多段事件与原话，适合直播对话构图")
@@ -344,16 +358,23 @@ def create_cover_copy(
     max_lines: int | None = None,
     max_line_units: int | None = None,
     template_key: str | None = None,
+    video_path: str | Path | None = None,
+    profile: StreamerProfile | str | None = None,
 ) -> list[CoverLine]:
     """生成带语义角色的封面文案，供渲染器按含义配色。"""
 
+    cover_profile = resolve_cover_profile(title, video_path=video_path, profile=profile)
     lines = create_cover_lines(
         title,
         max_lines=max_lines,
         max_line_units=max_line_units,
         template_key=template_key,
+        profile=cover_profile,
     )
-    effective_template_key = template_key or recommend_visual_style(title).template_key
+    effective_template_key = template_key or recommend_visual_style(
+        title,
+        profile=cover_profile,
+    ).template_key
     return _assign_line_roles(lines, effective_template_key)
 
 
@@ -363,13 +384,16 @@ def create_cover_lines(
     max_lines: int | None = None,
     max_line_units: int | None = None,
     template_key: str | None = None,
+    video_path: str | Path | None = None,
+    profile: StreamerProfile | str | None = None,
 ) -> list[str]:
     """将投稿标题压缩成适合封面的大字行。
 
     文案优先保留标题开头的事件钩子和结尾的反差或原话。所有行都会限制视觉宽度，避免渲染时截字。
     """
 
-    recommendation = recommend_visual_style(title)
+    cover_profile = resolve_cover_profile(title, video_path=video_path, profile=profile)
+    recommendation = recommend_visual_style(title, profile=cover_profile)
     template = get_template(template_key or recommendation.template_key)
     effective_max_lines = template.max_lines if max_lines is None else max_lines
     effective_max_units = template.max_line_units if max_line_units is None else max_line_units
@@ -377,7 +401,7 @@ def create_cover_lines(
     if effective_max_lines < 1 or effective_max_units < 4:
         raise ValueError("封面行数和单行宽度必须为正数")
 
-    clauses = _split_clauses(title)
+    clauses = _split_clauses(title, profile=cover_profile)
     if not clauses:
         return ["未命名切片"]
 
@@ -414,10 +438,16 @@ def create_cover_lines(
     return deduplicated[:head_count] + deduplicated[-tail_count:]
 
 
-def recommend_layout_variants(title: str) -> list[LayoutVariant]:
+def recommend_layout_variants(
+    title: str,
+    *,
+    video_path: str | Path | None = None,
+    profile: StreamerProfile | str | None = None,
+) -> list[LayoutVariant]:
     """为当前完整标题生成三种不重复、可直接渲染的排版候选。"""
 
-    primary = recommend_visual_style(title)
+    cover_profile = resolve_cover_profile(title, video_path=video_path, profile=profile)
+    primary = recommend_visual_style(title, profile=cover_profile)
     candidates = [
         (
             primary.template_key,
@@ -451,7 +481,13 @@ def recommend_layout_variants(title: str) -> list[LayoutVariant]:
         if template_key in seen_templates:
             continue
         seen_templates.add(template_key)
-        lines = tuple(create_cover_copy(title, template_key=template_key))
+        lines = tuple(
+            create_cover_copy(
+                title,
+                template_key=template_key,
+                profile=cover_profile,
+            )
+        )
         variants.append(
             LayoutVariant(
                 key=f"{template_key}:{palette_key}",

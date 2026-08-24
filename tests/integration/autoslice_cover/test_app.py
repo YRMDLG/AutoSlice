@@ -360,6 +360,29 @@ class AppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return response.get_json()["tasks"]
 
+    def test_options_use_generic_product_labels_and_hide_profile_rules(self) -> None:
+        response = self.client.get("/api/options")
+        script = self.client.get("/static/app.js")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(script.status_code, 200)
+        script_text = script.get_data(as_text=True)
+        script.close()
+        payload = response.get_json()
+        public_style_data = json.dumps(
+            {
+                "templates": payload["templates"],
+                "palettes": payload["palettes"],
+            },
+            ensure_ascii=False,
+        )
+        self.assertNotIn("泽音", public_style_data)
+        self.assertNotIn("音音", public_style_data)
+        self.assertNotIn("晚安小音音", public_style_data)
+        self.assertNotIn("cover_rules", response.get_data(as_text=True))
+        self.assertNotIn("泽音", script_text)
+        self.assertNotIn("音音", script_text)
+
     def test_scan_accepts_explicit_manifest_and_never_exposes_absolute_paths(self) -> None:
         clip_path = (self.clips / "01_司机回头.mp4").resolve()
         subtitle_path = (self.root / "司机回头_校对.srt").resolve()

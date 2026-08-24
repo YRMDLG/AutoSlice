@@ -365,7 +365,7 @@ TEMPLATES = {
     ),
     "night": CoverTemplate(
         key="night",
-        label="晚安小音音系列",
+        label="夜间系列主题",
         default_palette_key="night_purple",
         max_lines=2,
         max_line_units=32,
@@ -419,15 +419,18 @@ TEMPLATES = {
     ),
 }
 
-MELODY_STYLE = CoverStyle(
+DEFAULT_COVER_STYLE = CoverStyle(
     key="melody",
-    label="秩序式高冲击 × 音音双比例风格",
+    label="AutoCover 高冲击双比例风格",
     default_template_key="dialog",
     default_palette_key="latest_cyan",
     background_dim=0.0,
     max_lines=4,
     max_line_units=28,
 )
+
+# 保留旧导入名；通用样式参数只有一个真实对象 owner。
+MELODY_STYLE = DEFAULT_COVER_STYLE
 
 
 def get_canvas_spec(key: str) -> CanvasSpec:
