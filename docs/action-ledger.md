@@ -34,6 +34,7 @@
 | COVER-C3 | frontend-features | 2026-08-24 | [4f928ea](https://github.com/YRMDLG/AutoSlice/commit/4f928ea7df66dcf551ffa292f8ddde2d114b2d73) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32685676235) | 将主播专属封面替换和系列规则迁入 profile，并为未知主播保留通用默认 |
 | TASK-T1 | frontend-features | 2026-08-24 | [d42bc08](https://github.com/YRMDLG/AutoSlice/commit/d42bc08fc1e92fdcf3c4a98b5c6e95f2d3fd5764) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32688553162) | topic_v2 消费 SSE init 恢复 queued、running、done、error、cancelled、interrupted 六种任务状态，queued/running 可取消，interrupted 显示中断原因与检查点续跑提示，并保持 SSE、无高频轮询 |
 | TASK-T2 | frontend-features | 2026-08-24 | [97e56cd](https://github.com/YRMDLG/AutoSlice/commit/97e56cd78e82fc185c8baec483f0c68d29bb3ff9) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32693645395) | 以核心半开区间限定输出，提供前后只读上下文，确定性协调并合并相邻候选，同时保持去重和后续边界复核 |
+| TASK-T3 | frontend-features | 2026-08-24 | [9d66010](https://github.com/YRMDLG/AutoSlice/commit/9d66010eb509de1c289efaa528154a4e731414f0) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32700905549) | 新增结果质量概览，展示最终切片数量、时长分布、投稿价值分、含弹幕峰值、锚点来源和边缘候选；仅用于排序和选择，不恢复每小时配额 |
 
 ## 记录规则
 
