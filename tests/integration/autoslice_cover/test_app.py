@@ -40,6 +40,7 @@ def _copy_generation_response() -> dict[str, object]:
                 "reason": "写出免费游戏的反转后果",
                 "template_key": "headline",
                 "palette_key": "latest_conflict",
+                "evidence_quotes": ["朋友说送我一个大作", "本来就是免费游戏"],
                 "lines": [
                     {"text": "朋友说送我大作", "role": "context"},
                     {"text": "点开竟是免费游戏", "role": "emphasis"},
@@ -50,6 +51,7 @@ def _copy_generation_response() -> dict[str, object]:
                 "reason": "保留双方原话与结果",
                 "template_key": "dialog",
                 "palette_key": "latest_cyan",
+                "evidence_quotes": ["朋友说送我一个大作", "本来就是免费游戏"],
                 "lines": [
                     {"text": "朋友神秘送礼", "role": "context"},
                     {"text": "她说绝对是大作", "role": "quote"},
@@ -61,6 +63,7 @@ def _copy_generation_response() -> dict[str, object]:
                 "reason": "不同 role 区分对话角色",
                 "template_key": "evidence",
                 "palette_key": "latest_soft",
+                "evidence_quotes": ["朋友说送我一个大作", "本来就是免费游戏"],
                 "lines": [
                     {"text": "朋友说送你一个游戏", "role": "context"},
                     {"text": "朋友：绝对是大作", "role": "quote"},
