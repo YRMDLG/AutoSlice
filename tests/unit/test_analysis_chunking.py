@@ -204,11 +204,121 @@ class AnalysisChunkingTests(unittest.TestCase):
         chunks = chunking.chunk_srt(segments, peaks=[], chunk_sec=10)
 
         self.assertEqual(len(chunks), 2)
-        self.assertEqual((chunks[0]["start"], chunks[0]["end"]), (0, 600))
+        self.assertEqual((chunks[0]["start"], chunks[0]["end"]), (0, 10))
         self.assertIn("[0:00:00－0:00:02] 第一句", chunks[0]["text"])
         self.assertIn("[0:00:05] 第二句", chunks[0]["text"])
-        self.assertEqual((chunks[1]["start"], chunks[1]["end"]), (11, 611))
+        self.assertEqual((chunks[1]["start"], chunks[1]["end"]), (10, 20))
         self.assertEqual(chunks[1]["text"], "[0:00:11－0:00:14] 第三句")
+
+    def test_chunk_srt_uses_half_open_non_overlapping_cores_with_one_owner_per_cue(self):
+        segments = [
+            (0, 1, "零秒"),
+            (599, 600, "边界前"),
+            (600, 601, "恰好六百秒"),
+            (601, 602, "六百零一秒"),
+            (1200, 1201, "恰好一千二百秒"),
+        ]
+
+        chunks = chunking.chunk_srt(segments, peaks=[])
+
+        self.assertEqual(
+            [(item["core"]["start"], item["core"]["end"]) for item in chunks],
+            [(0, 600), (600, 1200), (1200, 1800)],
+        )
+        self.assertEqual(
+            [(item["start"], item["end"], item["text"]) for item in chunks],
+            [
+                (item["core"]["start"], item["core"]["end"], item["core"]["text"])
+                for item in chunks
+            ],
+        )
+        core_text = "\n".join(item["core"]["text"] for item in chunks)
+        for label in ("零秒", "边界前", "恰好六百秒", "六百零一秒", "恰好一千二百秒"):
+            self.assertEqual(core_text.count(label), 1, label)
+        self.assertNotIn("恰好六百秒", chunks[0]["core"]["text"])
+        self.assertIn("恰好六百秒", chunks[1]["core"]["text"])
+
+    def test_chunk_srt_adds_ninety_second_read_only_context_and_clips_edges(self):
+        segments = [
+            (10, 11, "开头字幕"),
+            (509, 510, "前置窗口外"),
+            (510, 511, "前置窗口起点"),
+            (599, 600, "前置窗口末尾"),
+            (600, 601, "第二块核心开头"),
+            (689, 690, "后置窗口末尾"),
+            (691, 692, "后置窗口外"),
+            (1200, 1201, "第三块核心开头"),
+        ]
+
+        chunks = chunking.chunk_srt(segments, peaks=[])
+        first, second, third = chunks
+
+        self.assertEqual(first["context"]["before"], {"start": 0, "end": 0, "text": ""})
+        self.assertEqual(
+            (first["context"]["after"]["start"], first["context"]["after"]["end"]),
+            (600, 690),
+        )
+        self.assertIn("第二块核心开头", first["context"]["after"]["text"])
+        self.assertIn("后置窗口末尾", first["context"]["after"]["text"])
+        self.assertNotIn("后置窗口外", first["context"]["after"]["text"])
+
+        self.assertEqual(
+            (second["context"]["before"]["start"], second["context"]["before"]["end"]),
+            (510, 600),
+        )
+        self.assertNotIn("前置窗口外", second["context"]["before"]["text"])
+        self.assertIn("前置窗口起点", second["context"]["before"]["text"])
+        self.assertIn("前置窗口末尾", second["context"]["before"]["text"])
+        self.assertEqual(
+            (third["context"]["after"]["start"], third["context"]["after"]["end"]),
+            (1201, 1201),
+        )
+
+    def test_chunk_srt_context_keeps_boundary_cue_owned_once_without_after_duplication(self):
+        segments = [
+            (0, 1, "第一块开头"),
+            (505, 515, "跨前置窗口起点"),
+            (595, 605, "跨后置窗口起点"),
+            (600, 601, "第二块开头"),
+        ]
+
+        first, second = chunking.chunk_srt(segments, peaks=[])
+
+        self.assertIn("跨前置窗口起点", second["context"]["before"]["text"])
+        self.assertNotIn("跨后置窗口起点", first["context"]["after"]["text"])
+        self.assertIn("跨后置窗口起点", second["context"]["before"]["text"])
+        self.assertEqual(first["core"]["text"].count("跨后置窗口起点"), 1)
+        core_text = "\n".join(chunk["core"]["text"] for chunk in (first, second))
+        self.assertEqual(core_text.count("跨前置窗口起点"), 1)
+        self.assertEqual(core_text.count("跨后置窗口起点"), 1)
+        self.assertIn("跨后置窗口起点", first["core"]["text"])
+        self.assertNotIn("跨后置窗口起点", second["core"]["text"])
+
+    def test_chunk_srt_post_context_excludes_cue_starting_at_exact_end(self):
+        segments = [
+            (0, 1, "第一块开头"),
+            (100, 101, "第二块开头"),
+            (189, 191, "与后置窗口末尾相交"),
+            (190, 195, "恰好从后置窗口结束边界开始"),
+            (250, 251, "延长时间轴"),
+        ]
+
+        first = chunking.chunk_srt(
+            segments,
+            peaks=[],
+            chunk_sec=100,
+            context_sec=90,
+        )[0]
+
+        self.assertEqual(
+            (first["context"]["after"]["start"], first["context"]["after"]["end"]),
+            (100, 190),
+        )
+        self.assertIn("与后置窗口末尾相交", first["context"]["after"]["text"])
+        self.assertNotIn(
+            "恰好从后置窗口结束边界开始",
+            first["context"]["after"]["text"],
+        )
 
     def test_make_chunk_summarizes_peak_ratio_and_has_peak_flag(self):
         result = chunking.make_chunk(

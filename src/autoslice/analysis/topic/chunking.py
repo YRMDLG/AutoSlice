@@ -26,39 +26,32 @@ def parse_srt_text(srt_path):
     ]
 
 
-def chunk_srt(segs, peaks, chunk_sec=topic_analysis.CHUNK_SEC):
-    """按视频时间分块字幕，并附加弹幕密度和内容证据。"""
+def chunk_srt(
+    segs,
+    peaks,
+    chunk_sec=topic_analysis.CHUNK_SEC,
+    context_sec=90,
+):
+    """按半开核心区间分块字幕，并附加前后只读上下文。"""
     if not segs:
         return []
+    if chunk_sec <= 0:
+        raise ValueError("chunk_sec 必须大于 0")
+    if context_sec < 0:
+        raise ValueError("context_sec 不能小于 0")
     avg_density = danmaku_analysis._average_danmaku_density(peaks)
     independent_peaks = danmaku_analysis._high_energy_danmaku_peaks(
         peaks,
         avg_density,
     )
 
-    chunks = []
-    chunk_start = segs[0][0]
-    current_texts = []
-
-    for item in segs:
+    rows = []
+    for order, item in enumerate(segs):
         if len(item) == 3:
             start_s, end_s, text = item
         else:
             start_s, text = item
             end_s = start_s
-        if start_s - chunk_start > chunk_sec:
-            if current_texts:
-                chunks.append(
-                    make_chunk(
-                        chunk_start,
-                        current_texts,
-                        peaks,
-                        avg_density,
-                        independent_peaks=independent_peaks,
-                    )
-                )
-            chunk_start = start_s
-            current_texts = []
         time_label = (
             timecode.format_elapsed(start_s)
             if end_s <= start_s + 1
@@ -67,16 +60,66 @@ def chunk_srt(segs, peaks, chunk_sec=topic_analysis.CHUNK_SEC):
                 f"{timecode.format_elapsed(end_s)}"
             )
         )
-        current_texts.append(f"[{time_label}] {text}")
+        rows.append((start_s, end_s, order, f"[{time_label}] {text}"))
+    rows.sort(key=lambda row: (row[0], row[1], row[2]))
 
-    if current_texts:
+    first_start = rows[0][0]
+    core_anchor = (first_start // chunk_sec) * chunk_sec
+    owned_rows = {}
+    for row in rows:
+        bucket_index = int((row[0] - core_anchor) // chunk_sec)
+        core_start = core_anchor + bucket_index * chunk_sec
+        owned_rows.setdefault(core_start, []).append(row)
+
+    timeline_end = max(
+        end_s if end_s > start_s else start_s + 1
+        for start_s, end_s, _, _ in rows
+    )
+    chunks = []
+    for chunk_start in sorted(owned_rows):
+        chunk_end = chunk_start + chunk_sec
+        before_start = max(0, chunk_start - context_sec)
+        after_start = min(chunk_end, timeline_end)
+        after_end = min(chunk_end + context_sec, timeline_end)
+        before_texts = [
+            row[3]
+            for row in rows
+            if (
+                row[0] < chunk_start
+                and (row[1] if row[1] > row[0] else row[0] + 1)
+                > before_start
+            )
+        ]
+        after_texts = [
+            row[3]
+            for row in rows
+            if (
+                row[0] >= chunk_end
+                and row[0] < after_end
+                and (row[1] if row[1] > row[0] else row[0] + 1)
+                > chunk_end
+            )
+        ]
         chunks.append(
             make_chunk(
                 chunk_start,
-                current_texts,
+                [row[3] for row in owned_rows[chunk_start]],
                 peaks,
                 avg_density,
                 independent_peaks=independent_peaks,
+                chunk_end=chunk_end,
+                context={
+                    "before": {
+                        "start": before_start,
+                        "end": chunk_start,
+                        "text": "\n".join(before_texts),
+                    },
+                    "after": {
+                        "start": after_start,
+                        "end": max(after_start, after_end),
+                        "text": "\n".join(after_texts),
+                    },
+                },
             )
         )
 
@@ -89,10 +132,29 @@ def make_chunk(
     peaks,
     avg_density=0,
     independent_peaks=None,
+    *,
+    chunk_end=None,
+    context=None,
 ):
     """构造一个固定时长的字幕/弹幕分析分块。"""
     text_block = "\n".join(texts)
-    chunk_end = chunk_start + topic_analysis.CHUNK_SEC
+    chunk_end = (
+        chunk_start + topic_analysis.CHUNK_SEC
+        if chunk_end is None
+        else chunk_end
+    )
+    context = context or {
+        "before": {
+            "start": max(0, chunk_start - 90),
+            "end": chunk_start,
+            "text": "",
+        },
+        "after": {
+            "start": chunk_end,
+            "end": chunk_end + 90,
+            "text": "",
+        },
+    }
     nearby_peaks = [
         (start, density)
         for start, density in peaks
@@ -140,6 +202,12 @@ def make_chunk(
         "start": chunk_start,
         "end": chunk_end,
         "text": text_block,
+        "core": {
+            "start": chunk_start,
+            "end": chunk_end,
+            "text": text_block,
+        },
+        "context": context,
         "danmaku_info": danmaku_info,
         "danmaku_evidence": [row[2] for row in evidence_rows[:4]],
         "has_peaks": bool(nearby_peaks),

@@ -15,6 +15,7 @@ from autoslice.analysis.report import formatting as topic_formatting
 from autoslice.analysis.review import deduplication as clip_deduplication
 from autoslice.analysis.review import policy as clip_policy
 from autoslice.analysis.topic import normalization
+from autoslice.analysis.topic import reconciliation as topic_reconciliation
 from autoslice.analysis.topic import response as topic_response
 from autoslice.analysis.topic import titles as title_analysis
 from autoslice.llm import transport as llm_gateway
@@ -107,12 +108,46 @@ def repair_short_topic_end(start_s, end_s, body_lines, chunk_end):
 
 def build_chunk_prompt(ch, index, total, compact=False, streamer_name=None):
     """构造字幕/弹幕首轮 prompt；人工时间轴不得参与这一轮。"""
-    chunk_start = ch["start"]
-    chunk_end = ch.get("end", ch["start"] + CHUNK_SEC)
+    core = ch.get("core") if isinstance(ch.get("core"), dict) else {}
+    context_sections = (
+        ch.get("context") if isinstance(ch.get("context"), dict) else {}
+    )
+    before = (
+        context_sections.get("before")
+        if isinstance(context_sections.get("before"), dict)
+        else {}
+    )
+    after = (
+        context_sections.get("after")
+        if isinstance(context_sections.get("after"), dict)
+        else {}
+    )
+    chunk_start = core.get("start", ch["start"])
+    chunk_end = core.get("end", ch.get("end", ch["start"] + CHUNK_SEC))
+    before_start = before.get("start", max(0, chunk_start - 90))
+    before_end = before.get("end", chunk_start)
+    after_start = after.get("start", chunk_end)
+    after_end = after.get("end", chunk_end + 90)
+    output_end = max(chunk_end, after_end)
     text_limit = LLM_COMPACT_TEXT_CHARS if compact else LLM_FULL_TEXT_CHARS
+    before_text = str(before.get("text") or "")
+    core_text = str(core.get("text", ch.get("text") or ""))
+    after_text = str(after.get("text") or "")
+    context_budget = text_limit // 8
+    limited_before = before_text[-context_budget:]
+    limited_after = after_text[:context_budget]
+    core_budget = max(0, text_limit - len(limited_before) - len(limited_after))
+    limited_core = core_text[:core_budget]
+    remaining = text_limit - len(limited_before) - len(limited_core) - len(limited_after)
+    if remaining > 0 and len(before_text) > len(limited_before):
+        expanded_length = min(len(before_text), len(limited_before) + remaining)
+        limited_before = before_text[-expanded_length:]
+        remaining = text_limit - len(limited_before) - len(limited_core) - len(limited_after)
+    if remaining > 0 and len(after_text) > len(limited_after):
+        limited_after += after_text[len(limited_after):len(limited_after) + remaining]
     context = title_analysis._prompt_context(
         streamer_name,
-        context_text=ch.get("text") or "",
+        context_text=core_text,
         compact=compact,
     )
     prompt = render_topic_analysis_prompt(
@@ -125,7 +160,15 @@ def build_chunk_prompt(ch, index, total, compact=False, streamer_name=None):
             end_label=timecode.format_elapsed(chunk_end),
             danmaku_info=str(ch["danmaku_info"]),
             danmaku_evidence=tuple(ch.get("danmaku_evidence") or ()),
-            subtitle_text=str(ch["text"])[:text_limit],
+            subtitle_text=limited_core,
+            pre_context_start_label=timecode.format_elapsed(before_start),
+            pre_context_end_label=timecode.format_elapsed(before_end),
+            post_context_start_label=timecode.format_elapsed(after_start),
+            post_context_end_label=timecode.format_elapsed(after_end),
+            output_end_label=timecode.format_elapsed(output_end),
+            pre_context_text=limited_before,
+            core_subtitle_text=limited_core,
+            post_context_text=limited_after,
         )
     )
     return prompt, chunk_start, chunk_end
@@ -140,10 +183,25 @@ def strip_code_fence(response):
     return response.strip()
 
 
-def is_topic_in_chunk(start_s, end_s, chunk_start, chunk_end, tolerance=90):
+def is_topic_in_chunk(
+    start_s,
+    end_s,
+    chunk_start,
+    chunk_end,
+    tolerance=90,
+    *,
+    core_start=None,
+    core_end=None,
+    context_end=None,
+):
     """只接受当前分块时间范围附近的话题，过滤模型复读旧示例。"""
     if end_s <= start_s:
         return False
+    if core_start is not None or core_end is not None or context_end is not None:
+        owned_start = chunk_start if core_start is None else core_start
+        owned_end = chunk_end if core_end is None else core_end
+        allowed_end = owned_end if context_end is None else context_end
+        return owned_start <= start_s < owned_end and end_s <= allowed_end
     if start_s < chunk_start - tolerance:
         return False
     if end_s > chunk_end + tolerance:
@@ -156,6 +214,11 @@ def parse_json_topics_response(
     chunk_start,
     chunk_end,
     accepted_topics,
+    *,
+    core_start=None,
+    core_end=None,
+    context_end=None,
+    source_chunk_index=None,
 ):
     """优先解析结构化 JSON；不是 JSON 时返回 ``None``。"""
     payload = llm_gateway.extract_json_payload(response)
@@ -182,7 +245,15 @@ def parse_json_topics_response(
             end_s = timecode.parse_hms(end_str)
         except Exception:
             continue
-        if not is_topic_in_chunk(start_s, end_s, chunk_start, chunk_end):
+        if not is_topic_in_chunk(
+            start_s,
+            end_s,
+            chunk_start,
+            chunk_end,
+            core_start=core_start,
+            core_end=core_end,
+            context_end=context_end,
+        ):
             continue
         raw_title = str(item.get("title", "")).strip()
         if title_analysis._is_placeholder_title(raw_title):
@@ -201,7 +272,7 @@ def parse_json_topics_response(
             start_s,
             end_s,
             body_lines,
-            chunk_end,
+            context_end if context_end is not None else chunk_end,
         )
         title = title_analysis._derive_topic_title(
             title_analysis._clean_topic_title(raw_title),
@@ -230,6 +301,8 @@ def parse_json_topics_response(
         )
         if title_hook:
             topic["title_hook"] = title_hook
+        if source_chunk_index is not None:
+            topic["_chunk_index"] = int(source_chunk_index)
         if clip_deduplication._is_duplicate_topic(topic, accepted_topics):
             continue
         accepted_topics.append(topic)
@@ -256,6 +329,11 @@ def parse_llm_response(
     chunk_end,
     accepted_topics=None,
     allow_markdown_fallback=True,
+    *,
+    core_start=None,
+    core_end=None,
+    context_end=None,
+    source_chunk_index=None,
 ):
     """解析单个分块的 LLM 输出，返回报告块与切片标记。"""
     accepted_topics = accepted_topics if accepted_topics is not None else []
@@ -264,6 +342,10 @@ def parse_llm_response(
         chunk_start,
         chunk_end,
         accepted_topics,
+        core_start=core_start,
+        core_end=core_end,
+        context_end=context_end,
+        source_chunk_index=source_chunk_index,
     )
     if json_result is not None:
         return json_result
@@ -282,7 +364,15 @@ def parse_llm_response(
             return
         start_s = current["start"]
         end_s = current["end"]
-        if not is_topic_in_chunk(start_s, end_s, chunk_start, chunk_end):
+        if not is_topic_in_chunk(
+            start_s,
+            end_s,
+            chunk_start,
+            chunk_end,
+            core_start=core_start,
+            core_end=core_end,
+            context_end=context_end,
+        ):
             return
         if title_analysis._is_placeholder_title(current["title"]):
             return
@@ -297,7 +387,7 @@ def parse_llm_response(
             start_s,
             end_s,
             body_lines,
-            chunk_end,
+            context_end if context_end is not None else chunk_end,
         )
         title = title_analysis._derive_topic_title(
             current["title"],
@@ -314,6 +404,8 @@ def parse_llm_response(
             "can_slice": current["can_slice"],
             "body": body_lines,
         }
+        if source_chunk_index is not None:
+            topic["_chunk_index"] = int(source_chunk_index)
         if clip_deduplication._is_duplicate_topic(topic, accepted_topics):
             return
         accepted_topics.append(topic)
@@ -370,17 +462,18 @@ def strip_prompt_time_labels(text):
 
 def make_fallback_topic_from_chunk(ch, streamer_name=None):
     """无有效输出时生成非切片兜底时间轴，避免整场报告空白。"""
-    text = strip_prompt_time_labels(ch.get("text", ""))
+    core = ch.get("core") if isinstance(ch.get("core"), dict) else {}
+    text = strip_prompt_time_labels(core.get("text", ch.get("text", "")))
     text = re.sub(r"\s+", "", text)
     if len(text) < 20:
         return None
     title = title_analysis._fallback_title_from_text(text)
     topic = {
-        "start": int(ch["start"]),
-        "end": int(ch.get("end", ch["start"] + CHUNK_SEC)),
-        "start_str": timecode.format_elapsed(ch["start"]),
+        "start": int(core.get("start", ch["start"])),
+        "end": int(core.get("end", ch.get("end", ch["start"] + CHUNK_SEC))),
+        "start_str": timecode.format_elapsed(core.get("start", ch["start"])),
         "end_str": timecode.format_elapsed(
-            ch.get("end", ch["start"] + CHUNK_SEC)
+            core.get("end", ch.get("end", ch["start"] + CHUNK_SEC))
         ),
         "title": title,
         "can_slice": False,
@@ -439,6 +532,18 @@ def analyze_topic_chunks(
             "compact_prompt": compact_prompt,
             "chunk_start": chunk_start,
             "chunk_end": chunk_end,
+            "context_end": max(
+                chunk_end,
+                (
+                    chunk.get("context", {}).get("after", {}).get(
+                        "end",
+                        chunk_end + 90,
+                    )
+                    if isinstance(chunk.get("context"), dict)
+                    and isinstance(chunk.get("context", {}).get("after"), dict)
+                    else chunk_end + 90
+                ),
+            ),
             "fingerprint": fingerprint,
             "pct": 25 + int((index / total) * 68),
         }
@@ -631,13 +736,14 @@ def analyze_topic_chunks(
                     ):
                         pass
 
-    accepted_topics = []
+    chunk_candidates = []
     failed_chunks = []
     for prepared in prepared_chunks:
         index = prepared["index"]
         chunk = prepared["chunk"]
         chunk_start = prepared["chunk_start"]
         chunk_end = prepared["chunk_end"]
+        context_end = prepared["context_end"]
         outcome = outcomes[index]
         error = outcome.get("error")
         if error is not None:
@@ -654,30 +760,42 @@ def analyze_topic_chunks(
                 chunk,
                 streamer_name=streamer_display_name,
             )
-            if fallback_topic and not clip_deduplication._is_duplicate_topic(
-                fallback_topic,
-                accepted_topics,
-            ):
-                accepted_topics.append(fallback_topic)
+            if fallback_topic:
+                fallback_topic["_chunk_index"] = index
+                chunk_candidates.append(fallback_topic)
             continue
 
-        before_topic_count = len(accepted_topics)
+        parsed_chunk_topics = []
         parse_llm_response(
             outcome["response"],
             chunk_start,
             chunk_end,
-            accepted_topics,
+            parsed_chunk_topics,
             allow_markdown_fallback=False,
+            core_start=chunk_start,
+            core_end=chunk_end,
+            context_end=context_end,
+            source_chunk_index=index,
         )
-        if len(accepted_topics) == before_topic_count:
+        if parsed_chunk_topics:
+            chunk_candidates.extend(parsed_chunk_topics)
+        else:
             fallback_topic = make_fallback_topic_from_chunk(
                 chunk,
                 streamer_name=streamer_display_name,
             )
-            if fallback_topic and not clip_deduplication._is_duplicate_topic(
-                fallback_topic,
-                accepted_topics,
-            ):
-                accepted_topics.append(fallback_topic)
+            if fallback_topic:
+                fallback_topic["_chunk_index"] = index
+                chunk_candidates.append(fallback_topic)
 
+    reconciled_topics = topic_reconciliation.AdjacentTopicReconciler.reconcile(
+        chunk_candidates
+    )
+    accepted_topics = sorted(
+        reconciled_topics,
+        key=lambda item: (
+            int(item.get("start", 0)),
+            int(item.get("end", 0)),
+        ),
+    )
     return accepted_topics, failed_chunks, None

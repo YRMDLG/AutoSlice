@@ -162,6 +162,23 @@ class TopicAnalysisFormattingTests(unittest.TestCase):
             "start": 60,
             "end": 660,
             "text": "[0:01:00] 主播讲述闹钟设错时间的经过",
+            "core": {
+                "start": 60,
+                "end": 660,
+                "text": "[0:01:00] 主播讲述闹钟设错时间的经过",
+            },
+            "context": {
+                "before": {
+                    "start": 0,
+                    "end": 60,
+                    "text": "[0:00:40] 前置铺垫只用于理解",
+                },
+                "after": {
+                    "start": 660,
+                    "end": 750,
+                    "text": "[0:11:20] 后置收尾只用于补全",
+                },
+            },
             "danmaku_info": "[弹幕: 本段峰值120条/分钟]",
             "danmaku_evidence": ["[0:02:00] 弹幕开始讨论闹钟"],
             "manual_timeline_info": "⭐ 人工记录不应进入首轮",
@@ -177,6 +194,14 @@ class TopicAnalysisFormattingTests(unittest.TestCase):
         self.assertEqual((start, end), (60, 660))
         self.assertIn("第1/2块", prompt)
         self.assertIn("主播讲述闹钟", prompt)
+        self.assertIn("前置只读上下文", prompt)
+        self.assertIn("核心输出区间", prompt)
+        self.assertIn("后置只读上下文", prompt)
+        self.assertIn("只有核心输出区间拥有话题输出权", prompt)
+        self.assertIn("禁止从只读上下文另起重复话题", prompt)
+        self.assertIn("结束时间允许延伸到后置只读上下文", prompt)
+        self.assertLess(prompt.index("前置铺垫"), prompt.index("主播讲述闹钟"))
+        self.assertLess(prompt.index("主播讲述闹钟"), prompt.index("后置收尾"))
         self.assertIn("弹幕开始讨论闹钟", prompt)
         self.assertNotIn("人工记录不应进入首轮", prompt)
 
@@ -204,6 +229,65 @@ class TopicAnalysisFormattingTests(unittest.TestCase):
 
         self.assertNotIn(marker, compact_prompt)
         self.assertIn(marker, full_prompt)
+
+    def test_build_chunk_prompt_keeps_boundary_near_context_and_core_budget(self):
+        for compact, text_limit in (
+            (False, topic_analysis.LLM_FULL_TEXT_CHARS),
+            (True, topic_analysis.LLM_COMPACT_TEXT_CHARS),
+        ):
+            with self.subTest(compact=compact):
+                chunk = {
+                    "start": 600,
+                    "end": 1200,
+                    "text": "旧核心字段不应覆盖 core",
+                    "core": {
+                        "start": 600,
+                        "end": 1200,
+                        "text": "核心开头|" + "核" * text_limit + "|核心末尾",
+                    },
+                    "context": {
+                        "before": {
+                            "start": 510,
+                            "end": 600,
+                            "text": "前置最远|" + "前" * text_limit + "|前置最近",
+                        },
+                        "after": {
+                            "start": 1200,
+                            "end": 1290,
+                            "text": "后置最近|" + "后" * text_limit + "|后置最远",
+                        },
+                    },
+                    "danmaku_info": "无弹幕",
+                }
+
+                with patch(
+                    "autoslice.analysis.topic.analysis."
+                    "render_topic_analysis_prompt",
+                    side_effect=lambda evidence: evidence,
+                ):
+                    evidence, _, _ = topic_analysis.build_chunk_prompt(
+                        chunk,
+                        0,
+                        1,
+                        compact=compact,
+                    )
+
+                payload_length = sum((
+                    len(evidence.pre_context_text),
+                    len(evidence.core_subtitle_text),
+                    len(evidence.post_context_text),
+                ))
+                self.assertLessEqual(payload_length, text_limit)
+                self.assertGreater(
+                    len(evidence.core_subtitle_text),
+                    len(evidence.pre_context_text)
+                    + len(evidence.post_context_text),
+                )
+                self.assertIn("前置最近", evidence.pre_context_text)
+                self.assertNotIn("前置最远", evidence.pre_context_text)
+                self.assertTrue(evidence.post_context_text.startswith("后置最近"))
+                self.assertNotIn("后置最远", evidence.post_context_text)
+                self.assertTrue(evidence.core_subtitle_text.startswith("核心开头"))
 
     def test_repair_short_topic_end_uses_body_length_and_chunk_boundary(self):
         unchanged = topic_analysis.repair_short_topic_end(
@@ -320,6 +404,106 @@ class TopicAnalysisResponseTests(unittest.TestCase):
         self.assertEqual(marks, [])
         self.assertEqual(len(accepted), 1)
 
+    def test_parse_json_response_enforces_core_start_ownership_and_post_context_end(self):
+        accepted = []
+        response = json.dumps(
+            {
+                "topics": [
+                    {
+                        "start": "0:09:50",
+                        "end": "0:10:20",
+                        "title": "前置上下文旧话题",
+                        "points": ["该话题从前置只读上下文开始，不应重复输出"],
+                    },
+                    {
+                        "start": "0:10:00",
+                        "end": "0:21:20",
+                        "title": "核心开始并补全收尾",
+                        "points": ["话题从核心区间开始，并在后置上下文完成最后回应"],
+                    },
+                    {
+                        "start": "0:11:00",
+                        "end": "0:21:31",
+                        "title": "超出后置上下文",
+                        "points": ["结束时间超过允许的后置上下文边界"],
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+        topic_analysis.parse_json_topics_response(
+            response,
+            600,
+            1200,
+            accepted,
+            core_start=600,
+            core_end=1200,
+            context_end=1290,
+        )
+
+        self.assertEqual([topic["title"] for topic in accepted], ["核心开始并补全收尾"])
+        self.assertEqual((accepted[0]["start"], accepted[0]["end"]), (600, 1280))
+
+    def test_parse_json_response_gives_boundary_second_to_exactly_one_core(self):
+        boundary_response = json.dumps(
+            {
+                "topics": [
+                    {
+                        "start": "0:10:00",
+                        "end": "0:10:20",
+                        "title": "六百秒边界话题",
+                        "points": ["话题恰好从六百秒开始"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+        first_core = []
+        second_core = []
+
+        topic_analysis.parse_json_topics_response(
+            boundary_response,
+            0,
+            600,
+            first_core,
+            core_start=0,
+            core_end=600,
+            context_end=690,
+        )
+        topic_analysis.parse_json_topics_response(
+            boundary_response,
+            600,
+            1200,
+            second_core,
+            core_start=600,
+            core_end=1200,
+            context_end=1290,
+        )
+
+        self.assertEqual(first_core, [])
+        self.assertEqual([topic["start"] for topic in second_core], [600])
+
+        after_boundary = []
+        topic_analysis.parse_json_topics_response(
+            json.dumps(
+                {"topics": [{
+                    "start": "0:10:01",
+                    "end": "0:10:30",
+                    "title": "六百零一秒话题",
+                    "points": ["话题从六百零一秒开始"],
+                }]},
+                ensure_ascii=False,
+            ),
+            600,
+            1200,
+            after_boundary,
+            core_start=600,
+            core_end=1200,
+            context_end=1290,
+        )
+        self.assertEqual([topic["start"] for topic in after_boundary], [601])
+
     def test_markdown_fallback_parses_heading_and_ignores_part_label(self):
         response = """
 Part 2: 重复分块标题
@@ -433,6 +617,211 @@ class TopicAnalysisOrchestrationTests(unittest.TestCase):
         self.assertEqual(failed_chunks[0]["index"], 2)
         self.assertIn("第二块临时失败", failed_chunks[0]["error"])
         self.assertIsNone(warning)
+
+    def test_adjacent_chunk_candidates_reconcile_before_final_deduplication(self):
+        chunks = [
+            {
+                "start": 0,
+                "end": 600,
+                "text": "[0:09:40] 主播开始讲闹钟设错的事情",
+                "core": {
+                    "start": 0,
+                    "end": 600,
+                    "text": "[0:09:40] 主播开始讲闹钟设错的事情",
+                },
+                "context": {
+                    "before": {"start": 0, "end": 0, "text": ""},
+                    "after": {
+                        "start": 600,
+                        "end": 690,
+                        "text": "[0:10:10] 主播继续说明最后结果",
+                    },
+                },
+                "danmaku_info": "无弹幕",
+            },
+            {
+                "start": 600,
+                "end": 1200,
+                "text": "[0:10:10] 主播继续说明最后结果",
+                "core": {
+                    "start": 600,
+                    "end": 1200,
+                    "text": "[0:10:10] 主播继续说明最后结果",
+                },
+                "context": {
+                    "before": {
+                        "start": 510,
+                        "end": 600,
+                        "text": "[0:09:40] 主播开始讲闹钟设错的事情",
+                    },
+                    "after": {"start": 1200, "end": 1200, "text": ""},
+                },
+                "danmaku_info": "无弹幕",
+            },
+        ]
+        responses = [
+            json.dumps(
+                {"topics": [{
+                    "start": "0:09:40",
+                    "end": "0:11:20",
+                    "title": "闹钟设错",
+                    "publish_title": "主播闹钟设错",
+                    "can_slice": False,
+                    "points": ["主播开始说明闹钟设错的原因"],
+                }]},
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {"topics": [{
+                    "start": "0:10:00",
+                    "end": "0:11:30",
+                    "title": "闹钟设错后的结果",
+                    "publish_title": "主播闹钟设错后睡过头",
+                    "can_slice": True,
+                    "points": ["主播继续说明闹钟设错后睡过头的结果"],
+                }]},
+                ensure_ascii=False,
+            ),
+        ]
+
+        with (
+            patch(
+                "autoslice.analysis.topic.analysis.llm_gateway.load_api_config",
+                return_value=("https://example.test", "token", "model"),
+            ),
+            patch(
+                "autoslice.analysis.topic.analysis.llm_execution.configured_llm_concurrency",
+                return_value=1,
+            ),
+            patch(
+                "autoslice.analysis.topic.analysis.llm_gateway.call_llm_with_retry",
+                side_effect=responses,
+            ),
+        ):
+            topics, failed_chunks, warning = topic_analysis.analyze_topic_chunks(
+                chunks,
+                "测试主播",
+            )
+
+        self.assertEqual(len(topics), 1)
+        self.assertEqual((topics[0]["start"], topics[0]["end"]), (580, 690))
+        self.assertEqual(topics[0]["title"], "闹钟设错后的结果")
+        self.assertTrue(topics[0]["can_slice"])
+        self.assertFalse(any(key.startswith("_chunk") for key in topics[0]))
+        self.assertEqual(failed_chunks, [])
+        self.assertIsNone(warning)
+
+    def test_unrelated_strongly_overlapping_adjacent_candidates_both_survive(self):
+        chunks = [
+            {
+                "start": 0,
+                "end": 600,
+                "text": "[0:09:40] 主播讨论午饭要点什么外卖",
+                "danmaku_info": "无弹幕",
+            },
+            {
+                "start": 600,
+                "end": 1200,
+                "text": "[0:10:00] 主播开始挑战新的节奏游戏关卡",
+                "danmaku_info": "无弹幕",
+            },
+        ]
+        responses = [
+            json.dumps(
+                {"topics": [{
+                    "start": "0:09:40",
+                    "end": "0:11:30",
+                    "title": "午饭外卖",
+                    "can_slice": False,
+                    "points": ["主播讨论午饭要点什么外卖"],
+                }]},
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {"topics": [{
+                    "start": "0:10:00",
+                    "end": "0:10:50",
+                    "title": "节奏游戏",
+                    "can_slice": False,
+                    "points": ["主播开始挑战新的节奏游戏关卡"],
+                }]},
+                ensure_ascii=False,
+            ),
+        ]
+
+        with (
+            patch(
+                "autoslice.analysis.topic.analysis.llm_gateway.load_api_config",
+                return_value=("https://example.test", "token", "model"),
+            ),
+            patch(
+                "autoslice.analysis.topic.analysis.llm_execution.configured_llm_concurrency",
+                return_value=1,
+            ),
+            patch(
+                "autoslice.analysis.topic.analysis.llm_gateway.call_llm_with_retry",
+                side_effect=responses,
+            ),
+        ):
+            topics, failed_chunks, warning = topic_analysis.analyze_topic_chunks(
+                chunks,
+                "测试主播",
+            )
+
+        self.assertEqual(
+            [(topic["start"], topic["end"], topic["title"]) for topic in topics],
+            [
+                (580, 690, "午饭外卖"),
+                (600, 650, "节奏游戏"),
+            ],
+        )
+        self.assertEqual(failed_chunks, [])
+        self.assertIsNone(warning)
+
+    def test_failed_chunk_fallback_does_not_merge_into_neighbor_real_candidate(self):
+        chunks = [
+            {
+                "start": 0,
+                "end": 600,
+                "text": "[0:09:40] 主播开始说明边界事件的完整经过",
+                "danmaku_info": "无弹幕",
+            },
+            {
+                "start": 600,
+                "end": 1200,
+                "text": "[0:10:00] 主播继续聊天并补充边界事件后续内容以及观众互动细节",
+                "danmaku_info": "无弹幕",
+            },
+        ]
+        responses = [
+            self._response("0:09:40", "0:10:50", "边界事件"),
+            RuntimeError("第二块失败"),
+        ]
+
+        with (
+            patch(
+                "autoslice.analysis.topic.analysis.llm_gateway.load_api_config",
+                return_value=("https://example.test", "token", "model"),
+            ),
+            patch(
+                "autoslice.analysis.topic.analysis.llm_execution.configured_llm_concurrency",
+                return_value=1,
+            ),
+            patch(
+                "autoslice.analysis.topic.analysis.llm_gateway.call_llm_with_retry",
+                side_effect=responses,
+            ),
+        ):
+            topics, failed_chunks, _ = topic_analysis.analyze_topic_chunks(
+                chunks,
+                "测试主播",
+            )
+
+        self.assertEqual(len(topics), 2)
+        self.assertEqual(topics[0]["body"], ["·主播完整说明边界事件的前因后果"])
+        self.assertNotIn("失败块", "\n".join(topics[0]["body"]))
+        self.assertTrue(topics[1]["fallback"])
+        self.assertEqual(failed_chunks[0]["index"], 2)
 
 
 if __name__ == "__main__":

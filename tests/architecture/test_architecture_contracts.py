@@ -1173,7 +1173,14 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(len(all_assignments), 1)
         self.assertEqual(
             ast.literal_eval(all_assignments[0].value),
-            ["analysis", "chunking", "normalization", "response", "titles"],
+            [
+                "analysis",
+                "chunking",
+                "normalization",
+                "reconciliation",
+                "response",
+                "titles",
+            ],
         )
 
     def test_manual_enrichment_has_one_owner_and_direct_consumers(self):

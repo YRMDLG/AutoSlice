@@ -244,7 +244,7 @@ class PromptContractTests(unittest.TestCase):
             ),
         }
         expected_snapshots = {
-            "topic": "59bd3172933c60124ceb2fb98d7a4c551a29756bae3d6454f70c5844dfb5b7f8",
+            "topic": "20cc75d1a3d323a6d85142b421213b76ca07746a4e81aae7c6455e3d150a56a1",
             "manual": "5f2193df5c30f356598745dd7201b728b023e74c40b6097d7801d9d58d939730",
             "clip": "cadc61372832854780a4ddd9732d301c39fb13cb12c48274041d8c2c2dc2c673",
             "generate": "8f8f338cc07550ada225b52df1153b6ecb59c219f1b8fbd4ec203c495012508b",
@@ -5761,6 +5761,70 @@ class TopicEngineParseTests(unittest.TestCase):
         )
         self.assertEqual(len(checkpoint["responses"]), 2)
 
+    def test_neighbor_context_change_invalidates_owner_and_affected_adjacent_cache(self):
+        segments = [
+            (30, 31, "第一块核心内容"),
+            (610, 611, "第二块边界内容"),
+            (1230, 1231, "第三块核心内容"),
+        ]
+
+        def response_for_prompt(prompt, **_kwargs):
+            index = int(re.search(r"第(\d+)/3块", prompt).group(1))
+            start = (index - 1) * 600 + 30
+            return json.dumps({"topics": [{
+                "start": f"0:{start // 60:02d}:{start % 60:02d}",
+                "end": f"0:{(start + 60) // 60:02d}:{(start + 60) % 60:02d}",
+                "title": f"缓存话题{index}",
+                "publish_title": f"【测试】缓存话题{index}",
+                "can_slice": False,
+                "points": [f"主播说明第{index}块内容"],
+            }]}, ensure_ascii=False)
+
+        with TemporaryDirectory() as td:
+            checkpoint_path = Path(td) / "上下文检查点.json"
+            first_chunks = chunk_srt(segments, peaks=[])
+            with (
+                patch(
+                    "autoslice.llm.transport.load_api_config",
+                    return_value=("https://example.test", "token", "model"),
+                ),
+                patch(
+                    "autoslice.llm.transport.call_llm_with_retry",
+                    side_effect=response_for_prompt,
+                ) as first_call,
+            ):
+                _analyze_topic_chunks(
+                    first_chunks,
+                    "测试主播",
+                    checkpoint_path=str(checkpoint_path),
+                )
+
+            changed_segments = list(segments)
+            changed_segments[1] = (610, 611, "第二块边界内容已修改")
+            changed_chunks = chunk_srt(changed_segments, peaks=[])
+            with (
+                patch(
+                    "autoslice.llm.transport.load_api_config",
+                    return_value=("https://example.test", "token", "model"),
+                ),
+                patch(
+                    "autoslice.llm.transport.call_llm_with_retry",
+                    side_effect=response_for_prompt,
+                ) as changed_call,
+            ):
+                _analyze_topic_chunks(
+                    changed_chunks,
+                    "测试主播",
+                    checkpoint_path=str(checkpoint_path),
+                )
+
+        self.assertEqual(first_call.call_count, 3)
+        self.assertEqual(changed_call.call_count, 2)
+        changed_prompts = [call.args[0] for call in changed_call.call_args_list]
+        self.assertTrue(any("第1/3块" in prompt for prompt in changed_prompts))
+        self.assertTrue(any("第2/3块" in prompt for prompt in changed_prompts))
+        self.assertFalse(any("第3/3块" in prompt for prompt in changed_prompts))
+
     def test_analyze_topic_chunks_uses_one_probe_before_confirmed_provider_outage(self):
         chunks = [
             {
@@ -8801,9 +8865,11 @@ Part 1: 第5小时重点 (4:00:00－4:10:00)
         self.assertEqual(len(chunks), 2)
         self.assertEqual(chunks[0]["start"], 0)
         self.assertEqual(chunks[0]["end"], 600)
-        self.assertEqual(chunks[1]["start"], 601)
+        self.assertEqual(chunks[1]["start"], 600)
         self.assertIn("1-2 个核心话题", prompt)
-        self.assertEqual(len(prompt.split("## 字幕:\n", 1)[1]), LLM_FULL_TEXT_CHARS)
+        self.assertIn("## 核心输出区间字幕", prompt)
+        self.assertIn("x" * LLM_FULL_TEXT_CHARS, prompt)
+        self.assertNotIn("x" * (LLM_FULL_TEXT_CHARS + 1), prompt)
 
     def test_expand_context_includes_sc_or_gift_trigger_before_topic(self):
         marks = [{"start": 200, "end": 220, "title": "回答观众提问"}]

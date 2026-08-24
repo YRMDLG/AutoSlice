@@ -1916,10 +1916,20 @@
     {
       "from": "autoslice.analysis.topic.analysis",
       "imports": [
-        "autoslice.analysis.topic.response"
+        "autoslice.analysis.topic.reconciliation"
       ],
       "lines": [
         18
+      ],
+      "to": "autoslice.analysis.topic.reconciliation"
+    },
+    {
+      "from": "autoslice.analysis.topic.analysis",
+      "imports": [
+        "autoslice.analysis.topic.response"
+      ],
+      "lines": [
+        19
       ],
       "to": "autoslice.analysis.topic.response"
     },
@@ -1929,7 +1939,7 @@
         "autoslice.analysis.topic.titles"
       ],
       "lines": [
-        19
+        20
       ],
       "to": "autoslice.analysis.topic.titles"
     },
@@ -1940,8 +1950,8 @@
         "autoslice.llm.prompts.build_topic_analysis_prompt"
       ],
       "lines": [
-        21,
-        22
+        22,
+        23
       ],
       "to": "autoslice.llm.prompts"
     },
@@ -1951,7 +1961,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        20
+        21
       ],
       "to": "autoslice.llm.transport"
     },
@@ -1971,7 +1981,7 @@
         "autoslice.transcription.segments"
       ],
       "lines": [
-        25
+        26
       ],
       "to": "autoslice.transcription.segments"
     },
@@ -2034,6 +2044,16 @@
         5
       ],
       "to": "autoslice.analysis.topic.titles"
+    },
+    {
+      "from": "autoslice.analysis.topic.reconciliation",
+      "imports": [
+        "autoslice.timecode"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.timecode"
     },
     {
       "from": "autoslice.analysis.topic.titles",
@@ -4520,10 +4540,11 @@
     {
       "from": "autoslice_cover.renderer",
       "imports": [
+        "autoslice_cover.fonts.resolve_font_path",
         "autoslice_cover.fonts.resolve_font_stack"
       ],
       "lines": [
-        26
+        28
       ],
       "to": "autoslice_cover.fonts"
     },
@@ -4539,7 +4560,7 @@
         "autoslice_cover.style.get_template"
       ],
       "lines": [
-        27
+        29
       ],
       "to": "autoslice_cover.style"
     },
@@ -4551,7 +4572,7 @@
         "autoslice_cover.titles.recommend_visual_style"
       ],
       "lines": [
-        36
+        38
       ],
       "to": "autoslice_cover.titles"
     },
@@ -4964,6 +4985,15 @@
       "qualname": "create_app"
     },
     {
+      "end_line": 801,
+      "kind": "function",
+      "line": 489,
+      "line_count": 313,
+      "module": "autoslice.analysis.topic.analysis",
+      "path": "src/autoslice/analysis/topic/analysis.py",
+      "qualname": "analyze_topic_chunks"
+    },
+    {
       "end_line": 316,
       "kind": "function",
       "line": 9,
@@ -4980,15 +5010,6 @@
       "module": "autoslice.pipeline",
       "path": "src/autoslice/pipeline.py",
       "qualname": "run_pipeline_impl"
-    },
-    {
-      "end_line": 683,
-      "kind": "function",
-      "line": 396,
-      "line_count": 288,
-      "module": "autoslice.analysis.topic.analysis",
-      "path": "src/autoslice/analysis/topic/analysis.py",
-      "qualname": "analyze_topic_chunks"
     },
     {
       "end_line": 405,
@@ -5081,9 +5102,9 @@
       "qualname": "apply_danmaku_slice_decisions"
     },
     {
-      "end_line": 1257,
+      "end_line": 1259,
       "kind": "function",
-      "line": 1110,
+      "line": 1112,
       "line_count": 148,
       "module": "autoslice_cover.renderer",
       "path": "src/autoslice_cover/renderer.py",
@@ -5144,6 +5165,15 @@
       "qualname": "normalise_funasr_result"
     },
     {
+      "end_line": 450,
+      "kind": "function",
+      "line": 326,
+      "line_count": 125,
+      "module": "autoslice.analysis.topic.analysis",
+      "path": "src/autoslice/analysis/topic/analysis.py",
+      "qualname": "parse_llm_response"
+    },
+    {
       "end_line": 651,
       "kind": "function",
       "line": 528,
@@ -5169,15 +5199,6 @@
       "module": "autoslice.reporting",
       "path": "src/autoslice/reporting.py",
       "qualname": "build_timeline_report"
-    },
-    {
-      "end_line": 1087,
-      "kind": "function",
-      "line": 971,
-      "line_count": 117,
-      "module": "autoslice.analysis.topic.titles",
-      "path": "src/autoslice/analysis/topic/titles.py",
-      "qualname": "review_selected_publish_titles"
     }
   ],
   "modules": [
@@ -7065,98 +7086,98 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 3,
+      "line_count": 10,
       "longest_function": null,
       "module": "autoslice.analysis.topic",
       "path": "src/autoslice/analysis/topic/__init__.py",
-      "sha256": "0ac8c612f3e5ae34a9689cb375cb397f8c5b5cc0e9576a6e27f77628d701f7ba",
+      "sha256": "2a1e95bd6c04feaac847954fe48b7ce06dd7e13961c4cd8dcfaecd7fa3edc3e2",
       "top_level_classes": [],
       "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 683,
+      "line_count": 801,
       "longest_function": {
-        "end_line": 683,
+        "end_line": 801,
         "kind": "function",
-        "line": 396,
-        "line_count": 288,
+        "line": 489,
+        "line_count": 313,
         "qualname": "analyze_topic_chunks"
       },
       "module": "autoslice.analysis.topic.analysis",
       "path": "src/autoslice/analysis/topic/analysis.py",
-      "sha256": "9897384eb64c84076f26ba3e0ea0b3176dc129067532fe3c49ffb30bd6c5c78e",
+      "sha256": "a8899af30e215fd4571cc907c1c404154e454578e5aedb5ab4feec63865e3a13",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 105,
+          "end_line": 106,
           "kind": "function",
-          "line": 89,
+          "line": 90,
           "name": "repair_short_topic_end"
         },
         {
-          "end_line": 131,
+          "end_line": 174,
           "kind": "function",
-          "line": 108,
+          "line": 109,
           "name": "build_chunk_prompt"
         },
         {
-          "end_line": 140,
+          "end_line": 183,
           "kind": "function",
-          "line": 134,
+          "line": 177,
           "name": "strip_code_fence"
         },
         {
-          "end_line": 151,
+          "end_line": 209,
           "kind": "function",
-          "line": 143,
+          "line": 186,
           "name": "is_topic_in_chunk"
         },
         {
-          "end_line": 250,
+          "end_line": 323,
           "kind": "function",
-          "line": 154,
+          "line": 212,
           "name": "parse_json_topics_response"
         },
         {
-          "end_line": 358,
+          "end_line": 450,
           "kind": "function",
-          "line": 253,
+          "line": 326,
           "name": "parse_llm_response"
         },
         {
-          "end_line": 368,
+          "end_line": 460,
           "kind": "function",
-          "line": 361,
+          "line": 453,
           "name": "strip_prompt_time_labels"
         },
         {
-          "end_line": 393,
+          "end_line": 486,
           "kind": "function",
-          "line": 371,
+          "line": 463,
           "name": "make_fallback_topic_from_chunk"
         },
         {
-          "end_line": 683,
+          "end_line": 801,
           "kind": "function",
-          "line": 396,
+          "line": 489,
           "name": "analyze_topic_chunks"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 146,
+      "line_count": 214,
       "longest_function": {
-        "end_line": 146,
+        "end_line": 126,
         "kind": "function",
-        "line": 86,
-        "line_count": 61,
-        "qualname": "make_chunk"
+        "line": 29,
+        "line_count": 98,
+        "qualname": "chunk_srt"
       },
       "module": "autoslice.analysis.topic.chunking",
       "path": "src/autoslice/analysis/topic/chunking.py",
-      "sha256": "56b2fbdd20b0ac5803d40e903493b3a2bbd8962536768b7e0522bbf9e1c37702",
+      "sha256": "2914417dfe7ca37aa4b075adf38130252b9a410ef873f5b04ae755470b3882e5",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -7166,15 +7187,15 @@
           "name": "parse_srt_text"
         },
         {
-          "end_line": 83,
+          "end_line": 126,
           "kind": "function",
           "line": 29,
           "name": "chunk_srt"
         },
         {
-          "end_line": 146,
+          "end_line": 214,
           "kind": "function",
-          "line": 86,
+          "line": 129,
           "name": "make_chunk"
         }
       ]
@@ -7225,6 +7246,29 @@
           "name": "filter_unsupported_ai_points"
         }
       ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 253,
+      "longest_function": {
+        "end_line": 101,
+        "kind": "function",
+        "line": 35,
+        "line_count": 67,
+        "qualname": "AdjacentTopicReconciler.reconcile"
+      },
+      "module": "autoslice.analysis.topic.reconciliation",
+      "path": "src/autoslice/analysis/topic/reconciliation.py",
+      "sha256": "19ec47dab59307a9d3274261db4f6fa20fb09f4c3eed9140de0fbdef00890f06",
+      "top_level_classes": [
+        {
+          "end_line": 253,
+          "kind": "class",
+          "line": 11,
+          "name": "AdjacentTopicReconciler"
+        }
+      ],
+      "top_level_functions": []
     },
     {
       "duplicate_top_level_definitions": [],
@@ -7998,17 +8042,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 451,
+      "line_count": 481,
       "longest_function": {
-        "end_line": 381,
+        "end_line": 292,
         "kind": "function",
-        "line": 309,
-        "line_count": 73,
-        "qualname": "build_clip_candidate_review_prompt"
+        "line": 219,
+        "line_count": 74,
+        "qualname": "build_topic_analysis_prompt"
       },
       "module": "autoslice.llm.prompts",
       "path": "src/autoslice/llm/prompts.py",
-      "sha256": "9253750eefadc149969c8dd8ecc911105506d9065efe73090c36af65ddb33b12",
+      "sha256": "a4a83e31abd27d5b4c1a6069335b182ec221f5dd5320356806acd21fba05b329",
       "top_level_classes": [
         {
           "end_line": 23,
@@ -8023,83 +8067,83 @@
           "name": "TitleStylePromptEvidence"
         },
         {
-          "end_line": 47,
+          "end_line": 55,
           "kind": "class",
           "line": 36,
           "name": "TopicAnalysisPromptEvidence"
         },
         {
-          "end_line": 55,
-          "kind": "class",
-          "line": 51,
-          "name": "ManualTopicPromptEvidence"
-        },
-        {
-          "end_line": 65,
+          "end_line": 63,
           "kind": "class",
           "line": 59,
-          "name": "ClipCandidatePromptEvidence"
+          "name": "ManualTopicPromptEvidence"
         },
         {
           "end_line": 73,
           "kind": "class",
-          "line": 69,
+          "line": 67,
+          "name": "ClipCandidatePromptEvidence"
+        },
+        {
+          "end_line": 81,
+          "kind": "class",
+          "line": 77,
           "name": "FinalTitlePromptEvidence"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 185,
+          "end_line": 195,
           "kind": "function",
-          "line": 161,
+          "line": 171,
           "name": "build_title_style_prompt"
         },
         {
-          "end_line": 194,
+          "end_line": 204,
           "kind": "function",
-          "line": 188,
+          "line": 198,
           "name": "build_title_hook_guide"
         },
         {
-          "end_line": 206,
+          "end_line": 216,
           "kind": "function",
-          "line": 197,
+          "line": 207,
           "name": "build_system_prompt"
         },
         {
-          "end_line": 262,
+          "end_line": 292,
           "kind": "function",
-          "line": 209,
+          "line": 219,
           "name": "build_topic_analysis_prompt"
         },
         {
-          "end_line": 306,
+          "end_line": 336,
           "kind": "function",
-          "line": 265,
+          "line": 295,
           "name": "build_manual_topic_enrichment_prompt"
         },
         {
-          "end_line": 381,
+          "end_line": 411,
           "kind": "function",
-          "line": 309,
+          "line": 339,
           "name": "build_clip_candidate_review_prompt"
         },
         {
-          "end_line": 406,
+          "end_line": 436,
           "kind": "function",
-          "line": 384,
+          "line": 414,
           "name": "build_final_title_generation_prompt"
         },
         {
-          "end_line": 427,
+          "end_line": 457,
           "kind": "function",
-          "line": 409,
+          "line": 439,
           "name": "build_final_title_judge_prompt"
         },
         {
-          "end_line": 431,
+          "end_line": 461,
           "kind": "function",
-          "line": 430,
+          "line": 460,
           "name": "_compact_json"
         }
       ]
@@ -12595,288 +12639,288 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1257,
+      "line_count": 1259,
       "longest_function": {
-        "end_line": 1257,
+        "end_line": 1259,
         "kind": "function",
-        "line": 1110,
+        "line": 1112,
         "line_count": 148,
         "qualname": "render_cover"
       },
       "module": "autoslice_cover.renderer",
       "path": "src/autoslice_cover/renderer.py",
-      "sha256": "e29891708a95b883905c3d10939e5140725af1e8f7594b99fa4772d7a59efdaf",
+      "sha256": "cc486e313b4f6732e3eff60223e0af8559c55e996bbdba4d1bb27ab8a61583b2",
       "top_level_classes": [
         {
-          "end_line": 76,
+          "end_line": 78,
           "kind": "class",
-          "line": 62,
+          "line": 64,
           "name": "TextPlacement"
         },
         {
-          "end_line": 88,
+          "end_line": 90,
           "kind": "class",
-          "line": 80,
+          "line": 82,
           "name": "TextTransform"
         },
         {
-          "end_line": 98,
+          "end_line": 100,
           "kind": "class",
-          "line": 92,
+          "line": 94,
           "name": "_FontRun"
         },
         {
-          "end_line": 108,
+          "end_line": 110,
           "kind": "class",
-          "line": 102,
+          "line": 104,
           "name": "_TextFontLayout"
         },
         {
-          "end_line": 122,
+          "end_line": 124,
           "kind": "class",
-          "line": 112,
+          "line": 114,
           "name": "StickerOverlay"
         },
         {
-          "end_line": 136,
+          "end_line": 138,
           "kind": "class",
-          "line": 126,
+          "line": 128,
           "name": "StickerPlacement"
         },
         {
-          "end_line": 170,
+          "end_line": 172,
           "kind": "class",
-          "line": 140,
+          "line": 142,
           "name": "RenderResult"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 185,
+          "end_line": 187,
           "kind": "function",
-          "line": 173,
+          "line": 175,
           "name": "_load_font"
         },
         {
-          "end_line": 190,
+          "end_line": 192,
           "kind": "function",
-          "line": 188,
+          "line": 190,
           "name": "_glyph_signature"
         },
         {
-          "end_line": 205,
+          "end_line": 207,
           "kind": "function",
-          "line": 194,
+          "line": 196,
           "name": "_font_supports_character"
         },
         {
-          "end_line": 222,
+          "end_line": 224,
           "kind": "function",
-          "line": 209,
+          "line": 211,
           "name": "_font_path_for_character"
         },
         {
-          "end_line": 238,
+          "end_line": 240,
           "kind": "function",
-          "line": 225,
+          "line": 227,
           "name": "_font_run_specs"
         },
         {
-          "end_line": 290,
+          "end_line": 292,
           "kind": "function",
-          "line": 241,
+          "line": 243,
           "name": "_measure_font_layout"
         },
         {
-          "end_line": 321,
+          "end_line": 323,
           "kind": "function",
-          "line": 293,
+          "line": 295,
           "name": "_draw_emoji_run"
         },
         {
-          "end_line": 366,
+          "end_line": 368,
           "kind": "function",
-          "line": 324,
+          "line": 326,
           "name": "_draw_text_layout"
         },
         {
-          "end_line": 375,
+          "end_line": 377,
           "kind": "function",
-          "line": 369,
+          "line": 371,
           "name": "_focus_from_template"
         },
         {
-          "end_line": 386,
+          "end_line": 388,
           "kind": "function",
-          "line": 378,
+          "line": 380,
           "name": "_side_edge_energy"
         },
         {
-          "end_line": 400,
+          "end_line": 402,
           "kind": "function",
-          "line": 389,
+          "line": 391,
           "name": "_third_edge_energy"
         },
         {
-          "end_line": 460,
+          "end_line": 462,
           "kind": "function",
-          "line": 403,
+          "line": 405,
           "name": "_auto_adjust_text_side"
         },
         {
-          "end_line": 477,
+          "end_line": 479,
           "kind": "function",
-          "line": 463,
+          "line": 465,
           "name": "_blurred_backdrop"
         },
         {
-          "end_line": 502,
+          "end_line": 504,
           "kind": "function",
-          "line": 480,
+          "line": 482,
           "name": "_zoom_background"
         },
         {
-          "end_line": 565,
+          "end_line": 567,
           "kind": "function",
-          "line": 505,
+          "line": 507,
           "name": "compose_background"
         },
         {
-          "end_line": 592,
+          "end_line": 594,
           "kind": "function",
-          "line": 568,
+          "line": 570,
           "name": "_text_area"
         },
         {
-          "end_line": 601,
+          "end_line": 603,
           "kind": "function",
-          "line": 595,
+          "line": 597,
           "name": "_role_scale"
         },
         {
-          "end_line": 611,
+          "end_line": 613,
           "kind": "function",
-          "line": 604,
+          "line": 606,
           "name": "_measure_text"
         },
         {
-          "end_line": 631,
+          "end_line": 633,
           "kind": "function",
-          "line": 614,
+          "line": 616,
           "name": "_measure_text_at_size"
         },
         {
-          "end_line": 663,
+          "end_line": 665,
           "kind": "function",
-          "line": 634,
+          "line": 636,
           "name": "_manual_measurement"
         },
         {
-          "end_line": 684,
+          "end_line": 686,
           "kind": "function",
-          "line": 666,
+          "line": 668,
           "name": "_fit_text"
         },
         {
-          "end_line": 716,
+          "end_line": 718,
           "kind": "function",
-          "line": 687,
+          "line": 689,
           "name": "_fit_independent_text"
         },
         {
-          "end_line": 747,
+          "end_line": 749,
           "kind": "function",
-          "line": 719,
+          "line": 721,
           "name": "_stack_positions"
         },
         {
-          "end_line": 778,
+          "end_line": 780,
           "kind": "function",
-          "line": 750,
+          "line": 752,
           "name": "_edge_positions"
         },
         {
-          "end_line": 811,
+          "end_line": 813,
           "kind": "function",
-          "line": 781,
+          "line": 783,
           "name": "_portrait_latest_positions"
         },
         {
-          "end_line": 835,
+          "end_line": 837,
           "kind": "function",
-          "line": 814,
+          "line": 816,
           "name": "_positions_for_template"
         },
         {
-          "end_line": 861,
+          "end_line": 863,
           "kind": "function",
-          "line": 838,
+          "line": 840,
           "name": "_manual_position"
         },
         {
-          "end_line": 916,
+          "end_line": 918,
           "kind": "function",
-          "line": 864,
+          "line": 866,
           "name": "draw_stickers"
         },
         {
-          "end_line": 920,
+          "end_line": 922,
           "kind": "function",
-          "line": 919,
+          "line": 921,
           "name": "_rgb"
         },
         {
-          "end_line": 1008,
+          "end_line": 1010,
           "kind": "function",
-          "line": 923,
+          "line": 925,
           "name": "draw_cover_text"
         },
         {
-          "end_line": 1018,
+          "end_line": 1020,
           "kind": "function",
-          "line": 1011,
+          "line": 1013,
           "name": "_save_jpeg"
         },
         {
-          "end_line": 1024,
+          "end_line": 1026,
           "kind": "function",
-          "line": 1021,
+          "line": 1023,
           "name": "_temporary_output_path"
         },
         {
-          "end_line": 1031,
+          "end_line": 1033,
           "kind": "function",
-          "line": 1027,
+          "line": 1029,
           "name": "_cleanup_file"
         },
         {
-          "end_line": 1038,
+          "end_line": 1040,
           "kind": "function",
-          "line": 1034,
+          "line": 1036,
           "name": "commit_output_transaction"
         },
         {
-          "end_line": 1072,
+          "end_line": 1074,
           "kind": "function",
-          "line": 1041,
+          "line": 1043,
           "name": "_commit_output_transaction_locked"
         },
         {
-          "end_line": 1097,
+          "end_line": 1099,
           "kind": "function",
-          "line": 1075,
+          "line": 1077,
           "name": "_save_jpeg_batch"
         },
         {
-          "end_line": 1107,
+          "end_line": 1109,
           "kind": "function",
-          "line": 1100,
+          "line": 1102,
           "name": "_jpeg_output_path"
         },
         {
-          "end_line": 1257,
+          "end_line": 1259,
           "kind": "function",
-          "line": 1110,
+          "line": 1112,
           "name": "render_cover"
         }
       ]
@@ -14281,6 +14325,7 @@
       "src/autoslice/analysis/topic/analysis.py",
       "src/autoslice/analysis/topic/chunking.py",
       "src/autoslice/analysis/topic/normalization.py",
+      "src/autoslice/analysis/topic/reconciliation.py",
       "src/autoslice/analysis/topic/response.py",
       "src/autoslice/analysis/topic/titles.py",
       "src/autoslice/llm/__init__.py",
@@ -14370,6 +14415,7 @@
       "tests/unit/test_analysis_slice_decisions.py",
       "tests/unit/test_analysis_topic_analysis.py",
       "tests/unit/test_analysis_topic_formatting.py",
+      "tests/unit/test_analysis_topic_reconciliation.py",
       "tests/unit/test_analysis_topic_titles.py",
       "tests/unit/test_artifact_store.py",
       "tests/unit/test_clip_scoring.py",
@@ -14426,11 +14472,11 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 464,
-    "production_line_count": 40849,
-    "production_module_count": 174,
+    "import_edge_count": 466,
+    "production_line_count": 41327,
+    "production_module_count": 175,
     "test_private_patch_count": 17,
-    "top_level_class_count": 97,
+    "top_level_class_count": 98,
     "top_level_function_count": 969
   },
   "test_private_patches": {
