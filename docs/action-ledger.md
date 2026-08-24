@@ -8,7 +8,7 @@
 
 ## 当前活动计划入口
 
-- 计划规格：[`docs/plans/frontend-features.md`](plans/frontend-features.md)
+- 计划规格：[`docs/plans/frontend-next.md`](plans/frontend-next.md)
 - 当前运行状态：[`ACTIVE_PLAN.md`](../ACTIVE_PLAN.md)
 
 > `ACTIVE_PLAN.md` 才是当前计划、当前 Action、状态和执行模式的唯一权威；

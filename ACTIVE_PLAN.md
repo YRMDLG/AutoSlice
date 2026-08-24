@@ -4,24 +4,25 @@
 > 本文件不保存讨论记录、完整测试日志、用户媒体、本机路径或敏感配置。
 
 schema_version: 1
-plan_id: frontend-features
-plan_ref: docs/plans/frontend-features.md
+plan_id: frontend-next
+plan_ref: docs/plans/frontend-next.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
-plan_status: completed
-current_action: null
-current_action_status: completed
+plan_status: active
+current_action: G0-SUB
+current_action_status: awaiting_ci
 execution_mode: single-action-stop
-last_completed_action: UI-U3
+last_completed_action: null
 
 ## 执行规则
 
-- 当前处于 completed，`UI-U3` 已完成实现、验证、功能提交、Windows full hermetic 与 Linux logic-only CI 双绿并登记；`frontend-features` 全部 Action 已完成，没有下一 Action。
+- 当前活动计划为 `frontend-next`；上一轮 `frontend-features` 已完成，新计划从 G0 收口阶段开始。
+- 当前 `G0-SUB` 已完成实现、定向验证和独立提交，等待按计划执行推送与 Windows/Linux CI 双绿；在此之前不得登记完成或进入下一个 Action。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
-- 一次只执行一个 Action；本轮仅登记 `UI-U3` 并完成计划收口，登记后立即停止，不得自动开始任何后置工作。
-- `FE-PREP-1`、`FE-PREP-2`、`FE-S0`、`FE-S1`、`FE-S2`、`FE-S3`、`FE-S4`、`FE-S5`、`ASR-A1`、`ASR-A2`、`COVER-C0`、`COVER-C1`、`COVER-C2`、`COVER-C3`、`TASK-T1`、`TASK-T2`、`TASK-T3`、`UI-U1`、`UI-U2`、`UI-U3` 均已登记完成，不得重复运行；当前计划没有 pending 或下一 Action。
+- 一次只执行一个 Action；当前 Action 完成并登记后立即停止，不得自动进入下一个 Action。
+- 旧计划的 `FE-PREP-1`、`FE-PREP-2`、`FE-S0`、`FE-S1`、`FE-S2`、`FE-S3`、`FE-S4`、`FE-S5`、`ASR-A1`、`ASR-A2`、`COVER-C0`、`COVER-C1`、`COVER-C2`、`COVER-C3`、`TASK-T1`、`TASK-T2`、`TASK-T3`、`UI-U1`、`UI-U2`、`UI-U3` 已完成，不得重复运行。
 
 ## 当前计划范围
 
