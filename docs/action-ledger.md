@@ -41,6 +41,7 @@
 | G0-SUB | frontend-next | 2026-08-25 | [52e1389](../commit/52e1389488c0283f89724f2df00d326521faf6b2) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32764409776) | 收口字幕工作台批量建议立即收口、撤销恢复与质检 gap 可逆处理，并保护人工时间修改。 |
 | G0-COPY | frontend-next | 2026-08-25 | [27e8d3e](../commit/27e8d3e30aea04c0c3c1d22ec9bb14a70983f0a6) / [3012231](../commit/301223132f7f9bcbae9b3425ec7b081e7b4cd756) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32766401643) | 要求最终校对字幕证据、拒绝乱码和语义不可用候选，Terra 复核失败时安全回退并明确分类。 |
 | F1-A11Y | frontend-next | 2026-08-25 | [3766a40](../commit/3766a403c5e9474e61a54e37f8fa009c5adb3bda) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32769885905) | 字幕编辑框真实标签、筛选/投稿/设置 tabs ARIA、字幕 tabs 键盘导航与 roving tabindex、减少动效支持。 |
+| F1-STATE | frontend-next | 2026-08-25 | [6878e30](../commit/6878e30de7c1e8cf1c8baa5a2457b99575660bcf) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32773358582) | 扫描期间锁定分析操作，失败/空结果清除旧选择、摘要和任务上下文，仅在旧路径仍存在时恢复选择，并提供明确恢复入口。 |
 
 ## 记录规则
 
