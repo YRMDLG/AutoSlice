@@ -195,6 +195,7 @@ h2 {
 .task-context-scroll {
   width: 100%;
   height: 100%;
+  min-width: 0;
   display: flex;
   align-items: stretch;
   overflow-x: auto;
@@ -207,7 +208,7 @@ h2 {
   margin: 0;
   display: grid;
   grid-template-columns: minmax(220px, 1.35fr) 118px minmax(160px, 0.9fr) minmax(180px, 1fr) 118px minmax(138px, 0.72fr);
-  flex: 1 0 auto;
+  flex: 1 1 0;
 }
 
 .task-context-fact {
@@ -1803,5 +1804,23 @@ input[type="range"] {
 
   .top-actions .button {
     padding-inline: 8px;
+  }
+}
+
+/* 940px 是桌面上下文的舒适宽度；缩放或窄窗口时必须让事实区让位给快捷入口。 */
+@media (max-width: 1100px) {
+  .task-context-facts {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 0.72fr);
+  }
+
+  .task-context-actions {
+    padding-inline: 8px;
+    gap: 4px;
+  }
+
+  .task-context-actions .button,
+  .task-context-link {
+    padding-inline: 7px;
   }
 }

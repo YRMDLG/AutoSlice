@@ -214,6 +214,65 @@ if(placeholder.style.display!=='block')throw new Error('预览占位符未恢复
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_f1_context_fixed_mock_covers_long_content_zoom_and_desktop_action(self):
+        project_root = Path(__file__).resolve().parents[2]
+        workbench_css = (
+            project_root / "src" / "autoslice" / "resources" / "static" / "workbench.css"
+        ).read_text(encoding="utf-8")
+        autocover_css = (
+            project_root
+            / "src"
+            / "autoslice_cover"
+            / "resources"
+            / "static"
+            / "styles.css"
+        ).read_text(encoding="utf-8")
+        topic_html = (
+            project_root / "src" / "autoslice" / "resources" / "templates" / "topic_v2.html"
+        ).read_text(encoding="utf-8")
+        subtitle_html = (
+            project_root
+            / "src"
+            / "autoslice"
+            / "resources"
+            / "templates"
+            / "subtitle_workflow.html"
+        ).read_text(encoding="utf-8")
+
+        viewports = (
+            (1920, 1.0), (1440, 1.0), (1366, 1.0), (768, 1.0),
+            (390, 1.0), (1366, 1.25), (1366, 1.5),
+        )
+        for service, stylesheet in (("AutoSlice", workbench_css), ("AutoCover", autocover_css)):
+            self.assertIn("min-width: 940px", stylesheet, service)
+            self.assertIn("flex: 1 1 0", stylesheet, service)
+            narrow_rule = re.search(
+                r"@media\s*\(max-width:\s*1100px\).*?\.task-context-facts\s*\{(.*?)\}",
+                stylesheet,
+                flags=re.S,
+            )
+            self.assertIsNotNone(narrow_rule, service)
+            self.assertIn("min-width: 0", narrow_rule.group(1), service)
+            for width, scale in viewports:
+                with self.subTest(service=service, width=width, scale=scale):
+                    css_width = round(width / scale)
+                    facts_width = css_width - 190 if css_width <= 1100 else 940
+                    self.assertLessEqual(
+                        facts_width + 190,
+                        css_width,
+                        "固定 mock 中长标题不得推出上下文快捷入口",
+                    )
+
+        summary = topic_html.index('<section class="primary-action-summary"')
+        workspace = topic_html.index('<div class="workspace-grid">')
+        self.assertLess(summary, workspace)
+        self.assertEqual(topic_html.count('id="startButton"'), 1)
+        self.assertIn("已选择录播；可直接执行完整分析与切片", topic_html)
+        self.assertIn(".desktop-editing-notice{display:none}", subtitle_html)
+        self.assertIn("@media(max-width:760px)", subtitle_html)
+        self.assertIn("字幕精细编辑建议在桌面完成", subtitle_html)
+        self.assertIn("完整字幕编辑器保持桌面工作台布局", subtitle_html)
+
 
 class ScanApiTests(unittest.TestCase):
 

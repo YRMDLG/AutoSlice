@@ -117,7 +117,8 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
 .settings-actions{padding:11px 13px;border-top:1px solid var(--line);background:#141715}
 .settings-actions .button{width:100%}
 @media(max-width:1220px){.subtitle-layout{grid-template-columns:240px minmax(560px,1fr) 310px}}
-@media(max-width:760px){.cue-row{grid-template-columns:20px 78px minmax(0,1fr) auto;gap:7px;padding:10px 9px}.cue-content{grid-template-columns:minmax(0,1fr)}.cue-detail{grid-column:2/-1;grid-template-columns:minmax(0,1fr)!important;gap:9px}.cue-actions{justify-content:flex-start}.cue-time-fields,.cue-shift-fields{width:100%}.cue-time-field{min-width:0}.cue-time-input{width:100%;box-sizing:border-box}.cue-delete-preview{margin-left:9px;margin-right:9px}.cue-delete-preview li{grid-template-columns:minmax(0,1fr)}.cue-delete-preview-time{white-space:normal}.quality-card{grid-template-columns:minmax(0,1fr)}.quality-card-actions{justify-content:flex-start}.quality-list{max-height:220px}.quality-head{flex-wrap:wrap}.quality-reset{flex:0 0 auto}}
+.desktop-editing-notice{display:none}
+@media(max-width:760px){body{overflow:auto}.desktop-editing-notice{display:block;margin:8px;padding:10px 12px;border:1px solid #6e5a32;border-radius:6px;background:var(--warning-bg);color:#f2d89e;font-size:12px;line-height:1.5}.cue-row{grid-template-columns:20px 78px minmax(0,1fr) auto;gap:7px;padding:10px 9px}.cue-content{grid-template-columns:minmax(0,1fr)}.cue-detail{grid-column:2/-1;grid-template-columns:minmax(0,1fr)!important;gap:9px}.cue-actions{justify-content:flex-start}.cue-time-fields,.cue-shift-fields{width:100%}.cue-time-field{min-width:0}.cue-time-input{width:100%;box-sizing:border-box}.cue-delete-preview{margin-left:9px;margin-right:9px}.cue-delete-preview li{grid-template-columns:minmax(0,1fr)}.cue-delete-preview-time{white-space:normal}.quality-card{grid-template-columns:minmax(0,1fr)}.quality-card-actions{justify-content:flex-start}.quality-list{max-height:220px}.quality-head{flex-wrap:wrap}.quality-reset{flex:0 0 auto}}
 </style>
 </head>
 <body>
@@ -149,6 +150,7 @@ input[type=color]{width:38px;height:36px;padding:3px;border:1px solid var(--line
         </div>
     </div>
 </section>
+<div class="desktop-editing-notice" role="note">字幕精细编辑建议在桌面完成。手机或窄窗口仅适合查看状态和做轻量操作，完整字幕编辑器保持桌面工作台布局。</div>
 <main class="subtitle-layout">
     <section class="subtitle-panel queue-panel">
         <div class="subtitle-panel-head">

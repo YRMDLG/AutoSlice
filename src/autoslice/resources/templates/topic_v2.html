@@ -57,6 +57,23 @@
         </div>
     </div>
 
+    <section class="primary-action-summary" aria-labelledby="primaryActionTitle">
+        <div class="primary-action-summary-copy">
+            <strong id="primaryActionTitle">开始分析+切片</strong>
+            <span id="primaryActionHint">先扫描录播并选择一个文件；检查通过后即可执行完整分析与切片。</span>
+        </div>
+        <div class="action-bar">
+            <details class="more-actions" id="moreActions">
+                <summary class="button">更多操作</summary>
+                <div class="more-menu">
+                    <button class="button quiet" id="optimizeButton" type="button" onclick="optimizeTimeline()" disabled>仅优化时间轴</button>
+                    <button class="button quiet" id="retryButton" type="button" onclick="retryClipReview()" disabled>仅重新复核候选</button>
+                </div>
+            </details>
+            <button class="button primary" id="startButton" type="button" onclick="startPipeline()" disabled>开始分析+切片</button>
+        </div>
+    </section>
+
     <div class="workspace-grid">
         <section class="panel" aria-labelledby="workflowTitle">
             <div class="panel-header">
@@ -138,16 +155,6 @@
                 <div id="timelineArtifact" class="artifact-path" hidden></div>
             </div>
 
-            <div class="action-bar">
-                <details class="more-actions" id="moreActions">
-                    <summary class="button">更多操作</summary>
-                    <div class="more-menu">
-                        <button class="button quiet" id="optimizeButton" type="button" onclick="optimizeTimeline()" disabled>仅优化时间轴</button>
-                        <button class="button quiet" id="retryButton" type="button" onclick="retryClipReview()" disabled>仅重新复核候选</button>
-                    </div>
-                </details>
-                <button class="button primary" id="startButton" type="button" onclick="startPipeline()" disabled>开始分析+切片</button>
-            </div>
         </section>
 
         <section class="panel activity-panel" aria-labelledby="activityTitle">
@@ -352,6 +359,14 @@ function renderReport(markdown){
 function updateActions(){
     const manualReady=byId('timelineMode').value==='manual'&&Boolean(byId('timelinePath').value.trim());
     byId('startButton').disabled=!selVideo||taskBusy||scanBusy;
+    const actionHint=byId('primaryActionHint');
+    if(actionHint)actionHint.textContent=scanBusy
+        ?'正在扫描录播，扫描期间不会启动任务。'
+        :taskBusy
+            ?'任务已启动，右侧会持续显示进度；完成或失败后再执行下一步。'
+            :selVideo
+                ?'已选择录播；可直接执行完整分析与切片，辅助时间轴为可选项。'
+                :'先扫描录播并选择一个文件；检查通过后即可执行完整分析与切片。';
     byId('retryButton').disabled=!selVideo||taskBusy||scanBusy;
     byId('optimizeButton').disabled=!selVideo||!manualReady||taskBusy||scanBusy;
     byId('scanButton').disabled=scanBusy||taskBusy;
