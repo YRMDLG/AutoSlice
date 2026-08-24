@@ -20,6 +20,12 @@ os.environ["AUTOSLICE_TASK_DB"] = str(
 )
 
 import autoslice.web.app as app_module
+from autoslice.autocover_service import (
+    AUTOCOVER_PROBE_INCOMPATIBLE,
+    AUTOCOVER_PROBE_READY,
+    AUTOCOVER_PROBE_UNAVAILABLE,
+    AutoCoverProbeResult,
+)
 from autoslice.subtitle_workflow import parse_srt_document, save_corrected_srt
 from autoslice.task_registry import TaskRegistry
 from autoslice.task_store import TaskStore
@@ -1095,23 +1101,157 @@ class AutoCoverIntegrationTests(unittest.TestCase):
         self.addCleanup(self.legacy_flag.stop)
         self.client = _bootstrapped_client()
 
-    def test_autocover_redirect_uses_only_configured_local_service(self):
+    @staticmethod
+    def _probe_result(status, reason=""):
+        return AutoCoverProbeResult(status=status, reason=reason)
+
+    def test_autocover_ready_redirects_to_configured_local_service(self):
         with patch.dict(
                 os.environ,
                 {"AUTOCOVER_URL": "http://127.0.0.1:5017"},
-                clear=False):
+                clear=False), patch.object(
+                    app_module,
+                    "probe_autocover_endpoint",
+                    return_value=self._probe_result(
+                        AUTOCOVER_PROBE_READY,
+                    ),
+                ) as probe:
             response = self.client.get("/autocover")
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "http://127.0.0.1:5017")
+        endpoint = probe.call_args.args[0]
+        self.assertEqual(endpoint.port, 5017)
+        self.assertEqual(endpoint.probe_url, "http://127.0.0.1:5017/api/options")
+
+    def test_autocover_root_trailing_slash_redirect_is_normalized(self):
+        with patch.dict(
+                os.environ,
+                {"AUTOCOVER_URL": "http://127.0.0.1:5018/"},
+                clear=False), patch.object(
+                    app_module,
+                    "probe_autocover_endpoint",
+                    return_value=self._probe_result(AUTOCOVER_PROBE_READY),
+                ) as probe:
+            response = self.client.get("/autocover")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "http://127.0.0.1:5018")
+        self.assertEqual(probe.call_args.args[0].browser_url, "http://127.0.0.1:5018")
+
+    def test_autocover_not_started_returns_clear_503_status_page(self):
+        result = self._probe_result(
+            AUTOCOVER_PROBE_UNAVAILABLE,
+            "连接被拒绝（127.0.0.1:5010 未监听）",
+        )
+        with patch.object(
+                app_module,
+                "probe_autocover_endpoint",
+                return_value=result):
+            response = self.client.get("/autocover")
+
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("AutoCover 未启动", html)
+        self.assertIn("python 启动.py", html)
+        self.assertIn("连接被拒绝", html)
+        self.assertIn('href="/autocover"', html)
+        self.assertIn('href="/"', html)
+        self.assertIn('href="/subtitle-workflow"', html)
+
+    def test_autocover_incompatible_service_returns_safe_actual_409_reason(self):
+        result = self._probe_result(
+            AUTOCOVER_PROBE_INCOMPATIBLE,
+            "HTTP 404 Not Found",
+        )
+        with patch.object(
+                app_module,
+                "probe_autocover_endpoint",
+                return_value=result):
+            response = self.client.get("/autocover")
+
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("端口已被其他服务占用或服务版本不兼容", html)
+        self.assertIn("HTTP 404 Not Found", html)
+        self.assertNotIn("Traceback", html)
+        self.assertNotIn("Cookie", html)
+        self.assertNotIn("Token", html)
+
+    def test_malicious_autocover_url_falls_back_without_external_probe(self):
+        captured = {}
+
+        def ready_probe(endpoint):
+            captured["endpoint"] = endpoint
+            return self._probe_result(AUTOCOVER_PROBE_READY)
 
         with patch.dict(
                 os.environ,
-                {"AUTOCOVER_URL": "https://example.com/steal"},
-                clear=False):
-            rejected = self.client.get("/autocover")
+                {"AUTOCOVER_URL": "https://example.com:8443/steal?token=secret"},
+                clear=False), patch.object(
+                    app_module,
+                    "probe_autocover_endpoint",
+                    side_effect=ready_probe,
+                ):
+            response = self.client.get("/autocover")
 
-        self.assertEqual(rejected.headers["Location"], "http://127.0.0.1:5010")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "http://127.0.0.1:5010")
+        endpoint = captured["endpoint"]
+        self.assertEqual(endpoint.browser_url, "http://127.0.0.1:5010")
+        self.assertEqual(endpoint.probe_url, "http://127.0.0.1:5010/api/options")
+        self.assertNotIn("example.com", endpoint.probe_url)
+
+    def test_configured_localhost_dynamic_port_is_probed_on_ipv4_loopback(self):
+        captured = {}
+
+        def ready_probe(endpoint):
+            captured["endpoint"] = endpoint
+            return self._probe_result(AUTOCOVER_PROBE_READY)
+
+        with patch.dict(
+                os.environ,
+                {"AUTOCOVER_URL": "http://localhost:5013"},
+                clear=False), patch.object(
+                    app_module,
+                    "probe_autocover_endpoint",
+                    side_effect=ready_probe,
+                ):
+            response = self.client.get("/autocover")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "http://localhost:5013")
+        self.assertEqual(captured["endpoint"].port, 5013)
+        self.assertEqual(
+            captured["endpoint"].probe_url,
+            "http://127.0.0.1:5013/api/options",
+        )
+
+    def test_autocover_status_page_has_no_iframe_or_polling(self):
+        with patch.object(
+                app_module,
+                "probe_autocover_endpoint",
+                return_value=self._probe_result(
+                    AUTOCOVER_PROBE_UNAVAILABLE,
+                    "连接被拒绝",
+                )):
+            html = self.client.get("/autocover").get_data(as_text=True)
+
+        normalized = html.casefold()
+        self.assertNotIn("<iframe", normalized)
+        self.assertNotIn("setinterval", normalized)
+        self.assertNotIn("settimeout", normalized)
+        self.assertNotIn("fetch(", normalized)
+
+    def test_autocover_probe_does_not_bypass_host_boundary(self):
+        with patch.object(app_module, "probe_autocover_endpoint") as probe:
+            response = self.client.get(
+                "/autocover",
+                headers={"Host": "attacker.example"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        probe.assert_not_called()
 
     def test_all_primary_pages_link_to_autocover(self):
         for path in ("/", "/topic-v2", "/subtitle-workflow"):

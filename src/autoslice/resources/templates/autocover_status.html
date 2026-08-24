@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AutoCover 服务状态 · AutoSlice</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
+<style>
+.autocover-status-shell{width:min(760px,calc(100vw - 40px));margin:0 auto;padding:54px 0}
+.autocover-status-panel{overflow:hidden}
+.autocover-status-body{padding:24px}
+.autocover-status-body h1{margin:0 0 10px;font-size:24px;line-height:1.3}
+.autocover-status-body p{margin:0 0 14px;color:var(--text-secondary);line-height:1.7}
+.autocover-status-reason{margin:18px 0;padding:13px 14px;border:1px solid var(--line);border-radius:5px;background:var(--surface-input)}
+.autocover-status-reason dt{margin-bottom:6px;color:var(--muted);font-size:12px;font-weight:700}
+.autocover-status-reason dd{margin:0;color:var(--text);font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:1.65;overflow-wrap:anywhere}
+.autocover-status-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:20px}
+.autocover-status-hint{font-size:12px!important;color:var(--muted)!important}
+code{padding:2px 5px;border-radius:4px;background:var(--surface-input);color:var(--text)}
+</style>
+</head>
+<body>
+<header class="topbar">
+    <a class="brand" href="/" aria-label="AutoSlice 首页">
+        <span class="brand-mark" aria-hidden="true">AS</span>
+        <span class="brand-copy"><strong>AutoSlice</strong><span>直播切片工作台</span></span>
+    </a>
+    <nav class="topnav" aria-label="主要功能">
+        <a href="/">智能分析</a>
+        <a href="/subtitle-workflow">字幕校对</a>
+        <a href="/autocover" class="active" aria-current="page">自动封面</a>
+    </nav>
+</header>
+
+<main class="autocover-status-shell">
+    <section class="panel autocover-status-panel" aria-labelledby="autocoverStatusTitle">
+        <div class="panel-header">
+            <h2>AutoCover 服务检测</h2>
+            <span class="meta">{{ autocover_url }}</span>
+        </div>
+        <div class="autocover-status-body">
+            {% if unavailable %}
+            <div class="notice warning" role="status">本机 AutoCover 端口当前没有可用服务。</div>
+            <h1 id="autocoverStatusTitle">AutoCover 未启动</h1>
+            <p>请返回启动窗口，通过 <code>python 启动.py</code> 启动 AutoSlice 与 AutoCover，然后重新检测。</p>
+            {% else %}
+            <div class="notice error" role="alert">已连接到本机端口，但没有检测到兼容的 AutoCover 服务。</div>
+            <h1 id="autocoverStatusTitle">端口已被其他服务占用或服务版本不兼容</h1>
+            <p>请检查启动窗口中的 AutoCover 输出，关闭占用该端口的其他程序，或通过 <code>python 启动.py</code> 重新启动。</p>
+            {% endif %}
+
+            <dl class="autocover-status-reason">
+                <dt>实际检测结果</dt>
+                <dd>{{ reason or '未返回更多信息' }}</dd>
+            </dl>
+            <p class="autocover-status-hint">检测只连接本机 loopback 地址，不会自动启动服务，也不会向局域网或外部地址发起请求。</p>
+            <div class="autocover-status-actions">
+                <a class="button primary" href="/autocover">重新检测</a>
+                <a class="button" href="/">返回智能分析</a>
+                <a class="button" href="/subtitle-workflow">返回字幕校对</a>
+            </div>
+        </div>
+    </section>
+</main>
+</body>
+</html>

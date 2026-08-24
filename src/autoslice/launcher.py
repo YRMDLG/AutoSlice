@@ -14,16 +14,10 @@ import subprocess
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from autoslice_cover import (
-    API_VERSION as AUTOCOVER_API_VERSION,
-)
-from autoslice_cover import (
-    SERVICE_ID as AUTOCOVER_SERVICE_ID,
-)
+from autoslice import autocover_service
 from autoslice.paths import APPLICATION_DATA_ROOT, SOURCE_WORKSPACE_ROOT
 from autoslice.runtime_config import (
     AUTOCOVER_DIR,
@@ -48,6 +42,12 @@ AUTOSLICE_API_VERSION = 1
 AUTOSLICE_SUBTITLE_REVIEW_VERSION = 4
 AUTOSLICE_SUBTITLE_ASR_VERSION = 2
 AUTOSLICE_PORT = 5002
+
+AUTOCOVER_API_VERSION = autocover_service.AUTOCOVER_API_VERSION
+AUTOCOVER_SERVICE_ID = autocover_service.AUTOCOVER_SERVICE_ID
+autocover_endpoint_from_url = autocover_service.autocover_endpoint_from_url
+_is_compatible_autocover_service = autocover_service.is_compatible_autocover_service
+_probe_autocover_service = autocover_service.probe_autocover_service
 
 
 def _gpu_runtime_python(local_app_data=None):
@@ -175,27 +175,6 @@ def _install_dependencies(runner=subprocess.run):
         raise RuntimeError("依赖安装失败，请检查网络后重新启动。")
 
 
-def _is_compatible_autocover_service(payload):
-    return bool(
-        payload
-        and payload.get("service") == AUTOCOVER_SERVICE_ID
-        and payload.get("api_version") == AUTOCOVER_API_VERSION
-    )
-
-
-def _probe_autocover_service(port, timeout=0.8):
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/api/options",
-        headers={"Accept": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.load(response)
-    except (OSError, ValueError, urllib.error.URLError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
 def _probe_autoslice_service(port=AUTOSLICE_PORT, timeout=0.8):
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/service",
@@ -242,26 +221,18 @@ def _existing_unified_services(autoslice_probe=None, autocover_probe=None):
     if not _is_compatible_autoslice_service(slice_payload):
         return None
 
-    cover_url = str(slice_payload.get("autocover_url", "")).strip().rstrip("/")
-    parsed = None
+    cover_url = str(slice_payload.get("autocover_url", "")).strip()
     try:
-        parsed = urllib.parse.urlsplit(cover_url)
-        cover_port = parsed.port
+        cover_endpoint = autocover_endpoint_from_url(cover_url)
     except ValueError:
-        cover_port = None
-    if (
-            parsed is None
-            or parsed.scheme != "http"
-            or parsed.hostname not in {"127.0.0.1", "localhost"}
-            or cover_port is None):
         raise RuntimeError("已运行的 AutoSlice 没有有效的 AutoCover 地址，请关闭旧窗口后重启。")
 
     probe_cover = autocover_probe or _probe_autocover_service
-    if not _is_compatible_autocover_service(probe_cover(cover_port)):
+    if not _is_compatible_autocover_service(probe_cover(cover_endpoint.port)):
         raise RuntimeError("AutoSlice 已在运行，但 AutoCover 未就绪，请关闭旧窗口后重启。")
     return {
         "autoslice_url": f"http://127.0.0.1:{AUTOSLICE_PORT}",
-        "autocover_url": cover_url,
+        "autocover_url": cover_endpoint.browser_url,
     }
 
 

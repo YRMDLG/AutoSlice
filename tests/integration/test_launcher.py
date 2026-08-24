@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock, patch
 
-from autoslice import launcher
+from autoslice import autocover_service, launcher
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER_PATH = REPOSITORY_ROOT / "启动.py"
@@ -214,6 +214,14 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(captured["env"]["no_proxy"], "*")
 
     def test_autocover_contract_and_port_selection(self):
+        self.assertIs(
+            launcher._is_compatible_autocover_service,
+            autocover_service.is_compatible_autocover_service,
+        )
+        self.assertIs(
+            launcher._probe_autocover_service,
+            autocover_service.probe_autocover_service,
+        )
         self.assertTrue(launcher._is_compatible_autocover_service({
             "service": "autocover",
             "api_version": launcher.AUTOCOVER_API_VERSION,
@@ -312,6 +320,31 @@ class LauncherTests(unittest.TestCase):
                 Mock(return_value=invalid_payload),
                 Mock(),
             )
+        slash_payload = dict(slice_payload, autocover_url="http://127.0.0.1:5012/")
+        slash_probe = Mock(return_value=cover_payload)
+        self.assertEqual(
+            launcher._existing_unified_services(
+                Mock(return_value=slash_payload),
+                slash_probe,
+            ),
+            {
+                "autoslice_url": "http://127.0.0.1:5002",
+                "autocover_url": "http://127.0.0.1:5012",
+            },
+        )
+        slash_probe.assert_called_once_with(5012)
+
+        path_payload = dict(
+            slice_payload,
+            autocover_url="http://127.0.0.1:5012/api/options",
+        )
+        path_probe = Mock()
+        with self.assertRaisesRegex(RuntimeError, "没有有效"):
+            launcher._existing_unified_services(
+                Mock(return_value=path_payload),
+                path_probe,
+            )
+        path_probe.assert_not_called()
 
     def test_autocover_starts_with_host_python_and_selected_port(self):
         with TemporaryDirectory() as directory:

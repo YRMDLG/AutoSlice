@@ -18,10 +18,10 @@ import traceback
 from collections import deque
 from collections.abc import MutableMapping
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request
 
+from autoslice import autocover_service
 from autoslice.media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
     is_analyzable_video,
@@ -64,6 +64,12 @@ app = Flask(
 
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
+DEFAULT_AUTOCOVER_URL = autocover_service.DEFAULT_AUTOCOVER_URL
+AUTOCOVER_PROBE_READY = autocover_service.AUTOCOVER_PROBE_READY
+AUTOCOVER_PROBE_UNAVAILABLE = autocover_service.AUTOCOVER_PROBE_UNAVAILABLE
+configured_autocover_endpoint = autocover_service.configured_autocover_endpoint
+probe_autocover_endpoint = autocover_service.probe_autocover_endpoint
+
 task_lock = threading.RLock()
 event_queues = []
 event_queue_lock = threading.RLock()
@@ -102,7 +108,6 @@ for _runtime_dir in (
         DEFAULT_TIMELINE_DIR,
         DEFAULT_SUBMISSION_DIR):
     os.makedirs(_runtime_dir, exist_ok=True)
-DEFAULT_AUTOCOVER_URL = "http://127.0.0.1:5010"
 AUTOSLICE_SERVICE_ID = "autoslice"
 AUTOSLICE_API_VERSION = 1
 LEGACY_DIRECT_SLICE_ENV = "AUTOSLICE_ENABLE_LEGACY_DIRECT_SLICE"
@@ -327,25 +332,8 @@ if task_store.last_recovery is not None:
 
 def _configured_autocover_url(environ=None):
     """只允许跳转到本机 AutoCover，拒绝环境变量注入外部地址。"""
-    env = environ if environ is not None else os.environ
-    candidate = str(env.get("AUTOCOVER_URL", DEFAULT_AUTOCOVER_URL)).strip().rstrip("/")
-    try:
-        parsed = urlsplit(candidate)
-        port = parsed.port
-    except ValueError:
-        return DEFAULT_AUTOCOVER_URL
-    if (
-            parsed.scheme != "http"
-            or parsed.hostname not in {"127.0.0.1", "localhost"}
-            or parsed.username is not None
-            or parsed.password is not None
-            or port is None
-            or not 1 <= port <= 65535
-            or parsed.path not in {"", "/"}
-            or parsed.query
-            or parsed.fragment):
-        return DEFAULT_AUTOCOVER_URL
-    return candidate
+
+    return configured_autocover_endpoint(environ).browser_url
 
 
 def _env_flag(name, environ=None):
@@ -2325,7 +2313,17 @@ def subtitle_workflow_page():
 
 @app.route("/autocover")
 def autocover_page():
-    return redirect(_configured_autocover_url())
+    endpoint = configured_autocover_endpoint()
+    probe = probe_autocover_endpoint(endpoint)
+    if probe.status == AUTOCOVER_PROBE_READY:
+        return redirect(endpoint.browser_url)
+    unavailable = probe.status == AUTOCOVER_PROBE_UNAVAILABLE
+    return render_template(
+        "autocover_status.html",
+        unavailable=unavailable,
+        reason=probe.reason,
+        autocover_url=endpoint.browser_url,
+    ), 503 if unavailable else 409
 
 
 @app.route("/api/security/session", methods=["GET"])
