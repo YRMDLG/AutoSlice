@@ -23,6 +23,9 @@ class TaskResultSummaryTests(unittest.TestCase):
                 for index in range(12)
             ],
             "analysis_topics": [{"body": "话题" * 10_000}],
+            "candidate_review_audit": {
+                "candidates": [{"reason": "复核原始明细" * 10_000}],
+            },
             "failed_chunks": [{"index": 3}, {"index": 9}],
             "artifact_dir": r"F:\output\直播_自动切片",
             "overview_path": r"F:\output\直播_自动切片\00_概览.md",
@@ -30,6 +33,12 @@ class TaskResultSummaryTests(unittest.TestCase):
             "json_path": r"F:\output\直播_自动切片\数据\clip_marks.json",
             "md_path": r"F:\output\直播_自动切片\01_话题分析.md",
             "srt_path": r"F:\output\直播.srt",
+            "quality_overview": {
+                "overview_version": 1,
+                "final_slice_count": 12,
+                "clips": [{"title": "切片一", "score": 88}],
+                "edge_candidates": [{"title": "边缘候选", "score": 70}],
+            },
             "api_precheck_warning": "临时 warning" * 1000,
         }
 
@@ -43,9 +52,67 @@ class TaskResultSummaryTests(unittest.TestCase):
         self.assertNotIn("report", summary)
         self.assertNotIn("clip_marks", summary)
         self.assertNotIn("analysis_topics", summary)
+        self.assertNotIn("candidate_review_audit", summary)
+        self.assertEqual(summary["quality_overview"]["final_slice_count"], 12)
+        self.assertEqual(
+            summary["quality_overview"]["clips"][0]["title"],
+            "切片一",
+        )
         self.assertNotIn("subtitle", json.dumps(summary, ensure_ascii=False))
         self.assertLess(len(encoded), 64 * 1024)
         self.assertLessEqual(len(summary["api_precheck_warning"]), 2000)
+
+    def test_oversized_quality_overview_is_trimmed_before_store_persistence(self):
+        summary = build_pipeline_result_summary({
+            "quality_overview": {
+                "final_slice_count": 1000,
+                "clips": [
+                    {"title": "长标题" * 500, "reason": "长理由" * 500}
+                    for _ in range(1000)
+                ],
+                "edge_candidates": [
+                    {"title": "边缘" * 500, "reason": "原因" * 500}
+                    for _ in range(1000)
+                ],
+            },
+        })
+
+        encoded = json.dumps(summary, ensure_ascii=False).encode("utf-8")
+
+        self.assertIn("quality_overview", summary)
+        self.assertGreater(len(summary["quality_overview"]["clips"]), 0)
+        self.assertGreater(
+            len(summary["quality_overview"]["edge_candidates"]),
+            0,
+        )
+        self.assertLess(len(summary["quality_overview"]["clips"]), 1000)
+        self.assertGreater(
+            summary["quality_overview"]["clips_truncated_count"],
+            0,
+        )
+        self.assertGreater(
+            summary["quality_overview"]["edge_candidates_truncated_count"],
+            0,
+        )
+        self.assertNotIn("slice_count", summary["quality_overview"])
+        self.assertLess(len(encoded), 64 * 1024)
+
+    def test_invalid_nonfinite_quality_overview_is_omitted_safely(self):
+        summary = build_pipeline_result_summary({
+            "topic_count": 1,
+            "quality_overview": {
+                "final_slice_count": 1,
+                "clips": [{"score": float("nan")}],
+                "edge_candidates": [],
+            },
+        })
+
+        self.assertNotIn("quality_overview", summary)
+        self.assertEqual(summary["topic_count"], 1)
+        self.assertLessEqual(
+            len(json.dumps(summary, ensure_ascii=False).encode("utf-8")),
+            64 * 1024,
+        )
 
     def test_explicit_slice_count_and_paths_are_preserved(self):
         summary = build_pipeline_result_summary({

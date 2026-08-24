@@ -766,6 +766,142 @@ textarea:hover {
   margin-top: 10px;
 }
 
+.quality-overview {
+  margin: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.quality-heading,
+.quality-section-heading {
+  padding: 11px 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.quality-heading h3,
+.quality-section-heading h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.quality-heading p,
+.quality-section-heading span {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.quality-summary {
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.quality-summary strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.quality-distribution {
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.quality-distribution > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.quality-distribution strong { color: var(--text-secondary); }
+.quality-distribution span { color: var(--muted); overflow-wrap: anywhere; }
+
+.quality-list,
+.edge-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quality-row,
+.edge-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid #292e2b;
+}
+
+.quality-row:last-child,
+.edge-row:last-child { border-bottom: 0; }
+
+.quality-row-heading,
+.edge-row > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quality-row-heading > span {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.quality-row-heading strong,
+.edge-row strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.edge-row > div > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.quality-facts {
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 9px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.quality-row p,
+.edge-row p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.quality-section-heading.edge { border-top: 1px solid var(--line); }
+
+.quality-empty {
+  padding: 14px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .report {
   padding: 16px;
   color: var(--text-secondary);

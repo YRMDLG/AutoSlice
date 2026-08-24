@@ -19,6 +19,7 @@ POLICY_CONSUMERS = {
     "autoslice.analysis.candidates",
     "autoslice.analysis.manual.candidates",
     "autoslice.analysis.manual.enrichment",
+    "autoslice.analysis.quality_overview",
     "autoslice.analysis.review.candidates",
     "autoslice.analysis.review.finalization",
     "autoslice.analysis.review.prompt",

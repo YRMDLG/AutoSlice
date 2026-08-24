@@ -34,6 +34,7 @@ from autoslice.llm import transport as llm_gateway
 from autoslice.analysis import boundaries as boundary_analysis
 from autoslice.analysis import checkpoints as checkpoint_store
 from autoslice.analysis import danmaku as danmaku_analysis
+from autoslice.analysis import quality_overview
 from autoslice.analysis.manual import artifacts as manual_artifacts
 from autoslice.analysis.manual import candidates as manual_candidates
 from autoslice.analysis.manual import review as manual_review
@@ -89,6 +90,7 @@ prepare_pipeline_analysis = pipeline_analysis.prepare_pipeline_analysis
 persist_pipeline_artifacts = pipeline_artifacts.persist_pipeline_artifacts
 prepare_pipeline_boundaries = pipeline_boundaries.prepare_pipeline_boundaries
 prepare_pipeline_decisions = pipeline_decisions.prepare_pipeline_decisions
+build_quality_overview = quality_overview.build_quality_overview
 analyze_pipeline_llm_chunks = pipeline_llm.analyze_pipeline_llm_chunks
 prepare_pipeline_manual_timeline = pipeline_manual.prepare_pipeline_manual_timeline
 build_context_policy = pipeline_reporting.build_context_policy
@@ -690,6 +692,7 @@ def run_pipeline_impl(
     candidate_review_audit_path = decision_preparation[
         "candidate_review_audit_path"
     ]
+    candidate_review_audit = decision_preparation.get("candidate_review_audit")
     srt_segments_for_context = decision_preparation[
         "srt_segments_for_context"
     ]
@@ -706,6 +709,10 @@ def run_pipeline_impl(
     )
     clip_marks = boundary_preparation["clip_marks"]
     accepted_topics = boundary_preparation["accepted_topics"]
+    result_quality_overview = build_quality_overview(
+        clip_marks,
+        candidate_review_audit,
+    )
     if progress_callback:
         progress_callback("Step 5/5: 生成报告...", 97, 100)
     clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
@@ -821,6 +828,7 @@ def run_pipeline_impl(
         "topic_analysis_checkpoint_path": topic_analysis_checkpoint_path,
         "clip_review_checkpoint_path": clip_review_checkpoint_path,
         "candidate_review_audit_path": candidate_review_audit_path,
+        "quality_overview": result_quality_overview,
         "failed_chunks": failed_chunks,
         "api_precheck_warning": api_precheck_warning,
         "manual_timeline": timeline_analysis.manual_timeline_summary(manual_timeline),
@@ -988,9 +996,14 @@ def retry_clip_review_from_artifacts_impl(
     )
     accepted_topics = decision_preparation["accepted_topics"]
     clip_marks = decision_preparation["clip_marks"]
+    candidate_review_audit = decision_preparation.get("candidate_review_audit")
     candidate_review_audit_path = decision_preparation[
         "candidate_review_audit_path"
     ]
+    result_quality_overview = build_quality_overview(
+        clip_marks,
+        candidate_review_audit,
+    )
 
     clip_review_completed_at = datetime.now().isoformat(timespec="seconds")
     report_preparation = prepare_retry_report(
@@ -1095,4 +1108,5 @@ def retry_clip_review_from_artifacts_impl(
         "api_precheck_warning": api_warning,
         "clip_review_warning": clip_review_warning,
         "candidate_review_audit_path": candidate_review_audit_path,
+        "quality_overview": result_quality_overview,
     }

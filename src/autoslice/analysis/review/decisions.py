@@ -540,6 +540,11 @@ def clip_marks_from_topics(topics):
                 "semantic_focus_validated": bool(topic.get("ai_focus_validated")),
                 "editorial_interest_score": topic.get("clip_interest_score"),
                 "editorial_interest_reason": topic.get("clip_interest_reason"),
+                "peak_density": (
+                    topic.get("slice_peak_density")
+                    if topic.get("slice_peak_density") is not None
+                    else topic.get("peak_density")
+                ),
                 "timeline_star_bonus": topic.get("clip_timeline_star_bonus", 0),
                 "reference_start": topic.get("reference_start"),
                 "reference_end": topic.get("reference_end"),

@@ -25,6 +25,7 @@ _PIPELINE_WARNING_FIELDS = (
 )
 _MAX_WARNING_LENGTH = 2000
 _MAX_RESULT_SUMMARY_BYTES = 64 * 1024
+_MAX_QUALITY_OVERVIEW_BYTES = 48 * 1024
 
 
 def normalize_task_result(value: Any) -> Any:
@@ -57,6 +58,61 @@ def _failed_chunk_count(result: Mapping[str, Any]) -> int:
             failed_chunks, (str, bytes, bytearray)):
         return len(failed_chunks)
     return 0
+
+
+def _compact_quality_overview(value: Any) -> dict[str, Any] | None:
+    """只规范化已由分析 owner 构建的概览，不重新计算业务指标。"""
+
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        overview = json.loads(json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(overview, dict):
+        return None
+    clips = overview.get("clips")
+    edges = overview.get("edge_candidates")
+    if not isinstance(clips, list):
+        overview["clips"] = []
+    if not isinstance(edges, list):
+        overview["edge_candidates"] = []
+    trim_clips_next = len(overview["clips"]) >= len(overview["edge_candidates"])
+    while len(json.dumps(
+            overview,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+    ).encode("utf-8")) > _MAX_QUALITY_OVERVIEW_BYTES:
+        clips = overview["clips"]
+        edges = overview["edge_candidates"]
+        can_trim_clips = bool(clips) and (len(clips) > 1 or not edges)
+        can_trim_edges = bool(edges) and (len(edges) > 1 or not clips)
+        if not can_trim_clips and not can_trim_edges:
+            return None
+        if can_trim_clips and can_trim_edges:
+            trim_clips = trim_clips_next
+            trim_clips_next = not trim_clips_next
+        else:
+            trim_clips = can_trim_clips
+        field = "clips" if trim_clips else "edge_candidates"
+        truncated_field = (
+            "clips_truncated_count"
+            if trim_clips
+            else "edge_candidates_truncated_count"
+        )
+        rows = overview[field]
+        remove_count = max(1, len(rows) // 2)
+        del rows[-remove_count:]
+        overview[truncated_field] = (
+            _non_negative_int(overview.get(truncated_field)) + remove_count
+        )
+    return overview
 
 
 def build_pipeline_result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
@@ -97,6 +153,9 @@ def build_pipeline_result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         if len(encoded) <= _MAX_RESULT_SUMMARY_BYTES:
             summary[field] = value
 
+    quality_overview = _compact_quality_overview(result.get("quality_overview"))
+    if quality_overview is not None:
+        add_if_fits("quality_overview", quality_overview)
     for field in _PIPELINE_PATH_FIELDS:
         value = result.get(field)
         if value:

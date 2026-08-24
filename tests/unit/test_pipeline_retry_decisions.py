@@ -10,6 +10,7 @@ class PrepareRetryDecisionsTests(unittest.TestCase):
         calls = []
         decision_topics = [{"title": "决策后", "start": 12, "end": 22}]
         expanded = [{"title": "最终", "start": 8, "end": 28}]
+        audit = {"candidate_count": 1, "candidates": [{"title": "边缘候选"}]}
 
         def probe(path):
             calls.append(("probe", path))
@@ -20,6 +21,7 @@ class PrepareRetryDecisionsTests(unittest.TestCase):
             return {
                 "accepted_topics": decision_topics,
                 "raw_clip_marks": [{"start": 12, "end": 22}],
+                "candidate_review_audit": audit,
                 "candidate_review_audit_path": "audit-new.json",
             }
 
@@ -52,6 +54,7 @@ class PrepareRetryDecisionsTests(unittest.TestCase):
 
         self.assertEqual([item[0] for item in calls], ["probe", "decisions", "boundaries"])
         self.assertEqual(result["candidate_review_audit_path"], "audit-new.json")
+        self.assertIs(result["candidate_review_audit"], audit)
         self.assertEqual(result["clip_marks"], expanded)
         self.assertEqual(result["accepted_topics"], decision_topics)
         self.assertEqual(result["probed_video_duration"], 120)
@@ -66,6 +69,7 @@ class PrepareRetryDecisionsTests(unittest.TestCase):
             return {
                 "accepted_topics": [],
                 "raw_clip_marks": [],
+                "candidate_review_audit": {},
                 "candidate_review_audit_path": "audit.json",
             }
 

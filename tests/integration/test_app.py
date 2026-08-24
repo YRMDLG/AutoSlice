@@ -552,6 +552,118 @@ const assert=(condition,message)=>{if(!condition)throw new Error(message)};
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查质量概览真实展示")
+    def test_topic_page_restores_sorted_quality_overview_with_safe_fallbacks(self):
+        _html, script = self._page_script()
+        script_prefix = script.split("restoreWorkspacePaths();", 1)[0]
+        runtime_assertions = r"""
+const makeNode=()=>(
+  {textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,value:'',
+   title:'',style:{},options:[],dataset:{},
+   classList:{add:()=>{},remove:()=>{},toggle:()=>{}},
+   replaceChildren:()=>{},add:()=>{},append:()=>{},addEventListener:()=>{}}
+);
+const nodes=new Map();
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id);},
+  querySelectorAll:()=>[],createElement:()=>makeNode(),querySelector:()=>null,
+};
+document.getElementById('timelineMode').value='none';
+globalThis.window={};
+globalThis.localStorage={getItem:()=>null,setItem:()=>{}};
+const makeResponse=(status,payload)=>(
+  {ok:status>=200&&status<300,status,
+   json:async()=>payload,
+   text:async()=>typeof payload==='string'?payload:JSON.stringify(payload)}
+);
+const overview={
+  overview_version:1,
+  final_slice_count:3,
+  duration_distribution:{total_seconds:395,minimum_seconds:65,maximum_seconds:205,average_seconds:131.7,buckets:{under_90_seconds:1,from_90_to_179_seconds:1,at_least_180_seconds:1}},
+  score_distribution:{scored_count:2,missing_count:1,minimum:84,maximum:93.5,average:88.8,buckets:{'90_to_100':1,'75_to_89_9':1,'60_to_74_9':0,below_60:0}},
+  anchor_source_counts:{'弹幕峰值':1,'语义复核':1,'锚点未记录':1},
+  danmaku_peak_count:1,
+  clips:[
+    {title:'高分<片段>',start:10,end:75,duration:65,score:93.5,peak_density:188,anchor_source:'弹幕峰值',reason:'诱因和后果完整'},
+    {title:'中分片段',start:100,end:225,duration:125,score:84,peak_density:null,anchor_source:'语义复核',reason:'事件完整'},
+    {title:'缺省片段',start:300,end:505,duration:205,score:null,peak_density:null,anchor_source:'锚点未记录',reason:'投稿价值理由未记录'},
+  ],
+  clips_truncated_count:0,
+  edge_candidate_count:2,
+  edge_candidates:[
+    {title:'边缘候选 B',time_range:'00:01:30－00:02:10',score:74.9,reason:'事件完整，但独立反转略弱'},
+    {title:'边缘候选 <A>',time_range:'00:00:50－00:01:20',score:60,reason:'理由 <script>alert(1)</script>'},
+  ],
+  edge_candidates_truncated_count:0,
+};
+globalThis.fetch=(url)=>{
+  if(url.includes('pipeline_old')&&url.endsWith('/result'))return Promise.resolve(makeResponse(200,{artifact_dir:'C:\\safe\\old',report_available:false}));
+  if(url.endsWith('/result'))return Promise.resolve(makeResponse(200,{
+    artifact_dir:'C:\\safe\\result',
+    overview_path:'C:\\safe\\result\\00_概览.md',
+    quality_overview:overview,
+    report_available:false,
+  }));
+  throw new Error(`意外请求 ${url}`);
+};
+class FakeEventSource{
+  static instances=[];
+  constructor(url){this.url=url;this.listeners={};FakeEventSource.instances.push(this)}
+  addEventListener(type,handler){this.listeners[type]=handler}
+  close(){this.closed=true}
+}
+globalThis.EventSource=FakeEventSource;
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+(async()=>{
+  connectSSE();
+  assert(FakeEventSource.instances.length===1,'质量概览测试没有建立 SSE 连接');
+  const source=FakeEventSource.instances[0];
+  await source.listeners.init({data:JSON.stringify({
+    pipeline_restored:{status:'done',progress:'刷新恢复完成',step:100,total:100,updated_at:10,created_at:1},
+  })});
+  const quality=document.getElementById('qualityOverview');
+  assert(quality.hidden===false,'SSE init 刷新恢复后没有显示质量概览');
+  assert(currentTaskId==='pipeline_restored','SSE init 没有恢复质量概览对应任务');
+
+  await source.listeners.task_update({data:JSON.stringify({
+    task_id:'pipeline_first',status:'queued',progress:'首次任务排队',step:0,total:100,
+    updated_at:20,created_at:20,
+  })});
+  assert(quality.hidden===true&&quality.innerHTML==='','新任务开始时没有清理旧质量概览');
+  await source.listeners.task_update({data:JSON.stringify({
+    task_id:'pipeline_first',status:'done',progress:'首次任务完成',step:100,total:100,
+    updated_at:30,created_at:20,
+  })});
+  const html=quality.innerHTML;
+  assert(quality.hidden===false,'task_update 首次完成后没有显示质量概览');
+  assert(html.includes('最终切片 <strong>3</strong> 个'),'最终切片数量未真实展示');
+  assert(html.includes('含弹幕峰值 <strong>1</strong> 个'),'含弹幕峰值文案或数量不正确');
+  assert(html.includes('短于 1分30秒 1')&&html.includes('1分30秒–3分钟 1')&&html.includes('至少 3分钟 1'),'时长分布未真实展示');
+  assert(html.indexOf('高分&lt;片段&gt;')<html.indexOf('中分片段'),'最终切片没有按投稿价值降序展示');
+  assert(html.indexOf('中分片段')<html.indexOf('缺省片段'),'缺失投稿价值分没有排在最后');
+  assert(html.includes('投稿价值未记录')&&html.includes('峰值未记录')&&html.includes('锚点未记录'),'缺失字段没有安全回退');
+  assert(html.includes('边缘候选 <strong>2</strong> 个'),'边缘候选数量未展示');
+  assert(html.includes('事件完整，但独立反转略弱'),'边缘候选投稿价值理由未展示');
+  assert(html.includes('边缘候选 &lt;A&gt;')&&!html.includes('<script>alert(1)</script>'),'标题或理由没有安全转义');
+
+  await source.listeners.task_update({data:JSON.stringify({
+    task_id:'pipeline_old',status:'done',progress:'旧任务完成',step:100,total:100,
+    updated_at:40,created_at:2,
+  })});
+  assert(quality.hidden===true&&quality.innerHTML==='','旧任务缺少新字段时没有清理已有质量概览');
+})().catch(error=>{process.stderr.write(error.stack||String(error));process.exitCode=1});
+"""
+        result = subprocess.run(
+            ["node", "-e", script_prefix + runtime_assertions],
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查文件名派生")
     def test_topic_page_derives_sidecars_for_every_supported_video_suffix(self):
         _html, script = self._page_script()
@@ -2107,6 +2219,13 @@ class TopicPipelineApiTests(unittest.TestCase):
                 "md_path": str(artifact_dir / "01_话题分析.md"),
                 "artifact_dir": str(artifact_dir),
                 "overview_path": str(artifact_dir / "00_概览.md"),
+                "quality_overview": {
+                    "overview_version": 1,
+                    "final_slice_count": 12,
+                    "clips": [{"title": "高分切片", "score": 90}],
+                    "edge_candidate_count": 1,
+                    "edge_candidates": [{"title": "边缘候选", "score": 70}],
+                },
             }
 
             with (
@@ -2134,6 +2253,8 @@ class TopicPipelineApiTests(unittest.TestCase):
         self.assertEqual(summary["slice_count"], 12)
         self.assertEqual(summary["artifact_dir"], str(artifact_dir))
         self.assertEqual(summary["slice_dir"], str(slice_dir))
+        self.assertEqual(summary["quality_overview"]["final_slice_count"], 12)
+        self.assertNotIn("slice_count", summary["quality_overview"])
         self.assertNotIn("report", summary)
         self.assertNotIn("clip_marks", summary)
         self.assertNotIn("analysis_topics", summary)
@@ -2161,6 +2282,13 @@ class TopicPipelineApiTests(unittest.TestCase):
                 "json_path": str(json_path),
                 "artifact_dir": str(artifact_dir),
                 "overview_path": str(artifact_dir / "00_概览.md"),
+                "quality_overview": {
+                    "overview_version": 1,
+                    "final_slice_count": 1,
+                    "clips": [{"title": "测试", "score": 88}],
+                    "edge_candidate_count": 1,
+                    "edge_candidates": [{"title": "边缘候选", "score": 70}],
+                },
             }
 
             with (
@@ -2204,6 +2332,11 @@ class TopicPipelineApiTests(unittest.TestCase):
             self.assertEqual(task["task_type"], "clip_review_retry")
             task_result = json.loads(task["result"])
             self.assertEqual(task_result["slice_count"], 1)
+            self.assertEqual(
+                task_result["quality_overview"]["final_slice_count"],
+                1,
+            )
+            self.assertNotIn("slice_count", task_result["quality_overview"])
 
             app_module.tasks.clear()
             with patch.object(app_module.threading, "Thread", DeferredThread):

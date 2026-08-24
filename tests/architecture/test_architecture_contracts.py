@@ -2619,7 +2619,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 969)
+        self.assertEqual(current["summary"]["top_level_function_count"], 978)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5371,7 +5371,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            969,
+            978,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
@@ -5437,7 +5437,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(facade_module["top_level_functions"], [])
         self.assertEqual(facade_module["top_level_classes"], [])
         owner_module = modules["autoslice.analysis.review.decisions"]
-        self.assertEqual(owner_module["line_count"], 551)
+        self.assertEqual(owner_module["line_count"], 556)
         self.assertEqual(owner_module["top_level_classes"], [])
         self.assertEqual(
             [
@@ -5695,11 +5695,12 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 "normalize_task_result",
                 "_non_negative_int",
                 "_failed_chunk_count",
+                "_compact_quality_overview",
                 "build_pipeline_result_summary",
             ],
         )
         self.assertEqual(owner["top_level_classes"], [])
-        self.assertLessEqual(owner["line_count"], 120)
+        self.assertLessEqual(owner["line_count"], 180)
 
         import_edges = {
             (edge["from"], edge["to"])
@@ -5720,6 +5721,152 @@ class ArchitectureDefinitionTests(unittest.TestCase):
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertLessEqual(current["test_private_patches"]["total"], 17)
+
+    def test_result_quality_overview_has_one_owner_and_full_and_retry_pipeline_contracts(self):
+        from autoslice import pipeline
+        from autoslice.analysis import quality_overview
+
+        self.assertIs(
+            pipeline.build_quality_overview,
+            quality_overview.build_quality_overview,
+        )
+
+        current = architecture_snapshot.build_snapshot(ROOT)
+        modules = {module["module"]: module for module in current["modules"]}
+        owner = modules["autoslice.analysis.quality_overview"]
+        self.assertEqual(
+            [item["name"] for item in owner["top_level_functions"]],
+            [
+                "_finite_non_negative_number",
+                "_clean_text",
+                "_duration_seconds",
+                "_score_sort_key",
+                "_clip_row",
+                "_edge_candidate_row",
+                "_bounded_overview",
+                "build_quality_overview",
+            ],
+        )
+        self.assertEqual(owner["top_level_classes"], [])
+        self.assertLessEqual(owner["line_count"], 280)
+
+        owner_tree = ast.parse(
+            (ROOT / "src/autoslice/analysis/quality_overview.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        owner_function = next(
+            node for node in owner_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "build_quality_overview"
+        )
+        self.assertEqual(
+            [argument.arg for argument in owner_function.args.args],
+            ["clip_marks", "candidate_review_audit"],
+        )
+
+        import_edges = {
+            (edge["from"], edge["to"])
+            for edge in current["import_edges"]
+        }
+        self.assertIn(
+            ("autoslice.pipeline", "autoslice.analysis.quality_overview"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.analysis.quality_overview", "autoslice.pipeline"),
+            import_edges,
+        )
+        self.assertNotIn(
+            ("autoslice.analysis.quality_overview", "autoslice.web.app"),
+            import_edges,
+        )
+        self.assertEqual(
+            {
+                source
+                for source, target in import_edges
+                if target == "autoslice.analysis.quality_overview"
+            },
+            {"autoslice.pipeline"},
+        )
+
+        pipeline_tree = ast.parse(
+            (ROOT / "src/autoslice/pipeline.py").read_text(encoding="utf-8")
+        )
+        for implementation_name in (
+                "run_pipeline_impl",
+                "retry_clip_review_from_artifacts_impl"):
+            implementation = next(
+                node for node in pipeline_tree.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name == implementation_name
+            )
+            owner_calls = [
+                node for node in ast.walk(implementation)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "build_quality_overview"
+            ]
+            self.assertEqual(len(owner_calls), 1)
+            self.assertEqual(
+                [
+                    argument.id
+                    for argument in owner_calls[0].args
+                    if isinstance(argument, ast.Name)
+                ],
+                ["clip_marks", "candidate_review_audit"],
+            )
+            audit_assignments = [
+                node for node in ast.walk(implementation)
+                if isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name)
+                    and target.id == "candidate_review_audit"
+                    for target in node.targets
+                )
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute)
+                and isinstance(node.value.func.value, ast.Name)
+                and node.value.func.value.id == "decision_preparation"
+                and node.value.func.attr == "get"
+                and any(
+                    isinstance(argument, ast.Constant)
+                    and argument.value == "candidate_review_audit"
+                    for argument in node.value.args
+                )
+            ]
+            self.assertEqual(
+                len(audit_assignments),
+                1,
+                f"{implementation_name} 未复用 decision_preparation 的候选审计",
+            )
+            result_returns = [
+                node.value
+                for node in ast.walk(implementation)
+                if isinstance(node, ast.Return)
+                and isinstance(node.value, ast.Dict)
+                and any(
+                    isinstance(key, ast.Constant)
+                    and key.value == "quality_overview"
+                    for key in node.value.keys
+                )
+            ]
+            self.assertEqual(len(result_returns), 1)
+            result_fields = {
+                key.value: value
+                for key, value in zip(
+                    result_returns[0].keys,
+                    result_returns[0].values,
+                )
+                if isinstance(key, ast.Constant)
+            }
+            self.assertIsInstance(result_fields["quality_overview"], ast.Name)
+            self.assertEqual(
+                result_fields["quality_overview"].id,
+                "result_quality_overview",
+            )
+        self.assertEqual(current["dependency_cycles"], [])
+        self.assertEqual(current["duplicate_top_level_definitions"], [])
 
     def test_current_modules_have_no_duplicate_top_level_definitions(self):
         current = architecture_snapshot.build_snapshot(ROOT)

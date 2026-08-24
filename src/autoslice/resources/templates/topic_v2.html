@@ -137,6 +137,7 @@
                 <div class="action-bar">
                     <button class="button quiet" id="cancelTaskButton" type="button" onclick="cancelCurrentTask()" hidden>取消任务</button>
                 </div>
+                <section class="quality-overview" id="qualityOverview" aria-live="polite" hidden></section>
                 <div class="artifact-result" id="resultArtifact" hidden>
                     <div class="artifact-path" id="resultPaths"></div>
                     <button class="button" id="openResultButton" type="button" onclick="openResultDirectory()">打开结果目录</button>
@@ -238,12 +239,94 @@ function clearResultArtifact(){
     byId('resultPaths').textContent='';
 }
 
+function clearQualityOverview(){
+    const quality=byId('qualityOverview');
+    quality.hidden=true;
+    quality.textContent='';
+    quality.innerHTML='';
+}
+
 function clearTaskArtifacts(){
     clearResultArtifact();
+    clearQualityOverview();
     const report=byId('report');
     report.hidden=true;
     report.textContent='';
     report.innerHTML='';
+}
+
+function formatQualityDuration(value){
+    const seconds=Math.max(0,Math.round(Number(value)||0));
+    const minutes=Math.floor(seconds/60);
+    const rest=seconds%60;
+    return minutes?`${minutes}分${String(rest).padStart(2,'0')}秒`:`${rest}秒`;
+}
+
+function formatQualityNumber(value,suffix=''){
+    if(value===null||value===undefined||value==='')return null;
+    const number=Number(value);
+    if(!Number.isFinite(number))return null;
+    return `${Number.isInteger(number)?number:number.toFixed(1)}${suffix}`;
+}
+
+function renderQualityOverview(overview){
+    if(!overview||typeof overview!=='object'){
+        clearQualityOverview();
+        return;
+    }
+    const quality=byId('qualityOverview');
+    const duration=overview.duration_distribution||{};
+    const durationBuckets=duration.buckets||{};
+    const scores=overview.score_distribution||{};
+    const anchors=overview.anchor_source_counts&&typeof overview.anchor_source_counts==='object'
+        ?Object.entries(overview.anchor_source_counts):[];
+    const clips=Array.isArray(overview.clips)?overview.clips:[];
+    const edgeCandidates=Array.isArray(overview.edge_candidates)?overview.edge_candidates:[];
+    const clipRows=clips.map((clip,index)=>{
+        const score=formatQualityNumber(clip?.score,' 分')||'投稿价值未记录';
+        const peak=formatQualityNumber(clip?.peak_density,' 条/分钟')||'峰值未记录';
+        return `<li class="quality-row">
+            <div class="quality-row-heading"><span>${index+1}</span><strong>${esc(clip?.title||'未命名切片')}</strong></div>
+            <div class="quality-facts">
+                <span>${esc(formatQualityDuration(clip?.duration))}</span>
+                <span>${esc(score)}</span>
+                <span>${esc(peak)}</span>
+                <span>${esc(clip?.anchor_source||'锚点未记录')}</span>
+            </div>
+            <p>${esc(clip?.reason||'投稿价值理由未记录')}</p>
+        </li>`;
+    }).join('');
+    const edgeRows=edgeCandidates.map(candidate=>`
+        <li class="edge-row">
+            <div><strong>${esc(candidate?.title||'未命名候选')}</strong><span>${esc(candidate?.time_range||'时间未记录')} · ${esc(formatQualityNumber(candidate?.score,' 分')||'分数未记录')}</span></div>
+            <p>${esc(candidate?.reason||'投稿价值理由未记录')}</p>
+        </li>`).join('');
+    const anchorText=anchors.length
+        ?anchors.map(([source,count])=>`${esc(source)} ${Math.max(0,Number(count)||0)}`).join(' · ')
+        :'锚点来源未记录';
+    const clipsTruncated=Math.max(0,Number(overview.clips_truncated_count)||0);
+    const edgesTruncated=Math.max(0,Number(overview.edge_candidates_truncated_count)||0);
+    quality.innerHTML=`
+        <div class="quality-heading">
+            <div><h3>结果质量概览</h3><p>仅用于排序和选择，不代表每小时配额。</p></div>
+        </div>
+        <div class="quality-summary">
+            <span>最终切片 <strong>${Math.max(0,Number(overview.final_slice_count)||0)}</strong> 个</span>
+            <span>总时长 <strong>${esc(formatQualityDuration(duration.total_seconds))}</strong></span>
+            <span>有评分 <strong>${Math.max(0,Number(scores.scored_count)||0)}</strong> 个</span>
+            <span>含弹幕峰值 <strong>${Math.max(0,Number(overview.danmaku_peak_count)||0)}</strong> 个</span>
+            <span>边缘候选 <strong>${Math.max(0,Number(overview.edge_candidate_count)||0)}</strong> 个</span>
+        </div>
+        <div class="quality-distribution">
+            <div><strong>时长分布</strong><span>短于 1分30秒 ${Math.max(0,Number(durationBuckets.under_90_seconds)||0)} · 1分30秒–3分钟 ${Math.max(0,Number(durationBuckets.from_90_to_179_seconds)||0)} · 至少 3分钟 ${Math.max(0,Number(durationBuckets.at_least_180_seconds)||0)}</span></div>
+            <div><strong>时长范围</strong><span>${esc(formatQualityDuration(duration.minimum_seconds))}–${esc(formatQualityDuration(duration.maximum_seconds))}，平均 ${esc(formatQualityDuration(duration.average_seconds))}</span></div>
+            <div><strong>锚点来源</strong><span>${anchorText}</span></div>
+        </div>
+        <div class="quality-section-heading"><h4>最终切片 · 投稿价值降序</h4>${clipsTruncated?`<span>另有 ${clipsTruncated} 条未在紧凑摘要中展示</span>`:''}</div>
+        ${clipRows?`<ol class="quality-list">${clipRows}</ol>`:'<div class="quality-empty">本次没有最终切片。</div>'}
+        <div class="quality-section-heading edge"><h4>边缘候选 <strong>${Math.max(0,Number(overview.edge_candidate_count)||0)}</strong> 个</h4><span>60 ≤ 投稿价值 &lt; 75${edgesTruncated?` · 另有 ${edgesTruncated} 条未展示`:''}</span></div>
+        ${edgeRows?`<ul class="edge-list">${edgeRows}</ul>`:'<div class="quality-empty">没有接近当前过线门槛的候选。</div>'}`;
+    quality.hidden=false;
 }
 
 function renderResultArtifact(taskId,result){
@@ -421,6 +504,7 @@ async function restoreCompletedTask(data){
             await renderCompletedReport(taskId,result);
         }
         if(currentTaskId!==taskId)return;
+        renderQualityOverview(result?.quality_overview);
         renderResultArtifact(taskId,result);
         setNotice(`${taskTypeLabel(taskId)}已完成`,'success');
     }catch(error){
@@ -567,8 +651,7 @@ function pick(element,video){
     byId('selectionState').textContent=video.name;
     byId('selectionState').title=video.path;
     clearOptimizedTimeline();
-    clearResultArtifact();
-    byId('report').hidden=true;
+    clearTaskArtifacts();
     setNotice(`已选择：${video.name}`,'success');
     updateActions();
 }
@@ -608,7 +691,7 @@ async function optimizeTimeline(){
     rememberWorkspacePaths();
     const timelinePath=byId('timelinePath').value.trim();
     if(byId('timelineMode').value!=='manual'||!timelinePath){setNotice('仅优化时间轴需要手动选择 DOCX 文件','warning');return}
-    clearOptimizedTimeline();clearResultArtifact();
+    clearOptimizedTimeline();clearTaskArtifacts();
     await runAction({url:'/api/optimize-manual-timeline',starting:'正在启动人工时间轴优化...',failure:'时间轴优化启动失败',body:{flv_path:selVideo,ass_path:selAss,manual_timeline_path:timelinePath,output_dir:document.getElementById('outputDir').value,streamer_profile_id:selectedStreamerProfile()}});
 }
 
@@ -619,14 +702,14 @@ async function startPipeline(){
     const timelinePath=byId('timelinePath').value.trim();
     if(mode==='manual'&&!timelinePath){setNotice('请选择或填写辅助时间轴 DOCX','warning');return}
     const optimizedPath=optimizedTimeline&&optimizedTimeline.videoPath===selVideo&&optimizedTimeline.sourcePath===timelinePath&&optimizedTimeline.profileId===selectedStreamerProfile()?optimizedTimeline.jsonPath:'';
-    byId('report').hidden=true;clearResultArtifact();
+    clearTaskArtifacts();
     await runAction({url:'/api/start-pipeline',starting:'正在启动完整分析与切片...',failure:'完整分析启动失败',body:{flv_path:selVideo,ass_path:selAss,output_dir:document.getElementById('outputDir').value,manual_timeline_mode:mode,manual_timeline_path:timelinePath,optimized_timeline_path:optimizedPath,streamer_profile_id:selectedStreamerProfile()}});
 }
 
 async function retryClipReview(){
     if(!selVideo){setNotice('请先从列表选择录播','warning');return}
     rememberWorkspacePaths();
-    byId('report').hidden=true;clearResultArtifact();
+    clearTaskArtifacts();
     await runAction({url:'/api/retry-clip-review',starting:'正在启动候选片段复核...',failure:'候选复核启动失败',body:{flv_path:selVideo,ass_path:selAss,output_dir:document.getElementById('outputDir').value,streamer_profile_id:selectedStreamerProfile()}});
 }
 

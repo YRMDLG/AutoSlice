@@ -20,7 +20,7 @@ class SliceDecisionOwnershipTests(unittest.TestCase):
         facade_tree = ast.parse(facade_path.read_text(encoding="utf-8"))
         definition_types = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
-        self.assertEqual(len(owner_path.read_text(encoding="utf-8").splitlines()), 551)
+        self.assertEqual(len(owner_path.read_text(encoding="utf-8").splitlines()), 556)
         self.assertEqual(
             len([node for node in owner_tree.body if isinstance(node, ast.FunctionDef)]),
             12,
@@ -418,6 +418,7 @@ class ClipMarksTests(unittest.TestCase):
             "clip_interest_score": 88,
             "clip_interest_reason": "诱因和结果完整",
             "clip_timeline_star_bonus": 5,
+            "slice_peak_density": 186,
             "reference_start": 95,
             "reference_end": 205,
         }
@@ -450,6 +451,7 @@ class ClipMarksTests(unittest.TestCase):
             "semantic_focus_validated",
             "editorial_interest_score",
             "editorial_interest_reason",
+            "peak_density",
             "timeline_star_bonus",
             "reference_start",
             "reference_end",
@@ -461,6 +463,7 @@ class ClipMarksTests(unittest.TestCase):
         self.assertEqual((mark["start"], mark["end"]), (110, 180))
         self.assertEqual((mark["report_start"], mark["report_end"]), (100, 200))
         self.assertTrue(mark["semantic_focus_validated"])
+        self.assertEqual(mark["peak_density"], 186)
         self.assertTrue(mark["context_requires_trigger"])
         self.assertEqual(mark["next_report_topic_start"], 240)
         self.assertNotIn("投稿标题", mark["publish_title"])

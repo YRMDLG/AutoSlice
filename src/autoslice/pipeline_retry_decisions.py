@@ -39,6 +39,7 @@ def prepare_retry_decisions(
     candidate_review_audit_path = decision_preparation[
         "candidate_review_audit_path"
     ]
+    candidate_review_audit = decision_preparation.get("candidate_review_audit")
     video_duration = probed_video_duration or srt_video_duration(srt_segments)
     boundary_preparation = prepare_pipeline_boundaries(
         raw_clip_marks,
@@ -51,6 +52,7 @@ def prepare_retry_decisions(
     return {
         "accepted_topics": boundary_preparation["accepted_topics"],
         "clip_marks": boundary_preparation["clip_marks"],
+        "candidate_review_audit": candidate_review_audit,
         "candidate_review_audit_path": candidate_review_audit_path,
         "probed_video_duration": probed_video_duration,
         "video_duration": video_duration,

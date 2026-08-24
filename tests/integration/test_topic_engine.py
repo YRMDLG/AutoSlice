@@ -1785,6 +1785,9 @@ class ArtifactPipelineTests(unittest.TestCase):
         self.assertEqual(payload["overview_path"], layout["overview_path"])
         self.assertEqual(payload["streamer_profile_id"], "zeyin")
         self.assertEqual(result["streamer_profile_id"], "zeyin")
+        self.assertEqual(result["quality_overview"]["final_slice_count"], 0)
+        self.assertNotIn("slice_count", result["quality_overview"])
+        self.assertEqual(result["quality_overview"]["edge_candidate_count"], 0)
         self.assertEqual(manifest["manifest_json_path"], layout["task_manifest_json_path"])
         self.assertEqual(
             manifest["unified_queue_md_path"], layout["unified_queue_md_path"]
