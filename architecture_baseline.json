@@ -4469,7 +4469,7 @@
         "autoslice.llm.transport"
       ],
       "lines": [
-        12
+        14
       ],
       "to": "autoslice.llm.transport"
     },
@@ -4479,7 +4479,7 @@
         "autoslice.streamer_profiles.resolve_streamer_profile"
       ],
       "lines": [
-        13
+        15
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -4492,7 +4492,7 @@
         "autoslice_cover.style.get_template"
       ],
       "lines": [
-        15
+        17
       ],
       "to": "autoslice_cover.style"
     },
@@ -4505,7 +4505,7 @@
         "autoslice_cover.titles.visual_units"
       ],
       "lines": [
-        16
+        18
       ],
       "to": "autoslice_cover.titles"
     },
@@ -5114,6 +5114,15 @@
       "qualname": "recognize_missing_chunks"
     },
     {
+      "end_line": 775,
+      "kind": "function",
+      "line": 610,
+      "line_count": 166,
+      "module": "autoslice_cover.copy_recommendations",
+      "path": "src/autoslice_cover/copy_recommendations.py",
+      "qualname": "generate_copy_recommendations"
+    },
+    {
       "end_line": 360,
       "kind": "function",
       "line": 207,
@@ -5238,15 +5247,6 @@
       "module": "autoslice.analysis.review.workflow",
       "path": "src/autoslice/analysis/review/workflow.py",
       "qualname": "_apply_review_response"
-    },
-    {
-      "end_line": 1265,
-      "kind": "function",
-      "line": 1147,
-      "line_count": 119,
-      "module": "autoslice.reporting",
-      "path": "src/autoslice/reporting.py",
-      "qualname": "build_timeline_report"
     }
   ],
   "modules": [
@@ -12419,108 +12419,180 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 436,
+      "line_count": 784,
       "longest_function": {
-        "end_line": 427,
+        "end_line": 775,
         "kind": "function",
-        "line": 330,
-        "line_count": 98,
+        "line": 610,
+        "line_count": 166,
         "qualname": "generate_copy_recommendations"
       },
       "module": "autoslice_cover.copy_recommendations",
       "path": "src/autoslice_cover/copy_recommendations.py",
-      "sha256": "811b4dc1ca92e922cb0668eb79b4f805937dbde193960e96980d049653011f81",
+      "sha256": "9a47c7a288d20cdeb6a9b6949b64b1d71ee3c6105fa888dfe3d80a21bee81cf6",
       "top_level_classes": [
         {
-          "end_line": 50,
+          "end_line": 51,
           "kind": "class",
-          "line": 35,
+          "line": 50,
+          "name": "_NoPassingReviewError"
+        },
+        {
+          "end_line": 59,
+          "kind": "class",
+          "line": 54,
+          "name": "_ReviewValidationError"
+        },
+        {
+          "end_line": 67,
+          "kind": "class",
+          "line": 62,
+          "name": "_CandidateContentValidationError"
+        },
+        {
+          "end_line": 86,
+          "kind": "class",
+          "line": 71,
           "name": "CopyRecommendationResult"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 54,
+          "end_line": 90,
           "kind": "function",
-          "line": 53,
+          "line": 89,
           "name": "_analysis_model"
         },
         {
-          "end_line": 62,
+          "end_line": 98,
           "kind": "function",
-          "line": 57,
+          "line": 93,
           "name": "_review_model"
-        },
-        {
-          "end_line": 77,
-          "kind": "function",
-          "line": 65,
-          "name": "resolve_task_srt_path"
-        },
-        {
-          "end_line": 100,
-          "kind": "function",
-          "line": 80,
-          "name": "_read_limited_srt"
-        },
-        {
-          "end_line": 104,
-          "kind": "function",
-          "line": 103,
-          "name": "_bounded_text"
         },
         {
           "end_line": 113,
           "kind": "function",
-          "line": 107,
+          "line": 101,
+          "name": "resolve_task_srt_path"
+        },
+        {
+          "end_line": 136,
+          "kind": "function",
+          "line": 116,
+          "name": "_read_limited_srt"
+        },
+        {
+          "end_line": 140,
+          "kind": "function",
+          "line": 139,
+          "name": "_bounded_text"
+        },
+        {
+          "end_line": 149,
+          "kind": "function",
+          "line": 143,
           "name": "_validated_text"
         },
         {
-          "end_line": 169,
+          "end_line": 160,
           "kind": "function",
-          "line": 116,
+          "line": 152,
+          "name": "_validated_reason"
+        },
+        {
+          "end_line": 170,
+          "kind": "function",
+          "line": 163,
+          "name": "_has_suspect_content"
+        },
+        {
+          "end_line": 189,
+          "kind": "function",
+          "line": 173,
+          "name": "_normalized_source_segments"
+        },
+        {
+          "end_line": 227,
+          "kind": "function",
+          "line": 192,
+          "name": "_validated_evidence_quotes"
+        },
+        {
+          "end_line": 308,
+          "kind": "function",
+          "line": 230,
           "name": "_fallback_candidates"
         },
         {
-          "end_line": 213,
+          "end_line": 326,
           "kind": "function",
-          "line": 172,
+          "line": 311,
+          "name": "_readable_srt_sentences"
+        },
+        {
+          "end_line": 376,
+          "kind": "function",
+          "line": 329,
           "name": "_candidate_from_payload"
         },
         {
-          "end_line": 233,
+          "end_line": 399,
           "kind": "function",
-          "line": 216,
+          "line": 379,
           "name": "validate_candidate_payload"
         },
         {
-          "end_line": 269,
+          "end_line": 413,
           "kind": "function",
-          "line": 236,
-          "name": "_validate_review_payload"
-        },
-        {
-          "end_line": 296,
-          "kind": "function",
-          "line": 272,
-          "name": "_analysis_prompt"
-        },
-        {
-          "end_line": 321,
-          "kind": "function",
-          "line": 299,
-          "name": "_review_prompt"
-        },
-        {
-          "end_line": 327,
-          "kind": "function",
-          "line": 324,
-          "name": "_safe_warning"
+          "line": 402,
+          "name": "_normalized_review_index"
         },
         {
           "end_line": 427,
           "kind": "function",
-          "line": 330,
+          "line": 416,
+          "name": "_normalized_review_score"
+        },
+        {
+          "end_line": 437,
+          "kind": "function",
+          "line": 430,
+          "name": "_normalized_review_check"
+        },
+        {
+          "end_line": 486,
+          "kind": "function",
+          "line": 440,
+          "name": "_validate_review_payload"
+        },
+        {
+          "end_line": 517,
+          "kind": "function",
+          "line": 489,
+          "name": "_analysis_prompt"
+        },
+        {
+          "end_line": 557,
+          "kind": "function",
+          "line": 520,
+          "name": "_review_prompt"
+        },
+        {
+          "end_line": 597,
+          "kind": "function",
+          "line": 560,
+          "name": "_review_correction_prompt"
+        },
+        {
+          "end_line": 607,
+          "kind": "function",
+          "line": 600,
+          "name": "_safe_warning"
+        },
+        {
+          "end_line": 775,
+          "kind": "function",
+          "line": 610,
           "name": "generate_copy_recommendations"
         }
       ]
@@ -14675,11 +14747,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 471,
-    "production_line_count": 41891,
+    "production_line_count": 42239,
     "production_module_count": 177,
     "test_private_patch_count": 17,
-    "top_level_class_count": 100,
-    "top_level_function_count": 986
+    "top_level_class_count": 103,
+    "top_level_function_count": 995
   },
   "test_private_patches": {
     "by_target_module": {
