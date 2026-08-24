@@ -32,6 +32,7 @@
 | COVER-C1 | frontend-features | 2026-08-24 | [8a6f0d4](https://github.com/YRMDLG/AutoSlice/commit/8a6f0d4f74ee6345d1599f903627057a8f00f6c3) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32676897922) | 围绕可靠爆点锚点加密选帧，优先无字幕原片并保留人工时间轴 |
 | COVER-C2 | frontend-features | 2026-08-24 | [020ce66](https://github.com/YRMDLG/AutoSlice/commit/020ce667cd27d0a519372d8150b22d00eb5abd5a) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32681082161) | 基于校对字幕和切片理由生成 Luna/Terra 两阶段封面文案，并支持角色配色与候选切换 |
 | COVER-C3 | frontend-features | 2026-08-24 | [4f928ea](https://github.com/YRMDLG/AutoSlice/commit/4f928ea7df66dcf551ffa292f8ddde2d114b2d73) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32685676235) | 将主播专属封面替换和系列规则迁入 profile，并为未知主播保留通用默认 |
+| TASK-T1 | frontend-features | 2026-08-24 | [d42bc08](https://github.com/YRMDLG/AutoSlice/commit/d42bc08fc1e92fdcf3c4a98b5c6e95f2d3fd5764) | [Windows full hermetic / Linux logic-only 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32688553162) | topic_v2 消费 SSE init 恢复 queued、running、done、error、cancelled、interrupted 六种任务状态，queued/running 可取消，interrupted 显示中断原因与检查点续跑提示，并保持 SSE、无高频轮询 |
 
 ## 记录规则
 
