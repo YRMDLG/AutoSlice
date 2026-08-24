@@ -1332,6 +1332,84 @@ if (!previewHasContent()) throw new Error("交互图层被误判为空预览");
         self.assertIn("setElementEditingLayer(true)", interaction)
         self.assertIn("preview-editing", script)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证交互预览取消行为")
+    def test_interaction_preview_cancellation_invalidates_pending_work(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+async function runProbe() {
+  let previewTriggered = false;
+  state.previewRequestId = 41;
+  state.previewTimer = window.setTimeout(() => { previewTriggered = true; }, 10);
+
+  cancelPendingPreviewForInteraction();
+
+  if (state.previewTimer !== null) throw new Error("自动预览 timer 状态没有清空");
+  if (state.previewRequestId !== 42) throw new Error("在途预览请求没有失效");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  if (previewTriggered) throw new Error("尚未触发的自动预览没有取消");
+}
+
+runProbe().catch((error) => {
+  console.error(error.stack || error.message);
+  process.exitCode = 1;
+});
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){},setTimeout,clearTimeout};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_drag_entry_points_cancel_stale_preview_and_refresh_on_finish(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+
+        background_interaction = script.split(
+            "function beginBackgroundPan(", 1
+        )[1].split("function applyKeyboardTransform(", 1)[0]
+        element_interaction = script.split(
+            "function beginElementInteraction(", 1
+        )[1].split("function renderCoverOverlay(", 1)[0]
+
+        background_pointerdown, background_move_and_finish = (
+            background_interaction.split("const move =", 1)
+        )
+        background_move, background_finish = background_move_and_finish.split(
+            "const finish =", 1
+        )
+        self.assertNotIn(
+            "cancelPendingPreviewForInteraction();",
+            background_pointerdown,
+        )
+        self.assertIn(
+            "if (!moved && Math.abs(deltaX) + Math.abs(deltaY) >= 2)",
+            background_move,
+        )
+        self.assertEqual(
+            background_move.count("cancelPendingPreviewForInteraction();"),
+            1,
+        )
+        cancel_index = background_move.index("cancelPendingPreviewForInteraction();")
+        restore_index = background_move.index("showInteractivePreview(state.preview);")
+        self.assertLess(cancel_index, restore_index)
+        self.assertEqual(
+            element_interaction.count("cancelPendingPreviewForInteraction();"),
+            1,
+        )
+        self.assertIn(
+            "refreshPreview()",
+            background_finish,
+        )
+        self.assertIn(
+            "refreshPreview()",
+            element_interaction.split("const finish =", 1)[1],
+        )
+
     @unittest.skipUnless(shutil.which("node"), "Node.js is required to verify preview loading")
     def test_preview_refresh_keeps_existing_cover_and_delays_first_loader(self) -> None:
         with self.client.get("/static/app.js") as response:

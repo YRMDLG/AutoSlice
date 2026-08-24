@@ -2048,6 +2048,12 @@ function updateBackgroundPanState() {
   );
 }
 
+function cancelPendingPreviewForInteraction() {
+  window.clearTimeout(state.previewTimer);
+  state.previewTimer = null;
+  state.previewRequestId += 1;
+}
+
 function beginBackgroundPan(event) {
   if (event.button !== 0 || isBusy() || event.target.closest(".editable-element")) return;
   const task = activeTask();
@@ -2081,7 +2087,11 @@ function beginBackgroundPan(event) {
     if (moveEvent.pointerId !== pointerId) return;
     const deltaX = moveEvent.clientX - start.pointerX;
     const deltaY = moveEvent.clientY - start.pointerY;
-    if (Math.abs(deltaX) + Math.abs(deltaY) >= 2) moved = true;
+    if (!moved && Math.abs(deltaX) + Math.abs(deltaY) >= 2) {
+      moved = true;
+      cancelPendingPreviewForInteraction();
+      showInteractivePreview(state.preview);
+    }
     const panRange = Math.max(0.01, scale - 1);
     layout.focus_x = clamp(start.focusX - deltaX / frameRect.width / panRange, 0, 1);
     layout.focus_y = clamp(start.focusY - deltaY / frameRect.height / panRange, 0, 1);
@@ -2277,6 +2287,7 @@ function beginElementInteraction(event, type, index, mode) {
   // 文字和贴图交互始终保留完整成品预览；纯背景层只用于背景取景拖动。
   // 拖动期间显示独立编辑层，用户可以看到元素的实时轨迹；背景和成品层
   // 不切换、不缩放，松开后再由最新预览替换。
+  cancelPendingPreviewForInteraction();
   setElementEditingLayer(true);
   const frameRect = elements["cover-overlay"].getBoundingClientRect();
   const nodeRect = node.getBoundingClientRect();
