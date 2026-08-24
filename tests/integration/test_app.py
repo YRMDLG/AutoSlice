@@ -1631,6 +1631,7 @@ assert(globalThis.contextExecuted!==true,'危险投稿标题被执行');
                 "function ignoreVisibleSuggestions()",
                 "function undoSuggestionAction()",
                 "singleCharacterReplacement",
+                "state.acceptedSuggestions",
                 "state.protectedEdits"):
             self.assertIn(marker, script)
         script_prefix = script.split(
@@ -1668,17 +1669,32 @@ if(suggestionGroups(visibleSuggestionEntries()).length!==2)throw new Error('相�
 acceptVisibleSuggestions();
 if(state.edited.get(1)!=='校正结果'||state.edited.get(2)!=='校正结果')throw new Error('批量采纳未应用到未保护建议');
 if(state.edited.get(3)!=='用户手工修改')throw new Error('批量采纳覆盖了手工修改');
-undoSuggestionAction();
-if(state.edited.get(1)!=='原文一'||state.edited.get(2)!=='原文一')throw new Error('采纳撤销未恢复原文');
+if(state.acceptedSuggestions.size!==2||!state.acceptedSuggestions.has(1)||!state.acceptedSuggestions.has(2))throw new Error('批量采纳没有记录独立的已采纳状态');
+if(state.ignoredSuggestions.size!==0)throw new Error('批量采纳错误混入 ignoredSuggestions');
+if(visibleSuggestionEntries().length!==1||visibleSuggestionEntries()[0].cue.index!==3)throw new Error('采纳后未保护建议没有消失，或被保护建议被错误隐藏');
 ignoreVisibleSuggestions();
-if(state.ignoredSuggestions.size!==3)throw new Error('批量忽略没有作用于当前筛选');
+if(state.ignoredSuggestions.size!==1||!state.ignoredSuggestions.has(3))throw new Error('批量忽略没有独立作用于剩余可见建议');
+if([...state.acceptedSuggestions].some(index=>state.ignoredSuggestions.has(index)))throw new Error('ignore 与 accepted 状态发生混用');
 if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略操作覆盖了手工修改');
 undoSuggestionAction();
-if(state.ignoredSuggestions.size!==0||state.edited.get(1)!=='原文一')throw new Error('忽略撤销未恢复建议状态');
+if(state.ignoredSuggestions.size!==0||visibleSuggestionEntries().length!==1)throw new Error('忽略撤销未恢复剩余建议状态');
+if(state.acceptedSuggestions.size!==2)throw new Error('忽略撤销破坏了独立的已采纳状态');
+undoSuggestionAction();
+if(state.edited.get(1)!=='原文一'||state.edited.get(2)!=='原文一')throw new Error('采纳撤销未恢复原文');
+if(state.acceptedSuggestions.size!==0||visibleSuggestionEntries().length!==3)throw new Error('采纳撤销未恢复全部建议可见状态');
+state.edited.set(1,'校正结果');
+state.aiApplied.add(1);
+if(visibleSuggestionEntries().length!==3)throw new Error('AI 默认预应用建议不应自动隐藏');
+state.edited=new Map(state.sourceCues.map(cue=>[cue.index,cue.text]));
+state.aiApplied.clear();
+state.protectedEdits.clear();
+state.suggestionUndoStack=[];
 acceptVisibleSuggestions();
-ignoreVisibleSuggestions();
-if(state.edited.get(1)!=='原文一'||state.edited.get(2)!=='原文一')throw new Error('忽略没有撤回此前自动采纳的建议');
-if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略覆盖了手工修改');
+if(visibleSuggestionEntries().length!==0||state.acceptedSuggestions.size!==3)throw new Error('全无保护场景全部采纳后仍有可见建议');
+if(state.ignoredSuggestions.size!==0)throw new Error('全量采纳错误复用了忽略状态');
+undoSuggestionAction();
+if(visibleSuggestionEntries().length!==3||state.acceptedSuggestions.size!==0)throw new Error('全量采纳撤销未恢复全部建议');
+if(state.edited.get(1)!=='原文一'||state.edited.get(2)!=='原文一'||state.edited.get(3)!=='原文三')throw new Error('全量采纳撤销未恢复字幕正文');
 '''
         result = subprocess.run(
             [
@@ -1791,7 +1807,8 @@ if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略覆盖了�
                 'id="qualitySummary"',
                 'id="qualityList"',
                 "本地确定性规则",
-                "不会自动删除或写入字幕",
+                "提供可撤销的处理建议",
+                "不会未经确认删除或写入字幕",
                 "不属于 AI 建议批量工具"):
             self.assertIn(marker, html)
         for marker in (
@@ -1812,6 +1829,7 @@ if(state.edited.get(3)!=='用户手工修改')throw new Error('忽略覆盖了�
                 "low-confidence-semantic",
                 "deletion-blank",
                 "abnormal-gap",
+                "bridge-gap",
                 "overflow-risk",
                 "segmentation-residue"):
             self.assertIn(marker, script)
@@ -1884,6 +1902,57 @@ for(const type of ['background-noise','exact-duplicate','symbol-or-short','low-c
 if(issues.some(issue=>issue.type==='exact-duplicate'&&issue.indices.includes(15)))throw new Error('巨大负 overlap 被误判为完全重复');
 if(!issues.some(issue=>issue.type==='exact-duplicate'&&issue.indices.includes(17)))throw new Error('轻微 overlap 没有进入完全重复候选');
 if(state.deleted.size!==1||state.deleteSelection.size!==0)throw new Error('质检分析自动改变了删除状态');
+
+state.timeOverrides.set(8,{start:12.2,end:13.2});
+let gapIssue=qualityIssues().find(issue=>issue.type==='abnormal-gap'&&issue.indices.includes(8)&&issue.indices.includes(9));
+if(gapIssue?.action?.kind!=='bridge-gap'||gapIssue.action.label!=='均分 gap（可撤销）')throw new Error('异常 gap 没有提供可执行且可撤销的均分动作');
+for(const path of ['实际停顿','忽略','时间错位','均分 gap','手工调整前条结束/后条开始','疑似漏字','重新识别','核对源字幕'])if(!gapIssue.recommendation.includes(path))throw new Error(`异常 gap 建议缺少处理路径：${path}`);
+const beforeCancelledGap=JSON.stringify([...state.timeOverrides]);
+let confirmMessage='';
+window.confirm=(message)=>{confirmMessage=message;return false;};
+if(executeQualityAction(gapIssue)!==false)throw new Error('取消 confirm 后仍执行了均分 gap');
+if(JSON.stringify([...state.timeOverrides])!==beforeCancelledGap||state.qualityActions.length!==0)throw new Error('取消 confirm 后修改了时间或动作状态');
+for(const detail of ['前条结束时间','后条开始时间','空白中点两侧','约 0.08 秒间隔','只修改当前编辑态','不会立即保存字幕','可以撤销'])if(!confirmMessage.includes(detail))throw new Error(`均分 gap 确认说明缺少：${detail}`);
+state.timeOverrides.set(9,{start:16.1,end:21});
+const beforeShortGap=JSON.stringify([...state.timeOverrides]);
+if(executeQualityAction(gapIssue)!==false||JSON.stringify([...state.timeOverrides])!==beforeShortGap||state.qualityActions.length!==0)throw new Error('gap 已不足 3 秒时没有安全拒绝');
+state.timeOverrides.delete(9);
+state.mergePrevious.set(9,8);
+if(executeQualityAction(gapIssue)!==false||state.qualityActions.length!==0)throw new Error('相邻分组关系变化后没有安全拒绝');
+state.mergePrevious.delete(9);
+window.confirm=()=>true;
+const leftTimingBefore={...groupTiming(8)},rightTimingBefore={...groupTiming(9)};
+const expectedMidpoint=(leftTimingBefore.end+rightTimingBefore.start)/2;
+if(!executeQualityAction(gapIssue))throw new Error('确认后没有执行均分 gap');
+const bridgedLeft=groupTiming(8),bridgedRight=groupTiming(9);
+if(Math.abs(bridgedLeft.start-leftTimingBefore.start)>.0005||Math.abs(bridgedLeft.end-(expectedMidpoint-.04))>.0005)throw new Error('均分 gap 没有使用前条当前 timing');
+if(Math.abs(bridgedRight.start-(expectedMidpoint+.04))>.0005||Math.abs(bridgedRight.end-rightTimingBefore.end)>.0005)throw new Error('均分 gap 没有使用后条当前 timing');
+if(Math.abs((bridgedRight.start-bridgedLeft.end)-.08)>.0005)throw new Error('均分 gap 后没有保留约 0.08 秒间隔');
+if(qualityIssues().some(issue=>issue.type==='abnormal-gap'&&issue.indices.includes(8)&&issue.indices.includes(9)))throw new Error('均分 gap 后异常候选没有实时消失');
+const bridgeAction=state.qualityActions.at(-1);
+if(bridgeAction?.kind!=='bridge-gap'||!bridgeAction.leftTiming.had||bridgeAction.rightTiming.had)throw new Error('均分 gap 没有记录左右原 timeOverrides 状态');
+renderQualityList();
+const gapReceipt=document.getElementById('qualityList').innerHTML;
+if(!gapReceipt.includes('已执行建议')||!gapReceipt.includes('尚未保存字幕')||!gapReceipt.includes('撤销建议动作'))throw new Error('均分 gap 后没有显示明确回执或撤销入口');
+if(!undoQualityAction(bridgeAction.id))throw new Error('均分 gap 建议无法撤销');
+if(JSON.stringify(state.timeOverrides.get(8))!==JSON.stringify({start:12.2,end:13.2})||state.timeOverrides.has(9))throw new Error('撤销均分 gap 没有恢复左右此前已有或没有的 timeOverrides');
+gapIssue=qualityIssues().find(issue=>issue.type==='abnormal-gap'&&issue.indices.includes(8)&&issue.indices.includes(9));
+if(!executeQualityAction(gapIssue))throw new Error('撤销后无法再次执行均分 gap');
+const protectedBridgeAction=state.qualityActions.at(-1);
+const manualLeft={...groupTiming(8),end:groupTiming(8).end-.2};
+state.timeOverrides.set(8,manualLeft);
+if(undoQualityAction(protectedBridgeAction.id)!==false||!qualityTimingMatches(groupTiming(8),manualLeft))throw new Error('均分 gap 撤销覆盖了后续手工时间修改');
+if(state.qualityActions.some(action=>action.id===protectedBridgeAction.id)||!document.getElementById('taskStatus').textContent.includes('保护现有修改'))throw new Error('手工改动后没有拒绝撤销并清理陈旧回执');
+state.timeOverrides.set(8,{start:12.2,end:13.2});
+state.timeOverrides.delete(9);
+gapIssue=qualityIssues().find(issue=>issue.type==='abnormal-gap'&&issue.indices.includes(8)&&issue.indices.includes(9));
+if(!executeQualityAction(gapIssue))throw new Error('清理保护状态后无法再次执行均分 gap');
+const staleBridgeAction=state.qualityActions.at(-1);
+state.timeOverrides.set(9,{...groupTiming(9),start:groupTiming(9).start+.2});
+renderQualityList();
+if(state.qualityActions.some(action=>action.id===staleBridgeAction.id)||document.getElementById('qualityList').innerHTML.includes(`data-quality-undo="${staleBridgeAction.id}"`))throw new Error('其他入口修改时间后没有清理陈旧均分 gap 回执');
+state.timeOverrides.set(8,{start:12.2,end:13.2});
+state.timeOverrides.delete(9);
 
 state.qualityActions=[];
 state.qualityActionSerial=0;
