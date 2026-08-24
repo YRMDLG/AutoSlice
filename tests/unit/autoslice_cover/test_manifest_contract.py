@@ -67,6 +67,7 @@ class RefinementManifestContractTests(unittest.TestCase):
         self.assertEqual(match.slice_anchor_source, "语义复核")
         self.assertEqual(match.editorial_interest_score, 4.5)
         self.assertEqual(match.editorial_interest_reason, "结尾反转完整")
+        self.assertEqual(match.corrected_srt_path, str(self.subtitle))
         self.assertTrue(match.subtitle_exists)
         self.assertEqual(match.subtitle_filename, "最终精剪.srt")
 

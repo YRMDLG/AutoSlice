@@ -4255,10 +4255,21 @@
     {
       "from": "autoslice_cover.app",
       "imports": [
-        "autoslice_cover.drafts.CoverDraftStore"
+        "autoslice_cover.copy_recommendations.ALLOWED_ROLES",
+        "autoslice_cover.copy_recommendations.generate_copy_recommendations"
       ],
       "lines": [
         23
+      ],
+      "to": "autoslice_cover.copy_recommendations"
+    },
+    {
+      "from": "autoslice_cover.app",
+      "imports": [
+        "autoslice_cover.drafts.CoverDraftStore"
+      ],
+      "lines": [
+        24
       ],
       "to": "autoslice_cover.drafts"
     },
@@ -4268,7 +4279,7 @@
         "autoslice_cover.fonts.get_default_font_status"
       ],
       "lines": [
-        24
+        25
       ],
       "to": "autoslice_cover.fonts"
     },
@@ -4279,7 +4290,7 @@
         "autoslice_cover.paths.TEMPLATE_DIR"
       ],
       "lines": [
-        25
+        26
       ],
       "to": "autoslice_cover.paths"
     },
@@ -4293,7 +4304,7 @@
         "autoslice_cover.renderer.render_cover"
       ],
       "lines": [
-        26
+        27
       ],
       "to": "autoslice_cover.renderer"
     },
@@ -4304,7 +4315,7 @@
         "autoslice_cover.stickers.StickerLibrary"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice_cover.stickers"
     },
@@ -4316,7 +4327,7 @@
         "autoslice_cover.style.TEMPLATES"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice_cover.style"
     },
@@ -4326,7 +4337,7 @@
         "autoslice_cover.titles.recommend_layout_variants"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice_cover.titles"
     },
@@ -4339,7 +4350,7 @@
         "autoslice_cover.workspace.DEFAULT_OUTPUT_DIR"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice_cover.workspace"
     },
@@ -4383,6 +4394,52 @@
         19
       ],
       "to": "autoslice_cover.workspace"
+    },
+    {
+      "from": "autoslice_cover.copy_recommendations",
+      "imports": [
+        "autoslice.llm.transport"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.llm.transport"
+    },
+    {
+      "from": "autoslice_cover.copy_recommendations",
+      "imports": [
+        "autoslice.streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice_cover.copy_recommendations",
+      "imports": [
+        "autoslice_cover.style.PALETTES",
+        "autoslice_cover.style.TEMPLATES",
+        "autoslice_cover.style.get_palette",
+        "autoslice_cover.style.get_template"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice_cover.style"
+    },
+    {
+      "from": "autoslice_cover.copy_recommendations",
+      "imports": [
+        "autoslice_cover.titles.CoverLine",
+        "autoslice_cover.titles.LayoutVariant",
+        "autoslice_cover.titles.recommend_layout_variants",
+        "autoslice_cover.titles.visual_units"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice_cover.titles"
     },
     {
       "from": "autoslice_cover.drafts",
@@ -4856,10 +4913,10 @@
   ],
   "longest_functions": [
     {
-      "end_line": 983,
+      "end_line": 1065,
       "kind": "function",
-      "line": 570,
-      "line_count": 414,
+      "line": 623,
+      "line_count": 443,
       "module": "autoslice_cover.app",
       "path": "src/autoslice_cover/app.py",
       "qualname": "create_app"
@@ -11834,156 +11891,156 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 990,
+      "line_count": 1072,
       "longest_function": {
-        "end_line": 983,
+        "end_line": 1065,
         "kind": "function",
-        "line": 570,
-        "line_count": 414,
+        "line": 623,
+        "line_count": 443,
         "qualname": "create_app"
       },
       "module": "autoslice_cover.app",
       "path": "src/autoslice_cover/app.py",
-      "sha256": "155a1aba614c6f5adca20dc638eac3fb437e5e7f2bec9e3e8d8cefca4f94759e",
+      "sha256": "cf92166bddb4f635ffb3514c8ddbfe21becf7096e8b99a2178511b64bca14c87",
       "top_level_classes": [
         {
-          "end_line": 60,
+          "end_line": 61,
           "kind": "class",
-          "line": 54,
+          "line": 55,
           "name": "ApiError"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 70,
+          "end_line": 71,
           "kind": "function",
-          "line": 63,
+          "line": 64,
           "name": "_mark_deprecated_endpoint"
         },
         {
-          "end_line": 79,
+          "end_line": 80,
           "kind": "function",
-          "line": 73,
+          "line": 74,
           "name": "_json_body"
         },
         {
-          "end_line": 86,
+          "end_line": 87,
           "kind": "function",
-          "line": 82,
+          "line": 83,
           "name": "_workspace"
         },
         {
-          "end_line": 93,
+          "end_line": 94,
           "kind": "function",
-          "line": 89,
+          "line": 90,
           "name": "_sticker_library"
         },
         {
-          "end_line": 100,
+          "end_line": 101,
           "kind": "function",
-          "line": 96,
+          "line": 97,
           "name": "_draft_store"
         },
         {
-          "end_line": 165,
+          "end_line": 218,
           "kind": "function",
-          "line": 103,
+          "line": 104,
           "name": "_draft_settings"
         },
         {
-          "end_line": 211,
+          "end_line": 264,
           "kind": "function",
-          "line": 168,
+          "line": 221,
           "name": "_load_disk_drafts"
         },
         {
-          "end_line": 232,
+          "end_line": 285,
           "kind": "function",
-          "line": 214,
+          "line": 267,
           "name": "_optional_list"
         },
         {
-          "end_line": 251,
+          "end_line": 304,
           "kind": "function",
-          "line": 235,
+          "line": 288,
           "name": "_optional_string"
         },
         {
-          "end_line": 261,
+          "end_line": 314,
           "kind": "function",
-          "line": 254,
+          "line": 307,
           "name": "_focus_value"
         },
         {
-          "end_line": 278,
+          "end_line": 331,
           "kind": "function",
-          "line": 264,
+          "line": 317,
           "name": "_number_value"
         },
         {
-          "end_line": 290,
+          "end_line": 343,
           "kind": "function",
-          "line": 281,
+          "line": 334,
           "name": "_canvas_layout"
         },
         {
-          "end_line": 302,
+          "end_line": 355,
           "kind": "function",
-          "line": 293,
+          "line": 346,
           "name": "_boolean_value"
         },
         {
-          "end_line": 329,
+          "end_line": 382,
           "kind": "function",
-          "line": 305,
+          "line": 358,
           "name": "_text_transforms"
         },
         {
-          "end_line": 366,
+          "end_line": 419,
           "kind": "function",
-          "line": 332,
+          "line": 385,
           "name": "_sticker_overlays"
         },
         {
-          "end_line": 420,
+          "end_line": 473,
           "kind": "function",
-          "line": 369,
+          "line": 422,
           "name": "_render_options"
         },
         {
-          "end_line": 432,
+          "end_line": 485,
           "kind": "function",
-          "line": 423,
+          "line": 476,
           "name": "_apply_task_edits"
         },
         {
-          "end_line": 446,
+          "end_line": 499,
           "kind": "function",
-          "line": 435,
+          "line": 488,
           "name": "_render_result_payload"
         },
         {
-          "end_line": 484,
+          "end_line": 537,
           "kind": "function",
-          "line": 449,
+          "line": 502,
           "name": "_render_task_result"
         },
         {
-          "end_line": 506,
+          "end_line": 559,
           "kind": "function",
-          "line": 487,
+          "line": 540,
           "name": "_render_task"
         },
         {
-          "end_line": 567,
+          "end_line": 620,
           "kind": "function",
-          "line": 509,
+          "line": 562,
           "name": "_save_task"
         },
         {
-          "end_line": 983,
+          "end_line": 1065,
           "kind": "function",
-          "line": 570,
+          "line": 623,
           "name": "create_app"
         }
       ]
@@ -12062,6 +12119,114 @@
           "kind": "function",
           "line": 188,
           "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 424,
+      "longest_function": {
+        "end_line": 415,
+        "kind": "function",
+        "line": 322,
+        "line_count": 94,
+        "qualname": "generate_copy_recommendations"
+      },
+      "module": "autoslice_cover.copy_recommendations",
+      "path": "src/autoslice_cover/copy_recommendations.py",
+      "sha256": "ca4624800ea495964c093509f3efa0e3690a611bac481c4d27e38d9e8eda202e",
+      "top_level_classes": [
+        {
+          "end_line": 50,
+          "kind": "class",
+          "line": 35,
+          "name": "CopyRecommendationResult"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 54,
+          "kind": "function",
+          "line": 53,
+          "name": "_analysis_model"
+        },
+        {
+          "end_line": 62,
+          "kind": "function",
+          "line": 57,
+          "name": "_review_model"
+        },
+        {
+          "end_line": 77,
+          "kind": "function",
+          "line": 65,
+          "name": "resolve_task_srt_path"
+        },
+        {
+          "end_line": 100,
+          "kind": "function",
+          "line": 80,
+          "name": "_read_limited_srt"
+        },
+        {
+          "end_line": 104,
+          "kind": "function",
+          "line": 103,
+          "name": "_bounded_text"
+        },
+        {
+          "end_line": 113,
+          "kind": "function",
+          "line": 107,
+          "name": "_validated_text"
+        },
+        {
+          "end_line": 161,
+          "kind": "function",
+          "line": 116,
+          "name": "_fallback_candidates"
+        },
+        {
+          "end_line": 205,
+          "kind": "function",
+          "line": 164,
+          "name": "_candidate_from_payload"
+        },
+        {
+          "end_line": 225,
+          "kind": "function",
+          "line": 208,
+          "name": "validate_candidate_payload"
+        },
+        {
+          "end_line": 261,
+          "kind": "function",
+          "line": 228,
+          "name": "_validate_review_payload"
+        },
+        {
+          "end_line": 288,
+          "kind": "function",
+          "line": 264,
+          "name": "_analysis_prompt"
+        },
+        {
+          "end_line": 313,
+          "kind": "function",
+          "line": 291,
+          "name": "_review_prompt"
+        },
+        {
+          "end_line": 319,
+          "kind": "function",
+          "line": 316,
+          "name": "_safe_warning"
+        },
+        {
+          "end_line": 415,
+          "kind": "function",
+          "line": 322,
+          "name": "generate_copy_recommendations"
         }
       ]
     },
@@ -12252,28 +12417,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 249,
+      "line_count": 251,
       "longest_function": {
-        "end_line": 236,
+        "end_line": 238,
         "kind": "function",
-        "line": 142,
-        "line_count": 95,
+        "line": 143,
+        "line_count": 96,
         "qualname": "RefinementManifestContract._task_declarations"
       },
       "module": "autoslice_cover.manifest_contract",
       "path": "src/autoslice_cover/manifest_contract.py",
-      "sha256": "3eecbbd0e2454d8e4e874c5ae71a09eb41ccd5c4e8fc6ebaf3e41dd6d8e19fc7",
+      "sha256": "24ff9d13a8c8cfde32d3606f22e811785203c091ca543035293c8f8e65a6cf08",
       "top_level_classes": [
         {
-          "end_line": 70,
+          "end_line": 71,
           "kind": "class",
           "line": 46,
           "name": "CoverContractMatch"
         },
         {
-          "end_line": 241,
+          "end_line": 243,
           "kind": "class",
-          "line": 106,
+          "line": 107,
           "name": "RefinementManifestContract"
         }
       ],
@@ -12303,15 +12468,15 @@
           "name": "_optional_text"
         },
         {
-          "end_line": 85,
+          "end_line": 86,
           "kind": "function",
-          "line": 73,
+          "line": 74,
           "name": "empty_public_contract"
         },
         {
-          "end_line": 103,
+          "end_line": 104,
           "kind": "function",
-          "line": 88,
+          "line": 89,
           "name": "discover_refinement_manifest"
         }
       ]
@@ -14061,6 +14226,7 @@
       "src/autoslice_cover/__init__.py",
       "src/autoslice_cover/app.py",
       "src/autoslice_cover/cli.py",
+      "src/autoslice_cover/copy_recommendations.py",
       "src/autoslice_cover/drafts.py",
       "src/autoslice_cover/emoji.py",
       "src/autoslice_cover/fonts.py",
@@ -14169,6 +14335,7 @@
       "tests/unit/test_transcription_srt_io.py",
       "tests/unit/test_transcription_workflow.py",
       "tests/unit/autoslice_cover/__init__.py",
+      "tests/unit/autoslice_cover/test_copy_recommendations.py",
       "tests/unit/autoslice_cover/test_fonts.py",
       "tests/unit/autoslice_cover/test_manifest_contract.py",
       "tests/unit/autoslice_cover/test_paths.py",
@@ -14181,12 +14348,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 455,
-    "production_line_count": 40098,
-    "production_module_count": 172,
+    "import_edge_count": 460,
+    "production_line_count": 40606,
+    "production_module_count": 173,
     "test_private_patch_count": 17,
-    "top_level_class_count": 94,
-    "top_level_function_count": 954
+    "top_level_class_count": 95,
+    "top_level_function_count": 968
   },
   "test_private_patches": {
     "by_target_module": {

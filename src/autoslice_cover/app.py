@@ -20,6 +20,7 @@ from werkzeug.exceptions import HTTPException
 from autoslice.security_policy import LOOPBACK_HOSTS, SecurityPolicy
 
 from . import API_VERSION, SERVICE_ID
+from .copy_recommendations import ALLOWED_ROLES, generate_copy_recommendations
 from .drafts import CoverDraftStore
 from .fonts import get_default_font_status
 from .paths import STATIC_DIR, TEMPLATE_DIR
@@ -153,6 +154,52 @@ def _draft_settings(
             and isinstance(item.get("box"), (list, tuple))
             and len(item["box"]) == 4
         ]
+    line_roles = payload.get("line_roles")
+    if (
+        not isinstance(line_roles, list)
+        or len(line_roles) != len(copy_lines)
+        or any(role not in ALLOWED_ROLES for role in line_roles)
+    ):
+        line_roles = []
+    copy_candidates = payload.get("copy_candidates")
+    if not isinstance(copy_candidates, list):
+        copy_candidates = []
+    safe_candidates: list[dict[str, Any]] = []
+    for candidate in copy_candidates[:3]:
+        if not isinstance(candidate, dict):
+            continue
+        key = candidate.get("key")
+        label = candidate.get("label")
+        reason = candidate.get("reason")
+        template_key = candidate.get("template_key")
+        palette_key = candidate.get("palette_key")
+        lines = candidate.get("lines")
+        if (
+            not all(isinstance(value, str) and value.strip() for value in (
+                key, label, reason, template_key, palette_key
+            ))
+            or template_key not in TEMPLATES
+            or palette_key not in PALETTES
+            or not isinstance(lines, list)
+        ):
+            continue
+        safe_lines = [
+            {"text": str(line.get("text", ""))[:80], "role": line.get("role")}
+            for line in lines[:MAX_COPY_LINES]
+            if isinstance(line, dict)
+            and isinstance(line.get("text"), str)
+            and line.get("text", "").strip()
+            and line.get("role") in ALLOWED_ROLES
+        ]
+        if safe_lines:
+            safe_candidates.append({
+                "key": key[:64],
+                "label": label[:32],
+                "reason": reason[:240],
+                "template_key": template_key,
+                "palette_key": palette_key,
+                "lines": safe_lines,
+            })
     return {
         "title": task.title,
         "template_key": task.template_key,
@@ -160,6 +207,12 @@ def _draft_settings(
         "copy_lines": [str(item) for item in copy_lines],
         "line_colors": [str(item) for item in line_colors],
         "line_stroke_colors": [str(item) for item in stroke_colors],
+        "line_roles": [str(item) for item in line_roles],
+        "copy_candidates": safe_candidates,
+        "selected_copy_candidate_key": str(
+            payload.get("selected_copy_candidate_key") or ""
+        )[:64],
+        "copy_warning": str(payload.get("copy_warning") or "")[:300],
         "auto_style": False,
         "layouts": layouts,
     }
@@ -584,6 +637,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             "AUTOSLICE_URL",
             "http://127.0.0.1:5002",
         ),
+        COPY_RECOMMENDATION_RUNNER=None,
     )
     if test_config:
         app.config.update(test_config)
@@ -705,6 +759,34 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             raise ApiError("title 不能为空")
         variants = recommend_layout_variants(title)
         return jsonify({"ok": True, "variants": [variant.to_dict() for variant in variants]})
+
+    @app.post("/api/tasks/<task_id>/copy-variants")
+    def copy_variants(task_id: str):
+        workspace = _workspace(app)
+        payload = _json_body()
+        unknown = set(payload) - {"title"}
+        if unknown:
+            raise ApiError("请求体只允许包含当前任务 title，不接受 SRT 或其他本机路径")
+        task = workspace.task_snapshot(task_id)
+        current_title = (
+            _optional_string(payload, "title", max_length=MAX_TITLE_LENGTH)
+            if "title" in payload
+            else task.title
+        )
+        contract = task.cover_contract
+        result = generate_copy_recommendations(
+            video_path=task.video_path,
+            current_title=current_title,
+            publish_title=(contract.publish_title if contract is not None else task.title),
+            editorial_interest_reason=(
+                contract.editorial_interest_reason if contract is not None else None
+            ),
+            corrected_srt_path=(
+                contract.corrected_srt_path if contract is not None else None
+            ),
+            runner=app.config.get("COPY_RECOMMENDATION_RUNNER"),
+        )
+        return jsonify({"ok": True, **result.to_dict()})
 
     @app.get("/api/stickers")
     def stickers():

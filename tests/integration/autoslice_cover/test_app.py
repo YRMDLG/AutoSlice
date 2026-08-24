@@ -32,6 +32,62 @@ def _bootstrapped_client(flask_app):
     return client
 
 
+def _copy_generation_response() -> dict[str, object]:
+    return {
+        "candidates": [
+            {
+                "label": "后果优先",
+                "reason": "写出免费游戏的反转后果",
+                "template_key": "headline",
+                "palette_key": "latest_conflict",
+                "lines": [
+                    {"text": "朋友说送我大作", "role": "context"},
+                    {"text": "点开竟是免费游戏", "role": "emphasis"},
+                ],
+            },
+            {
+                "label": "原话反差",
+                "reason": "保留双方原话与结果",
+                "template_key": "dialog",
+                "palette_key": "latest_cyan",
+                "lines": [
+                    {"text": "朋友神秘送礼", "role": "context"},
+                    {"text": "她说绝对是大作", "role": "quote"},
+                    {"text": "结果根本不要钱", "role": "emphasis"},
+                ],
+            },
+            {
+                "label": "双角色对话",
+                "reason": "不同 role 区分对话角色",
+                "template_key": "evidence",
+                "palette_key": "latest_soft",
+                "lines": [
+                    {"text": "朋友说送你一个游戏", "role": "context"},
+                    {"text": "朋友：绝对是大作", "role": "quote"},
+                    {"text": "主播：这不是免费的吗", "role": "neutral"},
+                    {"text": "送礼送了个寂寞", "role": "emphasis"},
+                ],
+            },
+        ]
+    }
+
+
+def _copy_review_response() -> dict[str, object]:
+    return {
+        "selected_index": 1,
+        "reviews": [
+            {
+                "candidate_index": index,
+                "original_accuracy": "pass",
+                "hook_consequence": "pass",
+                "clickability_score": 5 - index,
+                "reason": "与字幕一致且包含后果",
+            }
+            for index in range(3)
+        ],
+    }
+
+
 class ResourcePathTests(unittest.TestCase):
     def test_templates_and_static_files_do_not_depend_on_current_directory(self):
         previous = Path.cwd()
@@ -493,6 +549,8 @@ class AppTests(unittest.TestCase):
             self.assertIn('id="palette-select"', page_content)
             self.assertIn('id="cover-overlay"', page_content)
             self.assertIn('id="layout-variants"', page_content)
+            self.assertIn('id="generate-ai-copy"', page_content)
+            self.assertIn('id="copy-candidates"', page_content)
             self.assertIn('id="sticker-grid"', page_content)
             self.assertIn('id="sticker-library-summary"', page_content)
             self.assertIn('id="sticker-result-count"', page_content)
@@ -539,6 +597,9 @@ class AppTests(unittest.TestCase):
             script_content = script.get_data(as_text=True)
             self.assertIn("/api/workspace/scan", script_content)
             self.assertIn("/api/layout-variants", script_content)
+            self.assertIn("/copy-variants", script_content)
+            self.assertIn("function generateAiCopy(", script_content)
+            self.assertIn("function setLineRole(", script_content)
             self.assertIn("/api/stickers", script_content)
             self.assertIn("background_media_token", script_content)
             self.assertIn("default_output_dir", script_content)
@@ -610,6 +671,8 @@ class AppTests(unittest.TestCase):
             self.assertIn(".task-sort-bar", css)
             self.assertIn(".copy-editor-heading", css)
             self.assertIn(".copy-line-remove", css)
+            self.assertIn(".copy-candidate-button", css)
+            self.assertIn(".line-role-select", css)
             self.assertIn(".sticker-library-summary", css)
             self.assertIn(".text-style-editor", css)
             self.assertIn("clamp(410px, 24vw, 500px)", css)
@@ -820,7 +883,10 @@ window.clearTimeout = clearTimeout;
 window.setTimeout = setTimeout;
 state.options = {
   templates: [{key: "headline"}],
-  palettes: [{key: "order_all_yellow"}],
+  palettes: [{
+    key: "order_all_yellow", context_color: "#ffe438", quote_color: "#16d8ed",
+    emphasis_color: "#ff4433", neutral_color: "#ffffff", stroke_color: "#111111",
+  }],
 };
 state.workspaceConfig = {root: "F:\\Videos"};
 const draftTask = {
@@ -837,6 +903,13 @@ const draftSettings = defaultSettings(draftTask);
 draftSettings.copy_lines = ["第一行", "第二行"];
 draftSettings.line_colors = ["#ffffff", "#d06e95"];
 draftSettings.line_stroke_colors = ["#111111", "#ffffff"];
+draftSettings.line_roles = ["context", "emphasis"];
+draftSettings.copy_candidates = [{
+  key: "ai-1", label: "AI 候选", reason: "测试草稿恢复",
+  template_key: "headline", palette_key: "order_all_yellow",
+  lines: [{text: "第一行", role: "context"}, {text: "第二行", role: "emphasis"}],
+}];
+draftSettings.selected_copy_candidate_key = "ai-1";
 draftSettings.layouts["4x3"].background_scale = 1.8;
 draftSettings.layouts["4x3"].focus_x = 0.2;
 draftSettings.layouts["4x3"].focus_y = 0.7;
@@ -852,6 +925,8 @@ loadStoredDrafts();
 const restored = taskSettings(draftTask);
 if (restored.copy_lines.join("|") !== "第一行|第二行") throw new Error("文案没有恢复");
 if (restored.line_colors[1] !== "#d06e95") throw new Error("文字颜色没有恢复");
+if (restored.line_roles.join("|") !== "context|emphasis") throw new Error("line role 没有恢复");
+if (restored.copy_candidates[0]?.key !== "ai-1") throw new Error("AI 候选没有恢复");
 if (restored.layouts["4x3"].text[1].font_size !== 112) throw new Error("字号布局没有恢复");
 if (restored.layouts["4x3"].background_scale !== 1.8) throw new Error("画面缩放没有恢复");
 if (taskDraft(draftTask).selected_timestamp !== 42.5) throw new Error("选帧时间没有恢复");
@@ -1352,6 +1427,197 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证 AI 候选和 role 配色行为")
+    def test_ai_copy_candidate_selection_and_role_switch_apply_palette_colors(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+state.options = {palettes:[{
+  key:"test", context_color:"#ffe438", context_stroke_color:"#111111",
+  quote_color:"#16d8ed", quote_stroke_color:"#ffffff",
+  emphasis_color:"#ff4433", emphasis_stroke_color:"#ffffff",
+  neutral_color:"#ffffff", neutral_stroke_color:"#111111", stroke_color:"#111111",
+}]};
+const task = {id:"ai-copy", title:"测试", template_key:"headline", palette_key:"test"};
+const settings = defaultSettings(task);
+const candidate = {
+  key:"ai-2", label:"Terra 选择", reason:"反差完整", template_key:"dialog", palette_key:"test",
+  lines:[
+    {text:"主题背景", role:"context"},
+    {text:"朋友原话", role:"quote"},
+    {text:"真正后果", role:"emphasis"},
+  ],
+};
+applyCopyCandidate(settings, candidate);
+if (settings.selected_copy_candidate_key !== "ai-2") throw new Error("候选未被选中");
+if (settings.line_roles.join("|") !== "context|quote|emphasis") throw new Error("候选 role 未应用");
+if (settings.line_colors.join("|") !== "#ffe438|#16d8ed|#ff4433") throw new Error("role 文字色映射错误");
+if (settings.line_stroke_colors.join("|") !== "#111111|#ffffff|#ffffff") throw new Error("role 描边映射错误");
+if (!setLineRole(settings, 1, "neutral")) throw new Error("role 切换失败");
+if (settings.line_roles[1] !== "neutral" || settings.line_colors[1] !== "#ffffff"
+    || settings.line_stroke_colors[1] !== "#111111") {
+  throw new Error("role 切换后没有同步颜色和描边");
+}
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 验证标题编辑与异步推荐状态保护")
+    def test_title_edit_preserves_copy_and_ai_generation_requires_explicit_click(self) -> None:
+        with self.client.get("/static/app.js") as response:
+            script = response.get_data(as_text=True)
+        probe = r"""
+function eventTarget(value = "") {
+  const handlers = new Map();
+  return {
+    value,
+    addEventListener(type, handler) { handlers.set(type, handler); },
+    dispatch(type) { return handlers.get(type)?.(); },
+  };
+}
+
+window.clearTimeout = clearTimeout;
+window.setTimeout = (callback) => {
+  Promise.resolve().then(callback);
+  return 1;
+};
+elements["title-input"] = eventTarget("旧投稿标题");
+elements["generate-ai-copy"] = eventTarget();
+state.options = {
+  templates: [{key: "headline"}, {key: "dialog"}],
+  palettes: [{
+    key: "test", context_color: "#ffe438", context_stroke_color: "#111111",
+    quote_color: "#16d8ed", quote_stroke_color: "#ffffff",
+    emphasis_color: "#ff4433", emphasis_stroke_color: "#ffffff",
+    neutral_color: "#ffffff", neutral_stroke_color: "#111111", stroke_color: "#111111",
+  }],
+};
+const task = {
+  id: "title-state", title: "旧投稿标题", template_key: "headline", palette_key: "test",
+};
+state.tasks = [task];
+state.activeTaskId = task.id;
+const settings = defaultSettings(task);
+settings.auto_style = false;
+settings.copy_lines = ["手工主题", "AI 爆点"];
+settings.line_roles = ["context", "emphasis"];
+settings.line_colors = ["#123456", "#abcdef"];
+settings.line_stroke_colors = ["#111111", "#ffffff"];
+settings.copy_candidates = [{
+  key: "ai-2", label: "已选 AI", reason: "保留当前候选",
+  template_key: "dialog", palette_key: "test",
+  lines: [{text: "手工主题", role: "context"}, {text: "AI 爆点", role: "emphasis"}],
+}];
+settings.selected_copy_candidate_key = "ai-2";
+settings.layouts["4x3"].text = [
+  {x: 0.1, y: 0.2, scale: 1, font_size: 100},
+  {x: 0.3, y: 0.4, scale: 1, font_size: 120},
+];
+state.settings.set(task.id, settings);
+
+const calls = [];
+const pendingLayouts = [];
+api = (path, options = {}) => {
+  calls.push({path, body: options.body ? JSON.parse(options.body) : null});
+  if (path === "/api/layout-variants") {
+    return new Promise((resolve) => pendingLayouts.push(resolve));
+  }
+  if (path === `/api/tasks/${task.id}/copy-variants`) {
+    return Promise.resolve({
+      source: "fallback", selected_index: 0, warning: "",
+      candidates: [{
+        key: "ai-click", label: "显式生成", reason: "按钮触发",
+        template_key: "dialog", palette_key: "test",
+        lines: [{text: "按钮生成文案", role: "emphasis"}],
+      }],
+    });
+  }
+  throw new Error(`unexpected API call: ${path}`);
+};
+renderTaskList = () => {};
+renderLayoutVariants = () => {};
+renderCopyCandidates = () => {};
+renderCopyLines = () => {};
+renderInspector = () => {};
+persistTaskDraft = () => {};
+refreshPreview = async () => {};
+setBusy = () => {};
+setStatus = () => {};
+
+bindCopyRecommendationControls();
+elements["title-input"].value = "新投稿标题";
+elements["title-input"].dispatch("input");
+await Promise.resolve();
+if (calls.length !== 1 || calls[0].path !== "/api/layout-variants") {
+  throw new Error("标题编辑没有只刷新推荐排版");
+}
+if (calls[0].body.title !== "新投稿标题") throw new Error("推荐排版没有使用新标题");
+if (settings.copy_lines.join("|") !== "手工主题|AI 爆点") throw new Error("标题编辑覆盖了文案");
+if (settings.line_roles.join("|") !== "context|emphasis") throw new Error("标题编辑覆盖了 role");
+if (settings.line_colors.join("|") !== "#123456|#abcdef") throw new Error("标题编辑覆盖了颜色");
+if (settings.line_stroke_colors.join("|") !== "#111111|#ffffff") {
+  throw new Error("标题编辑覆盖了描边");
+}
+if (settings.selected_copy_candidate_key !== "ai-2") throw new Error("标题编辑取消了已选候选");
+if (settings.layouts["4x3"].text[1].font_size !== 120) throw new Error("标题编辑清空了文字布局");
+pendingLayouts.shift()({variants: [{
+  key: "layout-1", label: "新推荐", reason: "仅刷新候选",
+  template_key: "headline", palette_key: "test",
+  lines: [{text: "确定性推荐", role: "neutral"}],
+}]});
+await Promise.resolve();
+await Promise.resolve();
+if (settings.copy_lines.join("|") !== "手工主题|AI 爆点") {
+  throw new Error("确定性推荐刷新覆盖了现有文案");
+}
+
+settings.auto_style = true;
+const staleLayout = loadLayoutVariants(task, {applyRecommended: true});
+await Promise.resolve();
+const aiCandidate = {
+  key: "ai-new", template_key: "dialog", palette_key: "test",
+  lines: [{text: "后来选择的 AI 文案", role: "quote"}],
+};
+applyCopyCandidate(settings, aiCandidate);
+settings.line_colors = ["#654321"];
+settings.line_stroke_colors = ["#fedcba"];
+pendingLayouts.shift()({variants: [{
+  key: "stale", label: "旧推荐", reason: "不得落地",
+  template_key: "headline", palette_key: "test",
+  lines: [{text: "过期推荐文案", role: "neutral"}],
+}]});
+await staleLayout;
+if (settings.copy_lines[0] !== "后来选择的 AI 文案") throw new Error("旧推荐覆盖了 AI 文案");
+if (settings.line_roles[0] !== "quote") throw new Error("旧推荐覆盖了 AI role");
+if (settings.line_colors[0] !== "#654321") throw new Error("旧推荐覆盖了 AI 颜色");
+if (settings.line_stroke_colors[0] !== "#fedcba") throw new Error("旧推荐覆盖了 AI 描边");
+if (settings.selected_copy_candidate_key !== "ai-new") throw new Error("旧推荐取消了 AI 候选");
+
+if (calls.some((item) => item.path.includes("/copy-variants"))) {
+  throw new Error("点击按钮前发生了 AI 请求");
+}
+await elements["generate-ai-copy"].dispatch("click");
+if (calls.filter((item) => item.path.includes("/copy-variants")).length !== 1) {
+  throw new Error("AI 请求没有且仅由按钮显式触发一次");
+}
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-"],
+            input="global.window={addEventListener(){}};\n" + script + probe,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_layout_variants_follow_the_submitted_title(self) -> None:
         response = self.client.post(
             "/api/layout-variants",
@@ -1375,6 +1641,107 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
         oversized = self.client.post("/api/layout-variants", json={"title": "长" * 501})
         self.assertEqual(oversized.status_code, 400)
         self.assertIn("500", oversized.get_json()["error"])
+
+    def test_task_copy_variants_run_only_on_explicit_request_and_hide_paths(self) -> None:
+        clip_path = (self.clips / "01_司机回头.mp4").resolve()
+        subtitle_path = (self.root / "最终校对.srt").resolve()
+        subtitle_path.write_text(
+            "1\n00:00:01,000 --> 00:00:03,000\n朋友说送我一个大作\n\n"
+            "2\n00:00:04,000 --> 00:00:06,000\n点开以后发现本来就是免费游戏\n",
+            encoding="utf-8",
+        )
+        manifest_path = self.root / "文案任务.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tasks": [
+                        {
+                            "id": "01",
+                            "clip_timebase": "source_video_seconds",
+                            "source_segment_count": 1,
+                            "clip_start_seconds": 0,
+                            "clip_end_seconds": 60,
+                            "slice_anchor": 8,
+                            "slice_anchor_source": "语义复核",
+                            "cover_anchor_seconds": 8,
+                            "cover_anchor_media_path": str(clip_path),
+                            "editorial_interest_score": 5,
+                            "editorial_interest_reason": "说好送大作却是免费游戏，后果反差完整",
+                            "publish_title": "【测试主播】朋友说送大作，点开却是免费游戏",
+                            "original_slice_path": str(clip_path),
+                            "corrected_srt_path": str(subtitle_path),
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def runner(prompt: str, **kwargs: object) -> str:
+            calls.append((prompt, kwargs))
+            response = _copy_generation_response() if len(calls) == 1 else _copy_review_response()
+            return json.dumps(response, ensure_ascii=False)
+
+        self.app.config["COPY_RECOMMENDATION_RUNNER"] = runner
+        scan = self.client.post(
+            "/api/workspace/scan",
+            json={
+                "root": str(self.clips),
+                "cache_dir": str(self.cache),
+                "output_dir": str(self.output),
+                "manifest_json_path": str(manifest_path),
+            },
+        )
+        task = next(
+            item for item in scan.get_json()["tasks"] if item["filename"] == clip_path.name
+        )
+        self.assertEqual(calls, [])
+
+        rejected = self.client.post(
+            f"/api/tasks/{task['id']}/copy-variants",
+            json={"srt_path": str(subtitle_path)},
+        )
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(calls, [])
+
+        response = self.client.post(
+            f"/api/tasks/{task['id']}/copy-variants",
+            json={"title": "【测试主播】手动调整后的当前标题"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["source"], "ai")
+        self.assertEqual(payload["selected_index"], 1)
+        self.assertEqual(payload["selected_key"], "ai-2")
+        self.assertEqual(len(payload["candidates"]), 3)
+        self.assertEqual([item[1]["reasoning_stage"] for item in calls], ["analysis", "review"])
+        self.assertIn("手动调整后的当前标题", calls[0][0])
+        response_text = response.get_data(as_text=True)
+        self.assertNotIn(str(clip_path), response_text)
+        self.assertNotIn(str(subtitle_path), response_text)
+        self.assertNotIn(str(manifest_path), response_text)
+
+    def test_task_copy_variants_without_srt_never_calls_runner(self) -> None:
+        tasks = self._scan()
+        task = tasks[0]
+        self.app.config["COPY_RECOMMENDATION_RUNNER"] = (
+            lambda *_args, **_kwargs: self.fail("没有可靠 SRT 时不得调用 LLM")
+        )
+
+        response = self.client.post(
+            f"/api/tasks/{task['id']}/copy-variants",
+            json={"title": "当前标题"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["source"], "fallback")
+        self.assertEqual(len(payload["candidates"]), 3)
+        self.assertIn("未调用 AI", payload["warning"])
 
     def test_sticker_library_exposes_ids_but_not_local_paths(self) -> None:
         response = self.client.get("/api/stickers")
@@ -1609,6 +1976,22 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
                 "copy_lines": ["第一行", "第二行"],
                 "line_colors": ["#ffffff", "#d06e95"],
                 "line_stroke_colors": ["#111111", "#ffffff"],
+                "line_roles": ["context", "emphasis"],
+                "copy_candidates": [
+                    {
+                        "key": "ai-1",
+                        "label": "AI 候选",
+                        "reason": "保存到磁盘草稿",
+                        "template_key": "dialog",
+                        "palette_key": "classic",
+                        "lines": [
+                            {"text": "第一行", "role": "context"},
+                            {"text": "第二行", "role": "emphasis"},
+                        ],
+                    }
+                ],
+                "selected_copy_candidate_key": "ai-1",
+                "copy_warning": "测试 warning",
                 "layouts": {
                     "4x3": {
                         "focus_x": 0.35,
@@ -1673,6 +2056,9 @@ if (settings.line_colors !== null || settings.line_stroke_colors !== null) {
         self.assertTrue(disk_draft["active"])
         self.assertGreater(disk_draft["updated_at"], 1_000_000_000_000)
         self.assertEqual(disk_draft["settings"]["copy_lines"], ["第一行", "第二行"])
+        self.assertEqual(disk_draft["settings"]["line_roles"], ["context", "emphasis"])
+        self.assertEqual(disk_draft["settings"]["copy_candidates"][0]["key"], "ai-1")
+        self.assertEqual(disk_draft["settings"]["selected_copy_candidate_key"], "ai-1")
         self.assertAlmostEqual(
             disk_draft["settings"]["layouts"]["4x3"]["background_scale"],
             1.4,

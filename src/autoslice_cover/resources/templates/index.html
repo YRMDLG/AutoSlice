@@ -135,6 +135,20 @@
             <div class="layout-variants" id="layout-variants"></div>
           </div>
 
+          <div class="ai-copy-section">
+            <div class="ai-copy-heading">
+              <div>
+                <div class="control-label">AI 封面文案</div>
+                <small>仅点击后读取当前任务的最终校对 SRT，并执行 Luna 生成 + Terra 复核。</small>
+              </div>
+              <button class="button secondary" id="generate-ai-copy" type="button">生成 AI 文案</button>
+            </div>
+            <div class="ai-copy-warning" id="ai-copy-warning" role="status" hidden></div>
+            <div class="copy-candidates" id="copy-candidates">
+              <div class="candidate-empty compact">尚未生成 AI 文案</div>
+            </div>
+          </div>
+
           <div class="copy-editor">
             <div class="copy-editor-heading">
               <div class="control-label">封面大字</div>

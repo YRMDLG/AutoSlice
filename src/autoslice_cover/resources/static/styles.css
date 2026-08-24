@@ -1079,6 +1079,95 @@ h2 {
   font-size: 11px;
 }
 
+.ai-copy-section {
+  margin-bottom: 14px;
+  padding: 11px;
+  border: 1px solid #315542;
+  border-radius: 6px;
+  background: #17251f;
+}
+
+.ai-copy-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-copy-heading small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.ai-copy-heading .button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.ai-copy-warning {
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid #7b6330;
+  border-radius: 4px;
+  background: #332b18;
+  color: #ffe38b;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.copy-candidates {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.copy-candidate-button {
+  min-width: 0;
+  min-height: 72px;
+  padding: 7px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-input);
+  color: var(--text);
+  text-align: left;
+}
+
+.copy-candidate-button:hover,
+.copy-candidate-button.active {
+  border-color: var(--accent);
+}
+
+.copy-candidate-button.active {
+  background: #1d3029;
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+.copy-candidate-button strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-candidate-button span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .field-grid,
 .slider-grid {
   display: grid;
@@ -1280,11 +1369,31 @@ select:hover {
   margin-top: 8px;
   padding: 3px;
   display: grid;
-  grid-template-columns: 28px 78px minmax(0, 1fr) 28px;
+  grid-template-columns: 28px 72px 78px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 7px;
   border: 1px solid transparent;
   border-radius: 5px;
+}
+
+.line-role-control {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.line-role-badge {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+
+.line-role-select {
+  height: 24px;
+  padding: 2px 4px;
+  font-size: 10px;
 }
 
 .copy-line-remove {

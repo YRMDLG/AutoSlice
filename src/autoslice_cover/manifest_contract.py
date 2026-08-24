@@ -54,6 +54,7 @@ class CoverContractMatch:
     editorial_interest_reason: str | None
     subtitle_exists: bool
     subtitle_filename: str | None
+    corrected_srt_path: str | None = None
 
     def to_public_dict(self) -> dict[str, Any]:
         """返回不包含本机绝对路径的 API 元数据。"""
@@ -191,6 +192,7 @@ class RefinementManifestContract:
             "editorial_interest_reason": _optional_text(
                 task.get("editorial_interest_reason")
             ),
+            "corrected_srt_path": str(subtitle_path) if subtitle_path is not None else None,
             "subtitle_exists": bool(subtitle_path and subtitle_path.is_file()),
             "subtitle_filename": subtitle_filename,
         }

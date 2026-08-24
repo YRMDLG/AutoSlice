@@ -2592,7 +2592,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 954)
+        self.assertEqual(current["summary"]["top_level_function_count"], 968)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5344,7 +5344,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            954,
+            968,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

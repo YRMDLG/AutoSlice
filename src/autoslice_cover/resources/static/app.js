@@ -14,6 +14,13 @@ const DRAFT_STORAGE_KEY = "autocover.task-drafts.v1";
 const ACTIVE_TASK_SESSION_KEY = "autocover.active-task.v1";
 const DRAFT_STORAGE_VERSION = 1;
 const MAX_STORED_DRAFTS = 120;
+const COPY_ROLES = Object.freeze(["context", "emphasis", "quote", "neutral"]);
+const COPY_ROLE_LABELS = Object.freeze({
+  context: "主题",
+  emphasis: "爆点",
+  quote: "对话 A",
+  neutral: "对话 B",
+});
 // 已经有可用预览时不再用整块遮罩打断编辑；首次生成时延迟显示，避免一闪而过。
 const PREVIEW_LOADER_DELAY_MS = 220;
 const QUEUE_SORT_KEYS = new Set([
@@ -62,7 +69,8 @@ function cacheElements() {
     "task-count", "task-sort", "task-list", "preview-state", "cover-frame", "cover-preview", "cover-background-preview",
     "preview-empty", "preview-loader", "candidate-summary", "candidate-strip",
     "refresh-candidates", "active-filename", "reset-copy", "editor-controls",
-    "title-input", "layout-variants", "template-select", "palette-select", "palette-preview", "copy-lines", "add-copy-line",
+    "title-input", "layout-variants", "generate-ai-copy", "ai-copy-warning", "copy-candidates",
+    "template-select", "palette-select", "palette-preview", "copy-lines", "add-copy-line",
     "common-colors", "common-stroke-colors", "stroke-color-input", "sync-ratios",
     "cover-overlay", "refresh-stickers", "upload-sticker", "upload-sticker-file", "sticker-group", "sticker-search", "sticker-grid",
     "sticker-library-summary", "sticker-result-count",
@@ -156,6 +164,7 @@ function refreshInteractionState() {
   elements["save-cover"].disabled = !editable;
   elements["add-copy-line"].disabled = !editable
     || (taskSettings(activeTask()).copy_lines?.length || 0) >= MAX_MANUAL_COPY_LINES;
+  elements["generate-ai-copy"].disabled = !editable;
   elements["refresh-candidates"].disabled = !editable;
   elements["timeline-range"].disabled = !editable || !Number(activeTask()?.video_duration);
   elements["background-scale"].disabled = !editable;
@@ -333,6 +342,25 @@ function serializeLayout(layout) {
   };
 }
 
+function serializeCopyCandidates(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 3).map((candidate, candidateIndex) => ({
+    key: String(candidate?.key || `candidate-${candidateIndex + 1}`).slice(0, 64),
+    label: String(candidate?.label || "候选").slice(0, 32),
+    reason: String(candidate?.reason || "").slice(0, 240),
+    template_key: String(candidate?.template_key || "").slice(0, 64),
+    palette_key: String(candidate?.palette_key || "").slice(0, 64),
+    lines: Array.isArray(candidate?.lines)
+      ? candidate.lines.slice(0, MAX_MANUAL_COPY_LINES).filter((line) => (
+        typeof line?.text === "string" && line.text.trim()
+      )).map((line) => ({
+        text: String(line.text).slice(0, 40),
+        role: COPY_ROLES.includes(line.role) ? line.role : "neutral",
+      }))
+      : [],
+  })).filter((candidate) => candidate.lines.length);
+}
+
 function serializeTaskSettings(settings) {
   const copyLines = Array.isArray(settings.copy_lines)
     ? settings.copy_lines.slice(0, MAX_MANUAL_COPY_LINES).map((line) => String(line).slice(0, 40))
@@ -342,6 +370,11 @@ function serializeTaskSettings(settings) {
     const colors = value.map(normalizeHexColor);
     return colors.every(Boolean) ? colors : null;
   };
+  const lineRoles = copyLines
+    ? copyLines.map((_, index) => COPY_ROLES.includes(settings.line_roles?.[index])
+      ? settings.line_roles[index]
+      : fallbackLineRole(copyLines, index))
+    : null;
   return {
     title: String(settings.title || "").slice(0, 180),
     template_key: String(settings.template_key || ""),
@@ -349,6 +382,10 @@ function serializeTaskSettings(settings) {
     copy_lines: copyLines,
     line_colors: serializeColors(settings.line_colors),
     line_stroke_colors: serializeColors(settings.line_stroke_colors),
+    line_roles: lineRoles,
+    copy_candidates: serializeCopyCandidates(settings.copy_candidates),
+    selected_copy_candidate_key: String(settings.selected_copy_candidate_key || "").slice(0, 64),
+    copy_warning: String(settings.copy_warning || "").slice(0, 300),
     auto_style: Boolean(settings.auto_style),
     layouts: {
       "4x3": serializeLayout(settings.layouts?.["4x3"]),
@@ -371,6 +408,11 @@ function restoreTaskSettings(task, draft) {
     const colors = value.map(normalizeHexColor);
     return colors.every(Boolean) ? colors : null;
   };
+  const lineRoles = copyLines
+    ? copyLines.map((_, index) => COPY_ROLES.includes(saved.line_roles?.[index])
+      ? saved.line_roles[index]
+      : fallbackLineRole(copyLines, index))
+    : null;
   const visibleCount = (copyLines || []).filter((line) => line.trim()).length;
   const restoreLayout = (value) => {
     const layout = serializeLayout(value);
@@ -385,6 +427,12 @@ function restoreTaskSettings(task, draft) {
     copy_lines: copyLines,
     line_colors: restoreColors(saved.line_colors),
     line_stroke_colors: restoreColors(saved.line_stroke_colors),
+    line_roles: lineRoles,
+    copy_candidates: serializeCopyCandidates(saved.copy_candidates),
+    selected_copy_candidate_key: typeof saved.selected_copy_candidate_key === "string"
+      ? saved.selected_copy_candidate_key.slice(0, 64)
+      : "",
+    copy_warning: typeof saved.copy_warning === "string" ? saved.copy_warning.slice(0, 300) : "",
     auto_style: Boolean(saved.auto_style),
     layouts: {
       "4x3": restoreLayout(saved.layouts?.["4x3"]),
@@ -429,7 +477,7 @@ function persistTaskDraft(task = activeTask(), { immediate = false } = {}) {
     ? selectedTimestamp
     : previous?.selected_timestamp ?? null;
   const unchanged = previous
-    && JSON.stringify(previous.settings) === JSON.stringify(settings)
+    && JSON.stringify(serializeTaskSettings(previous.settings)) === JSON.stringify(settings)
     && Number(previous.selected_timestamp) === Number(timestamp);
   const updatedAt = Math.max(
     Date.now(),
@@ -507,6 +555,10 @@ function defaultSettings(task) {
     copy_lines: null,
     line_colors: null,
     line_stroke_colors: null,
+    line_roles: null,
+    copy_candidates: [],
+    selected_copy_candidate_key: "",
+    copy_warning: "",
     auto_style: true,
     variants: [],
     layouts: {
@@ -666,7 +718,13 @@ function paletteRoleColors(palette) {
 }
 
 function lineRoleAt(settings, index) {
-  const visible = (settings.copy_lines || [])
+  const explicit = settings.line_roles?.[index];
+  if (COPY_ROLES.includes(explicit)) return explicit;
+  return fallbackLineRole(settings.copy_lines || [], index);
+}
+
+function fallbackLineRole(lines, index) {
+  const visible = (lines || [])
     .map((line, lineIndex) => (line.trim() ? lineIndex : -1))
     .filter((lineIndex) => lineIndex >= 0);
   const position = visible.indexOf(index);
@@ -745,6 +803,90 @@ function renderLayoutVariants(settings) {
   });
 }
 
+function applyCopyCandidate(settings, candidate) {
+  settings.auto_style = false;
+  settings.template_key = candidate.template_key;
+  settings.palette_key = candidate.palette_key;
+  settings.copy_lines = candidate.lines.map((line) => line.text);
+  settings.line_roles = candidate.lines.map((line) => (
+    COPY_ROLES.includes(line.role) ? line.role : "neutral"
+  ));
+  settings.selected_copy_candidate_key = candidate.key || "";
+  applyRolePalette(settings);
+  clearTextLayouts(settings);
+}
+
+function renderCopyCandidates(settings) {
+  const candidates = settings?.copy_candidates || [];
+  const warning = String(settings?.copy_warning || "");
+  elements["ai-copy-warning"].textContent = warning;
+  elements["ai-copy-warning"].hidden = !warning;
+  if (!candidates.length) {
+    elements["copy-candidates"].innerHTML = '<div class="candidate-empty compact">尚未生成 AI 文案</div>';
+    return;
+  }
+  elements["copy-candidates"].innerHTML = candidates.map((candidate, index) => {
+    const active = candidate.key === settings.selected_copy_candidate_key;
+    const sample = candidate.lines.map((line) => (
+      `${COPY_ROLE_LABELS[line.role] || line.role}：${line.text}`
+    )).join(" / ");
+    return `
+      <button class="copy-candidate-button ${active ? "active" : ""}" type="button" data-copy-candidate-index="${index}" title="${escapeHtml(candidate.reason)}">
+        <strong>${escapeHtml(candidate.label)}</strong>
+        <span>${escapeHtml(sample)}</span>
+      </button>
+    `;
+  }).join("");
+  elements["copy-candidates"].querySelectorAll("[data-copy-candidate-index]").forEach((button) => {
+    button.addEventListener("click", () => applyStoredCopyCandidate(
+      Number(button.dataset.copyCandidateIndex),
+    ));
+  });
+}
+
+function applyStoredCopyCandidate(index) {
+  const task = activeTask();
+  if (!task) return;
+  const settings = taskSettings(task);
+  const candidate = settings.copy_candidates[index];
+  if (!candidate) return;
+  applyCopyCandidate(settings, candidate);
+  renderInspector(task);
+  persistTaskDraft(task);
+  schedulePreview();
+}
+
+async function generateAiCopy() {
+  const task = activeTask();
+  if (!task || isBusy()) return;
+  const settings = taskSettings(task);
+  setBusy(true, "正在生成 AI 封面文案...");
+  try {
+    const payload = await api(`/api/tasks/${task.id}/copy-variants`, {
+      method: "POST",
+      body: JSON.stringify({title: settings.title}),
+    });
+    settings.copy_candidates = serializeCopyCandidates(payload.candidates);
+    settings.copy_warning = typeof payload.warning === "string" ? payload.warning : "";
+    const selectedIndex = Number.isInteger(payload.selected_index) ? payload.selected_index : 0;
+    const selected = settings.copy_candidates[selectedIndex] || settings.copy_candidates[0];
+    if (!selected) throw new Error("服务没有返回可用文案候选");
+    applyCopyCandidate(settings, selected);
+    renderInspector(task);
+    persistTaskDraft(task);
+    await refreshPreview();
+    setStatus(
+      payload.source === "ai" ? "AI 文案已生成并通过 Terra 复核" : "已应用确定性文案候选",
+      settings.copy_warning || selected.reason,
+      settings.copy_warning ? "error" : "ready",
+    );
+  } catch (error) {
+    setStatus("AI 文案生成失败", error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function loadLayoutVariants(task, { applyRecommended = false } = {}) {
   if (!task) return;
   const settings = taskSettings(task);
@@ -756,20 +898,45 @@ async function loadLayoutVariants(task, { applyRecommended = false } = {}) {
   });
   if (settings.title !== titleAtRequest) return false;
   settings.variants = payload.variants;
-  if (applyRecommended && payload.variants.length) {
+  if (applyRecommended && settings.auto_style && payload.variants.length) {
     const variant = payload.variants[0];
-    settings.template_key = variant.template_key;
-    settings.palette_key = variant.palette_key;
-    settings.copy_lines = variant.lines.map((line) => line.text);
-    settings.line_colors = null;
-    settings.line_stroke_colors = null;
-    clearTextLayouts(settings);
+    applyCopyCandidate(settings, variant);
+    settings.selected_copy_candidate_key = "";
   }
   if (state.activeTaskId === task.id) {
     renderInspector(task);
   }
   renderTaskList();
   persistTaskDraft(task);
+  return true;
+}
+
+function applyRolePalette(settings) {
+  if (!Array.isArray(settings.copy_lines)) {
+    settings.line_colors = null;
+    settings.line_stroke_colors = null;
+    settings.line_roles = null;
+    return;
+  }
+  settings.line_roles = settings.copy_lines.map((_, index) => lineRoleAt(settings, index));
+  settings.line_colors = settings.copy_lines.map((_, index) => paletteLineColor(settings, index));
+  settings.line_stroke_colors = settings.copy_lines.map(
+    (_, index) => paletteLineStrokeColor(settings, index),
+  );
+}
+
+function setLineRole(settings, index, role) {
+  if (
+    !Array.isArray(settings.copy_lines)
+    || index < 0
+    || index >= settings.copy_lines.length
+    || !COPY_ROLES.includes(role)
+  ) return false;
+  if (!Array.isArray(settings.line_roles) || settings.line_roles.length !== settings.copy_lines.length) {
+    settings.line_roles = settings.copy_lines.map((_, lineIndex) => lineRoleAt(settings, lineIndex));
+  }
+  settings.line_roles[index] = role;
+  applyRolePalette(settings);
   return true;
 }
 
@@ -804,13 +971,8 @@ function applyLayoutVariant(index) {
   const settings = taskSettings(task);
   const variant = settings.variants[index];
   if (!variant) return;
-  settings.auto_style = false;
-  settings.template_key = variant.template_key;
-  settings.palette_key = variant.palette_key;
-  settings.copy_lines = variant.lines.map((line) => line.text);
-  settings.line_colors = null;
-  settings.line_stroke_colors = null;
-  clearTextLayouts(settings);
+  applyCopyCandidate(settings, variant);
+  settings.selected_copy_candidate_key = "";
   renderInspector(task);
   schedulePreview();
 }
@@ -1156,11 +1318,15 @@ function seedCopyLines(settings) {
     settings.copy_lines = placements.map((placement) => placement.text);
     settings.line_colors = placements.map((placement) => placement.color);
     settings.line_stroke_colors = placements.map((placement) => placement.stroke_color);
+    settings.line_roles = settings.copy_lines.map((_, index) => (
+      fallbackLineRole(settings.copy_lines, index)
+    ));
     return;
   }
   settings.copy_lines = [];
   settings.line_colors = null;
   settings.line_stroke_colors = null;
+  settings.line_roles = [];
 }
 
 function appendManualCopyLine(settings) {
@@ -1169,6 +1335,8 @@ function appendManualCopyLine(settings) {
   const index = settings.copy_lines.length;
   const palette = paletteForSettings(settings);
   settings.copy_lines.push("");
+  if (!Array.isArray(settings.line_roles)) settings.line_roles = [];
+  settings.line_roles.push("neutral");
   if (Array.isArray(settings.line_colors)) {
     settings.line_colors.push(
       normalizeHexColor(palette?.emphasis_color) || paletteLineColor(settings, index),
@@ -1203,10 +1371,12 @@ function removeManualCopyLine(settings, index) {
   if (Array.isArray(settings.line_stroke_colors)) {
     settings.line_stroke_colors.splice(index, 1);
   }
+  if (Array.isArray(settings.line_roles)) settings.line_roles.splice(index, 1);
   if (!settings.copy_lines.length) {
     settings.copy_lines = null;
     settings.line_colors = null;
     settings.line_stroke_colors = null;
+    settings.line_roles = null;
   }
   state.selectedElement = null;
   return true;
@@ -1320,9 +1490,16 @@ function renderCopyLines(settings) {
   elements["copy-lines"].innerHTML = lines.map((line, index) => {
     const color = lineColorAt(settings, index);
     const strokeColor = lineStrokeColorAt(settings, index);
+    const role = lineRoleAt(settings, index);
     return `
       <div class="copy-line ${index === state.activeColorLine ? "active-color-line" : ""}" data-copy-line="${index}">
         <button class="line-color-preview" type="button" data-select-color-line="${index}" style="--line-color:${color};--stroke-color:${strokeColor}" title="文字 ${color}，描边 ${strokeColor}" aria-label="选择第 ${index + 1} 行颜色"></button>
+        <div class="line-role-control">
+          <span class="line-role-badge" data-line-role-badge="${index}">${COPY_ROLE_LABELS[role]}</span>
+          <select class="line-role-select" data-line-role="${index}" aria-label="第 ${index + 1} 行语义角色">
+            ${COPY_ROLES.map((item) => `<option value="${item}" ${item === role ? "selected" : ""}>${COPY_ROLE_LABELS[item]}</option>`).join("")}
+          </select>
+        </div>
         <label class="hex-color-input">
           <span>#</span>
           <input type="text" value="${color.slice(1)}" data-line-color="${index}" maxlength="7" spellcheck="false" aria-label="第 ${index + 1} 行十六进制颜色">
@@ -1347,6 +1524,18 @@ function renderCopyLines(settings) {
       const index = Number(input.dataset.lineText);
       updateManualCopyLine(current, index, input.value);
       current.auto_style = false;
+      current.selected_copy_candidate_key = "";
+      schedulePreview();
+    });
+  });
+  elements["copy-lines"].querySelectorAll("[data-line-role]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const current = taskSettings(activeTask());
+      const index = Number(select.dataset.lineRole);
+      if (!setLineRole(current, index, select.value)) return;
+      current.auto_style = false;
+      current.selected_copy_candidate_key = "";
+      renderCopyLines(current);
       schedulePreview();
     });
   });
@@ -1398,6 +1587,7 @@ function renderInspector(task) {
   elements["background-scale"].value = Math.round(layout.background_scale * 100);
   updateFocusLabels();
   renderLayoutVariants(settings);
+  renderCopyCandidates(settings);
   renderPalette();
   renderCopyLines(settings);
 }
@@ -1689,6 +1879,7 @@ function previewPayload(task, includeCanvas = true) {
   };
   if (activeLineIndices.length) {
     payload.copy_lines = activeLineIndices.map((index) => settings.copy_lines[index].trim());
+    payload.line_roles = activeLineIndices.map((index) => lineRoleAt(settings, index));
     if (settings.line_colors) {
       payload.line_colors = activeLineIndices.map((index) => settings.line_colors[index]);
     }
@@ -1698,6 +1889,9 @@ function previewPayload(task, includeCanvas = true) {
       );
     }
   }
+  payload.copy_candidates = serializeCopyCandidates(settings.copy_candidates);
+  payload.selected_copy_candidate_key = settings.selected_copy_candidate_key || "";
+  payload.copy_warning = settings.copy_warning || "";
   if (includeCanvas) {
     payload.canvas_key = state.ratio;
   }
@@ -2336,6 +2530,9 @@ async function refreshPreview() {
       settings.line_stroke_colors = payload.preview.placements.map(
         (placement) => placement.stroke_color,
       );
+      settings.line_roles = settings.copy_lines.map((_, index) => (
+        fallbackLineRole(settings.copy_lines, index)
+      ));
       renderCopyLines(settings);
     }
     reconcileLayoutWithPreview(settings, payload.preview);
@@ -2489,23 +2686,25 @@ function openWorkspaceDialog(errorMessage = "") {
   elements["root-path"].focus();
 }
 
+function handleTitleInput() {
+  const task = activeTask();
+  if (!task) return;
+  const settings = taskSettings(task);
+  settings.title = elements["title-input"].value;
+  settings.variants = [];
+  renderTaskList();
+  renderLayoutVariants(settings);
+  scheduleLayoutVariants(task);
+}
+
+function bindCopyRecommendationControls() {
+  elements["generate-ai-copy"].addEventListener("click", () => generateAiCopy());
+  elements["title-input"].addEventListener("input", handleTitleInput);
+}
+
 function bindEditor() {
+  bindCopyRecommendationControls();
   elements["add-copy-line"].addEventListener("click", addManualCopyLine);
-  elements["title-input"].addEventListener("input", () => {
-    const task = activeTask();
-    if (!task) return;
-    const settings = taskSettings(task);
-    settings.title = elements["title-input"].value;
-    settings.copy_lines = null;
-    settings.line_colors = null;
-    settings.line_stroke_colors = null;
-    settings.variants = [];
-    clearTextLayouts(settings);
-    renderTaskList();
-    renderLayoutVariants(settings);
-    renderCopyLines(settings);
-    scheduleLayoutVariants(task);
-  });
   elements["template-select"].addEventListener("change", () => {
     const settings = taskSettings(activeTask());
     settings.auto_style = false;
@@ -2513,6 +2712,8 @@ function bindEditor() {
     settings.copy_lines = null;
     settings.line_colors = null;
     settings.line_stroke_colors = null;
+    settings.line_roles = null;
+    settings.selected_copy_candidate_key = "";
     clearTextLayouts(settings);
     renderCopyLines(settings);
     schedulePreview();
@@ -2521,8 +2722,8 @@ function bindEditor() {
     const settings = taskSettings(activeTask());
     settings.auto_style = false;
     settings.palette_key = elements["palette-select"].value;
-    settings.line_colors = null;
-    settings.line_stroke_colors = null;
+    settings.selected_copy_candidate_key = "";
+    applyRolePalette(settings);
     renderPalette();
     renderCopyLines(settings);
     schedulePreview();
@@ -2740,6 +2941,8 @@ function bindEvents() {
     settings.copy_lines = null;
     settings.line_colors = null;
     settings.line_stroke_colors = null;
+    settings.line_roles = null;
+    settings.selected_copy_candidate_key = "";
     clearTextLayouts(settings);
     renderCopyLines(settings);
     loadLayoutVariants(task, { applyRecommended: true })
