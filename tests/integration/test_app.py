@@ -287,6 +287,271 @@ class TopicPageContractTests(unittest.TestCase):
         self.assertIn("const result=await loadTaskResult(data.task_id)", script)
         self.assertNotIn("const result=JSON.parse(data.result)", script)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查任务恢复与取消行为")
+    def test_topic_page_restores_six_task_states_and_cancels_without_polling(self):
+        _html, script = self._page_script()
+        script_prefix = script.split("restoreWorkspacePaths();", 1)[0]
+        self.assertNotIn("setInterval(", script)
+        self.assertNotIn("setTimeout(connectSSE", script)
+        self.assertEqual(script.count("new EventSource('/api/events')"), 1)
+        runtime_assertions = r"""
+const makeNode=()=>({
+  textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,value:'',
+  title:'',style:{},options:[],dataset:{},
+  classList:{add:()=>{},remove:()=>{},toggle:()=>{}},
+  replaceChildren:()=>{},add:()=>{},append:()=>{},addEventListener:()=>{},
+  setAttribute:()=>{},removeAttribute:()=>{},querySelector:()=>null,
+  querySelectorAll:()=>[],focus:()=>{},
+});
+const nodes=new Map();
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id);},
+  querySelectorAll:()=>[],createElement:()=>makeNode(),querySelector:()=>null,
+};
+document.getElementById('timelineMode').value='none';
+globalThis.window={};
+globalThis.localStorage={getItem:()=>null,setItem:()=>{}};
+globalThis.setInterval=()=>{throw new Error('禁止任务轮询')};
+globalThis.setTimeout=()=>{throw new Error('禁止手工 SSE 重连定时器')};
+
+const makeResponse=(status,payload)=>({
+  ok:status>=200&&status<300,status,
+  json:async()=>payload,
+  text:async()=>typeof payload==='string'?payload:JSON.stringify(payload),
+});
+const fetchCalls=[];
+let cancelMode='deferred';
+let cancelResolve=null;
+let deferredResultResolve=null;
+let deferredReportResolve=null;
+globalThis.fetch=(url,options={})=>{
+  fetchCalls.push({url,options});
+  if(url.endsWith('/cancel')){
+    if(cancelMode==='deferred'){
+      return new Promise(resolve=>{cancelResolve=()=>resolve(makeResponse(200,{
+        task_id:'pipeline_cancel#1',
+        task:{status:'cancelled',progress:'已取消',message:'用户已取消任务',step:2,total:10},
+      }))});
+    }
+    if(cancelMode==='404')return Promise.resolve(makeResponse(404,{error:'任务不存在'}));
+    if(cancelMode==='409')return Promise.resolve(makeResponse(409,{
+      error:'任务已处于终态 done，不能取消',status:'done',
+    }));
+  }
+  if(url.includes('pipeline_stale_result')&&url.endsWith('/result')){
+    return new Promise(resolve=>{deferredResultResolve=()=>resolve(makeResponse(200,{
+      artifact_dir:'C:\\old\\result',overview_path:'C:\\old\\result\\00_概览.md',
+      report_available:false,
+    }))});
+  }
+  if(url.includes('pipeline_stale_report')&&url.endsWith('/result')){
+    return Promise.resolve(makeResponse(200,{
+      artifact_dir:'C:\\old\\report-result',overview_path:'C:\\old\\report-result\\00_概览.md',
+      report_available:true,
+    }));
+  }
+  if(url.includes('pipeline_stale_report')&&url.endsWith('/report')){
+    return new Promise(resolve=>{deferredReportResolve=()=>resolve(makeResponse(500,{error:'旧报告失败'}))});
+  }
+  if(url.includes('pipeline_broken')&&url.endsWith('/result')){
+    return Promise.resolve(makeResponse(500,{error:'结果摘要损坏'}));
+  }
+  if(url.endsWith('/result'))return Promise.resolve(makeResponse(200,{
+    artifact_dir:'C:\\safe\\result',overview_path:'C:\\safe\\result\\00_概览.md',
+    report_available:false,
+  }));
+  if(url.endsWith('/report'))return Promise.resolve(makeResponse(200,'# report'));
+  throw new Error(`意外请求 ${url}`);
+};
+
+class FakeEventSource{
+  static instances=[];
+  constructor(url){this.url=url;this.listeners={};FakeEventSource.instances.push(this)}
+  addEventListener(type,handler){this.listeners[type]=handler}
+  close(){this.closed=true}
+}
+globalThis.EventSource=FakeEventSource;
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+
+(async()=>{
+  const labels={queued:'排队中',running:'进行中',done:'已完成',error:'失败',cancelled:'已取消',interrupted:'已中断'};
+  for(const [status,label] of Object.entries(labels)){
+    renderTaskProgress({task_id:`pipeline_${status}`,status,progress:`${status} message`,step:4,total:10});
+    assert(document.getElementById('progressBox').innerHTML.includes(label),`${status} 未显示独立状态`);
+    const active=status==='queued'||status==='running';
+    assert(taskBusy===active,`${status} 的 taskBusy 错误`);
+    assert(document.getElementById('cancelTaskButton').hidden===!active,`${status} 的取消按钮可见性错误`);
+    const hasProgressTrack=document.getElementById('progressBox').innerHTML.includes('progress-track');
+    assert(hasProgressTrack===(status==='running'),`${status} 的进度条显示错误`);
+  }
+
+  renderTaskProgress({
+    task_id:'pipeline_interrupted',status:'interrupted',progress:'已分析 3 块',
+    message:'上次运行已中断',error:'后台进程意外退出',error_summary:'任务仍处于活动状态',
+    metadata:{
+      checkpoint_path:'C:\\secret\\checkpoint.json',
+      startup_recovery:{
+        previous_message:'正在复核候选',next_action:'使用原资源预约新任务后从检查点重试',
+        checkpoint:{progress:'已完成首轮分析',step:40,total:100},
+        private_path:'C:\\secret\\private.json',
+      },
+    },
+  });
+  const interruptedHtml=document.getElementById('progressBox').innerHTML;
+  for(const marker of ['已分析 3 块','上次运行已中断','任务仍处于活动状态','中断前检查点：已完成首轮分析（40/100）','续跑提示']){
+    assert(interruptedHtml.includes(marker),`中断详情缺少 ${marker}`);
+  }
+  assert(!interruptedHtml.includes('secret'), '中断卡暴露了未授权路径字段');
+  assert(!interruptedHtml.includes('<button'), '中断卡虚构了自动恢复按钮');
+
+  const activeSnapshot={
+    unrelated_new:{task_id:'subtitle_new',status:'running',updated_at:999,created_at:999},
+    pipeline_done:{status:'done',updated_at:90,created_at:10},
+    clip_review_interrupted:{status:'interrupted',updated_at:80,created_at:20},
+    pipeline_queued:{status:'queued',updated_at:100,created_at:30},
+    timeline_opt_running:{status:'running',updated_at:110,created_at:25},
+  };
+  assert(selectInitTask(activeSnapshot).task_id==='timeline_opt_running','init 未优先选择最新活动任务');
+  const interruptedSnapshot={...activeSnapshot};
+  delete interruptedSnapshot.pipeline_queued;
+  delete interruptedSnapshot.timeline_opt_running;
+  interruptedSnapshot.pipeline_done.updated_at=200;
+  assert(selectInitTask(interruptedSnapshot).task_id==='clip_review_interrupted','init 未优先选择 interrupted');
+  delete interruptedSnapshot.clip_review_interrupted;
+  interruptedSnapshot.clip_review_error={status:'error',updated_at:210,created_at:50};
+  assert(selectInitTask(interruptedSnapshot).task_id==='clip_review_error','init 未选择最新相关终态');
+  assert(selectInitTask({
+    pipeline_old:{status:'done',created_at:10},
+    pipeline_new:{status:'done',created_at:20},
+  }).task_id==='pipeline_new','init 没有在缺少 updated_at 时回退 created_at');
+  assert(selectInitTask({subtitle_only:{task_id:'subtitle_only',status:'running',updated_at:999}})===null,'init 没有忽略不相关任务');
+
+  connectSSE();
+  connectSSE();
+  assert(FakeEventSource.instances.length===1,'重复创建了 EventSource');
+  FakeEventSource.instances[0].onerror();
+  assert(FakeEventSource.instances.length===1,'SSE 错误触发了重复 EventSource');
+  FakeEventSource.instances[0].onopen();
+  currentTaskId=null;
+  await FakeEventSource.instances[0].listeners.init({data:JSON.stringify(activeSnapshot)});
+  assert(currentTaskId==='timeline_opt_running','SSE init 没有恢复选中的任务');
+
+  const resultFetchCount=()=>fetchCalls.filter(call=>call.url.endsWith('/result')).length;
+  const resultFetchesBeforeIgnoredTerminal=resultFetchCount();
+  await handleTaskSnapshot({
+    task_id:'pipeline_old_done',status:'done',progress:'旧任务完成',step:100,total:100,
+    updated_at:999,created_at:999,
+  });
+  assert(currentTaskId==='timeline_opt_running','其他任务的旧终态覆盖了当前活动任务');
+  assert(taskBusy===true,'忽略旧终态时错误解除了 taskBusy');
+  assert(resultFetchCount()===resultFetchesBeforeIgnoredTerminal,'被忽略的旧终态仍读取了结果');
+
+  await handleTaskSnapshot({
+    task_id:'pipeline_older_running',status:'running',progress:'较旧活动任务',step:2,total:10,
+    updated_at:109,created_at:109,
+  });
+  assert(currentTaskId==='timeline_opt_running','较旧的另一活动任务覆盖了当前活动任务');
+  await handleTaskSnapshot({
+    task_id:'pipeline_newer_queued',status:'queued',progress:'新任务排队中',step:0,total:10,
+    updated_at:111,created_at:111,
+  });
+  assert(currentTaskId==='pipeline_newer_queued','更新的另一活动任务没有替换当前任务');
+  assert(taskBusy===true,'更新的 queued 任务没有保持 taskBusy');
+  assert(!document.getElementById('progressBox').innerHTML.includes('progress-track'),'替换后的 queued 任务显示了进度条');
+
+  currentTaskId=null;
+  currentTaskSnapshot=null;
+  taskBusy=false;
+  clearTaskArtifacts();
+  await FakeEventSource.instances[0].listeners.init({data:JSON.stringify({
+    pipeline_done:{status:'done',progress:'完成',step:100,total:100,updated_at:200},
+  })});
+  assert(resultTaskId==='pipeline_done','done init 没有恢复结果入口');
+  assert(document.getElementById('resultArtifact').hidden===false,'done 结果入口仍隐藏');
+  assert(document.getElementById('progressBox').innerHTML.includes('已完成'),'done 结果恢复破坏了状态卡');
+
+  await handleTaskSnapshot({task_id:'pipeline_broken',status:'done',progress:'完成',step:100,total:100,updated_at:300});
+  assert(document.getElementById('progressBox').innerHTML.includes('已完成'),'done 结果读取失败破坏了状态卡');
+  assert(document.getElementById('pageNotice').textContent.includes('结果入口恢复失败'),'done 结果读取失败没有明确提示');
+
+  const staleResultPromise=handleTaskSnapshot({
+    task_id:'pipeline_stale_result',status:'done',progress:'旧结果待恢复',step:100,total:100,
+    updated_at:400,created_at:400,
+  });
+  await Promise.resolve();
+  assert(deferredResultResolve!==null,'旧 done 的 /result 请求没有进入等待状态');
+  await handleTaskSnapshot({
+    task_id:'timeline_opt_new_result',status:'running',progress:'新任务处理中',step:3,total:10,
+    updated_at:401,created_at:401,
+  });
+  setNotice('新任务结果守卫','success');
+  const resultGuardHtml=document.getElementById('progressBox').innerHTML;
+  deferredResultResolve();
+  await staleResultPromise;
+  assert(currentTaskId==='timeline_opt_new_result','旧 /result 响应覆盖了当前任务 ID');
+  assert(document.getElementById('progressBox').innerHTML===resultGuardHtml,'旧 /result 响应覆盖了当前状态卡');
+  assert(resultTaskId===null&&document.getElementById('resultArtifact').hidden===true,'旧 /result 响应恢复了结果入口');
+  assert(document.getElementById('report').hidden===true,'旧 /result 响应恢复了报告');
+  assert(document.getElementById('pageNotice').textContent==='新任务结果守卫','旧 /result 响应覆盖了 notice');
+
+  await handleTaskSnapshot({
+    task_id:'pipeline_stale_report',status:'queued',progress:'等待旧报告测试',step:0,total:10,
+    updated_at:402,created_at:402,
+  });
+  const staleReportPromise=handleTaskSnapshot({
+    task_id:'pipeline_stale_report',status:'done',progress:'旧报告待恢复',step:100,total:100,
+    updated_at:403,created_at:402,
+  });
+  for(let index=0;index<5&&deferredReportResolve===null;index++)await Promise.resolve();
+  assert(deferredReportResolve!==null,'旧 done 的 /report 请求没有进入等待状态');
+  await handleTaskSnapshot({
+    task_id:'clip_review_new_report',status:'running',progress:'新的复核任务',step:4,total:10,
+    updated_at:404,created_at:404,
+  });
+  setNotice('新任务报告守卫','success');
+  const reportGuardHtml=document.getElementById('progressBox').innerHTML;
+  deferredReportResolve();
+  await staleReportPromise;
+  const guardedReport=document.getElementById('report');
+  assert(currentTaskId==='clip_review_new_report','旧 /report 响应覆盖了当前任务 ID');
+  assert(document.getElementById('progressBox').innerHTML===reportGuardHtml,'旧 /report 响应覆盖了当前状态卡');
+  assert(guardedReport.hidden===true&&!guardedReport.textContent.includes('旧报告失败'),'旧 /report 错误覆盖了报告区域');
+  assert(resultTaskId===null&&document.getElementById('resultArtifact').hidden===true,'旧 /report 响应恢复了结果入口');
+  assert(document.getElementById('pageNotice').textContent==='新任务报告守卫','旧 /report 响应覆盖了 notice');
+
+  renderTaskProgress({task_id:'pipeline_cancel#1',status:'running',progress:'处理中',step:2,total:10});
+  const cancelPromise=cancelCurrentTask();
+  await Promise.resolve();
+  assert(document.getElementById('cancelTaskButton').disabled===true,'取消请求期间按钮未禁用');
+  assert(document.getElementById('cancelTaskButton').textContent==='正在取消...','取消请求期间按钮文案错误');
+  cancelResolve();
+  await cancelPromise;
+  assert(fetchCalls.some(call=>call.url==='/api/tasks/pipeline_cancel%231/cancel'),'取消请求没有编码 task_id');
+  assert(taskBusy===false&&document.getElementById('cancelTaskButton').hidden===true,'取消成功后仍保持忙碌');
+
+  cancelMode='404';
+  renderTaskProgress({task_id:'pipeline_missing',status:'queued',progress:'排队中',step:0,total:100});
+  await cancelCurrentTask();
+  assert(document.getElementById('pageNotice').textContent.includes('任务不存在'),'取消 404 没有明确提示');
+
+  cancelMode='409';
+  renderTaskProgress({task_id:'pipeline_terminal',status:'running',progress:'处理中',step:5,total:10});
+  await cancelCurrentTask();
+  assert(document.getElementById('pageNotice').textContent.includes('不能取消'),'取消 409 没有明确提示');
+  assert(taskBusy===false&&document.getElementById('progressBox').innerHTML.includes('已完成'),'取消 409 没有同步已知终态');
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查文件名派生")
     def test_topic_page_derives_sidecars_for_every_supported_video_suffix(self):
         _html, script = self._page_script()

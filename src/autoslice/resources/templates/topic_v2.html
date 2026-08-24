@@ -134,6 +134,9 @@
                 <div class="progress-list" id="progressBox">
                     <div class="empty-state">任务启动后，这里会持续显示分析和切片进度。</div>
                 </div>
+                <div class="action-bar">
+                    <button class="button quiet" id="cancelTaskButton" type="button" onclick="cancelCurrentTask()" hidden>取消任务</button>
+                </div>
                 <div class="artifact-result" id="resultArtifact" hidden>
                     <div class="artifact-path" id="resultPaths"></div>
                     <button class="button" id="openResultButton" type="button" onclick="openResultDirectory()">打开结果目录</button>
@@ -145,7 +148,7 @@
 </main>
 
 <script>
-let selVideo=null,selAss=null,sse=null,optimizedTimeline=null,resultTaskId=null,scanBusy=false,taskBusy=false;
+let selVideo=null,selAss=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,scanBusy=false,taskBusy=false,cancelBusy=false;
 const STREAMER_PROFILE_STORAGE_KEY='autoslice.streamer-profile';
 const DEFAULT_VIDEO_DIR={{ default_video_dir|tojson }};
 const DEFAULT_OUTPUT_DIR={{ default_output_dir|tojson }};
@@ -222,12 +225,25 @@ function updateActions(){
     byId('retryButton').disabled=!selVideo||taskBusy;
     byId('optimizeButton').disabled=!selVideo||!manualReady||taskBusy;
     byId('scanButton').disabled=scanBusy||taskBusy;
+    const cancelButton=byId('cancelTaskButton');
+    const cancellable=Boolean(currentTaskId)&&taskBusy&&(currentTaskSnapshot?.status==='queued'||currentTaskSnapshot?.status==='running');
+    cancelButton.hidden=!cancellable;
+    cancelButton.disabled=!cancellable||cancelBusy;
+    cancelButton.textContent=cancelBusy?'正在取消...':'取消任务';
 }
 
 function clearResultArtifact(){
     resultTaskId=null;
     byId('resultArtifact').hidden=true;
     byId('resultPaths').textContent='';
+}
+
+function clearTaskArtifacts(){
+    clearResultArtifact();
+    const report=byId('report');
+    report.hidden=true;
+    report.textContent='';
+    report.innerHTML='';
 }
 
 function renderResultArtifact(taskId,result){
@@ -248,15 +264,21 @@ async function loadTaskResult(taskId){
 }
 
 async function renderCompletedReport(taskId,result){
+    if(currentTaskId!==taskId)return;
     const report=byId('report');
-    if(!result?.report_available){report.hidden=true;report.textContent='';return}
+    if(!result?.report_available){report.hidden=true;report.textContent='';report.innerHTML='';return}
     report.hidden=false;
     report.textContent='正在读取完整话题分析报告...';
     try{
         const response=await fetch(`/api/tasks/${encodeURIComponent(taskId)}/report`);
+        if(currentTaskId!==taskId)return;
         if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||'完整报告读取失败')}
-        report.innerHTML=renderReport(await response.text());
-    }catch(error){report.textContent=`完整报告读取失败：${error.message}`}
+        const markdown=await response.text();
+        if(currentTaskId!==taskId)return;
+        report.innerHTML=renderReport(markdown);
+    }catch(error){
+        if(currentTaskId===taskId)report.textContent=`完整报告读取失败：${error.message}`;
+    }
 }
 
 async function openResultDirectory(){
@@ -273,48 +295,188 @@ function taskTypeLabel(taskId){
     return '智能分析与切片';
 }
 
+const TASK_STATUS_UI={
+    queued:{label:'排队中',visual:'running'},
+    running:{label:'进行中',visual:'running'},
+    done:{label:'已完成',visual:'done'},
+    error:{label:'失败',visual:'error'},
+    cancelled:{label:'已取消',visual:'error'},
+    interrupted:{label:'已中断',visual:'error'},
+};
+
+function isRelevantTask(data,taskId=''){
+    const id=String(data?.task_id||taskId||'');
+    return id.startsWith('pipeline_')||id.startsWith('timeline_opt_')||id.startsWith('clip_review_');
+}
+
+function taskTimestamp(data,key){
+    const value=Number(data?.[key]);
+    if(Number.isFinite(value))return value;
+    if(key==='updated_at'){
+        const created=Number(data?.created_at);
+        if(Number.isFinite(created))return created;
+    }
+    return 0;
+}
+
+function isActiveTask(data){
+    return data?.status==='queued'||data?.status==='running';
+}
+
+function shouldAcceptTaskSnapshot(data){
+    if(!currentTaskId||!currentTaskSnapshot)return true;
+    if(data.task_id===currentTaskId)return true;
+    const incomingActive=isActiveTask(data);
+    const currentActive=isActiveTask(currentTaskSnapshot);
+    if(incomingActive!==currentActive)return incomingActive;
+    return taskTimestamp(data,'updated_at')>taskTimestamp(currentTaskSnapshot,'updated_at');
+}
+
+function newestTask(tasks){
+    return tasks.reduce((latest,task)=>{
+        if(!latest)return task;
+        const updatedDiff=taskTimestamp(task,'updated_at')-taskTimestamp(latest,'updated_at');
+        if(updatedDiff!==0)return updatedDiff>0?task:latest;
+        const createdDiff=taskTimestamp(task,'created_at')-taskTimestamp(latest,'created_at');
+        if(createdDiff!==0)return createdDiff>0?task:latest;
+        return String(task.task_id).localeCompare(String(latest.task_id))>0?task:latest;
+    },null);
+}
+
+function selectInitTask(snapshot){
+    const entries=Array.isArray(snapshot)
+        ?snapshot.map(task=>[task?.task_id,task])
+        :Object.entries(snapshot||{});
+    const related=entries.map(([taskId,task])=>({...task,task_id:task?.task_id||taskId})).filter(task=>isRelevantTask(task));
+    const active=newestTask(related.filter(task=>task.status==='queued'||task.status==='running'));
+    if(active)return active;
+    const interrupted=newestTask(related.filter(task=>task.status==='interrupted'));
+    if(interrupted)return interrupted;
+    return newestTask(related.filter(task=>task.status==='done'||task.status==='error'||task.status==='cancelled'));
+}
+
+function taskDetailLines(data){
+    const lines=[];
+    const add=value=>{
+        if(typeof value!=='string')return;
+        const text=value.trim();
+        if(text&&!lines.includes(text))lines.push(text);
+    };
+    add(data.progress);
+    add(data.message);
+    add(data.error);
+    add(data.error_summary);
+    if(data.status==='interrupted'){
+        const recovery=data.metadata?.startup_recovery||data.startup_recovery;
+        add(recovery?.previous_message);
+        const checkpoint=recovery?.checkpoint;
+        if(checkpoint&&typeof checkpoint==='object'){
+            const checkpointProgress=typeof checkpoint.progress==='string'?checkpoint.progress.trim():'';
+            const counters=Number.isFinite(Number(checkpoint.step))&&Number.isFinite(Number(checkpoint.total))&&Number(checkpoint.total)>0
+                ?`（${Number(checkpoint.step)}/${Number(checkpoint.total)}）`:'';
+            if(checkpointProgress)add(`中断前检查点：${checkpointProgress}${counters}`);
+        }
+        add(recovery?.next_action);
+        add('续跑提示：保留原资源与主播配置重新发起任务时，可由既有流程检查可用检查点；页面不会自动恢复或绕过校验。');
+    }
+    return lines.length?lines:['等待任务状态...'];
+}
+
 function renderTaskProgress(data){
     const percent=data.total>0?Math.max(0,Math.min(100,Math.round(data.step/data.total*100))):0;
-    const status=data.status==='done'?'done':data.status==='error'?'error':'running';
-    const statusText=status==='done'?'完成':status==='error'?'失败':'进行中';
+    const status=TASK_STATUS_UI[data.status]?data.status:'error';
+    const presentation=TASK_STATUS_UI[status];
+    const active=status==='queued'||status==='running';
+    const details=taskDetailLines({...data,status}).map(line=>`<div>${esc(line)}</div>`).join('');
+    if(currentTaskId!==data.task_id){
+        cancelBusy=false;
+        clearTaskArtifacts();
+    }
+    currentTaskId=data.task_id||null;
+    currentTaskSnapshot={...data,status,task_id:currentTaskId};
     byId('progressBox').innerHTML=`
-        <div class="progress-item ${status}">
+        <div class="progress-item ${presentation.visual}">
             <div class="progress-heading">
                 <span class="progress-name" title="${esc(data.task_id)}">${esc(taskTypeLabel(data.task_id))}</span>
-                <span class="status-chip ${status}">${statusText}</span>
+                <span class="status-chip ${presentation.visual}">${presentation.label}</span>
             </div>
             ${status==='running'?`<div class="progress-track"><div class="progress-fill" style="transform:scaleX(${percent/100})"></div></div>`:''}
-            <div class="progress-message">${esc(data.progress||'等待任务状态...')}</div>
+            <div class="progress-message">${details}</div>
         </div>`;
-    byId('activityState').textContent=status==='running'?`${percent}% · 正在处理`:statusText;
-    taskBusy=status==='running';
+    byId('activityState').textContent=status==='running'?`${percent}% · 正在处理`:presentation.label;
+    taskBusy=active;
+    if(!active)cancelBusy=false;
     updateActions();
 }
 
-function connectSSE(){
-    if(sse)sse.close();
-    sse=new EventSource('/api/events');
-    sse.addEventListener('task_update',async event=>{
-        const data=JSON.parse(event.data);
-        const relevant=data.task_id&&(data.task_id.startsWith('pipeline_')||data.task_id.startsWith('timeline_opt_')||data.task_id.startsWith('clip_review_'));
-        if(!relevant)return;
-        renderTaskProgress(data);
-        if(data.status==='error')setNotice(data.progress||'任务执行失败','error');
-        if(data.status==='done'){
-            try{
-                const result=await loadTaskResult(data.task_id);
-                if(data.task_id.startsWith('timeline_opt_')){
-                    optimizedTimeline={videoPath:result.video_path,sourcePath:(result.manual_timeline||{}).path,jsonPath:result.optimized_json_path,mdPath:result.optimized_md_path,profileId:result.streamer_profile_id};
-                    renderOptimizedTimeline();
-                }else{
-                    await renderCompletedReport(data.task_id,result);
-                }
-                renderResultArtifact(data.task_id,result);
-                setNotice(`${taskTypeLabel(data.task_id)}已完成`,'success');
-            }catch(error){setNotice('任务完成，但结果数据无法读取','error')}
+async function restoreCompletedTask(data){
+    const taskId=data.task_id;
+    try{
+        const result=await loadTaskResult(data.task_id);
+        if(currentTaskId!==taskId)return;
+        if(taskId.startsWith('timeline_opt_')){
+            optimizedTimeline={videoPath:result.video_path,sourcePath:(result.manual_timeline||{}).path,jsonPath:result.optimized_json_path,mdPath:result.optimized_md_path,profileId:result.streamer_profile_id};
+            renderOptimizedTimeline();
+        }else{
+            await renderCompletedReport(taskId,result);
         }
+        if(currentTaskId!==taskId)return;
+        renderResultArtifact(taskId,result);
+        setNotice(`${taskTypeLabel(taskId)}已完成`,'success');
+    }catch(error){
+        if(currentTaskId===taskId)setNotice(`任务已完成，但结果入口恢复失败：${error.message}`,'warning');
+    }
+}
+
+async function handleTaskSnapshot(data){
+    if(!isRelevantTask(data)||!shouldAcceptTaskSnapshot(data))return;
+    renderTaskProgress(data);
+    if(data.status==='done')await restoreCompletedTask(data);
+    else if(data.status==='error')setNotice(data.progress||data.error||data.error_summary||'任务执行失败','error');
+    else if(data.status==='cancelled')setNotice(data.message||data.progress||'任务已取消','warning');
+    else if(data.status==='interrupted')setNotice('检测到上次未完成的任务，请查看中断原因和检查点续跑提示。','warning');
+}
+
+async function cancelCurrentTask(){
+    if(!currentTaskId||!taskBusy||cancelBusy)return;
+    const taskId=currentTaskId;
+    cancelBusy=true;
+    updateActions();
+    try{
+        const response=await fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel`,{method:'POST',headers:{'Content-Type':'application/json'}});
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok||result.error){
+            if(response.status===404)throw new Error('任务不存在，可能已被清理或服务已重启');
+            if(response.status===409){
+                if(result.status&&TASK_STATUS_UI[result.status])renderTaskProgress({...currentTaskSnapshot,status:result.status,progress:result.error||currentTaskSnapshot?.progress});
+                throw new Error(result.error||'任务状态已变化，当前不能取消');
+            }
+            throw new Error(result.error||`取消请求失败 (${response.status})`);
+        }
+        if(result.task)renderTaskProgress({task_id:taskId,...result.task});
+        setNotice('取消请求已提交，后台会在安全检查点停止任务','success');
+    }catch(error){
+        setNotice(`取消任务失败：${error.message}`,'error');
+    }finally{
+        cancelBusy=false;
+        updateActions();
+    }
+}
+
+function connectSSE(){
+    if(sse)return;
+    const source=new EventSource('/api/events');
+    sse=source;
+    source.addEventListener('init',async event=>{
+        const selected=selectInitTask(JSON.parse(event.data));
+        if(selected)await handleTaskSnapshot(selected);
     });
-    sse.onerror=()=>{byId('activityState').textContent='连接恢复中';setTimeout(connectSSE,3000)};
+    source.addEventListener('task_update',async event=>{
+        const data=JSON.parse(event.data);
+        await handleTaskSnapshot(data);
+    });
+    source.onopen=()=>{if(sse===source&&byId('activityState').textContent==='连接恢复中')byId('activityState').textContent=currentTaskSnapshot?TASK_STATUS_UI[currentTaskSnapshot.status]?.label||'已连接':'等待启动'};
+    source.onerror=()=>{if(sse===source)byId('activityState').textContent='连接恢复中'};
 }
 
 function renderVideoList(videos){
@@ -428,7 +590,10 @@ async function runAction({url,body,starting,failure}){
     byId('activityState').textContent='正在启动';
     setNotice(starting);
     try{
-        await jsonRequest(url,{method:'POST',body:JSON.stringify(body)});
+        const result=await jsonRequest(url,{method:'POST',body:JSON.stringify(body)});
+        if(result.task_id&&currentTaskSnapshot?.task_id!==result.task_id){
+            renderTaskProgress({task_id:result.task_id,status:'queued',progress:starting,step:0,total:100,created_at:Date.now()/1000,updated_at:Date.now()/1000});
+        }
         setNotice('任务已启动，可在右侧查看实时进度','success');
     }catch(error){
         taskBusy=false;
