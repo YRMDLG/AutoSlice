@@ -18,6 +18,7 @@ import traceback
 from collections import deque
 from collections.abc import MutableMapping
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request
 
@@ -29,6 +30,7 @@ from autoslice.media_formats import (
     is_analyzable_video,
     is_scannable_video,
 )
+from autoslice.media_preview import MediaPreviewError, MediaPreviewOwner
 from autoslice.paths import APPLICATION_DATA_ROOT, STATIC_DIR, TEMPLATE_DIR
 from autoslice.runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
 from autoslice.security_policy import SecurityPolicy
@@ -325,6 +327,7 @@ task_registry = TaskRegistry(
     history_ttl_seconds=_TASK_HISTORY_TTL_SEC,
     history_limit=_TASK_HISTORY_LIMIT,
 )
+media_preview_owner = MediaPreviewOwner(lambda: task_registry)
 tasks = _TaskMappingView()
 
 if task_store.last_recovery is not None:
@@ -1956,6 +1959,75 @@ def completed_task_timeline(task_id):
         app.logger.exception("只读时间轴序列化失败")
         return jsonify({"error": "无法生成时间轴"}), 500
     return jsonify(payload)
+
+
+@app.route(
+    "/api/tasks/<task_id>/clips/<clip_id>/media-token",
+    methods=["POST"],
+)
+def issue_task_clip_media_token(task_id, clip_id):
+    """为已登记短片签发绑定 task/clip 的短期预览 token。"""
+
+    try:
+        media_preview_owner.validate_request_fields(
+            request.args,
+            request.get_json(silent=True),
+        )
+        issued = media_preview_owner.issue_token(task_id, clip_id)
+    except MediaPreviewError as exc:
+        return jsonify({"error": exc.public_message}), exc.status_code
+    media_url = (
+        f"/api/tasks/{quote(task_id, safe='')}/clips/"
+        f"{quote(clip_id, safe='')}/media?token={quote(issued.token, safe='')}"
+    )
+    return jsonify({
+        "task_id": task_id,
+        "clip_id": clip_id,
+        "token": issued.token,
+        "expires_in": issued.ttl_seconds,
+        "media_url": media_url,
+    })
+
+
+@app.route(
+    "/api/tasks/<task_id>/clips/<clip_id>/media",
+    methods=["GET", "HEAD"],
+)
+def preview_task_clip_media(task_id, clip_id):
+    """只按 task/clip/token 读取已登记短片，并提供单 Range 预览。"""
+
+    try:
+        media_preview_owner.validate_request_fields(
+            request.args,
+            allowed=frozenset({"token"}),
+        )
+        payload = media_preview_owner.open_media(
+            task_id,
+            clip_id,
+            request.args.get("token"),
+            range_header=request.headers.get("Range"),
+            method=request.method,
+        )
+    except MediaPreviewError as exc:
+        if exc.status_code == 416:
+            return Response(
+                (),
+                status=416,
+                headers=exc.headers,
+                direct_passthrough=True,
+            )
+        return Response(
+            jsonify({"error": exc.public_message}).get_data(),
+            status=exc.status_code,
+            headers=exc.headers,
+            mimetype="application/json",
+        )
+    return Response(
+        payload.body,
+        status=payload.status_code,
+        headers=payload.headers,
+        direct_passthrough=True,
+    )
 
 
 # ==================== 字幕校对与压制 ====================
