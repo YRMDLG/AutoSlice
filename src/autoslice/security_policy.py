@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import re
 import secrets
 import threading
 import time
@@ -248,6 +249,16 @@ def _token_is_strong(token: object) -> bool:
 
 def _normalize_path_field(key: object) -> str:
     return str(key or "").strip().casefold().replace("-", "_").rstrip("[]")
+
+
+_WINDOWS_ABSOLUTE_PATH_RE = re.compile(
+    r"(?i)(?<![\w])(?:(?:[a-z]:[\\/])|(?:\\\\[^\\/\s]+[\\/][^\\/\s]+[\\/]))"
+    r"[^\r\n<>\"']+"
+)
+_POSIX_PRIVATE_PATH_RE = re.compile(
+    r"(?<![\w])/(?:home|Users|tmp|var|etc|opt|mnt|srv|data)/[^\r\n<>\"']+",
+    re.IGNORECASE,
+)
 
 
 class SecurityPolicy:
@@ -529,6 +540,67 @@ class SecurityPolicy:
             except ValueError:
                 continue
         return False
+
+    def validate_effective_paths(self, *values: object) -> SecurityDecision:
+        """校验业务层最终选定的路径，包括未出现在请求中的默认路径。"""
+
+        settings = self.settings()
+        if not settings.is_valid:
+            return SecurityDecision(
+                False,
+                503,
+                "局域网安全配置无效，请检查令牌、Host、Origin 和允许目录",
+                "invalid_lan_configuration",
+            )
+        if not settings.lan_mode:
+            return SecurityDecision(True)
+        for value in values:
+            if value in (None, ""):
+                continue
+            if not self._path_within_roots(value, settings.allowed_roots):
+                return SecurityDecision(
+                    False,
+                    403,
+                    "资源路径不在局域网允许目录内",
+                    "path_outside_allowed_roots",
+                )
+        return SecurityDecision(True)
+
+    def path_is_allowed(self, value: object) -> bool:
+        """供资源 owner 在登记和消费阶段执行当前策略的动态授权。"""
+
+        return self.validate_effective_paths(value).allowed
+
+    @staticmethod
+    def _redact_path_text(value: str) -> str:
+        text = str(value)
+        text = _WINDOWS_ABSOLUTE_PATH_RE.sub("[本地路径已隐藏]", text)
+        return _POSIX_PRIVATE_PATH_RE.sub("[本地路径已隐藏]", text)
+
+    def redact_lan_payload(self, payload: Any) -> Any:
+        """仅在 LAN 模式下递归移除响应中的本机绝对路径。"""
+
+        settings = self.settings()
+        if not settings.lan_mode:
+            return payload
+        if isinstance(payload, Mapping):
+            return {
+                key: self.redact_lan_payload(value)
+                for key, value in payload.items()
+            }
+        if isinstance(payload, list):
+            return [self.redact_lan_payload(value) for value in payload]
+        if isinstance(payload, tuple):
+            return tuple(self.redact_lan_payload(value) for value in payload)
+        if isinstance(payload, str):
+            return self._redact_path_text(payload)
+        return payload
+
+    def redact_lan_text(self, value: object) -> str:
+        """仅在 LAN 模式下清理 HTML 或纯文本中的本机绝对路径。"""
+
+        text = str(value or "")
+        return self._redact_path_text(text) if self.settings().lan_mode else text
 
     @staticmethod
     def _upload_filename_is_safe(value: object) -> bool:

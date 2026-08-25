@@ -315,6 +315,57 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertEqual(blocked_upload.status_code, 403)
         self.assertEqual(safe_upload.status_code, 404)
 
+    def test_lan_rejects_default_workspace_paths_outside_allowed_root(self) -> None:
+        environment = self._lan_environment()
+        headers = {
+            "Host": "192.168.1.30:5010",
+            "X-AutoCover-Token": self.STRONG_LAN_TOKEN,
+            "Origin": "http://192.168.1.30:5010",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            response = self.app.test_client().post(
+                "/api/workspace/scan",
+                json={"root": str(self.allowed)},
+                headers=headers,
+            )
+            options = self.app.test_client().get(
+                "/api/options",
+                headers={key: value for key, value in headers.items()
+                         if key != "Origin"},
+            )
+            stickers = self.app.test_client().get(
+                "/api/stickers",
+                headers={key: value for key, value in headers.items()
+                         if key != "Origin"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(options.status_code, 200)
+        options_text = options.get_data(as_text=True)
+        self.assertNotIn(str(DEFAULT_INPUT_DIR), options_text)
+        self.assertNotIn(str(DEFAULT_OUTPUT_DIR), options_text)
+        self.assertEqual(stickers.status_code, 403)
+
+    def test_lan_error_payload_redacts_absolute_paths(self) -> None:
+        environment = self._lan_environment()
+        headers = {
+            "Host": "192.168.1.30:5010",
+            "X-AutoCover-Token": self.STRONG_LAN_TOKEN,
+            "Origin": "http://192.168.1.30:5010",
+        }
+        missing_root = self.allowed / "不存在的工作区"
+        with patch.dict(os.environ, environment, clear=False):
+            response = self.app.test_client().post(
+                "/api/workspace/scan",
+                json={"root": str(missing_root)},
+                headers=headers,
+            )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.get_data(as_text=True)
+        self.assertNotIn(str(missing_root), body)
+        self.assertIn("[本地路径已隐藏]", response.get_json()["error"])
+
 
 class AppTests(unittest.TestCase):
     """覆盖 API 正常流程、参数校验和媒体访问边界。"""

@@ -1258,6 +1258,57 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertEqual(blocked_upload.status_code, 403)
         self.assertEqual(safe_upload.status_code, 404)
 
+    def test_lan_rejects_effective_default_directories_outside_allowed_root(self):
+        with TemporaryDirectory() as allowed_dir, TemporaryDirectory() as blocked_dir:
+            blocked = Path(blocked_dir)
+            environment = self._lan_environment(Path(allowed_dir))
+            headers = {
+                "Host": "192.168.1.20:5002",
+                "X-AutoSlice-Token": self.STRONG_LAN_TOKEN,
+            }
+            write_headers = {
+                **headers,
+                "Origin": "http://192.168.1.20:5002",
+            }
+            replacements = {
+                "DEFAULT_VIDEO_DIR": blocked / "videos",
+                "DEFAULT_OUTPUT_DIR": blocked / "output",
+                "DEFAULT_TIMELINE_DIR": blocked / "timelines",
+                "DEFAULT_SUBMISSION_DIR": blocked / "submissions",
+                "JSON_TIMELINE_UPLOAD_DIR": blocked / "json-upload",
+                "MANUAL_TIMELINE_UPLOAD_DIR": blocked / "manual-upload",
+            }
+            with patch.dict(os.environ, environment, clear=False):
+                with patch.multiple(app_module, **replacements):
+                    client = app_module.app.test_client()
+                    responses = (
+                        client.get("/api/list-json-timelines", headers=headers),
+                        client.get("/api/timelines", headers=headers),
+                        client.post(
+                            "/api/subtitles/scan",
+                            json={},
+                            headers=write_headers,
+                        ),
+                        client.post(
+                            "/api/upload-json-timeline",
+                            data={"file": (io.BytesIO(b"{}"), "timeline.json")},
+                            headers=write_headers,
+                        ),
+                        client.post(
+                            "/api/upload-timeline",
+                            data={"file": (io.BytesIO(b"docx"), "timeline.docx")},
+                            headers=write_headers,
+                        ),
+                        client.post(
+                            "/api/start-pipeline",
+                            json={"flv_path": str(Path(allowed_dir) / "input.flv")},
+                            headers=write_headers,
+                        ),
+                    )
+            for response in responses:
+                self.assertEqual(response.status_code, 403)
+                self.assertNotIn(str(blocked), response.get_data(as_text=True))
+
 
 class AutoCoverIntegrationTests(unittest.TestCase):
 

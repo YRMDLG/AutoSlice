@@ -327,7 +327,10 @@ task_registry = TaskRegistry(
     history_ttl_seconds=_TASK_HISTORY_TTL_SEC,
     history_limit=_TASK_HISTORY_LIMIT,
 )
-media_preview_owner = MediaPreviewOwner(lambda: task_registry)
+media_preview_owner = MediaPreviewOwner(
+    lambda: task_registry,
+    path_authorizer=security_policy.path_is_allowed,
+)
 tasks = _TaskMappingView()
 
 if task_store.last_recovery is not None:
@@ -374,6 +377,29 @@ def enforce_local_request_boundary():
     return None
 
 
+def _effective_path_rejection(*paths):
+    """把业务层最终路径校验转换为当前应用的稳定 JSON 拒绝。"""
+
+    decision = security_policy.validate_effective_paths(*paths)
+    if decision.allowed:
+        return None
+    return jsonify({"error": decision.message}), decision.status_code
+
+
+def _require_effective_paths(*paths):
+    """供已登记产物 owner 在读取或消费前执行当前 LAN 策略。"""
+
+    decision = security_policy.validate_effective_paths(*paths)
+    if not decision.allowed:
+        raise PermissionError(decision.message)
+
+
+def _template_directory(value):
+    """LAN 页面不内嵌本机默认目录；loopback 保持既有契约。"""
+
+    return "" if security_policy.settings().lan_mode else value
+
+
 @app.after_request
 def issue_local_browser_session(response):
     """页面或显式 bootstrap GET 仅通过 HttpOnly Cookie 建立本机会话。"""
@@ -388,6 +414,17 @@ def issue_local_browser_session(response):
             host_header=request.host,
             secure=request.is_secure,
         )
+    if security_policy.settings().lan_mode:
+        if response.is_json:
+            payload = response.get_json(silent=True)
+            if payload is not None:
+                response.set_data(app.json.dumps(
+                    security_policy.redact_lan_payload(payload)
+                ))
+        elif response.mimetype in {"text/html", "text/plain", "text/markdown"}:
+            response.set_data(security_policy.redact_lan_text(
+                response.get_data(as_text=True)
+            ))
     return response
 
 
@@ -902,6 +939,7 @@ def _completed_task_artifact_dir(task_id):
         raise PermissionError("任务没有记录输出目录，不能安全打开")
     output_root = Path(output_dir).expanduser().resolve(strict=True)
     artifact_dir = Path(artifact_path).expanduser().resolve(strict=True)
+    _require_effective_paths(output_root, artifact_dir)
     if not artifact_dir.is_dir():
         raise FileNotFoundError("整理包目录不存在")
     try:
@@ -926,6 +964,7 @@ def _completed_task_report_path(task_id):
     report_path = Path(report_value or artifact_dir / "01_话题分析.md").resolve(
         strict=True
     )
+    _require_effective_paths(report_path)
     if not report_path.is_file() or report_path.suffix.lower() != ".md":
         raise FileNotFoundError("完整话题分析报告不存在")
     try:
@@ -956,6 +995,7 @@ def _timeline_artifact_path(task, artifact_dir, result, field, layout_key):
     # “固定文件名”退化成任意本机文件读取入口。
     canonical_path = Path(layout[layout_key]).absolute()
     resolved_canonical_path = canonical_path.resolve()
+    _require_effective_paths(resolved_canonical_path)
     if resolved_canonical_path != canonical_path:
         raise PermissionError("任务时间轴产物不能是符号链接")
     try:
@@ -1797,8 +1837,8 @@ def cancel_task(task_id):
 def index():
     return render_template(
         "topic_v2.html",
-        default_video_dir=DEFAULT_VIDEO_DIR,
-        default_output_dir=DEFAULT_OUTPUT_DIR,
+        default_video_dir=_template_directory(DEFAULT_VIDEO_DIR),
+        default_output_dir=_template_directory(DEFAULT_OUTPUT_DIR),
     )
 
 
@@ -1808,8 +1848,8 @@ def direct_slice_page():
         abort(404)
     return render_template(
         "index.html",
-        default_video_dir=DEFAULT_VIDEO_DIR,
-        default_output_dir=DEFAULT_OUTPUT_DIR,
+        default_video_dir=_template_directory(DEFAULT_VIDEO_DIR),
+        default_output_dir=_template_directory(DEFAULT_OUTPUT_DIR),
     )
 
 
@@ -1857,6 +1897,9 @@ def slice_start():
     flv_path = data.get("flv_path", "")
     output_dir = os.path.abspath(data.get("output_dir") or DEFAULT_OUTPUT_DIR)
     timeline_json = data.get("timeline_json", "")
+    rejected = _effective_path_rejection(flv_path, output_dir, timeline_json)
+    if rejected is not None:
+        return rejected
 
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
@@ -1973,6 +2016,9 @@ def completed_task_result(task_id):
     if result is None:
         return jsonify({})
     if isinstance(result, dict):
+        decision = security_policy.validate_paths(json_payload=result)
+        if not decision.allowed:
+            return jsonify({"error": decision.message}), decision.status_code
         return jsonify(result)
     return jsonify({"result": result})
 
@@ -2107,7 +2153,7 @@ def subtitle_defaults():
     )
 
     return jsonify({
-        "submission_dir": DEFAULT_SUBMISSION_DIR,
+        "submission_dir": _template_directory(DEFAULT_SUBMISSION_DIR),
         "style": DEFAULT_SUBTITLE_STYLE,
         "export": DEFAULT_VIDEO_EXPORT,
         "font": verify_exact_subtitle_font(),
@@ -2120,6 +2166,9 @@ def subtitle_scan():
 
     data = request.get_json(silent=True) or {}
     root_dir = data.get("root_dir") or DEFAULT_SUBMISSION_DIR
+    rejected = _effective_path_rejection(root_dir)
+    if rejected is not None:
+        return rejected
     try:
         pairs = scan_submission_pairs(root_dir)
     except (OSError, ValueError) as exc:
@@ -2554,6 +2603,9 @@ def subtitle_render():
 def list_json_timelines():
     """列出可用的 JSON 时间轴文件"""
     search_dirs = [DEFAULT_VIDEO_DIR, DEFAULT_OUTPUT_DIR]
+    rejected = _effective_path_rejection(*search_dirs)
+    if rejected is not None:
+        return rejected
     files = []
     for d in search_dirs:
         if os.path.isdir(d):
@@ -2567,6 +2619,9 @@ def list_json_timelines():
 @app.route("/api/upload-json-timeline", methods=["POST"])
 def upload_json_timeline():
     """上传 JSON 时间轴文件"""
+    rejected = _effective_path_rejection(JSON_TIMELINE_UPLOAD_DIR)
+    if rejected is not None:
+        return rejected
     try:
         save_path = _save_uploaded_file(
             "file",
@@ -2582,6 +2637,9 @@ def upload_json_timeline():
 @app.route("/api/timelines", methods=["GET"])
 def list_timelines():
     timeline_dir = DEFAULT_TIMELINE_DIR
+    rejected = _effective_path_rejection(timeline_dir)
+    if rejected is not None:
+        return rejected
     if not os.path.isdir(timeline_dir):
         return jsonify({"files": []})
     files = sorted(glob_mod.glob(os.path.join(timeline_dir, "*.docx")), reverse=True)
@@ -2590,6 +2648,9 @@ def list_timelines():
 
 @app.route("/api/upload-timeline", methods=["POST"])
 def upload_timeline():
+    rejected = _effective_path_rejection(MANUAL_TIMELINE_UPLOAD_DIR)
+    if rejected is not None:
+        return rejected
     try:
         save_path = _save_uploaded_file(
             "file",
@@ -2607,8 +2668,8 @@ def upload_timeline():
 def topic_v2_page():
     return render_template(
         "topic_v2.html",
-        default_video_dir=DEFAULT_VIDEO_DIR,
-        default_output_dir=DEFAULT_OUTPUT_DIR,
+        default_video_dir=_template_directory(DEFAULT_VIDEO_DIR),
+        default_output_dir=_template_directory(DEFAULT_OUTPUT_DIR),
     )
 
 
@@ -2682,6 +2743,15 @@ def start_pipeline():
     manual_timeline_mode = data.get("manual_timeline_mode", "none")
     manual_timeline_path = data.get("manual_timeline_path", "")
     optimized_timeline_path = data.get("optimized_timeline_path", "")
+    rejected = _effective_path_rejection(
+        flv_path,
+        ass_path,
+        output_dir,
+        manual_timeline_path,
+        optimized_timeline_path,
+    )
+    if rejected is not None:
+        return rejected
 
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
@@ -2784,6 +2854,9 @@ def retry_clip_review():
     output_dir = os.path.abspath(
         data.get("output_dir") or DEFAULT_OUTPUT_DIR
     )
+    rejected = _effective_path_rejection(flv_path, ass_path, output_dir)
+    if rejected is not None:
+        return rejected
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
     try:
@@ -2830,6 +2903,14 @@ def optimize_manual_timeline():
     output_dir = os.path.abspath(
         data.get("output_dir") or DEFAULT_OUTPUT_DIR
     )
+    rejected = _effective_path_rejection(
+        flv_path,
+        ass_path,
+        manual_timeline_path,
+        output_dir,
+    )
+    if rejected is not None:
+        return rejected
     if not os.path.isfile(flv_path):
         return jsonify({"error": "视频文件不存在"}), 400
     if not os.path.isfile(manual_timeline_path):

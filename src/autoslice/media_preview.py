@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import mimetypes
 import os
@@ -92,6 +91,7 @@ class _RegisteredClip:
     filename: str
     size: int
     content_type: str
+    file_identity: tuple[int, int, int, int, int]
 
 
 @dataclass(frozen=True)
@@ -100,6 +100,20 @@ class _TokenRecord:
     clip_id: str
     path: Path
     expires_at: float
+    file_identity: tuple[int, int, int, int, int]
+
+
+def _file_identity(path: Path) -> tuple[int, int, int, int, int]:
+    """返回用于拒绝删除后重建同名文件的文件快照。"""
+
+    stat = path.stat()
+    return (
+        int(getattr(stat, "st_dev", 0)),
+        int(getattr(stat, "st_ino", 0)),
+        int(stat.st_size),
+        int(getattr(stat, "st_mtime_ns", 0)),
+        int(getattr(stat, "st_ctime_ns", 0)),
+    )
 
 
 def _safe_identifier(value: Any, field: str) -> str:
@@ -228,6 +242,7 @@ class MediaPreviewOwner:
             *,
             clock: Callable[[], float] = time.time,
             token_factory: Callable[[], str] | None = None,
+            path_authorizer: Callable[[Path], bool] | None = None,
             ttl_seconds: int = MEDIA_TOKEN_TTL_SECONDS,
     ) -> None:
         if not callable(registry_provider) or not callable(clock):
@@ -238,9 +253,12 @@ class MediaPreviewOwner:
             raise ValueError("媒体 token TTL 超出安全范围")
         if token_factory is not None and not callable(token_factory):
             raise TypeError("token_factory 必须可调用")
+        if path_authorizer is not None and not callable(path_authorizer):
+            raise TypeError("path_authorizer 必须可调用")
         self._registry_provider = registry_provider
         self._clock = clock
         self._token_factory = token_factory or (lambda: secrets.token_urlsafe(32))
+        self._path_authorizer = path_authorizer or (lambda _path: True)
         self._ttl_seconds = ttl_seconds
         self._tokens: dict[str, _TokenRecord] = {}
         self._lock = threading.RLock()
@@ -277,6 +295,17 @@ class MediaPreviewOwner:
             raise MediaPreviewError("任务不存在", 404)
         return snapshot
 
+    def _ensure_path_allowed(self, *paths: Path) -> None:
+        """按调用时的策略复核已登记路径，配置漂移时立即失效。"""
+
+        for path in paths:
+            try:
+                allowed = bool(self._path_authorizer(path))
+            except Exception:
+                allowed = False
+            if not allowed:
+                raise MediaPreviewError("媒体路径不在当前允许范围内", 403)
+
     def _registered_clip(self, task_id: str, clip_id: str) -> _RegisteredClip:
         task_id = _safe_identifier(task_id, "task_id")
         clip_id = _safe_identifier(clip_id, "clip_id")
@@ -300,6 +329,7 @@ class MediaPreviewOwner:
             output_root = _resolve_existing_path(Path(output_ref), directory=True)
         except MediaPreviewError:
             raise MediaPreviewError("任务产物登记无效", 403)
+        self._ensure_path_allowed(output_root)
 
         result = normalize_task_result(task.get("result"))
         if not isinstance(result, Mapping):
@@ -311,6 +341,7 @@ class MediaPreviewOwner:
             artifact_dir = _resolve_existing_path(Path(artifact_ref), directory=True)
         except MediaPreviewError:
             raise MediaPreviewError("任务产物登记无效", 403)
+        self._ensure_path_allowed(artifact_dir)
         if not _path_inside(artifact_dir, output_root, direct_child=True):
             raise MediaPreviewError("任务产物归属校验失败", 403)
         if not artifact_dir.name.endswith("_自动切片"):
@@ -328,6 +359,7 @@ class MediaPreviewOwner:
         manifest_path = _resolve_existing_path(
             Path(layout["task_manifest_json_path"])
         )
+        self._ensure_path_allowed(manifest_path)
         if not _is_same_path(manifest_path.parent.parent, artifact_dir):
             raise MediaPreviewError("任务产物登记无效", 403)
         manifest = _load_json(manifest_path)
@@ -342,6 +374,7 @@ class MediaPreviewOwner:
         if not slice_ref:
             raise MediaPreviewError("媒体产物登记无效", 403)
         slice_dir = _resolve_existing_path(Path(slice_ref), directory=True)
+        self._ensure_path_allowed(slice_dir)
         if not _path_inside(slice_dir, output_root, direct_child=True):
             raise MediaPreviewError("媒体产物归属校验失败", 403)
         if not slice_dir.name.endswith("_话题切片"):
@@ -371,6 +404,7 @@ class MediaPreviewOwner:
         if not registered_path.is_absolute():
             registered_path = slice_dir / registered_path
         clip_path = _resolve_existing_path(registered_path)
+        self._ensure_path_allowed(clip_path)
         if not _path_inside(clip_path, slice_dir, direct_child=True):
             raise MediaPreviewError("媒体产物归属校验失败", 403)
         capability = media_format_for(clip_path)
@@ -390,6 +424,10 @@ class MediaPreviewOwner:
             raise MediaPreviewError("媒体产物不存在", 404) from exc
         if size < 0:
             raise MediaPreviewError("媒体产物不存在", 404)
+        try:
+            file_identity = _file_identity(clip_path)
+        except OSError as exc:
+            raise MediaPreviewError("媒体产物不存在", 404) from exc
         content_type = mimetypes.guess_type(clip_path.name)[0] or "application/octet-stream"
         return _RegisteredClip(
             task_id=task_id,
@@ -398,10 +436,12 @@ class MediaPreviewOwner:
             filename=clip_path.name,
             size=size,
             content_type=content_type,
+            file_identity=file_identity,
         )
 
     def issue_token(self, task_id: str, clip_id: str) -> IssuedMediaToken:
         clip = self._registered_clip(task_id, clip_id)
+        self._ensure_path_allowed(clip.path)
         now = float(self._clock())
         expires_at = now + self._ttl_seconds
         with self._lock:
@@ -416,6 +456,7 @@ class MediaPreviewOwner:
                         clip_id=clip.clip_id,
                         path=clip.path,
                         expires_at=expires_at,
+                        file_identity=clip.file_identity,
                     )
                     return IssuedMediaToken(token, expires_at, self._ttl_seconds)
         raise MediaPreviewError("无法签发媒体访问令牌", 503)
@@ -453,6 +494,9 @@ class MediaPreviewOwner:
             raise MediaPreviewError("媒体不存在或访问令牌无效", 404)
         clip = self._registered_clip(task_id, clip_id)
         if not _is_same_path(record.path, clip.path):
+            raise MediaPreviewError("媒体不存在或访问令牌无效", 404)
+        self._ensure_path_allowed(record.path, clip.path)
+        if record.file_identity != clip.file_identity:
             raise MediaPreviewError("媒体不存在或访问令牌无效", 404)
 
         try:

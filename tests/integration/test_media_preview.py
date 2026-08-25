@@ -174,6 +174,41 @@ class MediaPreviewApiTests(unittest.TestCase):
         self.assertIn(traversal.status_code, (404, 400))
         self.assertNotIn(str(self.root), traversal.get_data(as_text=True))
 
+    def test_lan_rechecks_registered_media_against_current_allowed_root(self):
+        self._create_task("lan-media")
+        allowed_root = self.root / "different-allowed-root"
+        allowed_root.mkdir()
+        headers = {
+            "Host": "192.168.1.20:5002",
+            "X-AutoSlice-Token": "A7b9C2d4E6f8G1h3J5k7L9m2N4p6Q8r0",
+        }
+        with patch.dict(
+                os.environ,
+                {
+                    "AUTOSLICE_LAN_MODE": "1",
+                    "AUTOSLICE_LAN_TOKEN": headers["X-AutoSlice-Token"],
+                    "AUTOSLICE_LAN_HOSTS": "192.168.1.20",
+                    "AUTOSLICE_LAN_ORIGINS": "http://192.168.1.20:5002",
+                    "AUTOSLICE_ALLOWED_ROOTS": str(allowed_root),
+                },
+                clear=False,
+        ):
+            response = self.client.post(
+                "/api/tasks/lan-media/clips/clip-1/media-token",
+                headers=headers,
+            )
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn(str(self.root), response.get_data(as_text=True))
+
+    def test_media_token_rejects_delete_and_recreate_same_path(self):
+        _, _, _, clip = self._create_task("replaced-media")
+        issued = self._issue("replaced-media")
+        original = clip.read_bytes()
+        clip.unlink()
+        clip.write_bytes(original)
+        response = self.client.get(issued["media_url"])
+        self.assertEqual(response.status_code, 404)
+
     def test_unfinished_and_disallowed_tasks_are_rejected(self):
         self._create_task("queued-media", task_status="queued")
         self._create_task("subtitle-media", task_type="subtitle_review")

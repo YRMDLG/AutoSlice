@@ -169,6 +169,40 @@ class SecurityPolicyTests(unittest.TestCase):
         self.assertEqual(relative.code, "path_outside_allowed_roots")
         self.assertEqual(unsafe_upload.code, "unsafe_upload_filename")
 
+    def test_effective_paths_and_lan_response_redaction_use_current_settings(self):
+        with tempfile.TemporaryDirectory() as allowed_dir, tempfile.TemporaryDirectory() as blocked_dir:
+            environment = {
+                "TESTSERVICE_LAN_MODE": "1",
+                "TESTSERVICE_LAN_TOKEN": self.STRONG_TOKEN,
+                "TESTSERVICE_LAN_HOSTS": "192.168.1.50",
+                "TESTSERVICE_LAN_ORIGINS": "http://192.168.1.50:5002",
+                "TESTSERVICE_ALLOWED_ROOTS": allowed_dir,
+            }
+            policy = self._policy(environment)
+            allowed = Path(allowed_dir) / "output" / "clip.mp4"
+            blocked = Path(blocked_dir) / "secret.mp4"
+
+            self.assertTrue(policy.validate_effective_paths(allowed).allowed)
+            rejection = policy.validate_effective_paths(blocked)
+            self.assertFalse(rejection.allowed)
+            self.assertEqual(rejection.code, "path_outside_allowed_roots")
+            self.assertTrue(policy.path_is_allowed(allowed))
+            self.assertFalse(policy.path_is_allowed(blocked))
+
+            redacted = policy.redact_lan_payload({
+                "path": str(blocked),
+                "nested": [f"读取失败：{blocked}"],
+                "url": "/api/tasks/demo/media?token=opaque",
+            })
+            self.assertNotIn(str(blocked), str(redacted))
+            self.assertEqual(redacted["url"], "/api/tasks/demo/media?token=opaque")
+
+            environment["TESTSERVICE_LAN_MODE"] = "0"
+            self.assertTrue(policy.validate_effective_paths(blocked).allowed)
+            self.assertEqual(policy.redact_lan_payload({"path": str(blocked)}), {
+                "path": str(blocked),
+            })
+
 
 if __name__ == "__main__":
     unittest.main()

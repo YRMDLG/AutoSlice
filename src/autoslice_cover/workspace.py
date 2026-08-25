@@ -9,6 +9,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ DEFAULT_IGNORED_DIRECTORY_NAMES = frozenset(
 )
 MEDIA_TOKEN_TTL_SEC = 12 * 60 * 60
 MEDIA_TOKEN_LIMIT = 2048
+MediaFileIdentity = tuple[int, int, int, int, int]
 PREVIEW_HISTORY_PER_TASK = 6
 
 
@@ -131,6 +133,7 @@ class CoverWorkspace:
         output_dir: str | Path | None = None,
         manifest_json_path: str | Path | None = None,
         recursive: bool = True,
+        path_authorizer: Callable[[Path], bool] | None = None,
     ) -> None:
         workspace_root = Path(root).expanduser().resolve()
         if not workspace_root.is_dir():
@@ -146,9 +149,21 @@ class CoverWorkspace:
             else discover_refinement_manifest(workspace_root)
         )
         self.recursive = recursive
+        self._path_authorizer = path_authorizer or (lambda _path: True)
+        if not callable(self._path_authorizer):
+            raise TypeError("path_authorizer 必须可调用")
+        self._ensure_paths_allowed(
+            self.root,
+            self.title_file,
+            self.cache_dir,
+            self.output_dir,
+            self.manifest_json_path,
+        )
         self._title_map = load_title_map(self.title_file)
         self._tasks: dict[str, CoverTask] = {}
-        self._media_tokens: OrderedDict[str, tuple[Path, float]] = OrderedDict()
+        self._media_tokens: OrderedDict[
+            str, tuple[Path, float, MediaFileIdentity]
+        ] = OrderedDict()
         self._token_secret = secrets.token_bytes(32)
         self._lock = threading.RLock()
 
@@ -157,9 +172,32 @@ class CoverWorkspace:
         normalized = relative_path.as_posix().casefold().encode("utf-8")
         return hashlib.sha256(normalized).hexdigest()[:16]
 
+    def _ensure_paths_allowed(self, *paths: str | Path | None) -> None:
+        for path in paths:
+            if path is None:
+                continue
+            try:
+                allowed = bool(self._path_authorizer(Path(path)))
+            except Exception:
+                allowed = False
+            if not allowed:
+                raise PermissionError("资源路径不在当前允许范围内")
+
+    @staticmethod
+    def _file_identity(path: Path) -> MediaFileIdentity:
+        stat = path.stat()
+        return (
+            int(getattr(stat, "st_dev", 0)),
+            int(getattr(stat, "st_ino", 0)),
+            int(stat.st_size),
+            int(getattr(stat, "st_mtime_ns", 0)),
+            int(getattr(stat, "st_ctime_ns", 0)),
+        )
+
     def _register_media(self, path: str | Path) -> str:
         with self._lock:
             source = Path(path).expanduser().resolve()
+            self._ensure_paths_allowed(source)
             if not source.is_file():
                 raise FileNotFoundError(f"媒体文件不存在：{source}")
             digest = hashlib.sha256(
@@ -168,7 +206,7 @@ class CoverWorkspace:
             token = digest[:32]
             now = time.time()
             self._prune_media_tokens_locked(now)
-            self._media_tokens[token] = (source, now)
+            self._media_tokens[token] = (source, now, self._file_identity(source))
             self._media_tokens.move_to_end(token)
             self._prune_media_tokens_locked(now)
             return token
@@ -177,7 +215,7 @@ class CoverWorkspace:
         now = time.time() if now is None else float(now)
         expired = [
             token
-            for token, (_, accessed_at) in self._media_tokens.items()
+            for token, (_, accessed_at, _) in self._media_tokens.items()
             if now - accessed_at > MEDIA_TOKEN_TTL_SEC
         ]
         for token in expired:
@@ -203,30 +241,42 @@ class CoverWorkspace:
         if include_source_suffix:
             suffix = relative_path.suffix.lstrip(".").casefold() or "video"
             stem = f"{stem}-{suffix}"
-        return {
+        outputs = {
             "4x3": str((target_dir / f"{stem}-4x3.jpg").resolve()),
             "16x9": str((target_dir / f"{stem}-16x9.jpg").resolve()),
         }
+        self._ensure_paths_allowed(*outputs.values())
+        return outputs
 
     def scan(self) -> list[CoverTask]:
         """扫描支持的视频并重建任务列表。"""
 
         if self.manifest_json_path is None:
             self.manifest_json_path = discover_refinement_manifest(self.root)
+        self._ensure_paths_allowed(
+            self.root,
+            self.cache_dir,
+            self.output_dir,
+            self.manifest_json_path,
+        )
         contract = RefinementManifestContract.load(self.manifest_json_path)
         iterator = self.root.rglob("*") if self.recursive else self.root.glob("*")
+        discovered_videos: list[Path] = []
+        for path in iterator:
+            if (
+                    not path.is_file()
+                    or path.suffix.casefold() not in VIDEO_EXTENSIONS
+                    or _is_ignored_video(path, self.root)):
+                continue
+            resolved = path.resolve()
+            self._ensure_paths_allowed(resolved)
+            try:
+                resolved.relative_to(self.root)
+            except ValueError as exc:
+                raise PermissionError("切片文件超出工作区边界") from exc
+            discovered_videos.append(resolved)
         videos = sorted(
-            _prefer_unsubtitled_videos(
-                [
-                    path.resolve()
-                    for path in iterator
-                    if (
-                        path.is_file()
-                        and path.suffix.casefold() in VIDEO_EXTENSIONS
-                        and not _is_ignored_video(path, self.root)
-                    )
-                ]
-            ),
+            _prefer_unsubtitled_videos(discovered_videos),
             key=lambda path: path.relative_to(self.root).as_posix().casefold(),
         )
         relative_paths = {
@@ -540,6 +590,7 @@ class CoverWorkspace:
             subtitle_risk=float(values.get("subtitle_risk", 0.0)),
         )
         candidate_path = Path(frame_path).expanduser().resolve()
+        self._ensure_paths_allowed(candidate_path)
         if not candidate_path.is_file():
             raise FileNotFoundError(f"草稿选中帧不存在：{candidate_path}")
         candidate = FrameCandidate(
@@ -577,15 +628,26 @@ class CoverWorkspace:
             now = time.time()
             self._prune_media_tokens_locked(now)
             try:
-                path, _ = self._media_tokens[token]
+                path, _, file_identity = self._media_tokens[token]
             except KeyError as exc:
                 raise KeyError("媒体令牌无效或已过期") from exc
-            self._media_tokens[token] = (path, now)
+            self._media_tokens[token] = (path, now, file_identity)
             self._media_tokens.move_to_end(token)
         if not path.is_file():
             with self._lock:
                 self._media_tokens.pop(token, None)
             raise FileNotFoundError(f"媒体文件已不存在：{path}")
+        self._ensure_paths_allowed(path)
+        try:
+            current_identity = self._file_identity(path)
+        except OSError as exc:
+            with self._lock:
+                self._media_tokens.pop(token, None)
+            raise FileNotFoundError("媒体文件已不存在") from exc
+        if current_identity != file_identity:
+            with self._lock:
+                self._media_tokens.pop(token, None)
+            raise FileNotFoundError("媒体文件已被替换")
         return path
 
     def media_token(self, path: str | Path) -> str:
@@ -640,7 +702,7 @@ class CoverWorkspace:
         if removed:
             removed_set = {path.resolve() for path in removed}
             with self._lock:
-                for token, (path, _) in tuple(self._media_tokens.items()):
+                for token, (path, _, _) in tuple(self._media_tokens.items()):
                     if path in removed_set:
                         self._media_tokens.pop(token, None)
         return removed

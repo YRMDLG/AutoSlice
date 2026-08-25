@@ -71,14 +71,19 @@ allowed-root、任务归属和资源类型检查。
 **范围：**
 
 ```text
+architecture_baseline.json
+tests/architecture/test_architecture_contracts.py
 src/autoslice/security_policy.py
 src/autoslice/web/app.py
+src/autoslice/media_preview.py
 src/autoslice_cover/app.py
 src/autoslice_cover/paths.py
 src/autoslice_cover/workspace.py
 src/autoslice_cover/stickers.py
 tests/unit/test_security_policy.py
+tests/unit/autoslice_cover/test_workspace.py
 tests/integration/test_app.py
+tests/integration/test_media_preview.py
 tests/integration/autoslice_cover/test_app.py
 ```
 

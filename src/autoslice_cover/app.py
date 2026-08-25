@@ -650,11 +650,21 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         access_header="X-AutoCover-Token",
     )
     app.extensions["security_policy"] = security_policy
+    def effective_paths_allowed(*paths: object) -> bool:
+        return security_policy.validate_effective_paths(*paths).allowed
+
+    def public_local_path(path: object) -> str:
+        return "" if security_policy.settings().lan_mode else str(path)
+
     sticker_library = StickerLibrary(
         app.config["STICKER_DIR"],
         import_root=app.config.get("IMPORTED_STICKER_DIR"),
+        path_authorizer=security_policy.path_is_allowed,
     )
-    sticker_library.scan()
+    try:
+        sticker_library.scan()
+    except PermissionError:
+        app.logger.warning("贴图库根目录不在当前允许范围内，已 fail-closed")
     app.extensions["sticker_library"] = sticker_library
 
     @app.before_request
@@ -683,6 +693,17 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 host_header=request.host,
                 secure=request.is_secure,
             )
+        if security_policy.settings().lan_mode:
+            if response.is_json:
+                payload = response.get_json(silent=True)
+                if payload is not None:
+                    response.set_data(app.json.dumps(
+                        security_policy.redact_lan_payload(payload)
+                    ))
+            elif response.mimetype in {"text/html", "text/plain", "text/markdown"}:
+                response.set_data(security_policy.redact_lan_text(
+                    response.get_data(as_text=True)
+                ))
         return response
 
     @app.errorhandler(ApiError)
@@ -699,6 +720,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.errorhandler(ValueError)
     def handle_bad_request(error: Exception):
         return jsonify({"ok": False, "error": str(error)}), 400
+
+    @app.errorhandler(PermissionError)
+    def handle_permission_error(error: PermissionError):
+        return jsonify({"ok": False, "error": "资源路径不在当前允许范围内"}), 403
 
     @app.errorhandler(HTTPException)
     def handle_http_error(error: HTTPException):
@@ -727,8 +752,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 "canvases": [item.to_dict() for item in CANVAS_SPECS.values()],
                 "templates": [item.to_dict() for item in TEMPLATES.values()],
                 "palettes": [item.to_dict() for item in PALETTES.values()],
-                "default_input_dir": str(DEFAULT_INPUT_DIR),
-                "default_output_dir": str(DEFAULT_OUTPUT_DIR.resolve()),
+                "default_input_dir": public_local_path(DEFAULT_INPUT_DIR),
+                "default_output_dir": public_local_path(DEFAULT_OUTPUT_DIR.resolve()),
                 "default_font": font_status.to_public_dict(),
             }
         )
@@ -792,6 +817,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.get("/api/stickers")
     def stickers():
         library = _sticker_library(app)
+        if not effective_paths_allowed(library.root, library.import_root):
+            raise PermissionError("贴图路径不在当前允许范围内")
         if request.args.get("refresh") == "1":
             library.scan()
         return jsonify(
@@ -804,14 +831,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.post("/api/stickers/import")
     def import_sticker():
+        library = _sticker_library(app)
+        if not effective_paths_allowed(library.import_root):
+            raise PermissionError("贴图路径不在当前允许范围内")
         uploaded = request.files.get("file")
         if uploaded is None or not uploaded.filename:
             raise ApiError("请选择要导入的图片")
         raw = uploaded.stream.read(MAX_STICKER_UPLOAD_BYTES + 1)
         if len(raw) > MAX_STICKER_UPLOAD_BYTES:
             raise ApiError("导入图片不能超过 16 MB", 413)
-        asset = _sticker_library(app).import_image(uploaded.filename, raw)
-        library = _sticker_library(app)
+        asset = library.import_image(uploaded.filename, raw)
         return jsonify({
             "ok": True,
             "asset": asset.to_dict(),
@@ -865,9 +894,18 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             output_dir=optional_paths["output_dir"],
             manifest_json_path=optional_paths["manifest_json_path"],
             recursive=recursive,
+            path_authorizer=security_policy.path_is_allowed,
         )
         workspace.scan()
         draft_store = CoverDraftStore(workspace.root, workspace.output_dir)
+        if not effective_paths_allowed(
+                workspace.root,
+                workspace.cache_dir,
+                workspace.output_dir,
+                workspace.manifest_json_path,
+                draft_store.root,
+                draft_store.index_path):
+            raise PermissionError("工作区路径不在当前允许范围内")
         drafts = _load_disk_drafts(workspace, draft_store)
         app.extensions["cover_workspace"] = workspace
         app.extensions["cover_draft_store"] = draft_store
@@ -876,7 +914,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 "ok": True,
                 "tasks": workspace.all_payloads(),
                 "drafts": drafts,
-                "draft_path": str(draft_store.index_path),
+                "draft_path": public_local_path(draft_store.index_path),
             }
         )
 
@@ -908,7 +946,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             {
                 "ok": True,
                 "saved": saved,
-                "draft_path": str(_draft_store(app).index_path),
+                "draft_path": public_local_path(_draft_store(app).index_path),
             }
         )
 
@@ -1022,7 +1060,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 "preview": result,
                 "task": workspace.task_payload(task_id),
                 "draft_saved": draft_saved,
-                "draft_path": str(_draft_store(app).index_path),
+                "draft_path": public_local_path(_draft_store(app).index_path),
                 "draft_warning": draft_warning,
             }
         )

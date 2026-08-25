@@ -416,6 +416,16 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不是该任务"):
             self.workspace.select_candidate(second.id, token)
 
+    def test_media_token_rejects_delete_and_recreate_same_path(self) -> None:
+        path = self.root / "replace.jpg"
+        Image.new("RGB", (32, 32), "#d884ad").save(path)
+        token = self.workspace.media_token(path)
+        original = path.read_bytes()
+        path.unlink()
+        path.write_bytes(original)
+        with self.assertRaisesRegex(FileNotFoundError, "被替换"):
+            self.workspace.resolve_media(token)
+
     def test_media_tokens_expire_and_use_lru_limit(self) -> None:
         files = []
         for index in range(3):
