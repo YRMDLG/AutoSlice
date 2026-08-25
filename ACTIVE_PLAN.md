@@ -9,10 +9,10 @@ plan_ref: docs/plans/frontend-next.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: T1-MEDIA
+current_action: T1-LINK
 current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: T1-UI
+last_completed_action: T1-MEDIA
 
 ## 执行规则
 
@@ -26,7 +26,8 @@ last_completed_action: T1-UI
 - `T1-CONTRACT` 已完成实现、主任务复核、完整门禁、独立提交、推送和 Windows/Linux CI 双绿，并已登记到总账。
 - `T1-API` 已完成实现、主任务复核、完整门禁、独立提交、推送和 Windows/Linux CI 双绿，并已登记到总账。
 - `T1-UI` 已完成实现、主任务复核、完整门禁、独立提交、推送和 Windows/Linux CI 双绿，并已登记到总账。
-- 下一个可执行 Action 为 `T1-MEDIA`，当前仅登记为 pending；不得在本次状态收口中自动开始。
+- `T1-MEDIA` 已完成实现、主任务复核、完整门禁、独立提交、推送和 Windows/Linux CI 双绿，并已登记到总账。
+- 下一个可执行 Action 为 `T1-LINK`，当前仅登记为 pending；不得在本次状态收口中自动开始。
 - 状态冲突、计划版本不一致、Action 不存在或引用路径失效时立即停止。
 - 计划规格不保存运行时状态；已完成 Action 登记到公开总账 `docs/action-ledger.md`。
 - 本机完整架构历史仍保留在被忽略的 `PLAN.md`，不作为公开状态来源。
