@@ -985,6 +985,60 @@ def _read_registered_timeline_json(path):
         return None
 
 
+def _timeline_number_matches(left, right):
+    """按有限数值匹配时间轴记录与 manifest，拒绝模糊或字符串猜测。"""
+
+    try:
+        left_value = float(left)
+        right_value = float(right)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return (
+        left_value == left_value
+        and right_value == right_value
+        and abs(left_value - right_value) <= 1e-6
+    )
+
+
+def _attach_registered_timeline_clip_ids(clip_records, manifest_payload):
+    """只为唯一时间范围对应的 manifest 任务附加显式 clip_id。"""
+
+    if not isinstance(clip_records, list) or not isinstance(manifest_payload, dict):
+        return clip_records
+    entries = manifest_payload.get("tasks")
+    if not isinstance(entries, list):
+        return clip_records
+    attached = []
+    for record in clip_records:
+        if not isinstance(record, dict) or record.get("clip_id"):
+            attached.append(record)
+            continue
+        matches = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            start = entry.get("start", entry.get("clip_start_seconds"))
+            end = entry.get("end", entry.get("clip_end_seconds"))
+            clip_id = entry.get("id")
+            if (
+                    _timeline_number_matches(record.get("start"), start)
+                    and _timeline_number_matches(record.get("end"), end)
+                    and isinstance(clip_id, str)
+                    and clip_id
+                    and clip_id == clip_id.strip()
+                    and len(clip_id) <= 200
+                    and not any(char in clip_id for char in "\\/\x00\r\n")
+            ):
+                matches.append(clip_id)
+        if len(matches) == 1:
+            enriched = dict(record)
+            enriched["clip_id"] = matches[0]
+            attached.append(enriched)
+        else:
+            attached.append(record)
+    return attached
+
+
 def _timeline_records(payload, field):
     """把固定产物解包为 serializer owner 需要的原始记录。"""
 
@@ -1040,11 +1094,23 @@ def _load_registered_timeline_inputs(task_id, task):
         "candidate_review_audit_path",
         "candidate_review_audit_path",
     )
+    manifest_path = _timeline_artifact_path(
+        task,
+        artifact_dir,
+        result,
+        "task_manifest_json_path",
+        "task_manifest_json_path",
+    )
     clip_payload = _read_registered_timeline_json(clip_path)
     audit_payload = _read_registered_timeline_json(audit_path)
+    manifest_payload = _read_registered_timeline_json(manifest_path)
+    clip_records = _attach_registered_timeline_clip_ids(
+        _timeline_records(clip_payload, "clip_marks"),
+        manifest_payload,
+    )
     return (
         result,
-        _timeline_records(clip_payload, "clip_marks"),
+        clip_records,
         _timeline_records(audit_payload, "candidates"),
         _timeline_video_duration(task, result, clip_payload, audit_payload),
     )

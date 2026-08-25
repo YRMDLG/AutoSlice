@@ -199,6 +199,14 @@
                         <span><i class="timeline-legend-swatch candidate" aria-hidden="true"></i>边缘候选</span>
                     </div>
                     <div class="timeline-details" id="timelineDetails" hidden></div>
+                    <div class="timeline-preview" id="timelinePreview" hidden aria-live="polite">
+                        <div class="timeline-preview-heading">
+                            <strong>短片播放器</strong>
+                            <button class="button small quiet" id="closeTimelinePreviewButton" type="button" onclick="closeTimelinePreview()">关闭</button>
+                        </div>
+                        <video id="timelinePreviewVideo" controls preload="metadata" hidden aria-label="选中切片短片预览"></video>
+                        <div class="timeline-preview-state" id="timelinePreviewState"></div>
+                    </div>
                     <div class="timeline-cards" id="timelineCards" aria-label="时间轴结果卡片"></div>
                 </section>
                 <div class="artifact-result" id="resultArtifact" hidden>
@@ -212,7 +220,7 @@
 </main>
 
 <script>
-let selVideo=null,selAss=null,selectedVideoMeta=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,currentTaskResult=null,contextTaskId=null,readonlyTimeline=null,selectedTimelineKey='',scanBusy=false,taskBusy=false,cancelBusy=false,acceptUnboundTask=true;
+let selVideo=null,selAss=null,selectedVideoMeta=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,currentTaskResult=null,contextTaskId=null,readonlyTimeline=null,selectedTimelineKey='',timelinePreviewRequestId=0,scanBusy=false,taskBusy=false,cancelBusy=false,acceptUnboundTask=true;
 const STREAMER_PROFILE_STORAGE_KEY='autoslice.streamer-profile';
 const DEFAULT_VIDEO_DIR={{ default_video_dir|tojson }};
 const DEFAULT_OUTPUT_DIR={{ default_output_dir|tojson }};
@@ -434,6 +442,7 @@ function clearQualityOverview(){
 function clearReadonlyTimeline(){
     readonlyTimeline=null;
     selectedTimelineKey='';
+    closeTimelinePreview();
     const section=byId('readonlyTimeline');
     if(section)section.hidden=true;
     const integrity=byId('timelineIntegrity');
@@ -449,6 +458,123 @@ function clearReadonlyTimeline(){
         element.innerHTML='';
         if(id==='timelineDetails')element.hidden=true;
     });
+}
+
+function stableTimelineIdentifier(value){
+    if(typeof value!=='string')return '';
+    const text=value.trim();
+    if(!text||text!==value||text.length>200||/[\\/\x00\r\n]/.test(text))return '';
+    return text;
+}
+
+function timelinePreviewTaskId(){
+    return stableTimelineIdentifier(readonlyTimeline?.task_id||currentTaskId);
+}
+
+function timelinePreviewClipId(record){
+    if(record?.kind!=='clip')return '';
+    // T1-MEDIA 只接受时间轴明确登记的 manifest 片段 ID；不能把时间轴
+    // 的展示 ID 猜成媒体 ID，否则旧数据可能意外触发文件访问请求。
+    return stableTimelineIdentifier(record.clip_id);
+}
+
+function closeTimelinePreview(){
+    timelinePreviewRequestId+=1;
+    const video=byId('timelinePreviewVideo');
+    if(video){
+        try{video.pause?.()}catch(error){}
+        video.onerror=null;
+        video.removeAttribute?.('src');
+        video.src='';
+        video.hidden=true;
+    }
+    const preview=byId('timelinePreview');
+    if(preview)preview.hidden=true;
+    const state=byId('timelinePreviewState');
+    if(state)state.textContent='';
+}
+
+function showTimelinePreviewState(message,kind=''){
+    const preview=byId('timelinePreview');
+    const state=byId('timelinePreviewState');
+    if(!preview||!state)return;
+    preview.hidden=false;
+    state.className=`timeline-preview-state ${kind}`.trim();
+    state.textContent=message;
+}
+
+function timelinePreviewStillCurrent(taskId,key,requestId){
+    return timelinePreviewRequestId===requestId
+        &&currentTaskId===taskId
+        &&selectedTimelineKey===key
+        &&stableTimelineIdentifier(readonlyTimeline?.task_id||taskId)===taskId;
+}
+
+function safeTimelineMediaUrl(value,taskId,clipId){
+    const origin=typeof window!=='undefined'&&window.location?.origin
+        ?window.location.origin:'http://autoslice.local';
+    const expectedPath=`/api/tasks/${encodeURIComponent(taskId)}/clips/${encodeURIComponent(clipId)}/media`;
+    try{
+        const parsed=new URL(String(value||''),origin);
+        if(parsed.origin!==origin||parsed.pathname!==expectedPath)return '';
+        const keys=[...parsed.searchParams.keys()];
+        if(keys.length!==1||keys[0]!=='token'||!parsed.searchParams.get('token'))return '';
+        return `${parsed.pathname}?${parsed.searchParams.toString()}`;
+    }catch(error){return ''}
+}
+
+function timelinePreviewFailureMessage(status){
+    if(status===403)return '短片预览不可用：当前任务没有可播放的登记产物。';
+    if(status===404)return '短片预览不可用：短片不存在或访问令牌已失效。';
+    if(status===409)return '短片预览暂不可用：短片尚未完成登记。';
+    return '短片预览失败：安全媒体地址暂时不可用，请稍后重试。';
+}
+
+async function openTimelinePreview(record,key){
+    closeTimelinePreview();
+    const requestId=timelinePreviewRequestId;
+    const taskId=timelinePreviewTaskId();
+    const clipId=timelinePreviewClipId(record);
+    if(!taskId||!clipId){
+        showTimelinePreviewState('暂无可预览短片');
+        return;
+    }
+    showTimelinePreviewState('正在获取安全预览地址...');
+    try{
+        const response=await fetch(
+            `/api/tasks/${encodeURIComponent(taskId)}/clips/${encodeURIComponent(clipId)}/media-token`,
+            {method:'POST',headers:{'Content-Type':'application/json'}}
+        );
+        const data=await response.json().catch(()=>({}));
+        if(!timelinePreviewStillCurrent(taskId,key,requestId))return;
+        if(!response.ok){
+            const error=new Error('media token request failed');
+            error.status=response.status;
+            throw error;
+        }
+        const mediaUrl=safeTimelineMediaUrl(data?.media_url,taskId,clipId);
+        if(!mediaUrl){
+            const error=new Error('unsafe media url');
+            error.status=0;
+            throw error;
+        }
+        if(!timelinePreviewStillCurrent(taskId,key,requestId))return;
+        const video=byId('timelinePreviewVideo');
+        if(!video)return;
+        video.onerror=()=>{
+            if(timelinePreviewStillCurrent(taskId,key,requestId)){
+                showTimelinePreviewState('短片播放器加载失败：媒体暂时不可用，请稍后重试。','error');
+            }
+        };
+        video.src=mediaUrl;
+        video.hidden=false;
+        byId('timelinePreviewState').className='timeline-preview-state success';
+        byId('timelinePreviewState').textContent='已打开安全短片预览，可使用播放器控件播放。';
+        video.load?.();
+    }catch(error){
+        if(!timelinePreviewStillCurrent(taskId,key,requestId))return;
+        showTimelinePreviewState(timelinePreviewFailureMessage(Number(error?.status)||0),'error');
+    }
 }
 
 function clearTaskArtifacts(){
@@ -599,6 +725,7 @@ function selectTimelineRecord(key){
         <div class="timeline-detail-facts"><span>ID：${esc(record.id)}</span><span>start：${esc(formatTimelineTime(record.start))} · end：${esc(formatTimelineTime(record.end))}</span></div>
         <dl><div><dt>来源</dt><dd>${esc(record.source||'未知来源')}</dd></div><div><dt>原因</dt><dd>${esc(record.reason||'未记录原因')}</dd></div></dl>`;
     details.hidden=false;
+    openTimelinePreview(record,selectedTimelineKey);
 }
 
 function renderReadonlyTimeline(data){
@@ -614,6 +741,7 @@ function renderReadonlyTimeline(data){
     const selectedIsVisible=visibleRecords.some(record=>`${record.kind}:${record.id}`===selectedTimelineKey);
     if(selectedTimelineKey&&!selectedIsVisible){
         selectedTimelineKey='';
+        closeTimelinePreview();
         const details=byId('timelineDetails');
         if(details){details.hidden=true;details.textContent='';details.innerHTML='';}
     }
@@ -660,6 +788,8 @@ function renderTimelineFailure(message){
     const section=byId('readonlyTimeline');
     if(!section)return;
     readonlyTimeline=null;
+    selectedTimelineKey='';
+    closeTimelinePreview();
     section.hidden=false;
     byId('timelineState').textContent='读取失败';
     byId('timelineIntegrity').textContent=message||'独立时间轴读取失败';

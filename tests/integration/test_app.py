@@ -3605,6 +3605,176 @@ globalThis.fetch=(url)=>{requests.push(url);return Promise.resolve({ok:true,stat
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查时间轴与短片预览联动")
+    def test_topic_page_links_timeline_selection_to_safe_clip_preview_without_stale_responses(self):
+        response = self.client.get("/topic-v2")
+        self.assertEqual(response.status_code, 200)
+        scripts = re.findall(
+            r"<script>(.*?)</script>", response.get_data(as_text=True), flags=re.S
+        )
+        self.assertTrue(scripts)
+        script_prefix = scripts[-1].split("restoreWorkspacePaths();", 1)[0]
+        runtime_assertions = r"""
+const makeClassList=()=>({
+  values:new Set(),
+  add(...names){names.forEach(name=>this.values.add(name))},
+  remove(...names){names.forEach(name=>this.values.delete(name))},
+  toggle(name,force){const next=force===undefined?!this.values.has(name):Boolean(force);if(next)this.values.add(name);else this.values.delete(name);return next;},
+});
+const makeNode=()=>({
+  textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,value:'all',title:'',src:'',
+  style:{},options:[],selectedIndex:0,selectedOptions:[],dataset:{},parentElement:{classList:makeClassList()},
+  classList:makeClassList(),handlers:{},
+  addEventListener(name,handler){this.handlers[name]=handler},
+  setAttribute(name,value){this[name]=String(value)},removeAttribute(name){if(name==='src')this.src=''},
+  replaceChildren:()=>{},querySelectorAll:()=>[],focus:()=>{},pause(){this.paused=true},load(){this.loaded=true},
+});
+const nodes=new Map();
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id)},
+  createElement:()=>makeNode(),querySelector:()=>null,
+};
+const interactive=[];
+const setInteractive=(keys)=>{
+  interactive.length=0;
+  keys.forEach(key=>interactive.push({dataset:{'timelineKey':key},classList:makeClassList(),handlers:{},
+    addEventListener(name,handler){this.handlers[name]=handler},
+    setAttribute(name,value){this[name]=String(value)}}));
+};
+document.querySelectorAll=(selector)=>selector==='[data-timeline-key]'?interactive:[];
+document.getElementById('timelineMode').value='none';
+document.getElementById('timelineFilter').value='all';
+globalThis.window={location:{origin:'http://autoslice.test'}};
+globalThis.localStorage={getItem:()=>null,setItem:()=>{}};
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+const makeResponse=(status,payload)=>({ok:status>=200&&status<300,status,json:async()=>payload});
+const payload={
+  schema_version:1,task_id:'pipeline-link',video_duration:600,
+  clips:[
+    {id:'clip-a',clip_id:'clip-a',start:60,end:120,title:'片段 A',source:'切片标记',reason:'A 的前后文'},
+    {id:'clip-b',clip_id:'clip-b',start:180,end:240,title:'片段 B',source:'切片标记',reason:'B 的前后文'},
+  ],
+  edge_candidates:[{id:'edge-1',start:300,end:360,title:'边缘候选',source:'候选复核',reason:'只可查看'}],
+  complete:true,truncated:false,incomplete_reasons:[],generated_at:'2026-08-25T00:00:00Z',
+};
+const requests=[];const pendingTokens=[];
+globalThis.fetch=(url,options={})=>{
+  requests.push({url,options});
+  if(url==='/api/tasks/pipeline-link/timeline'){
+    setInteractive(['clip:clip-a','clip:clip-b','candidate:edge-1']);
+    return Promise.resolve(makeResponse(200,payload));
+  }
+  if(url.endsWith('/media-token')){
+    pendingTokens.push({url,options,resolve:null});
+    return new Promise(resolve=>{pendingTokens[pendingTokens.length-1].resolve=resolve});
+  }
+  throw new Error(`意外请求 ${url}`);
+};
+const settle=async()=>{for(let index=0;index<8;index++)await Promise.resolve()};
+(async()=>{
+  currentTaskId='pipeline-link';
+  await loadReadonlyTimeline('pipeline-link');
+  assert(interactive.length===3,'固定 mock 没有同时建立色块和结果卡片交互入口');
+
+  // 色块点击与结果卡片点击都必须选择同一套稳定记录，并更新详情。
+  interactive[0].handlers.click();
+  await settle();
+  assert(selectedTimelineKey==='clip:clip-a','色块点击没有保留片段 A 选中状态');
+  assert(document.getElementById('timelineDetails').innerHTML.includes('A 的前后文'),'色块点击没有显示对应详情');
+  assert(pendingTokens.length===1&&pendingTokens[0].url==='/api/tasks/pipeline-link/clips/clip-a/media-token','色块点击没有发起任务级 token 请求');
+
+  interactive[1].handlers.click();
+  await settle();
+  assert(selectedTimelineKey==='clip:clip-b','结果卡片点击没有切换到片段 B');
+  assert(document.getElementById('timelineDetails').innerHTML.includes('B 的前后文'),'结果卡片点击没有显示对应详情');
+  assert(pendingTokens.length===2,'快速点击没有建立第二个独立 token 请求');
+  assert(pendingTokens.every(item=>item.options.method==='POST'),'token 请求方法不是 POST');
+  assert(pendingTokens.every(item=>!item.url.includes('path=')),'token 请求包含任意 path 参数');
+
+  // B 先返回，随后 A 的旧响应返回；旧响应不得覆盖播放器或新选择。
+  pendingTokens[1].resolve(makeResponse(200,{media_url:'/api/tasks/pipeline-link/clips/clip-b/media?token=safe-b-token'}));
+  await settle();
+  const video=document.getElementById('timelinePreviewVideo');
+  assert(video.hidden===false&&video.src==='/api/tasks/pipeline-link/clips/clip-b/media?token=safe-b-token','安全 media_url 没有用于打开短片播放器');
+  video.onerror();
+  assert(document.getElementById('timelinePreviewState').textContent.includes('播放器加载失败')&&selectedTimelineKey==='clip:clip-b','播放器失败没有显示可理解错误或清除选择');
+  pendingTokens[0].resolve(makeResponse(200,{media_url:'/api/tasks/pipeline-link/clips/clip-a/media?token=old-a-token'}));
+  await settle();
+  assert(video.src.includes('/clip-b/media?token=safe-b-token'),'旧 token 响应覆盖了新选中的播放器');
+
+  closeTimelinePreview();
+  assert(video.hidden===true&&selectedTimelineKey==='clip:clip-b','关闭播放器错误清除了时间轴选中状态');
+  assert(document.getElementById('timelineDetails').hidden===false&&document.getElementById('timelineDetails').innerHTML.includes('B 的前后文'),'关闭播放器错误清除了详情');
+
+  // 边缘候选明确不可预览，且不产生媒体请求。
+  const mediaRequestCount=()=>requests.filter(item=>item.url.endsWith('/media-token')).length;
+  const beforeCandidate=mediaRequestCount();
+  interactive[2].handlers.click();
+  await settle();
+  assert(document.getElementById('timelinePreviewState').textContent==='暂无可预览短片','边缘候选没有明确显示暂无可预览短片');
+  assert(mediaRequestCount()===beforeCandidate,'边缘候选错误请求了媒体 token');
+
+  // token 失败仍保留选择/详情，并且不把服务端敏感文本回显到页面。
+  setInteractive(['clip:clip-fail']);
+  renderReadonlyTimeline({task_id:'pipeline-link',video_duration:600,clips:[{id:'clip-fail',clip_id:'clip-fail',start:10,end:20,title:'失败片段',reason:'保留详情'}],edge_candidates:[],complete:false,truncated:false,incomplete_reasons:['clips_missing']});
+  interactive[0].handlers.click();
+  await settle();
+  const failedToken=pendingTokens[pendingTokens.length-1];
+  failedToken.resolve(makeResponse(500,{error:'token=secret C:\\private\\secret.mp4'}));
+  await settle();
+  const failureState=document.getElementById('timelinePreviewState').textContent;
+  assert(selectedTimelineKey==='clip:clip-fail'&&document.getElementById('timelineDetails').innerHTML.includes('保留详情'),'token 失败清除了选择或详情');
+  assert(failureState.includes('短片预览失败')&&!failureState.includes('secret')&&!failureState.includes('private'),'token 失败回显了未脱敏错误');
+
+  // 显式空 clip_id 不能猜文件；旧契约/完整契约仍只允许稳定 ID。
+  setInteractive(['clip:clip-no-media']);
+  renderReadonlyTimeline({task_id:'pipeline-link',video_duration:600,clips:[{id:'clip-no-media',clip_id:'',start:30,end:40,title:'无媒体片段'}],edge_candidates:[],complete:true,truncated:false,incomplete_reasons:[]});
+  interactive[0].handlers.click();
+  await settle();
+  assert(document.getElementById('timelinePreviewState').textContent==='暂无可预览短片','没有可播放 clip_id 时没有明确提示');
+  assert(mediaRequestCount()===beforeCandidate+1,'没有可播放 clip_id 仍然请求了 token');
+
+  setInteractive(['clip:clip-legacy-without-media-id']);
+  renderReadonlyTimeline({task_id:'pipeline-link',video_duration:600,clips:[{id:'clip-legacy-without-media-id',start:40,end:50,title:'旧契约片段'}],edge_candidates:[],complete:true,truncated:false,incomplete_reasons:[]});
+  interactive[0].handlers.click();
+  await settle();
+  assert(document.getElementById('timelinePreviewState').textContent==='暂无可预览短片','缺少 clip_id 的旧数据被错误当成媒体 ID');
+  assert(mediaRequestCount()===beforeCandidate+1,'缺少 clip_id 的旧数据仍然请求了 token');
+
+  // 任务变化会清理选择并使旧媒体响应失效；旧响应不能污染新任务页面。
+  setInteractive(['clip:clip-old']);
+  renderReadonlyTimeline({task_id:'pipeline-old',video_duration:600,clips:[{id:'clip-old',clip_id:'clip-old',start:50,end:60,title:'旧任务片段'}],edge_candidates:[],complete:true,truncated:false,incomplete_reasons:[]});
+  currentTaskId='pipeline-old';
+  interactive[0].handlers.click();
+  await settle();
+  const oldPending=pendingTokens[pendingTokens.length-1];
+  renderTaskProgress({task_id:'pipeline-new',status:'running',progress:'新任务',step:1,total:10});
+  oldPending.resolve(makeResponse(200,{media_url:'/api/tasks/pipeline-old/clips/clip-old/media?token=old-task-token'}));
+  await settle();
+  assert(currentTaskId==='pipeline-new'&&video.hidden===true&&!video.src,'当前任务切换后旧媒体响应污染了播放器');
+  assert(selectedTimelineKey===''&&document.getElementById('timelineDetails').hidden===true,'当前任务切换后旧时间轴选择仍残留');
+
+  // 固定 mock 只允许只读时间轴和任务级媒体接口，不触发重切片、FFmpeg 或整场编码。
+  assert(requests.every(item=>item.url.includes('/timeline')||item.url.endsWith('/media-token')),'联动触发了非只读/非媒体接口');
+  assert(!requests.some(item=>item.url.includes('path=')||item.url.toLowerCase().includes('ffmpeg')||item.url.includes('start-pipeline')),'请求包含 path=、FFmpeg 或重切片入口');
+
+  // 空、不完整、旧数据必须保持明确而不猜测。
+  renderReadonlyTimeline({task_id:'pipeline-new',video_duration:null,clips:null,edge_candidates:null,complete:false,truncated:false,incomplete_reasons:['clips_missing','edge_candidates_missing','video_duration_invalid']});
+  assert(document.getElementById('timelineState').textContent==='不完整','旧/不完整数据没有保留不完整状态');
+  assert(document.getElementById('timelineTrack').innerHTML.includes('缺少整场时长'),'空旧数据错误绘制了时间块');
+})().catch(error=>{process.stderr.write(error.stack||String(error));process.exitCode=1});
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_topic_page_timeline_layout_is_scrollable_and_mobile_safe(self):
         project_root = Path(__file__).resolve().parents[2]
         stylesheet = (
@@ -3790,6 +3960,17 @@ class TimelineApiTests(unittest.TestCase):
                 }, ensure_ascii=False),
                 encoding="utf-8",
             )
+            (data_dir / "精调任务.json").write_text(
+                json.dumps({
+                    "tasks": [{
+                        "id": "01",
+                        "start": 10,
+                        "end": 30,
+                        "status": "已完成",
+                    }],
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
         metadata = {"output_dir": str(output_dir)}
         if artifact_root is not None or with_artifacts:
             metadata["artifact_dir"] = str(artifact_dir)
@@ -3823,6 +4004,7 @@ class TimelineApiTests(unittest.TestCase):
         self.assertEqual(payload["task_id"], "timeline-success")
         self.assertEqual(payload["video_duration"], 120.0)
         self.assertEqual(payload["clips"][0]["id"], "clip-1")
+        self.assertEqual(payload["clips"][0]["clip_id"], "01")
         self.assertEqual(payload["edge_candidates"][0]["id"], "edge-1")
         self.assertTrue(payload["complete"])
         self.assertFalse(payload["truncated"])

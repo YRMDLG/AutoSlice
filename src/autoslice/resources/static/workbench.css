@@ -1288,6 +1288,42 @@ textarea:hover {
 .timeline-details dt { color: var(--muted); }
 .timeline-details dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
 
+.timeline-preview {
+  margin: 0 12px 10px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface-input);
+}
+
+.timeline-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.timeline-preview video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  background: #000;
+  border-radius: 3px;
+}
+
+.timeline-preview-state {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.timeline-preview-state.success { color: #9bdfb8; }
+.timeline-preview-state.error { color: #f0aaa0; }
+
 .timeline-kind {
   flex: 0 0 auto;
   color: var(--muted);

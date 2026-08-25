@@ -208,14 +208,31 @@ def _serialize_records(
                 issues.append("duplicate_id")
             continue
         seen_ids.add(item_id)
-        serialized.append({
+        row = {
             "id": item_id,
             "start": start,
             "end": end,
             "source": source,
             "reason": reason,
             "title": title,
-        })
+        }
+        # 媒体预览只接受 manifest 明确登记的 clip_id；时间轴展示 ID
+        # 不能被前端自行猜成文件或媒体 ID。旧数据没有该字段时保持兼容，
+        # 由前端明确展示“暂无可预览短片”。
+        if kind == "clip" and item.get("clip_id") is not None:
+            media_id = item.get("clip_id")
+            if (
+                    isinstance(media_id, str)
+                    and media_id
+                    and media_id == media_id.strip()
+                    and len(media_id) <= MAX_ID_CHARS
+                    and not _LOCAL_PATH_PATTERN.search(media_id)
+                    and not any(char in media_id for char in "\\/\x00\r\n")
+            ):
+                row["clip_id"] = media_id
+            else:
+                _add_issue(issues, "clip_id_invalid")
+        serialized.append(row)
     serialized.sort(key=lambda row: (row["start"], row["end"], row["id"]))
     return serialized, text_truncated
 

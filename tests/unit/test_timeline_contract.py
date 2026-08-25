@@ -70,6 +70,31 @@ class TimelineContractTests(unittest.TestCase):
         self.assertIn("clips_missing", missing["incomplete_reasons"])
         self.assertIn("edge_candidates_missing", missing["incomplete_reasons"])
 
+    def test_clip_id_is_preserved_only_as_a_safe_manifest_identifier(self):
+        result = timeline_contract.serialize_timeline(
+            "task-media",
+            100,
+            [{
+                "id": 1,
+                "clip_id": "01",
+                "start": 10,
+                "end": 20,
+                "title": "可预览切片",
+            }, {
+                "id": 2,
+                "clip_id": r"C:\\private\\clip.mp4",
+                "start": 30,
+                "end": 40,
+                "title": "不可猜测切片",
+            }],
+            {"candidates": []},
+            generated_at="fixed",
+        )
+
+        self.assertEqual(result["clips"][0]["clip_id"], "01")
+        self.assertNotIn("clip_id", result["clips"][1])
+        self.assertIn("clip_id_invalid", result["incomplete_reasons"])
+
     def test_missing_and_abnormal_times_are_excluded_without_guessing(self):
         result = timeline_contract.serialize_timeline(
             "task-invalid",
