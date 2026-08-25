@@ -111,11 +111,31 @@ def _safe_identifier(value: Any, field: str) -> str:
 
 
 def _normalised_path(path: Path) -> str:
-    return os.path.normcase(os.path.abspath(os.fspath(path)))
+    try:
+        canonical = path.resolve(strict=False)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        canonical = Path(os.path.abspath(os.fspath(path)))
+    return os.path.normcase(os.path.abspath(os.fspath(canonical)))
 
 
 def _is_same_path(left: Path, right: Path) -> bool:
     return _normalised_path(left) == _normalised_path(right)
+
+
+def _has_symlink_component(path: Path) -> bool:
+    """检查路径的每一级，避免把别名解析差异误判为符号链接。"""
+
+    current = Path(os.path.abspath(os.fspath(path)))
+    while True:
+        try:
+            if current.is_symlink():
+                return True
+        except OSError:
+            return True
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
 
 
 def _resolve_existing_path(path: Path, *, directory: bool = False) -> Path:
@@ -123,11 +143,13 @@ def _resolve_existing_path(path: Path, *, directory: bool = False) -> Path:
 
     try:
         absolute = Path(os.path.abspath(os.fspath(path)))
+        if _has_symlink_component(absolute):
+            raise MediaPreviewError("媒体产物登记无效", 403)
         resolved = absolute.resolve(strict=True)
+    except MediaPreviewError:
+        raise
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         raise MediaPreviewError("媒体产物不存在", 404) from exc
-    if _normalised_path(absolute) != _normalised_path(resolved):
-        raise MediaPreviewError("媒体产物登记无效", 403)
     if directory and not resolved.is_dir():
         raise MediaPreviewError("媒体产物登记无效", 403)
     if not directory and not resolved.is_file():

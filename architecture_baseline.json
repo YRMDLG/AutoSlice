@@ -8688,17 +8688,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 493,
+      "line_count": 515,
       "longest_function": {
-        "end_line": 379,
+        "end_line": 401,
         "kind": "function",
-        "line": 258,
+        "line": 280,
         "line_count": 122,
         "qualname": "MediaPreviewOwner._registered_clip"
       },
       "module": "autoslice.media_preview",
       "path": "src/autoslice/media_preview.py",
-      "sha256": "4d5e9ae49ef7f7c82b549f054ee97965eddfdaf16683cf1cc527b05be4669023",
+      "sha256": "95b8ca10f6bc78384ca4884d862697abd63777c002a2d3532d24974efdcf00c4",
       "top_level_classes": [
         {
           "end_line": 66,
@@ -8731,9 +8731,9 @@
           "name": "_TokenRecord"
         },
         {
-          "end_line": 484,
+          "end_line": 506,
           "kind": "class",
-          "line": 200,
+          "line": 222,
           "name": "MediaPreviewOwner"
         }
       ],
@@ -8745,39 +8745,45 @@
           "name": "_safe_identifier"
         },
         {
-          "end_line": 114,
+          "end_line": 118,
           "kind": "function",
           "line": 113,
           "name": "_normalised_path"
         },
         {
-          "end_line": 118,
+          "end_line": 122,
           "kind": "function",
-          "line": 117,
+          "line": 121,
           "name": "_is_same_path"
         },
         {
-          "end_line": 135,
+          "end_line": 138,
           "kind": "function",
-          "line": 121,
+          "line": 125,
+          "name": "_has_symlink_component"
+        },
+        {
+          "end_line": 157,
+          "kind": "function",
+          "line": 141,
           "name": "_resolve_existing_path"
         },
         {
-          "end_line": 143,
+          "end_line": 165,
           "kind": "function",
-          "line": 138,
+          "line": 160,
           "name": "_path_inside"
         },
         {
-          "end_line": 158,
+          "end_line": 180,
           "kind": "function",
-          "line": 146,
+          "line": 168,
           "name": "_load_json"
         },
         {
-          "end_line": 197,
+          "end_line": 219,
           "kind": "function",
-          "line": 161,
+          "line": 183,
           "name": "_parse_single_range"
         }
       ]
@@ -15033,11 +15039,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 477,
-    "production_line_count": 43330,
+    "production_line_count": 43352,
     "production_module_count": 179,
     "test_private_patch_count": 17,
     "top_level_class_count": 109,
-    "top_level_function_count": 1020
+    "top_level_function_count": 1021
   },
   "test_private_patches": {
     "by_target_module": {
