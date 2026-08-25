@@ -46,6 +46,7 @@
 | F1-PROGRESSIVE | frontend-next | 2026-08-25 | [e38eca5](../commit/e38eca5069dc71e1822031d6b1961d4beeb2d8a7) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32782576094) | 按准备、校对、建议、质检、保存/导出分阶段展示字幕工作流；建议与质检默认收起；压制和参考标题依赖当前编辑态显式保存。 |
 | T1-CONTRACT | frontend-next | 2026-08-25 | [82bcd44](../commit/82bcd4442934807a371957b47e9010afe606aeda) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32786119265) | 新增独立只读时间轴契约与 serializer，显式表达稳定 ID、数值时间、来源/原因和 complete/truncated；覆盖旧数据、异常数据、重复 ID、敏感路径和超长数据。 |
 | T1-API | frontend-next | 2026-08-25 | [00cf7b9](../commit/00cf7b9bfd94fe04b2bed1a7929cbe7d56ba8496) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32790207286) | 新增任务级只读时间轴接口，读取登记的切片与候选产物，接入 video_duration 和完整性字段，并拒绝任意路径、跨任务产物与符号链接越界读取。 |
+| T1-UI | frontend-next | 2026-08-25 | [4c349b5](../commit/4c349b5a3c36195f6dcabe6b2ec77068a78218de) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32793084340) | 接入独立只读时间轴，展示整场刻度、最终切片、边缘候选、筛选、详情和 complete/truncated 不完整提示；同步修复筛选后的旧详情残留并刷新架构快照。 |
 
 ## 记录规则
 
