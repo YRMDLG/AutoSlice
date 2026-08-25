@@ -170,6 +170,37 @@
                     <button class="button quiet" id="cancelTaskButton" type="button" onclick="cancelCurrentTask()" hidden>取消任务</button>
                 </div>
                 <section class="quality-overview" id="qualityOverview" aria-live="polite" hidden></section>
+                <section class="readonly-timeline" id="readonlyTimeline" aria-labelledby="readonlyTimelineTitle" hidden>
+                    <div class="timeline-heading">
+                        <div>
+                            <h3 id="readonlyTimelineTitle">只读时间轴</h3>
+                            <p>整场时间范围与已登记结果；这里只展示数据，不修改切片边界。</p>
+                        </div>
+                        <span class="timeline-state" id="timelineState">未加载</span>
+                    </div>
+                    <div class="timeline-integrity" id="timelineIntegrity" role="status" aria-live="polite" hidden></div>
+                    <div class="timeline-controls">
+                        <label for="timelineFilter">显示</label>
+                        <select id="timelineFilter">
+                            <option value="all">全部记录</option>
+                            <option value="clip">最终切片</option>
+                            <option value="candidate">边缘候选</option>
+                        </select>
+                        <span id="timelineCount">0 条记录</span>
+                    </div>
+                    <div class="timeline-scale-wrap" aria-label="整场视频时间刻度">
+                        <div class="timeline-plot">
+                            <div class="timeline-scale" id="timelineScale"></div>
+                            <div class="timeline-track" id="timelineTrack" aria-label="时间轴记录"></div>
+                        </div>
+                    </div>
+                    <div class="timeline-legend" aria-label="时间轴图例">
+                        <span><i class="timeline-legend-swatch clip" aria-hidden="true"></i>最终切片</span>
+                        <span><i class="timeline-legend-swatch candidate" aria-hidden="true"></i>边缘候选</span>
+                    </div>
+                    <div class="timeline-details" id="timelineDetails" hidden></div>
+                    <div class="timeline-cards" id="timelineCards" aria-label="时间轴结果卡片"></div>
+                </section>
                 <div class="artifact-result" id="resultArtifact" hidden>
                     <div class="artifact-path" id="resultPaths"></div>
                     <button class="button" id="openResultButton" type="button" onclick="openResultDirectory()">打开结果目录</button>
@@ -181,7 +212,7 @@
 </main>
 
 <script>
-let selVideo=null,selAss=null,selectedVideoMeta=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,currentTaskResult=null,contextTaskId=null,scanBusy=false,taskBusy=false,cancelBusy=false,acceptUnboundTask=true;
+let selVideo=null,selAss=null,selectedVideoMeta=null,sse=null,optimizedTimeline=null,resultTaskId=null,currentTaskId=null,currentTaskSnapshot=null,currentTaskResult=null,contextTaskId=null,readonlyTimeline=null,selectedTimelineKey='',scanBusy=false,taskBusy=false,cancelBusy=false,acceptUnboundTask=true;
 const STREAMER_PROFILE_STORAGE_KEY='autoslice.streamer-profile';
 const DEFAULT_VIDEO_DIR={{ default_video_dir|tojson }};
 const DEFAULT_OUTPUT_DIR={{ default_output_dir|tojson }};
@@ -400,9 +431,30 @@ function clearQualityOverview(){
     quality.innerHTML='';
 }
 
+function clearReadonlyTimeline(){
+    readonlyTimeline=null;
+    selectedTimelineKey='';
+    const section=byId('readonlyTimeline');
+    if(section)section.hidden=true;
+    const integrity=byId('timelineIntegrity');
+    if(integrity){integrity.hidden=true;integrity.textContent='';integrity.innerHTML='';}
+    const state=byId('timelineState');
+    if(state)state.textContent='未加载';
+    const count=byId('timelineCount');
+    if(count)count.textContent='0 条记录';
+    ['timelineScale','timelineTrack','timelineDetails','timelineCards'].forEach(id=>{
+        const element=byId(id);
+        if(!element)return;
+        element.textContent='';
+        element.innerHTML='';
+        if(id==='timelineDetails')element.hidden=true;
+    });
+}
+
 function clearTaskArtifacts(){
     clearResultArtifact();
     clearQualityOverview();
+    clearReadonlyTimeline();
     const report=byId('report');
     report.hidden=true;
     report.textContent='';
@@ -481,6 +533,164 @@ function renderQualityOverview(overview){
         <div class="quality-section-heading edge"><h4>边缘候选 <strong>${Math.max(0,Number(overview.edge_candidate_count)||0)}</strong> 个</h4><span>60 ≤ 投稿价值 &lt; 75${edgesTruncated?` · 另有 ${edgesTruncated} 条未展示`:''}</span></div>
         ${edgeRows?`<ul class="edge-list">${edgeRows}</ul>`:'<div class="quality-empty">没有接近当前过线门槛的候选。</div>'}`;
     quality.hidden=false;
+}
+
+function formatTimelineTime(value){
+    const seconds=Math.max(0,Math.round(Number(value)||0));
+    const hours=Math.floor(seconds/3600);
+    const minutes=Math.floor((seconds%3600)/60);
+    const rest=seconds%60;
+    return hours
+        ?`${hours}:${String(minutes).padStart(2,'0')}:${String(rest).padStart(2,'0')}`
+        :`${minutes}:${String(rest).padStart(2,'0')}`;
+}
+
+function timelineRecords(data){
+    const clips=Array.isArray(data?.clips)?data.clips:[];
+    const candidates=Array.isArray(data?.edge_candidates)?data.edge_candidates:[];
+    return [
+        ...clips.map(record=>({...record,kind:'clip',kindLabel:'最终切片'})),
+        ...candidates.map(record=>({...record,kind:'candidate',kindLabel:'边缘候选'})),
+    ].filter(record=>String(record?.id||'').trim()&&Number.isFinite(Number(record?.start))&&Number.isFinite(Number(record?.end))&&Number(record.end)>Number(record.start));
+}
+
+function timelineIntegrityReasons(reasons){
+    const labels={
+        clips_missing:'最终切片数据缺失',
+        edge_candidates_missing:'边缘候选数据缺失',
+        video_duration_invalid:'整场时长缺失或无效',
+        clips_limit:'最终切片数量达到展示上限',
+        edge_candidates_limit:'边缘候选数量达到展示上限',
+        payload_limit:'时间轴响应达到大小上限',
+        text_limit:'部分说明文字达到长度上限',
+        invalid_record:'存在无法读取的记录',
+        duplicate_id:'存在重复记录 ID',
+    };
+    return [...new Set((Array.isArray(reasons)?reasons:[]).map(reason=>labels[reason]||String(reason)).filter(Boolean))];
+}
+
+function setTimelineIntegrity(data){
+    const integrity=byId('timelineIntegrity');
+    if(!integrity)return;
+    const reasons=timelineIntegrityReasons(data?.incomplete_reasons);
+    const messages=[];
+    if(data?.complete===false)messages.push('数据不完整，未记录的时间不会被猜测。');
+    if(data?.truncated)messages.push('数据已截断，当前只展示已返回记录。');
+    if(reasons.length)messages.push(`原因：${reasons.join('、')}`);
+    integrity.textContent=messages.join(' ');
+    integrity.classList.toggle('warning',messages.length>0);
+    integrity.hidden=messages.length===0;
+}
+
+function selectTimelineRecord(key){
+    if(!readonlyTimeline)return;
+    const record=timelineRecords(readonlyTimeline).find(item=>`${item.kind}:${item.id}`===String(key));
+    if(!record)return;
+    selectedTimelineKey=`${record.kind}:${record.id}`;
+    document.querySelectorAll('[data-timeline-key]').forEach(element=>{
+        const selected=element.dataset.timelineKey===selectedTimelineKey;
+        element.classList.toggle('selected',selected);
+        element.setAttribute('aria-pressed',String(selected));
+    });
+    const details=byId('timelineDetails');
+    if(!details)return;
+    details.innerHTML=`
+        <div class="timeline-detail-heading"><span class="timeline-kind ${esc(record.kind)}">${esc(record.kindLabel)}</span><strong>${esc(record.title||'未命名')}</strong></div>
+        <div class="timeline-detail-facts"><span>ID：${esc(record.id)}</span><span>start：${esc(formatTimelineTime(record.start))} · end：${esc(formatTimelineTime(record.end))}</span></div>
+        <dl><div><dt>来源</dt><dd>${esc(record.source||'未知来源')}</dd></div><div><dt>原因</dt><dd>${esc(record.reason||'未记录原因')}</dd></div></dl>`;
+    details.hidden=false;
+}
+
+function renderReadonlyTimeline(data){
+    const section=byId('readonlyTimeline');
+    if(!section)return;
+    readonlyTimeline=data&&typeof data==='object'?data:null;
+    section.hidden=false;
+    const duration=Number(data?.video_duration);
+    const validDuration=Number.isFinite(duration)&&duration>0;
+    const records=timelineRecords(data);
+    const filter=byId('timelineFilter')?.value||'all';
+    const visibleRecords=filter==='all'?records:records.filter(record=>record.kind===filter);
+    const selectedIsVisible=visibleRecords.some(record=>`${record.kind}:${record.id}`===selectedTimelineKey);
+    if(selectedTimelineKey&&!selectedIsVisible){
+        selectedTimelineKey='';
+        const details=byId('timelineDetails');
+        if(details){details.hidden=true;details.textContent='';details.innerHTML='';}
+    }
+    const state=byId('timelineState');
+    if(state)state.textContent=data?.complete===false?'不完整':data?.truncated?'已截断':'完整';
+    setTimelineIntegrity(data);
+    const count=byId('timelineCount');
+    if(count)count.textContent=`${visibleRecords.length} 条记录 · 全场 ${validDuration?formatTimelineTime(duration):'时长未记录'}`;
+
+    const scale=byId('timelineScale');
+    const track=byId('timelineTrack');
+    const plot=track?.parentElement;
+    if(scale)scale.innerHTML=validDuration
+        ?[0,.25,.5,.75,1].map(ratio=>`<span class="timeline-tick" style="left:${ratio*100}%"><b>${esc(formatTimelineTime(duration*ratio))}</b></span>`).join('')
+        :'<span class="timeline-scale-empty">缺少整场时长，无法绘制比例刻度</span>';
+    if(plot)plot.classList.toggle('timeline-plot-invalid',!validDuration);
+    if(track)track.innerHTML=validDuration&&visibleRecords.length
+        ?visibleRecords.map(record=>{
+            const left=Math.max(0,Math.min(100,Number(record.start)/duration*100));
+            const width=Math.max(0,Math.min(100-left,(Number(record.end)-Number(record.start))/duration*100));
+            const key=`${record.kind}:${record.id}`;
+            return `<button type="button" class="timeline-segment ${record.kind}" data-timeline-key="${esc(key)}" aria-label="${esc(`${record.kindLabel} ${record.title||'未命名'}，${formatTimelineTime(record.start)}至${formatTimelineTime(record.end)}`)}" aria-pressed="false" style="left:${left}%;width:${width}%"></button>`;
+        }).join('')
+        :`<div class="timeline-track-empty">${validDuration?'当前筛选没有记录':'缺少整场时长，暂不绘制时间块'}</div>`;
+    const cards=byId('timelineCards');
+    if(cards)cards.innerHTML=visibleRecords.length
+        ?visibleRecords.map(record=>{
+            const key=`${record.kind}:${record.id}`;
+            return `<button type="button" class="timeline-card ${record.kind}" data-timeline-key="${esc(key)}" aria-pressed="false">
+                <span class="timeline-card-heading"><span class="timeline-kind ${record.kind}">${esc(record.kindLabel)}</span><strong>${esc(record.title||'未命名')}</strong></span>
+                <span class="timeline-card-time">start：${esc(formatTimelineTime(record.start))} · end：${esc(formatTimelineTime(record.end))}</span>
+                <span class="timeline-card-meta">ID：${esc(record.id)} · 来源：${esc(record.source||'未知来源')}</span>
+                <span class="timeline-card-reason">${esc(record.reason||'未记录原因')}</span>
+            </button>`;
+        }).join('')
+        :'<div class="timeline-empty">当前筛选没有可展示的记录。</div>';
+    document.querySelectorAll('[data-timeline-key]').forEach(element=>{
+        element.addEventListener('click',()=>selectTimelineRecord(element.dataset.timelineKey));
+    });
+    if(selectedTimelineKey)selectTimelineRecord(selectedTimelineKey);
+}
+
+function renderTimelineFailure(message){
+    const section=byId('readonlyTimeline');
+    if(!section)return;
+    readonlyTimeline=null;
+    section.hidden=false;
+    byId('timelineState').textContent='读取失败';
+    byId('timelineIntegrity').textContent=message||'独立时间轴读取失败';
+    byId('timelineIntegrity').className='timeline-integrity warning';
+    byId('timelineIntegrity').hidden=false;
+    byId('timelineScale').textContent='';
+    byId('timelineTrack').innerHTML='<div class="timeline-track-empty">当前任务没有可读取的时间轴。</div>';
+    byId('timelineCards').innerHTML='';
+    byId('timelineDetails').hidden=true;
+}
+
+async function loadReadonlyTimeline(taskId){
+    clearReadonlyTimeline();
+    const section=byId('readonlyTimeline');
+    if(!section||!taskId)return;
+    section.hidden=false;
+    byId('timelineState').textContent='读取中';
+    const filter=byId('timelineFilter');
+    if(filter&&!filter.dataset.bound){
+        filter.addEventListener('change',()=>{if(readonlyTimeline)renderReadonlyTimeline(readonlyTimeline)});
+        filter.dataset.bound='true';
+    }
+    try{
+        const response=await fetch(`/api/tasks/${encodeURIComponent(taskId)}/timeline`);
+        const data=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(data.error||`时间轴读取失败 (${response.status})`);
+        if(currentTaskId!==taskId)return;
+        renderReadonlyTimeline(data);
+    }catch(error){
+        if(currentTaskId===taskId)renderTimelineFailure(`独立时间轴读取失败：${error.message}`);
+    }
 }
 
 function renderResultArtifact(taskId,result){
@@ -664,6 +874,7 @@ async function restoreCompletedTask(data){
         if(currentTaskId!==taskId)return;
         renderQualityOverview(result?.quality_overview);
         renderResultArtifact(taskId,result);
+        if(taskId.startsWith('pipeline_')||taskId.startsWith('clip_review_'))await loadReadonlyTimeline(taskId);
         setNotice(`${taskTypeLabel(taskId)}已完成`,'success');
     }catch(error){
         if(currentTaskId===taskId)setNotice(`任务已完成，但结果入口恢复失败：${error.message}`,'warning');

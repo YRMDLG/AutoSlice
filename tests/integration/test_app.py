@@ -3532,6 +3532,92 @@ class TopicPipelineApiTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查只读时间轴行为")
+    def test_topic_page_renders_independent_timeline_and_explicit_incomplete_state(self):
+        response = self.client.get("/topic-v2")
+        self.assertEqual(response.status_code, 200)
+        scripts = re.findall(
+            r"<script>(.*?)</script>", response.get_data(as_text=True), flags=re.S
+        )
+        self.assertTrue(scripts)
+        script = scripts[-1]
+        script_prefix = script.split("restoreWorkspacePaths();", 1)[0]
+        runtime_assertions = r"""
+const makeNode=()=>({
+  textContent:'',innerHTML:'',className:'',hidden:false,disabled:false,value:'all',title:'',
+  style:{},options:[],selectedIndex:0,selectedOptions:[],dataset:{},parentElement:null,
+  classList:{add:()=>{},remove:()=>{},toggle:()=>{}},
+  addEventListener:()=>{},setAttribute(name,value){this[name]=String(value)},
+  querySelectorAll:()=>[],replaceChildren:()=>{},
+});
+const nodes=new Map();
+globalThis.document={
+  getElementById:(id)=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id)},
+  querySelectorAll:()=>[],createElement:()=>makeNode(),querySelector:()=>null,
+};
+document.getElementById('timelineMode').value='none';
+globalThis.window={};
+globalThis.localStorage={getItem:()=>null,setItem:()=>{}};
+const assert=(condition,message)=>{if(!condition)throw new Error(message)};
+const payload={
+  schema_version:1,task_id:'pipeline_timeline',video_duration:600,
+  clips:[{id:'clip-1',start:60,end:120,title:'完整片段',source:'切片标记',reason:'前后文完整'}],
+  edge_candidates:[{id:'edge-1',start:300,end:360,title:'边缘候选',source:'候选复核',reason:'待人工确认 <script>alert(1)</script>'}],
+  complete:false,truncated:true,incomplete_reasons:['clips_limit'],generated_at:'2026-08-25T00:00:00Z',
+};
+const requests=[];
+globalThis.fetch=(url)=>{requests.push(url);return Promise.resolve({ok:true,status:200,json:async()=>payload})};
+(async()=>{
+  currentTaskId='pipeline_timeline';
+  await loadReadonlyTimeline('pipeline_timeline');
+  const section=document.getElementById('readonlyTimeline');
+  const track=document.getElementById('timelineTrack');
+  const cards=document.getElementById('timelineCards');
+  const integrity=document.getElementById('timelineIntegrity');
+  assert(requests.length===1&&requests[0]==='/api/tasks/pipeline_timeline/timeline','时间轴没有使用独立只读接口');
+  assert(section.hidden===false,'成功读取后没有显示时间轴');
+  assert(document.getElementById('timelineState').textContent==='不完整','complete=false 没有展示不完整状态');
+  assert(integrity.textContent.includes('数据不完整')&&integrity.textContent.includes('数据已截断'),'完整性字段没有展示不完整和截断提示');
+  assert(track.innerHTML.includes('clip-1')&&track.innerHTML.includes('left:10%'),'最终切片没有按整场时长绘制比例位置');
+  assert(cards.innerHTML.includes('ID：clip-1')&&cards.innerHTML.includes('来源：候选复核'),'结果卡片没有稳定 ID 和来源');
+  assert(!cards.innerHTML.includes('<script>alert(1)</script>'),'结果卡片没有安全转义长内容');
+  selectTimelineRecord('clip:clip-1');
+  assert(document.getElementById('timelineDetails').innerHTML.includes('ID：clip-1'),'时间轴选择没有显示稳定 ID 详情');
+  assert(document.getElementById('timelineDetails').innerHTML.includes('前后文完整'),'时间轴选择没有显示可解释原因');
+  document.getElementById('timelineFilter').value='candidate';
+  renderReadonlyTimeline(readonlyTimeline);
+  assert(cards.innerHTML.includes('edge-1')&&!cards.innerHTML.includes('完整片段'),'筛选没有只显示边缘候选');
+  assert(document.getElementById('timelineDetails').hidden===true,'筛选后仍显示已隐藏记录的旧详情');
+  renderReadonlyTimeline({video_duration:null,clips:[],edge_candidates:[],complete:false,truncated:false,incomplete_reasons:['video_duration_invalid']});
+  assert(document.getElementById('timelineScale').innerHTML.includes('缺少整场时长'),'缺失整场时长没有明确提示');
+  assert(track.innerHTML.includes('缺少整场时长'),'缺失整场时长没有停止绘制比例时间块');
+  assert(document.getElementById('timelineCount').textContent.includes('时长未记录'),'缺失整场时长没有明确计数提示');
+})().catch(error=>{process.stderr.write(error.stack||String(error));process.exitCode=1});
+"""
+        result = subprocess.run(
+            ["node", "-"],
+            input=script_prefix + runtime_assertions,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_topic_page_timeline_layout_is_scrollable_and_mobile_safe(self):
+        project_root = Path(__file__).resolve().parents[2]
+        stylesheet = (
+            project_root / "src" / "autoslice" / "resources" / "static" / "workbench.css"
+        ).read_text(encoding="utf-8")
+        self.assertIn(".timeline-scale-wrap", stylesheet)
+        self.assertIn("overflow-x: auto", stylesheet)
+        self.assertIn("min-width: 620px", stylesheet)
+        self.assertIn(".timeline-card", stylesheet)
+        mobile_rules = stylesheet.split("@media (max-width: 760px)", 1)[1]
+        self.assertIn(".timeline-controls", mobile_rules)
+        self.assertIn("flex-wrap: wrap", mobile_rules)
+
     def test_pipeline_ids_are_unique_and_duplicate_running_source_is_rejected(self):
         with TemporaryDirectory() as td:
             flv_path = Path(td) / "同一场录播.flv"
