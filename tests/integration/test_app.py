@@ -4062,6 +4062,95 @@ class TimelineApiTests(unittest.TestCase):
         self.assertEqual(payload["incomplete_reasons"], [])
         self.assertNotIn("quality_overview", payload)
 
+    def test_timeline_clip_id_matching_prefers_valid_precise_times_and_falls_back(self):
+        cases = (
+            (
+                "precise",
+                {"start": "legacy-invalid", "end": "legacy-invalid",
+                 "clip_start_seconds": 1.2345, "clip_end_seconds": 2.3456},
+                {"start": 1.2345, "end": 2.3456},
+                "precise-id",
+            ),
+            (
+                "null-precise",
+                {"start": 10, "end": 20, "clip_start_seconds": None,
+                 "clip_end_seconds": None},
+                {"start": 10, "end": 20},
+                "legacy-null-id",
+            ),
+            (
+                "single-precise",
+                {"start": 30, "end": 40, "clip_start_seconds": 30.5},
+                {"start": 30, "end": 40},
+                "legacy-single-id",
+            ),
+            (
+                "invalid-precise",
+                {"start": 50, "end": 60, "clip_start_seconds": "bad",
+                 "clip_end_seconds": float("inf")},
+                {"start": 50, "end": 60},
+                "legacy-invalid-id",
+            ),
+            (
+                "bool-precise",
+                {"start": 90, "end": 100, "clip_start_seconds": True,
+                 "clip_end_seconds": 100},
+                {"start": 90, "end": 100},
+                "legacy-bool-id",
+            ),
+            (
+                "nan-precise",
+                {"start": 110, "end": 120, "clip_start_seconds": float("nan"),
+                 "clip_end_seconds": 120},
+                {"start": 110, "end": 120},
+                "legacy-nan-id",
+            ),
+            (
+                "overflow-precise",
+                {"start": 130, "end": 140, "clip_start_seconds": 10 ** 400,
+                 "clip_end_seconds": 10 ** 400 + 1},
+                {"start": 130, "end": 140},
+                "legacy-overflow-id",
+            ),
+            (
+                "invalid-interval",
+                {"start": 70, "end": 80, "clip_start_seconds": 80,
+                 "clip_end_seconds": 70},
+                {"start": 70, "end": 80},
+                "legacy-invalid-interval-id",
+            ),
+            (
+                "zero",
+                {"start": 0, "end": 1, "clip_start_seconds": 0.0,
+                 "clip_end_seconds": 1.0},
+                {"start": 0.0, "end": 1.0},
+                "zero-id",
+            ),
+        )
+        for case_name, entry, record, expected_id in cases:
+            with self.subTest(case=case_name):
+                attached = app_module._attach_registered_timeline_clip_ids(
+                    [record],
+                    {"tasks": [{**entry, "id": expected_id}]},
+                )
+                self.assertEqual(attached[0]["clip_id"], expected_id)
+
+    def test_timeline_clip_id_matching_does_not_guess_conflicting_valid_times(self):
+        attached = app_module._attach_registered_timeline_clip_ids(
+            [{"start": 100.0, "end": 110.0}],
+            {
+                "tasks": [{
+                    "id": "conflict-id",
+                    "start": 10,
+                    "end": 20,
+                    "clip_start_seconds": 100.0,
+                    "clip_end_seconds": 110.0,
+                }],
+            },
+        )
+
+        self.assertNotIn("clip_id", attached[0])
+
     def test_timeline_returns_404_for_unknown_task(self):
         response = self.client.get("/api/tasks/not-registered/timeline")
 

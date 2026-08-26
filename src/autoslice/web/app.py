@@ -5,6 +5,7 @@ AutoSlice Web 界面 — SSE 实时推送 + 控制台同步
 import glob as glob_mod
 import hashlib
 import json
+import math
 import os
 import queue
 import re
@@ -1028,20 +1029,68 @@ def _read_registered_timeline_json(path):
 def _timeline_number_matches(left, right):
     """按有限数值匹配时间轴记录与 manifest，拒绝模糊或字符串猜测。"""
 
+    if (
+            isinstance(left, bool)
+            or isinstance(right, bool)
+            or not isinstance(left, (int, float))
+            or not isinstance(right, (int, float))
+    ):
+        return False
     try:
         left_value = float(left)
         right_value = float(right)
-    except (TypeError, ValueError, OverflowError):
+    except (OverflowError, ValueError):
         return False
     return (
-        left_value == left_value
-        and right_value == right_value
+        math.isfinite(left_value)
+        and math.isfinite(right_value)
         and abs(left_value - right_value) <= 1e-6
     )
 
 
 def _attach_registered_timeline_clip_ids(clip_records, manifest_payload):
     """只为唯一时间范围对应的 manifest 任务附加显式 clip_id。"""
+
+    def valid_interval(payload, start_key, end_key):
+        if not isinstance(payload, dict):
+            return None
+        start = payload.get(start_key)
+        end = payload.get(end_key)
+        if (
+                isinstance(start, bool)
+                or isinstance(end, bool)
+                or not isinstance(start, (int, float))
+                or not isinstance(end, (int, float))
+        ):
+            return None
+        try:
+            start_value = float(start)
+            end_value = float(end)
+        except (OverflowError, ValueError):
+            return None
+        if (
+                not math.isfinite(start_value)
+                or not math.isfinite(end_value)
+                or end_value <= start_value
+        ):
+            return None
+        return start_value, end_value
+
+    def manifest_interval(entry):
+        precise = valid_interval(
+            entry,
+            "clip_start_seconds",
+            "clip_end_seconds",
+        )
+        legacy = valid_interval(entry, "start", "end")
+        if precise is not None and legacy is not None:
+            if (
+                    _timeline_number_matches(precise[0], legacy[0])
+                    and _timeline_number_matches(precise[1], legacy[1])
+            ):
+                return precise
+            return None
+        return precise or legacy
 
     if not isinstance(clip_records, list) or not isinstance(manifest_payload, dict):
         return clip_records
@@ -1057,12 +1106,12 @@ def _attach_registered_timeline_clip_ids(clip_records, manifest_payload):
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            start = entry.get("start", entry.get("clip_start_seconds"))
-            end = entry.get("end", entry.get("clip_end_seconds"))
+            interval = manifest_interval(entry)
             clip_id = entry.get("id")
             if (
-                    _timeline_number_matches(record.get("start"), start)
-                    and _timeline_number_matches(record.get("end"), end)
+                    interval is not None
+                    and _timeline_number_matches(record.get("start"), interval[0])
+                    and _timeline_number_matches(record.get("end"), interval[1])
                     and isinstance(clip_id, str)
                     and clip_id
                     and clip_id == clip_id.strip()
