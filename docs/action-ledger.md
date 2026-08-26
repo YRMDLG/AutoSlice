@@ -52,6 +52,7 @@
 | H0-SEC-PATH-BOUNDARY | backend-hardening-next | 2026-08-26 | [275d71e](../commit/275d71e658e5572598518a6d6f7f4eee6226f559) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32936721953) | 校验 AutoSlice/AutoCover 最终有效路径、默认目录、登记产物和媒体 token 的二次边界，加入文件身份与 LAN 响应脱敏保护，并完成当前提交的 Windows/Linux CI 验证。 |
 | H0-CI-GATES | backend-hardening-next | 2026-08-26 | [784ce6c](../commit/784ce6cb82fff4a4f2a0d0eb51a0ab367340cbf0) / [7e5cb94](../commit/7e5cb9496faf5b986c8917db3fc936b42555249a) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32941561644) | 在 Windows/Linux job 中增加架构快照、公开文档和公开发布扫描三个独立治理 step；修复架构快照对 CRLF/LF 的跨平台敏感性并增加换行回归测试。 |
 | H1-BAD-WHEEL | backend-hardening-next | 2026-08-26 | [54f1954](../commit/54f1954439fc196a72b78233302cc471689edcea) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32946844704) | 在隔离仓库外环境中从正常 wheel 制造受控缺包反例，证明深层模块缺失会被发现，同时保留正常 wheel、资源和两个 CLI 的验证。 |
+| H1-PACKAGE-DISCOVERY | backend-hardening-next | 2026-08-26 | [80a0583](../commit/80a0583892e8633ea7ff76877dd316ee3318d7a8) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32951757034) | 将手工包列表替换为 `src` 布局受限自动发现并禁用 namespace 包；验证源码态、editable、正常/坏 wheel、模板/静态/JSON 资源和三个 CLI 契约。 |
 
 ## 记录规则
 
