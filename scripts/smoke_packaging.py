@@ -8,6 +8,7 @@ import sys
 
 EXPECTED_DISTRIBUTION = "autoslice"
 EXPECTED_ENTRY_POINT = "autoslice.launcher:main"
+EXPECTED_ASR_ENTRY_POINT = "autoslice.setup_asr_model:main"
 EXPECTED_COVER_ENTRY_POINT = "autoslice_cover.cli:main"
 
 
@@ -21,6 +22,12 @@ def main() -> int:
     if entry_points.get("autoslice") != EXPECTED_ENTRY_POINT:
         print(
             "打包冒烟失败：autoslice 命令行入口缺失或指向错误",
+            file=sys.stderr,
+        )
+        return 1
+    if entry_points.get("autoslice-setup-asr") != EXPECTED_ASR_ENTRY_POINT:
+        print(
+            "打包冒烟失败：autoslice-setup-asr 命令行入口缺失或指向错误",
             file=sys.stderr,
         )
         return 1

@@ -43,18 +43,7 @@ Issues = "https://github.com/YRMDLG/AutoSlice/issues"
 [tool.setuptools]
 include-package-data = true
 package-dir = {"" = "src"}
-packages = [
-  "autoslice",
-  "autoslice.analysis",
-  "autoslice.analysis.manual",
-  "autoslice.analysis.report",
-  "autoslice.analysis.review",
-  "autoslice.analysis.topic",
-  "autoslice.llm",
-  "autoslice.transcription",
-  "autoslice.web",
-  "autoslice_cover",
-]
+packages = { find = { where = ["src"], namespaces = false } }
 
 [tool.setuptools.package-data]
 autoslice = [

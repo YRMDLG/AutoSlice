@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BAD_WHEEL_MEMBER = "autoslice/analysis/topic/response.py"
+PRODUCT_PACKAGE_ROOTS = ("autoslice", "autoslice_cover")
 
 
 def _release_files(root: Path = ROOT) -> list[Path]:
@@ -119,6 +120,46 @@ def _package_tree(package_root: Path) -> dict[str, tuple[int, str]]:
     return result
 
 
+def _source_package_members(source_root: Path) -> set[str]:
+    """返回源码树中显式声明的常规包成员。"""
+
+    src_root = source_root / "src"
+    members: set[str] = set()
+    for package_name in PRODUCT_PACKAGE_ROOTS:
+        package_root = src_root / package_name
+        for init_file in package_root.rglob("__init__.py"):
+            members.add(init_file.relative_to(src_root).as_posix())
+    return members
+
+
+def _verify_wheel_package_members(wheel_path: Path, source_root: Path) -> None:
+    """确认自动发现与源码常规包完全一致，且 resources 不是包。"""
+
+    expected = _source_package_members(source_root)
+    with zipfile.ZipFile(wheel_path) as archive:
+        names = set(archive.namelist())
+    actual = {
+        name
+        for name in names
+        if name.endswith("/__init__.py")
+        and name.split("/", 1)[0] in PRODUCT_PACKAGE_ROOTS
+    }
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unexpected = sorted(actual - expected)
+        raise RuntimeError(
+            "wheel 自动发现包集合与源码不一致："
+            f"缺失={missing or '无'}，多余={unexpected or '无'}"
+        )
+    forbidden = {
+        "autoslice/resources/__init__.py",
+        "autoslice_cover/resources/__init__.py",
+    }
+    leaked = sorted(forbidden & names)
+    if leaked:
+        raise RuntimeError(f"resources 被错误识别为 Python 包：{leaked}")
+
+
 def _installed_origins(
     python: Path,
     *,
@@ -153,6 +194,73 @@ def _assert_installed_from_venv(
             raise RuntimeError(f"{name} 未从临时安装环境导入: {origin}")
         package_roots.append(origin.parent)
     return package_roots[0], package_roots[1]
+
+
+def _assert_imported_from_source(
+    origins: dict[str, str],
+    *,
+    source_root: Path,
+) -> None:
+    expected_root = (source_root / "src").resolve()
+    for name in PRODUCT_PACKAGE_ROOTS:
+        origin = Path(origins[name]).resolve()
+        if origin.parent != expected_root / name:
+            raise RuntimeError(f"{name} 未从隔离源码树导入: {origin}")
+
+
+def _verify_source_runtime(
+    *,
+    source_root: Path,
+    venv_root: Path,
+    outside_root: Path,
+    data_root: Path,
+) -> None:
+    """不安装项目，直接从隔离 source copy 验证包和资源。"""
+
+    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(venv_root)
+    python = _venv_executable(venv_root, "python")
+    runtime_env = _runtime_environment(data_root)
+    runtime_env["PYTHONPATH"] = str(source_root / "src")
+    origins = _installed_origins(python, cwd=outside_root, env=runtime_env)
+    _assert_imported_from_source(origins, source_root=source_root)
+    script = """
+import importlib.resources
+
+required = (
+    importlib.resources.files("autoslice") / "resources" / "templates" / "topic_v2.html",
+    importlib.resources.files("autoslice") / "resources" / "static" / "workbench.css",
+    importlib.resources.files("autoslice") / "streamer_profiles.json",
+    importlib.resources.files("autoslice") / "title_style_profile.example.json",
+    importlib.resources.files("autoslice_cover") / "resources" / "templates" / "index.html",
+    importlib.resources.files("autoslice_cover") / "resources" / "static" / "app.js",
+    importlib.resources.files("autoslice_cover") / "resources" / "static" / "styles.css",
+)
+if any(not resource.is_file() for resource in required):
+    raise SystemExit("源码态包资源不完整")
+"""
+    _run_checked([str(python), "-B", "-c", script], cwd=outside_root, env=runtime_env)
+
+
+def _install_editable(
+    *,
+    source_root: Path,
+    venv_root: Path,
+    outside_root: Path,
+) -> Path:
+    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(venv_root)
+    python = _venv_executable(venv_root, "python")
+    build_env = _direct_build_environment()
+    _run_checked(
+        [str(python), "-m", "pip", "install", "--upgrade", "pip>=24,<27"],
+        cwd=outside_root,
+        env=build_env,
+    )
+    _run_checked(
+        [str(python), "-m", "pip", "install", "--no-deps", "--editable", str(source_root)],
+        cwd=outside_root,
+        env=build_env,
+    )
+    return python
 
 
 def _build_and_install_wheel(
@@ -304,13 +412,13 @@ def _verify_installed_runtime(
         "autoslice": _package_tree(autoslice_root),
         "autoslice_cover": _package_tree(cover_root),
     }
-    commands = (
-        [str(python), "-B", str(source_root / "scripts" / "smoke_packaging.py")],
-        [str(_venv_executable(venv_root, "autoslice")), "--help"],
-        [str(_venv_executable(venv_root, "autoslice-cover")), "--help"],
+    _verify_cli_and_resources(
+        python=python,
+        venv_root=venv_root,
+        source_root=source_root,
+        outside_root=outside_root,
+        runtime_env=runtime_env,
     )
-    for command in commands:
-        _run_checked(command, cwd=outside_root, env=runtime_env)
     after = {
         "autoslice": _package_tree(autoslice_root),
         "autoslice_cover": _package_tree(cover_root),
@@ -319,15 +427,85 @@ def _verify_installed_runtime(
         raise RuntimeError("安装包在帮助或资源冒烟期间回写了 site-packages")
 
 
+def _verify_cli_and_resources(
+    *,
+    python: Path,
+    venv_root: Path,
+    source_root: Path,
+    outside_root: Path,
+    runtime_env: dict[str, str],
+) -> None:
+    """验证已安装资源和只读 CLI；不执行会下载模型的安装命令。"""
+
+    executables = {
+        name: _venv_executable(venv_root, name)
+        for name in ("autoslice", "autoslice-setup-asr", "autoslice-cover")
+    }
+    missing = sorted(name for name, path in executables.items() if not path.is_file())
+    if missing:
+        raise RuntimeError(f"安装包缺少命令行可执行文件：{missing}")
+    commands = (
+        [str(python), "-B", str(source_root / "scripts" / "smoke_packaging.py")],
+        [str(executables["autoslice"]), "--help"],
+        [str(executables["autoslice-cover"]), "--help"],
+    )
+    for command in commands:
+        _run_checked(command, cwd=outside_root, env=runtime_env)
+
+
+def _verify_editable_runtime(
+    *,
+    python: Path,
+    source_root: Path,
+    venv_root: Path,
+    outside_root: Path,
+    data_root: Path,
+) -> None:
+    """确认 editable 安装仍从 source 布局加载并保留资源和 CLI。"""
+
+    runtime_env = _runtime_environment(data_root)
+    origins = _installed_origins(python, cwd=outside_root, env=runtime_env)
+    _assert_imported_from_source(origins, source_root=source_root)
+    _verify_cli_and_resources(
+        python=python,
+        venv_root=venv_root,
+        source_root=source_root,
+        outside_root=outside_root,
+        runtime_env=runtime_env,
+    )
+
+
 def _verify_distribution(temp_root: Path) -> None:
     source_root = temp_root / "source"
     wheel_dir = temp_root / "wheel"
+    source_venv = temp_root / "source-venv"
+    editable_venv = temp_root / "editable-venv"
     venv_root = temp_root / "venv"
     outside_root = temp_root / "outside-repo"
     data_root = temp_root / "user-data"
+    editable_data_root = temp_root / "editable-user-data"
+    source_data_root = temp_root / "source-user-data"
     for directory in (source_root, wheel_dir, outside_root, data_root):
         directory.mkdir()
     _copy_release(source_root)
+    _verify_source_runtime(
+        source_root=source_root,
+        venv_root=source_venv,
+        outside_root=outside_root,
+        data_root=source_data_root,
+    )
+    editable_python = _install_editable(
+        source_root=source_root,
+        venv_root=editable_venv,
+        outside_root=outside_root,
+    )
+    _verify_editable_runtime(
+        python=editable_python,
+        source_root=source_root,
+        venv_root=editable_venv,
+        outside_root=outside_root,
+        data_root=editable_data_root,
+    )
     python, wheel_path = _build_and_install_wheel(
         source_root=source_root,
         wheel_dir=wheel_dir,
@@ -341,6 +519,7 @@ def _verify_distribution(temp_root: Path) -> None:
         outside_root=outside_root,
         data_root=data_root,
     )
+    _verify_wheel_package_members(wheel_path, source_root)
     _verify_bad_wheel(
         wheel_path=wheel_path,
         source_root=source_root,

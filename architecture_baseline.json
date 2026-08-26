@@ -4878,7 +4878,7 @@
         "autoslice"
       ],
       "lines": [
-        34
+        41
       ],
       "to": "autoslice"
     },
@@ -4888,7 +4888,7 @@
         "autoslice.analysis.manual"
       ],
       "lines": [
-        35
+        42
       ],
       "to": "autoslice.analysis.manual"
     },
@@ -4898,7 +4898,7 @@
         "autoslice.analysis.report"
       ],
       "lines": [
-        36
+        43
       ],
       "to": "autoslice.analysis.report"
     },
@@ -4908,7 +4908,7 @@
         "autoslice.analysis.review"
       ],
       "lines": [
-        37
+        44
       ],
       "to": "autoslice.analysis.review"
     },
@@ -4918,7 +4918,7 @@
         "autoslice.analysis.topic"
       ],
       "lines": [
-        38
+        45
       ],
       "to": "autoslice.analysis.topic"
     },
@@ -4928,7 +4928,7 @@
         "autoslice.launcher"
       ],
       "lines": [
-        39
+        46
       ],
       "to": "autoslice.launcher"
     },
@@ -4938,7 +4938,7 @@
         "autoslice.pipeline"
       ],
       "lines": [
-        40
+        47
       ],
       "to": "autoslice.pipeline"
     },
@@ -4948,7 +4948,7 @@
         "autoslice.runtime_config"
       ],
       "lines": [
-        41
+        48
       ],
       "to": "autoslice.runtime_config"
     },
@@ -4958,7 +4958,7 @@
         "autoslice.web.app"
       ],
       "lines": [
-        42
+        49
       ],
       "to": "autoslice.web.app"
     },
@@ -4968,7 +4968,7 @@
         "autoslice_cover"
       ],
       "lines": [
-        43
+        50
       ],
       "to": "autoslice_cover"
     },
@@ -4978,7 +4978,7 @@
         "autoslice_cover.app"
       ],
       "lines": [
-        44
+        51
       ],
       "to": "autoslice_cover.app"
     },
@@ -14447,23 +14447,23 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 86,
+      "line_count": 93,
       "longest_function": {
-        "end_line": 82,
+        "end_line": 89,
         "kind": "function",
-        "line": 14,
-        "line_count": 69,
+        "line": 15,
+        "line_count": 75,
         "qualname": "main"
       },
       "module": "scripts.smoke_packaging",
       "path": "scripts/smoke_packaging.py",
-      "sha256": "e02bd4316a4a347f946ec937f4025512504d91152ae1e4a1d05144512486107c",
+      "sha256": "1268ef7727228afb282012d247e40f6ac1c03b4f2199a402d80383a148097a0c",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 82,
+          "end_line": 89,
           "kind": "function",
-          "line": 14,
+          "line": 15,
           "name": "main"
         }
       ]
@@ -14570,107 +14570,149 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 372,
+      "line_count": 551,
       "longest_function": {
-        "end_line": 285,
+        "end_line": 393,
         "kind": "function",
-        "line": 227,
+        "line": 335,
         "line_count": 59,
         "qualname": "_verify_bad_wheel"
       },
       "module": "scripts.verify_distribution",
       "path": "scripts/verify_distribution.py",
-      "sha256": "cd9f101dec28fb973e2476fb55bd459d6932a79b8dc886455f4203802074b76a",
+      "sha256": "46e3590a8ac34181973e163f2df25e887bcb753eb3436b9e61cd935ba509948c",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 30,
+          "end_line": 31,
           "kind": "function",
-          "line": 20,
+          "line": 21,
           "name": "_release_files"
         },
         {
-          "end_line": 37,
+          "end_line": 38,
           "kind": "function",
-          "line": 33,
+          "line": 34,
           "name": "_copy_release"
         },
         {
-          "end_line": 43,
+          "end_line": 44,
           "kind": "function",
-          "line": 40,
+          "line": 41,
           "name": "_venv_executable"
         },
         {
-          "end_line": 71,
+          "end_line": 72,
           "kind": "function",
-          "line": 46,
+          "line": 47,
           "name": "_run_checked"
         },
         {
-          "end_line": 91,
+          "end_line": 92,
           "kind": "function",
-          "line": 74,
+          "line": 75,
           "name": "_direct_build_environment"
         },
         {
-          "end_line": 107,
+          "end_line": 108,
           "kind": "function",
-          "line": 94,
+          "line": 95,
           "name": "_runtime_environment"
         },
         {
-          "end_line": 119,
+          "end_line": 120,
           "kind": "function",
-          "line": 110,
+          "line": 111,
           "name": "_package_tree"
         },
         {
-          "end_line": 136,
+          "end_line": 132,
           "kind": "function",
-          "line": 122,
+          "line": 123,
+          "name": "_source_package_members"
+        },
+        {
+          "end_line": 160,
+          "kind": "function",
+          "line": 135,
+          "name": "_verify_wheel_package_members"
+        },
+        {
+          "end_line": 177,
+          "kind": "function",
+          "line": 163,
           "name": "_installed_origins"
         },
         {
-          "end_line": 155,
+          "end_line": 196,
           "kind": "function",
-          "line": 139,
+          "line": 180,
           "name": "_assert_installed_from_venv"
         },
         {
-          "end_line": 210,
+          "end_line": 208,
           "kind": "function",
-          "line": 158,
+          "line": 199,
+          "name": "_assert_imported_from_source"
+        },
+        {
+          "end_line": 241,
+          "kind": "function",
+          "line": 211,
+          "name": "_verify_source_runtime"
+        },
+        {
+          "end_line": 263,
+          "kind": "function",
+          "line": 244,
+          "name": "_install_editable"
+        },
+        {
+          "end_line": 318,
+          "kind": "function",
+          "line": 266,
           "name": "_build_and_install_wheel"
         },
         {
-          "end_line": 224,
+          "end_line": 332,
           "kind": "function",
-          "line": 213,
+          "line": 321,
           "name": "_make_bad_wheel"
         },
         {
-          "end_line": 285,
+          "end_line": 393,
           "kind": "function",
-          "line": 227,
+          "line": 335,
           "name": "_verify_bad_wheel"
         },
         {
-          "end_line": 319,
+          "end_line": 427,
           "kind": "function",
-          "line": 288,
+          "line": 396,
           "name": "_verify_installed_runtime"
         },
         {
-          "end_line": 349,
+          "end_line": 453,
           "kind": "function",
-          "line": 322,
+          "line": 430,
+          "name": "_verify_cli_and_resources"
+        },
+        {
+          "end_line": 475,
+          "kind": "function",
+          "line": 456,
+          "name": "_verify_editable_runtime"
+        },
+        {
+          "end_line": 528,
+          "kind": "function",
+          "line": 478,
           "name": "_verify_distribution"
         },
         {
-          "end_line": 368,
+          "end_line": 547,
           "kind": "function",
-          "line": 352,
+          "line": 531,
           "name": "main"
         }
       ]
@@ -15087,11 +15129,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 477,
-    "production_line_count": 43839,
+    "production_line_count": 44025,
     "production_module_count": 179,
     "test_private_patch_count": 17,
     "top_level_class_count": 109,
-    "top_level_function_count": 1029
+    "top_level_function_count": 1036
   },
   "test_private_patches": {
     "by_target_module": {
