@@ -14553,35 +14553,59 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 194,
+      "line_count": 314,
       "longest_function": {
-        "end_line": 113,
+        "end_line": 119,
         "kind": "function",
-        "line": 49,
+        "line": 55,
         "line_count": 65,
         "qualname": "_validate_dependency_contract"
       },
       "module": "scripts.validate_public_docs",
       "path": "scripts/validate_public_docs.py",
-      "sha256": "6849d796c14dd3250e5805f59465308aab7be568b79f26041b7bd4c514598335",
+      "sha256": "dc8309c11810314934b02ac581f3bfa6a019025150b935a9ec6ffae55409c51a",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 113,
+          "end_line": 119,
           "kind": "function",
-          "line": 49,
+          "line": 55,
           "name": "_validate_dependency_contract"
         },
         {
-          "end_line": 142,
+          "end_line": 148,
           "kind": "function",
-          "line": 116,
+          "line": 122,
           "name": "_validate_examples"
         },
         {
-          "end_line": 190,
+          "end_line": 153,
           "kind": "function",
-          "line": 145,
+          "line": 151,
+          "name": "_field"
+        },
+        {
+          "end_line": 165,
+          "kind": "function",
+          "line": 156,
+          "name": "_action_rows"
+        },
+        {
+          "end_line": 227,
+          "kind": "function",
+          "line": 168,
+          "name": "_validate_action_contract"
+        },
+        {
+          "end_line": 261,
+          "kind": "function",
+          "line": 230,
+          "name": "_validate_governance_links"
+        },
+        {
+          "end_line": 310,
+          "kind": "function",
+          "line": 264,
           "name": "main"
         }
       ]
@@ -15147,11 +15171,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 478,
-    "production_line_count": 44236,
+    "production_line_count": 44356,
     "production_module_count": 179,
     "test_private_patch_count": 17,
     "top_level_class_count": 110,
-    "top_level_function_count": 1036
+    "top_level_function_count": 1040
   },
   "test_private_patches": {
     "by_target_module": {

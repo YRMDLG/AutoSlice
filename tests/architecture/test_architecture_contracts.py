@@ -146,6 +146,40 @@ class ArchitectureSnapshotTests(unittest.TestCase):
 
         self.assertEqual(errors, [])
 
+    def test_public_plan_and_ledger_contract_matches_current_files(self):
+        errors = []
+        validate_public_docs._validate_governance_links(errors)
+        self.assertEqual(errors, [])
+
+    def test_action_contract_rejects_unknown_dependency_and_duplicate_ids(self):
+        errors = []
+        plan = (
+            "plan_id: sample\n"
+            "plan_version: 1\n\n"
+            "| Action | 依赖 | 目标 | 条件性 |\n"
+            "|---|---|---|---|\n"
+            "| H0-ONE | 无 | first | 否 |\n"
+            "| H1-TWO | H9-MISSING | second | 否 |\n"
+            "| H1-TWO | H0-ONE | duplicate | 否 |\n"
+        )
+        ledger = (
+            "| 全局 ID | 来源计划 | 完成时间 | Commit | CI | 摘要 |\n"
+            "|---|---|---|---|---|---|\n"
+            "| H0-ONE | sample | 2026-08-27 | commit | CI | one |\n"
+            "| H0-ONE | sample | 2026-08-27 | commit | CI | duplicate |\n"
+        )
+        active = (
+            "plan_id: sample\n"
+            "plan_ref: docs/plans/backend-hardening-next.md\n"
+            "ledger_ref: docs/action-ledger.md\n"
+        )
+
+        validate_public_docs._validate_action_contract(plan, ledger, active, errors)
+
+        self.assertTrue(any("重复 Action ID" in error for error in errors))
+        self.assertTrue(any("不存在的依赖" in error for error in errors))
+        self.assertTrue(any("重复 ID" in error for error in errors))
+
     def test_private_video_topic_analyzer_is_outside_architecture_scope(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2633,7 +2667,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 1036)
+        self.assertEqual(current["summary"]["top_level_function_count"], 1040)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5385,7 +5419,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            1036,
+            1040,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
