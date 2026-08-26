@@ -57,6 +57,7 @@
 | H2-MEDIA-ROBUST | backend-hardening-next | 2026-08-26 | [e886b90](../commit/e886b90fedeea1916bf37e7dfaa5731911ffabcd) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32960072692) | 为 JSON 请求、上传、登记产物和 LAN 路径遍历增加深度、节点、数组、字段、字符串与请求体预算；深层数据按调用方返回受控拒绝或显式不完整；零字节媒体不签发 token，并覆盖 1 字节 GET/HEAD 长度契约。 |
 | H2-COVER-INPUT-ROBUST | backend-hardening-next | 2026-08-26 | [34a646c](../commit/34a646ca736f188f8a3925a1b21a8194186eab42) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32966021372) | 为贴图扫描、导入、初始化和刷新增加原始字节、尺寸、像素与动画帧解码预算；隔离坏贴图和 Pillow 解码异常，保留正常 PNG/JPEG/WebP，且不删除原文件。 |
 | H3-ARCH-DOC | backend-hardening-next | 2026-08-27 | [aedbe11](../commit/aedbe110ba0ecc3b65bd261b1b919e7305d4eacd) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33004617373) | 更新架构 owner 与快照契约：明确完整时间轴、任务级媒体预览和 `quality_overview` 的职责边界，刷新架构基线指标，并将测试数量、行号、CI run 等定义为审阅快照而非永久完成条件。 |
+| H3-LEDGER-GUARD | backend-hardening-next | 2026-08-27 | [3c99750](../commit/3c99750623bcc7691156431b8af6355276632ebf) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33007772261) | 将专项计划、活动计划和公开总账纳入动态文档门禁，校验 plan/ledger 引用、Action ID 唯一性、依赖存在且无环、治理链接和全部 `../commit/<sha>` 的 40 位格式；修正总账中一个历史 commit 链接拼写错误。 |
 
 ## 记录规则
 
