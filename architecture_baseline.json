@@ -14570,95 +14570,107 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 289,
+      "line_count": 372,
       "longest_function": {
-        "end_line": 208,
+        "end_line": 285,
         "kind": "function",
-        "line": 156,
-        "line_count": 53,
-        "qualname": "_build_and_install_wheel"
+        "line": 227,
+        "line_count": 59,
+        "qualname": "_verify_bad_wheel"
       },
       "module": "scripts.verify_distribution",
       "path": "scripts/verify_distribution.py",
-      "sha256": "451a03c4c27e49f2aaa5f12e66420995a2bb4b1a5686c36a60d17ff0b3f5e468",
+      "sha256": "cd9f101dec28fb973e2476fb55bd459d6932a79b8dc886455f4203802074b76a",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 28,
+          "end_line": 30,
           "kind": "function",
-          "line": 18,
+          "line": 20,
           "name": "_release_files"
         },
         {
-          "end_line": 35,
+          "end_line": 37,
           "kind": "function",
-          "line": 31,
+          "line": 33,
           "name": "_copy_release"
         },
         {
-          "end_line": 41,
+          "end_line": 43,
           "kind": "function",
-          "line": 38,
+          "line": 40,
           "name": "_venv_executable"
         },
         {
-          "end_line": 69,
+          "end_line": 71,
           "kind": "function",
-          "line": 44,
+          "line": 46,
           "name": "_run_checked"
         },
         {
-          "end_line": 89,
+          "end_line": 91,
           "kind": "function",
-          "line": 72,
+          "line": 74,
           "name": "_direct_build_environment"
         },
         {
-          "end_line": 105,
+          "end_line": 107,
           "kind": "function",
-          "line": 92,
+          "line": 94,
           "name": "_runtime_environment"
         },
         {
-          "end_line": 117,
+          "end_line": 119,
           "kind": "function",
-          "line": 108,
+          "line": 110,
           "name": "_package_tree"
         },
         {
-          "end_line": 134,
+          "end_line": 136,
           "kind": "function",
-          "line": 120,
+          "line": 122,
           "name": "_installed_origins"
         },
         {
-          "end_line": 153,
+          "end_line": 155,
           "kind": "function",
-          "line": 137,
+          "line": 139,
           "name": "_assert_installed_from_venv"
         },
         {
-          "end_line": 208,
+          "end_line": 210,
           "kind": "function",
-          "line": 156,
+          "line": 158,
           "name": "_build_and_install_wheel"
         },
         {
-          "end_line": 242,
+          "end_line": 224,
           "kind": "function",
-          "line": 211,
-          "name": "_verify_installed_runtime"
-        },
-        {
-          "end_line": 266,
-          "kind": "function",
-          "line": 245,
-          "name": "_verify_distribution"
+          "line": 213,
+          "name": "_make_bad_wheel"
         },
         {
           "end_line": 285,
           "kind": "function",
-          "line": 269,
+          "line": 227,
+          "name": "_verify_bad_wheel"
+        },
+        {
+          "end_line": 319,
+          "kind": "function",
+          "line": 288,
+          "name": "_verify_installed_runtime"
+        },
+        {
+          "end_line": 349,
+          "kind": "function",
+          "line": 322,
+          "name": "_verify_distribution"
+        },
+        {
+          "end_line": 368,
+          "kind": "function",
+          "line": 352,
           "name": "main"
         }
       ]
@@ -15075,11 +15087,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 477,
-    "production_line_count": 43756,
+    "production_line_count": 43839,
     "production_module_count": 179,
     "test_private_patch_count": 17,
     "top_level_class_count": 109,
-    "top_level_function_count": 1027
+    "top_level_function_count": 1029
   },
   "test_private_patches": {
     "by_target_module": {

@@ -10,9 +10,11 @@ import subprocess
 import sys
 import tempfile
 import venv
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+BAD_WHEEL_MEMBER = "autoslice/analysis/topic/response.py"
 
 
 def _release_files(root: Path = ROOT) -> list[Path]:
@@ -159,7 +161,7 @@ def _build_and_install_wheel(
     wheel_dir: Path,
     venv_root: Path,
     outside_root: Path,
-) -> Path:
+) -> tuple[Path, Path]:
     venv.EnvBuilder(with_pip=True, system_site_packages=True).create(venv_root)
     python = _venv_executable(venv_root, "python")
     build_env = _direct_build_environment()
@@ -205,7 +207,82 @@ def _build_and_install_wheel(
         cwd=outside_root,
         env=build_env,
     )
-    return python
+    return python, wheels[0]
+
+
+def _make_bad_wheel(wheel_path: Path, output_path: Path) -> None:
+    """从正常 wheel 制造一个仅缺少深层模块的受控反例。"""
+
+    with zipfile.ZipFile(wheel_path) as source:
+        names = set(source.namelist())
+        if BAD_WHEEL_MEMBER not in names:
+            raise RuntimeError(f"正常 wheel 缺少反例目标：{BAD_WHEEL_MEMBER}")
+        with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as target:
+            for info in source.infolist():
+                if info.filename == BAD_WHEEL_MEMBER:
+                    continue
+                target.writestr(info, source.read(info.filename))
+
+
+def _verify_bad_wheel(
+    *,
+    wheel_path: Path,
+    source_root: Path,
+    outside_root: Path,
+    temp_root: Path,
+) -> None:
+    """在无系统包污染的仓库外环境确认缺包会被真实发现。"""
+
+    bad_wheel_dir = temp_root / "bad-wheel"
+    bad_wheel_dir.mkdir()
+    bad_wheel = bad_wheel_dir / wheel_path.name
+    bad_venv = temp_root / "bad-venv"
+    _make_bad_wheel(wheel_path, bad_wheel)
+    venv.EnvBuilder(with_pip=True, system_site_packages=False).create(bad_venv)
+    python = _venv_executable(bad_venv, "python")
+    runtime_env = _runtime_environment(temp_root / "bad-user-data")
+    expected_source = repr(str(source_root.resolve()))
+    script = f"""
+import importlib
+import json
+from pathlib import Path
+
+import autoslice
+
+origin = Path(autoslice.__file__).resolve()
+source_root = Path({expected_source})
+if origin == source_root or source_root in origin.parents:
+    raise SystemExit(f"源码树污染了坏 wheel 验证：{{origin}}")
+try:
+    importlib.import_module("autoslice.analysis.topic.response")
+except ModuleNotFoundError as exc:
+    payload = {{"missing": exc.name}}
+    print(json.dumps(payload, ensure_ascii=False))
+    raise SystemExit(0 if exc.name == "autoslice.analysis.topic.response" else 1)
+except Exception as exc:
+    print(json.dumps({{"unexpected": type(exc).__name__}}, ensure_ascii=False))
+    raise SystemExit(1)
+else:
+    raise SystemExit("坏 wheel 未暴露预期的缺包失败")
+"""
+    _run_checked(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--force-reinstall",
+            str(bad_wheel),
+        ],
+        cwd=outside_root,
+        env=_direct_build_environment(),
+    )
+    _run_checked(
+        [str(python), "-B", "-c", script],
+        cwd=outside_root,
+        env=runtime_env,
+    )
 
 
 def _verify_installed_runtime(
@@ -251,7 +328,7 @@ def _verify_distribution(temp_root: Path) -> None:
     for directory in (source_root, wheel_dir, outside_root, data_root):
         directory.mkdir()
     _copy_release(source_root)
-    python = _build_and_install_wheel(
+    python, wheel_path = _build_and_install_wheel(
         source_root=source_root,
         wheel_dir=wheel_dir,
         venv_root=venv_root,
@@ -263,6 +340,12 @@ def _verify_distribution(temp_root: Path) -> None:
         venv_root=venv_root,
         outside_root=outside_root,
         data_root=data_root,
+    )
+    _verify_bad_wheel(
+        wheel_path=wheel_path,
+        source_root=source_root,
+        outside_root=outside_root,
+        temp_root=temp_root,
     )
 
 
