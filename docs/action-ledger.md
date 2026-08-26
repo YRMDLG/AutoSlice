@@ -49,6 +49,7 @@
 | T1-UI | frontend-next | 2026-08-25 | [4c349b5](../commit/4c349b5a3c36195f6dcabe6b2ec77068a78218de) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32793084340) | 接入独立只读时间轴，展示整场刻度、最终切片、边缘候选、筛选、详情和 complete/truncated 不完整提示；同步修复筛选后的旧详情残留并刷新架构快照。 |
 | T1-MEDIA | frontend-next | 2026-08-25 | [7ba49f6](../commit/7ba49f6b2c904f444aca026c6aa9a862c693ed6) / [353ac7d](../commit/353ac7d501f8484f00b4408f37f57a7901dc576b) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32799480104) | 新增独立 AutoSlice 任务级短片 token 与单 Range/HEAD 安全预览；拒绝任意 path、跨任务产物、整场源视频、路径穿越和符号链接越界，并兼容 Windows 短路径别名。 |
 | T1-LINK | frontend-next | 2026-08-25 | [efbe959](../commit/efbe9595e952e733c3df17ea17f7ea184df6c720) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32811978581) | 将时间轴色块与结果卡片连接到任务级安全短片预览；处理关闭保留选择、边缘候选不可预览、竞态、旧数据和脱敏失败，并为时间轴唯一匹配 manifest 的 clip_id。 |
+| H0-SEC-PATH-BOUNDARY | backend-hardening-next | 2026-08-26 | [275d71e](../commit/275d71e658e5572598518a6d6f7f4eee6226f559) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32936721953) | 校验 AutoSlice/AutoCover 最终有效路径、默认目录、登记产物和媒体 token 的二次边界，加入文件身份与 LAN 响应脱敏保护，并完成当前提交的 Windows/Linux CI 验证。 |
 
 ## 记录规则
 
