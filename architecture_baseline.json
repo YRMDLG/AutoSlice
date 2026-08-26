@@ -8444,7 +8444,7 @@
       },
       "module": "autoslice.llm.transport",
       "path": "src/autoslice/llm/transport.py",
-      "sha256": "5192d63f18d2be38d0afbca740fd6ad2dc9f08b9436ff470874701525b466ed1",
+      "sha256": "2b445fe65a390c73a8438dad4bd2c9dac7007534b58b5a05b1626bbf11320b2b",
       "top_level_classes": [
         {
           "end_line": 66,
