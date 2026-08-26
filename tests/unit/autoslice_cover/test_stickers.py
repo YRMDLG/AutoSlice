@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -30,6 +32,23 @@ class StickerLibraryTests(unittest.TestCase):
         (self.expressions / "损坏.png").write_bytes(b"not-an-image")
         self.library = StickerLibrary(self.root, import_root=self.imported)
 
+    @staticmethod
+    def _png_with_dimensions(width: int, height: int) -> bytes:
+        """构造只含 PNG 头的测试输入，用于验证尺寸异常不会进入解码。"""
+
+        import struct
+        import zlib
+
+        header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+        chunk = b"IHDR" + header
+        return (
+            b"\x89PNG\r\n\x1a\n"
+            + struct.pack(">I", len(header))
+            + chunk
+            + struct.pack(">I", zlib.crc32(chunk) & 0xFFFFFFFF)
+            + b"\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
@@ -49,6 +68,7 @@ class StickerLibraryTests(unittest.TestCase):
         self.assertEqual(summary["group_count"], 2)
         self.assertEqual(summary["invalid_count"], 1)
         self.assertNotIn(str(self.root), str(summary))
+        self.assertTrue((self.expressions / "损坏.png").is_file())
 
     def test_expression_root_groups_assets_by_streamer_directory(self) -> None:
         streamer_dir = self.root / "表情包" / "泽音melody" / "开心"
@@ -86,6 +106,60 @@ class StickerLibraryTests(unittest.TestCase):
         self.assertEqual(library.scan(), [])
         self.assertEqual(library.list_assets(), [])
         self.assertFalse(library.summary()["available"])
+
+    def test_import_rejects_each_decode_budget_without_writing(self) -> None:
+        image_bytes = io.BytesIO()
+        Image.new("RGB", (2, 2), "#40c8dd").save(image_bytes, format="PNG")
+        raw = image_bytes.getvalue()
+
+        for name, setting, limit in (
+            ("pixels", "MAX_STICKER_PIXELS", 3),
+            ("width", "MAX_STICKER_WIDTH", 1),
+            ("height", "MAX_STICKER_HEIGHT", 1),
+            ("bytes", "MAX_STICKER_BYTES", len(raw) - 1),
+        ):
+            with self.subTest(name=name), patch(
+                f"autoslice_cover.stickers.{setting}", limit
+            ):
+                with self.assertRaisesRegex(ValueError, "不是有效图片"):
+                    self.library.import_image(f"超限-{name}.png", raw)
+            self.assertFalse(any(self.imported.glob(f"超限-{name}-*")))
+
+    def test_import_rejects_decompression_bomb_without_writing(self) -> None:
+        raw = self._png_with_dimensions(100_000, 100_000)
+
+        with self.assertRaisesRegex(ValueError, "不是有效图片"):
+            self.library.import_image("超大.png", raw)
+        self.assertFalse(any(self.imported.glob("超大-*")))
+
+    def test_animated_webp_is_bounded_by_frame_budget(self) -> None:
+        first = Image.new("RGBA", (8, 8), (255, 0, 0, 255))
+        second = Image.new("RGBA", (8, 8), (0, 255, 0, 255))
+        image_bytes = io.BytesIO()
+        first.save(
+            image_bytes,
+            format="WEBP",
+            save_all=True,
+            append_images=[second],
+            duration=20,
+            loop=0,
+        )
+
+        with patch("autoslice_cover.stickers.MAX_STICKER_FRAMES", 1):
+            with self.assertRaisesRegex(ValueError, "不是有效图片"):
+                self.library.import_image("动画.webp", image_bytes.getvalue())
+
+        asset = self.library.import_image("动画.webp", image_bytes.getvalue())
+        self.assertEqual((asset.width, asset.height), (8, 8))
+        self.assertTrue(any(self.imported.glob("动画-*.webp")))
+
+    def test_resolve_revalidates_a_replaced_registered_file(self) -> None:
+        asset = self.library.scan()[0]
+        path = self.library.resolve(asset.id)
+        path.write_bytes(b"not-an-image")
+
+        with self.assertRaisesRegex(ValueError, "损坏或超过"):
+            self.library.resolve(asset.id)
 
 
 if __name__ == "__main__":

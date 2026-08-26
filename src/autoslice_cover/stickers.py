@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+import warnings
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -16,6 +17,26 @@ from PIL import Image, UnidentifiedImageError
 from .paths import DEFAULT_IMPORTED_STICKER_ROOT, DEFAULT_STICKER_ROOT
 
 SUPPORTED_STICKER_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+MAX_STICKER_BYTES = 16_000_000
+MAX_STICKER_PIXELS = 20_000_000
+MAX_STICKER_WIDTH = 8_192
+MAX_STICKER_HEIGHT = 8_192
+MAX_STICKER_FRAMES = 8
+
+
+class StickerValidationError(ValueError):
+    """贴图未通过安全解码预算或格式校验。"""
+
+
+_IMAGE_VALIDATION_ERRORS = (
+    Image.DecompressionBombError,
+    Image.DecompressionBombWarning,
+    UnidentifiedImageError,
+    OSError,
+    EOFError,
+    SyntaxError,
+    StickerValidationError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +77,66 @@ class StickerLibrary:
         self._paths: dict[str, Path] = {}
         self._root_available = False
         self._invalid_count = 0
+
+    @staticmethod
+    def _image_source(source: Path | bytes) -> Path | io.BytesIO:
+        return io.BytesIO(source) if isinstance(source, bytes) else source
+
+    @staticmethod
+    def _validated_image_metadata(image: Image.Image) -> tuple[int, int, int]:
+        width, height = image.size
+        if (
+            width <= 0
+            or height <= 0
+            or width > MAX_STICKER_WIDTH
+            or height > MAX_STICKER_HEIGHT
+            or width * height > MAX_STICKER_PIXELS
+        ):
+            raise StickerValidationError("贴图尺寸超过允许的解码预算")
+        try:
+            frame_count = int(getattr(image, "n_frames", 1))
+        except (TypeError, ValueError):
+            raise StickerValidationError("贴图动画帧数无效") from None
+        if frame_count < 1 or frame_count > MAX_STICKER_FRAMES:
+            raise StickerValidationError("贴图动画帧数超过允许的解码预算")
+        return width, height, frame_count
+
+    @classmethod
+    def _inspect_image(cls, source: Path | bytes) -> tuple[int, int]:
+        """先检查元数据，再解码每个允许的帧，避免只信任图片头。"""
+
+        if isinstance(source, bytes):
+            size = len(source)
+        else:
+            try:
+                size = source.stat().st_size
+            except OSError as exc:
+                raise StickerValidationError("贴图文件不可读取") from exc
+        if size <= 0:
+            raise StickerValidationError("导入图片为空")
+        if size > MAX_STICKER_BYTES:
+            raise StickerValidationError("贴图文件超过允许的大小预算")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(cls._image_source(source)) as image:
+                width, height, frame_count = cls._validated_image_metadata(image)
+                image.verify()
+
+            with Image.open(cls._image_source(source)) as image:
+                checked_width, checked_height, checked_frames = (
+                    cls._validated_image_metadata(image)
+                )
+                if (checked_width, checked_height, checked_frames) != (
+                    width,
+                    height,
+                    frame_count,
+                ):
+                    raise StickerValidationError("贴图元数据在解码前后不一致")
+                for frame_index in range(frame_count):
+                    image.seek(frame_index)
+                    image.load()
+        return width, height
 
     def _ensure_paths_allowed(self, *paths: Path) -> None:
         for path in paths:
@@ -116,14 +197,8 @@ class StickerLibrary:
             if not self._is_expression_pack(relative_path):
                 continue
             try:
-                with Image.open(resolved) as image:
-                    image.verify()
-                with Image.open(resolved) as image:
-                    width, height = image.size
-            except (OSError, UnidentifiedImageError):
-                self._invalid_count += 1
-                continue
-            if width <= 0 or height <= 0:
+                width, height = self._inspect_image(resolved)
+            except _IMAGE_VALIDATION_ERRORS:
                 self._invalid_count += 1
                 continue
 
@@ -149,13 +224,11 @@ class StickerLibrary:
                     or candidate.suffix.casefold() not in SUPPORTED_STICKER_EXTENSIONS
                 ):
                     continue
+                resolved = candidate.resolve()
+                self._ensure_paths_allowed(resolved)
                 try:
-                    self._ensure_paths_allowed(candidate.resolve())
-                    with Image.open(candidate) as image:
-                        image.verify()
-                    with Image.open(candidate) as image:
-                        width, height = image.size
-                except (OSError, UnidentifiedImageError):
+                    width, height = self._inspect_image(resolved)
+                except _IMAGE_VALIDATION_ERRORS:
                     self._invalid_count += 1
                     continue
                 relative_path = Path("我的导入") / candidate.name
@@ -168,7 +241,7 @@ class StickerLibrary:
                     width=width,
                     height=height,
                 )
-                paths[asset_id] = candidate.resolve()
+                paths[asset_id] = resolved
 
         self._assets = assets
         self._paths = paths
@@ -217,14 +290,9 @@ class StickerLibrary:
         if not raw:
             raise ValueError("导入图片为空")
         try:
-            with Image.open(io.BytesIO(raw)) as image:
-                image.verify()
-            with Image.open(io.BytesIO(raw)) as image:
-                width, height = image.size
-        except (OSError, UnidentifiedImageError) as exc:
+            width, height = self._inspect_image(raw)
+        except _IMAGE_VALIDATION_ERRORS as exc:
             raise ValueError("导入文件不是有效图片或图片已损坏") from exc
-        if width <= 0 or height <= 0:
-            raise ValueError("导入图片尺寸无效")
 
         digest = hashlib.sha256(raw).hexdigest()[:24]
         safe_stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", Path(filename).stem).strip(" ._")
@@ -260,4 +328,8 @@ class StickerLibrary:
                 continue
         if not allowed:
             raise KeyError("贴图素材不在允许目录中")
+        try:
+            self._inspect_image(path)
+        except _IMAGE_VALIDATION_ERRORS as exc:
+            raise ValueError("贴图文件已损坏或超过允许的解码预算") from exc
         return path

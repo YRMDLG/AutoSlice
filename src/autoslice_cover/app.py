@@ -31,7 +31,7 @@ from .renderer import (
     commit_output_transaction,
     render_cover,
 )
-from .stickers import DEFAULT_STICKER_ROOT, StickerLibrary
+from .stickers import DEFAULT_STICKER_ROOT, MAX_STICKER_BYTES, StickerLibrary
 from .style import CANVAS_SPECS, PALETTES, TEMPLATES
 from .titles import recommend_layout_variants
 from .workspace import (
@@ -46,7 +46,7 @@ MAX_COPY_LINES = 8
 MAX_COPY_LINE_LENGTH = 120
 MAX_EXPORT_TASKS = 100
 MAX_TASK_ID_LENGTH = 128
-MAX_STICKER_UPLOAD_BYTES = 16_000_000
+MAX_STICKER_UPLOAD_BYTES = MAX_STICKER_BYTES
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 DEPRECATION_WARNING = '299 AutoCover "Deprecated compatibility endpoint"'
 SESSION_BOOTSTRAP_PATHS = frozenset({"/", "/api/security/session"})

@@ -6,9 +6,11 @@ import io
 import json
 import os
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +24,20 @@ from autoslice_cover.workspace import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
 
 APP_MODULE = "autoslice_cover.app"
 WORKSPACE_MODULE = "autoslice_cover.workspace"
+
+
+def _png_with_dimensions(width: int, height: int) -> bytes:
+    """构造只含 PNG 头的测试输入，用于验证应用初始化不会被尺寸异常阻断。"""
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    chunk = b"IHDR" + header
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", len(header))
+        + chunk
+        + struct.pack(">I", zlib.crc32(chunk) & 0xFFFFFFFF)
+        + b"\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
 
 
 def _bootstrapped_client(flask_app):
@@ -2047,6 +2063,32 @@ if (calls.filter((item) => item.path.includes("/copy-variants")).length !== 1) {
             content_type="multipart/form-data",
         )
         self.assertEqual(invalid.status_code, 400)
+
+    def test_startup_and_refresh_skip_bomb_images_without_deleting_them(self) -> None:
+        oversized = self.sticker_dir / "超大.png"
+        oversized.write_bytes(_png_with_dimensions(100_000, 100_000))
+
+        restarted = create_app({
+            "TESTING": True,
+            "STICKER_DIR": str(self.sticker_root),
+            "IMPORTED_STICKER_DIR": str(self.root / "导入贴图"),
+        })
+        restarted_client = _bootstrapped_client(restarted)
+        startup = restarted_client.get("/api/stickers")
+        self.assertEqual(startup.status_code, 200)
+        startup_payload = startup.get_json()
+        self.assertEqual([asset["name"] for asset in startup_payload["assets"]], ["震惊"])
+        self.assertEqual(startup_payload["summary"]["invalid_count"], 1)
+        self.assertTrue(oversized.is_file())
+
+        imported_root = self.root / "导入贴图"
+        imported_root.mkdir()
+        imported_oversized = imported_root / "残留超大.webp"
+        imported_oversized.write_bytes(_png_with_dimensions(100_000, 100_000))
+        refreshed = restarted_client.get("/api/stickers?refresh=1")
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertEqual(refreshed.get_json()["summary"]["invalid_count"], 2)
+        self.assertTrue(imported_oversized.is_file())
 
     def test_candidate_endpoint_and_media_token(self) -> None:
         task = self._ready_task()

@@ -4452,6 +4452,7 @@
       "from": "autoslice_cover.app",
       "imports": [
         "autoslice_cover.stickers.DEFAULT_STICKER_ROOT",
+        "autoslice_cover.stickers.MAX_STICKER_BYTES",
         "autoslice_cover.stickers.StickerLibrary"
       ],
       "lines": [
@@ -4703,7 +4704,7 @@
         "autoslice_cover.paths.DEFAULT_STICKER_ROOT"
       ],
       "lines": [
-        16
+        17
       ],
       "to": "autoslice_cover.paths"
     },
@@ -12531,7 +12532,7 @@
       },
       "module": "autoslice_cover.app",
       "path": "src/autoslice_cover/app.py",
-      "sha256": "ebe9b25eded51b1dc90ede88ae761dec546c78e12a56f6b347f9b6efecb6d895",
+      "sha256": "1fd87232913d736b3ae6e5f0b9039317101cdb8f1a17d9e9e1a794389d74a79c",
       "top_level_classes": [
         {
           "end_line": 61,
@@ -13531,28 +13532,34 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 263,
+      "line_count": 335,
       "longest_function": {
-        "end_line": 175,
+        "end_line": 248,
         "kind": "function",
-        "line": 96,
-        "line_count": 80,
+        "line": 177,
+        "line_count": 72,
         "qualname": "StickerLibrary.scan"
       },
       "module": "autoslice_cover.stickers",
       "path": "src/autoslice_cover/stickers.py",
-      "sha256": "89dba7d2628a6ac8428a4df73b87b6aa425a3db5f888b489117fb5a9bcb90f72",
+      "sha256": "8b3e66d7ea18c11c1c0644c47045bd1de524f4edc25e0e785086abe741568597",
       "top_level_classes": [
         {
-          "end_line": 35,
+          "end_line": 28,
           "kind": "class",
-          "line": 22,
+          "line": 27,
+          "name": "StickerValidationError"
+        },
+        {
+          "end_line": 56,
+          "kind": "class",
+          "line": 43,
           "name": "StickerAsset"
         },
         {
-          "end_line": 263,
+          "end_line": 335,
           "kind": "class",
-          "line": 38,
+          "line": 59,
           "name": "StickerLibrary"
         }
       ],
@@ -15140,10 +15147,10 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 478,
-    "production_line_count": 44164,
+    "production_line_count": 44236,
     "production_module_count": 179,
     "test_private_patch_count": 17,
-    "top_level_class_count": 109,
+    "top_level_class_count": 110,
     "top_level_function_count": 1036
   },
   "test_private_patches": {
