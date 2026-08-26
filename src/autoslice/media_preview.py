@@ -21,8 +21,8 @@ from typing import Any, Iterable
 
 from autoslice.artifact_store import artifact_bundle_layout
 from autoslice.media_formats import media_format_for
+from autoslice.security_policy import SecurityPolicy
 from autoslice.task_results import normalize_task_result
-
 
 MEDIA_TOKEN_TTL_SECONDS = 5 * 60
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -185,9 +185,12 @@ def _load_json(path: Path) -> dict[str, Any]:
             raise MediaPreviewError("媒体产物登记无效", 403)
         with path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
+        structure_decision = SecurityPolicy.validate_json_structure(payload)
+        if not structure_decision.allowed:
+            raise MediaPreviewError("媒体产物登记无效", 403)
     except MediaPreviewError:
         raise
-    except (OSError, UnicodeError, TypeError, ValueError) as exc:
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as exc:
         raise MediaPreviewError("媒体产物登记无效", 403) from exc
     if not isinstance(payload, dict):
         raise MediaPreviewError("媒体产物登记无效", 403)
@@ -422,7 +425,7 @@ class MediaPreviewOwner:
             size = clip_path.stat().st_size
         except OSError as exc:
             raise MediaPreviewError("媒体产物不存在", 404) from exc
-        if size < 0:
+        if size <= 0:
             raise MediaPreviewError("媒体产物不存在", 404)
         try:
             file_identity = _file_identity(clip_path)

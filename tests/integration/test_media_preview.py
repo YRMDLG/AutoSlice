@@ -6,7 +6,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-
 _TEST_TASK_DATABASE_DIR = TemporaryDirectory(prefix="autoslice-media-test-tasks-")
 _PREVIOUS_TASK_DATABASE = os.environ.get("AUTOSLICE_TASK_DB")
 os.environ["AUTOSLICE_TASK_DB"] = str(
@@ -119,6 +118,53 @@ class MediaPreviewApiTests(unittest.TestCase):
         self.assertEqual(response.headers["Content-Length"], "16")
         self.assertNotIn(str(self.root), response.get_data(as_text=True))
         self.assertNotIn("Content-Disposition", response.headers)
+
+    def test_zero_byte_clip_cannot_issue_media_token(self):
+        self._create_task(clip_bytes=b"")
+
+        response = self.client.post(
+            "/api/tasks/media-task/clips/clip-1/media-token"
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.get_json(), {"error": "媒体产物不存在"})
+
+    def test_one_byte_clip_has_consistent_get_and_head_lengths(self):
+        self._create_task(clip_bytes=b"x")
+        issued = self._issue()
+
+        get_response = self.client.get(issued["media_url"])
+        head_response = self.client.head(issued["media_url"])
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(get_response.data, b"x")
+        self.assertEqual(get_response.headers["Content-Length"], "1")
+        self.assertEqual(head_response.status_code, 200)
+        self.assertEqual(head_response.data, b"")
+        self.assertEqual(head_response.headers["Content-Length"], "1")
+
+    def test_deep_manifest_is_rejected_without_traceback(self):
+        _, artifact_dir, _, _ = self._create_task()
+        manifest_path = artifact_dir / "数据" / "精调任务.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        deep = {}
+        cursor = deep
+        for _ in range(65):
+            cursor["nested"] = {}
+            cursor = cursor["nested"]
+        manifest["metadata"] = deep
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+        )
+
+        response = self.client.post(
+            "/api/tasks/media-task/clips/clip-1/media-token"
+        )
+
+        self.assertEqual(response.status_code, 403)
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.get_json(), {"error": "媒体产物登记无效"})
+        self.assertNotIn("Traceback", body)
 
     def test_missing_forged_expired_and_cross_binding_tokens_are_rejected(self):
         self._create_task("media-one")

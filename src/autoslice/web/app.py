@@ -23,8 +23,7 @@ from urllib.parse import quote
 
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request
 
-from autoslice import autocover_service
-from autoslice import timeline_contract
+from autoslice import autocover_service, timeline_contract
 from autoslice.artifact_store import artifact_bundle_layout
 from autoslice.media_formats import (
     SUPPORTED_VIDEO_EXTENSIONS,
@@ -34,7 +33,7 @@ from autoslice.media_formats import (
 from autoslice.media_preview import MediaPreviewError, MediaPreviewOwner
 from autoslice.paths import APPLICATION_DATA_ROOT, STATIC_DIR, TEMPLATE_DIR
 from autoslice.runtime_config import OUTPUT_DIR, SUBMISSION_DIR, TIMELINE_DIR, VIDEO_DIR
-from autoslice.security_policy import SecurityPolicy
+from autoslice.security_policy import MAX_JSON_REQUEST_BYTES, SecurityPolicy
 from autoslice.streamer_profiles import (
     add_streamer_profile_replacement,
     public_streamer_profiles,
@@ -1021,8 +1020,11 @@ def _read_registered_timeline_json(path):
         if not path.is_file() or path.stat().st_size > _MAX_TIMELINE_ARTIFACT_BYTES:
             return None
         with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, TypeError, ValueError):
+            payload = json.load(handle)
+        if not security_policy.validate_json_structure(payload).allowed:
+            return None
+        return payload
+    except (OSError, TypeError, ValueError, RecursionError):
         return None
 
 
@@ -1270,11 +1272,17 @@ def _save_uploaded_file(field_name, target_dir, allowed_suffixes, *, validate_js
     try:
         file.save(str(temporary))
         if validate_json:
+            if temporary.stat().st_size > MAX_JSON_REQUEST_BYTES:
+                raise ValueError("JSON 时间轴请求体过大")
             with temporary.open(encoding="utf-8-sig") as handle:
                 payload = json.load(handle)
             if not isinstance(payload, (dict, list)):
                 raise ValueError("JSON 时间轴顶层必须是对象或数组")
+            if not security_policy.validate_json_structure(payload).allowed:
+                raise ValueError("JSON 时间轴结构过深或过大")
         os.replace(temporary, destination)
+    except RecursionError as exc:
+        raise ValueError("JSON 时间轴结构过深或过大") from exc
     except json.JSONDecodeError as exc:
         raise ValueError("JSON 时间轴内容无效") from exc
     finally:

@@ -21,9 +21,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+MAX_JSON_REQUEST_BYTES = 4 * 1024 * 1024
+MAX_JSON_DEPTH = 64
+MAX_JSON_NODES = 10_000
+MAX_JSON_ARRAY_LENGTH = 2_000
+MAX_JSON_OBJECT_FIELDS = 2_000
+MAX_JSON_STRING_LENGTH = 1_000_000
 DEFAULT_PATH_FIELDS = frozenset({
     "artifact_dir",
     "ass_path",
@@ -504,6 +509,51 @@ class SecurityPolicy:
             or normalized.endswith("_dirs")
         )
 
+    @staticmethod
+    def validate_json_structure(payload: Any) -> SecurityDecision:
+        """在业务递归前限制 JSON 结构，避免深层或超大对象耗尽栈和时间。"""
+
+        stack = [(payload, 0)]
+        nodes = 0
+        while stack:
+            value, depth = stack.pop()
+            nodes += 1
+            if depth > MAX_JSON_DEPTH or nodes > MAX_JSON_NODES:
+                return SecurityDecision(
+                    False,
+                    413,
+                    "JSON 结构过深或过大",
+                    "json_structure_limit",
+                )
+            if isinstance(value, str):
+                if len(value) > MAX_JSON_STRING_LENGTH:
+                    return SecurityDecision(
+                        False,
+                        413,
+                        "JSON 字符串过长",
+                        "json_structure_limit",
+                    )
+                continue
+            if isinstance(value, Mapping):
+                if len(value) > MAX_JSON_OBJECT_FIELDS:
+                    return SecurityDecision(
+                        False,
+                        413,
+                        "JSON 对象字段过多",
+                        "json_structure_limit",
+                    )
+                stack.extend((item, depth + 1) for item in value.values())
+            elif isinstance(value, (list, tuple)):
+                if len(value) > MAX_JSON_ARRAY_LENGTH:
+                    return SecurityDecision(
+                        False,
+                        413,
+                        "JSON 数组过长",
+                        "json_structure_limit",
+                    )
+                stack.extend((item, depth + 1) for item in value)
+        return SecurityDecision(True)
+
     def _iter_path_values(self, payload: Any):
         if isinstance(payload, Mapping):
             for key, value in payload.items():
@@ -625,6 +675,11 @@ class SecurityPolicy:
     ) -> SecurityDecision:
         """在 LAN 模式下递归约束 JSON、表单、查询和上传文件名。"""
 
+        for payload in (json_payload, form_payload, query_payload):
+            structure_decision = self.validate_json_structure(payload)
+            if not structure_decision.allowed:
+                return structure_decision
+
         settings = self.settings()
         if not settings.is_valid:
             return SecurityDecision(
@@ -636,17 +691,25 @@ class SecurityPolicy:
         if not settings.lan_mode:
             return SecurityDecision(True)
 
-        for payload in (json_payload, form_payload, query_payload):
-            for _key, value in self._iter_path_values(payload):
-                if value in (None, ""):
-                    continue
-                if not self._path_within_roots(value, settings.allowed_roots):
-                    return SecurityDecision(
-                        False,
-                        403,
-                        "请求路径不在局域网允许目录内",
-                        "path_outside_allowed_roots",
-                    )
+        try:
+            for payload in (json_payload, form_payload, query_payload):
+                for _key, value in self._iter_path_values(payload):
+                    if value in (None, ""):
+                        continue
+                    if not self._path_within_roots(value, settings.allowed_roots):
+                        return SecurityDecision(
+                            False,
+                            403,
+                            "请求路径不在局域网允许目录内",
+                            "path_outside_allowed_roots",
+                        )
+        except RecursionError:
+            return SecurityDecision(
+                False,
+                413,
+                "JSON 结构过深或过大",
+                "json_structure_limit",
+            )
 
         if upload_filenames is not None:
             values = (
@@ -669,11 +732,27 @@ class SecurityPolicy:
     def validate_flask_request_paths(self, flask_request: Any) -> SecurityDecision:
         """提取 Flask 的四种输入载体，再调用可独立测试的路径检查。"""
 
-        json_payload = (
-            flask_request.get_json(silent=True)
-            if flask_request.is_json
-            else None
-        )
+        json_payload = None
+        if flask_request.is_json:
+            if (
+                    flask_request.content_length is not None
+                    and flask_request.content_length > MAX_JSON_REQUEST_BYTES
+            ):
+                return SecurityDecision(
+                    False,
+                    413,
+                    "JSON 请求体过大",
+                    "json_request_too_large",
+                )
+            try:
+                json_payload = flask_request.get_json(silent=True)
+            except RecursionError:
+                return SecurityDecision(
+                    False,
+                    413,
+                    "JSON 结构过深或过大",
+                    "json_structure_limit",
+                )
         form_payload = {
             key: flask_request.form.getlist(key)
             for key in flask_request.form.keys()

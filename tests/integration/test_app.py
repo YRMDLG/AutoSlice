@@ -4062,6 +4062,24 @@ class TimelineApiTests(unittest.TestCase):
         self.assertEqual(payload["incomplete_reasons"], [])
         self.assertNotIn("quality_overview", payload)
 
+    def test_timeline_deep_registered_json_is_explicitly_incomplete(self):
+        _, artifact_dir = self._create_done_task()
+        path = artifact_dir / "数据" / "clip_marks.json"
+        deep = {}
+        cursor = deep
+        for _ in range(65):
+            cursor["nested"] = {}
+            cursor = cursor["nested"]
+        path.write_text(json.dumps(deep, ensure_ascii=False), encoding="utf-8")
+
+        response = self.client.get("/api/tasks/timeline-success/timeline")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertFalse(payload["complete"])
+        self.assertFalse(payload["truncated"])
+        self.assertIn("clips_missing", payload["incomplete_reasons"])
+
     def test_timeline_clip_id_matching_prefers_valid_precise_times_and_falls_back(self):
         cases = (
             (
@@ -5051,6 +5069,41 @@ class WebTransportSafetyTests(unittest.TestCase):
                     content_type="multipart/form-data",
                 )
                 self.assertEqual(response.status_code, 400)
+
+    def test_upload_json_timeline_rejects_deep_structure_before_replace(self):
+        with TemporaryDirectory() as td:
+            target_dir = Path(td)
+            deep = {}
+            cursor = deep
+            for _ in range(65):
+                cursor["nested"] = {}
+                cursor = cursor["nested"]
+            content = json.dumps(deep, ensure_ascii=False).encode("utf-8")
+            with patch.object(app_module, "JSON_TIMELINE_UPLOAD_DIR", target_dir):
+                response = self.client.post(
+                    "/api/upload-json-timeline",
+                    data={"file": (io.BytesIO(content), "deep.json")},
+                    content_type="multipart/form-data",
+                )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(
+                response.get_json(),
+                {"error": "JSON 时间轴结构过深或过大"},
+            )
+            self.assertFalse((target_dir / "deep.json").exists())
+
+    def test_json_request_size_limit_returns_controlled_413(self):
+        oversized = json.dumps({"text": "x" * (4 * 1024 * 1024)}).encode()
+
+        response = self.client.post(
+            "/api/start-pipeline",
+            data=oversized,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.get_json(), {"error": "JSON 请求体过大"})
 
     def test_valid_uploads_stay_inside_configured_directories(self):
         with TemporaryDirectory() as td:

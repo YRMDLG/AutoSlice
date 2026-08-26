@@ -203,6 +203,72 @@ class SecurityPolicyTests(unittest.TestCase):
                 "path": str(blocked),
             })
 
+    def test_json_structure_budget_rejects_deep_and_wide_payloads(self):
+        deep = {}
+        cursor = deep
+        for _ in range(65):
+            cursor["nested"] = {}
+            cursor = cursor["nested"]
+
+        self.assertEqual(
+            SecurityPolicy.validate_json_structure(deep).code,
+            "json_structure_limit",
+        )
+        self.assertEqual(
+            SecurityPolicy.validate_json_structure({
+                "items": list(range(2001)),
+            }).status_code,
+            413,
+        )
+        self.assertTrue(SecurityPolicy.validate_json_structure({
+            "items": list(range(2000)),
+        }).allowed)
+
+        def tree(level):
+            return (
+                {"left": tree(level - 1), "right": tree(level - 1)}
+                if level
+                else {}
+            )
+
+        self.assertEqual(
+            SecurityPolicy.validate_json_structure(tree(14)).code,
+            "json_structure_limit",
+        )
+        self.assertEqual(
+            SecurityPolicy.validate_json_structure({
+                "fields": {str(index): index for index in range(2001)},
+            }).code,
+            "json_structure_limit",
+        )
+        self.assertEqual(
+            SecurityPolicy.validate_json_structure({
+                "text": "x" * 1_000_001,
+            }).code,
+            "json_structure_limit",
+        )
+
+    def test_json_structure_budget_is_checked_before_lan_path_walk(self):
+        deep = {}
+        cursor = deep
+        for _ in range(65):
+            cursor["nested"] = {}
+            cursor = cursor["nested"]
+        cursor["path"] = "relative/path"
+
+        policy = self._policy({
+            "TESTSERVICE_LAN_MODE": "1",
+            "TESTSERVICE_LAN_TOKEN": self.STRONG_TOKEN,
+            "TESTSERVICE_LAN_HOSTS": "192.168.1.50",
+            "TESTSERVICE_LAN_ORIGINS": "http://192.168.1.50:5002",
+            "TESTSERVICE_ALLOWED_ROOTS": tempfile.gettempdir(),
+        })
+
+        decision = policy.validate_paths(json_payload=deep)
+
+        self.assertEqual(decision.status_code, 413)
+        self.assertEqual(decision.code, "json_structure_limit")
+
 
 if __name__ == "__main__":
     unittest.main()
