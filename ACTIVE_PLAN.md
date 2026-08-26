@@ -9,17 +9,17 @@ plan_ref: docs/plans/backend-hardening-next.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: H2-MEDIA-ROBUST
+current_action: H2-COVER-INPUT-ROBUST
 current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: H2-TIME-MATCH
+last_completed_action: H2-MEDIA-ROBUST
 
 ## 执行规则
 
 - 当前活动计划为 `backend-hardening-next`；`frontend-next` 已完成，不重复运行其 Action。
 - `H0-SEC-PATH-BOUNDARY` 已完成本地实现、定向验证、独立提交、推送和当前 Windows/Linux CI 双绿，并已登记到总账。
 - `H0-CI-GATES` 已完成本地门禁、独立提交、推送和当前 Windows/Linux CI 双绿，并已登记到总账。
-- 当前只允许执行 `H2-MEDIA-ROBUST`；完成并登记后立即停止，不自动进入下一项。
+- 当前只允许执行 `H2-COVER-INPUT-ROBUST`；完成并登记后立即停止，不自动进入下一项。
 - Action 和计划状态只使用 `pending`、`skipped`、`completed`，不得新增 `blocked` 状态。
 - 部署证据不足使用计划定义的独立证据字段，不伪装为 Action 完成状态。
 - `H0-SEC-PATH-BOUNDARY` 完成前不得把 LAN 标记为安全可用；普通测试不监听真实 LAN。
