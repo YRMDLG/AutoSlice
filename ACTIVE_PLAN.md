@@ -9,10 +9,10 @@ plan_ref: docs/plans/backend-hardening-next.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
 plan_status: active
-current_action: H3-LLM-TRANSPORT-HARDENING
+current_action: H4-REAL-SMOKE
 current_action_status: pending
 execution_mode: single-action-stop
-last_completed_action: H3-LEDGER-GUARD
+last_completed_action: H3-LLM-TRANSPORT-HARDENING
 
 ## 执行规则
 
@@ -21,7 +21,8 @@ last_completed_action: H3-LEDGER-GUARD
 - `H0-CI-GATES` 已完成本地门禁、独立提交、推送和当前 Windows/Linux CI 双绿，并已登记到总账。
 - `H3-ARCH-DOC` 已完成本地验证、独立提交、推送、当前 Windows/Linux CI 双绿并登记到总账。
 - `H3-LEDGER-GUARD` 已完成本地验证、独立提交、推送、当前 Windows/Linux CI 双绿并登记到总账。
-- 当前只允许执行 `H3-LLM-TRANSPORT-HARDENING`；完成或按条件登记后立即停止，不自动进入下一项。
+- `H3-LLM-TRANSPORT-HARDENING` 已完成本地验证、独立提交、推送、当前 Windows/Linux CI 双绿并登记到总账。
+- `H4-REAL-SMOKE` 保持 pending；真实媒体、模型、FFmpeg、CUDA/GPU 和用户数据验收须另行确认范围后才可执行。
 - Action 和计划状态只使用 `pending`、`skipped`、`completed`，不得新增 `blocked` 状态。
 - 部署证据不足使用计划定义的独立证据字段，不伪装为 Action 完成状态。
 - `H0-SEC-PATH-BOUNDARY` 完成前不得把 LAN 标记为安全可用；普通测试不监听真实 LAN。

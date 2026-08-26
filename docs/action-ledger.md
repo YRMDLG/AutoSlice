@@ -58,6 +58,7 @@
 | H2-COVER-INPUT-ROBUST | backend-hardening-next | 2026-08-26 | [34a646c](../commit/34a646ca736f188f8a3925a1b21a8194186eab42) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32966021372) | 为贴图扫描、导入、初始化和刷新增加原始字节、尺寸、像素与动画帧解码预算；隔离坏贴图和 Pillow 解码异常，保留正常 PNG/JPEG/WebP，且不删除原文件。 |
 | H3-ARCH-DOC | backend-hardening-next | 2026-08-27 | [aedbe11](../commit/aedbe110ba0ecc3b65bd261b1b919e7305d4eacd) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33004617373) | 更新架构 owner 与快照契约：明确完整时间轴、任务级媒体预览和 `quality_overview` 的职责边界，刷新架构基线指标，并将测试数量、行号、CI run 等定义为审阅快照而非永久完成条件。 |
 | H3-LEDGER-GUARD | backend-hardening-next | 2026-08-27 | [3c99750](../commit/3c99750623bcc7691156431b8af6355276632ebf) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33007772261) | 将专项计划、活动计划和公开总账纳入动态文档门禁，校验 plan/ledger 引用、Action ID 唯一性、依赖存在且无环、治理链接和全部 `../commit/<sha>` 的 40 位格式；修正总账中一个历史 commit 链接拼写错误。 |
+| H3-LLM-TRANSPORT-HARDENING | backend-hardening-next | 2026-08-27 | [dae587c](../commit/dae587c6d93e89b0f421502d9bd38dca8db20f06) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33011974641) | 保留 loopback HTTP 兼容；非 loopback `http://` 默认拒绝，只有显式 `allow_insecure_http` 或环境变量 opt-in 才允许；覆盖配置文件/环境变量、IPv4/IPv6 loopback、旧三元组调用和 mock transport 脱敏边界。 |
 
 ## 记录规则
 
