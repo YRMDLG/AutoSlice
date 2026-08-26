@@ -106,7 +106,9 @@ def module_name_for_path(path: Path, root: Path) -> str:
 
 
 def _read_python_source(path: Path) -> str:
-    return path.read_bytes().decode("utf-8-sig")
+    source = path.read_bytes().decode("utf-8-sig")
+    # Git 工作树可能按平台转换换行；快照必须只反映源码内容，不反映检出方式。
+    return source.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _definition_kind(node: ast.AST) -> str:

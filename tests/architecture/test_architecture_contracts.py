@@ -283,6 +283,20 @@ class ArchitectureSnapshotTests(unittest.TestCase):
             self.assertEqual(first_output.read_bytes(), second_output.read_bytes())
             self.assertNotIn(str(Path.home()), first_output.read_text(encoding="utf-8"))
 
+    def test_snapshot_ignores_source_line_endings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            lf_source = root / "lf.py"
+            crlf_source = root / "crlf.py"
+            source = "def sample():\n    return 1\n"
+            lf_source.write_bytes(source.encode("utf-8"))
+            crlf_source.write_bytes(source.replace("\n", "\r\n").encode("utf-8"))
+
+            snapshot = architecture_snapshot.build_snapshot(root)
+
+        modules = {item["module"]: item for item in snapshot["modules"]}
+        self.assertEqual(modules["lf"]["sha256"], modules["crlf"]["sha256"])
+
     def test_committed_baseline_has_consistent_key_metrics(self):
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
 
