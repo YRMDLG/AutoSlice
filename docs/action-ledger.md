@@ -53,6 +53,7 @@
 | H0-CI-GATES | backend-hardening-next | 2026-08-26 | [784ce6c](../commit/784ce6cb82fff4a4f2a0d0eb51a0ab367340cbf0) / [7e5cb94](../commit/7e5cb9496faf5b986c8917db3fc936b42555249a) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32941561644) | 在 Windows/Linux job 中增加架构快照、公开文档和公开发布扫描三个独立治理 step；修复架构快照对 CRLF/LF 的跨平台敏感性并增加换行回归测试。 |
 | H1-BAD-WHEEL | backend-hardening-next | 2026-08-26 | [54f1954](../commit/54f1954439fc196a72b78233302cc471689edcea) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32946844704) | 在隔离仓库外环境中从正常 wheel 制造受控缺包反例，证明深层模块缺失会被发现，同时保留正常 wheel、资源和两个 CLI 的验证。 |
 | H1-PACKAGE-DISCOVERY | backend-hardening-next | 2026-08-26 | [80a0583](../commit/80a0583892e8633ea7ff76877dd316ee3318d7a8) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32951757034) | 将手工包列表替换为 `src` 布局受限自动发现并禁用 namespace 包；验证源码态、editable、正常/坏 wheel、模板/静态/JSON 资源和三个 CLI 契约。 |
+| H2-TIME-MATCH | backend-hardening-next | 2026-08-26 | [e34e8f2](../commit/e34e8f2f31af347d73d424432782def0def5f723) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/32956533097) | 精确字段成对有效时优先匹配时间轴任务，异常字段安全回退旧时间；拒绝冲突猜测、非有限数值和不安全 ID，并覆盖旧整数 manifest。 |
 
 ## 记录规则
 
