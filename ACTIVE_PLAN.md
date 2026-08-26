@@ -8,11 +8,11 @@ plan_id: backend-hardening-next
 plan_ref: docs/plans/backend-hardening-next.md
 ledger_ref: docs/action-ledger.md
 plan_version: 1
-plan_status: active
+plan_status: completed
 current_action: H4-REAL-SMOKE
-current_action_status: pending
+current_action_status: completed
 execution_mode: single-action-stop
-last_completed_action: H3-LLM-TRANSPORT-HARDENING
+last_completed_action: H4-REAL-SMOKE
 
 ## 执行规则
 
@@ -22,7 +22,8 @@ last_completed_action: H3-LLM-TRANSPORT-HARDENING
 - `H3-ARCH-DOC` 已完成本地验证、独立提交、推送、当前 Windows/Linux CI 双绿并登记到总账。
 - `H3-LEDGER-GUARD` 已完成本地验证、独立提交、推送、当前 Windows/Linux CI 双绿并登记到总账。
 - `H3-LLM-TRANSPORT-HARDENING` 已完成本地验证、独立提交、推送、当前 Windows/Linux CI 双绿并登记到总账。
-- `H4-REAL-SMOKE` 保持 pending；真实媒体、模型、FFmpeg、CUDA/GPU 和用户数据验收须另行确认范围后才可执行。
+- `H4-REAL-SMOKE` 已完成受限真实验收、原始文件不变性核对和结果可视检查；使用了用户选定录播的隔离短样本、最终 SRT、FFmpeg、ffprobe、现有 NVENC 和 AutoCover 本地批处理，未调用 LLM/FunASR，未启动服务。
+- `backend-hardening-next` 已完成；真实验收输出保留在被 Git 忽略的本地 H4 目录，不纳入仓库记录。
 - Action 和计划状态只使用 `pending`、`skipped`、`completed`，不得新增 `blocked` 状态。
 - 部署证据不足使用计划定义的独立证据字段，不伪装为 Action 完成状态。
 - `H0-SEC-PATH-BOUNDARY` 完成前不得把 LAN 标记为安全可用；普通测试不监听真实 LAN。
