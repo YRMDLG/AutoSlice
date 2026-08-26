@@ -59,7 +59,7 @@
 | H3-ARCH-DOC | backend-hardening-next | 2026-08-27 | [aedbe11](../commit/aedbe110ba0ecc3b65bd261b1b919e7305d4eacd) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33004617373) | 更新架构 owner 与快照契约：明确完整时间轴、任务级媒体预览和 `quality_overview` 的职责边界，刷新架构基线指标，并将测试数量、行号、CI run 等定义为审阅快照而非永久完成条件。 |
 | H3-LEDGER-GUARD | backend-hardening-next | 2026-08-27 | [3c99750](../commit/3c99750623bcc7691156431b8af6355276632ebf) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33007772261) | 将专项计划、活动计划和公开总账纳入动态文档门禁，校验 plan/ledger 引用、Action ID 唯一性、依赖存在且无环、治理链接和全部 `../commit/<sha>` 的 40 位格式；修正总账中一个历史 commit 链接拼写错误。 |
 | H3-LLM-TRANSPORT-HARDENING | backend-hardening-next | 2026-08-27 | [dae587c](../commit/dae587c6d93e89b0f421502d9bd38dca8db20f06) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33011974641) | 保留 loopback HTTP 兼容；非 loopback `http://` 默认拒绝，只有显式 `allow_insecure_http` 或环境变量 opt-in 才允许；覆盖配置文件/环境变量、IPv4/IPv6 loopback、旧三元组调用和 mock transport 脱敏边界。 |
-| H4-REAL-SMOKE | backend-hardening-next | 2026-08-27 | 待本次登记提交 | 待本次登记提交 CI | 在不修改原始录播、最终 SRT、ASS 或用户草稿的前提下，使用受控隔离短样本完成 ffprobe、最终 SRT 解析、真实字幕压制和成片可视检查；再用该成片完成 AutoCover 候选帧及 4:3/16:9 封面生成。未调用 LLM/FunASR，未启动服务；原始文件大小和修改时间保持不变。 |
+| H4-REAL-SMOKE | backend-hardening-next | 2026-08-27 | [ff330d0](../commit/ff330d07e0428d980dda0ada51decc586cdb8185) | [Windows/Linux 双绿](https://github.com/YRMDLG/AutoSlice/actions/runs/33014631286) | 在不修改原始录播、最终 SRT、ASS 或用户草稿的前提下，使用受控隔离短样本完成 ffprobe、最终 SRT 解析、真实字幕压制和成片可视检查；再用该成片完成 AutoCover 候选帧及 4:3/16:9 封面生成。未调用 LLM/FunASR，未启动服务；原始文件大小和修改时间保持不变。 |
 
 ## 记录规则
 
