@@ -28,6 +28,7 @@ from autoslice.llm.contracts import (
     RetryCategory,
     classify_retry,
     is_retryable_error,
+    normalise_bool,
     normalise_protocol,
     normalise_proxy_mode,
     normalise_proxy_url,
@@ -35,6 +36,7 @@ from autoslice.llm.contracts import (
     normalise_reasoning_stage,
     normalise_timeout,
     redact_url_credentials,
+    validate_llm_endpoint_security,
 )
 from autoslice.paths import APPLICATION_DATA_ROOT
 
@@ -53,6 +55,7 @@ _PROXY_ENVIRONMENT_FIELDS = {
     "AUTOSLICE_LLM_PROXY_MODE": "proxy_mode",
     "AUTOSLICE_LLM_PROXY_HTTP": "http_proxy",
     "AUTOSLICE_LLM_PROXY_HTTPS": "https_proxy",
+    "AUTOSLICE_LLM_ALLOW_INSECURE_HTTP": "allow_insecure_http",
 }
 
 
@@ -148,6 +151,17 @@ def normalise_api_config(
         raise ValueError(f"API 配置缺少 token：{source}")
     if not model:
         raise ValueError(f"API 配置缺少 model：{source}")
+    allow_insecure_http = normalise_bool(
+        payload.get("allow_insecure_http", False),
+        "allow_insecure_http",
+    )
+    try:
+        validate_llm_endpoint_security(
+            base_url,
+            allow_insecure_http=allow_insecure_http,
+        )
+    except ValueError as exc:
+        raise ValueError(f"{exc}：{source}") from exc
 
     raw_api_type = payload.get(
         "api_type",
@@ -182,6 +196,7 @@ def normalise_api_config(
         proxy_mode=payload.get("proxy_mode", DEFAULT_PROXY_MODE),
         http_proxy=payload.get("http_proxy"),
         https_proxy=payload.get("https_proxy"),
+        allow_insecure_http=allow_insecure_http,
     )
 
 
@@ -537,6 +552,10 @@ def call_compatible_api(
     """发送一次兼容请求并用本模块的唯一解析器返回文本。"""
     config = load_config()
     base_url, token, configured_model = config
+    validate_llm_endpoint_security(
+        base_url,
+        allow_insecure_http=getattr(config, "allow_insecure_http", False),
+    )
     api_type = getattr(config, "api_type", None) or infer_api_type(
         base_url,
         token,

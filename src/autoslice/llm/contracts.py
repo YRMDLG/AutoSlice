@@ -3,6 +3,7 @@
 本模块只描述协议边界，不读取运行配置、不构造业务提示词，也不执行 HTTP。
 """
 
+import ipaddress
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -11,6 +12,48 @@ from urllib.parse import urlsplit
 
 DEFAULT_REASONING_EFFORT = "xhigh"
 DEFAULT_PROXY_MODE = "direct"
+
+
+def normalise_bool(value: Any, label: str) -> bool:
+    """将配置中的布尔值归一化，拒绝含糊的字符串。"""
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise ValueError(f"{label} 必须是布尔值")
+
+
+def is_loopback_host(host: Any) -> bool:
+    """判断不需要 TLS 的本机主机名或 IP，不执行 DNS 解析。"""
+    normalized = str(host or "").strip().rstrip(".").casefold()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_llm_endpoint_security(
+        base_url: Any, *, allow_insecure_http: Any = False) -> bool:
+    """阻止未明确许可的非 loopback 明文 LLM endpoint。"""
+    try:
+        parsed = urlsplit(str(base_url or "").strip())
+    except ValueError as exc:
+        raise ValueError("LLM base_url 不是有效的 HTTP(S) 地址") from exc
+    if parsed.scheme.casefold() != "http":
+        return False
+    if is_loopback_host(parsed.hostname):
+        return False
+    if normalise_bool(allow_insecure_http, "allow_insecure_http"):
+        return True
+    raise ValueError(
+        "非 loopback LLM HTTP endpoint 默认禁止；如确认网络受信任，"
+        "请显式设置 allow_insecure_http=true"
+    )
 
 
 class LLMProtocol(str, Enum):
@@ -222,6 +265,7 @@ class LLMApiConfig:
     proxy_mode: str = DEFAULT_PROXY_MODE
     http_proxy: Optional[str] = field(default=None, repr=False)
     https_proxy: Optional[str] = field(default=None, repr=False)
+    allow_insecure_http: bool = False
 
     def __post_init__(self) -> None:
         base_url = str(self.base_url or "").strip().rstrip("/")
@@ -261,6 +305,11 @@ class LLMApiConfig:
             https_proxy = None
         object.__setattr__(self, "http_proxy", http_proxy)
         object.__setattr__(self, "https_proxy", https_proxy)
+        object.__setattr__(
+            self,
+            "allow_insecure_http",
+            normalise_bool(self.allow_insecure_http, "allow_insecure_http"),
+        )
 
     def __iter__(self):
         return iter((self.base_url, self.token, self.model))

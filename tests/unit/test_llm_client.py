@@ -87,6 +87,81 @@ class LLMConfigTransportTests(unittest.TestCase):
 
         self.assertEqual(config.model, "gpt-5.6-luna")
 
+    def test_non_loopback_http_endpoint_is_rejected_without_explicit_opt_in(self):
+        with self.assertRaisesRegex(ValueError, "非 loopback LLM HTTP endpoint"):
+            transport.normalise_api_config(
+                {
+                    "base_url": "http://gateway.example/v1",
+                    "token": "test-token",
+                    "model": "gpt-5.6-terra",
+                    "api_type": "openai",
+                },
+                "test",
+                default_model="gpt-5.6-terra",
+            )
+
+    def test_non_loopback_http_endpoint_requires_explicit_opt_in(self):
+        config = transport.normalise_api_config(
+            {
+                "base_url": "http://gateway.example/v1",
+                "token": "test-token",
+                "model": "gpt-5.6-terra",
+                "api_type": "openai",
+                "allow_insecure_http": True,
+            },
+            "test",
+            default_model="gpt-5.6-terra",
+        )
+
+        self.assertTrue(config.allow_insecure_http)
+
+    def test_loopback_http_endpoints_remain_compatible_without_opt_in(self):
+        for base_url in (
+                "http://localhost:5002/v1",
+                "http://127.0.0.1:5002/v1",
+                "http://127.0.0.42:5002/v1",
+                "http://[::1]:5002/v1",
+        ):
+            with self.subTest(base_url=base_url):
+                config = transport.normalise_api_config(
+                    {
+                        "base_url": base_url,
+                        "token": "test-token",
+                        "model": "gpt-5.6-terra",
+                        "api_type": "openai",
+                    },
+                    "test",
+                    default_model="gpt-5.6-terra",
+                )
+                self.assertFalse(config.allow_insecure_http)
+
+    def test_environment_explicitly_opts_into_non_loopback_http(self):
+        config = transport.load_api_config(
+            project_dir="unused",
+            environ={
+                "AUTOSLICE_API_BASE_URL": "http://gateway.example/v1",
+                "AUTOSLICE_API_TOKEN": "test-token",
+                "AUTOSLICE_API_TYPE": "openai",
+                "AUTOSLICE_LLM_ALLOW_INSECURE_HTTP": "true",
+            },
+        )
+
+        self.assertTrue(config.allow_insecure_http)
+
+    def test_invalid_insecure_http_setting_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "布尔值"):
+            transport.normalise_api_config(
+                {
+                    "base_url": "https://gateway.example/v1",
+                    "token": "test-token",
+                    "model": "gpt-5.6-terra",
+                    "api_type": "openai",
+                    "allow_insecure_http": "sometimes",
+                },
+                "test",
+                default_model="gpt-5.6-terra",
+            )
+
     def test_resolve_configured_model_name_reads_project_model_without_exposing_token(self):
         payload = {
             "base_url": "https://gateway.example/v1",
@@ -468,6 +543,22 @@ class LLMHttpTransportTests(unittest.TestCase):
             post.call_args.kwargs["json"]["response_format"],
             {"type": "json_object"},
         )
+
+    def test_injected_legacy_http_config_cannot_bypass_endpoint_policy(self):
+        with self.assertRaisesRegex(ValueError, "非 loopback LLM HTTP endpoint"):
+            transport.call_compatible_api(
+                "explicit evidence",
+                max_tokens=100,
+                json_mode=False,
+                model_override=None,
+                request_timeout=(1, 2),
+                load_config=lambda: (
+                    "http://gateway.example/v1",
+                    "test-token",
+                    "gpt-5.6-terra",
+                ),
+                request_post=Mock(),
+            )
 
     def test_anthropic_compatible_request_uses_messages_protocol(self):
         response = make_response({

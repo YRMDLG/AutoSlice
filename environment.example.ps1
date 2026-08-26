@@ -9,6 +9,8 @@ $env:AUTOSLICE_LLM_MODEL = "gpt-5.6-terra"
 # 使用 requests 环境代理时改为 system；使用 AutoSlice 专用代理时改为 custom，
 # 并至少配置 AUTOSLICE_LLM_PROXY_HTTP 或 AUTOSLICE_LLM_PROXY_HTTPS 之一。
 $env:AUTOSLICE_LLM_PROXY_MODE = "direct"
+# 非 loopback 的 http:// endpoint 默认拒绝；仅在确认网络受信任时显式开启。
+# $env:AUTOSLICE_LLM_ALLOW_INSECURE_HTTP = "true"
 # $env:AUTOSLICE_LLM_PROXY_HTTPS = "http://proxy.example.com:8080"
 
 # 以下目录使用项目内默认值；按需改为自己的本机目录。
