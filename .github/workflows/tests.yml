@@ -67,6 +67,18 @@ jobs:
         shell: pwsh
         run: python -B scripts/verify_distribution.py
 
+      - name: Check architecture snapshot
+        shell: pwsh
+        run: python -B scripts/architecture_snapshot.py --check
+
+      - name: Validate public documentation
+        shell: pwsh
+        run: python -B scripts/validate_public_docs.py
+
+      - name: Scan public release
+        shell: pwsh
+        run: python -B scripts/scan_public_release.py
+
       - name: Install FFmpeg
         shell: pwsh
         run: |
@@ -145,6 +157,15 @@ jobs:
           python -m pip install --no-deps --editable .
           python -B scripts/smoke_packaging.py
           autoslice --help
+
+      - name: Check architecture snapshot
+        run: python -B scripts/architecture_snapshot.py --check
+
+      - name: Validate public documentation
+        run: python -B scripts/validate_public_docs.py
+
+      - name: Scan public release
+        run: python -B scripts/scan_public_release.py
 
       - name: Run Linux logic-only suite (not full media support)
         run: python -B scripts/run_linux_logic_tests.py -q
