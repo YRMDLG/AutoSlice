@@ -11144,7 +11144,7 @@
       },
       "module": "autoslice.topic_engine",
       "path": "src/autoslice/topic_engine.py",
-      "sha256": "31e5312b904a60e8d3a973bd79e32dee3ceadfc90d81a0634a1d4d5a138362ef",
+      "sha256": "fc189cd94761c7114b2ec9091c07b49a399345f883daaf6416f5995dd58385d8",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -11350,7 +11350,7 @@
       },
       "module": "autoslice.transcription.contracts",
       "path": "src/autoslice/transcription/contracts.py",
-      "sha256": "a8613b01ccdf8cba1bc7b94fad7faebad78fc13052867dc7c0de96024e39ba71",
+      "sha256": "a91a2f0c46d5e47220428e4c808c2804599ef2357309b474ece5ae0343ab10fd",
       "top_level_classes": [
         {
           "end_line": 30,

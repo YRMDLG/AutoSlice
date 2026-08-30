@@ -1386,7 +1386,20 @@ class SubtitleRenderingTests(unittest.TestCase):
 
         self.assertGreater(len(events), 1)
         self.assertEqual("".join(event_texts), source_text)
-        self.assertTrue(all(len(text) <= 13 for text in event_texts))
+        geometry = subtitle_workflow._style_geometry(
+            normalise_subtitle_style(DEFAULT_SUBTITLE_STYLE),
+            1920,
+            1080,
+        )
+        ass_safe_limit = subtitle_workflow._subtitle_display_char_limit(
+            1920,
+            geometry,
+        )
+        # ASS 层按画布、字号和描边计算安全值，可能严于工作 SRT 的 16 字契约。
+        self.assertTrue(all(
+            subtitle_workflow._subtitle_display_text_size(text) <= ass_safe_limit
+            for text in event_texts
+        ))
         self.assertTrue(all(r"{\an5\pos(960,966)}" in event for event in events))
 
         document_4x3 = build_ass_document([cue], 1440, 1080)

@@ -8,7 +8,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Optional, Protocol
 
-DEFAULT_SUBTITLE_MAX_CHARS = 13
+DEFAULT_SUBTITLE_MAX_CHARS = 16
 DEFAULT_MAX_PUBLISH_TITLE_CHARS = 80
 DEFAULT_SUBTITLE_GLOSSARY = (
     "提督",

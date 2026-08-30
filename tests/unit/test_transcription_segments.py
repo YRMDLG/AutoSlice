@@ -20,7 +20,7 @@ REPRESENTATIVE_SHORT_CLIP_FIXTURES = (
     {
         "name": "target_gap",
         "tokens": _timed_characters(
-            "今天先把这个问题讲清楚再继续",
+            "今天先把这个问题讲清楚再继续说明一下",
             step=0.12,
             gaps_after={9: 0.2},
         ),
@@ -59,6 +59,32 @@ REPRESENTATIVE_SHORT_CLIP_FIXTURES = (
 
 
 class TranscriptionSegmentTests(unittest.TestCase):
+    def test_default_visible_subtitle_limit_accepts_sixteen_but_splits_seventeen(self):
+        limit = segments.SUBTITLE_MAX_CHARS
+
+        self.assertEqual(limit, 16)
+        within_limit = "字" * limit
+        self.assertEqual(segments.subtitle_text_size(within_limit), limit)
+        self.assertEqual(
+            segments.split_subtitle_text_for_display(within_limit),
+            [within_limit],
+        )
+
+        spaced_within_limit = "字" * 8 + " " + "字" * 8
+        self.assertEqual(segments.subtitle_text_size(spaced_within_limit), limit)
+        self.assertEqual(
+            segments.split_subtitle_text_for_display(spaced_within_limit),
+            [spaced_within_limit],
+        )
+
+        over_limit = "字" * (limit + 1)
+        parts = segments.split_subtitle_text_for_display(over_limit)
+        self.assertEqual("".join(parts), over_limit)
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(
+            all(segments.subtitle_text_size(part) <= limit for part in parts)
+        )
+
     def test_representative_short_clip_boundaries_expose_structured_reasons(self):
         for fixture in REPRESENTATIVE_SHORT_CLIP_FIXTURES:
             with self.subTest(fixture=fixture["name"]):
@@ -76,11 +102,12 @@ class TranscriptionSegmentTests(unittest.TestCase):
                     list(trace.segments),
                 )
 
-    def test_tail_rebalance_keeps_phrase_whole_and_connectors_as_natural_starts(self):
+    def test_tail_rebalance_keeps_phrase_whole_with_explicit_lower_limit(self):
         source_text = "我我这几天头已经越来越好看了，但是后面还有重点"
 
         trace = segments.segment_timed_tokens_with_trace(
-            _timed_characters(source_text, step=0.3)
+            _timed_characters(source_text, step=0.3),
+            max_chars=13,
         )
         texts = [item[2] for item in trace.segments]
 

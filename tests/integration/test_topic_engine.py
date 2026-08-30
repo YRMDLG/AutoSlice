@@ -2591,7 +2591,7 @@ class TranscriptionTests(unittest.TestCase):
 
         self.assertEqual(
             [segment[2] for segment in result],
-            ["我我这几天头已经", "越来越好看了", "但是后面还有重点"],
+            ["我我这几天头已经越来越好看了", "但是后面还有重点"],
         )
         self.assertTrue(all(isinstance(segment, tuple) for segment in result))
         self.assertTrue(all(len(segment) == 3 for segment in result))
