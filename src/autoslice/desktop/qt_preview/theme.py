@@ -77,7 +77,7 @@ class Metrics:
     project_compact_height: int = 62
     subtitle_row_height: int = 48
     subtitle_number_width: int = 42
-    subtitle_time_width: int = 184
+    subtitle_time_width: int = 204
     playhead_hit_width: int = 14
     icon_size: int = 20
     control_radius: int = 6
@@ -149,6 +149,17 @@ def stylesheet() -> str:
         QPushButton#quiet, QPushButton#navButton, QPushButton#projectItem, QPushButton#projectItemCompact {{ background: transparent; border: none; }}
         QPushButton#quiet:hover {{ background: {c.hover}; }}
         QPushButton#quiet:pressed {{ background: {c.button_pressed}; }}
+        QPushButton#tool {{ background: transparent; border: 1px solid transparent; border-radius: {m.control_radius}px; min-height: 28px; padding: 0 10px; color: {c.muted}; }}
+        QPushButton#tool:hover {{ background: {c.hover}; color: {c.text}; }}
+        QPushButton#tool:pressed {{ background: {c.button_pressed}; }}
+        QPushButton#tool:checked {{ color: {c.accent_text}; background: {c.accent_subtle}; border-color: {c.accent_tint}; }}
+        QPushButton#tool:checked:hover {{ background: #1A2130; }}
+        QPushButton#tool:disabled {{ color: {c.disabled}; background: transparent; border-color: transparent; }}
+        QWidget#segmented {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: 7px; }}
+        QPushButton#segment {{ background: transparent; border: 1px solid transparent; border-radius: 5px; min-height: 24px; padding: 0 12px; color: {c.muted}; }}
+        QPushButton#segment:hover {{ color: {c.text}; }}
+        QPushButton#segment:checked {{ color: {c.text}; background: {lift}; border-color: {c.border}; border-top-color: {c.highlight}; }}
+        QPushButton#segment:disabled {{ color: {c.disabled}; }}
         QPushButton#navButton {{ border-radius: 8px; color: {c.muted}; padding: 0; min-height: 60px; max-height: 60px; min-width: 56px; max-width: 56px; }}
         QPushButton#navButton:hover {{ background: {c.hover}; color: {c.text}; }}
         QPushButton#navButton:checked {{ color: {c.text}; background: {c.project_selected}; border-left: 2px solid {c.accent}; }}
@@ -169,7 +180,7 @@ def stylesheet() -> str:
         QTableView::item:hover {{ background: {c.hover}; }}
         QTableView::item:selected {{ background: {c.row_selected}; color: {c.text}; }}
         QTableView::item:selected:hover {{ background: {c.row_selected}; color: {c.text}; }}
-        QHeaderView::section {{ background: {c.panel}; color: {c.subtle}; border: none; border-bottom: 1px solid {c.divider}; padding: 4px 6px; font-size: {m.text_small}px; font-weight: 500; }}
+        QHeaderView::section {{ background: {c.panel}; color: {c.subtle}; border: none; border-bottom: 1px solid {c.divider}; padding: 4px 3px; font-size: {m.text_small}px; font-weight: 500; }}
         QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus {{ border-color: {c.focus_ring}; }}
         QLineEdit:disabled, QTextEdit:disabled {{ color: {c.disabled}; background: {c.panel}; }}
         QMenu {{ background: {c.overlay}; border: 1px solid {c.border}; border-top-color: {c.highlight}; padding: 4px; }}

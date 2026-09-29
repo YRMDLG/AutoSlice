@@ -50,6 +50,12 @@ class TwoLineTitle(QWidget):
         self.setFixedHeight(39)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # 单行标题只占一行高，交给外层居中，不留空洞
+        single = QFontMetrics(self.font()).horizontalAdvance(self.title) <= max(1, self.width() - 2)
+        self.setFixedHeight(19 if single else 39)
+
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setPen(QColor(COLORS.text))
@@ -86,12 +92,14 @@ class ProjectItem(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         content = QVBoxLayout(self)
         content.setContentsMargins(12, 6, 10, 6)
-        content.setSpacing(2)
+        content.setSpacing(4)
+        content.addStretch()
         content.addWidget(TwoLineTitle(title))
         if status:
             status_label = label(status, "badge" if emphasized else "subtle")
             status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             content.addWidget(status_label, alignment=Qt.AlignmentFlag.AlignLeft)
+        content.addStretch()
 
 
 class NavigationButton(QPushButton):

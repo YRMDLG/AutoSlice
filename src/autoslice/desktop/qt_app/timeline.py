@@ -193,8 +193,10 @@ class SubtitleTimeline(QWidget):
             if 12 <= x <= self.width() - 12:
                 painter.setPen(QColor(COLORS.subtle))
                 minutes, seconds = divmod(tick, 60)
-                painter.drawText(int(x + 3), 0, 55, 17, Qt.AlignmentFlag.AlignLeft,
-                                 f"{minutes:02d}:{seconds:02d}")
+                text = f"{minutes:02d}:{seconds:02d}"
+                # 放不下的刻度只画刻线，不画被截断的标签
+                if x + 3 + painter.fontMetrics().horizontalAdvance(text) <= self.width() - 12:
+                    painter.drawText(int(x + 3), 0, 55, 17, Qt.AlignmentFlag.AlignLeft, text)
                 painter.setPen(QPen(QColor(COLORS.divider), 1))
                 painter.drawLine(int(x), 17, int(x), 25)
             tick += spacing
