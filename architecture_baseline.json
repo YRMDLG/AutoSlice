@@ -11,6 +11,7 @@
     ],
     "high_level_source_modules": [
       "autoslice.core",
+      "autoslice.desktop",
       "autoslice.launcher",
       "autoslice.subtitle_workflow",
       "autoslice.topic_engine",
@@ -21,6 +22,16 @@
   "duplicate_top_level_definitions": [],
   "generator": "scripts/architecture_snapshot.py",
   "import_edges": [
+    {
+      "from": "Qt桌面端",
+      "imports": [
+        "autoslice.desktop.qt_app.__main__.main"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.desktop.qt_app.__main__"
+    },
     {
       "from": "app",
       "imports": [
@@ -2193,12 +2204,400 @@
       "to": "autoslice.topic_engine"
     },
     {
+      "from": "autoslice.desktop.__main__",
+      "imports": [
+        "autoslice.desktop.app.main"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "autoslice.desktop.app"
+    },
+    {
+      "from": "autoslice.desktop.ai_review",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.ai_review",
+      "imports": [
+        "autoslice.desktop.subtitles.SubtitleDocument",
+        "autoslice.desktop.subtitles.SubtitleEntry"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.desktop.subtitles"
+    },
+    {
+      "from": "autoslice.desktop.ai_review",
+      "imports": [
+        "autoslice.llm.transport.load_api_config"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.llm.transport"
+    },
+    {
+      "from": "autoslice.desktop.ai_review",
+      "imports": [
+        "autoslice.streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.desktop.ai_review",
+      "imports": [
+        "autoslice.subtitle_workflow.SUBTITLE_REVIEW_VERSION",
+        "autoslice.subtitle_workflow.suggest_subtitle_corrections"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
+      "from": "autoslice.desktop.app",
+      "imports": [
+        "autoslice.desktop.projects.ProjectSnapshot",
+        "autoslice.desktop.projects.SubmissionProject",
+        "autoslice.desktop.projects.SubmissionProjectService"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.desktop.projects"
+    },
+    {
+      "from": "autoslice.desktop.app",
+      "imports": [
+        "autoslice.desktop.subtitles.SubtitleDocument"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.desktop.subtitles"
+    },
+    {
+      "from": "autoslice.desktop.projects",
+      "imports": [
+        "autoslice.runtime_config"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.runtime_config"
+    },
+    {
+      "from": "autoslice.desktop.projects",
+      "imports": [
+        "autoslice.subtitle_workflow.scan_submission_pairs"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.__main__",
+      "imports": [
+        "autoslice.desktop.qt_app.window.DesktopWindow"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.desktop.qt_app.window"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.__main__",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.stylesheet"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.timeline",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.timeline",
+      "imports": [
+        "autoslice.desktop.subtitles.SubtitleDocument"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.desktop.subtitles"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.timeline",
+      "imports": [
+        "autoslice.transcription.contracts.srt_timestamp_seconds"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.ai_review.AIReviewService",
+        "autoslice.desktop.ai_review.document_hash"
+      ],
+      "lines": [
+        49
+      ],
+      "to": "autoslice.desktop.ai_review"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        50
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.projects.ProjectSnapshot",
+        "autoslice.desktop.projects.SubmissionProject",
+        "autoslice.desktop.projects.SubmissionProjectService"
+      ],
+      "lines": [
+        51
+      ],
+      "to": "autoslice.desktop.projects"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_app.player.MpvAdapter"
+      ],
+      "lines": [
+        60
+      ],
+      "to": "autoslice.desktop.qt_app.player"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_app.timeline.SubtitleTimeline"
+      ],
+      "lines": [
+        61
+      ],
+      "to": "autoslice.desktop.qt_app.timeline"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_preview.icons.icon"
+      ],
+      "lines": [
+        52
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        53
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.PreviewWindow",
+        "autoslice.desktop.qt_preview.window.ProjectItem",
+        "autoslice.desktop.qt_preview.window.label",
+        "autoslice.desktop.qt_preview.window.line"
+      ],
+      "lines": [
+        54
+      ],
+      "to": "autoslice.desktop.qt_preview.window"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.subtitle_render.SubtitleRenderService"
+      ],
+      "lines": [
+        55
+      ],
+      "to": "autoslice.desktop.subtitle_render"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.subtitles.SubtitleDocument"
+      ],
+      "lines": [
+        56
+      ],
+      "to": "autoslice.desktop.subtitles"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.subtitle_workflow.DEFAULT_SUBTITLE_STYLE"
+      ],
+      "lines": [
+        57
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.transcription.contracts.srt_timestamp_seconds"
+      ],
+      "lines": [
+        58
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.__main__",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.stylesheet"
+      ],
+      "lines": [
+        7
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.__main__",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.PreviewWindow"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.desktop.qt_preview.window"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.icons",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.window",
+      "imports": [
+        "autoslice.desktop.qt_preview.icons.icon"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.window",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.subtitle_render",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.subtitle_render",
+      "imports": [
+        "autoslice.subtitle_workflow.burn_subtitles",
+        "autoslice.subtitle_workflow.parse_srt_document"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
+      "from": "autoslice.desktop.subtitles",
+      "imports": [
+        "autoslice.desktop.projects.ProjectVideo"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.desktop.projects"
+    },
+    {
+      "from": "autoslice.desktop.subtitles",
+      "imports": [
+        "autoslice.subtitle_workflow.load_subtitle_edit_state",
+        "autoslice.subtitle_workflow.parse_srt_document",
+        "autoslice.subtitle_workflow.save_corrected_srt"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
+      "from": "autoslice.desktop.subtitles",
+      "imports": [
+        "autoslice.transcription.contracts.SubtitleCue",
+        "autoslice.transcription.contracts.srt_timestamp_seconds"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
       "from": "autoslice.launcher",
       "imports": [
         "autoslice.autocover_service"
       ],
       "lines": [
-        20
+        21
       ],
       "to": "autoslice.autocover_service"
     },
@@ -2209,7 +2608,7 @@
         "autoslice.paths.SOURCE_WORKSPACE_ROOT"
       ],
       "lines": [
-        21
+        22
       ],
       "to": "autoslice.paths"
     },
@@ -2223,7 +2622,7 @@
         "autoslice.runtime_config.apply_local_environment"
       ],
       "lines": [
-        22
+        23
       ],
       "to": "autoslice.runtime_config"
     },
@@ -2234,7 +2633,7 @@
         "autoslice.security_policy.SecurityPolicy"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.security_policy"
     },
@@ -2244,7 +2643,7 @@
         "autoslice.topic_engine.funasr_public_status"
       ],
       "lines": [
-        439
+        553
       ],
       "to": "autoslice.topic_engine"
     },
@@ -2254,7 +2653,7 @@
         "autoslice.web.app.app"
       ],
       "lines": [
-        440
+        554
       ],
       "to": "autoslice.web.app"
     },
@@ -5095,6 +5494,16 @@
         12
       ],
       "to": "autoslice.launcher"
+    },
+    {
+      "from": "桌面端",
+      "imports": [
+        "autoslice.desktop.app.main"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.desktop.app"
     }
   ],
   "longest_functions": [
@@ -5216,9 +5625,9 @@
       "qualname": "load_funasr_model"
     },
     {
-      "end_line": 1496,
+      "end_line": 1498,
       "kind": "function",
-      "line": 1346,
+      "line": 1348,
       "line_count": 151,
       "module": "autoslice.subtitle_workflow",
       "path": "src/autoslice/subtitle_workflow.py",
@@ -5325,6 +5734,16 @@
     }
   ],
   "modules": [
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 14,
+      "longest_function": null,
+      "module": "Qt桌面端",
+      "path": "Qt桌面端.py",
+      "sha256": "e534ab6263b567d1945a8206f75426a3972f6102393aec37d624defb6029fb84",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
     {
       "duplicate_top_level_definitions": [],
       "line_count": 20,
@@ -7987,137 +8406,692 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 466,
+      "line_count": 1,
+      "longest_function": null,
+      "module": "autoslice.desktop",
+      "path": "src/autoslice/desktop/__init__.py",
+      "sha256": "f1d143839599c22d591769541302580f1d976fbbb87b997bc22ff221f277f696",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 6,
+      "longest_function": null,
+      "module": "autoslice.desktop.__main__",
+      "path": "src/autoslice/desktop/__main__.py",
+      "sha256": "fded17ff9960b637a663c0b81d0bfe37359baffae93fb18c60885659077a0f77",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 161,
       "longest_function": {
-        "end_line": 462,
+        "end_line": 161,
         "kind": "function",
-        "line": 386,
-        "line_count": 77,
+        "line": 129,
+        "line_count": 33,
+        "qualname": "AIReviewService.check"
+      },
+      "module": "autoslice.desktop.ai_review",
+      "path": "src/autoslice/desktop/ai_review.py",
+      "sha256": "30325ed158ac7a6e9561f0f60b9a92114cdef7686f7b79868a46bef040f726d4",
+      "top_level_classes": [
+        {
+          "end_line": 38,
+          "kind": "class",
+          "line": 28,
+          "name": "Suggestion"
+        },
+        {
+          "end_line": 59,
+          "kind": "class",
+          "line": 41,
+          "name": "AIReviewSession"
+        },
+        {
+          "end_line": 161,
+          "kind": "class",
+          "line": 62,
+          "name": "AIReviewService"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 20,
+          "kind": "function",
+          "line": 19,
+          "name": "_digest"
+        },
+        {
+          "end_line": 24,
+          "kind": "function",
+          "line": 23,
+          "name": "document_hash"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 387,
+      "longest_function": {
+        "end_line": 282,
+        "kind": "function",
+        "line": 232,
+        "line_count": 51,
+        "qualname": "DesktopApp._render_subtitles"
+      },
+      "module": "autoslice.desktop.app",
+      "path": "src/autoslice/desktop/app.py",
+      "sha256": "ed3117ebee3e682ba26514f5b052ecb35f6eeeb69a556c5e09bce199226aabd5",
+      "top_level_classes": [
+        {
+          "end_line": 379,
+          "kind": "class",
+          "line": 12,
+          "name": "DesktopApp"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 387,
+          "kind": "function",
+          "line": 382,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 236,
+      "longest_function": {
+        "end_line": 182,
+        "kind": "function",
+        "line": 124,
+        "line_count": 59,
+        "qualname": "DesktopStorage.save_draft"
+      },
+      "module": "autoslice.desktop.foundation",
+      "path": "src/autoslice/desktop/foundation.py",
+      "sha256": "05e0b2da3f0990d9f7d8350c7c292cee12460d0702118b599e2795959e0eaada",
+      "top_level_classes": [
+        {
+          "end_line": 27,
+          "kind": "class",
+          "line": 22,
+          "name": "DraftRead"
+        },
+        {
+          "end_line": 236,
+          "kind": "class",
+          "line": 30,
+          "name": "DesktopStorage"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 127,
+      "longest_function": {
+        "end_line": 127,
+        "kind": "function",
+        "line": 81,
+        "line_count": 47,
+        "qualname": "SubmissionProjectService.refresh"
+      },
+      "module": "autoslice.desktop.projects",
+      "path": "src/autoslice/desktop/projects.py",
+      "sha256": "ac245f2a84a87aee727300638c8294dfc556068f48f6deeb351c0b530ab4d372",
+      "top_level_classes": [
+        {
+          "end_line": 36,
+          "kind": "class",
+          "line": 27,
+          "name": "ProjectVideo"
+        },
+        {
+          "end_line": 61,
+          "kind": "class",
+          "line": 40,
+          "name": "SubmissionProject"
+        },
+        {
+          "end_line": 71,
+          "kind": "class",
+          "line": 65,
+          "name": "ProjectSnapshot"
+        },
+        {
+          "end_line": 127,
+          "kind": "class",
+          "line": 74,
+          "name": "SubmissionProjectService"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 23,
+          "kind": "function",
+          "line": 16,
+          "name": "configured_submission_root"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1,
+      "longest_function": null,
+      "module": "autoslice.desktop.qt_app",
+      "path": "src/autoslice/desktop/qt_app/__init__.py",
+      "sha256": "c4b99d0434672ef7f4054bee8e201b02b1971a7bfac86a2231e6ef419e5d6275",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 81,
+      "longest_function": {
+        "end_line": 77,
+        "kind": "function",
+        "line": 16,
+        "line_count": 62,
+        "qualname": "main"
+      },
+      "module": "autoslice.desktop.qt_app.__main__",
+      "path": "src/autoslice/desktop/qt_app/__main__.py",
+      "sha256": "3ed2b772b933b15a61356d4ccc8987518a21a0d483cbee44168c7ad49cf7c302",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 77,
+          "kind": "function",
+          "line": 16,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 208,
+      "longest_function": {
+        "end_line": 124,
+        "kind": "function",
+        "line": 99,
+        "line_count": 26,
+        "qualname": "MpvAdapter._load"
+      },
+      "module": "autoslice.desktop.qt_app.player",
+      "path": "src/autoslice/desktop/qt_app/player.py",
+      "sha256": "8fce45fe22934135820337c93559d7f624c1cb5b1e9abcf5d59752dc0f4dcecd",
+      "top_level_classes": [
+        {
+          "end_line": 208,
+          "kind": "class",
+          "line": 26,
+          "name": "MpvAdapter"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 23,
+          "kind": "function",
+          "line": 14,
+          "name": "libmpv_path"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 308,
+      "longest_function": {
+        "end_line": 172,
+        "kind": "function",
+        "line": 115,
+        "line_count": 58,
+        "qualname": "SubtitleTimeline.paintEvent"
+      },
+      "module": "autoslice.desktop.qt_app.timeline",
+      "path": "src/autoslice/desktop/qt_app/timeline.py",
+      "sha256": "d0ed3d8cbd69293314724a2e319429a7514be64d56a1085d082916c01e09f31b",
+      "top_level_classes": [
+        {
+          "end_line": 308,
+          "kind": "class",
+          "line": 16,
+          "name": "SubtitleTimeline"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1633,
+      "longest_function": {
+        "end_line": 584,
+        "kind": "function",
+        "line": 506,
+        "line_count": 79,
+        "qualname": "DesktopWindow._ai_panel"
+      },
+      "module": "autoslice.desktop.qt_app.window",
+      "path": "src/autoslice/desktop/qt_app/window.py",
+      "sha256": "6db64bc51b78de80fa303986383aacab25863f1eb2d30cfedd43c641bfdb1404",
+      "top_level_classes": [
+        {
+          "end_line": 69,
+          "kind": "class",
+          "line": 64,
+          "name": "_StatusLabel"
+        },
+        {
+          "end_line": 73,
+          "kind": "class",
+          "line": 72,
+          "name": "_Signals"
+        },
+        {
+          "end_line": 86,
+          "kind": "class",
+          "line": 76,
+          "name": "_Job"
+        },
+        {
+          "end_line": 163,
+          "kind": "class",
+          "line": 89,
+          "name": "SubtitleTableModel"
+        },
+        {
+          "end_line": 219,
+          "kind": "class",
+          "line": 166,
+          "name": "SubtitleTextDelegate"
+        },
+        {
+          "end_line": 1633,
+          "kind": "class",
+          "line": 222,
+          "name": "DesktopWindow"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 1,
+      "longest_function": null,
+      "module": "autoslice.desktop.qt_preview",
+      "path": "src/autoslice/desktop/qt_preview/__init__.py",
+      "sha256": "918575ed768a025f668049bcf5a4ad9b840158b8e3c3a5e7a4a77b616c9f0534",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 22,
+      "longest_function": {
+        "end_line": 18,
+        "kind": "function",
+        "line": 11,
+        "line_count": 8,
+        "qualname": "main"
+      },
+      "module": "autoslice.desktop.qt_preview.__main__",
+      "path": "src/autoslice/desktop/qt_preview/__main__.py",
+      "sha256": "2f62db95b267bc6df5943b8181deaefa738eee0c6f79ce43e6cfb81025c20157",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 18,
+          "kind": "function",
+          "line": 11,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 34,
+      "longest_function": {
+        "end_line": 34,
+        "kind": "function",
+        "line": 25,
+        "line_count": 10,
+        "qualname": "icon"
+      },
+      "module": "autoslice.desktop.qt_preview.icons",
+      "path": "src/autoslice/desktop/qt_preview/icons.py",
+      "sha256": "c641d52cb379175af3b1d33900a24934225fc0d0c3c15169ea64220ccd3b3603",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 34,
+          "kind": "function",
+          "line": 25,
+          "name": "icon"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 163,
+      "longest_function": {
+        "end_line": 163,
+        "kind": "function",
+        "line": 80,
+        "line_count": 84,
+        "qualname": "stylesheet"
+      },
+      "module": "autoslice.desktop.qt_preview.theme",
+      "path": "src/autoslice/desktop/qt_preview/theme.py",
+      "sha256": "3bd6639842fa6f9dda55a8dcec54fa2aad2af19a79e2e74397941e667b11b7e4",
+      "top_level_classes": [
+        {
+          "end_line": 36,
+          "kind": "class",
+          "line": 7,
+          "name": "Palette"
+        },
+        {
+          "end_line": 73,
+          "kind": "class",
+          "line": 40,
+          "name": "Metrics"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 163,
+          "kind": "function",
+          "line": 80,
+          "name": "stylesheet"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 584,
+      "longest_function": {
+        "end_line": 415,
+        "kind": "function",
+        "line": 371,
+        "line_count": 45,
+        "qualname": "PreviewWindow._subtitle_list"
+      },
+      "module": "autoslice.desktop.qt_preview.window",
+      "path": "src/autoslice/desktop/qt_preview/window.py",
+      "sha256": "fb36ccff9b802e2bc3b5bf93988a64f15e7a71a360b2a37b102afce958898c9d",
+      "top_level_classes": [
+        {
+          "end_line": 76,
+          "kind": "class",
+          "line": 44,
+          "name": "TwoLineTitle"
+        },
+        {
+          "end_line": 94,
+          "kind": "class",
+          "line": 79,
+          "name": "ProjectItem"
+        },
+        {
+          "end_line": 123,
+          "kind": "class",
+          "line": 97,
+          "name": "NavigationButton"
+        },
+        {
+          "end_line": 155,
+          "kind": "class",
+          "line": 126,
+          "name": "TimelineTrack"
+        },
+        {
+          "end_line": 584,
+          "kind": "class",
+          "line": 158,
+          "name": "PreviewWindow"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 35,
+          "kind": "function",
+          "line": 31,
+          "name": "label"
+        },
+        {
+          "end_line": 41,
+          "kind": "function",
+          "line": 38,
+          "name": "line"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 110,
+      "longest_function": {
+        "end_line": 110,
+        "kind": "function",
+        "line": 61,
+        "line_count": 50,
+        "qualname": "SubtitleRenderService._render"
+      },
+      "module": "autoslice.desktop.subtitle_render",
+      "path": "src/autoslice/desktop/subtitle_render.py",
+      "sha256": "de9442a3ed89fdb1a138f492ee850bedf1a9e608e9eeb2bee504823922dad023",
+      "top_level_classes": [
+        {
+          "end_line": 110,
+          "kind": "class",
+          "line": 18,
+          "name": "SubtitleRenderService"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 371,
+      "longest_function": {
+        "end_line": 371,
+        "kind": "function",
+        "line": 309,
+        "line_count": 63,
+        "qualname": "SubtitleDocument.save"
+      },
+      "module": "autoslice.desktop.subtitles",
+      "path": "src/autoslice/desktop/subtitles.py",
+      "sha256": "54c50bcde5ced72e751424e21264bb8d20bd0c7dd9b4fecb8eefb3c2c3b63c26",
+      "top_level_classes": [
+        {
+          "end_line": 39,
+          "kind": "class",
+          "line": 32,
+          "name": "SubtitleEntry"
+        },
+        {
+          "end_line": 371,
+          "kind": "class",
+          "line": 42,
+          "name": "SubtitleDocument"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 20,
+          "kind": "function",
+          "line": 19,
+          "name": "_fingerprint"
+        },
+        {
+          "end_line": 28,
+          "kind": "function",
+          "line": 23,
+          "name": "_timestamp"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 580,
+      "longest_function": {
+        "end_line": 576,
+        "kind": "function",
+        "line": 497,
+        "line_count": 80,
         "qualname": "main"
       },
       "module": "autoslice.launcher",
       "path": "src/autoslice/launcher.py",
-      "sha256": "eb1f62b32144eff5e596a20852d50698a5fca519c98038eb802932a8c88ea179",
+      "sha256": "f569b42ade671304b29209124314e4a0ffeca00f28bb7d0632e6425ef94c167c",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 57,
+          "end_line": 60,
           "kind": "function",
-          "line": 53,
+          "line": 56,
           "name": "_gpu_runtime_python"
         },
         {
-          "end_line": 66,
+          "end_line": 73,
           "kind": "function",
-          "line": 60,
+          "line": 63,
+          "name": "_media_tool_file"
+        },
+        {
+          "end_line": 128,
+          "kind": "function",
+          "line": 76,
+          "name": "_ffmpeg_candidate_directories"
+        },
+        {
+          "end_line": 139,
+          "kind": "function",
+          "line": 131,
+          "name": "_media_tools_available"
+        },
+        {
+          "end_line": 168,
+          "kind": "function",
+          "line": 142,
+          "name": "_ensure_media_tools_on_path"
+        },
+        {
+          "end_line": 177,
+          "kind": "function",
+          "line": 171,
           "name": "_same_executable"
         },
         {
-          "end_line": 87,
+          "end_line": 198,
           "kind": "function",
-          "line": 69,
+          "line": 180,
           "name": "_gpu_runtime_is_healthy"
         },
         {
-          "end_line": 103,
+          "end_line": 214,
           "kind": "function",
-          "line": 90,
+          "line": 201,
           "name": "_select_gpu_runtime"
         },
         {
-          "end_line": 130,
+          "end_line": 241,
           "kind": "function",
-          "line": 106,
+          "line": 217,
           "name": "_run_gpu_child"
         },
         {
-          "end_line": 135,
+          "end_line": 246,
           "kind": "function",
-          "line": 133,
+          "line": 244,
           "name": "_version_tuple"
         },
         {
-          "end_line": 152,
+          "end_line": 263,
           "kind": "function",
-          "line": 138,
+          "line": 249,
           "name": "_missing_dependencies"
         },
         {
-          "end_line": 175,
+          "end_line": 286,
           "kind": "function",
-          "line": 155,
+          "line": 266,
           "name": "_install_dependencies"
         },
         {
-          "end_line": 188,
+          "end_line": 299,
           "kind": "function",
-          "line": 178,
+          "line": 289,
           "name": "_probe_autoslice_service"
         },
         {
-          "end_line": 200,
+          "end_line": 311,
           "kind": "function",
-          "line": 191,
+          "line": 302,
           "name": "_is_compatible_autoslice_service"
         },
         {
-          "end_line": 236,
+          "end_line": 347,
           "kind": "function",
-          "line": 203,
+          "line": 314,
           "name": "_existing_unified_services"
         },
         {
-          "end_line": 249,
+          "end_line": 360,
           "kind": "function",
-          "line": 239,
+          "line": 350,
           "name": "_find_available_local_port"
         },
         {
-          "end_line": 258,
+          "end_line": 369,
           "kind": "function",
-          "line": 252,
+          "line": 363,
           "name": "_autocover_python"
         },
         {
-          "end_line": 283,
+          "end_line": 394,
           "kind": "function",
-          "line": 261,
+          "line": 372,
           "name": "_ensure_autocover_dependencies"
         },
         {
-          "end_line": 294,
+          "end_line": 405,
           "kind": "function",
-          "line": 286,
+          "line": 397,
           "name": "_wait_for_autocover"
         },
         {
-          "end_line": 305,
+          "end_line": 416,
           "kind": "function",
-          "line": 297,
+          "line": 408,
           "name": "_stop_autocover"
         },
         {
-          "end_line": 321,
+          "end_line": 432,
           "kind": "function",
-          "line": 308,
+          "line": 419,
           "name": "_autoslice_bind_host"
         },
         {
-          "end_line": 372,
+          "end_line": 483,
           "kind": "function",
-          "line": 324,
+          "line": 435,
           "name": "_start_autocover"
         },
         {
-          "end_line": 383,
+          "end_line": 494,
           "kind": "function",
-          "line": 375,
+          "line": 486,
           "name": "_print_help"
         },
         {
-          "end_line": 462,
+          "end_line": 576,
           "kind": "function",
-          "line": 386,
+          "line": 497,
           "name": "main"
         }
       ]
@@ -10214,17 +11188,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 2417,
+      "line_count": 2444,
       "longest_function": {
-        "end_line": 1496,
+        "end_line": 1498,
         "kind": "function",
-        "line": 1346,
+        "line": 1348,
         "line_count": 151,
         "qualname": "suggest_subtitle_corrections"
       },
       "module": "autoslice.subtitle_workflow",
       "path": "src/autoslice/subtitle_workflow.py",
-      "sha256": "4c4692459f03441edf2aea2b92129212055c7baf9b81adc635e4978fb561fff3",
+      "sha256": "574a8a1fe911312d8761b4b94ae8230de1b763e6899cc39c9da6bff158a25bf2",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -10372,339 +11346,339 @@
           "name": "load_subtitle_edit_state"
         },
         {
-          "end_line": 793,
+          "end_line": 795,
           "kind": "function",
           "line": 789,
           "name": "_is_generated_stem"
         },
         {
-          "end_line": 802,
+          "end_line": 804,
           "kind": "function",
-          "line": 796,
+          "line": 798,
           "name": "_path_timestamps"
         },
         {
-          "end_line": 850,
+          "end_line": 852,
           "kind": "function",
-          "line": 805,
+          "line": 807,
           "name": "_pair_result"
         },
         {
-          "end_line": 893,
+          "end_line": 895,
           "kind": "function",
-          "line": 853,
+          "line": 855,
           "name": "scan_submission_pairs"
         },
         {
-          "end_line": 978,
+          "end_line": 980,
           "kind": "function",
-          "line": 896,
+          "line": 898,
           "name": "transcribe_submission_video"
         },
         {
-          "end_line": 1003,
+          "end_line": 1005,
           "kind": "function",
-          "line": 981,
+          "line": 983,
           "name": "normalise_subtitle_review_dictionary"
         },
         {
-          "end_line": 1023,
+          "end_line": 1025,
           "kind": "function",
-          "line": 1006,
+          "line": 1008,
           "name": "subtitle_review_profile_rules"
         },
         {
-          "end_line": 1039,
+          "end_line": 1041,
           "kind": "function",
-          "line": 1026,
+          "line": 1028,
           "name": "_subtitle_source_fingerprint"
         },
         {
-          "end_line": 1044,
+          "end_line": 1046,
           "kind": "function",
-          "line": 1042,
+          "line": 1044,
           "name": "_review_cache_path"
         },
         {
-          "end_line": 1111,
+          "end_line": 1113,
           "kind": "function",
-          "line": 1047,
+          "line": 1049,
           "name": "_validated_cached_review"
         },
         {
-          "end_line": 1154,
+          "end_line": 1156,
           "kind": "function",
-          "line": 1114,
+          "line": 1116,
           "name": "_review_prompt"
         },
         {
-          "end_line": 1172,
+          "end_line": 1174,
           "kind": "function",
-          "line": 1157,
+          "line": 1159,
           "name": "_default_llm_runner"
         },
         {
-          "end_line": 1185,
+          "end_line": 1187,
           "kind": "function",
-          "line": 1175,
+          "line": 1177,
           "name": "_build_default_llm_runner"
         },
         {
-          "end_line": 1194,
+          "end_line": 1196,
           "kind": "function",
-          "line": 1188,
+          "line": 1190,
           "name": "_normalise_review_payload"
         },
         {
-          "end_line": 1198,
+          "end_line": 1200,
           "kind": "function",
-          "line": 1197,
+          "line": 1199,
           "name": "_semantic_text"
         },
         {
-          "end_line": 1242,
+          "end_line": 1244,
           "kind": "function",
-          "line": 1201,
+          "line": 1203,
           "name": "_normalise_suggestion"
         },
         {
-          "end_line": 1306,
+          "end_line": 1308,
           "kind": "function",
-          "line": 1245,
+          "line": 1247,
           "name": "_review_batch"
         },
         {
-          "end_line": 1322,
+          "end_line": 1324,
           "kind": "function",
-          "line": 1309,
+          "line": 1311,
           "name": "_apply_fixed_replacements"
         },
         {
-          "end_line": 1343,
+          "end_line": 1345,
           "kind": "function",
-          "line": 1325,
+          "line": 1327,
           "name": "_fixed_replacement_suggestions"
         },
         {
-          "end_line": 1496,
+          "end_line": 1498,
           "kind": "function",
-          "line": 1346,
+          "line": 1348,
           "name": "suggest_subtitle_corrections"
         },
         {
-          "end_line": 1542,
+          "end_line": 1544,
           "kind": "function",
-          "line": 1499,
+          "line": 1501,
           "name": "high_confidence_corrections"
         },
         {
-          "end_line": 1566,
+          "end_line": 1568,
           "kind": "function",
-          "line": 1545,
+          "line": 1547,
           "name": "_subtitle_title_evidence"
         },
         {
-          "end_line": 1603,
+          "end_line": 1605,
           "kind": "function",
-          "line": 1569,
+          "line": 1571,
           "name": "_subtitle_title_generation_prompt"
         },
         {
-          "end_line": 1636,
+          "end_line": 1638,
           "kind": "function",
-          "line": 1606,
+          "line": 1608,
           "name": "_normalise_subtitle_title_payload"
         },
         {
-          "end_line": 1666,
+          "end_line": 1668,
           "kind": "function",
-          "line": 1639,
+          "line": 1641,
           "name": "_subtitle_title_judge_prompt"
         },
         {
-          "end_line": 1707,
+          "end_line": 1709,
           "kind": "function",
-          "line": 1669,
+          "line": 1671,
           "name": "_normalise_subtitle_title_judgement"
         },
         {
-          "end_line": 1721,
+          "end_line": 1723,
           "kind": "function",
-          "line": 1710,
+          "line": 1712,
           "name": "_default_subtitle_title_runner"
         },
         {
-          "end_line": 1790,
+          "end_line": 1792,
           "kind": "function",
-          "line": 1724,
+          "line": 1726,
           "name": "generate_subtitle_reference_titles"
         },
         {
-          "end_line": 1818,
+          "end_line": 1820,
           "kind": "function",
-          "line": 1793,
+          "line": 1795,
           "name": "normalise_subtitle_style"
         },
         {
-          "end_line": 1854,
+          "end_line": 1856,
           "kind": "function",
-          "line": 1821,
+          "line": 1823,
           "name": "normalise_video_export"
         },
         {
-          "end_line": 1899,
+          "end_line": 1901,
           "kind": "function",
-          "line": 1857,
+          "line": 1859,
           "name": "_probe_video_info"
         },
         {
-          "end_line": 1914,
+          "end_line": 1916,
           "kind": "function",
-          "line": 1902,
+          "line": 1904,
           "name": "_parse_frame_rate"
         },
         {
-          "end_line": 1920,
+          "end_line": 1922,
           "kind": "function",
-          "line": 1917,
+          "line": 1919,
           "name": "_html_color_to_ass"
         },
         {
-          "end_line": 1928,
+          "end_line": 1930,
           "kind": "function",
-          "line": 1923,
+          "line": 1925,
           "name": "_ass_timestamp"
         },
         {
-          "end_line": 1940,
+          "end_line": 1942,
           "kind": "function",
-          "line": 1931,
+          "line": 1933,
           "name": "_escape_ass_text"
         },
         {
-          "end_line": 1944,
+          "end_line": 1946,
           "kind": "function",
-          "line": 1943,
+          "line": 1945,
           "name": "_subtitle_display_text_size"
         },
         {
-          "end_line": 1954,
+          "end_line": 1956,
           "kind": "function",
-          "line": 1947,
+          "line": 1949,
           "name": "_subtitle_display_char_limit"
         },
         {
-          "end_line": 1988,
+          "end_line": 1990,
           "kind": "function",
-          "line": 1957,
+          "line": 1959,
           "name": "_split_subtitle_text_for_ass"
         },
         {
-          "end_line": 2021,
+          "end_line": 2023,
           "kind": "function",
-          "line": 1991,
+          "line": 1993,
           "name": "_split_cue_for_ass"
         },
         {
-          "end_line": 2033,
+          "end_line": 2035,
           "kind": "function",
-          "line": 2024,
+          "line": 2026,
           "name": "_style_geometry"
         },
         {
-          "end_line": 2067,
+          "end_line": 2069,
           "kind": "function",
-          "line": 2036,
+          "line": 2038,
           "name": "build_ass_document"
         },
         {
-          "end_line": 2072,
+          "end_line": 2074,
           "kind": "function",
-          "line": 2070,
+          "line": 2072,
           "name": "_ass_output_path"
         },
         {
-          "end_line": 2077,
+          "end_line": 2079,
           "kind": "function",
-          "line": 2075,
+          "line": 2077,
           "name": "_style_output_path"
         },
         {
-          "end_line": 2102,
+          "end_line": 2104,
           "kind": "function",
-          "line": 2080,
+          "line": 2082,
           "name": "_atomic_write_text"
         },
         {
-          "end_line": 2131,
+          "end_line": 2133,
           "kind": "function",
-          "line": 2105,
+          "line": 2107,
           "name": "write_ass_from_srt"
         },
         {
-          "end_line": 2137,
+          "end_line": 2139,
           "kind": "function",
-          "line": 2134,
+          "line": 2136,
           "name": "_ffmpeg_filter_path"
         },
         {
-          "end_line": 2141,
+          "end_line": 2143,
           "kind": "function",
-          "line": 2140,
+          "line": 2142,
           "name": "_ass_filter"
         },
         {
-          "end_line": 2176,
+          "end_line": 2178,
           "kind": "function",
-          "line": 2145,
+          "line": 2147,
           "name": "verify_exact_subtitle_font"
         },
         {
-          "end_line": 2186,
+          "end_line": 2188,
           "kind": "function",
-          "line": 2179,
+          "line": 2181,
           "name": "_ensure_exact_subtitle_font"
         },
         {
-          "end_line": 2200,
+          "end_line": 2202,
           "kind": "function",
-          "line": 2189,
+          "line": 2191,
           "name": "_video_filter_chain"
         },
         {
-          "end_line": 2243,
+          "end_line": 2245,
           "kind": "function",
-          "line": 2203,
+          "line": 2205,
           "name": "render_subtitle_preview"
         },
         {
-          "end_line": 2257,
+          "end_line": 2259,
           "kind": "function",
-          "line": 2247,
+          "line": 2249,
           "name": "_nvenc_available"
         },
         {
-          "end_line": 2262,
+          "end_line": 2264,
           "kind": "function",
-          "line": 2260,
+          "line": 2262,
           "name": "_output_video_path"
         },
         {
-          "end_line": 2278,
+          "end_line": 2280,
           "kind": "function",
-          "line": 2265,
+          "line": 2267,
           "name": "_encoder_arguments"
         },
         {
-          "end_line": 2310,
+          "end_line": 2331,
           "kind": "function",
-          "line": 2281,
+          "line": 2283,
           "name": "_run_subtitle_encode"
         },
         {
-          "end_line": 2417,
+          "end_line": 2444,
           "kind": "function",
-          "line": 2313,
+          "line": 2334,
           "name": "burn_subtitles"
         }
       ]
@@ -14029,162 +15003,162 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 613,
+      "line_count": 614,
       "longest_function": {
-        "end_line": 567,
+        "end_line": 568,
         "kind": "function",
-        "line": 469,
+        "line": 470,
         "line_count": 99,
         "qualname": "build_snapshot"
       },
       "module": "scripts.architecture_snapshot",
       "path": "scripts/architecture_snapshot.py",
-      "sha256": "a9de657b42b67174581ed9cb9123f0ea855bf2982a69d7a9903717561ec1d3b7",
+      "sha256": "299823a2a37c88242598cf00c77e00fbdee5737904ff91f3f0c3c90c00f6693d",
       "top_level_classes": [
         {
-          "end_line": 159,
+          "end_line": 160,
           "kind": "class",
-          "line": 131,
+          "line": 132,
           "name": "_FunctionCollector"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 59,
+          "end_line": 60,
           "kind": "function",
-          "line": 58,
+          "line": 59,
           "name": "_normalise_path"
         },
         {
-          "end_line": 66,
+          "end_line": 67,
           "kind": "function",
-          "line": 62,
+          "line": 63,
           "name": "_is_excluded_directory"
         },
         {
-          "end_line": 95,
+          "end_line": 96,
           "kind": "function",
-          "line": 69,
+          "line": 70,
           "name": "discover_python_files"
         },
         {
-          "end_line": 105,
+          "end_line": 106,
           "kind": "function",
-          "line": 98,
+          "line": 99,
           "name": "module_name_for_path"
         },
         {
-          "end_line": 111,
+          "end_line": 112,
           "kind": "function",
-          "line": 108,
+          "line": 109,
           "name": "_read_python_source"
         },
         {
-          "end_line": 119,
+          "end_line": 120,
           "kind": "function",
-          "line": 114,
+          "line": 115,
           "name": "_definition_kind"
         },
         {
-          "end_line": 128,
+          "end_line": 129,
           "kind": "function",
-          "line": 122,
+          "line": 123,
           "name": "_definition_record"
         },
         {
-          "end_line": 172,
+          "end_line": 173,
           "kind": "function",
-          "line": 162,
+          "line": 163,
           "name": "_absolute_from_import"
         },
         {
-          "end_line": 190,
+          "end_line": 191,
           "kind": "function",
-          "line": 175,
+          "line": 176,
           "name": "_candidate_local_module"
         },
         {
-          "end_line": 221,
+          "end_line": 222,
           "kind": "function",
-          "line": 193,
+          "line": 194,
           "name": "_raw_imports"
         },
         {
-          "end_line": 234,
+          "end_line": 235,
           "kind": "function",
-          "line": 224,
+          "line": 225,
           "name": "_resolve_import_target"
         },
         {
-          "end_line": 298,
+          "end_line": 299,
           "kind": "function",
-          "line": 237,
+          "line": 238,
           "name": "analyse_module"
         },
         {
-          "end_line": 307,
+          "end_line": 308,
           "kind": "function",
-          "line": 301,
+          "line": 302,
           "name": "_expression_name"
         },
         {
-          "end_line": 311,
+          "end_line": 312,
           "kind": "function",
-          "line": 310,
+          "line": 311,
           "name": "_constant_string"
         },
         {
-          "end_line": 333,
+          "end_line": 334,
           "kind": "function",
-          "line": 314,
+          "line": 315,
           "name": "_private_patch_targets"
         },
         {
-          "end_line": 357,
+          "end_line": 358,
           "kind": "function",
-          "line": 336,
+          "line": 337,
           "name": "_test_private_patch_snapshot"
         },
         {
-          "end_line": 428,
+          "end_line": 429,
           "kind": "function",
-          "line": 360,
+          "line": 361,
           "name": "find_dependency_cycles"
         },
         {
-          "end_line": 466,
+          "end_line": 467,
           "kind": "function",
-          "line": 431,
+          "line": 432,
           "name": "dependency_contract_violations"
         },
         {
-          "end_line": 567,
+          "end_line": 568,
           "kind": "function",
-          "line": 469,
+          "line": 470,
           "name": "build_snapshot"
         },
         {
-          "end_line": 571,
+          "end_line": 572,
           "kind": "function",
-          "line": 570,
+          "line": 571,
           "name": "serialise_snapshot"
         },
         {
-          "end_line": 576,
+          "end_line": 577,
           "kind": "function",
-          "line": 574,
+          "line": 575,
           "name": "write_snapshot"
         },
         {
-          "end_line": 592,
+          "end_line": 593,
           "kind": "function",
-          "line": 579,
+          "line": 580,
           "name": "_check_snapshot"
         },
         {
-          "end_line": 609,
+          "end_line": 610,
           "kind": "function",
-          "line": 595,
+          "line": 596,
           "name": "main"
         }
       ]
@@ -14868,6 +15842,16 @@
       "sha256": "85fa6fcb7cfe4069ee4c65fe3b63406ca30153056addbe80f63d3c0e2e5b255a",
       "top_level_classes": [],
       "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 16,
+      "longest_function": null,
+      "module": "桌面端",
+      "path": "桌面端.py",
+      "sha256": "97f48972bdb4b19678b31e858064956eb1963969b111ac4ce8b3e062f497127b",
+      "top_level_classes": [],
+      "top_level_functions": []
     }
   ],
   "schema_version": 1,
@@ -14895,6 +15879,7 @@
       ".codex-tmp-"
     ],
     "production_files": [
+      "Qt桌面端.py",
       "_autoslice_compat.py",
       "app.py",
       "artifact_store.py",
@@ -14911,6 +15896,7 @@
       "task_store.py",
       "topic_engine.py",
       "启动.py",
+      "桌面端.py",
       "autocover_tool/__init__.py",
       "autocover_tool/_compat.py",
       "autocover_tool/app.py",
@@ -15041,6 +16027,24 @@
       "src/autoslice/analysis/topic/reconciliation.py",
       "src/autoslice/analysis/topic/response.py",
       "src/autoslice/analysis/topic/titles.py",
+      "src/autoslice/desktop/__init__.py",
+      "src/autoslice/desktop/__main__.py",
+      "src/autoslice/desktop/ai_review.py",
+      "src/autoslice/desktop/app.py",
+      "src/autoslice/desktop/foundation.py",
+      "src/autoslice/desktop/projects.py",
+      "src/autoslice/desktop/subtitle_render.py",
+      "src/autoslice/desktop/subtitles.py",
+      "src/autoslice/desktop/qt_app/__init__.py",
+      "src/autoslice/desktop/qt_app/__main__.py",
+      "src/autoslice/desktop/qt_app/player.py",
+      "src/autoslice/desktop/qt_app/timeline.py",
+      "src/autoslice/desktop/qt_app/window.py",
+      "src/autoslice/desktop/qt_preview/__init__.py",
+      "src/autoslice/desktop/qt_preview/__main__.py",
+      "src/autoslice/desktop/qt_preview/icons.py",
+      "src/autoslice/desktop/qt_preview/theme.py",
+      "src/autoslice/desktop/qt_preview/window.py",
       "src/autoslice/llm/__init__.py",
       "src/autoslice/llm/contracts.py",
       "src/autoslice/llm/prompts.py",
@@ -15136,6 +16140,13 @@
       "tests/unit/test_artifact_store.py",
       "tests/unit/test_autocover_service.py",
       "tests/unit/test_clip_scoring.py",
+      "tests/unit/test_desktop_ai_qt.py",
+      "tests/unit/test_desktop_ai_review.py",
+      "tests/unit/test_desktop_app.py",
+      "tests/unit/test_desktop_foundation.py",
+      "tests/unit/test_desktop_projects.py",
+      "tests/unit/test_desktop_render.py",
+      "tests/unit/test_desktop_subtitles.py",
       "tests/unit/test_llm_client.py",
       "tests/unit/test_llm_contracts.py",
       "tests/unit/test_media_formats.py",
@@ -15190,12 +16201,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 478,
-    "production_line_count": 44424,
-    "production_module_count": 179,
+    "import_edge_count": 517,
+    "production_line_count": 49030,
+    "production_module_count": 199,
     "test_private_patch_count": 17,
-    "top_level_class_count": 110,
-    "top_level_function_count": 1043
+    "top_level_class_count": 138,
+    "top_level_function_count": 1060
   },
   "test_private_patches": {
     "by_target_module": {

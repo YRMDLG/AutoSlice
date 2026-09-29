@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import shutil
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -63,6 +64,52 @@ class LauncherTests(unittest.TestCase):
             runtime,
             Path(r"X:\fixtures\LocalAppData\AutoSlice\gpu-py310-cu130\Scripts\python.exe"),
         )
+
+    def test_media_tools_are_added_from_migrated_workspace_parent(self):
+        with TemporaryDirectory() as directory:
+            drive_root = Path(directory) / "F盘"
+            project_dir = drive_root / "MyCode" / "AutoSlice"
+            media_dir = drive_root / "ffmpeg" / "bin"
+            project_dir.mkdir(parents=True)
+            media_dir.mkdir(parents=True)
+            for name in launcher.MEDIA_TOOL_NAMES:
+                filename = f"{name}.exe" if os.name == "nt" else name
+                path = media_dir / filename
+                path.write_bytes(b"test binary")
+                if os.name != "nt":
+                    path.chmod(0o755)
+
+            environment = {"PATH": r"C:\stale\ffmpeg\bin"}
+            selected = launcher._ensure_media_tools_on_path(
+                environ=environment,
+                project_dir=project_dir,
+                finder=shutil.which,
+            )
+
+        self.assertEqual(selected, media_dir)
+        self.assertEqual(environment["PATH"].split(os.pathsep)[0], str(media_dir))
+
+    def test_media_tools_keep_an_already_working_path_unchanged(self):
+        with TemporaryDirectory() as directory:
+            media_dir = Path(directory) / "bin"
+            media_dir.mkdir()
+            for name in launcher.MEDIA_TOOL_NAMES:
+                filename = f"{name}.exe" if os.name == "nt" else name
+                path = media_dir / filename
+                path.write_bytes(b"test binary")
+                if os.name != "nt":
+                    path.chmod(0o755)
+
+            original_path = str(media_dir)
+            environment = {"PATH": original_path}
+            selected = launcher._ensure_media_tools_on_path(
+                environ=environment,
+                project_dir=Path(directory) / "unrelated-project",
+                finder=shutil.which,
+            )
+
+        self.assertIsNone(selected)
+        self.assertEqual(environment["PATH"], original_path)
 
     def test_gpu_runtime_health_check_requires_file_and_cuda_probe(self):
         with TemporaryDirectory() as tmp:

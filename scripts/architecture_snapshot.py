@@ -26,6 +26,7 @@ FORBIDDEN_LOW_LEVEL_TARGETS = (
 )
 HIGH_LEVEL_SOURCE_MODULES = frozenset({
     "autoslice.core",
+    "autoslice.desktop",
     "autoslice.launcher",
     "autoslice.subtitle_workflow",
     "autoslice.topic_engine",

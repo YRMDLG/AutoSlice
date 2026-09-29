@@ -37,6 +37,8 @@ LEGACY_COMPATIBILITY_PATHS = frozenset({
     "task_store.py",
     "topic_engine.py",
     "启动.py",
+    "桌面端.py",
+    "Qt桌面端.py",
     "autocover_tool/__init__.py",
     "autocover_tool/_compat.py",
     "autocover_tool/app.py",
@@ -2667,7 +2669,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 1043)
+        self.assertEqual(current["summary"]["top_level_function_count"], 1059)
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5419,7 +5421,7 @@ class ArchitectureDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            1043,
+            1059,
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -31,6 +32,8 @@ from autoslice.security_policy import SecurityConfigurationError, SecurityPolicy
 PROJECT_DIR = APPLICATION_DATA_ROOT
 PACKAGE_SOURCE_ROOT = Path(__file__).resolve().parents[1]
 GPU_RUNTIME_RELATIVE_PATH = Path("AutoSlice") / "gpu-py310-cu130" / "Scripts" / "python.exe"
+MEDIA_TOOL_NAMES = ("ffmpeg", "ffprobe")
+MEDIA_TOOL_DIR_ENV = "AUTOSLICE_FFMPEG_DIR"
 REQUIRED_IMPORTS = ("flask", "funasr", "soxr", "docx", "requests")
 MINIMUM_PACKAGE_VERSIONS = {"funasr": "1.4.1"}
 AUTOCOVER_PROJECT_DIR = AUTOCOVER_DIR
@@ -55,6 +58,114 @@ def _gpu_runtime_python(local_app_data=None):
     if not base_dir:
         return None
     return Path(base_dir) / GPU_RUNTIME_RELATIVE_PATH
+
+
+def _media_tool_file(directory, name):
+    """返回目录中的媒体工具文件；不执行文件，只检查其存在性。"""
+
+    filenames = [name]
+    if os.name == "nt":
+        filenames.insert(0, f"{name}.exe")
+    for filename in filenames:
+        path = Path(directory) / filename
+        if path.is_file() and (os.name == "nt" or os.access(path, os.X_OK)):
+            return path
+    return None
+
+
+def _ffmpeg_candidate_directories(project_dir=None, environ=None):
+    """按显式配置和源码工作区附近的稳定位置寻找 FFmpeg bin 目录。"""
+
+    env = environ if environ is not None else os.environ
+    candidates = []
+    configured = str(env.get(MEDIA_TOOL_DIR_ENV, "")).strip()
+    if configured:
+        candidates.append(Path(configured).expanduser())
+
+    roots = []
+    root_keys = set()
+    for value in (
+            project_dir,
+            SOURCE_WORKSPACE_ROOT,
+            PROJECT_DIR,
+            PACKAGE_SOURCE_ROOT,
+    ):
+        if not value:
+            continue
+        root = Path(value).expanduser()
+        try:
+            root = root.resolve()
+        except (OSError, RuntimeError):
+            root = Path(os.path.abspath(os.fspath(root)))
+        key = os.path.normcase(os.path.abspath(os.fspath(root)))
+        if key in root_keys:
+            continue
+        root_keys.add(key)
+        roots.append(root)
+
+    for root in roots:
+        current = root
+        for _ in range(3):
+            candidates.append(current / "ffmpeg" / "bin")
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+
+    unique = []
+    seen = set()
+    for candidate in candidates:
+        try:
+            normalized = os.path.normcase(
+                os.path.abspath(os.fspath(candidate.expanduser()))
+            )
+        except OSError:
+            normalized = os.path.normcase(os.fspath(candidate))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(candidate)
+    return unique
+
+
+def _media_tools_available(environ=None, finder=None):
+    """判断给定环境的 PATH 是否同时能解析 ffmpeg 和 ffprobe。"""
+
+    env = environ if environ is not None else os.environ
+    path_value = str(env.get("PATH", ""))
+    which = finder or shutil.which
+    return bool(path_value) and all(
+        which(name, path=path_value) for name in MEDIA_TOOL_NAMES
+    )
+
+
+def _ensure_media_tools_on_path(environ=None, project_dir=None, finder=None):
+    """为当前启动环境补入迁移后的 FFmpeg 目录，并返回实际目录。"""
+
+    env = environ if environ is not None else os.environ
+    if _media_tools_available(env, finder=finder):
+        return None
+
+    for candidate in _ffmpeg_candidate_directories(
+            project_dir=project_dir, environ=env):
+        if not all(_media_tool_file(candidate, name) for name in MEDIA_TOOL_NAMES):
+            continue
+        current_path = str(env.get("PATH", ""))
+        candidate_text = str(candidate)
+        candidate_key = os.path.normcase(os.path.abspath(candidate_text))
+        existing_keys = {
+            os.path.normcase(os.path.abspath(part))
+            for part in current_path.split(os.pathsep)
+            if part
+        }
+        if candidate_key not in existing_keys:
+            env["PATH"] = (
+                f"{candidate_text}{os.pathsep}{current_path}"
+                if current_path
+                else candidate_text
+            )
+        return candidate
+    return None
 
 
 def _same_executable(first, second):
@@ -390,9 +501,12 @@ def main(argv=None):
         return 0
 
     apply_local_environment()
+    media_tools_dir = _ensure_media_tools_on_path()
     print("=" * 50)
     print("  AutoSlice - 智能切片")
     print("=" * 50)
+    if media_tools_dir:
+        print(f"  已自动发现 FFmpeg，并加入当前启动环境: {media_tools_dir}")
 
     try:
         existing_services = _existing_unified_services()

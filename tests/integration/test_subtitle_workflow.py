@@ -1369,9 +1369,9 @@ class SubtitleRenderingTests(unittest.TestCase):
         self.assertIn("&H00956ED0", document)
         self.assertIn(",5.33,0.0,5,", document)
         self.assertIn(r"{\an5\pos(960,966)}", document)
-        self.assertIn(r"测试\{样式\}\\路径 第二行", document)
+        self.assertIn(r"测试\{样式\}\\路径\N第二行", document)
 
-    def test_ass_splits_oversized_cue_into_safe_sequential_events(self):
+    def test_ass_wraps_oversized_cue_without_retiming(self):
         source_text = "超长字幕必须拆分避免越过画面边缘" * 4
         cue = parse_srt_document_from_text(
             f"1\n00:00:00,000 --> 00:00:12,000\n{source_text}\n"
@@ -1382,60 +1382,47 @@ class SubtitleRenderingTests(unittest.TestCase):
             line for line in document.splitlines()
             if line.startswith("Dialogue:")
         ]
-        event_texts = [line.rsplit("}", 1)[-1] for line in events]
+        self.assertEqual(len(events), 1)
+        self.assertIn("Dialogue: 0,0:00:00.00,0:00:12.00,", events[0])
+        rendered_text = events[0].rsplit("}", 1)[-1]
+        visual_lines = rendered_text.split("\\N")
+        self.assertEqual("".join(visual_lines), source_text)
 
-        self.assertGreater(len(events), 1)
-        self.assertEqual("".join(event_texts), source_text)
         geometry = subtitle_workflow._style_geometry(
             normalise_subtitle_style(DEFAULT_SUBTITLE_STYLE),
             1920,
             1080,
         )
-        ass_safe_limit = subtitle_workflow._subtitle_display_char_limit(
-            1920,
-            geometry,
-        )
-        # ASS 层按画布、字号和描边计算安全值，可能严于工作 SRT 的 16 字契约。
+        ass_safe_limit = subtitle_workflow._subtitle_display_char_limit(1920, geometry)
         self.assertTrue(all(
-            subtitle_workflow._subtitle_display_text_size(text) <= ass_safe_limit
-            for text in event_texts
+            subtitle_workflow._subtitle_display_text_size(line) <= ass_safe_limit
+            for line in visual_lines
         ))
-        self.assertTrue(all(r"{\an5\pos(960,966)}" in event for event in events))
+        self.assertIn(r"{\an5\pos(960,966)}", events[0])
 
         document_4x3 = build_ass_document([cue], 1440, 1080)
-        events_4x3 = [
+        event_4x3 = next(
             line for line in document_4x3.splitlines()
             if line.startswith("Dialogue:")
-        ]
-        event_texts_4x3 = [line.rsplit("}", 1)[-1] for line in events_4x3]
+        )
+        lines_4x3 = event_4x3.rsplit("}", 1)[-1].split("\\N")
+        self.assertEqual("".join(lines_4x3), source_text)
+        self.assertGreater(len(lines_4x3), len(visual_lines))
 
-        self.assertGreater(len(events_4x3), len(events))
-        self.assertEqual("".join(event_texts_4x3), source_text)
-        self.assertTrue(all(len(text) <= 9 for text in event_texts_4x3))
-
-    def test_ass_hard_limit_accounts_for_font_outline_width_and_never_auto_wraps(self):
+    def test_ass_wrap_limit_accounts_for_font_outline_and_width(self):
         source_text = "压制前必须按画布字号描边和安全边距再次限制字幕" * 3
         cue = parse_srt_document_from_text(
             f"1\n00:00:00,000 --> 00:00:12,000\n{source_text}\n"
         )[0]
 
         compact = build_ass_document(
-            [cue],
-            1920,
-            1080,
-            style={"font_size": 12, "outline_width": 0},
+            [cue], 1920, 1080, style={"font_size": 12, "outline_width": 0},
         )
         large = build_ass_document(
-            [cue],
-            1920,
-            1080,
-            style={"font_size": 30, "outline_width": 100},
+            [cue], 1920, 1080, style={"font_size": 30, "outline_width": 100},
         )
         narrow = build_ass_document(
-            [cue],
-            960,
-            1080,
-            style={"font_size": 30, "outline_width": 100},
+            [cue], 960, 1080, style={"font_size": 30, "outline_width": 100},
         )
 
         def dialogue_texts(document):
@@ -1450,10 +1437,13 @@ class SubtitleRenderingTests(unittest.TestCase):
         narrow_texts = dialogue_texts(narrow)
 
         for texts in (compact_texts, large_texts, narrow_texts):
-            self.assertEqual("".join(texts), source_text)
-            self.assertFalse(any(r"\N" in text for text in texts))
-        self.assertGreater(len(large_texts), len(compact_texts))
-        self.assertGreater(len(narrow_texts), len(large_texts))
+            self.assertEqual(len(texts), 1)
+            self.assertEqual(texts[0].replace("\\N", ""), source_text)
+        compact_lines = compact_texts[0].split("\\N")
+        large_lines = large_texts[0].split("\\N")
+        narrow_lines = narrow_texts[0].split("\\N")
+        self.assertGreater(len(large_lines), len(compact_lines))
+        self.assertGreater(len(narrow_lines), len(large_lines))
 
     def test_ass_split_keeps_very_short_valid_cue_inside_original_interval(self):
         source_text = "极短时间内也要依次显示完整字幕" * 5

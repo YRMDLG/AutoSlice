@@ -383,10 +383,100 @@ def _merged_subtitle_cues(
     return output
 
 
+def _normalise_split_groups(cues, split_groups, deleted_indices):
+    """校验一个源 cue 的持久化拆分段；段本身按时间顺序保存。"""
+    if split_groups is None:
+        return {}
+    if not isinstance(split_groups, (list, tuple)):
+        raise ValueError("字幕拆分关系必须是数组")
+    cue_by_index = {cue.index: cue for cue in cues}
+    result = {}
+    for raw in split_groups:
+        if not isinstance(raw, dict):
+            raise ValueError("字幕拆分项必须是对象")
+        try:
+            source = int(raw.get("source"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("字幕拆分项缺少源序号") from exc
+        if source not in cue_by_index or source in deleted_indices:
+            raise ValueError("字幕拆分源序号不存在")
+        if source in result:
+            raise ValueError("同一字幕不能重复拆分")
+        segments = raw.get("segments")
+        if not isinstance(segments, (list, tuple)) or len(segments) < 2:
+            raise ValueError("字幕拆分至少需要两段")
+        normalised = []
+        previous_end = None
+        source_start = _srt_timestamp_seconds(cue_by_index[source].start)
+        source_end = _srt_timestamp_seconds(cue_by_index[source].end)
+        for position, item in enumerate(segments):
+            if not isinstance(item, dict):
+                raise ValueError("字幕拆分段必须是对象")
+            try:
+                start = float(item.get("start"))
+                end = float(item.get("end"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("字幕拆分段时间无效") from exc
+            text = str(item.get("text", "")).strip()
+            if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+                raise ValueError("字幕拆分段时间无效")
+            if not text or _TIMESTAMP_IN_TEXT_RE.search(text):
+                raise ValueError("字幕拆分段正文不能为空")
+            if position == 0 and abs(start - source_start) > 0.002:
+                raise ValueError("字幕拆分首段必须从源字幕开始")
+            if position == len(segments) - 1 and abs(end - source_end) > 0.002:
+                raise ValueError("字幕拆分末段必须到源字幕结束")
+            if previous_end is not None and abs(start - previous_end) > 0.002:
+                raise ValueError("字幕拆分段必须连续")
+            previous_end = end
+            normalised.append({
+                "id": str(item.get("id") or f"{source}:{position}"),
+                "start": _srt_timestamp(start),
+                "end": _srt_timestamp(end),
+                "start_seconds": start,
+                "end_seconds": end,
+                "text": text,
+            })
+        result[source] = normalised
+    return result
+
+
+def _split_subtitle_cues(cues, text_updates, deleted_indices, split_groups):
+    """把拆分段展开成输出 SRT cue；首段沿用源序号，后续段使用稳定新序号。"""
+    used = {cue.index for cue in cues}
+    next_index = max(used, default=0) + 1
+    output = []
+    for cue in cues:
+        if cue.index in deleted_indices:
+            continue
+        segments = split_groups.get(cue.index)
+        if not segments:
+            output.append(SubtitleCue(
+                cue.index,
+                cue.start,
+                cue.end,
+                cue.settings,
+                text_updates.get(cue.index, cue.text),
+            ))
+            continue
+        for position, segment in enumerate(segments):
+            index = cue.index if position == 0 else next_index
+            if position:
+                next_index += 1
+            output.append(SubtitleCue(
+                index,
+                segment["start"],
+                segment["end"],
+                cue.settings,
+                segment["text"],
+            ))
+    return output
+
+
 def serialise_srt(
         cues, text_updates=None, deleted_indices=None, *, merge_pairs=None,
-        merge_overrides=None, time_overrides=None):
-    """生成 UTF-8 SRT，支持正文、删除、合并及时间调整。"""
+        merge_overrides=None, time_overrides=None, split_groups=None):
+    """生成 UTF-8 SRT，支持正文、删除、合并、拆分及时间调整。"""
     updates = text_updates or {}
     deleted = _normalise_deleted_indices(cues, deleted_indices)
     previous_by_child = _normalise_merge_pairs(cues, merge_pairs, deleted)
@@ -401,12 +491,26 @@ def serialise_srt(
         deleted,
         time_overrides,
     )
+    splits = _normalise_split_groups(cues, split_groups, deleted)
     blocks = []
-    for cue in _merged_subtitle_cues(
-            cues, updates, deleted, previous_by_child, overrides, timings):
-        blocks.append(
-            f"{cue.index}\n{cue.start} --> {cue.end}{cue.settings}\n{cue.text}"
-        )
+    merged = _merged_subtitle_cues(
+        cues, updates, deleted, previous_by_child, overrides, timings
+    )
+    next_index = max((cue.index for cue in cues), default=0) + 1
+    for cue in merged:
+        if cue.index in splits:
+            for segment in splits[cue.index]:
+                index = cue.index if segment is splits[cue.index][0] else next_index
+                if index != cue.index:
+                    next_index += 1
+                blocks.append(
+                    f"{index}\n"
+                    f"{segment['start']} --> {segment['end']}{cue.settings}\n{segment['text']}"
+                )
+        else:
+            blocks.append(
+                f"{cue.index}\n{cue.start} --> {cue.end}{cue.settings}\n{cue.text}"
+            )
     return "\n\n".join(blocks) + "\n"
 
 
@@ -590,6 +694,7 @@ def reflow_subtitle_srt_for_display(
 def save_corrected_srt(
         source_srt_path, corrections, output_path=None, *, deleted_indices=None,
         merge_pairs=None, merge_overrides=None, time_overrides=None,
+        split_groups=None,
         persist_state=True):
     """校验并保存正文、删除、合并和时间调整；原 SRT 保持只读。
 
@@ -641,6 +746,7 @@ def save_corrected_srt(
         deleted,
         time_overrides,
     )
+    normalized_split_groups = _normalise_split_groups(cues, split_groups, deleted)
     destination = Path(output_path) if output_path else _corrected_srt_path(source_srt_path)
     if not persist_state:
         source = Path(source_srt_path).resolve()
@@ -661,6 +767,7 @@ def save_corrected_srt(
             merge_pairs=merge_pairs,
             merge_overrides=merge_overrides,
             time_overrides=time_overrides,
+            split_groups=split_groups,
         ),
     )
     if persist_state:
@@ -694,6 +801,17 @@ def save_corrected_srt(
                 }
                 for index, timing in sorted(normalized_time_overrides.items())
             },
+            "split_groups": [
+                {
+                    "source": source,
+                    "segments": [
+                        {"id": item["id"], "start": item["start_seconds"],
+                         "end": item["end_seconds"], "text": item["text"]}
+                        for item in segments
+                    ],
+                }
+                for source, segments in sorted(normalized_split_groups.items())
+            ],
         }
         _atomic_write_text(
             _subtitle_edit_state_path(source_srt_path),
@@ -743,6 +861,9 @@ def load_subtitle_edit_state(source_srt_path):
             deleted,
             payload.get("time_overrides", {}),
         )
+        normalized_split_groups = _normalise_split_groups(
+            cues, payload.get("split_groups", []), deleted,
+        )
         cue_by_index = {cue.index: cue for cue in cues}
         corrections = []
         for item in payload.get("corrections", []):
@@ -781,12 +902,25 @@ def load_subtitle_edit_state(source_srt_path):
                 }
                 for index, timing in sorted(normalized_time_overrides.items())
             },
+            "split_groups": [
+                {
+                    "source": source,
+                    "segments": [
+                        {"id": item["id"], "start": item["start_seconds"],
+                         "end": item["end_seconds"], "text": item["text"]}
+                        for item in segments
+                    ],
+                }
+                for source, segments in sorted(normalized_split_groups.items())
+            ],
         }
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
 
 def _is_generated_stem(stem):
+    # 安全避让已存在成片时的编号仍属于生成文件，不应回流为新投稿素材。
+    stem = re.sub(r" \([2-9]\d*\)$", "", stem)
     return (
         stem.endswith(".part")
         or any(stem.endswith(suffix) for suffix in _GENERATED_SUBTITLE_SUFFIXES)
@@ -1988,8 +2122,21 @@ def _split_subtitle_text_for_ass(text, max_chars):
     return parts
 
 
+def _wrap_subtitle_text_for_ass(text, max_chars):
+    """只做视觉换行，不改变 cue 的时间范围；显式换行也必须保留。"""
+    source = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    wrapped_lines = []
+    for source_line in source.split("\n"):
+        parts = _split_subtitle_text_for_ass(source_line, max_chars)
+        if parts:
+            wrapped_lines.extend(parts)
+        elif source_line == "":
+            wrapped_lines.append("")
+    return "\n".join(wrapped_lines).strip("\n")
+
+
 def _split_cue_for_ass(cue, max_chars):
-    """把一条 SRT cue 拆成连续 ASS 事件，避免靠自动换行撑出画面。"""
+    """把一条 SRT cue 拆成连续事件；仅供显式 SRT 重排使用。"""
     parts = _split_subtitle_text_for_ass(cue.text, max_chars)
     if not parts:
         return []
@@ -2058,12 +2205,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     events = []
     max_chars = _subtitle_display_char_limit(width, geometry)
     for cue in cues:
-        for start, end, text in _split_cue_for_ass(cue, max_chars):
-            events.append(
-                "Dialogue: 0,"
-                f"{_ass_timestamp(start)},{_ass_timestamp(end)},"
-                f"Default,,0,0,0,,{position}{_escape_ass_text(text)}"
-            )
+        text = _wrap_subtitle_text_for_ass(cue.text, max_chars)
+        if not text:
+            continue
+        start = cue.start_seconds
+        end = max(cue.end_seconds, start + 0.01)
+        events.append(
+            "Dialogue: 0,"
+            f"{_ass_timestamp(start)},{_ass_timestamp(end)},"
+            f"Default,,0,0,0,,{position}{_escape_ass_text(text)}"
+        )
     return header + "\n".join(events) + "\n"
 
 
@@ -2278,7 +2429,7 @@ def _encoder_arguments(encoder, export_settings):
     ]
 
 
-def _run_subtitle_encode(command, duration, progress_callback=None):
+def _run_subtitle_encode(command, duration, progress_callback=None, cancel_event=None):
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -2286,6 +2437,20 @@ def _run_subtitle_encode(command, duration, progress_callback=None):
         encoding="utf-8",
         errors="replace",
     )
+    finished = threading.Event()
+    watcher = None
+    if cancel_event is not None:
+        def stop_when_cancelled():
+            while not finished.wait(0.1):
+                if cancel_event.is_set():
+                    if process.poll() is None:
+                        try:
+                            process.terminate()
+                        except OSError:
+                            pass
+                    return
+        watcher = threading.Thread(target=stop_when_cancelled, daemon=True)
+        watcher.start()
     try:
         if process.stdout is not None:
             for raw_line in process.stdout:
@@ -2302,18 +2467,25 @@ def _run_subtitle_encode(command, duration, progress_callback=None):
         stderr = process.stderr.read() if process.stderr is not None else ""
         return_code = process.wait()
     finally:
+        finished.set()
+        if watcher is not None:
+            watcher.join(timeout=1)
         if process.stdout is not None:
             process.stdout.close()
         if process.stderr is not None:
             process.stderr.close()
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("字幕压制已取消")
     if return_code != 0:
         raise RuntimeError(stderr.strip()[-1000:] or f"FFmpeg 返回 {return_code}")
 
 
 def burn_subtitles(
         video_path, srt_path, style=None, output_path=None, encoder="auto",
-        progress_callback=None, export_settings=None):
+        progress_callback=None, export_settings=None, cancel_event=None):
     """把校对字幕压制到新 MP4；优先 NVENC，失败自动回退 libx264。"""
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("字幕压制已取消")
     font_result = _ensure_exact_subtitle_font()
     video_info = _probe_video_info(video_path)
     active_export = normalise_video_export(export_settings)
@@ -2369,9 +2541,10 @@ def burn_subtitles(
                 make_command(selected_encoder),
                 video_info["duration"],
                 progress_callback,
+                cancel_event,
             )
         except RuntimeError:
-            if selected_encoder != "h264_nvenc":
+            if selected_encoder != "h264_nvenc" or (cancel_event is not None and cancel_event.is_set()):
                 raise
             if part_path.exists():
                 part_path.unlink()
@@ -2382,7 +2555,10 @@ def burn_subtitles(
                 make_command("libx264"),
                 video_info["duration"],
                 progress_callback,
+                cancel_event,
             )
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("字幕压制已取消")
         output_info = _probe_video_info(part_path)
         if output_info["has_audio"] != video_info["has_audio"]:
             raise RuntimeError("字幕版视频音频流与原视频不一致")

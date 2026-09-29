@@ -1,0 +1,2 @@
+# Desktop-04.55 isolated Qt visual preview dependency.
+PySide6-Essentials==6.11.2
