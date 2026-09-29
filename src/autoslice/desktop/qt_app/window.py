@@ -752,13 +752,15 @@ class DesktopWindow(PreviewWindow):
         self.ai_queue = QScrollArea()
         self.ai_queue.setWidgetResizable(True)
         self.ai_queue.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.ai_queue.setMaximumHeight(96)
+        self.ai_queue.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.ai_queue.setMaximumHeight(160)
         self.ai_queue_widget = QWidget()
         self.ai_queue_layout = QVBoxLayout(self.ai_queue_widget)
+        self.ai_queue_layout.setContentsMargins(0, 0, 0, 0)
+        self.ai_queue_layout.setSpacing(2)
         self.ai_queue_layout.addStretch()
         self.ai_queue.setWidget(self.ai_queue_widget)
         content.addWidget(self.ai_queue)
-        content.addStretch()
         self.ai_content.setWidget(ai_body)
         column.addWidget(self.ai_content, 1)
         self.ai_collapsed_label = label("AI", "badge")
@@ -880,8 +882,16 @@ class DesktopWindow(PreviewWindow):
             if item.widget():
                 item.widget().deleteLater()
         for item in pending:
-            button = QPushButton(f"第 {item.cue_id} 条")
-            button.setObjectName("quiet")
+            original = self._compact_ai_text(item.original_text)
+            suggested = self._compact_ai_text(item.suggested_text)
+            summary = f"{original} → {suggested}" if original != suggested else original
+            button = QPushButton(f"第 {item.cue_id} 条  {summary}  · 待确认")
+            button.setObjectName("aiQueueItem")
+            button.setToolTip(
+                f"原文：{item.original_text}\n建议：{item.suggested_text}\n原因：{item.reason}"
+            )
+            button.setAccessibleName(f"第 {item.cue_id} 条待处理问题")
+            button.setFixedHeight(32)
             button.clicked.connect(lambda _checked=False, sid=item.suggestion_id: self._select_ai(sid))
             self.ai_queue_layout.insertWidget(self.ai_queue_layout.count() - 1, button)
         if self._ai_selected not in {item.suggestion_id for item in pending}:
@@ -889,7 +899,9 @@ class DesktopWindow(PreviewWindow):
         selected_position = next((i for i, item in enumerate(pending, 1)
                                   if item.suggestion_id == self._ai_selected), 0)
         self.ai_header.setText(f"AI 建议  {selected_position} / {count}" if self.ai_session else "AI 建议")
-        self.ai_queue.setVisible(count > 1)
+        self.ai_queue.setVisible(count > 0)
+        if count:
+            self.ai_queue.setFixedHeight(min(160, count * 34 + 2))
         if self.ai_session and not count and not self._ai_running:
             self.ai_note.setText("已处理所有建议。需要时可重新检查。")
         routine_notes = ("AI 只生成待确认建议，不修改字幕。", "检查完成。建议需逐条确认。",
@@ -899,6 +911,14 @@ class DesktopWindow(PreviewWindow):
         self._show_ai_detail()
         if getattr(self, "_pending_filter", False):
             self.model.set_pending_filter({item.cue_id for item in pending})
+
+    @staticmethod
+    def _compact_ai_text(value: str, limit: int = 16) -> str:
+        """把队列摘要限制在一行，完整内容仍保留在当前建议和 tooltip。"""
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: max(1, limit - 1)] + "…"
 
     @staticmethod
     def _diff_html(original, suggested):

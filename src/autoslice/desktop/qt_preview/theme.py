@@ -127,6 +127,9 @@ def stylesheet() -> str:
         QPushButton#quiet, QPushButton#navButton, QPushButton#projectItem, QPushButton#projectItemCompact {{ background: transparent; border: none; }}
         QPushButton#quiet:hover {{ background: {c.raised}; }}
         QPushButton#quiet:pressed {{ background: {c.accent_tint}; }}
+        QPushButton#aiQueueItem {{ text-align: left; padding: 0 8px; min-height: 32px; max-height: 32px; color: {c.muted}; background: transparent; border: 1px solid transparent; }}
+        QPushButton#aiQueueItem:hover {{ color: {c.text}; background: {c.raised}; border-color: {c.divider}; }}
+        QPushButton#aiQueueItem:pressed {{ background: {c.accent_tint}; border-color: {c.accent_medium}; }}
         QPushButton#navButton {{ border-radius: 8px; color: {c.muted}; padding: 0; min-height: 60px; max-height: 60px; min-width: 56px; max-width: 56px; }}
         QPushButton#navButton:hover {{ background: {c.raised}; color: {c.text}; }}
         QPushButton#navButton:checked {{ color: {c.accent}; background: {c.project_selected}; border-left: 2px solid {c.accent_pressed}; }}

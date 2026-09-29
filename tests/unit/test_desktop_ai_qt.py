@@ -120,6 +120,92 @@ class DesktopAIQtTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.window._draft_timer.stop()
 
+    def test_pending_issue_row_navigates_list_timeline_and_playhead(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+
+        class FakePlayer:
+            def __init__(self):
+                self.seeks = []
+
+            def seek(self, seconds, pause=True):
+                self.seeks.append((seconds, pause))
+
+            def set_subtitle(self, _path):
+                pass
+
+            def clear_subtitle(self):
+                pass
+
+            def close(self):
+                pass
+
+        player = FakePlayer()
+        self.window.player = player
+        self.window._media_ready = True
+        self.window._player_duration = 10.0
+        self.window.timeline.set_duration(10.0)
+        self.window._start_ai_check()
+        self.wait_for(lambda: self.window.ai_session is not None)
+
+        first = self.window.ai_session.pending[0]
+        rows = [self.window.ai_queue_layout.itemAt(index).widget()
+                for index in range(self.window.ai_queue_layout.count() - 1)
+                if self.window.ai_queue_layout.itemAt(index).widget() is not None]
+        self.assertEqual(len(rows), 2)
+        self.assertIn("错字一", rows[0].text())
+        self.assertIn("正字一", rows[0].text())
+        self.assertIn("待确认", rows[0].text())
+
+        QTest.mouseClick(rows[0], Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+
+        self.assertEqual(self.window.selected_index, first.cue_id)
+        self.assertEqual(self.window.selection.active, first.cue_id)
+        self.assertAlmostEqual(self.window.timeline.playhead, 1.0, delta=0.001)
+        self.assertEqual(player.seeks[-1], (1.0, True))
+        self.assertEqual(self.window.table.currentIndex().row(), 0)
+
+    def test_accept_and_skip_advance_to_next_issue_and_finish(self):
+        class FakePlayer:
+            def __init__(self):
+                self.seeks = []
+
+            def seek(self, seconds, pause=True):
+                self.seeks.append((seconds, pause))
+
+            def set_subtitle(self, _path):
+                pass
+
+            def clear_subtitle(self):
+                pass
+
+            def close(self):
+                pass
+
+        player = FakePlayer()
+        self.window.player = player
+        self.window._media_ready = True
+        self.window._player_duration = 10.0
+        self.window.timeline.set_duration(10.0)
+        self.window._start_ai_check()
+        self.wait_for(lambda: self.window.ai_session is not None)
+        first, second = self.window.ai_session.pending
+        self.window._select_ai(first.suggestion_id)
+
+        self.window._accept_ai()
+        self.app.processEvents()
+        self.assertEqual(self.window.ai_session.pending[0].suggestion_id, second.suggestion_id)
+        self.assertEqual(self.window._ai_selected, second.suggestion_id)
+        self.assertAlmostEqual(self.window.timeline.playhead, 3.0, delta=0.001)
+        self.assertEqual(player.seeks[-1], (3.0, True))
+
+        self.window._skip_ai()
+        self.app.processEvents()
+        self.assertEqual(self.window.ai_session.pending, [])
+        self.assertIn("已处理所有建议", self.window.ai_note.text())
+        self.assertFalse(self.window.ai_queue.isVisible())
+
     def test_missing_config_and_cancel_leave_editor_available(self):
         self.window.ai_service.config_loader = lambda: (_ for _ in ()).throw(ValueError("未配置 LLM API"))
         self.window._start_ai_check()
