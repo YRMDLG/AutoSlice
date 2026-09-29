@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Palette:
-    """石墨·靛蓝：近中性石墨底不染色视频，唯一强调色为靛蓝。"""
+    """石墨·钴蓝：近中性石墨底不染色视频，唯一强调色为钴蓝。"""
 
     # 背景层级：由深到浅，色相极弱偏冷
     canvas: str = "#08090B"
@@ -15,13 +15,13 @@ class Palette:
     raised: str = "#1B1C21"
     player: str = "#050506"
     # 强调色：实心用 accent，暗底上的文字/图标用 accent_text
-    accent: str = "#5E63F2"
-    accent_medium: str = "#4A4FD0"
-    accent_subtle: str = "#18192A"
-    accent_hover: str = "#7074F5"
-    accent_pressed: str = "#4C51DE"
-    accent_tint: str = "#1E203C"
-    accent_text: str = "#A3A6FF"
+    accent: str = "#3370E6"
+    accent_medium: str = "#2B5DBE"
+    accent_subtle: str = "#131B29"
+    accent_hover: str = "#4A82EC"
+    accent_pressed: str = "#2A62D2"
+    accent_tint: str = "#16223A"
+    accent_text: str = "#90B2FA"
     on_accent: str = "#FFFFFF"
     # 文字
     text: str = "#EDEDF0"
@@ -35,12 +35,12 @@ class Palette:
     button_pressed: str = "#121317"
     button_hover_border: str = "#2C2D34"
     project_hover: str = "#141519"
-    project_selected: str = "#17182C"
-    row_selected: str = "#1B1C33"
-    # 播放态用中性灰，与靛蓝选中态区分
+    project_selected: str = "#121A2B"
+    row_selected: str = "#151E31"
+    # 播放态用中性灰，与蓝色选中态区分
     playback: str = "#1C1D22"
     playback_border: str = "#50525E"
-    focus_ring: str = "#8387FF"
+    focus_ring: str = "#6F9CF7"
     scrollbar: str = "#26272E"
     scrollbar_hover: str = "#3A3B43"
     # AI 差异：柔珊瑚删除、薄荷新增
