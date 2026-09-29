@@ -155,6 +155,12 @@ def stylesheet() -> str:
         QScrollBar::handle:vertical:hover {{ background: #566A77; }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+        QScrollBar#timelineScroll:horizontal {{ background: {c.canvas}; height: 10px; margin: 1px 0; border-radius: 5px; }}
+        QScrollBar#timelineScroll::handle:horizontal {{ background: {c.subtle}; min-width: 36px; border-radius: 4px; }}
+        QScrollBar#timelineScroll::handle:horizontal:hover {{ background: {c.muted}; }}
+        QScrollBar#timelineScroll::handle:horizontal:pressed {{ background: {c.accent_medium}; }}
+        QScrollBar#timelineScroll::add-line:horizontal, QScrollBar#timelineScroll::sub-line:horizontal {{ width: 0; }}
+        QScrollBar#timelineScroll::add-page:horizontal, QScrollBar#timelineScroll::sub-page:horizontal {{ background: transparent; }}
         QSplitter::handle {{ background: {c.divider}; }}
         QSplitter::handle:hover {{ background: {c.button_hover_border}; }}
         QSplitter::handle:pressed {{ background: {c.accent_medium}; }}

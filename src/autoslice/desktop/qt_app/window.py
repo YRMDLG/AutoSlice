@@ -9,11 +9,13 @@ import html
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import (
     QAbstractTableModel,
     QEvent,
+    QItemSelectionModel,
     QModelIndex,
     QObject,
     QRunnable,
@@ -23,7 +25,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemDelegate,
     QApplication,
@@ -36,6 +38,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QScrollBar,
     QSizePolicy,
     QSlider,
     QSplitter,
@@ -64,7 +67,7 @@ from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 from .player import MpvAdapter
-from .timeline import SubtitleTimeline
+from .timeline import SubtitleTimeline, TimelineSidePanController
 
 
 class _StatusLabel(QLabel):
@@ -199,6 +202,39 @@ class SubtitleTableModel(QAbstractTableModel):
         return True
 
 
+class InlineSubtitleEditor(QPlainTextEdit):
+    """字幕正文专用 editor：明确支持鼠标拖选局部文字。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._selection_anchor = None
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._selection_anchor = self.textCursor().position()
+
+    def mouseMoveEvent(self, event):
+        if (self._selection_anchor is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            position = self.cursorForPosition(event.position().toPoint()).position()
+            cursor = self.textCursor()
+            cursor.setPosition(self._selection_anchor)
+            cursor.setPosition(position, QTextCursor.MoveMode.KeepAnchor)
+            self.setTextCursor(cursor)
+            self.ensureCursorVisible()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._selection_anchor = None
+
+
 class SubtitleTextDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -250,6 +286,13 @@ class SubtitleTextDelegate(QStyledItemDelegate):
             self._table.viewport().update(self._table.visualRect(index))
         except RuntimeError:
             pass
+
+    def eventFilter(self, editor, event):
+        if isinstance(editor, QPlainTextEdit) and event.type() == QEvent.Type.FocusOut:
+            # 不让 QStyledItemDelegate 因短暂 focus out 自动关闭 editor。
+            # 是否结束字幕编辑由 DesktopWindow 的“点击编辑器外部”规则统一决定。
+            return False
+        return super().eventFilter(editor, event)
 
     def paint(self, painter, option, index):
         option = QStyleOptionViewItem(option)
@@ -323,7 +366,14 @@ class DesktopWindow(PreviewWindow):
         self._jobs = []
         self._session = self.storage.read_session() or {}
         self._baseline = None
+        # PreviewWindow.__init__ 会在构建 QTableView 时安装本类 eventFilter，
+        # 所以这些状态必须在 super() 前就存在。
+        self._inline_editor = None
+        self._inline_editor_index = QModelIndex()
+        self._inline_drag_anchor = None
+        self._event_filter_busy = False
         super().__init__()
+        self._timeline_side_pan = TimelineSidePanController(self.timeline, self)
         self.ai_progress.connect(self._show_ai_progress)
         self.render_progress.connect(self._show_render_progress)
         self.nav_badge = QLabel(self.nav_buttons[0])
@@ -352,6 +402,8 @@ class DesktopWindow(PreviewWindow):
         self._loop_seek_pending = False
         self._audition_until = None
         self._pending_caret_click = None
+        self._seek_guard_target = None
+        self._seek_guard_until = 0.0
         self.model.edited.connect(self._edited)
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
@@ -394,10 +446,16 @@ class DesktopWindow(PreviewWindow):
             key.activated.connect(lambda name=command, fallback=action:
                                   self.commands.dispatch(name) if name else fallback())
             self._shortcuts[shortcut] = key
-        self.table.selectionModel().currentRowChanged.connect(self._row_changed)
+        # currentRowChanged 可能因关闭 inline editor / current index 内部变化而触发，
+        # 不能拿它驱动 seek，否则时间轴空白点击会出现“目标位置→下一字幕→目标位置”的闪跳。
+        # 真正的字幕点击由 _cue_clicked 显式处理。
         self._syncing_selection = False
         from PySide6.QtWidgets import QApplication
         QApplication.instance().focusChanged.connect(self._focus_changed)
+        # 不再把 DesktopWindow 安装成 QApplication 全局 eventFilter。
+        # 多个窗口/测试窗口并存时，全局 filter 会互相重入；只监听本窗口自己的控件。
+        for widget in self.findChildren(QWidget):
+            widget.installEventFilter(self)
         self._restore_window()
         self._select_page(int(self._session.get("page", 0)) if self._session.get("page") in (0, 1, 2) else 0)
         QTimer.singleShot(0, self.refresh)
@@ -596,9 +654,15 @@ class DesktopWindow(PreviewWindow):
         self.model = SubtitleTableModel(self)
         self.table = QTableView()
         self.table.setModel(self.model)
-        self.table.setItemDelegate(SubtitleTextDelegate(self.table))
+        self.subtitle_delegate = SubtitleTextDelegate(self.table)
+        self.table.setItemDelegate(self.subtitle_delegate)
         self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableView.SelectionMode.MultiSelection)
+        # MultiSelection 会让普通单击不断累积选中行，看起来像“莫名多选”。
+        # ExtendedSelection 才符合桌面编辑器习惯：普通点击单选，Ctrl 增减，Shift 连选。
+        self.table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        self.table.selectionModel().selectionChanged.connect(
+            self._table_native_selection_changed
+        )
         self.table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(False)
         self.table.setShowGrid(False)
@@ -715,7 +779,7 @@ class DesktopWindow(PreviewWindow):
         heading = QHBoxLayout()
         heading.addWidget(label("字幕时间轴", "sectionTitle"))
         heading.addSpacing(SIZES.space_2)
-        heading.addWidget(label("拖动空白框选 · 滚轮平移 · Ctrl+滚轮缩放", "subtle"))
+        heading.addWidget(label("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放", "subtle"))
         heading.addStretch()
         self.snap_button = QPushButton("磁吸")
         self.snap_button.setCheckable(True)
@@ -749,9 +813,19 @@ class DesktopWindow(PreviewWindow):
         self.timeline.changed.connect(self._timeline_changed)
         self.timeline.preview_requested.connect(self._timeline_preview_requested)
         self.timeline.seek_requested.connect(self._seek_to)
+        self.timeline.view_changed.connect(self._sync_timeline_scroll)
         self.timeline.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.timeline.customContextMenuRequested.connect(self._show_edit_menu)
         layout.addWidget(self.timeline, 1)
+        self.timeline_scroll = QScrollBar(Qt.Orientation.Horizontal)
+        self.timeline_scroll.setObjectName("timelineScroll")
+        self.timeline_scroll.setFixedHeight(12)
+        self.timeline_scroll.setTracking(True)
+        self.timeline_scroll.setSingleStep(250)
+        self.timeline_scroll.valueChanged.connect(self._timeline_scroll_changed)
+        layout.addWidget(self.timeline_scroll)
+        self._syncing_timeline_scroll = False
+        self._sync_timeline_scroll(0.0, self.timeline.span, self.timeline.duration)
         return panel
 
     def _settings_page(self):
@@ -1277,6 +1351,46 @@ class DesktopWindow(PreviewWindow):
         self.timeline.set_waveform(result.samples, result.duration)
         self._show_transient_status("波形已就绪")
 
+    def _sync_table_selection(self):
+        if not hasattr(self, "table") or not hasattr(self, "model"):
+            return
+        selection_model = self.table.selectionModel()
+        if selection_model is None:
+            return
+        self._syncing_selection = True
+        try:
+            selection_model.clearSelection()
+            flags = (
+                QItemSelectionModel.SelectionFlag.Select
+                | QItemSelectionModel.SelectionFlag.Rows
+            )
+            active_row = None
+            for row, item in enumerate(self.model.visible_entries()):
+                if item.index in self.selection.selected:
+                    selection_model.select(self.model.index(row, 0), flags)
+                if item.index == self.selection.active:
+                    active_row = row
+            if active_row is not None:
+                selection_model.setCurrentIndex(
+                    self.model.index(active_row, 2),
+                    QItemSelectionModel.SelectionFlag.NoUpdate,
+                )
+        finally:
+            self._syncing_selection = False
+
+    def _table_native_selection_changed(self, _selected, _deselected):
+        if self._syncing_selection or self.document is None:
+            return
+        if getattr(self, "_selection_resync_pending", False):
+            return
+        self._selection_resync_pending = True
+        QTimer.singleShot(0, self._restore_table_selection_after_native_change)
+
+    def _restore_table_selection_after_native_change(self):
+        self._selection_resync_pending = False
+        if self.document is not None:
+            self._sync_table_selection()
+
     def _cue_clicked(self, index):
         if self.document is None:
             return
@@ -1286,6 +1400,7 @@ class DesktopWindow(PreviewWindow):
                               ctrl=bool(modifiers & Qt.KeyboardModifier.ControlModifier),
                               shift=bool(modifiers & Qt.KeyboardModifier.ShiftModifier))
         self.selected_index = self.selection.active
+        self._sync_table_selection()
         self._row_changed(index, QModelIndex())
         target = srt_timestamp_seconds(entry.start)
         if abs(self._player_position - target) > .1 or not self._player_paused:
@@ -1297,12 +1412,18 @@ class DesktopWindow(PreviewWindow):
             if pending and pending[0] == index.row() and pending[1] == index.column():
                 click_point = pending[2]
             self._pending_caret_click = None
-            self.table.edit(index)
-            if click_point is not None:
-                QTimer.singleShot(
-                    0,
-                    lambda idx=index, point=click_point: self._place_caret(idx, point),
-                )
+
+            editing_index = self._editing_subtitle_index()
+            if editing_index is not None and editing_index.isValid() and editing_index != index:
+                self._commit_editor()
+            editing_index = self._editing_subtitle_index()
+            if editing_index is None or not editing_index.isValid():
+                self._open_inline_editor(index)
+            self.table.setCurrentIndex(index)
+            QTimer.singleShot(
+                0,
+                lambda idx=index, point=click_point: self._focus_subtitle_editor(idx, point),
+            )
 
     def _row_changed(self, index, _previous):
         if self._syncing_selection or self.document is None or not index.isValid():
@@ -1313,17 +1434,185 @@ class DesktopWindow(PreviewWindow):
             return
         self.selected_index = entry.index
         self.selection.choose(entry.index, self._cue_order())
+        self._sync_table_selection()
         self.timeline.set_selection(entry.index, self.selection.selected)
-        self._seek_to(srt_timestamp_seconds(entry.start))
+        # current index 变化只同步选中态，绝不驱动 playhead。
+        # 真正的字幕点击、时间轴点击、AI 定位各自显式发 seek。
         self._save_session()
 
+    def _active_subtitle_editor(self):
+        # 不在应用级 eventFilter 路径里调用 isVisible()/Qt 属性查询；
+        # 这些查询本身可能触发新的 Qt 事件，造成 eventFilter 重入。
+        return getattr(self, "_inline_editor", None)
+
+    def _editing_subtitle_index(self):
+        return getattr(self, "_inline_editor_index", None)
+
+    def _subtitle_editor_open(self) -> bool:
+        index = self._editing_subtitle_index()
+        return (
+            getattr(self, "_inline_editor", None) is not None
+            and index is not None
+            and index.isValid()
+        )
+
+    def _open_inline_editor(self, index):
+        if not index.isValid() or index.column() != 2:
+            return
+        editor = InlineSubtitleEditor(self.table.viewport())
+        editor.setFont(self.table.font())
+        editor.document().setDocumentMargin(0)
+        editor.setTabChangesFocus(True)
+        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        editor.setContentsMargins(0, 0, 0, 0)
+        editor.setViewportMargins(0, 0, 0, 0)
+        editor.setAutoFillBackground(True)
+        editor.viewport().setAutoFillBackground(True)
+        editor.setStyleSheet(
+            f"QPlainTextEdit {{ background: {COLORS.row_selected}; color: {COLORS.text}; "
+            f"border: none; padding: 10px 6px 0 6px; "
+            f"selection-background-color: {COLORS.accent_pressed}; }}"
+            "QPlainTextEdit:focus { border: none; }"
+        )
+        editor.viewport().setStyleSheet(
+            f"background: {COLORS.row_selected}; border: none;"
+        )
+        editor.setPlainText(str(index.data(Qt.ItemDataRole.EditRole) or ""))
+        editor.installEventFilter(self)
+        editor.viewport().installEventFilter(self)
+        editor.textChanged.connect(
+            lambda idx=index, item=editor: self.model.set_live_text(idx, item.toPlainText())
+        )
+        self._inline_editor = editor
+        self._inline_editor_index = index
+        self.table.setIndexWidget(index, editor)
+        editor.show()
+
+    def _focus_subtitle_editor(self, index, viewport_position=None):
+        editing_index = self._editing_subtitle_index()
+        if editing_index is None or not editing_index.isValid() or editing_index != index:
+            return
+        editor = self._active_subtitle_editor()
+        if editor is None:
+            return
+        editor.setFocus(Qt.FocusReason.MouseFocusReason)
+        if viewport_position is not None:
+            self._place_caret(index, viewport_position)
+
+    def _is_subtitle_editor_widget(self, widget) -> bool:
+        current = widget
+        while current is not None:
+            if isinstance(current, QPlainTextEdit) and self.table.isAncestorOf(current):
+                return True
+            current = current.parentWidget() if hasattr(current, "parentWidget") else None
+        return False
+
+    def _event_hits_inline_editor(self, event) -> bool:
+        editor = self._active_subtitle_editor()
+        if editor is None or not hasattr(event, "globalPosition"):
+            return False
+        try:
+            point = editor.mapFromGlobal(event.globalPosition().toPoint())
+            return editor.rect().contains(point)
+        except (RuntimeError, TypeError):
+            return False
+
+    def _editor_cursor_from_event(self, event):
+        editor = self._active_subtitle_editor()
+        if editor is None or not hasattr(event, "globalPosition"):
+            return None
+        try:
+            point = editor.viewport().mapFromGlobal(event.globalPosition().toPoint())
+            return editor.cursorForPosition(point)
+        except (RuntimeError, TypeError):
+            return None
+
+    def _place_caret_from_global(self, event):
+        editor = self._active_subtitle_editor()
+        cursor = self._editor_cursor_from_event(event)
+        if editor is None or cursor is None:
+            return
+        editor.setTextCursor(cursor)
+        editor.setFocus(Qt.FocusReason.MouseFocusReason)
+        editor.ensureCursorVisible()
+
+    def _handle_inline_editor_mouse(self, watched, event) -> bool:
+        editor = self._active_subtitle_editor()
+        if editor is None or not self._is_subtitle_editor_widget(watched):
+            return False
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            cursor = self._editor_cursor_from_event(event)
+            if cursor is None:
+                return False
+            self._inline_drag_anchor = cursor.position()
+            editor.setTextCursor(cursor)
+            editor.setFocus(Qt.FocusReason.MouseFocusReason)
+            event.accept()
+            return True
+        if event_type == QEvent.Type.MouseMove and self._inline_drag_anchor is not None:
+            if not (event.buttons() & Qt.MouseButton.LeftButton):
+                self._inline_drag_anchor = None
+                return False
+            cursor = self._editor_cursor_from_event(event)
+            if cursor is None:
+                return False
+            position = cursor.position()
+            cursor.setPosition(self._inline_drag_anchor)
+            cursor.setPosition(position, QTextCursor.MoveMode.KeepAnchor)
+            editor.setTextCursor(cursor)
+            editor.ensureCursorVisible()
+            event.accept()
+            return True
+        if event_type == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            self._inline_drag_anchor = None
+            event.accept()
+            return True
+        return False
+
+    def _is_timeline_input_widget(self, widget) -> bool:
+        current = widget
+        timeline_scroll = getattr(self, "timeline_scroll", None)
+        while current is not None:
+            if current is getattr(self, "timeline", None) or current is timeline_scroll:
+                return True
+            current = current.parentWidget() if hasattr(current, "parentWidget") else None
+        return False
+
+    def _timeline_side_button_direction(self, button):
+        if button == Qt.MouseButton.BackButton:
+            return -1
+        if button == Qt.MouseButton.ForwardButton:
+            return 1
+        return 0
+
+    def _stop_timeline_side_pan(self, event_type=None):
+        controller = getattr(self, "_timeline_side_pan", None)
+        if controller is not None:
+            if event_type is None:
+                controller.stop()
+            else:
+                controller.stop_for_event(event_type)
+
+    def event(self, event):
+        if event.type() in (QEvent.Type.WindowDeactivate, QEvent.Type.Hide,
+                            QEvent.Type.Close):
+            self._stop_timeline_side_pan(event.type())
+        return super().event(event)
+
     def _focus_changed(self, _old, now):
-        editing = isinstance(now, QPlainTextEdit) and self.table.isAncestorOf(now)
+        # 不用 focus loss 自动提交：同一编辑单元格内部的鼠标点击在 Qt 中可能
+        # 先短暂触发 focus 迁移，若此时提交会让用户无法二次点击定位 caret。
+        # 真正的“点到编辑器外部就结束编辑”由全局 MouseButtonPress 过滤器负责。
+        editing = self._is_subtitle_editor_widget(now) or self._subtitle_editor_open()
         for key in ("Space", "Delete", "Q", "W", "Ctrl+B"):
             self._shortcuts[key].setEnabled(not editing)
 
     def _escape_context(self):
-        if self.table.state() == QTableView.State.EditingState:
+        if self._subtitle_editor_open():
+            self._commit_editor()
             self.table.setFocus()
             return
         self.selection.clear()
@@ -1332,6 +1621,44 @@ class DesktopWindow(PreviewWindow):
         self.table.clearSelection()
 
     def eventFilter(self, watched, event):
+        if getattr(self, "_event_filter_busy", False):
+            return False
+        self._event_filter_busy = True
+        try:
+            return self._event_filter_impl(watched, event)
+        finally:
+            self._event_filter_busy = False
+
+    def _event_filter_impl(self, watched, event):
+        if self._subtitle_editor_open() and self._handle_inline_editor_mouse(watched, event):
+            return True
+        if (event.type() == QEvent.Type.MouseButtonPress
+                and self._subtitle_editor_open()):
+            watched_inside = self._is_subtitle_editor_widget(watched)
+            geometry_inside = self._event_hits_inline_editor(event)
+            if watched_inside or geometry_inside:
+                # 事件源本身属于 editor 时优先相信控件层级，避免高 DPI / 坐标换算
+                # 在边缘出现 1px 误判，导致“点文字却退出编辑”的反复横跳。
+                if not watched_inside:
+                    self._place_caret_from_global(event)
+                    event.accept()
+                    return True
+            else:
+                # 只有事件源和屏幕坐标都确认在 editor 外部才退出。
+                self._commit_editor()
+        if event.type() == QEvent.Type.MouseButtonPress:
+            direction = self._timeline_side_button_direction(event.button())
+            if direction and self._is_timeline_input_widget(watched):
+                self._timeline_side_pan.start(direction)
+                event.accept()
+                return True
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            # 释放可能发生在时间轴外部；只要当前确实在连续平移，就应立即停下。
+            direction = self._timeline_side_button_direction(event.button())
+            if direction and getattr(self._timeline_side_pan, "direction", 0):
+                self._timeline_side_pan.stop()
+                event.accept()
+                return True
         if watched is self.table.viewport() and event.type() == QEvent.Type.MouseButtonPress \
                 and event.button() == Qt.MouseButton.LeftButton:
             index = self.table.indexAt(event.position().toPoint())
@@ -1360,7 +1687,7 @@ class DesktopWindow(PreviewWindow):
         return super().eventFilter(watched, event)
 
     def _place_caret(self, index, viewport_position):
-        if self.table.state() != QTableView.State.EditingState:
+        if not self._subtitle_editor_open():
             return
         editor = next((item for item in self.table.findChildren(QPlainTextEdit)
                        if item.isVisible()), None)
@@ -1370,18 +1697,24 @@ class DesktopWindow(PreviewWindow):
             local = editor.mapFrom(self.table.viewport(), viewport_position)
             cursor = editor.cursorForPosition(local)
             editor.setTextCursor(cursor)
+            editor.setFocus(Qt.FocusReason.MouseFocusReason)
             editor.ensureCursorVisible()
         except (RuntimeError, TypeError):
             return
 
     def _commit_editor(self):
-        if self.table.state() != QTableView.State.EditingState:
+        index = self._editing_subtitle_index()
+        editor = self._active_subtitle_editor()
+        if index is None or not index.isValid() or editor is None:
             return
-        editor = next((item for item in self.table.findChildren(QPlainTextEdit)
-                       if item.isVisible()), None)
-        if editor:
-            self.table.commitData(editor)
-            self.table.closeEditor(editor, QAbstractItemDelegate.EndEditHint.NoHint)
+        self.model.finish_live_text(index, editor.toPlainText())
+        editor.hide()
+        self.table.setIndexWidget(index, None)
+        editor.setParent(None)
+        self._inline_editor = None
+        self._inline_editor_index = QModelIndex()
+        editor.deleteLater()
+        self.table.viewport().update(self.table.visualRect(index))
 
     def _select_cue(self, cue_index, *, center_timeline=True):
         if self.document is None:
@@ -1413,9 +1746,12 @@ class DesktopWindow(PreviewWindow):
             return
         self.selection.choose(cue_index, self._cue_order(), ctrl=ctrl, shift=shift)
         self.selected_index = self.selection.active
-        self._select_cue(self.selection.active)
-        entry = next(item for item in self.document.entries if item.index == cue_index)
-        self._seek_to(srt_timestamp_seconds(entry.start))
+        # 时间轴里点到的字幕本来就已经在当前可视窗口内。
+        # 这里只同步选中态和底部列表，不允许 selection 重新居中时间轴，
+        # 否则会重置 _manual_pan，随后 playhead/player 回调又会二次改变视野，造成闪烁跳动。
+        self._select_cue(self.selection.active, center_timeline=False)
+        # 真正的 click 定位由 timeline 在 release 时发 seek_requested。
+        # resize/drag 期间因此不会把 playhead 吸到字幕边界。
         self._save_session()
 
     def _timeline_marquee_selected(self, cue_ids: set[int]):
@@ -1449,6 +1785,7 @@ class DesktopWindow(PreviewWindow):
             self.timeline.span = max(4.0, self.timeline.duration or self.timeline.span)
             self.timeline._manual_pan = False
             self.timeline.update()
+            self.timeline._emit_view_changed()
 
     def _trim_start(self):
         self._trim_active("start")
@@ -1638,6 +1975,27 @@ class DesktopWindow(PreviewWindow):
     def _timeline_preview_requested(self, seconds):
         self._seek_to(seconds)
 
+    def _sync_timeline_scroll(self, start: float, span: float, duration: float):
+        if not hasattr(self, "timeline_scroll"):
+            return
+        self._syncing_timeline_scroll = True
+        try:
+            duration_ms = max(0, int(round(duration * 1000)))
+            span_ms = max(1, int(round(min(span, duration) * 1000))) if duration > 0 else 1
+            maximum = max(0, duration_ms - span_ms)
+            self.timeline_scroll.setRange(0, maximum)
+            self.timeline_scroll.setPageStep(span_ms)
+            self.timeline_scroll.setValue(max(0, min(maximum, int(round(start * 1000)))))
+            self.timeline_scroll.setEnabled(maximum > 0)
+        finally:
+            self._syncing_timeline_scroll = False
+
+    def _timeline_scroll_changed(self, value: int):
+        if getattr(self, "_syncing_timeline_scroll", False):
+            return
+        if hasattr(self, "timeline"):
+            self.timeline.set_view_start(value / 1000.0)
+
     def _timeline_splitter_moved(self, _position, _index):
         if not hasattr(self, "timeline") or not self.vertical_splitter.sizes():
             return
@@ -1655,6 +2013,13 @@ class DesktopWindow(PreviewWindow):
         self._player_paused = True
         self._set_play_button(True)
         self._player_position = target
+        self._seek_guard_target = target
+        self._seek_guard_until = time.monotonic() + 1.0
+        # 主动 seek 后先清掉旧的“正在播放字幕”高亮，避免 mpv 的旧 position
+        # 回调把下一条字幕短暂/稳定染成选中态。
+        if self.document:
+            self.model.set_playing_index(None)
+        self.timeline.set_playing_cue(None)
         self.timeline.set_playhead(target, playing=False)
         self.player.seek(target, pause=True)
 
@@ -2052,7 +2417,9 @@ class DesktopWindow(PreviewWindow):
             return
         if self._player_paused:
             self._player_paused = False
-            self.timeline.follow_playback()
+            # 开始播放不应抢走用户手动调整过的时间轴视野。
+            # timeline.set_playhead() 会在允许跟随时自行处理播放跟随；
+            # 若用户已通过滚动条/滚轮/侧键平移，_manual_pan 会保持当前视窗。
             self.player.play()
         else:
             self._player_paused = True
@@ -2081,6 +2448,17 @@ class DesktopWindow(PreviewWindow):
             return
         duration = state.get("duration")
         position = state.get("position")
+        if position is not None and self._seek_guard_target is not None:
+            if abs(float(position) - self._seek_guard_target) <= .35:
+                self._seek_guard_target = None
+                self._seek_guard_until = 0.0
+            elif time.monotonic() < self._seek_guard_until:
+                # mpv seek 后可能先回报 seek 前的旧 position。这个旧位置不能再
+                # 驱动 playhead / playing cue，否则用户会看到“跳到下一字幕”的假选中。
+                position = None
+            else:
+                self._seek_guard_target = None
+                self._seek_guard_until = 0.0
         requested_seek = False
         if duration is not None and duration > 0:
             self._player_duration = duration
