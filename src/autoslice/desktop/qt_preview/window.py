@@ -118,7 +118,7 @@ class NavigationButton(QPushButton):
 
     @staticmethod
     def _set_icon_colors(icon: QLabel, name: QLabel, icon_name: str, selected: bool) -> None:
-        color = COLORS.accent_text if selected else COLORS.muted
+        color = COLORS.text if selected else COLORS.muted
         icon.setPixmap(desktop_icon(icon_name, color).pixmap(SIZES.icon_size, SIZES.icon_size))
         name.setStyleSheet(f"font-size: {SIZES.text_small}px; color: {color};")
 

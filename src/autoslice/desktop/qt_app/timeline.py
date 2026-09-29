@@ -175,7 +175,7 @@ class SubtitleTimeline(QWidget):
                                                         int(ratio * len(self.waveform_samples)))]
                     amplitude = max(1, int(sample * 24))
                     painter.drawLine(x, int(center - amplitude), x, int(center + amplitude))
-            else:
+            elif self.document:
                 painter.setPen(QColor(COLORS.subtle))
                 painter.drawText(12, 57, self.width() - 24, 30,
                                  Qt.AlignmentFlag.AlignCenter, "生成波形中…")
