@@ -80,6 +80,7 @@ class Metrics:
     subtitle_time_width: int = 204
     playhead_hit_width: int = 14
     icon_size: int = 20
+    tool_icon_size: int = 16
     control_radius: int = 6
     text_small: int = 11
     text_base: int = 12
@@ -94,20 +95,28 @@ class Metrics:
 
 COLORS = Palette()
 SIZES = Metrics()
+# 思源黑体为主，雅黑兜底；时间码等宽
+UI_FAMILIES = ("Noto Sans SC", "Microsoft YaHei UI", "Segoe UI")
+MONO_FAMILIES = ("Cascadia Mono", "Consolas")
 
 
 def stylesheet() -> str:
     """共享控件样式；局部绘制只处理时间轴和图标等图形。"""
 
+    from .icons import icon_file
+
     c = COLORS
     m = SIZES
+    ui_font = ", ".join(f"'{name}'" for name in UI_FAMILIES)
+    mono_font = ", ".join(f"'{name}'" for name in MONO_FAMILIES)
+    arrow = icon_file("chevron_down", c.muted)
     # 凸起控件：自上而下微渐变 + 顶边高光，模拟顶光
     lift = f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {c.raised_top}, stop:1 {c.raised})"
     lift_hover = f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2B2B28, stop:1 {c.button_hover})"
     solid = f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {c.accent_top}, stop:1 {c.accent})"
     solid_hover = f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #5A8FF1, stop:1 {c.accent_hover})"
     return f"""
-        QWidget {{ color: {c.text}; background: transparent; font-family: 'Microsoft YaHei UI', 'Segoe UI'; font-size: {m.text_base}px; }}
+        QWidget {{ color: {c.text}; background: transparent; font-family: {ui_font}; font-size: {m.text_base}px; }}
         QWidget#root {{ background: {c.canvas}; }}
         QWidget#appbar {{ background: {c.nav}; border-bottom: 1px solid {c.divider}; }}
         QWidget#navRail {{ background: {c.nav}; border-right: 1px solid {c.divider}; }}
@@ -122,14 +131,14 @@ def stylesheet() -> str:
         QWidget#settingsSurface {{ background: {c.canvas}; }}
         QFrame#hairline {{ background: {c.divider}; max-height: 1px; min-height: 1px; }}
         QLabel#brand {{ font-size: 15px; font-weight: 700; }}
-        QLabel#pageTitle {{ font-size: {m.text_heading}px; font-weight: 600; }}
-        QLabel#projectTitle {{ font-size: 14px; font-weight: 600; }}
+        QLabel#pageTitle {{ font-size: {m.text_heading}px; font-weight: 500; }}
+        QLabel#projectTitle {{ font-size: 14px; font-weight: 500; }}
         QLabel#videoFile {{ color: {c.muted}; font-size: {m.text_small}px; }}
         QLabel#statusLabel {{ color: {c.muted}; font-size: {m.text_small}px; padding: 0 4px; }}
-        QLabel#timecode {{ color: {c.muted}; font-family: 'Cascadia Mono', 'Consolas'; font-size: 12px; }}
+        QLabel#timecode {{ color: {c.muted}; font-family: {mono_font}; font-size: 12px; }}
         QLabel#aiDiff {{ font-size: {m.text_body}px; }}
-        QLabel#sectionTitle {{ font-size: 13px; font-weight: 600; }}
-        QLabel#bodyTitle {{ font-size: 20px; font-weight: 600; }}
+        QLabel#sectionTitle {{ font-size: 13px; font-weight: 500; }}
+        QLabel#bodyTitle {{ font-size: 20px; font-weight: 500; }}
         QLabel#muted, QLabel#hint {{ color: {c.muted}; }}
         QLabel#subtle {{ color: {c.subtle}; }}
         QLabel#badge {{ color: {c.accent_text}; background: {c.accent_subtle}; border: 1px solid {c.accent_tint}; border-radius: 4px; padding: 2px 6px; font-size: 11px; }}
@@ -140,11 +149,11 @@ def stylesheet() -> str:
         QPushButton:checked {{ color: {c.accent_text}; background: {c.accent_subtle}; border-color: {c.accent_tint}; border-top-color: #24375A; }}
         QPushButton:checked:hover {{ background: #1A2130; border-color: #24375A; }}
         QPushButton:disabled {{ color: {c.disabled}; background: {c.panel}; border-color: {c.divider}; }}
-        QPushButton#primary {{ color: {c.on_accent}; background: {solid}; border-color: {c.accent_pressed}; border-top-color: {c.accent_edge}; font-weight: 600; }}
+        QPushButton#primary {{ color: {c.on_accent}; background: {solid}; border-color: {c.accent_pressed}; border-top-color: {c.accent_edge}; font-weight: 500; }}
         QPushButton#primary:hover {{ background: {solid_hover}; border-color: {c.accent}; border-top-color: #86ADF6; }}
         QPushButton#primary:pressed {{ background: {c.accent_pressed}; border-color: {c.accent_medium}; border-top-color: {c.accent_medium}; }}
         QPushButton#primary:disabled, QPushButton#primary:disabled:hover {{ color: {c.disabled}; background: {c.panel}; border-color: {c.divider}; }}
-        QPushButton#secondary {{ font-weight: 600; }}
+        QPushButton#secondary {{ font-weight: 500; }}
         QPushButton#secondary:disabled, QPushButton#secondary:disabled:hover {{ color: {c.disabled}; background: {c.panel}; border-color: {c.divider}; }}
         QPushButton#quiet, QPushButton#navButton, QPushButton#projectItem, QPushButton#projectItemCompact {{ background: transparent; border: none; }}
         QPushButton#quiet:hover {{ background: {c.hover}; }}
@@ -170,7 +179,8 @@ def stylesheet() -> str:
         QPushButton#projectItem:checked, QPushButton#projectItemCompact:checked {{ background: {c.project_selected}; border-left: 2px solid {c.accent}; }}
         QLineEdit, QTextEdit, QComboBox {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: {m.control_radius}px; padding: 7px 10px; selection-background-color: {c.accent_pressed}; }}
         QComboBox:hover {{ border-color: {c.button_hover_border}; border-top-color: {c.border}; }}
-        QComboBox::drop-down {{ border: none; width: 20px; }}
+        QComboBox::drop-down {{ border: none; width: 22px; }}
+        QComboBox::down-arrow {{ image: url("{arrow}"); width: 12px; height: 12px; }}
         QComboBox QAbstractItemView {{ background: {c.overlay}; border: 1px solid {c.border}; padding: 4px; outline: 0; selection-background-color: {c.accent}; selection-color: {c.on_accent}; }}
         QSlider::groove:horizontal {{ height: 3px; background: {c.border}; border-radius: 1px; }}
         QSlider::sub-page:horizontal {{ background: {c.accent}; border-radius: 1px; }}

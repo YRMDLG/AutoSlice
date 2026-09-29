@@ -23,7 +23,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemDelegate,
     QApplication,
@@ -53,8 +53,8 @@ from autoslice.desktop.commands import CommandDispatcher
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectSnapshot, SubmissionProject, SubmissionProjectService
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
-from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.window import PreviewWindow, ProjectItem, label, line
+from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES
+from autoslice.desktop.qt_preview.window import PreviewWindow, ProjectItem, label, line, tool_icon
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
 from autoslice.desktop.subtitle_render import SubtitleRenderService
@@ -259,7 +259,7 @@ class SubtitleTextDelegate(QStyledItemDelegate):
                 option.displayAlignment = Qt.AlignmentFlag.AlignCenter
             else:
                 # 等宽数字，时间码逐行竖向对齐
-                option.font.setFamilies(["Cascadia Mono", "Consolas"])
+                option.font.setFamilies(list(MONO_FAMILIES))
             option.palette.setColor(option.palette.ColorRole.Text, QColor(COLORS.subtle if index.column() == 0 else COLORS.muted))
             option.palette.setColor(option.palette.ColorRole.HighlightedText, QColor(COLORS.muted))
         if self._editing == self._key(index):
@@ -452,8 +452,10 @@ class DesktopWindow(PreviewWindow):
         heading.setContentsMargins(20, 0, 12, 0)
         heading.addWidget(label("投稿项目", "sectionTitle"))
         heading.addStretch()
-        refresh = QPushButton("刷新")
+        refresh = QPushButton()
         refresh.setObjectName("tool")
+        refresh.setToolTip("刷新项目列表")
+        tool_icon(refresh, "refresh")
         refresh.clicked.connect(self.refresh)
         heading.addWidget(refresh)
         outer.addWidget(header)
@@ -559,14 +561,15 @@ class DesktopWindow(PreviewWindow):
         controls.setSpacing(SIZES.space_3)
         self.play_button = QPushButton("播放")
         self.play_button.setObjectName("tool")
-        self.play_button.setIcon(desktop_icon("play", COLORS.text))
-        self.play_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
+        self.play_button.setIcon(desktop_icon("play", COLORS.text, SIZES.tool_icon_size))
+        self.play_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
         self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self._toggle_play)
         controls.addWidget(self.play_button)
         self.preview_toggle = QPushButton("字幕预览")
         self.preview_toggle.setObjectName("tool")
         self.preview_toggle.setCheckable(True)
+        tool_icon(self.preview_toggle, "eye", checkable=True)
         self.preview_toggle.setChecked(True)
         self.preview_toggle.setToolTip("显示接近最终压制样式的实时字幕预览")
         self.preview_toggle.clicked.connect(self._toggle_subtitle_preview)
@@ -575,7 +578,8 @@ class DesktopWindow(PreviewWindow):
         controls.addWidget(self.time_label)
         controls.addStretch()
         volume_icon = label("")
-        volume_icon.setPixmap(desktop_icon("volume").pixmap(SIZES.icon_size, SIZES.icon_size))
+        volume_icon.setPixmap(desktop_icon("volume", size=SIZES.tool_icon_size).pixmap(
+            SIZES.tool_icon_size, SIZES.tool_icon_size))
         volume_icon.setToolTip("音量")
         controls.addWidget(volume_icon)
         self.volume = QSlider(Qt.Orientation.Horizontal)
@@ -665,8 +669,9 @@ class DesktopWindow(PreviewWindow):
         header = QHBoxLayout(header_bar)
         header.setContentsMargins(8, 0, 12, 0)
         header.setSpacing(8)
-        self.ai_toggle = QPushButton("‹")
+        self.ai_toggle = QPushButton()
         self.ai_toggle.setObjectName("quiet")
+        tool_icon(self.ai_toggle, "chevron_left")
         self.ai_toggle.setFixedSize(32, 32)
         self.ai_toggle.clicked.connect(lambda: self._set_ai_open(not self._ai_open))
         header.addWidget(self.ai_toggle)
@@ -765,6 +770,7 @@ class DesktopWindow(PreviewWindow):
         self.snap_button = QPushButton("磁吸")
         self.snap_button.setObjectName("tool")
         self.snap_button.setCheckable(True)
+        tool_icon(self.snap_button, "magnet", checkable=True)
         self.snap_button.setChecked(True)
         self.snap_button.setToolTip("自动吸附字幕边界；拖动时按住 Alt 可临时关闭")
         self.snap_button.clicked.connect(self._toggle_snapping)
@@ -772,6 +778,7 @@ class DesktopWindow(PreviewWindow):
         self.waveform_button = QPushButton("波形")
         self.waveform_button.setObjectName("tool")
         self.waveform_button.setCheckable(True)
+        tool_icon(self.waveform_button, "waveform", checkable=True)
         self.waveform_button.setChecked(True)
         self.waveform_button.setToolTip("显示轻量音频波形")
         self.waveform_button.clicked.connect(self._toggle_waveform)
@@ -779,10 +786,12 @@ class DesktopWindow(PreviewWindow):
         heading.addSpacing(SIZES.space_2)
         self.fit_button = QPushButton("适合全部")
         self.fit_button.setObjectName("tool")
+        tool_icon(self.fit_button, "fit")
         self.fit_button.clicked.connect(self._fit_timeline)
         heading.addWidget(self.fit_button)
-        self.more_button = QPushButton("…")
+        self.more_button = QPushButton()
         self.more_button.setObjectName("tool")
+        tool_icon(self.more_button, "more")
         self.more_button.setToolTip("字幕编辑操作")
         self.more_button.clicked.connect(lambda: self._show_edit_menu(
             self.more_button.mapToGlobal(self.more_button.rect().bottomLeft()), global_position=True))
@@ -851,7 +860,11 @@ class DesktopWindow(PreviewWindow):
         self.ai_collapsed_label.setText(f"AI {count}" if count else "AI")
         self.ai_run.setEnabled(bool(self.document))
         self.ai_run.setText("取消检查" if self._ai_running else
-                            "↻ 重新检查" if self.ai_session else "AI 检查")
+                            "重新检查" if self.ai_session else "AI 检查")
+        if self._ai_running:
+            self.ai_run.setIcon(QIcon())
+        else:
+            tool_icon(self.ai_run, "refresh" if self.ai_session else "sparkle")
         while self.ai_queue_layout.count() > 1:
             item = self.ai_queue_layout.takeAt(0)
             if item.widget():
@@ -2114,7 +2127,7 @@ class DesktopWindow(PreviewWindow):
 
     def _set_play_button(self, paused):
         self.play_button.setText("播放" if paused else "暂停")
-        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.text))
+        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.text, SIZES.tool_icon_size))
 
     def _volume_changed(self, value):
         if getattr(self, "player", None):

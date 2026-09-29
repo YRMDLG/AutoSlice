@@ -1,6 +1,6 @@
 """可交互的 Desktop-04.55 Qt 壳，不读取投稿或字幕文件。"""
 
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -39,6 +39,14 @@ def line() -> QFrame:
     result = QFrame()
     result.setObjectName("hairline")
     return result
+
+
+def tool_icon(button: QPushButton, name: str, checkable: bool = False) -> None:
+    """工具按钮统一 16px 图标；可勾选按钮开启时图标随文字变蓝。"""
+
+    size = SIZES.tool_icon_size
+    button.setIcon(desktop_icon(name, COLORS.muted, size, COLORS.accent_text if checkable else None))
+    button.setIconSize(QSize(size, size))
 
 
 class TwoLineTitle(QWidget):
@@ -433,8 +441,9 @@ class PreviewWindow(QMainWindow):
         header.setFixedHeight(60)
         header_row = QHBoxLayout(header)
         header_row.setContentsMargins(8, 0, 14, 0)
-        self.ai_toggle = QPushButton("‹")
+        self.ai_toggle = QPushButton()
         self.ai_toggle.setObjectName("quiet")
+        tool_icon(self.ai_toggle, "chevron_left")
         self.ai_toggle.setFixedSize(32, 32)
         self.ai_toggle.setToolTip("展开或收起 AI 建议区")
         self.ai_toggle.clicked.connect(lambda: self._set_ai_open(not self._ai_open))
@@ -542,7 +551,7 @@ class PreviewWindow(QMainWindow):
         self.ai_content.setVisible(open_)
         self.ai_header.setVisible(open_)
         self.ai_collapsed_label.setVisible(not open_)
-        self.ai_toggle.setText("›" if open_ else "‹")
+        tool_icon(self.ai_toggle, "chevron_right" if open_ else "chevron_left")
         self.ai_toggle.setToolTip("收起 AI 建议区" if open_ else "展开 AI 建议区")
         self.ai_panel.setMinimumWidth(SIZES.ai_min_width if open_ else SIZES.ai_collapsed_width)
         self.ai_panel.setMaximumWidth(16777215 if open_ else SIZES.ai_collapsed_width)
