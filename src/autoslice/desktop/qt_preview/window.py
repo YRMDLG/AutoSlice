@@ -118,7 +118,7 @@ class NavigationButton(QPushButton):
 
     @staticmethod
     def _set_icon_colors(icon: QLabel, name: QLabel, icon_name: str, selected: bool) -> None:
-        color = COLORS.accent if selected else COLORS.muted
+        color = COLORS.accent_text if selected else COLORS.muted
         icon.setPixmap(desktop_icon(icon_name, color).pixmap(SIZES.icon_size, SIZES.icon_size))
         name.setStyleSheet(f"font-size: {SIZES.text_small}px; color: {color};")
 
@@ -330,7 +330,7 @@ class PreviewWindow(QMainWindow):
         column.addStretch()
         glyph = label("▶")
         glyph.setStyleSheet(
-            f"color: {COLORS.accent}; background: {COLORS.accent_tint};"
+            f"color: {COLORS.accent_text}; background: {COLORS.accent_tint};"
             "border-radius: 30px; font-size: 22px; padding-left: 3px;"
         )
         glyph.setFixedSize(60, 60)

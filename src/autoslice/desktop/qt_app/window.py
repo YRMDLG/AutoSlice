@@ -266,7 +266,7 @@ class SubtitleTextDelegate(QStyledItemDelegate):
             super().paint(painter, option, index)
         painter.save()
         if index.column() == 0 and option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect.left(), option.rect.top(), 2, option.rect.height(), QColor(COLORS.accent_pressed))
+            painter.fillRect(option.rect.left(), option.rect.top(), 2, option.rect.height(), QColor(COLORS.accent))
         painter.setPen(QColor(COLORS.divider))
         painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
         painter.restore()
@@ -493,7 +493,7 @@ class DesktopWindow(PreviewWindow):
         action_row.setSpacing(2)
         self.save_button = QPushButton("保存字幕")
         self.save_button.setObjectName("primary")
-        self.save_button.setIcon(desktop_icon("save", COLORS.canvas))
+        self.save_button.setIcon(desktop_icon("save", COLORS.on_accent))
         self.save_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
         self.save_button.clicked.connect(self.save)
         self.save_button.setEnabled(False)

@@ -12,6 +12,7 @@ from threading import Event
 from unittest.mock import patch
 
 from autoslice.desktop.foundation import DesktopStorage
+from autoslice.desktop.qt_preview.theme import COLORS
 from autoslice.desktop.subtitle_render import SubtitleRenderService
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -159,7 +160,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
                        if item.isVisible()), None)
         self.assertIsNotNone(editor)
         self.assertEqual(self.window.table.rowHeight(0), row_height)
-        self.assertIn("background: #20383D", editor.styleSheet())
+        self.assertIn(f"background: {COLORS.row_selected}", editor.styleSheet())
         self.assertIn("border: none", editor.styleSheet())
 
         cursor = editor.textCursor()
