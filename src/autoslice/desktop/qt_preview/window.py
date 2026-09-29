@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import motion
 from .icons import icon as desktop_icon
 from .theme import COLORS, SIZES
 
@@ -180,7 +181,9 @@ class PreviewWindow(QMainWindow):
         self._ai_open = False
         self._last_ai_width = SIZES.ai_width
         self._splitter_initialized = False
+        self._ai_glide = motion.ValueGlide(self, self._apply_ai_width)
         self._build()
+        motion.install_tree(self)
 
     def _build(self) -> None:
         root = QWidget()
@@ -527,10 +530,17 @@ class PreviewWindow(QMainWindow):
         return page
 
     def _select_page(self, index: int) -> None:
-        self.pages.setCurrentIndex(index)
+        def apply() -> None:
+            self.pages.setCurrentIndex(index)
+            self.project_rail.setVisible(index != 2)
+            self.top_project.setVisible(index != 2)
+
+        # 项目栏随页面显隐，整块主区域一起交叉淡化，新旧画面对齐
+        if index != self.pages.currentIndex():
+            motion.crossfade(self.main_splitter, apply)
+        else:
+            apply()
         self.nav_buttons[index].setChecked(True)
-        self.project_rail.setVisible(index != 2)
-        self.top_project.setVisible(index != 2)
         if index != 2:
             QTimer.singleShot(0, self._restore_project_width)
 
@@ -545,18 +555,50 @@ class PreviewWindow(QMainWindow):
             )
 
     def _set_ai_open(self, open_: bool) -> None:
-        if self._ai_open and not open_:
+        if self._ai_open and not open_ and not self._ai_glide.running():
             self._last_ai_width = max(SIZES.ai_min_width, self.subtitle_splitter.sizes()[1])
         self._ai_open = open_
-        self.ai_content.setVisible(open_)
-        self.ai_header.setVisible(open_)
-        self.ai_collapsed_label.setVisible(not open_)
         tool_icon(self.ai_toggle, "chevron_right" if open_ else "chevron_left")
         self.ai_toggle.setToolTip("收起 AI 建议区" if open_ else "展开 AI 建议区")
+        width = self._last_ai_width if open_ else SIZES.ai_collapsed_width
+        current = self.subtitle_splitter.sizes()[1] if self.subtitle_splitter.count() > 1 else width
+        animate = (motion.enabled() and self._splitter_initialized and self.isVisible()
+                   and abs(current - width) > 2)
+        if not animate:
+            self._ai_glide.stop()
+            self._ai_chrome(open_)
+            self._ai_constraints(open_)
+            self._apply_ai_width((width,))
+            return
+        # 过渡中放开宽度约束、先收起内容，展开到位后内容再淡入，避免文字逐帧重排
+        self._ai_chrome(None)
+        self.ai_panel.setMinimumWidth(SIZES.ai_collapsed_width)
+        self.ai_panel.setMaximumWidth(16777215)
+
+        def finish():
+            self._ai_constraints(open_)
+            self._ai_chrome(open_)
+            for widget in self._ai_fade_targets(open_):
+                motion.fade_in(widget)
+
+        self._ai_glide.go((current,), (width,), motion.PANEL, motion.EMPHASIZED, finish)
+
+    def _ai_constraints(self, open_: bool) -> None:
         self.ai_panel.setMinimumWidth(SIZES.ai_min_width if open_ else SIZES.ai_collapsed_width)
         self.ai_panel.setMaximumWidth(16777215 if open_ else SIZES.ai_collapsed_width)
+
+    def _ai_chrome(self, open_: bool | None) -> None:
+        """None 表示过渡中：内容与收起标签都隐藏。"""
+        self.ai_content.setVisible(bool(open_))
+        self.ai_header.setVisible(bool(open_))
+        self.ai_collapsed_label.setVisible(open_ is False)
+
+    def _ai_fade_targets(self, open_: bool) -> list:
+        return [self.ai_content, self.ai_header] if open_ else [self.ai_collapsed_label]
+
+    def _apply_ai_width(self, values) -> None:
+        width = int(round(values[0]))
         available = max(1, sum(self.subtitle_splitter.sizes()))
-        width = self._last_ai_width if open_ else SIZES.ai_collapsed_width
         self.subtitle_splitter.setSizes([max(1, available - width), width])
 
     def showEvent(self, event) -> None:

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from .glyphs import icon_file
+
 
 @dataclass(frozen=True)
 class Palette:
@@ -103,8 +105,6 @@ MONO_FAMILIES = ("Cascadia Mono", "Consolas")
 def stylesheet() -> str:
     """共享控件样式；局部绘制只处理时间轴和图标等图形。"""
 
-    from .icons import icon_file
-
     c = COLORS
     m = SIZES
     ui_font = ", ".join(f"'{name}'" for name in UI_FAMILIES)
@@ -171,12 +171,12 @@ def stylesheet() -> str:
         QPushButton#segment:disabled {{ color: {c.disabled}; }}
         QPushButton#navButton {{ border-radius: 8px; color: {c.muted}; padding: 0; min-height: 60px; max-height: 60px; min-width: 56px; max-width: 56px; }}
         QPushButton#navButton:hover {{ background: {c.hover}; color: {c.text}; }}
-        QPushButton#navButton:checked {{ color: {c.text}; background: {c.project_selected}; border-left: 2px solid {c.accent}; }}
+        QPushButton#navButton:checked {{ color: {c.text}; background: {c.project_selected}; }}
         QPushButton#projectItem, QPushButton#projectItemCompact {{ text-align: left; border-radius: 6px; padding: 0; }}
         QPushButton#projectItem {{ min-height: {m.row_height}px; max-height: {m.row_height}px; }}
         QPushButton#projectItemCompact {{ min-height: {m.project_compact_height}px; max-height: {m.project_compact_height}px; }}
         QPushButton#projectItem:hover, QPushButton#projectItemCompact:hover {{ background: {c.project_hover}; }}
-        QPushButton#projectItem:checked, QPushButton#projectItemCompact:checked {{ background: {c.project_selected}; border-left: 2px solid {c.accent}; }}
+        QPushButton#projectItem:checked, QPushButton#projectItemCompact:checked {{ background: {c.project_selected}; }}
         QLineEdit, QTextEdit, QComboBox {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: {m.control_radius}px; padding: 7px 10px; selection-background-color: {c.accent_pressed}; }}
         QComboBox:hover {{ border-color: {c.button_hover_border}; border-top-color: {c.border}; }}
         QComboBox::drop-down {{ border: none; width: 22px; }}
@@ -187,9 +187,10 @@ def stylesheet() -> str:
         QSlider::handle:horizontal {{ width: 12px; height: 12px; margin: -5px 0; background: {c.text}; border: none; border-radius: 6px; }}
         QSlider::handle:horizontal:hover {{ background: #FFFFFF; }}
         QTableView {{ background: {c.panel}; alternate-background-color: {c.panel}; gridline-color: transparent; selection-background-color: {c.row_selected}; selection-color: {c.text}; border: none; font-size: {m.text_body}px; }}
-        QTableView::item:hover {{ background: {c.hover}; }}
-        QTableView::item:selected {{ background: {c.row_selected}; color: {c.text}; }}
-        QTableView::item:selected:hover {{ background: {c.row_selected}; color: {c.text}; }}
+        QTableView::item {{ background: transparent; }}
+        QTableView::item:hover {{ background: transparent; }}
+        QTableView::item:selected {{ background: transparent; color: {c.text}; }}
+        QTableView::item:selected:hover {{ background: transparent; color: {c.text}; }}
         QHeaderView::section {{ background: {c.panel}; color: {c.subtle}; border: none; border-bottom: 1px solid {c.divider}; padding: 4px 3px; font-size: {m.text_small}px; font-weight: 500; }}
         QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus {{ border-color: {c.focus_ring}; }}
         QLineEdit:disabled, QTextEdit:disabled {{ color: {c.disabled}; background: {c.panel}; }}
