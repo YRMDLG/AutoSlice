@@ -65,6 +65,10 @@ class CoverEditorWidget(QWidget):
         self._preview_path: Path | None = None
         self._context_generation = 0
         self._busy = False
+        # QThreadPool 不会替 Python 对象保留可用的 signal owner；必须在控件
+        # 上持有任务引用，直到 finished 信号回到 UI 线程，否则真实 FFmpeg
+        # 任务会完成但结果回调可能被 GC 丢掉。
+        self._jobs: set[_Job] = set()
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
@@ -166,13 +170,17 @@ class CoverEditorWidget(QWidget):
 
     def set_context(self, project: SubmissionProject | None, video: ProjectVideo | None):
         if project is None or video is None:
+            self._context_generation += 1
             self.project = None
             self.video = None
+            self._busy = False
             self.project_label.setText("请选择项目")
             self.video_label.setText("请选择视频")
             self.draft_status.setText("尚未加载封面草稿")
             self.canvas.clear()
             self.canvas.setText("加载底图后在这里预览")
+            self.frame_button.setEnabled(False)
+            self.frame_button.setToolTip("请先选择包含视频的投稿项目")
             self.export_button.setEnabled(False)
             return
         if (
@@ -189,11 +197,20 @@ class CoverEditorWidget(QWidget):
         self.project_label.setText(project.title)
         self.project_label.setToolTip(project.directory)
         self.video_label.setText(video.name)
+        video_path = Path(video.path)
+        video_available = video_path.is_file()
+        self.frame_button.setEnabled(video_available)
+        self.frame_button.setToolTip(
+            "从当前视频的这个时间点提取一帧"
+            if video_available else f"当前视频不存在：{video_path}"
+        )
         self._preview_path = None
         self._busy = False
         self.draft, read = self.service.load(project, video)
         self._apply_draft()
-        if read.status == "ready":
+        if not video_available:
+            self.draft_status.setText(f"当前视频不可用：{video_path}")
+        elif read.status == "ready":
             self.draft_status.setText("已恢复封面草稿")
         elif read.status == "missing":
             self.draft_status.setText("暂无草稿，编辑会自动保存")
@@ -248,9 +265,15 @@ class CoverEditorWidget(QWidget):
     def _run(self, action, callback):
         generation = self._context_generation
         job = _Job(action)
+        self._jobs.add(job)
+
         def done(result, error):
-            if generation == self._context_generation:
-                callback(result, error)
+            try:
+                if generation == self._context_generation:
+                    callback(result, error)
+            finally:
+                self._jobs.discard(job)
+
         job.signals.finished.connect(done)
         QThreadPool.globalInstance().start(job)
 
@@ -268,7 +291,7 @@ class CoverEditorWidget(QWidget):
         self._render_preview()
 
     def _extract_frame(self):
-        if self.video is None:
+        if self.video is None or not Path(self.video.path).is_file():
             self.status_changed.emit("请先选择投稿项目和视频")
             return
         self.frame_button.setEnabled(False)

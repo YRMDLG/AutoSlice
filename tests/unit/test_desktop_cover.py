@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -19,6 +22,42 @@ except ImportError:
 from autoslice.desktop.cover_service import CoverDraft, CoverService
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+
+
+def _make_real_video(path: Path) -> None:
+    """用本机 FFmpeg 生成可被真实取帧链路读取的短 MP4。"""
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise unittest.SkipTest("本机没有 ffmpeg")
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x180:rate=10",
+            "-t",
+            "1.2",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:v",
+            "libx264",
+            "-y",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0 or not path.is_file():
+        raise RuntimeError(f"测试视频生成失败：{result.stderr}")
 
 
 class CoverServiceTests(unittest.TestCase):
@@ -63,6 +102,17 @@ class CoverServiceTests(unittest.TestCase):
         self.assertEqual(first.read_bytes(), first_bytes)
         self.assertTrue(first.name.startswith("AutoCover-成片"))
 
+    def test_real_mp4_extracts_openable_cached_frame(self):
+        _make_real_video(self.video_path)
+        frame, timestamp = self.service.extract_frame(self.video, 0.4)
+        self.assertTrue(frame.is_file())
+        self.assertTrue(frame.is_relative_to(self.storage.thumbnails))
+        self.assertAlmostEqual(timestamp, 0.4, places=3)
+        with Image.open(frame) as image:
+            image.verify()
+            self.assertGreater(image.width, 0)
+            self.assertGreater(image.height, 0)
+
 
 @unittest.skipIf(QApplication is None, "PySide6 不在当前解释器中")
 class CoverEditorQtSmokeTests(unittest.TestCase):
@@ -89,6 +139,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertEqual(self.widget.video_label.text(), "视频.mp4")
         self.assertEqual(self.widget.title_edit.text(), "项目甲")
         self.assertFalse(self.widget.export_button.isEnabled())
+        self.assertTrue(self.widget.frame_button.isEnabled())
         self.assertIn("从当前视频取帧", self.widget.frame_button.text())
 
     def test_qt_navigation_shares_selected_project_with_cover_page(self):
@@ -127,6 +178,79 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertEqual(window.cover_editor.video.path, project.videos[0].path)
         window._select_page(1)
         self.assertIs(window.pages.currentWidget(), window.cover_editor.parentWidget())
+
+
+@unittest.skipIf(QApplication is None, "PySide6 不在当前解释器中")
+class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        from autoslice.desktop.cover import CoverEditorWidget
+
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        project_dir = root / "真实项目"
+        project_dir.mkdir()
+        video_path = project_dir / "真实视频.mp4"
+        _make_real_video(video_path)
+        self.project = SubmissionProject(
+            "real-project",
+            "真实项目",
+            str(project_dir),
+            (ProjectVideo("真实视频.mp4", str(video_path), "", "", False, False, ""),),
+        )
+        self.app = QApplication.instance() or QApplication([])
+        self.widget = CoverEditorWidget(DesktopStorage(root / "data"))
+        self.widget.resize(900, 600)
+        self.addCleanup(self.widget.deleteLater)
+
+    def test_real_frame_click_updates_draft_canvas_and_export(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self.widget.frame_button.isEnabled())
+        self.widget._extract_frame()
+        for _ in range(240):
+            self.app.processEvents()
+            time.sleep(0.05)
+            if self.widget._preview_path is not None:
+                break
+        self.assertIsNotNone(self.widget._preview_path)
+        self.assertTrue(Path(self.widget.draft.image_path).is_file())
+        pixmap = self.widget.canvas.pixmap()
+        self.assertIsNotNone(pixmap)
+        self.assertFalse(pixmap.isNull())
+        self.assertTrue(self.widget.export_button.isEnabled())
+        self.widget._export()
+        for _ in range(160):
+            self.app.processEvents()
+            time.sleep(0.05)
+            if list(Path(self.project.directory).glob("AutoCover-*.jpg")):
+                break
+        exported = list(Path(self.project.directory).glob("AutoCover-*.jpg"))
+        self.assertEqual(len(exported), 1)
+        with Image.open(exported[0]) as image:
+            image.verify()
+
+    def test_real_png_import_updates_preview_canvas(self):
+        from unittest.mock import patch
+
+        source = Path(self.temp.name) / "中文底图【测试】.png"
+        Image.new("RGB", (320, 180), "#d97706").save(source)
+        self.widget.set_context(self.project, self.project.videos[0])
+        with patch(
+            "autoslice.desktop.cover.QFileDialog.getOpenFileName",
+            return_value=(str(source), "图片 (*.png *.jpg *.jpeg *.webp *.bmp)"),
+        ):
+            self.widget._import_image()
+        for _ in range(160):
+            self.app.processEvents()
+            time.sleep(0.05)
+            if self.widget._preview_path is not None:
+                break
+        self.assertIsNotNone(self.widget.draft.image_path)
+        self.assertTrue(Path(self.widget.draft.image_path).is_file())
+        self.assertIsNotNone(self.widget._preview_path)
+        pixmap = self.widget.canvas.pixmap()
+        self.assertIsNotNone(pixmap)
+        self.assertFalse(pixmap.isNull())
 
 
 if __name__ == "__main__":
