@@ -509,8 +509,6 @@ class DesktopWindow(PreviewWindow):
         row = QHBoxLayout(heading)
         row.setContentsMargins(24, 0, 24, 0)
         row.addWidget(label("封面制作", "pageTitle"))
-        row.addSpacing(8)
-        row.addWidget(label("AutoCover-01", "quietBadge"))
         row.addStretch()
         row.addWidget(label("与字幕页共享当前投稿项目", "muted"))
         layout.addWidget(heading)
@@ -2468,6 +2466,9 @@ class DesktopWindow(PreviewWindow):
 
     def _select_page(self, index):
         super()._select_page(index)
+        if index == 1 and hasattr(self, "cover_editor"):
+            # 只读取字幕页当前播放位置，切页不 seek、不暂停、不修改字幕状态。
+            self.cover_editor.set_current_playhead(getattr(self, "_player_position", 0.0))
         if hasattr(self, "storage") and hasattr(self, "_draft_timer"):
             self._save_session()
 
@@ -2617,6 +2618,8 @@ class DesktopWindow(PreviewWindow):
         if position is not None and not requested_seek:
             self._player_position = position
             self.timeline.set_playhead(position, playing=state.get("paused") is False)
+            if hasattr(self, "cover_editor"):
+                self.cover_editor.set_current_playhead(position)
             if self._audition_until is not None and position >= self._audition_until:
                 until = self._audition_until
                 self._audition_until = None

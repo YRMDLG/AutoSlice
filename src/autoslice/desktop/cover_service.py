@@ -1,4 +1,4 @@
-"""AutoCover-01 的无 UI 服务：草稿、底图缓存、取帧和导出。"""
+"""AutoCover 的无 UI 服务：草稿、底图缓存、取帧和导出。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from autoslice_cover.video import extract_frame_at_timestamp
 
 @dataclass(frozen=True)
 class CoverDraft:
-    """可恢复的第一版封面编辑状态。坐标使用画布归一化值。"""
+    """可恢复的封面编辑状态。坐标使用画布归一化值。"""
 
     title: str
     image_path: str | None = None
@@ -23,21 +23,27 @@ class CoverDraft:
     text_x: float = 0.06
     text_y: float = 0.12
     font_size: int = 104
+    background_x: float = 0.5
+    background_y: float = 0.5
+    background_scale: float = 1.0
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "version": 1,
+            "version": 2,
             "title": self.title,
             "image_path": self.image_path,
             "selected_timestamp": self.selected_timestamp,
             "text_x": self.text_x,
             "text_y": self.text_y,
             "font_size": self.font_size,
+            "background_x": self.background_x,
+            "background_y": self.background_y,
+            "background_scale": self.background_scale,
         }
 
     @classmethod
     def from_payload(cls, payload: object, fallback_title: str) -> "CoverDraft":
-        if not isinstance(payload, dict) or payload.get("version") != 1:
+        if not isinstance(payload, dict) or payload.get("version") not in {1, 2}:
             return cls(fallback_title)
         title = str(payload.get("title") or fallback_title).strip() or fallback_title
         try:
@@ -45,12 +51,54 @@ class CoverDraft:
             text_x = min(1.0, max(0.0, float(payload.get("text_x", 0.06))))
             text_y = min(1.0, max(0.0, float(payload.get("text_y", 0.12))))
             font_size = min(320, max(24, int(payload.get("font_size", 104))))
+            background_x = min(1.0, max(0.0, float(payload.get("background_x", 0.5))))
+            background_y = min(1.0, max(0.0, float(payload.get("background_y", 0.5))))
+            background_scale = min(2.5, max(1.0, float(payload.get("background_scale", 1.0))))
         except (TypeError, ValueError):
             return cls(fallback_title)
         image_path = payload.get("image_path")
         if not isinstance(image_path, str) or not image_path.strip():
             image_path = None
-        return cls(title, image_path, timestamp, text_x, text_y, font_size)
+        return cls(
+            title, image_path, timestamp, text_x, text_y, font_size,
+            background_x, background_y, background_scale,
+        )
+
+
+def wrap_cover_title(title: str, font_size: int, *, max_width: float = 0.86) -> tuple[str, ...]:
+    """按近似字体宽度拆分标题，保留手动换行并避免超出画布。"""
+
+    canvas_width = 1920 * max(0.55, min(0.92, max_width))
+    limit = max(8.0, canvas_width / max(24.0, float(font_size)))
+    lines: list[str] = []
+    for source_line in (str(title).replace("\r\n", "\n").split("\n") or [""]):
+        current = ""
+        units = 0.0
+        for char in source_line:
+            width = 1.18 if ord(char) > 0x2E80 or ord(char) > 0x1F000 else (0.65 if char.isascii() else 1.0)
+            if current and units + width > limit:
+                lines.append(current)
+                current, units = "", 0.0
+            current += char
+            units += width
+        lines.append(current or " ")
+    return tuple(lines[:8]) or (" ",)
+
+
+def text_transforms_for(draft: CoverDraft, lines: tuple[str, ...]):
+    """为多行标题生成同一拖动组的逐行变换。"""
+
+    step = min(0.18, max(0.035, draft.font_size * 1.16 / 1080.0))
+    max_y = max(0.0, 0.98 - step * max(0, len(lines) - 1) - draft.font_size / 1080.0)
+    y = min(max_y, max(0.0, draft.text_y))
+    return tuple(
+        TextTransform(
+            min(1.0, max(0.0, draft.text_x)),
+            min(1.0, max(0.0, y + index * step)),
+            font_size=draft.font_size,
+        )
+        for index in range(len(lines))
+    )
 
 
 class CoverService:
@@ -109,6 +157,7 @@ class CoverService:
             raise ValueError("请先加载底图或从当前视频取帧")
         self.previews.mkdir(parents=True, exist_ok=True)
         output = self.previews / f"{self._identity(Path(video.path))}-preview.jpg"
+        lines = wrap_cover_title(draft.title, draft.font_size)
         render_cover(
             draft.image_path,
             draft.title,
@@ -116,8 +165,11 @@ class CoverService:
             video_path=video.path,
             canvas_key="16x9",
             template_key="headline",
-            copy_lines=[draft.title],
-            text_transforms=[TextTransform(draft.text_x, draft.text_y, font_size=draft.font_size)],
+            copy_lines=lines,
+            text_transforms=text_transforms_for(draft, lines),
+            focus_x=draft.background_x,
+            focus_y=draft.background_y,
+            background_scale=draft.background_scale,
         )
         return output
 
@@ -130,6 +182,7 @@ class CoverService:
         while destination.exists():
             destination = Path(project.directory) / f"AutoCover-{stem} ({index}).jpg"
             index += 1
+        lines = wrap_cover_title(draft.title, draft.font_size)
         render_cover(
             draft.image_path,
             draft.title,
@@ -137,7 +190,10 @@ class CoverService:
             video_path=video.path,
             canvas_key="16x9",
             template_key="headline",
-            copy_lines=[draft.title],
-            text_transforms=[TextTransform(draft.text_x, draft.text_y, font_size=draft.font_size)],
+            copy_lines=lines,
+            text_transforms=text_transforms_for(draft, lines),
+            focus_x=draft.background_x,
+            focus_y=draft.background_y,
+            background_scale=draft.background_scale,
         )
         return destination

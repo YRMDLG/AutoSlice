@@ -1,8 +1,7 @@
-"""Qt AutoCover vNext 的最小编辑工作区。
+"""AutoCover 桌面编辑器。
 
-这里故意只承接桌面端需要的项目上下文、草稿和快速导出；候选帧提取与
-封面渲染继续复用 ``autoslice_cover`` 的服务，避免把 FFmpeg/Pillow 细节
-塞进主窗口。
+桌面层只维护交互状态和后台任务；媒体取帧、草稿持久化以及 Pillow 渲染
+继续由 ``cover_service`` 负责。
 """
 
 from __future__ import annotations
@@ -10,7 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QRectF, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
@@ -19,8 +18,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -31,7 +30,8 @@ from PySide6.QtWidgets import (
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 
-from .cover_service import CoverDraft, CoverService
+from .cover_canvas import CoverCanvas
+from .cover_service import CoverDraft, CoverService, wrap_cover_title
 
 
 class _JobSignals(QObject):
@@ -51,8 +51,15 @@ class _Job(QRunnable):
             self.signals.finished.emit(None, exc)
 
 
+class _TitleEdit(QPlainTextEdit):
+    """允许手动换行，并保留旧测试/调用方使用的 ``text()``。"""
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+
 class CoverEditorWidget(QWidget):
-    """AutoCover-01 的三栏式最小编辑器。"""
+    """真正可鼠标操作的 AutoCover 编辑器。"""
 
     status_changed = Signal(str)
 
@@ -65,9 +72,9 @@ class CoverEditorWidget(QWidget):
         self._preview_path: Path | None = None
         self._context_generation = 0
         self._busy = False
-        # QThreadPool 不会替 Python 对象保留可用的 signal owner；必须在控件
-        # 上持有任务引用，直到 finished 信号回到 UI 线程，否则真实 FFmpeg
-        # 任务会完成但结果回调可能被 GC 丢掉。
+        self._preview_dirty = False
+        self._pending_export = False
+        self._current_playhead = 0.0
         self._jobs: set[_Job] = set()
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
@@ -75,7 +82,7 @@ class CoverEditorWidget(QWidget):
         self._draft_timer.timeout.connect(self._save_draft)
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
-        self._preview_timer.setInterval(180)
+        self._preview_timer.setInterval(120)
         self._preview_timer.timeout.connect(self._render_preview)
         self._build()
 
@@ -84,11 +91,12 @@ class CoverEditorWidget(QWidget):
         root.setContentsMargins(20, 18, 20, 18)
         root.setSpacing(14)
 
-        left = QGroupBox("当前投稿")
+        left = QGroupBox("素材与取帧")
         left.setMinimumWidth(210)
         left_layout = QVBoxLayout(left)
         self.project_label = QLabel("请选择项目")
         self.project_label.setWordWrap(True)
+        self.project_label.setMaximumHeight(48)
         self.video_label = QLabel("请选择视频")
         self.video_label.setWordWrap(True)
         self.draft_status = QLabel("尚未加载封面草稿")
@@ -97,6 +105,10 @@ class CoverEditorWidget(QWidget):
         left_layout.addWidget(self.video_label)
         left_layout.addWidget(self.draft_status)
         left_layout.addSpacing(8)
+        self.current_frame_button = QPushButton("使用当前帧")
+        self.current_frame_button.setToolTip("读取字幕页当前播放位置，不会改变字幕页播放位置")
+        self.current_frame_button.clicked.connect(self._use_current_frame)
+        left_layout.addWidget(self.current_frame_button)
         self.frame_button = QPushButton("从当前视频取帧")
         self.frame_button.clicked.connect(self._extract_frame)
         left_layout.addWidget(self.frame_button)
@@ -116,13 +128,15 @@ class CoverEditorWidget(QWidget):
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.addWidget(QLabel("封面画布"), alignment=Qt.AlignmentFlag.AlignLeft)
-        self.canvas = QLabel("加载底图后在这里预览")
-        self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.canvas.setMinimumSize(420, 260)
+        self.canvas = CoverCanvas()
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.canvas.setStyleSheet("background: #111820; border: 1px solid #2f414d; border-radius: 6px;")
+        self.canvas.title_position_changed.connect(self._title_position_changed)
+        self.canvas.title_position_finished.connect(self._gesture_finished)
+        self.canvas.background_position_changed.connect(self._background_position_changed)
+        self.canvas.background_position_finished.connect(self._gesture_finished)
+        self.canvas.zoom_changed.connect(self._zoom_changed)
         center_layout.addWidget(self.canvas, 1)
-        self.canvas_hint = QLabel("默认使用现有 AutoCover 的标题描边与阴影样式")
+        self.canvas_hint = QLabel("拖标题调整位置；拖空白处平移底图，滚轮缩放")
         self.canvas_hint.setObjectName("subtle")
         center_layout.addWidget(self.canvas_hint)
         root.addWidget(center, 1)
@@ -130,8 +144,9 @@ class CoverEditorWidget(QWidget):
         right = QGroupBox("文字与输出")
         right.setMinimumWidth(250)
         form = QFormLayout(right)
-        self.title_edit = QLineEdit()
-        self.title_edit.setPlaceholderText("封面标题")
+        self.title_edit = _TitleEdit()
+        self.title_edit.setPlaceholderText("封面标题（支持手动换行）")
+        self.title_edit.setMaximumHeight(78)
         self.title_edit.textChanged.connect(self._draft_changed)
         form.addRow("标题", self.title_edit)
         self.x_spin = self._coordinate_spin()
@@ -145,6 +160,21 @@ class CoverEditorWidget(QWidget):
         self.font_spin.setSuffix(" px")
         self.font_spin.valueChanged.connect(self._draft_changed)
         form.addRow("字号", self.font_spin)
+        self.zoom_spin = QDoubleSpinBox()
+        self.zoom_spin.setRange(1.0, 2.5)
+        self.zoom_spin.setSingleStep(0.1)
+        self.zoom_spin.setDecimals(1)
+        self.zoom_spin.setSuffix(" ×")
+        self.zoom_spin.valueChanged.connect(self._zoom_changed)
+        form.addRow("背景缩放", self.zoom_spin)
+        actions = QHBoxLayout()
+        self.fill_button = QPushButton("填满画布")
+        self.fill_button.clicked.connect(self._fill_canvas)
+        self.fit_button = QPushButton("适合画布")
+        self.fit_button.clicked.connect(self._fit_canvas)
+        actions.addWidget(self.fill_button)
+        actions.addWidget(self.fit_button)
+        form.addRow("构图", actions)
         form.addRow("效果", QLabel("默认描边 + 阴影"))
         self.save_button = QPushButton("保存草稿")
         self.save_button.clicked.connect(self._save_draft)
@@ -155,8 +185,10 @@ class CoverEditorWidget(QWidget):
         form.addRow(self.save_button)
         form.addRow(self.export_button)
         self.ai_button = QPushButton("封面文案/构图建议（手动触发）")
-        self.ai_button.setToolTip("AutoCover-01 只保留入口，不会自动调用 AI")
-        self.ai_button.clicked.connect(lambda: self.status_changed.emit("AI 建议入口已预留，AutoCover-02 再接入缓存服务"))
+        self.ai_button.setToolTip("AutoCover 只保留入口，不会自动调用 AI")
+        self.ai_button.clicked.connect(
+            lambda: self.status_changed.emit("AI 建议入口已预留，当前版本不自动调用")
+        )
         form.addRow(self.ai_button)
         root.addWidget(right)
 
@@ -168,6 +200,15 @@ class CoverEditorWidget(QWidget):
         spin.setDecimals(2)
         return spin
 
+    def set_current_playhead(self, seconds: float):
+        """接收字幕页只读播放位置，不触发 seek 或修改字幕状态。"""
+
+        self._current_playhead = max(0.0, float(seconds or 0.0))
+        if self.video is not None:
+            self.current_frame_button.setToolTip(
+                f"使用字幕页当前帧（{self._current_playhead:.2f} 秒），不会改变播放位置"
+            )
+
     def set_context(self, project: SubmissionProject | None, video: ProjectVideo | None):
         if project is None or video is None:
             self._context_generation += 1
@@ -177,33 +218,27 @@ class CoverEditorWidget(QWidget):
             self.project_label.setText("请选择项目")
             self.video_label.setText("请选择视频")
             self.draft_status.setText("尚未加载封面草稿")
-            self.canvas.clear()
+            self.canvas.set_preview(QPixmap())
             self.canvas.setText("加载底图后在这里预览")
             self.frame_button.setEnabled(False)
+            self.current_frame_button.setEnabled(False)
             self.frame_button.setToolTip("请先选择包含视频的投稿项目")
             self.export_button.setEnabled(False)
             return
-        if (
-            self.project is not None
-            and self.project.id == project.id
-            and self.video is not None
-            and self.video.path == video.path
-        ):
+        if self.project is not None and self.project.id == project.id and self.video is not None and self.video.path == video.path:
             return
         if self.project is not None and self.video is not None:
             self._save_draft()
         self._context_generation += 1
         self.project, self.video = project, video
-        self.project_label.setText(project.title)
-        self.project_label.setToolTip(project.directory)
+        self.project_label.setText(project.title if len(project.title) <= 32 else project.title[:32] + "…")
+        self.project_label.setToolTip(project.title)
         self.video_label.setText(video.name)
         video_path = Path(video.path)
         video_available = video_path.is_file()
         self.frame_button.setEnabled(video_available)
-        self.frame_button.setToolTip(
-            "从当前视频的这个时间点提取一帧"
-            if video_available else f"当前视频不存在：{video_path}"
-        )
+        self.current_frame_button.setEnabled(video_available)
+        self.frame_button.setToolTip("从指定时间取帧" if video_available else f"当前视频不存在：{video_path}")
         self._preview_path = None
         self._busy = False
         self.draft, read = self.service.load(project, video)
@@ -219,22 +254,26 @@ class CoverEditorWidget(QWidget):
         if self.draft.image_path:
             self._render_preview()
         else:
-            self.canvas.setText("请导入底图，或从当前视频取帧")
+            self.canvas.setText("请导入底图，或使用当前帧")
             self.export_button.setEnabled(False)
 
     def _apply_draft(self):
-        widgets = (self.title_edit, self.x_spin, self.y_spin, self.font_spin)
+        widgets = (self.title_edit, self.x_spin, self.y_spin, self.font_spin, self.zoom_spin)
         for widget in widgets:
             widget.blockSignals(True)
         try:
-            self.title_edit.setText(self.draft.title)
+            self.title_edit.setPlainText(self.draft.title)
             self.x_spin.setValue(self.draft.text_x)
             self.y_spin.setValue(self.draft.text_y)
             self.font_spin.setValue(self.draft.font_size)
+            self.zoom_spin.setValue(self.draft.background_scale)
             self.timestamp.setValue(self.draft.selected_timestamp)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
+        self.canvas.set_zoom(self.draft.background_scale)
+        self.canvas.set_background_focus(self.draft.background_x, self.draft.background_y)
+        self._update_title_rect()
 
     def _read_draft(self) -> CoverDraft:
         return replace(
@@ -243,12 +282,69 @@ class CoverEditorWidget(QWidget):
             text_x=self.x_spin.value(),
             text_y=self.y_spin.value(),
             font_size=self.font_spin.value(),
+            background_scale=self.zoom_spin.value(),
         )
 
     def _draft_changed(self):
         if self.project is None or self.video is None:
             return
         self.draft = self._read_draft()
+        self._update_title_rect()
+        self._draft_timer.start()
+        self._preview_timer.start()
+
+    def _title_position_changed(self, x: float, y: float):
+        if self.project is None or self.video is None:
+            return
+        self.x_spin.blockSignals(True)
+        self.y_spin.blockSignals(True)
+        try:
+            self.x_spin.setValue(x)
+            self.y_spin.setValue(y)
+        finally:
+            self.x_spin.blockSignals(False)
+            self.y_spin.blockSignals(False)
+        self.draft = replace(self._read_draft(), text_x=x, text_y=y)
+        self._update_title_rect()
+        self._draft_timer.start()
+        self._preview_timer.start()
+
+    def _background_position_changed(self, x: float, y: float):
+        if self.project is None or self.video is None:
+            return
+        self.draft = replace(self._read_draft(), background_x=x, background_y=y)
+        self.canvas.set_background_focus(x, y)
+        self._draft_timer.start()
+        self._preview_timer.start()
+
+    def _zoom_changed(self, value: float):
+        if self.project is None or self.video is None:
+            return
+        value = max(1.0, min(2.5, float(value)))
+        self.zoom_spin.blockSignals(True)
+        self.zoom_spin.setValue(value)
+        self.zoom_spin.blockSignals(False)
+        self.draft = replace(self._read_draft(), background_scale=value)
+        self.canvas.set_zoom(value)
+        self._draft_timer.start()
+        self._preview_timer.start()
+
+    def _gesture_finished(self):
+        self._save_draft()
+
+    def _fill_canvas(self):
+        self._set_background_transform(0.5, 0.5, 1.0)
+
+    def _fit_canvas(self):
+        self._set_background_transform(0.5, 0.5, 1.0)
+
+    def _set_background_transform(self, x: float, y: float, scale: float):
+        self.draft = replace(self._read_draft(), background_x=x, background_y=y, background_scale=scale)
+        self.zoom_spin.blockSignals(True)
+        self.zoom_spin.setValue(scale)
+        self.zoom_spin.blockSignals(False)
+        self.canvas.set_zoom(scale)
+        self.canvas.set_background_focus(x, y)
         self._draft_timer.start()
         self._preview_timer.start()
 
@@ -290,18 +386,24 @@ class CoverEditorWidget(QWidget):
         self._save_draft()
         self._render_preview()
 
+    def _use_current_frame(self):
+        self.timestamp.setValue(self._current_playhead)
+        self._extract_frame()
+
     def _extract_frame(self):
         if self.video is None or not Path(self.video.path).is_file():
             self.status_changed.emit("请先选择投稿项目和视频")
             return
         self.frame_button.setEnabled(False)
+        self.current_frame_button.setEnabled(False)
         video = self.video
         timestamp = self.timestamp.value()
         self.status_changed.emit("正在从视频取帧…")
         self._run(lambda: self.service.extract_frame(video, timestamp), self._frame_ready)
 
     def _frame_ready(self, result, error):
-        self.frame_button.setEnabled(True)
+        self.frame_button.setEnabled(self.video is not None and Path(self.video.path).is_file())
+        self.current_frame_button.setEnabled(self.frame_button.isEnabled())
         if error:
             self.status_changed.emit(f"取帧失败：{error}")
             return
@@ -313,8 +415,12 @@ class CoverEditorWidget(QWidget):
         self._render_preview()
 
     def _render_preview(self):
-        if self._busy or self.video is None or not self.draft.image_path:
+        if self.video is None or not self.draft.image_path:
             return
+        if self._busy:
+            self._preview_dirty = True
+            return
+        self._preview_dirty = False
         self._busy = True
         draft = self._read_draft()
         self.draft = draft
@@ -330,25 +436,49 @@ class CoverEditorWidget(QWidget):
         self._preview_path = Path(result)
         self._set_preview(self._preview_path)
         self.export_button.setEnabled(True)
+        if self._preview_dirty:
+            self._preview_timer.start()
+        elif self._pending_export:
+            self._pending_export = False
+            self._start_export()
 
     def _set_preview(self, path: Path):
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
             self.canvas.setText("预览图片无法读取")
             return
-        self.canvas.setPixmap(pixmap.scaled(self.canvas.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.canvas.set_preview(pixmap)
+        self._update_title_rect()
+
+    def _update_title_rect(self):
+        title = self.title_edit.text() if hasattr(self, "title_edit") else self.draft.title
+        font_size = self.font_spin.value() if hasattr(self, "font_spin") else self.draft.font_size
+        lines = wrap_cover_title(title or "标题", font_size)
+        width_units = max((len(line) for line in lines), default=4)
+        width = min(0.86, max(0.08, width_units * font_size / 1920 * 1.18))
+        height = min(0.72, max(0.06, len(lines) * font_size * 1.18 / 1080))
+        self.canvas.set_title_rect(QRectF(self.draft.text_x, self.draft.text_y, width, height))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self._preview_path:
-            self._set_preview(self._preview_path)
+        self._update_title_rect()
 
     def _export(self):
         if self.project is None or self.video is None:
             return
         self._save_draft()
-        draft = self._read_draft()
         self.export_button.setEnabled(False)
+        self._pending_export = True
+        self._preview_timer.stop()
+        # 强制把当前草稿重新渲染一次；导出从这次预览完成回调启动，确保
+        # 导出的 JPG 与画布最后显示的构图使用同一份状态。
+        self._render_preview()
+
+    def _start_export(self):
+        if self.project is None or self.video is None:
+            self._pending_export = False
+            return
+        draft = self._read_draft()
         self.status_changed.emit("正在导出封面…")
         self._run(lambda: self.service.export(self.project, self.video, draft), self._export_ready)
 
