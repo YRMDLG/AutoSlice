@@ -27,7 +27,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
-    QAbstractItemDelegate,
     QApplication,
     QButtonGroup,
     QComboBox,
@@ -53,6 +52,7 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.ai_review import AIReviewService, document_hash
 from autoslice.desktop.commands import CommandDispatcher
+from autoslice.desktop.cover import CoverEditorWidget
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectSnapshot, SubmissionProject, SubmissionProjectService
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
@@ -408,6 +408,7 @@ class DesktopWindow(PreviewWindow):
         self._inline_drag_anchor = None
         self._event_filter_busy = False
         super().__init__()
+        self.cover_editor.status_changed.connect(self._show_transient_status)
         self._timeline_side_pan = TimelineSidePanController(self.timeline, self)
         self.ai_progress.connect(self._show_ai_progress)
         self.render_progress.connect(self._show_render_progress)
@@ -494,6 +495,29 @@ class DesktopWindow(PreviewWindow):
         self._restore_window()
         self._select_page(int(self._session.get("page", 0)) if self._session.get("page") in (0, 1, 2) else 0)
         QTimer.singleShot(0, self.refresh)
+
+    def _cover_page(self):
+        """构建独立 AutoCover 工作区，保持项目列表与字幕页共用。"""
+
+        page = QWidget()
+        page.setObjectName("workArea")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        heading = QWidget()
+        heading.setFixedHeight(60)
+        row = QHBoxLayout(heading)
+        row.setContentsMargins(24, 0, 24, 0)
+        row.addWidget(label("封面制作", "pageTitle"))
+        row.addSpacing(8)
+        row.addWidget(label("AutoCover-01", "quietBadge"))
+        row.addStretch()
+        row.addWidget(label("与字幕页共享当前投稿项目", "muted"))
+        layout.addWidget(heading)
+        layout.addWidget(line())
+        self.cover_editor = CoverEditorWidget(self.storage)
+        layout.addWidget(self.cover_editor, 1)
+        return page
 
     def _appbar(self):
         bar = QWidget()
@@ -1264,6 +1288,7 @@ class DesktopWindow(PreviewWindow):
             self.timeline.set_document(None)
             self.top_project.setText("请选择项目")
             self.video_name.setText("选择视频")
+            self.cover_editor.set_context(None, None)
 
     def _select_real_project(self, project):
         if self._loading or self._saving:
@@ -1287,6 +1312,7 @@ class DesktopWindow(PreviewWindow):
         self.top_project.setText(project.title if len(project.title) <= 35 else project.title[:35] + "…")
         self.top_project.setToolTip(project.title)
         self.project_buttons[project.id].setChecked(True)
+        self.cover_editor.set_context(project, None)
         self.video_choice.blockSignals(True)
         self.video_choice.clear()
         for video in project.videos:
@@ -1340,6 +1366,8 @@ class DesktopWindow(PreviewWindow):
         self._load_video(video)
 
     def _load_video(self, video):
+        if self.project is not None:
+            self.cover_editor.set_context(self.project, video)
         self.ai_session = None
         self._ai_selected = None
         self._pending_filter = False

@@ -159,3 +159,11 @@
 
 - 字幕编辑、时间轴、播放器、AI 待处理队列及退出确认已进入稳定基线；超长待处理摘要按控件宽度使用真正的右侧省略号，完整原文、建议和原因继续保留在 tooltip，放弃未保存修改后重新打开只恢复最近一次正式保存状态。
 - 下一阶段转入 AutoCover vNext。
+
+## AutoCover-01 vNext 封面工作区（已实现，2026-09-30）
+
+- Qt 正式入口的“封面制作”页已从占位画布变为独立 `CoverEditorWidget`，与字幕页共用 `SubmissionProjectService` 的项目扫描、当前投稿项目和当前视频；没有新增 AutoCover 项目扫描器，也没有触碰字幕时间轴、playhead、行内编辑、F1-F4、AI 字幕队列或退出逻辑。
+- 新增 `desktop/cover_service.py` 与 `desktop/cover.py`：服务层复用 `autoslice_cover` 的异步取帧、Pillow 标题渲染、默认描边/阴影和安全输出；Qt 层提供投稿上下文、导入本地图、按视频秒数取帧、16:9 画布预览、标题/位置/字号编辑、自动保存与恢复草稿、显式保存和 JPG 导出。
+- 封面草稿、导入底图副本、取帧缓存和预览均位于 `%LOCALAPPDATA%\\AutoSlice` 对应的 `DesktopStorage` 目录；项目目录只写用户明确导出的 `AutoCover-*.jpg`。导出同名时递增，不覆盖源素材或既有封面。
+- AI 入口仅保留显式触发占位提示，正常编辑、切页、扫描和草稿恢复均不调用模型。旧 Web AutoCover、复杂模板/贴图市场、自动上传和 auto-clipping 保持冻结。
+- 新增服务测试与离屏 Qt smoke：草稿恢复、私有底图缓存、导出不覆盖和项目继承均通过。完整审计、复用边界和 P0/P1/P2 见 [AUTOCOVER_AUDIT.md](AUTOCOVER_AUDIT.md)。

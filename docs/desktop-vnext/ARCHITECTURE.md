@@ -32,6 +32,14 @@
 - 旧字幕静帧预览不等于连续播放器；已有短片媒体服务绑定自动分析任务清单，不能直接当作任意投稿视频的播放入口。
 - AutoCover 的精调 manifest 仅是可选输入；无 manifest、无数据库记录、未运行自动切片时，项目扫描及封面制作仍须可用。
 
+## AutoCover-01 桌面边界
+
+Qt 封面页由 `desktop/cover.py:CoverEditorWidget` 和 `desktop/cover_service.py:CoverService` 组成。`DesktopWindow` 只负责创建工作区并把已经选中的 `SubmissionProject` / `ProjectVideo` 传入；项目扫描、字幕状态和当前视频仍由同一 `SubmissionProjectService` 管理。封面服务只依赖 `autoslice_cover.video.extract_frame_at_timestamp` 与 `autoslice_cover.renderer.render_cover`，不导入旧 Web 页面或 `CoverWorkspace` 的独立任务状态。
+
+取帧、渲染和导出都在 Qt 线程池执行，UI 线程只接收结果并刷新预览。导入图片先复制到 `DesktopStorage.thumbnails/cover-assets`；取帧显式传入 `DesktopStorage.thumbnails/cover-frames`，避免回写旧 AutoCover 数据目录。草稿使用 `DesktopStorage.save_draft("cover", project.directory, video.path, ...)`，以项目目录和视频文件签名检测外部变化；项目目录只允许出现用户点击导出产生的 JPG。
+
+AutoCover-01 只保存一个 16:9 编辑状态：标题、归一化文字位置、字号、选中时间和私有底图路径。默认模板的描边/阴影由生产渲染器提供。4:3、拖拽图形场景、贴图层级、AI 文案/构图缓存和批量导出留在 AutoCover-02 及以后；不为提前满足这些需求扩张 `window.py`。
+
 ## Desktop-04.5 定型后的桌面基座
 
 技术比较与实测边界见 [ADR-001](ADR-001-desktop-gui-and-player.md)，完整运行/恢复规范见 [DESKTOP_FOUNDATION.md](DESKTOP_FOUNDATION.md)。后续桌面 GUI 采用 PySide6/Qt Widgets；Desktop-03/04 的 Tk 壳保留到 Desktop-04.6 迁移验收通过。Qt 层只调用桌面项目、字幕、状态和任务 adapter，不直接读写旧 Web 页面状态。封面自由画布以 Qt 图形场景为首选起点，不提前复用旧 Web DOM。
