@@ -63,7 +63,7 @@
 - 一级导航 72px；顶部应用栏 56px。项目列默认 252px、最窄 188px，跟随横向 splitter 可拖动；工作区优先占宽。
 - AI 收起 48px，展开初始 324px、最窄 280px；右侧与中央工作区由 splitter 分开。视频、时间轴、字幕列表由纵向 splitter 分开。
 - 间距阶梯 4 / 8 / 12 / 16 / 24 / 32px，常用圆角 8px。基础按钮高 36px，字幕行高 48px，项目条目按状态为 62px 或 78px；避免在单个 widget 中自行定义同类尺寸。
-- 字体优先思源黑体 `Noto Sans SC`，缺失时回退 `Microsoft YaHei UI`、`Segoe UI`；时间码与字幕时间列使用 `Cascadia Mono` / `Consolas`。字体栈集中在 `theme.py` 的 `UI_FAMILIES` / `MONO_FAMILIES`。基础文字 12px，区标题 13px，页面标题 17px，主占位标题 20px；思源黑体只有 400/500/700 三档，标题与主次按钮用 500，品牌字用 700，避免 600 被匹配成粗体。
+- 字体优先随程序分发的源流黑体 `Resource Han Rounded CN`（思源黑体圆角版，SIL OFL 1.1，位于 `src/autoslice/resources/fonts`，由 `qt_preview/fonts.py` 启动时加载，仅打包常规与中等两档），缺失时依次回退 `Noto Sans SC`、`Microsoft YaHei UI`、`Segoe UI`；时间码与字幕时间列使用 `Cascadia Mono` / `Consolas`。字体栈集中在 `theme.py` 的 `UI_FAMILIES` / `MONO_FAMILIES`。基础文字 12px，区标题 13px，页面标题 17px，主占位标题 20px；只打包 400/500 两档：正文 400，标题、主次按钮、品牌字与 AI 新增文字统一 500，不写 600/700，避免触发合成粗体。
 - 项目标题最多两行，第二行按宽度省略；普通项目约 62px，有重要状态时约 78px。“素材已识别”不占状态行；字幕已保存、缺少字幕等有意义状态可显示。列表禁止横向滚动，hover 和选中有轻量背景。状态 badge 使用淡强调底或中性抬起层。
 
 ## Desktop-07.5 字幕工作台层级

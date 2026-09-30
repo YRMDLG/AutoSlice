@@ -966,7 +966,7 @@ class DesktopWindow(PreviewWindow):
                 if old:
                     pieces.append(f'<span style="color:{COLORS.ai_removed};text-decoration:line-through">{old}</span>')
                 if new:
-                    pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:600">{new}</span>')
+                    pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:500">{new}</span>')
         return "".join(pieces).replace("\n", "<br>")
 
     def _show_ai_detail(self):

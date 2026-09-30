@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import motion
+from . import fonts, motion
 from .icons import icon as desktop_icon
 from .theme import COLORS, SIZES
 
@@ -174,6 +174,7 @@ class TimelineTrack(QWidget):
 
 class PreviewWindow(QMainWindow):
     def __init__(self) -> None:
+        fonts.load()
         super().__init__()
         self.setWindowTitle("AutoSlice · Qt 视觉预览")
         self.resize(1560, 920)

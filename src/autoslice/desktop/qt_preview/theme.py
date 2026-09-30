@@ -97,8 +97,8 @@ class Metrics:
 
 COLORS = Palette()
 SIZES = Metrics()
-# 思源黑体为主，雅黑兜底；时间码等宽
-UI_FAMILIES = ("Noto Sans SC", "Microsoft YaHei UI", "Segoe UI")
+# 随程序分发的源流黑体（思源黑体圆角版）为主，依次回退思源黑体、雅黑；时间码等宽
+UI_FAMILIES = ("Resource Han Rounded CN", "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI")
 MONO_FAMILIES = ("Cascadia Mono", "Consolas")
 
 
@@ -130,7 +130,7 @@ def stylesheet() -> str:
         QWidget#coverSurface {{ background: {c.player}; border: 1px solid {c.divider}; border-radius: {m.radius}px; }}
         QWidget#settingsSurface {{ background: {c.canvas}; }}
         QFrame#hairline {{ background: {c.divider}; max-height: 1px; min-height: 1px; }}
-        QLabel#brand {{ font-size: 15px; font-weight: 700; }}
+        QLabel#brand {{ font-size: 15px; font-weight: 500; }}
         QLabel#pageTitle {{ font-size: {m.text_heading}px; font-weight: 500; }}
         QLabel#projectTitle {{ font-size: 14px; font-weight: 500; }}
         QLabel#videoFile {{ color: {c.muted}; font-size: {m.text_small}px; }}

@@ -48,6 +48,7 @@ packages = { find = { where = ["src"], namespaces = false } }
 [tool.setuptools.package-data]
 autoslice = [
   "*.json",
+  "resources/fonts/*",
   "resources/static/*",
   "resources/templates/*",
 ]
