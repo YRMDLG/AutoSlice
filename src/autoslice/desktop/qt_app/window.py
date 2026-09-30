@@ -713,33 +713,65 @@ class DesktopWindow(PreviewWindow):
         self.ai_content.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         ai_body = QWidget()
         content = QVBoxLayout(ai_body)
-        content.setContentsMargins(16, 14, 16, 14)
-        content.setSpacing(10)
+        content.setContentsMargins(16, 12, 16, 14)
+        content.setSpacing(8)
         self.ai_note = label("AI 只生成待确认建议，不修改字幕。", "muted")
         self.ai_note.setWordWrap(True)
         content.addWidget(self.ai_note)
+
+        self.ai_card = QWidget()
+        self.ai_card.setObjectName("aiSuggestionCard")
+        card = QVBoxLayout(self.ai_card)
+        card.setContentsMargins(12, 10, 12, 10)
+        card.setSpacing(6)
+
+        meta = QHBoxLayout()
+        meta.setSpacing(8)
         self.ai_cue = label("", "subtle")
-        content.addWidget(self.ai_cue)
+        self.ai_cue.setObjectName("aiMeta")
+        meta.addWidget(self.ai_cue)
+        meta.addStretch()
+        self.ai_confidence = label("", "subtle")
+        self.ai_confidence.setObjectName("aiMeta")
+        meta.addWidget(self.ai_confidence)
+        card.addLayout(meta)
+
+        self.ai_original_label = label("原文", "subtle")
+        self.ai_original_label.setObjectName("aiFieldLabel")
+        card.addWidget(self.ai_original_label)
         self.ai_original = label("", "muted")
+        self.ai_original.setObjectName("aiOriginal")
         self.ai_original.setWordWrap(True)
         self.ai_original.setMinimumWidth(0)
         self.ai_original.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        content.addWidget(self.ai_original)
+        self.ai_original.setMaximumHeight(40)
+        card.addWidget(self.ai_original)
+
+        self.ai_diff_label = label("建议", "subtle")
+        self.ai_diff_label.setObjectName("aiFieldLabel")
+        card.addWidget(self.ai_diff_label)
         self.ai_diff = QLabel("")
         self.ai_diff.setObjectName("aiDiff")
         self.ai_diff.setWordWrap(True)
         self.ai_diff.setTextFormat(Qt.TextFormat.RichText)
         self.ai_diff.setMinimumWidth(0)
         self.ai_diff.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        content.addWidget(self.ai_diff)
+        self.ai_diff.setMaximumHeight(48)
+        card.addWidget(self.ai_diff)
+
+        self.ai_reason_label = label("原因", "subtle")
+        self.ai_reason_label.setObjectName("aiFieldLabel")
+        card.addWidget(self.ai_reason_label)
         self.ai_reason = label("", "subtle")
+        self.ai_reason.setObjectName("aiReason")
         self.ai_reason.setWordWrap(True)
         self.ai_reason.setMinimumWidth(0)
         self.ai_reason.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        content.addWidget(self.ai_reason)
-        self.ai_confidence = label("", "subtle")
-        content.addWidget(self.ai_confidence)
+        self.ai_reason.setMaximumHeight(54)
+        card.addWidget(self.ai_reason)
+
         actions = QHBoxLayout()
+        actions.setSpacing(8)
         self.ai_accept = QPushButton("采纳")
         self.ai_accept.setObjectName("primary")
         self.ai_accept.clicked.connect(self._accept_ai)
@@ -748,12 +780,19 @@ class DesktopWindow(PreviewWindow):
         self.ai_skip.setObjectName("secondary")
         self.ai_skip.clicked.connect(self._skip_ai)
         actions.addWidget(self.ai_skip, 1)
-        content.addLayout(actions)
+        card.addLayout(actions)
+        content.addWidget(self.ai_card)
+        self.ai_card.hide()
+
+        self.ai_queue_header = label("待处理 0", "subtle")
+        self.ai_queue_header.setObjectName("aiQueueHeader")
+        content.addWidget(self.ai_queue_header)
+        self.ai_queue_header.hide()
         self.ai_queue = QScrollArea()
         self.ai_queue.setWidgetResizable(True)
         self.ai_queue.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.ai_queue.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.ai_queue.setMaximumHeight(160)
+        self.ai_queue.setMaximumHeight(132)
         self.ai_queue_widget = QWidget()
         self.ai_queue_layout = QVBoxLayout(self.ai_queue_widget)
         self.ai_queue_layout.setContentsMargins(0, 0, 0, 0)
@@ -761,6 +800,8 @@ class DesktopWindow(PreviewWindow):
         self.ai_queue_layout.addStretch()
         self.ai_queue.setWidget(self.ai_queue_widget)
         content.addWidget(self.ai_queue)
+        self.ai_queue.hide()
+        content.addStretch(1)
         self.ai_content.setWidget(ai_body)
         column.addWidget(self.ai_content, 1)
         self.ai_collapsed_label = label("AI", "badge")
@@ -876,7 +917,12 @@ class DesktopWindow(PreviewWindow):
         self.ai_collapsed_label.setText(f"AI {count}" if count else "AI")
         self.ai_run.setEnabled(bool(self.document))
         self.ai_run.setText("取消检查" if self._ai_running else
-                            "↻ 重新检查" if self.ai_session else "AI 检查")
+                            "重新检查" if self.ai_session else "AI 检查")
+        pending_ids = {item.suggestion_id for item in pending}
+        if self._ai_selected not in pending_ids:
+            self._ai_selected = pending[0].suggestion_id if pending else None
+        selected_position = next((i for i, item in enumerate(pending, 1)
+                                  if item.suggestion_id == self._ai_selected), 0)
         while self.ai_queue_layout.count() > 1:
             item = self.ai_queue_layout.takeAt(0)
             if item.widget():
@@ -891,17 +937,18 @@ class DesktopWindow(PreviewWindow):
                 f"原文：{item.original_text}\n建议：{item.suggested_text}\n原因：{item.reason}"
             )
             button.setAccessibleName(f"第 {item.cue_id} 条待处理问题")
-            button.setFixedHeight(32)
+            button.setProperty("suggestion_id", item.suggestion_id)
+            button.setCheckable(True)
+            button.setChecked(item.suggestion_id == self._ai_selected)
+            button.setFixedHeight(30)
             button.clicked.connect(lambda _checked=False, sid=item.suggestion_id: self._select_ai(sid))
             self.ai_queue_layout.insertWidget(self.ai_queue_layout.count() - 1, button)
-        if self._ai_selected not in {item.suggestion_id for item in pending}:
-            self._ai_selected = pending[0].suggestion_id if pending else None
-        selected_position = next((i for i, item in enumerate(pending, 1)
-                                  if item.suggestion_id == self._ai_selected), 0)
         self.ai_header.setText(f"AI 建议  {selected_position} / {count}" if self.ai_session else "AI 建议")
+        self.ai_queue_header.setText(f"待处理 {count}")
+        self.ai_queue_header.setVisible(count > 0)
         self.ai_queue.setVisible(count > 0)
         if count:
-            self.ai_queue.setFixedHeight(min(160, count * 34 + 2))
+            self.ai_queue.setFixedHeight(min(132, count * 32 + 2))
         if self.ai_session and not count and not self._ai_running:
             self.ai_note.setText("已处理所有建议。需要时可重新检查。")
         routine_notes = ("AI 只生成待确认建议，不修改字幕。", "检查完成。建议需逐条确认。",
@@ -941,6 +988,7 @@ class DesktopWindow(PreviewWindow):
     def _show_ai_detail(self):
         item = self.ai_session.find(self._ai_selected) if self.ai_session and self._ai_selected else None
         if item is None:
+            self.ai_card.hide()
             self.ai_diff.hide()
             self.ai_cue.hide()
             self.ai_original.hide()
@@ -951,14 +999,18 @@ class DesktopWindow(PreviewWindow):
             return
         entry = next((entry for entry in self.document.entries if entry.index == item.cue_id), None) if self.document else None
         conflict = entry is None or entry.text != item.original_text
+        self.ai_card.show()
         self.ai_cue.setText(f"第 {item.cue_id} 条")
         self.ai_cue.show()
-        self.ai_original.setText(f"原字幕  {item.original_text}")
+        self.ai_original.setText(item.original_text)
+        self.ai_original.setToolTip(item.original_text)
         self.ai_original.show()
-        self.ai_diff.setText("建议  " + self._diff_html(item.original_text, item.suggested_text))
+        self.ai_diff.setText(self._diff_html(item.original_text, item.suggested_text))
+        self.ai_diff.setToolTip(f"建议：{item.suggested_text}")
         self.ai_diff.show()
-        self.ai_reason.setText(item.reason +
-                               ("\n字幕已修改或删除；建议基于旧文本，请重新判断或跳过。" if conflict else ""))
+        reason = item.reason + ("\n字幕已修改或删除；建议基于旧文本，请重新判断或跳过。" if conflict else "")
+        self.ai_reason.setText(reason)
+        self.ai_reason.setToolTip(reason)
         self.ai_reason.show()
         self.ai_confidence.setText(f"置信度 {item.confidence:.0%}" if item.confidence is not None else "")
         self.ai_confidence.setVisible(item.confidence is not None)
@@ -973,6 +1025,10 @@ class DesktopWindow(PreviewWindow):
             selected_position = next((i for i, item in enumerate(pending, 1)
                                       if item.suggestion_id == suggestion_id), 0)
             self.ai_header.setText(f"AI 建议  {selected_position} / {len(pending)}")
+        for index in range(self.ai_queue_layout.count() - 1):
+            button = self.ai_queue_layout.itemAt(index).widget()
+            if button is not None:
+                button.setChecked(button.property("suggestion_id") == suggestion_id)
         self._show_ai_detail()
         if not self.ai_session or not self.document:
             return

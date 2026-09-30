@@ -104,6 +104,12 @@ def stylesheet() -> str:
         QLabel#statusLabel {{ color: {c.muted}; font-size: {m.text_small}px; padding: 0 4px; }}
         QLabel#timecode {{ color: {c.muted}; font-size: 12px; }}
         QLabel#aiDiff {{ font-size: {m.text_body}px; }}
+        QWidget#aiSuggestionCard {{ background: {c.panel}; border: 1px solid {c.divider}; border-radius: {m.radius}px; }}
+        QLabel#aiFieldLabel {{ color: {c.subtle}; font-size: {m.text_small}px; }}
+        QLabel#aiMeta {{ color: {c.subtle}; font-size: {m.text_small}px; font-weight: 600; }}
+        QLabel#aiOriginal {{ color: {c.muted}; }}
+        QLabel#aiReason {{ color: {c.subtle}; }}
+        QLabel#aiQueueHeader {{ color: {c.subtle}; font-size: {m.text_small}px; font-weight: 600; }}
         QLabel#sectionTitle {{ font-size: 13px; font-weight: 600; }}
         QLabel#bodyTitle {{ font-size: 20px; font-weight: 600; }}
         QLabel#muted, QLabel#hint {{ color: {c.muted}; }}
@@ -127,8 +133,10 @@ def stylesheet() -> str:
         QPushButton#quiet, QPushButton#navButton, QPushButton#projectItem, QPushButton#projectItemCompact {{ background: transparent; border: none; }}
         QPushButton#quiet:hover {{ background: {c.raised}; }}
         QPushButton#quiet:pressed {{ background: {c.accent_tint}; }}
-        QPushButton#aiQueueItem {{ text-align: left; padding: 0 8px; min-height: 32px; max-height: 32px; color: {c.muted}; background: transparent; border: 1px solid transparent; }}
+        QPushButton#aiQueueItem {{ text-align: left; padding: 0 8px; min-height: 30px; max-height: 30px; color: {c.muted}; background: transparent; border: 1px solid transparent; border-radius: 5px; }}
         QPushButton#aiQueueItem:hover {{ color: {c.text}; background: {c.raised}; border-color: {c.divider}; }}
+        QPushButton#aiQueueItem:checked {{ color: {c.text}; background: {c.row_selected}; border-color: {c.accent_medium}; }}
+        QPushButton#aiQueueItem:checked:hover {{ background: {c.row_selected}; border-color: {c.accent}; }}
         QPushButton#aiQueueItem:pressed {{ background: {c.accent_tint}; border-color: {c.accent_medium}; }}
         QPushButton#navButton {{ border-radius: 8px; color: {c.muted}; padding: 0; min-height: 60px; max-height: 60px; min-width: 56px; max-width: 56px; }}
         QPushButton#navButton:hover {{ background: {c.raised}; color: {c.text}; }}
