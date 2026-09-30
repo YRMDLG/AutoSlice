@@ -164,9 +164,13 @@ class SubtitleRenderQtTests(unittest.TestCase):
         from autoslice.desktop.qt_app.window import DesktopWindow
 
         with patch("autoslice.desktop.qt_app.window.MpvAdapter",
-                   side_effect=OSError("测试无播放器")), \
-             patch.object(DesktopWindow, "_start_waveform"):
+                   side_effect=OSError("测试无播放器")):
             reopened = DesktopWindow(SubmissionProjectService(self.root), self.storage)
+        # _start_waveform 在异步载入完成后才调用，须在实例上替换并覆盖整个用例；
+        # 构造期间 patch 类属性既拦不到这次调用，还会让 PySide 在构造第二个窗口时崩溃。
+        waveform = patch.object(reopened, "_start_waveform")
+        waveform.start()
+        self.addCleanup(waveform.stop)
         reopened.show()
 
         def close_reopened():
@@ -321,6 +325,10 @@ class SubtitleRenderQtTests(unittest.TestCase):
 
             def seek(self, position, pause=True):
                 self.seeks.append((position, pause))
+
+            def close(self):
+                # 用例收尾关窗时 closeEvent 会调用 player.close()
+                pass
 
         self.window.player = FakePlayer()
         self.window._media_ready = True
