@@ -52,6 +52,8 @@ video-topic-analyzer/
 *.ttf
 *.otf
 *.ttc
+# 例外：随程序分发的界面字体（源流黑体，SIL OFL 1.1）
+!src/autoslice/resources/fonts/*.ttf
 *.pt
 *.onnx
 *.ckpt

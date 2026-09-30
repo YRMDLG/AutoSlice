@@ -12,6 +12,7 @@ from threading import Event
 from unittest.mock import patch
 
 from autoslice.desktop.foundation import DesktopStorage
+from autoslice.desktop.qt_preview.theme import COLORS
 from autoslice.desktop.subtitle_render import SubtitleRenderService
 from autoslice.desktop.subtitles import SubtitleEntry
 
@@ -232,7 +233,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
                        if item.isVisible()), None)
         self.assertIsNotNone(editor)
         self.assertEqual(self.window.table.rowHeight(0), row_height)
-        self.assertIn("background: #20383D", editor.styleSheet())
+        self.assertIn(f"background: {COLORS.row_selected}", editor.styleSheet())
         self.assertIn("border: none", editor.styleSheet())
 
         cursor = editor.textCursor()
@@ -321,6 +322,10 @@ class SubtitleRenderQtTests(unittest.TestCase):
 
             def seek(self, position, pause=True):
                 self.seeks.append((position, pause))
+
+            def close(self):
+                # 收尾关窗时 closeEvent 会调用 player.close()
+                pass
 
         self.window.player = FakePlayer()
         self.window._media_ready = True

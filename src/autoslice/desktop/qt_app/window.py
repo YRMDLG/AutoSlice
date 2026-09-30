@@ -18,6 +18,7 @@ from PySide6.QtCore import (
     QItemSelectionModel,
     QModelIndex,
     QObject,
+    QRectF,
     QRunnable,
     QSize,
     Qt,
@@ -25,12 +26,11 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QKeySequence, QShortcut, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QIcon, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemDelegate,
     QApplication,
     QButtonGroup,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -55,9 +55,10 @@ from autoslice.desktop.ai_review import AIReviewService, document_hash
 from autoslice.desktop.commands import CommandDispatcher
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectSnapshot, SubmissionProject, SubmissionProjectService
+from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
-from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.window import PreviewWindow, ProjectItem, label, line
+from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES
+from autoslice.desktop.qt_preview.window import PreviewWindow, ProjectItem, label, line, tool_icon
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
 from autoslice.desktop.subtitle_render import SubtitleRenderService
@@ -74,8 +75,13 @@ class _StatusLabel(QLabel):
     """空闲时从工作栏收起；后台任务或反馈出现时才占用空间。"""
 
     def setText(self, text: str) -> None:
+        if not text and self.text():
+            motion.fade_out_snapshot(self)
+        appearing = bool(text) and not self.isVisible()
         super().setText(text)
         self.setVisible(bool(text))
+        if appearing:
+            motion.fade_in(self)
 
 
 class _ElidedQueueButton(QPushButton):
@@ -275,6 +281,58 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._table = parent
         self._editing = None
+        self._hover_row = -1
+        self._rows = motion.KeyedAnimator(self, lambda: self._table.viewport().update())
+        # 记下视口对象；过滤器里只比身份，避免销毁阶段访问已删除的表格
+        self._viewport = parent.viewport()
+        self._viewport.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj is self._viewport:
+            # 视口：只跟踪悬停行供行动画使用，不拦截事件
+            kind = event.type()
+            if kind in (QEvent.Type.MouseMove, QEvent.Type.Leave):
+                row = self._table.rowAt(int(event.position().y())) if kind == QEvent.Type.MouseMove else -1
+                if row != self._hover_row:
+                    self._hover_row = row
+                    self._table.viewport().update()
+            return False
+        if isinstance(obj, QPlainTextEdit) and event.type() == QEvent.Type.FocusOut:
+            # 不让 QStyledItemDelegate 因短暂 focus out 自动关闭 editor。
+            # 是否结束字幕编辑由 DesktopWindow 的“点击编辑器外部”规则统一决定。
+            return False
+        return super().eventFilter(obj, event)
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # 行背景统一在 paint 中绘制并过渡
+        option.backgroundBrush = QBrush()
+
+    def _paint_row(self, painter, option, index):
+        model = index.model()
+        try:
+            entry = model.entry_at(index.row())
+        except (AttributeError, IndexError):
+            return
+        hovered = index.row() == self._hover_row
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        playing = entry.index == getattr(model, "playing_index", None)
+        key = entry.index
+        h = self._rows.value((key, "hover"), 1.0 if hovered else 0.0,
+                             motion.HOVER_IN if hovered else motion.HOVER_OUT)
+        s = self._rows.value((key, "select"), 1.0 if selected else 0.0, motion.SELECT)
+        p = self._rows.value((key, "play"), 1.0 if playing else 0.0, motion.SELECT)
+        rect = option.rect
+        if p > 0.01:
+            painter.fillRect(rect, motion.faded(COLORS.playback, p))
+        if h * (1 - s) > 0.01:
+            painter.fillRect(rect, motion.faded(COLORS.hover, h * (1 - s)))
+        if s > 0.01:
+            painter.fillRect(rect, motion.faded(COLORS.row_selected, s))
+            if index.column() == 0:
+                length = rect.height() * motion.ease(s)
+                painter.fillRect(QRectF(rect.left(), rect.center().y() - length / 2, 2, length),
+                                 motion.faded(COLORS.accent, min(1.0, s * 1.4)))
 
     @staticmethod
     def _key(index):
@@ -322,17 +380,18 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         except RuntimeError:
             pass
 
-    def eventFilter(self, editor, event):
-        if isinstance(editor, QPlainTextEdit) and event.type() == QEvent.Type.FocusOut:
-            # 不让 QStyledItemDelegate 因短暂 focus out 自动关闭 editor。
-            # 是否结束字幕编辑由 DesktopWindow 的“点击编辑器外部”规则统一决定。
-            return False
-        return super().eventFilter(editor, event)
-
     def paint(self, painter, option, index):
         option = QStyleOptionViewItem(option)
+        painter.save()
+        self._paint_row(painter, option, index)
+        painter.restore()
         if index.column() < 2:
             option.font.setPixelSize(SIZES.text_small)
+            if index.column() == 0:
+                option.displayAlignment = Qt.AlignmentFlag.AlignCenter
+            else:
+                # 等宽数字，时间码逐行竖向对齐
+                option.font.setFamilies(list(MONO_FAMILIES))
             option.palette.setColor(option.palette.ColorRole.Text, QColor(COLORS.subtle if index.column() == 0 else COLORS.muted))
             option.palette.setColor(option.palette.ColorRole.HighlightedText, QColor(COLORS.muted))
         if self._editing == self._key(index):
@@ -343,8 +402,6 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         else:
             super().paint(painter, option, index)
         painter.save()
-        if index.column() == 0 and option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect.left(), option.rect.top(), 2, option.rect.height(), QColor(COLORS.accent_pressed))
         painter.setPen(QColor(COLORS.divider))
         painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
         painter.restore()
@@ -493,6 +550,7 @@ class DesktopWindow(PreviewWindow):
             widget.installEventFilter(self)
         self._restore_window()
         self._select_page(int(self._session.get("page", 0)) if self._session.get("page") in (0, 1, 2) else 0)
+        motion.install_tree(self)
         QTimer.singleShot(0, self.refresh)
 
     def _appbar(self):
@@ -519,28 +577,39 @@ class DesktopWindow(PreviewWindow):
         self.render_location.setIcon(desktop_icon("folder", COLORS.muted))
         self.render_location.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
         self.render_location.clicked.connect(self._locate_render_output)
-        self.render_location.hide()
+        motion.reveal(self.render_location, False)
         row.addWidget(self.render_location)
         self.ai_return = QPushButton("查看待确认")
         self.ai_return.clicked.connect(self._return_to_ai)
-        self.ai_return.hide()
+        motion.reveal(self.ai_return, False)
         row.addWidget(self.ai_return)
         return bar
 
     def _project_rail(self):
         rail = QWidget()
         rail.setObjectName("projectRail")
-        column = QVBoxLayout(rail)
-        column.setContentsMargins(12, 20, 12, 12)
-        column.setSpacing(8)
-        heading = QHBoxLayout()
+        outer = QVBoxLayout(rail)
+        outer.setContentsMargins(0, 0, 0, 12)
+        outer.setSpacing(0)
+        # 标题行与工作区工具栏同高，分割线横向连成一条
+        header = QWidget()
+        header.setFixedHeight(58)
+        heading = QHBoxLayout(header)
+        heading.setContentsMargins(20, 0, 12, 0)
         heading.addWidget(label("投稿项目", "sectionTitle"))
         heading.addStretch()
-        refresh = QPushButton("刷新")
+        refresh = QPushButton()
+        refresh.setObjectName("tool")
+        refresh.setToolTip("刷新项目列表")
+        tool_icon(refresh, "refresh")
         refresh.clicked.connect(self.refresh)
         heading.addWidget(refresh)
-        column.addLayout(heading)
-        column.addWidget(line())
+        outer.addWidget(header)
+        outer.addWidget(line())
+        column = QVBoxLayout()
+        column.setContentsMargins(8, 8, 8, 0)
+        column.setSpacing(8)
+        outer.addLayout(column, 1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -556,6 +625,7 @@ class DesktopWindow(PreviewWindow):
         self.project_buttons = {}
         self.scan_status = label(str(self.service.root), "subtle")
         self.scan_status.setWordWrap(True)
+        self.scan_status.setContentsMargins(12, 0, 12, 0)
         column.addWidget(self.scan_status)
         return rail
 
@@ -569,24 +639,24 @@ class DesktopWindow(PreviewWindow):
         heading.setObjectName("workToolbar")
         heading.setFixedHeight(58)
         row = QHBoxLayout(heading)
-        row.setContentsMargins(24, 0, 24, 0)
+        row.setContentsMargins(20, 0, 20, 0)
         row.addWidget(label("视频", "subtle"))
         self.video_name = label("选择视频", "videoFile")
         self.video_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.video_name.setMinimumWidth(0)
         row.addWidget(self.video_name, 1)
-        self.video_choice = QComboBox()
+        self.video_choice = popups.ComboBox()
         self.video_choice.setMinimumWidth(160)
         self.video_choice.currentIndexChanged.connect(self._video_changed)
         row.addWidget(self.video_choice, 1)
         actions = QWidget()
         actions.setObjectName("workflowActions")
         action_row = QHBoxLayout(actions)
-        action_row.setContentsMargins(2, 2, 2, 2)
-        action_row.setSpacing(2)
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
         self.save_button = QPushButton("保存字幕")
         self.save_button.setObjectName("primary")
-        self.save_button.setIcon(desktop_icon("save", COLORS.canvas))
+        self.save_button.setIcon(desktop_icon("save", COLORS.on_accent))
         self.save_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
         self.save_button.clicked.connect(self.save)
         self.save_button.setEnabled(False)
@@ -632,16 +702,20 @@ class DesktopWindow(PreviewWindow):
         controls_bar = QWidget()
         controls_bar.setObjectName("playerControls")
         controls = QHBoxLayout(controls_bar)
-        controls.setContentsMargins(8, 6, 8, 6)
+        # 无框按钮按图标对齐左边线
+        controls.setContentsMargins(0, 6, 8, 6)
         controls.setSpacing(SIZES.space_3)
         self.play_button = QPushButton("播放")
-        self.play_button.setIcon(desktop_icon("play", COLORS.text))
-        self.play_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
+        self.play_button.setObjectName("tool")
+        self.play_button.setIcon(desktop_icon("play", COLORS.text, SIZES.tool_icon_size))
+        self.play_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
         self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self._toggle_play)
         controls.addWidget(self.play_button)
         self.preview_toggle = QPushButton("字幕预览")
+        self.preview_toggle.setObjectName("tool")
         self.preview_toggle.setCheckable(True)
+        tool_icon(self.preview_toggle, "eye", checkable=True)
         self.preview_toggle.setChecked(True)
         self.preview_toggle.setToolTip("显示接近最终压制样式的实时字幕预览")
         self.preview_toggle.clicked.connect(self._toggle_subtitle_preview)
@@ -650,7 +724,8 @@ class DesktopWindow(PreviewWindow):
         controls.addWidget(self.time_label)
         controls.addStretch()
         volume_icon = label("")
-        volume_icon.setPixmap(desktop_icon("volume").pixmap(SIZES.icon_size, SIZES.icon_size))
+        volume_icon.setPixmap(desktop_icon("volume", size=SIZES.tool_icon_size).pixmap(
+            SIZES.tool_icon_size, SIZES.tool_icon_size))
         volume_icon.setToolTip("音量")
         controls.addWidget(volume_icon)
         self.volume = QSlider(Qt.Orientation.Horizontal)
@@ -659,7 +734,7 @@ class DesktopWindow(PreviewWindow):
         self.volume.setFixedWidth(90)
         self.volume.valueChanged.connect(self._volume_changed)
         controls.addWidget(self.volume)
-        self.speed = QComboBox()
+        self.speed = popups.ComboBox()
         for value in (0.75, 1.0, 1.25, 1.5, 2.0):
             self.speed.addItem(f"{value:g}×", value)
         self.speed.setCurrentIndex(1)
@@ -675,13 +750,27 @@ class DesktopWindow(PreviewWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 12, 20, 10)
         heading = QHBoxLayout()
+        heading.setSpacing(12)
         heading.addWidget(label("字幕列表", "sectionTitle"))
+        # 筛选做成分段控件，当前筛选一目了然
+        segmented = QWidget()
+        segmented.setObjectName("segmented")
+        segment_row = QHBoxLayout(segmented)
+        segment_row.setContentsMargins(2, 2, 2, 2)
+        segment_row.setSpacing(2)
+        self.filter_group = QButtonGroup(self)
+        self.filter_group.setExclusive(True)
         self.filter_all = QPushButton("全部")
-        self.filter_all.clicked.connect(lambda: self._set_filter(False))
-        heading.addWidget(self.filter_all)
         self.filter_pending = QPushButton("待确认 0")
-        self.filter_pending.clicked.connect(lambda: self._set_filter(True))
-        heading.addWidget(self.filter_pending)
+        for button, pending in ((self.filter_all, False), (self.filter_pending, True)):
+            button.setObjectName("segment")
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked=False, value=pending: self._set_filter(value))
+            self.filter_group.addButton(button)
+            segment_row.addWidget(button)
+        self.filter_all.setChecked(True)
+        motion.SegmentedFx(segmented, (self.filter_all, self.filter_pending))
+        heading.addWidget(segmented)
         heading.addStretch()
         self.subtitle_status = label("请选择项目", "subtle")
         heading.addWidget(self.subtitle_status)
@@ -691,6 +780,8 @@ class DesktopWindow(PreviewWindow):
         self.table.setModel(self.model)
         self.subtitle_delegate = SubtitleTextDelegate(self.table)
         self.table.setItemDelegate(self.subtitle_delegate)
+        self.table.setVerticalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
+        self.table.setMouseTracking(True)
         self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         # MultiSelection 会让普通单击不断累积选中行，看起来像“莫名多选”。
         # ExtendedSelection 才符合桌面编辑器习惯：普通点击单选，Ctrl 增减，Shift 连选。
@@ -726,9 +817,16 @@ class DesktopWindow(PreviewWindow):
         panel.setMinimumWidth(SIZES.ai_collapsed_width)
         column = QVBoxLayout(panel)
         column.setContentsMargins(0, 0, 0, 0)
-        header = QHBoxLayout()
-        self.ai_toggle = QPushButton("‹")
+        column.setSpacing(0)
+        # 与投稿项目、工作区工具栏同高
+        header_bar = QWidget()
+        header_bar.setFixedHeight(58)
+        header = QHBoxLayout(header_bar)
+        header.setContentsMargins(8, 0, 12, 0)
+        header.setSpacing(8)
+        self.ai_toggle = QPushButton()
         self.ai_toggle.setObjectName("quiet")
+        tool_icon(self.ai_toggle, "chevron_left")
         self.ai_toggle.setFixedSize(32, 32)
         self.ai_toggle.clicked.connect(lambda: self._set_ai_open(not self._ai_open))
         header.addWidget(self.ai_toggle)
@@ -741,7 +839,7 @@ class DesktopWindow(PreviewWindow):
         self.ai_run.setToolTip("重新检查会再次调用 AI 并消耗额度")
         self.ai_run.clicked.connect(self._start_ai_check)
         header.addWidget(self.ai_run)
-        column.addLayout(header)
+        column.addWidget(header_bar)
         column.addWidget(line())
         self.ai_content = QScrollArea()
         self.ai_content.setWidgetResizable(True)
@@ -839,42 +937,65 @@ class DesktopWindow(PreviewWindow):
         content.addStretch(1)
         self.ai_content.setWidget(ai_body)
         column.addWidget(self.ai_content, 1)
+        self.ai_collapsed_holder = QWidget()
+        holder = QVBoxLayout(self.ai_collapsed_holder)
+        holder.setContentsMargins(0, 12, 0, 0)
         self.ai_collapsed_label = label("AI", "badge")
-        column.addWidget(self.ai_collapsed_label, alignment=Qt.AlignmentFlag.AlignTop)
+        holder.addWidget(self.ai_collapsed_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        holder.addStretch()
+        column.addWidget(self.ai_collapsed_holder, 1)
+        # 过渡中内容隐藏时由占位吸收高度，标题行保持在顶部
+        column.addStretch()
         return panel
 
-    def _set_ai_open(self, open_):
-        super()._set_ai_open(open_)
-        self.ai_run.setVisible(open_)
+    def _ai_chrome(self, open_):
+        super()._ai_chrome(open_)
+        if hasattr(self, "ai_collapsed_holder"):
+            self.ai_collapsed_holder.setVisible(open_ is False)
+        if hasattr(self, "ai_run"):
+            self.ai_run.setVisible(bool(open_))
+
+    def _ai_fade_targets(self, open_):
+        return [self.ai_content, self.ai_header, self.ai_run] if open_ else [self.ai_collapsed_holder]
 
     def _timeline(self):
         panel = QWidget()
         panel.setObjectName("timeline")
-        panel.setMinimumHeight(110)
+        # 最小高度由标题行与时间轴画布推算，避免波形被裁
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(24, 5, 24, 4)
-        layout.setSpacing(1)
+        layout.setContentsMargins(20, 6, 20, 4)
+        layout.setSpacing(2)
         heading = QHBoxLayout()
+        heading.setSpacing(4)
         heading.addWidget(label("字幕时间轴", "sectionTitle"))
         heading.addSpacing(SIZES.space_2)
         heading.addWidget(label("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放", "subtle"))
         heading.addStretch()
         self.snap_button = QPushButton("磁吸")
+        self.snap_button.setObjectName("tool")
         self.snap_button.setCheckable(True)
+        tool_icon(self.snap_button, "magnet", checkable=True)
         self.snap_button.setChecked(True)
         self.snap_button.setToolTip("自动吸附字幕边界；拖动时按住 Alt 可临时关闭")
         self.snap_button.clicked.connect(self._toggle_snapping)
         heading.addWidget(self.snap_button)
         self.waveform_button = QPushButton("波形")
+        self.waveform_button.setObjectName("tool")
         self.waveform_button.setCheckable(True)
+        tool_icon(self.waveform_button, "waveform", checkable=True)
         self.waveform_button.setChecked(True)
         self.waveform_button.setToolTip("显示轻量音频波形")
         self.waveform_button.clicked.connect(self._toggle_waveform)
         heading.addWidget(self.waveform_button)
+        heading.addSpacing(SIZES.space_2)
         self.fit_button = QPushButton("适合全部")
+        self.fit_button.setObjectName("tool")
+        tool_icon(self.fit_button, "fit")
         self.fit_button.clicked.connect(self._fit_timeline)
         heading.addWidget(self.fit_button)
-        self.more_button = QPushButton("…")
+        self.more_button = QPushButton()
+        self.more_button.setObjectName("tool")
+        tool_icon(self.more_button, "more")
         self.more_button.setToolTip("字幕编辑操作")
         self.more_button.clicked.connect(lambda: self._show_edit_menu(
             self.more_button.mapToGlobal(self.more_button.rect().bottomLeft()), global_position=True))
@@ -933,6 +1054,7 @@ class DesktopWindow(PreviewWindow):
     def _set_filter(self, pending):
         self._commit_editor()
         self._pending_filter = pending
+        (self.filter_pending if pending else self.filter_all).setChecked(True)
         ids = {item.cue_id for item in self.ai_session.pending} if pending and self.ai_session else set()
         self.model.set_pending_filter(ids if pending else None)
         self._select_cue(self.selected_index)
@@ -948,11 +1070,15 @@ class DesktopWindow(PreviewWindow):
         if hasattr(self, "nav_badge"):
             self.nav_badge.setText(str(badge_count))
             self.nav_badge.adjustSize()
-            self.nav_badge.setVisible(badge_count > 0)
+            motion.reveal(self.nav_badge, badge_count > 0)
         self.ai_collapsed_label.setText(f"AI {count}" if count else "AI")
         self.ai_run.setEnabled(bool(self.document))
         self.ai_run.setText("取消检查" if self._ai_running else
                             "重新检查" if self.ai_session else "AI 检查")
+        if self._ai_running:
+            self.ai_run.setIcon(QIcon())
+        else:
+            tool_icon(self.ai_run, "refresh" if self.ai_session else "sparkle")
         pending_ids = {item.suggestion_id for item in pending}
         if self._ai_selected not in pending_ids:
             self._ai_selected = pending[0].suggestion_id if pending else None
@@ -978,6 +1104,7 @@ class DesktopWindow(PreviewWindow):
             button.setFixedHeight(30)
             button.clicked.connect(lambda _checked=False, sid=item.suggestion_id: self._select_ai(sid))
             self.ai_queue_layout.insertWidget(self.ai_queue_layout.count() - 1, button)
+        motion.install_tree(self.ai_queue_widget)
         self.ai_header.setText(f"AI 建议  {selected_position} / {count}" if self.ai_session else "AI 建议")
         self.ai_queue_header.setText(f"待处理 {count}")
         self.ai_queue_header.setVisible(count > 0)
@@ -1009,7 +1136,7 @@ class DesktopWindow(PreviewWindow):
                 if old:
                     pieces.append(f'<span style="color:{COLORS.ai_removed};text-decoration:line-through">{old}</span>')
                 if new:
-                    pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:600">{new}</span>')
+                    pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:500">{new}</span>')
         return "".join(pieces).replace("\n", "<br>")
 
     def _show_ai_detail(self):
@@ -1024,6 +1151,9 @@ class DesktopWindow(PreviewWindow):
             self.ai_accept.hide()
             self.ai_skip.hide()
             return
+        if getattr(self, "_ai_shown", None) != item.suggestion_id:
+            self._ai_shown = item.suggestion_id
+            motion.fade_in(self.ai_content.widget(), motion.FADE, start=0.25)
         entry = next((entry for entry in self.document.entries if entry.index == item.cue_id), None) if self.document else None
         conflict = entry is None or entry.text != item.original_text
         self.ai_card.show()
@@ -1127,7 +1257,7 @@ class DesktopWindow(PreviewWindow):
             self._set_ai_open(True)
             self._select_ai(self.ai_session.pending[0].suggestion_id)
         self._ai_return_count = 0
-        self.ai_return.hide()
+        motion.reveal(self.ai_return, False)
         self._render_ai()
 
     def _start_ai_check(self):
@@ -1199,7 +1329,7 @@ class DesktopWindow(PreviewWindow):
                         self._ai_return_video_path = snapshot.video.path
                         self._ai_return_count = len(result.pending)
                         self.ai_return.setText(f"查看 {project.title} 的 {len(result.pending)} 条建议")
-                        self.ai_return.show()
+                        motion.reveal(self.ai_return)
             elif self.document and self.document.video.path == snapshot.video.path:
                 self.app_status.setText(f"{project.title} · 字幕已变化，建议未应用")
                 self.ai_note.setText("检查期间字幕已变化，请主动重新检查。")
@@ -1208,7 +1338,7 @@ class DesktopWindow(PreviewWindow):
                 self._ai_return_video_path = snapshot.video.path
                 self._ai_return_count = len(result.pending)
                 self.ai_return.setText(f"查看 {project.title} 的 {len(result.pending)} 条建议")
-                self.ai_return.show()
+                motion.reveal(self.ai_return)
         self._render_ai()
 
     def _run(self, action, callback):
@@ -1249,6 +1379,8 @@ class DesktopWindow(PreviewWindow):
             button.clicked.connect(lambda _checked=False, p=project: self._select_real_project(p))
             self.projects_layout.insertWidget(self.projects_layout.count() - 1, button)
             self.project_buttons[project.id] = button
+        motion.install_tree(self.project_rail)
+        motion.stagger_in(list(self.project_buttons.values()))
         project_id = self.project.id if self.project else self._session.get("project_id")
         selected = next((p for p in snapshot.projects if p.id == project_id), None)
         if selected:
@@ -1279,6 +1411,7 @@ class DesktopWindow(PreviewWindow):
         self.ai_session = None
         self._ai_selected = None
         self._pending_filter = False
+        self.filter_all.setChecked(True)
         self._render_ai()
         self.selected_index = None
         self.document = None
@@ -1343,6 +1476,7 @@ class DesktopWindow(PreviewWindow):
         self.ai_session = None
         self._ai_selected = None
         self._pending_filter = False
+        self.filter_all.setChecked(True)
         self._render_ai()
         self._media_ready = False
         self._preview_attached = False
@@ -1408,6 +1542,8 @@ class DesktopWindow(PreviewWindow):
         self.model.set_document(document)
         self.timeline.set_document(document)
         self.timeline.set_waveform(None, self._player_duration or None)
+        motion.fade_in(self.table, motion.FADE + 60)
+        motion.fade_in(self.timeline, motion.FADE + 60)
         self._start_waveform(video.path)
         self.ai_session, ai_status = self.ai_service.load(document, project.title)
         if ai_status == "missing":
@@ -1505,6 +1641,8 @@ class DesktopWindow(PreviewWindow):
         self.selected_index = self.selection.active
         self._sync_table_selection()
         self._row_changed(index, QModelIndex())
+        # 多选模式下表格会自行追加点击行，须按应用选择重新同步
+        self._sync_table_selection()
         target = srt_timestamp_seconds(entry.start)
         if abs(self._player_position - target) > .1 or not self._player_paused:
             self.timeline.set_selection(entry.index, self.selection.selected)
@@ -1527,6 +1665,15 @@ class DesktopWindow(PreviewWindow):
                 0,
                 lambda idx=index, point=click_point: self._focus_subtitle_editor(idx, point),
             )
+
+    def _sync_table_selection(self):
+        self._syncing_selection = True
+        self.table.clearSelection()
+        selected = self.selection.selected
+        for item_row, item in enumerate(self.model.visible_entries()):
+            if item.index in selected:
+                self.table.selectRow(item_row)
+        self._syncing_selection = False
 
     def _row_changed(self, index, _previous):
         if self._syncing_selection or self.document is None or not index.isValid():
@@ -1827,14 +1974,8 @@ class DesktopWindow(PreviewWindow):
         row = next((i for i, entry in enumerate(self.model.visible_entries())
                     if entry.index == cue_index), None)
         if row is not None:
-            self._syncing_selection = True
-            self.table.clearSelection()
-            selected = self.selection.selected
-            for item_row, item in enumerate(self.model.visible_entries()):
-                if item.index in selected:
-                    self.table.selectRow(item_row)
-            self._syncing_selection = False
-            self.table.scrollTo(self.model.index(row, 0))
+            self._sync_table_selection()
+            motion.smooth_scroll(self.table, lambda: self.table.scrollTo(self.model.index(row, 0)))
             self.timeline.set_selection(cue_index, self.selection.selected or {cue_index},
                                          center=center_timeline)
             if self._loop_enabled:
@@ -1883,12 +2024,9 @@ class DesktopWindow(PreviewWindow):
 
     def _fit_timeline(self):
         if self.document:
-            self.timeline.center = (self.timeline.duration or
-                                    srt_timestamp_seconds(self.document.entries[-1].end)) / 2
-            self.timeline.span = max(4.0, self.timeline.duration or self.timeline.span)
+            duration = self.timeline.duration or srt_timestamp_seconds(self.document.entries[-1].end)
             self.timeline._manual_pan = False
-            self.timeline.update()
-            self.timeline._emit_view_changed()
+            self.timeline.glide_to(duration / 2, max(4.0, self.timeline.duration or self.timeline.span))
 
     def _trim_start(self):
         self._trim_active("start")
@@ -1943,6 +2081,7 @@ class DesktopWindow(PreviewWindow):
 
     def _show_edit_menu(self, position, *, global_position=False):
         menu = QMenu(self)
+        effects = popups.MenuFx(menu)
         menu.addAction("左裁到定位线 Q", self._trim_start)
         menu.addAction("右裁到定位线 W", self._trim_end)
         menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
@@ -1961,7 +2100,7 @@ class DesktopWindow(PreviewWindow):
         anchor = position if global_position else (
             self.timeline.mapToGlobal(position) if position is not None else self.cursor().pos()
         )
-        menu.exec(anchor)
+        effects.popup(anchor)
 
     def _can_merge_selected(self):
         if not self.document or len(self.selection.selected) < 2:
@@ -2293,7 +2432,7 @@ class DesktopWindow(PreviewWindow):
         self._render_jobs[key] = {"title": project.title, "cancel": cancellation,
                                   "percent": 0, "percent_enabled": True}
         self._render_result = None
-        self.render_location.hide()
+        motion.reveal(self.render_location, False)
         self.app_status.setText(f"{project.title} · 正在压制…")
         self.app_status.setToolTip("")
         self._update_status()
@@ -2349,7 +2488,7 @@ class DesktopWindow(PreviewWindow):
             self.render_location.setToolTip(str(self._render_result))
             name = self._render_result.name
             self.render_location.setText(f"定位：{name[:16]}{'…' if len(name) > 16 else ''}")
-            self.render_location.show()
+            motion.reveal(self.render_location)
         if self._render_jobs:
             active = next(iter(self._render_jobs.values()))
             self.app_status.setText(f"{active['title']} · 正在压制…")
@@ -2536,7 +2675,7 @@ class DesktopWindow(PreviewWindow):
 
     def _set_play_button(self, paused):
         self.play_button.setText("播放" if paused else "暂停")
-        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.text))
+        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.text, SIZES.tool_icon_size))
 
     def _volume_changed(self, value):
         if getattr(self, "player", None):

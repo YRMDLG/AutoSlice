@@ -1,6 +1,6 @@
 """可交互的 Desktop-04.55 Qt 壳，不读取投稿或字幕文件。"""
 
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import fonts, motion
 from .icons import icon as desktop_icon
 from .theme import COLORS, SIZES
 
@@ -41,6 +42,14 @@ def line() -> QFrame:
     return result
 
 
+def tool_icon(button: QPushButton, name: str, checkable: bool = False) -> None:
+    """工具按钮统一 16px 图标；可勾选按钮开启时图标随文字变蓝。"""
+
+    size = SIZES.tool_icon_size
+    button.setIcon(desktop_icon(name, COLORS.muted, size, COLORS.accent_text if checkable else None))
+    button.setIconSize(QSize(size, size))
+
+
 class TwoLineTitle(QWidget):
     """按可用宽度拆为两行，末行省略，避免项目列表横向滚动。"""
 
@@ -49,6 +58,12 @@ class TwoLineTitle(QWidget):
         self.title = text
         self.setFixedHeight(39)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # 单行标题只占一行高，交给外层居中，不留空洞
+        single = QFontMetrics(self.font()).horizontalAdvance(self.title) <= max(1, self.width() - 2)
+        self.setFixedHeight(19 if single else 39)
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
@@ -86,12 +101,14 @@ class ProjectItem(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         content = QVBoxLayout(self)
         content.setContentsMargins(12, 6, 10, 6)
-        content.setSpacing(2)
+        content.setSpacing(4)
+        content.addStretch()
         content.addWidget(TwoLineTitle(title))
         if status:
             status_label = label(status, "badge" if emphasized else "subtle")
             status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             content.addWidget(status_label, alignment=Qt.AlignmentFlag.AlignLeft)
+        content.addStretch()
 
 
 class NavigationButton(QPushButton):
@@ -118,7 +135,7 @@ class NavigationButton(QPushButton):
 
     @staticmethod
     def _set_icon_colors(icon: QLabel, name: QLabel, icon_name: str, selected: bool) -> None:
-        color = COLORS.accent if selected else COLORS.muted
+        color = COLORS.text if selected else COLORS.muted
         icon.setPixmap(desktop_icon(icon_name, color).pixmap(SIZES.icon_size, SIZES.icon_size))
         name.setStyleSheet(f"font-size: {SIZES.text_small}px; color: {color};")
 
@@ -157,6 +174,7 @@ class TimelineTrack(QWidget):
 
 class PreviewWindow(QMainWindow):
     def __init__(self) -> None:
+        fonts.load()
         super().__init__()
         self.setWindowTitle("AutoSlice · Qt 视觉预览")
         self.resize(1560, 920)
@@ -164,7 +182,9 @@ class PreviewWindow(QMainWindow):
         self._ai_open = False
         self._last_ai_width = SIZES.ai_width
         self._splitter_initialized = False
+        self._ai_glide = motion.ValueGlide(self, self._apply_ai_width)
         self._build()
+        motion.install_tree(self)
 
     def _build(self) -> None:
         root = QWidget()
@@ -330,7 +350,7 @@ class PreviewWindow(QMainWindow):
         column.addStretch()
         glyph = label("▶")
         glyph.setStyleSheet(
-            f"color: {COLORS.accent}; background: {COLORS.accent_tint};"
+            f"color: {COLORS.accent_text}; background: {COLORS.accent_tint};"
             "border-radius: 30px; font-size: 22px; padding-left: 3px;"
         )
         glyph.setFixedSize(60, 60)
@@ -425,8 +445,9 @@ class PreviewWindow(QMainWindow):
         header.setFixedHeight(60)
         header_row = QHBoxLayout(header)
         header_row.setContentsMargins(8, 0, 14, 0)
-        self.ai_toggle = QPushButton("‹")
+        self.ai_toggle = QPushButton()
         self.ai_toggle.setObjectName("quiet")
+        tool_icon(self.ai_toggle, "chevron_left")
         self.ai_toggle.setFixedSize(32, 32)
         self.ai_toggle.setToolTip("展开或收起 AI 建议区")
         self.ai_toggle.clicked.connect(lambda: self._set_ai_open(not self._ai_open))
@@ -510,10 +531,17 @@ class PreviewWindow(QMainWindow):
         return page
 
     def _select_page(self, index: int) -> None:
-        self.pages.setCurrentIndex(index)
+        def apply() -> None:
+            self.pages.setCurrentIndex(index)
+            self.project_rail.setVisible(index != 2)
+            self.top_project.setVisible(index != 2)
+
+        # 项目栏随页面显隐，整块主区域一起交叉淡化，新旧画面对齐
+        if index != self.pages.currentIndex():
+            motion.crossfade(self.main_splitter, apply)
+        else:
+            apply()
         self.nav_buttons[index].setChecked(True)
-        self.project_rail.setVisible(index != 2)
-        self.top_project.setVisible(index != 2)
         if index != 2:
             QTimer.singleShot(0, self._restore_project_width)
 
@@ -528,18 +556,50 @@ class PreviewWindow(QMainWindow):
             )
 
     def _set_ai_open(self, open_: bool) -> None:
-        if self._ai_open and not open_:
+        if self._ai_open and not open_ and not self._ai_glide.running():
             self._last_ai_width = max(SIZES.ai_min_width, self.subtitle_splitter.sizes()[1])
         self._ai_open = open_
-        self.ai_content.setVisible(open_)
-        self.ai_header.setVisible(open_)
-        self.ai_collapsed_label.setVisible(not open_)
-        self.ai_toggle.setText("›" if open_ else "‹")
+        tool_icon(self.ai_toggle, "chevron_right" if open_ else "chevron_left")
         self.ai_toggle.setToolTip("收起 AI 建议区" if open_ else "展开 AI 建议区")
+        width = self._last_ai_width if open_ else SIZES.ai_collapsed_width
+        current = self.subtitle_splitter.sizes()[1] if self.subtitle_splitter.count() > 1 else width
+        animate = (motion.enabled() and self._splitter_initialized and self.isVisible()
+                   and abs(current - width) > 2)
+        if not animate:
+            self._ai_glide.stop()
+            self._ai_chrome(open_)
+            self._ai_constraints(open_)
+            self._apply_ai_width((width,))
+            return
+        # 过渡中放开宽度约束、先收起内容，展开到位后内容再淡入，避免文字逐帧重排
+        self._ai_chrome(None)
+        self.ai_panel.setMinimumWidth(SIZES.ai_collapsed_width)
+        self.ai_panel.setMaximumWidth(16777215)
+
+        def finish():
+            self._ai_constraints(open_)
+            self._ai_chrome(open_)
+            for widget in self._ai_fade_targets(open_):
+                motion.fade_in(widget)
+
+        self._ai_glide.go((current,), (width,), motion.PANEL, motion.EMPHASIZED, finish)
+
+    def _ai_constraints(self, open_: bool) -> None:
         self.ai_panel.setMinimumWidth(SIZES.ai_min_width if open_ else SIZES.ai_collapsed_width)
         self.ai_panel.setMaximumWidth(16777215 if open_ else SIZES.ai_collapsed_width)
+
+    def _ai_chrome(self, open_: bool | None) -> None:
+        """None 表示过渡中：内容与收起标签都隐藏。"""
+        self.ai_content.setVisible(bool(open_))
+        self.ai_header.setVisible(bool(open_))
+        self.ai_collapsed_label.setVisible(open_ is False)
+
+    def _ai_fade_targets(self, open_: bool) -> list:
+        return [self.ai_content, self.ai_header] if open_ else [self.ai_collapsed_label]
+
+    def _apply_ai_width(self, values) -> None:
+        width = int(round(values[0]))
         available = max(1, sum(self.subtitle_splitter.sizes()))
-        width = self._last_ai_width if open_ else SIZES.ai_collapsed_width
         self.subtitle_splitter.setSizes([max(1, available - width), width])
 
     def showEvent(self, event) -> None:
