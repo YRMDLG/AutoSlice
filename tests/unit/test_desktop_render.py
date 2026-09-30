@@ -113,6 +113,77 @@ class SubtitleRenderQtTests(unittest.TestCase):
             time.sleep(.01)
         self.fail("Qt 后台任务未完成")
 
+    def _make_unsaved_edit(self):
+        self.wait_for(lambda: self.window._waveform_generation > 0 and not self.window._jobs)
+        self.window.document.edit_text(1, "本次未正式保存")
+        self.window._edited()
+        self.app.processEvents()
+
+    def _choose_unsaved_action(self, text):
+        def choose(dialog):
+            button = next(button for button in dialog.buttons() if button.text() == text)
+            button.click()
+
+        with patch.object(QMessageBox, "exec", new=choose):
+            return self.window._resolve_unsaved()
+
+    def test_resolve_unsaved_without_changes_keeps_direct_exit_behavior(self):
+        self.wait_for(lambda: self.window._waveform_generation > 0 and not self.window._jobs)
+        with patch.object(QMessageBox, "exec", side_effect=AssertionError("不应弹出确认框")):
+            self.assertTrue(self.window._resolve_unsaved())
+        self.wait_for(lambda: not self.window._jobs)
+
+    def test_unsaved_dialog_keep_discard_and_cancel_branches(self):
+        self._make_unsaved_edit()
+        draft_path = self.storage.draft_path(
+            "subtitle", self.window.project.directory, self.window.document.source_path
+        )
+
+        self.assertTrue(self._choose_unsaved_action("保留草稿并离开"))
+        self.assertTrue(draft_path.is_file())
+
+        self.window.document.edit_text(1, "第二次未正式保存")
+        self.window._edited()
+        self.assertFalse(self._choose_unsaved_action("取消"))
+        self.assertTrue(self.window.document.dirty)
+        self.assertTrue(draft_path.is_file())
+
+        self.assertTrue(self._choose_unsaved_action("放弃修改并离开"))
+        self.assertFalse(draft_path.exists())
+        self.wait_for(lambda: not self.window._jobs)
+
+    def test_discard_unsaved_edit_reopens_from_formally_saved_subtitle(self):
+        self._make_unsaved_edit()
+        draft_path = self.storage.draft_path(
+            "subtitle", self.window.project.directory, self.window.document.source_path
+        )
+        self.assertTrue(self._choose_unsaved_action("放弃修改并离开"))
+        self.assertFalse(draft_path.exists())
+
+        from autoslice.desktop.projects import SubmissionProjectService
+        from autoslice.desktop.qt_app.window import DesktopWindow
+
+        with patch("autoslice.desktop.qt_app.window.MpvAdapter",
+                   side_effect=OSError("测试无播放器")), \
+             patch.object(DesktopWindow, "_start_waveform"):
+            reopened = DesktopWindow(SubmissionProjectService(self.root), self.storage)
+        reopened.show()
+
+        def close_reopened():
+            reopened._resolve_unsaved = lambda: True
+            reopened.close()
+
+        self.addCleanup(close_reopened)
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            self.app.processEvents()
+            if reopened.document is not None:
+                break
+            time.sleep(.01)
+        self.assertIsNotNone(reopened.document)
+        self.assertEqual(reopened.document.entries[0].text, "原文")
+        self.wait_for(lambda: not self.window._jobs)
+
     def test_save_then_render_keeps_ui_usable_and_prevents_duplicate_project_job(self):
         self.window.document.edit_text(1, "校对文字")
         self.window._edited()

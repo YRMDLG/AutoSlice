@@ -78,6 +78,41 @@ class _StatusLabel(QLabel):
         self.setVisible(bool(text))
 
 
+class _ElidedQueueButton(QPushButton):
+    """待处理队列的单行按钮，按实际控件宽度显示右侧省略号。"""
+
+    def __init__(self, text: str, parent=None):
+        self._full_text = str(text)
+        super().__init__(self._full_text, parent)
+        self._update_elided_text()
+
+    @property
+    def full_text(self) -> str:
+        return self._full_text
+
+    def _update_elided_text(self) -> None:
+        margin = self.style().pixelMetric(QStyle.PixelMetric.PM_ButtonMargin, None, self)
+        available = max(0, self.contentsRect().width() - margin * 2)
+        display = self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, available
+        )
+        if self.text() != display:
+            super().setText(display)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elided_text()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+            QEvent.Type.EnabledChange,
+        ):
+            self._update_elided_text()
+
+
 class _Signals(QObject):
     finished = Signal(object, object)
 
@@ -928,10 +963,10 @@ class DesktopWindow(PreviewWindow):
             if item.widget():
                 item.widget().deleteLater()
         for item in pending:
-            original = self._compact_ai_text(item.original_text)
-            suggested = self._compact_ai_text(item.suggested_text)
-            summary = f"{original} → {suggested}" if original != suggested else original
-            button = QPushButton(f"第 {item.cue_id} 条  {summary}  · 待确认")
+            summary = (f"{item.original_text} → {item.suggested_text}"
+                       if item.original_text != item.suggested_text else item.original_text)
+            full_text = f"第 {item.cue_id} 条  {summary}  · 待确认"
+            button = _ElidedQueueButton(full_text)
             button.setObjectName("aiQueueItem")
             button.setToolTip(
                 f"原文：{item.original_text}\n建议：{item.suggested_text}\n原因：{item.reason}"
@@ -958,14 +993,6 @@ class DesktopWindow(PreviewWindow):
         self._show_ai_detail()
         if getattr(self, "_pending_filter", False):
             self.model.set_pending_filter({item.cue_id for item in pending})
-
-    @staticmethod
-    def _compact_ai_text(value: str, limit: int = 16) -> str:
-        """把队列摘要限制在一行，完整内容仍保留在当前建议和 tooltip。"""
-        text = " ".join(str(value or "").split())
-        if len(text) <= limit:
-            return text
-        return text[: max(1, limit - 1)] + "…"
 
     @staticmethod
     def _diff_html(original, suggested):
@@ -2193,11 +2220,16 @@ class DesktopWindow(PreviewWindow):
         self._write_draft()
         dialog = QMessageBox(self)
         dialog.setWindowTitle("未保存的字幕")
-        dialog.setText("当前字幕有未正式保存的修改。可先返回点击“保存校对字幕”，或保留草稿离开。")
+        dialog.setText("当前字幕有未正式保存的修改。可先返回点击“保存校对字幕”，或选择离开时如何处理草稿。")
         keep = dialog.addButton("保留草稿并离开", QMessageBox.ButtonRole.DestructiveRole)
+        discard = dialog.addButton("放弃修改并离开", QMessageBox.ButtonRole.DestructiveRole)
         dialog.addButton("取消", QMessageBox.ButtonRole.RejectRole)
         dialog.exec()
-        return dialog.clickedButton() is keep
+        clicked = dialog.clickedButton()
+        if clicked is discard:
+            self._remove_draft(self.document)
+            return True
+        return clicked is keep
 
     def save(self):
         if self._saving or not self.document:

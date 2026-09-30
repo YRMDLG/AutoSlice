@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 import tempfile
 import time
@@ -165,6 +166,30 @@ class DesktopAIQtTests(unittest.TestCase):
         self.assertAlmostEqual(self.window.timeline.playhead, 1.0, delta=0.001)
         self.assertEqual(player.seeks[-1], (1.0, True))
         self.assertEqual(self.window.table.currentIndex().row(), 0)
+
+    def test_pending_issue_row_elides_with_tooltip_without_growing(self):
+        self.window._start_ai_check()
+        self.wait_for(lambda: self.window.ai_session is not None)
+        item = self.window.ai_session.pending[0]
+        long_original = "这是一个非常长的原字幕内容，用来验证待处理列表使用真正的右侧省略号"
+        long_suggested = "这是一个非常长的建议文本，用来验证完整内容仍然保留在 tooltip"
+        self.window.ai_session.suggestions[0] = replace(
+            item, original_text=long_original, suggested_text=long_suggested,
+            reason="完整原因也应继续保留在 tooltip 中",
+        )
+        self.window._render_ai()
+        self.app.processEvents()
+        row = self.window.ai_queue_layout.itemAt(0).widget()
+        full_text = (
+            f"第 {item.cue_id} 条  {long_original} → {long_suggested}  · 待确认"
+        )
+
+        self.assertEqual(row.height(), 30)
+        self.assertTrue(row.text().endswith("…"))
+        self.assertNotEqual(row.text(), full_text)
+        self.assertIn(long_original, row.toolTip())
+        self.assertIn(long_suggested, row.toolTip())
+        self.assertIn("完整原因", row.toolTip())
 
     def test_accept_and_skip_advance_to_next_issue_and_finish(self):
         class FakePlayer:
