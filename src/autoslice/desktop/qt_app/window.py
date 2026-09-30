@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QAbstractItemDelegate,
     QApplication,
     QButtonGroup,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -53,7 +52,7 @@ from autoslice.desktop.ai_review import AIReviewService, document_hash
 from autoslice.desktop.commands import CommandDispatcher
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectSnapshot, SubmissionProject, SubmissionProjectService
-from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES
 from autoslice.desktop.qt_preview.window import PreviewWindow, ProjectItem, label, line, tool_icon
@@ -551,7 +550,7 @@ class DesktopWindow(PreviewWindow):
         self.video_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.video_name.setMinimumWidth(0)
         row.addWidget(self.video_name, 1)
-        self.video_choice = QComboBox()
+        self.video_choice = popups.ComboBox()
         self.video_choice.setMinimumWidth(160)
         self.video_choice.currentIndexChanged.connect(self._video_changed)
         row.addWidget(self.video_choice, 1)
@@ -640,7 +639,7 @@ class DesktopWindow(PreviewWindow):
         self.volume.setFixedWidth(90)
         self.volume.valueChanged.connect(self._volume_changed)
         controls.addWidget(self.volume)
-        self.speed = QComboBox()
+        self.speed = popups.ComboBox()
         for value in (0.75, 1.0, 1.25, 1.5, 2.0):
             self.speed.addItem(f"{value:g}×", value)
         self.speed.setCurrentIndex(1)
@@ -1641,6 +1640,7 @@ class DesktopWindow(PreviewWindow):
 
     def _show_edit_menu(self, position, *, global_position=False):
         menu = QMenu(self)
+        effects = popups.MenuFx(menu)
         menu.addAction("左裁到定位线 Q", self._trim_start)
         menu.addAction("右裁到定位线 W", self._trim_end)
         menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
@@ -1659,7 +1659,7 @@ class DesktopWindow(PreviewWindow):
         anchor = position if global_position else (
             self.timeline.mapToGlobal(position) if position is not None else self.cursor().pos()
         )
-        menu.exec(anchor)
+        effects.popup(anchor)
 
     def _can_merge_selected(self):
         if not self.document or len(self.selection.selected) < 2:

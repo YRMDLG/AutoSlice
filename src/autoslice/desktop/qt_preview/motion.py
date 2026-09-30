@@ -63,6 +63,25 @@ def _bezier(x1: float, y1: float, x2: float, y2: float) -> QEasingCurve:
 STANDARD = _bezier(0.2, 0.0, 0.0, 1.0)
 EMPHASIZED = _bezier(0.3, 0.0, 0.0, 1.0)
 
+
+def restart(animation: QVariantAnimation, start, end, duration: int, curve: QEasingCurve | None = None) -> None:
+    """复用动画重新起跑。
+
+    跑完的动画停在终点，此时 setEndValue 会立即按新终点重算并发出 valueChanged，
+    造成先跳到终点、再从起点播放的一帧闪烁；配置期间屏蔽信号即可避免。
+    """
+
+    animation.stop()
+    blocked = animation.blockSignals(True)
+    animation.setDuration(duration)
+    if curve is not None:
+        animation.setEasingCurve(curve)
+    animation.setStartValue(start)
+    animation.setEndValue(end)
+    animation.setCurrentTime(0)
+    animation.blockSignals(blocked)
+    animation.start()
+
 _enabled: bool | None = None
 
 
@@ -91,12 +110,13 @@ def _detect() -> bool:
 
 
 def install_app(app: QApplication) -> None:
-    """菜单、下拉与提示使用 Qt 自带淡入。"""
+    """提示框用 Qt 自带淡入；菜单与下拉由 popups 模块自绘动效，关闭自带效果避免叠加。"""
 
     on = enabled()
-    for effect in (Qt.UIEffect.UI_General, Qt.UIEffect.UI_AnimateMenu, Qt.UIEffect.UI_FadeMenu,
-                   Qt.UIEffect.UI_AnimateCombo, Qt.UIEffect.UI_AnimateTooltip, Qt.UIEffect.UI_FadeTooltip):
+    for effect in (Qt.UIEffect.UI_General, Qt.UIEffect.UI_AnimateTooltip, Qt.UIEffect.UI_FadeTooltip):
         QApplication.setEffectEnabled(effect, on)
+    for effect in (Qt.UIEffect.UI_AnimateMenu, Qt.UIEffect.UI_FadeMenu, Qt.UIEffect.UI_AnimateCombo):
+        QApplication.setEffectEnabled(effect, False)
 
 
 def mix(a, b, t: float) -> QColor:
@@ -146,11 +166,8 @@ class Channel(QObject):
             self.value = target
             self._on_change()
             return
-        self._animation.setDuration(max(40, int(duration * min(1.0, 0.35 + distance * 0.65))))
-        self._animation.setEasingCurve(curve)
-        self._animation.setStartValue(float(self.value))
-        self._animation.setEndValue(float(target))
-        self._animation.start()
+        restart(self._animation, float(self.value), float(target),
+                max(40, int(duration * min(1.0, 0.35 + distance * 0.65))), curve)
 
     def snap(self, target: float) -> None:
         self._animation.stop()
@@ -386,11 +403,7 @@ class SegmentedFx(QObject):
             self._animation.stop()
             self._moved(target)
             return
-        self._animation.stop()
-        self._animation.setDuration(SELECT)
-        self._animation.setStartValue(QRectF(self._rect))
-        self._animation.setEndValue(target)
-        self._animation.start()
+        restart(self._animation, QRectF(self._rect), target, SELECT)
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest):
@@ -586,11 +599,7 @@ class ScrollFx(QObject):
             self.bar.setValue(target)
             return
         self._target = target
-        self._animation.stop()
-        self._animation.setDuration(duration)
-        self._animation.setStartValue(float(self.bar.value()))
-        self._animation.setEndValue(float(target))
-        self._animation.start()
+        restart(self._animation, float(self.bar.value()), float(target), duration)
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() != QEvent.Type.Wheel or not enabled():
@@ -757,11 +766,7 @@ class ValueGlide(QObject):
                 on_finish()
             return
         self._start, self._end, self.target = tuple(start), tuple(end), tuple(end)
-        self._animation.setDuration(duration)
-        self._animation.setEasingCurve(curve)
-        self._animation.setStartValue(0.0)
-        self._animation.setEndValue(1.0)
-        self._animation.start()
+        restart(self._animation, 0.0, 1.0, duration, curve)
 
     def stop(self) -> None:
         self._animation.stop()
