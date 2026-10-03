@@ -12,6 +12,7 @@ from unittest.mock import patch
 from autoslice import subtitle_workflow
 from autoslice.llm import transport as llm_gateway
 from autoslice.transcription import contracts as transcription_contracts
+from autoslice.transcription import segments as subtitle_segments
 from autoslice.streamer_profiles import resolve_streamer_profile
 from autoslice.subtitle_workflow import (
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -1395,7 +1396,7 @@ class SubtitleRenderingTests(unittest.TestCase):
         )
         ass_safe_limit = subtitle_workflow._subtitle_display_char_limit(1920, geometry)
         self.assertTrue(all(
-            subtitle_workflow._subtitle_display_text_size(line) <= ass_safe_limit
+            subtitle_segments.subtitle_text_size(line) <= ass_safe_limit
             for line in visual_lines
         ))
         self.assertIn(r"{\an5\pos(960,966)}", events[0])
