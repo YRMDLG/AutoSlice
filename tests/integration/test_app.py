@@ -1546,7 +1546,7 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             "analysis_background_filter_default": "off",
             "background_filter_limit": "单音轨无法保证 100% 分离同时人声",
         }
-        with patch("autoslice.topic_engine.funasr_public_status", return_value=public_status):
+        with patch("autoslice.transcription.model_runtime.funasr_public_status", return_value=public_status):
             response = self.client.get("/api/asr-status")
 
         self.assertEqual(response.status_code, 200)
@@ -2869,7 +2869,7 @@ class DirectSliceApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -3045,15 +3045,15 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.optimize_manual_timeline_for_video",
+                    "autoslice.pipeline.optimize_manual_timeline_for_video",
                     return_value=expected,
                 ) as optimize,
                 patch(
-                    "autoslice.topic_engine.run_pipeline",
+                    "autoslice.pipeline.run_pipeline",
                     side_effect=AssertionError("独立优化不应运行完整分析"),
                 ),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     side_effect=AssertionError("独立优化不应自动切片"),
                 ),
             ):
@@ -3101,9 +3101,9 @@ class TopicPipelineApiTests(unittest.TestCase):
 
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
-                patch("autoslice.topic_engine.run_pipeline", return_value=pipeline_result) as run_pipeline,
+                patch("autoslice.pipeline.run_pipeline", return_value=pipeline_result) as run_pipeline,
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     side_effect=AssertionError("没有切片标记时不应调用切片"),
                 ),
             ):
@@ -3171,11 +3171,11 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.run_pipeline",
+                    "autoslice.pipeline.run_pipeline",
                     return_value=pipeline_result,
                 ),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(12, str(slice_dir)),
                 ),
             ):
@@ -3234,11 +3234,11 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.retry_clip_review_from_artifacts",
+                    "autoslice.pipeline.retry_clip_review_from_artifacts",
                     return_value=result,
                 ) as retry,
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -3317,7 +3317,7 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -3851,7 +3851,7 @@ const settle=async()=>{for(let index=0;index<8;index++)await Promise.resolve()};
             }
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
-                patch("autoslice.topic_engine.run_pipeline", return_value=pipeline_result),
+                patch("autoslice.pipeline.run_pipeline", return_value=pipeline_result),
             ):
                 first = self.client.post(
                     "/api/start-pipeline",
@@ -3930,7 +3930,7 @@ const settle=async()=>{for(let index=0;index<8;index++)await Promise.resolve()};
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.run_pipeline",
+                    "autoslice.pipeline.run_pipeline",
                     side_effect=RuntimeError(
                         "token=test-private-value 位于 X:\\fixtures\\api_config.json"
                     ),

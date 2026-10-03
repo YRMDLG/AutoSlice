@@ -1492,8 +1492,8 @@ def run_subtitle_title_task(
         )
 
     try:
+        from autoslice.pipeline import subtitle_title_services
         from autoslice.subtitle_workflow import generate_subtitle_reference_titles
-        from autoslice.topic_engine import subtitle_title_services
 
         with streamer_profile_context(streamer_profile):
             _raise_if_task_cancelled(task_id)
@@ -1548,7 +1548,7 @@ def run_subtitle_transcription_task(
 
     try:
         from autoslice.subtitle_workflow import transcribe_submission_video
-        from autoslice.topic_engine import ensure_srt
+        from autoslice.transcription.workflow import ensure_srt
 
         _raise_if_task_cancelled(task_id)
         result = transcribe_submission_video(
@@ -1658,7 +1658,7 @@ def run_timeline_optimization_task(
         )
 
     try:
-        from autoslice.topic_engine import optimize_manual_timeline_for_video
+        from autoslice.pipeline import optimize_manual_timeline_for_video
 
         _raise_if_task_cancelled(task_id)
         result = optimize_manual_timeline_for_video(
@@ -1707,7 +1707,8 @@ def run_clip_review_retry_task(
         )
 
     try:
-        from autoslice.topic_engine import retry_clip_review_from_artifacts, slice_from_marks
+        from autoslice.pipeline import retry_clip_review_from_artifacts
+        from autoslice.slicing import slice_from_marks
 
         _raise_if_task_cancelled(task_id)
         result = retry_clip_review_from_artifacts(
@@ -1750,7 +1751,7 @@ def run_slice_task(
 
     try:
         with streamer_profile_context(streamer_profile, flv_path):
-            from autoslice.topic_engine import slice_from_marks
+            from autoslice.slicing import slice_from_marks
             _raise_if_task_cancelled(task_id)
             count, out_dir = slice_from_marks(
                 flv_path,
@@ -2767,7 +2768,7 @@ def streamer_profiles_contract():
 def asr_status_contract():
     """展示当前 FunASR 模型与调整入口，不返回任何本机模型路径。"""
 
-    from autoslice.topic_engine import funasr_public_status
+    from autoslice.transcription.model_runtime import funasr_public_status
 
     return jsonify(funasr_public_status())
 
@@ -2843,7 +2844,8 @@ def start_pipeline():
         if _task_cancellation_requested(task_id):
             return
         try:
-            from autoslice.topic_engine import run_pipeline, slice_from_marks
+            from autoslice.pipeline import run_pipeline
+            from autoslice.slicing import slice_from_marks
 
             def cb(msg, step, total):
                 _raise_if_task_cancelled(task_id)
