@@ -229,6 +229,7 @@ import importlib.resources
 required = (
     importlib.resources.files("autoslice") / "resources" / "templates" / "topic_v2.html",
     importlib.resources.files("autoslice") / "resources" / "static" / "workbench.css",
+    importlib.resources.files("autoslice") / "resources" / "static" / "topic_v2.js",
     importlib.resources.files("autoslice") / "streamer_profiles.json",
     importlib.resources.files("autoslice") / "title_style_profile.example.json",
     importlib.resources.files("autoslice_cover") / "resources" / "templates" / "index.html",
