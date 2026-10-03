@@ -292,6 +292,21 @@ class CoverEditorWidget(QWidget):
         self.empty_controls = self._build_empty_panel()
         self.panel_stack.addWidget(self.empty_controls)
 
+        # AI 入口固定在面板底部，所有上下文都能触达
+        ai_row = QHBoxLayout()
+        ai_row.setSpacing(4)
+        self.ai_button = QPushButton("✨ 三个方案")
+        self.ai_button.setFixedHeight(28)
+        self.ai_button.setToolTip("生成可编辑候选（默认不调用真实AI）")
+        self.ai_button.clicked.connect(self._request_ai_candidates)
+        ai_row.addWidget(self.ai_button, 1)
+        right_layout.addLayout(ai_row)
+        self.ai_candidate_label = QLabel("")
+        self.ai_candidate_label.setObjectName("subtle")
+        self.ai_candidate_label.setWordWrap(True)
+        self.ai_candidate_label.setMaximumHeight(36)
+        right_layout.addWidget(self.ai_candidate_label)
+
         content.addWidget(self.right_panel)
 
         # 面板折叠逻辑
@@ -690,22 +705,6 @@ class CoverEditorWidget(QWidget):
         self.add_shape_button.clicked.connect(self._add_shape)
         asset_row.addWidget(self.add_shape_button)
         layout.addLayout(asset_row)
-
-        layout.addSpacing(8)
-
-        # AI 入口
-        ai_label = QLabel("AI")
-        ai_label.setObjectName("subtle")
-        layout.addWidget(ai_label)
-        self.ai_button = QPushButton("✨ 三个方案")
-        self.ai_button.setFixedHeight(26)
-        self.ai_button.setToolTip("生成可编辑候选（默认不调用真实AI）")
-        self.ai_button.clicked.connect(self._request_ai_candidates)
-        layout.addWidget(self.ai_button)
-        self.ai_candidate_label = QLabel("")
-        self.ai_candidate_label.setObjectName("subtle")
-        self.ai_candidate_label.setWordWrap(True)
-        layout.addWidget(self.ai_candidate_label)
 
         layout.addStretch(1)
         return panel
