@@ -229,7 +229,7 @@ def read_docx_lines(docx_path):
             if current:
                 merged.append("".join(current).strip())
             return [line for line in merged if line]
-        except Exception:
+        except (OSError, KeyError, zipfile.BadZipFile):
             return []
 
 

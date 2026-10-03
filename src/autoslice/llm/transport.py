@@ -847,7 +847,7 @@ def call_llm_with_retry(
         active_prompt = compact_prompt if use_compact else prompt
         active_tokens = compact_max_tokens if use_compact else max_tokens
 
-        def request_once():
+        def request_once(active_prompt=active_prompt, active_tokens=active_tokens):
             call_kwargs = {
                 "max_tokens": active_tokens,
                 "json_mode": require_json,
