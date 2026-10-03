@@ -29,7 +29,8 @@ class SubtitleRenderServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # CI 临时目录是 8.3 短路径，服务内部 resolve 后为长路径
+        self.root = Path(self.temp.name).resolve()
         folder = self.root / "【中文】😊"
         folder.mkdir()
         self.video = folder / "短片.mp4"

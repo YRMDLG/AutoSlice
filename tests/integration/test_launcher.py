@@ -67,7 +67,8 @@ class LauncherTests(unittest.TestCase):
 
     def test_media_tools_are_added_from_migrated_workspace_parent(self):
         with TemporaryDirectory() as directory:
-            drive_root = Path(directory) / "F盘"
+            # CI 临时目录是 8.3 短路径，候选目录经 resolve 后为长路径
+            drive_root = Path(directory).resolve() / "F盘"
             project_dir = drive_root / "MyCode" / "AutoSlice"
             media_dir = drive_root / "ffmpeg" / "bin"
             project_dir.mkdir(parents=True)
