@@ -280,27 +280,23 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
 
     def test_page_inherits_current_project_and_exposes_editor_controls(self):
         self.widget.set_context(self.project, self.project.videos[0])
-        self.assertEqual(self.widget.workflow_label.text(), "自动生成基础封面")
-        self.assertIn("换一张帧图", self.widget.workflow_hint.text())
         self.assertEqual(self.widget.project_label.text(), "项目甲")
         self.assertEqual(self.widget.video_label.text(), "视频.mp4")
         self.assertEqual(self.widget.title_edit.text(), "项目甲")
         self.assertIn("4:3", self.widget.export_button.text())
         self.assertIn("1440×1080", self.widget.export_summary.text())
-        self.assertFalse(self.widget.copy_controls.isHidden())
-        self.assertTrue(self.widget.media_controls.isHidden())
+        self.assertIs(self.widget.panel_stack.currentWidget(), self.widget.copy_controls)
         self.assertFalse(self.widget.export_button.isEnabled())
         self.assertTrue(self.widget.frame_button.isEnabled())
         self.assertIn("从当前视频取帧", self.widget.frame_button.text())
 
     def test_context_panel_switches_between_copy_and_background_controls(self):
         self.widget._canvas_selection_changed(False)
-        self.assertTrue(self.widget.copy_controls.isHidden())
-        self.assertFalse(self.widget.media_controls.isHidden())
-        self.assertEqual(self.widget.findChild(QGroupBox).title(), "底图")
+        self.assertIs(self.widget.panel_stack.currentWidget(), self.widget.bg_controls)
+        self.assertEqual(self.widget.panel_title.text(), "底图取景")
         self.widget._canvas_selection_changed(True)
-        self.assertFalse(self.widget.copy_controls.isHidden())
-        self.assertTrue(self.widget.media_controls.isHidden())
+        self.assertIs(self.widget.panel_stack.currentWidget(), self.widget.copy_controls)
+        self.assertEqual(self.widget.panel_title.text(), "封面文案")
 
     def test_main_canvas_ratio_switch_updates_preview_and_export_contract(self):
         self.widget.set_context(self.project, self.project.videos[0])

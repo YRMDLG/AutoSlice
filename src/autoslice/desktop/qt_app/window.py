@@ -931,26 +931,90 @@ class DesktopWindow(PreviewWindow):
     def _settings_page(self):
         page = QWidget()
         page.setObjectName("settingsSurface")
-        layout = QVBoxLayout(page)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body = QWidget()
+        layout = QVBoxLayout(body)
         layout.setContentsMargins(32, 26, 32, 26)
+        layout.setSpacing(16)
         layout.addWidget(label("设置", "pageTitle"))
         layout.addWidget(line())
+
+        # ── 投稿目录 ──
         layout.addWidget(label("投稿目录", "sectionTitle"))
+        dir_row = QHBoxLayout()
+        dir_row.setSpacing(8)
         directory = label(str(self.service.root), "muted")
         directory.setWordWrap(True)
-        layout.addWidget(directory)
-        layout.addWidget(label("桌面草稿保存在用户应用数据目录", "muted"))
+        dir_row.addWidget(directory, 1)
+        browse_dir = QPushButton("更改")
+        browse_dir.setObjectName("quiet")
+        browse_dir.setFixedHeight(28)
+        browse_dir.setToolTip("选择投稿项目根目录")
+        browse_dir.clicked.connect(self._browse_submission_root)
+        dir_row.addWidget(browse_dir)
+        layout.addLayout(dir_row)
+
+        layout.addSpacing(8)
+        layout.addWidget(line())
+        layout.addSpacing(8)
+
+        # ── 字幕压制 ──
+        layout.addWidget(label("字幕压制", "sectionTitle"))
         layout.addWidget(label(
-            f"字幕压制默认样式：{DEFAULT_SUBTITLE_STYLE['font_name']} · "
+            f"默认样式：{DEFAULT_SUBTITLE_STYLE['font_name']} · "
             f"#{DEFAULT_SUBTITLE_STYLE['outline_color']} 描边", "muted"
         ))
-        layout.addWidget(label("AI 检查配置", "sectionTitle"))
-        ai_help = label("沿用 AutoSlice 的私有 api_config.json，或配置 AUTOSLICE_API_BASE_URL、"
-                        "AUTOSLICE_API_TOKEN、AUTOSLICE_API_TYPE。检查只在点击 AI 检查时运行。", "muted")
+        layout.addWidget(label("压制使用既有 FFmpeg 工作流，NVENC 可用时自动优先。", "muted"))
+
+        layout.addSpacing(8)
+        layout.addWidget(line())
+        layout.addSpacing(8)
+
+        # ── 封面 ──
+        layout.addWidget(label("封面", "sectionTitle"))
+        layout.addWidget(label("封面字体、默认样式和素材库在封面编辑器中直接管理。", "muted"))
+        layout.addWidget(label("桌面草稿保存在用户应用数据目录，重启后可恢复。", "muted"))
+
+        layout.addSpacing(8)
+        layout.addWidget(line())
+        layout.addSpacing(8)
+
+        # ── AI ──
+        layout.addWidget(label("AI 检查", "sectionTitle"))
+        ai_help = label("沿用 AutoSlice 的 api_config.json 或环境变量配置。"
+                        "AI 只在手动点击时运行，不会在页面加载或切换时自动调用。", "muted")
         ai_help.setWordWrap(True)
         layout.addWidget(ai_help)
+
+        layout.addSpacing(8)
+        layout.addWidget(line())
+        layout.addSpacing(8)
+
+        # ── 播放器 ──
+        layout.addWidget(label("播放器", "sectionTitle"))
+        player_status = "libmpv 已连接" if getattr(self, "player", None) is not None else "libmpv 未连接（仅预览模式）"
+        layout.addWidget(label(player_status, "muted"))
+        hwdec = getattr(self, "_hwdec", None)
+        if hwdec:
+            layout.addWidget(label(f"硬件解码：{hwdec}", "muted"))
+
         layout.addStretch()
+        scroll.setWidget(body)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll)
         return page
+
+    def _browse_submission_root(self):
+        """让用户选择投稿目录。"""
+        from PySide6.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(self, "选择投稿目录", str(self.service.root))
+        if path:
+            self.service.root = Path(path)
+            self._show_transient_status(f"投稿目录已更新：{path}")
+            self.refresh()
 
     def _set_filter(self, pending):
         self._commit_editor()

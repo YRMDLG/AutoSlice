@@ -95,6 +95,9 @@ def stylesheet() -> str:
         QWidget#workflowActions {{ background: {c.panel}; border: 1px solid {c.divider}; border-radius: 8px; padding: 2px; }}
         QWidget#playerControls {{ background: {c.rail}; }}
         QWidget#coverSurface {{ background: {c.player}; border: 1px solid {c.divider}; border-radius: {m.radius}px; }}
+        QWidget#coverToolbar {{ background: {c.rail}; border-bottom: 1px solid {c.divider}; }}
+        QWidget#coverPanel {{ background: {c.rail}; border-left: 1px solid {c.divider}; }}
+        QWidget#frameStrip {{ background: {c.panel}; border-top: 1px solid {c.divider}; }}
         QWidget#settingsSurface {{ background: {c.canvas}; }}
         QFrame#hairline {{ background: {c.divider}; max-height: 1px; min-height: 1px; }}
         QLabel#brand {{ font-size: 16px; font-weight: 700; }}
