@@ -28,7 +28,7 @@ Desktop-03/04 的 `桌面端.py` → `autoslice.desktop.app.main()` 使用 Tkint
 ## 技术验证
 
 - **Qt 壳**：隔离 PySide6 6.11.2 实例显示深色三页布局和字幕三区骨架；Windows 截图目视通过。Qt 官方说明 Qt Widgets/Graphics View 和自动 DPI 抽象：[Qt Widgets](https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/)、[High DPI](https://doc.qt.io/qtforpython-6/overviews/qtdoc-highdpi.html)。本机实验设备像素比为 1.0，不能当作高 DPI 通过。
-- **mpv**：本机原无 `mpv`/libmpv。下载 [mpv Windows 发布页](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260926) 的 x86-64 开发包并核对 SHA-256 后，在隔离 Qt `QWidget` 的原生 HWND 上用 libmpv API 加载 `F:\Videos\投稿` 下含 Emoji 的 H.264/AAC MP4。初始化/载入/精确定位返回 0，暂停 `time-pos=30.0` 秒、`hwdec-current=d3d11va`。mpv 官方手册明确 Windows `wid` 接收 HWND、`hwdec=auto` 不可用时回退软件解码、`hr-seek` 可用于精确定位：[mpv 手册](https://mpv.io/manual/stable/)。这只是 124 秒样本，未做数小时/多编码矩阵。
+- **mpv**：本机原无 `mpv`/libmpv。下载 [mpv Windows 发布页](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260926) 的 x86-64 开发包并核对 SHA-256 后，在隔离 Qt `QWidget` 的原生 HWND 上用 libmpv API 加载本机投稿目录下含 Emoji 的 H.264/AAC MP4。初始化/载入/精确定位返回 0，暂停 `time-pos=30.0` 秒、`hwdec-current=d3d11va`。mpv 官方手册明确 Windows `wid` 接收 HWND、`hwdec=auto` 不可用时回退软件解码、`hr-seek` 可用于精确定位：[mpv 手册](https://mpv.io/manual/stable/)。这只是 124 秒样本，未做数小时/多编码矩阵。
 - **QtMultimedia**：同一文件 `QMediaPlayer` + `QVideoWidget` 加载，时长 124435 ms、可 seek，30 秒定位后继续播放约两秒读到 31857 ms，未报告错误。[Qt QMediaPlayer](https://doc.qt.io/qtforpython-6/PySide6/QtMultimedia/QMediaPlayer.html)提供 `setPosition()`；真实 seek 质量仍须比较。
 - **EXE**：隔离 PyInstaller 6.22.3 构建 Qt Widgets `onedir/windowed` 小程序。误收宿主 Poppler 的 ICU 后导入 QtCore 失败；移走误收 DLL 后 EXE 退出码 0、启动标记成功，PE 子系统 2。说明路线可行，也说明正式构建必须清理 `PATH` 与校验收集清单。Inno Setup、完整应用和 mpv 合包尚未验证。
 
