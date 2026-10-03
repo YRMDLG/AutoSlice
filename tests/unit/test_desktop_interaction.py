@@ -2,7 +2,6 @@
 
 import tempfile
 import unittest
-from unittest.mock import patch
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -64,14 +63,13 @@ class DesktopInteractionTests(unittest.TestCase):
             root = Path(directory)
             source = root / "video.mp4"
             source.touch()
-            service = SubtitlePreviewService(DesktopStorage(root / "app-data"))
+            service = SubtitlePreviewService(
+                DesktopStorage(root / "app-data"),
+                probe_video=lambda _path: {"width": 1280, "height": 720},
+            )
             entries = [SimpleNamespace(index=1, start="00:00:00,000",
                                        end="00:00:01,000", text="测试")]
-            with patch(
-                "autoslice.desktop.subtitle_preview._probe_video_info",
-                return_value={"width": 1280, "height": 720},
-            ):
-                preview = service.render(source, entries)
+            preview = service.render(source, entries)
             document = preview.read_text(encoding="utf-8")
             self.assertIn("PlayResX: 1280", document)
             self.assertIn("PlayResY: 720", document)

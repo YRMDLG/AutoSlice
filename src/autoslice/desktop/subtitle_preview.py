@@ -13,8 +13,10 @@ from autoslice.transcription.contracts import SubtitleCue
 
 
 class SubtitlePreviewService:
-    def __init__(self, storage):
+    def __init__(self, storage, probe_video=None):
         self.storage = storage
+        # 可注入视频探测，测试无需 patch 私有函数
+        self._probe_video = probe_video or _probe_video_info
         self._canvas_cache = {}
 
     def _canvas_size(self, video_path: str | Path) -> tuple[int, int]:
@@ -24,7 +26,7 @@ class SubtitlePreviewService:
         cached = self._canvas_cache.get(key)
         if cached is not None:
             return cached
-        info = _probe_video_info(path)
+        info = self._probe_video(path)
         size = (int(info["width"]), int(info["height"]))
         self._canvas_cache = {key: size}
         return size
