@@ -89,6 +89,21 @@ def _temporary_path_suffix(path):
     return None
 
 
+def _topic_page_html_and_script(test_case, client):
+    """主工作台页面及其外置脚本，都经 Flask 路由读取。"""
+
+    response = client.get("/topic-v2")
+    test_case.assertEqual(response.status_code, 200)
+    html = response.get_data(as_text=True)
+    match = re.search(r'<script src="([^"]*/topic_v2\.js)" defer></script>', html)
+    test_case.assertIsNotNone(match)
+    script_response = client.get(match.group(1))
+    test_case.assertEqual(script_response.status_code, 200)
+    script = script_response.get_data(as_text=True)
+    script_response.close()
+    return html, script
+
+
 class ResourcePathTests(unittest.TestCase):
     def test_templates_and_static_files_do_not_depend_on_current_directory(self):
         previous = Path.cwd()
@@ -230,6 +245,9 @@ if(placeholder.style.display!=='block')throw new Error('预览占位符未恢复
         topic_html = (
             project_root / "src" / "autoslice" / "resources" / "templates" / "topic_v2.html"
         ).read_text(encoding="utf-8")
+        topic_script = (
+            project_root / "src" / "autoslice" / "resources" / "static" / "topic_v2.js"
+        ).read_text(encoding="utf-8")
         subtitle_html = (
             project_root
             / "src"
@@ -267,7 +285,9 @@ if(placeholder.style.display!=='block')throw new Error('预览占位符未恢复
         workspace = topic_html.index('<div class="workspace-grid">')
         self.assertLess(summary, workspace)
         self.assertEqual(topic_html.count('id="startButton"'), 1)
-        self.assertIn("已选择录播；可直接执行完整分析与切片", topic_html)
+        self.assertIn("已选择录播；可直接执行完整分析与切片", topic_script)
+        self.assertNotIn("<script>", topic_html)
+        self.assertNotRegex(topic_html, r"\son(?:click|change|input)=")
         self.assertIn(".desktop-editing-notice{display:none}", subtitle_html)
         self.assertIn("@media(max-width:760px)", subtitle_html)
         self.assertIn("字幕精细编辑建议在桌面完成", subtitle_html)
@@ -326,12 +346,7 @@ class TopicPageContractTests(unittest.TestCase):
         self.client = _bootstrapped_client()
 
     def _page_script(self):
-        response = self.client.get("/topic-v2")
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        matches = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
-        self.assertTrue(matches)
-        return html, matches[-1]
+        return _topic_page_html_and_script(self, self.client)
 
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查扫描状态行为")
     def test_topic_page_scan_state_clears_stale_selection_and_restores_only_present_path(self):
@@ -1546,7 +1561,7 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             "analysis_background_filter_default": "off",
             "background_filter_limit": "单音轨无法保证 100% 分离同时人声",
         }
-        with patch("autoslice.topic_engine.funasr_public_status", return_value=public_status):
+        with patch("autoslice.transcription.model_runtime.funasr_public_status", return_value=public_status):
             response = self.client.get("/api/asr-status")
 
         self.assertEqual(response.status_code, 200)
@@ -1576,8 +1591,10 @@ class AutoCoverIntegrationTests(unittest.TestCase):
             self.assertNotIn("personal-recordings", html)
             self.assertNotIn("private-capture-tool", html)
             self.assertNotIn(r"X:\personal\recordings", html)
-            self.assertIn("autoslice.video-dir", html)
-            self.assertIn("autoslice.output-dir", html)
+            self.assertIn('id="topicPageConfig"', html)
+        _html, script = _topic_page_html_and_script(self, self.client)
+        self.assertIn("autoslice.video-dir", script)
+        self.assertIn("autoslice.output-dir", script)
 
 
 class SubtitleWorkflowPageTests(unittest.TestCase):
@@ -2869,7 +2886,7 @@ class DirectSliceApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -3045,15 +3062,15 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.optimize_manual_timeline_for_video",
+                    "autoslice.pipeline.optimize_manual_timeline_for_video",
                     return_value=expected,
                 ) as optimize,
                 patch(
-                    "autoslice.topic_engine.run_pipeline",
+                    "autoslice.pipeline.run_pipeline",
                     side_effect=AssertionError("独立优化不应运行完整分析"),
                 ),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     side_effect=AssertionError("独立优化不应自动切片"),
                 ),
             ):
@@ -3101,9 +3118,9 @@ class TopicPipelineApiTests(unittest.TestCase):
 
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
-                patch("autoslice.topic_engine.run_pipeline", return_value=pipeline_result) as run_pipeline,
+                patch("autoslice.pipeline.run_pipeline", return_value=pipeline_result) as run_pipeline,
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     side_effect=AssertionError("没有切片标记时不应调用切片"),
                 ),
             ):
@@ -3171,11 +3188,11 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.run_pipeline",
+                    "autoslice.pipeline.run_pipeline",
                     return_value=pipeline_result,
                 ),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(12, str(slice_dir)),
                 ),
             ):
@@ -3234,11 +3251,11 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.retry_clip_review_from_artifacts",
+                    "autoslice.pipeline.retry_clip_review_from_artifacts",
                     return_value=result,
                 ) as retry,
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -3317,7 +3334,7 @@ class TopicPipelineApiTests(unittest.TestCase):
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.slice_from_marks",
+                    "autoslice.slicing.slice_from_marks",
                     return_value=(1, str(output_dir / "录播_话题切片")),
                 ) as slicer,
             ):
@@ -3516,24 +3533,22 @@ class TopicPipelineApiTests(unittest.TestCase):
         popen.assert_not_called()
 
     def test_topic_v2_page_exposes_artifact_paths_and_safe_open_action(self):
-        response = self.client.get("/topic-v2")
-        html = response.get_data(as_text=True)
+        html, script = _topic_page_html_and_script(self, self.client)
 
-        self.assertEqual(response.status_code, 200)
         self.assertIn("打开结果目录", html)
-        self.assertIn("/api/open-result-directory", html)
-        self.assertIn("/api/retry-clip-review", html)
+        self.assertIn("/api/open-result-directory", script)
+        self.assertIn("/api/retry-clip-review", script)
         self.assertIn("仅重新复核候选", html)
-        self.assertIn("result.overview_path", html)
-        self.assertIn("result.artifact_dir", html)
+        self.assertIn("result.overview_path", script)
+        self.assertIn("result.artifact_dir", script)
         self.assertIn('id="streamerProfile"', html)
-        self.assertIn("/api/streamer-profiles", html)
-        self.assertIn("autoslice.streamer-profile", html)
+        self.assertIn("/api/streamer-profiles", script)
+        self.assertIn("autoslice.streamer-profile", script)
         self.assertIn('id="asrStatus"', html)
-        self.assertIn("'/api/asr-status'", html)
-        self.assertEqual(html.count("streamer_profile_id:selectedStreamerProfile()"), 3)
+        self.assertIn("'/api/asr-status'", script)
+        self.assertEqual(script.count("streamer_profile_id:selectedStreamerProfile()"), 3)
         self.assertGreaterEqual(
-            html.count("output_dir:document.getElementById('outputDir').value"),
+            script.count("output_dir:document.getElementById('outputDir').value"),
             2,
         )
 
@@ -3567,14 +3582,10 @@ class TopicPipelineApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查页面脚本语法")
     def test_topic_v2_page_script_compiles(self):
-        response = self.client.get("/topic-v2")
-        scripts = re.findall(
-            r"<script>(.*?)</script>", response.get_data(as_text=True), flags=re.S
-        )
-        self.assertTrue(scripts)
+        _html, script = _topic_page_html_and_script(self, self.client)
         result = subprocess.run(
             ["node", "-e", "new Function(require('fs').readFileSync(0,'utf8'))"],
-            input=scripts[-1],
+            input=script,
             text=True,
             encoding="utf-8",
             capture_output=True,
@@ -3585,13 +3596,7 @@ class TopicPipelineApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查只读时间轴行为")
     def test_topic_page_renders_independent_timeline_and_explicit_incomplete_state(self):
-        response = self.client.get("/topic-v2")
-        self.assertEqual(response.status_code, 200)
-        scripts = re.findall(
-            r"<script>(.*?)</script>", response.get_data(as_text=True), flags=re.S
-        )
-        self.assertTrue(scripts)
-        script = scripts[-1]
+        _html, script = _topic_page_html_and_script(self, self.client)
         script_prefix = script.split("restoreWorkspacePaths();", 1)[0]
         runtime_assertions = r"""
 const makeNode=()=>({
@@ -3658,13 +3663,8 @@ globalThis.fetch=(url)=>{requests.push(url);return Promise.resolve({ok:true,stat
 
     @unittest.skipUnless(shutil.which("node"), "需要 Node.js 检查时间轴与短片预览联动")
     def test_topic_page_links_timeline_selection_to_safe_clip_preview_without_stale_responses(self):
-        response = self.client.get("/topic-v2")
-        self.assertEqual(response.status_code, 200)
-        scripts = re.findall(
-            r"<script>(.*?)</script>", response.get_data(as_text=True), flags=re.S
-        )
-        self.assertTrue(scripts)
-        script_prefix = scripts[-1].split("restoreWorkspacePaths();", 1)[0]
+        _html, script = _topic_page_html_and_script(self, self.client)
+        script_prefix = script.split("restoreWorkspacePaths();", 1)[0]
         runtime_assertions = r"""
 const makeClassList=()=>({
   values:new Set(),
@@ -3851,7 +3851,7 @@ const settle=async()=>{for(let index=0;index<8;index++)await Promise.resolve()};
             }
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
-                patch("autoslice.topic_engine.run_pipeline", return_value=pipeline_result),
+                patch("autoslice.pipeline.run_pipeline", return_value=pipeline_result),
             ):
                 first = self.client.post(
                     "/api/start-pipeline",
@@ -3930,7 +3930,7 @@ const settle=async()=>{for(let index=0;index<8;index++)await Promise.resolve()};
             with (
                 patch.object(app_module.threading, "Thread", ImmediateThread),
                 patch(
-                    "autoslice.topic_engine.run_pipeline",
+                    "autoslice.pipeline.run_pipeline",
                     side_effect=RuntimeError(
                         "token=test-private-value 位于 X:\\fixtures\\api_config.json"
                     ),

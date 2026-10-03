@@ -404,28 +404,12 @@ def _template_directory(value):
 def issue_local_browser_session(response):
     """页面或显式 bootstrap GET 仅通过 HttpOnly Cookie 建立本机会话。"""
 
-    if (
-            request.method == "GET"
-            and request.path in _SESSION_BOOTSTRAP_PATHS
-            and response.status_code < 400):
-        security_policy.attach_session_cookie(
-            response,
-            scheme=request.scheme,
-            host_header=request.host,
-            secure=request.is_secure,
-        )
-    if security_policy.settings().lan_mode:
-        if response.is_json:
-            payload = response.get_json(silent=True)
-            if payload is not None:
-                response.set_data(app.json.dumps(
-                    security_policy.redact_lan_payload(payload)
-                ))
-        elif response.mimetype in {"text/html", "text/plain", "text/markdown"}:
-            response.set_data(security_policy.redact_lan_text(
-                response.get_data(as_text=True)
-            ))
-    return response
+    return security_policy.finalize_flask_response(
+        request,
+        response,
+        bootstrap_paths=_SESSION_BOOTSTRAP_PATHS,
+        json_dumps=app.json.dumps,
+    )
 
 
 def _redact_task_error_text(value):
@@ -1508,8 +1492,8 @@ def run_subtitle_title_task(
         )
 
     try:
+        from autoslice.pipeline import subtitle_title_services
         from autoslice.subtitle_workflow import generate_subtitle_reference_titles
-        from autoslice.topic_engine import subtitle_title_services
 
         with streamer_profile_context(streamer_profile):
             _raise_if_task_cancelled(task_id)
@@ -1564,7 +1548,7 @@ def run_subtitle_transcription_task(
 
     try:
         from autoslice.subtitle_workflow import transcribe_submission_video
-        from autoslice.topic_engine import ensure_srt
+        from autoslice.transcription.workflow import ensure_srt
 
         _raise_if_task_cancelled(task_id)
         result = transcribe_submission_video(
@@ -1674,7 +1658,7 @@ def run_timeline_optimization_task(
         )
 
     try:
-        from autoslice.topic_engine import optimize_manual_timeline_for_video
+        from autoslice.pipeline import optimize_manual_timeline_for_video
 
         _raise_if_task_cancelled(task_id)
         result = optimize_manual_timeline_for_video(
@@ -1723,7 +1707,8 @@ def run_clip_review_retry_task(
         )
 
     try:
-        from autoslice.topic_engine import retry_clip_review_from_artifacts, slice_from_marks
+        from autoslice.pipeline import retry_clip_review_from_artifacts
+        from autoslice.slicing import slice_from_marks
 
         _raise_if_task_cancelled(task_id)
         result = retry_clip_review_from_artifacts(
@@ -1766,7 +1751,7 @@ def run_slice_task(
 
     try:
         with streamer_profile_context(streamer_profile, flv_path):
-            from autoslice.topic_engine import slice_from_marks
+            from autoslice.slicing import slice_from_marks
             _raise_if_task_cancelled(task_id)
             count, out_dir = slice_from_marks(
                 flv_path,
@@ -2783,7 +2768,7 @@ def streamer_profiles_contract():
 def asr_status_contract():
     """展示当前 FunASR 模型与调整入口，不返回任何本机模型路径。"""
 
-    from autoslice.topic_engine import funasr_public_status
+    from autoslice.transcription.model_runtime import funasr_public_status
 
     return jsonify(funasr_public_status())
 
@@ -2859,7 +2844,8 @@ def start_pipeline():
         if _task_cancellation_requested(task_id):
             return
         try:
-            from autoslice.topic_engine import run_pipeline, slice_from_marks
+            from autoslice.pipeline import run_pipeline
+            from autoslice.slicing import slice_from_marks
 
             def cb(msg, step, total):
                 _raise_if_task_cancelled(task_id)

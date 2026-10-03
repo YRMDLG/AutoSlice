@@ -202,7 +202,7 @@ class CoreCompatibilityTests(unittest.TestCase):
                 return_value=nullcontext(),
             ),
             patch(
-                "autoslice.topic_engine.slice_from_marks",
+                "autoslice.slicing.slice_from_marks",
                 return_value=(1, r"X:\output\录播_话题切片"),
             ) as slice_from_marks,
         ):

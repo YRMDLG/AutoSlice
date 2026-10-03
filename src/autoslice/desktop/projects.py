@@ -3,24 +3,17 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from autoslice import runtime_config
 from autoslice.subtitle_workflow import scan_submission_pairs
 
-DEFAULT_SUBMISSION_ROOT = Path(r"F:\Videos\投稿")
-
 
 def configured_submission_root() -> Path:
-    """显式环境、本机配置依次覆盖 Desktop 的默认投稿目录。"""
+    """与 Web 端同一配置 owner：显式环境、本机配置，最后是仓库内 submissions。"""
 
-    value = (
-        str(os.environ.get("AUTOSLICE_SUBMISSION_DIR", "")).strip()
-        or runtime_config.LOCAL_ENVIRONMENT.get("AUTOSLICE_SUBMISSION_DIR", "")
-    )
-    return Path(value).expanduser() if value else DEFAULT_SUBMISSION_ROOT
+    return runtime_config.configured_path("AUTOSLICE_SUBMISSION_DIR", "submissions")
 
 
 @dataclass(frozen=True)

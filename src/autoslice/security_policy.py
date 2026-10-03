@@ -805,6 +805,36 @@ class SecurityPolicy:
         response.headers["Cache-Control"] = "no-store"
         return True
 
+    def finalize_flask_response(
+        self,
+        flask_request: Any,
+        response: Any,
+        *,
+        bootstrap_paths: object,
+        json_dumps: Any,
+    ) -> Any:
+        """两个本机 Flask 程序共用的响应收尾：签发会话 Cookie，LAN 模式下脱敏正文。"""
+
+        if (
+            flask_request.method == "GET"
+            and flask_request.path in bootstrap_paths
+            and response.status_code < 400
+        ):
+            self.attach_session_cookie(
+                response,
+                scheme=flask_request.scheme,
+                host_header=flask_request.host,
+                secure=flask_request.is_secure,
+            )
+        if self.settings().lan_mode:
+            if response.is_json:
+                payload = response.get_json(silent=True)
+                if payload is not None:
+                    response.set_data(json_dumps(self.redact_lan_payload(payload)))
+            elif response.mimetype in {"text/html", "text/plain", "text/markdown"}:
+                response.set_data(self.redact_lan_text(response.get_data(as_text=True)))
+        return response
+
 
 __all__ = [
     "DEFAULT_PATH_FIELDS",

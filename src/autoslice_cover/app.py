@@ -538,28 +538,6 @@ def _render_task_result(
     )
 
 
-def _render_task(
-    app: Flask,
-    workspace: CoverWorkspace,
-    task: CoverTask,
-    canvas_key: str,
-    output_path: Path,
-    payload: dict[str, Any],
-    *,
-    include_background: bool = False,
-) -> dict[str, Any]:
-    result = _render_task_result(
-        app,
-        workspace,
-        task,
-        canvas_key,
-        output_path,
-        payload,
-        include_background=include_background,
-    )
-    return _render_result_payload(workspace, result)
-
-
 def _save_task(
     app: Flask,
     workspace: CoverWorkspace,
@@ -682,29 +660,12 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.after_request
     def issue_local_browser_session(response):
-        if (
-            request.method == "GET"
-            and request.path in SESSION_BOOTSTRAP_PATHS
-            and response.status_code < 400
-        ):
-            security_policy.attach_session_cookie(
-                response,
-                scheme=request.scheme,
-                host_header=request.host,
-                secure=request.is_secure,
-            )
-        if security_policy.settings().lan_mode:
-            if response.is_json:
-                payload = response.get_json(silent=True)
-                if payload is not None:
-                    response.set_data(app.json.dumps(
-                        security_policy.redact_lan_payload(payload)
-                    ))
-            elif response.mimetype in {"text/html", "text/plain", "text/markdown"}:
-                response.set_data(security_policy.redact_lan_text(
-                    response.get_data(as_text=True)
-                ))
-        return response
+        return security_policy.finalize_flask_response(
+            request,
+            response,
+            bootstrap_paths=SESSION_BOOTSTRAP_PATHS,
+            json_dumps=app.json.dumps,
+        )
 
     @app.errorhandler(ApiError)
     def handle_api_error(error: ApiError):

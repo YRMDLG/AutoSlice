@@ -124,6 +124,14 @@ jobs:
         shell: pwsh
         run: node --check src/autoslice_cover/resources/static/app.js
 
+      - name: Check AutoSlice JavaScript
+        shell: pwsh
+        run: |
+          foreach ($script in 'src/autoslice/resources/static/topic_v2.js', 'src/autoslice/resources/static/subtitle_workflow.js') {
+            node --check $script
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+
   linux-logic-only:
     name: Linux logic only (no media support) / Python 3.10
     runs-on: ubuntu-latest

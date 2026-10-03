@@ -4,7 +4,7 @@
 
 ## 范围与边界
 
-- 投稿目录由 `AUTOSLICE_SUBMISSION_DIR`、本机配置或仓库内 `submissions` 默认值决定，页面也可提交 `root_dir`；不是源码中固定路径。本次确认的本机目录 `F:\Videos\投稿` 存在，且与本机配置一致。[配置](../../src/autoslice/runtime_config.py#L84-L113) · [路由](../../src/autoslice/web/app.py#L2204-L2234)
+- 投稿目录由 `AUTOSLICE_SUBMISSION_DIR`、本机配置或仓库内 `submissions` 默认值决定，页面也可提交 `root_dir`；不是源码中固定路径。本次确认的本机投稿目录存在，且与本机配置一致。[配置](../../src/autoslice/runtime_config.py#L84-L113) · [路由](../../src/autoslice/web/app.py#L2204-L2234)
 - AutoCover 在本仓库的生产代码为 `src/autoslice_cover/`；`autocover_tool/` 保留旧启动和数据兼容用途。[项目结构](../../README.md)
 - 下表的建议针对能力与契约，不包含旧 HTML/CSS/JavaScript 页面的迁入。
 

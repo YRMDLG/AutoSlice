@@ -128,13 +128,3 @@ TITLE_STYLE_PROFILE = (
         else (PROJECT_DIR / "title_style_profile.example.json").resolve()
     )
 )
-
-
-def template_defaults() -> dict[str, str]:
-    """返回 Web 页面需要的公开路径默认值。"""
-    return {
-        "default_video_dir": str(VIDEO_DIR),
-        "default_output_dir": str(OUTPUT_DIR),
-        "default_timeline_dir": str(TIMELINE_DIR),
-        "default_submission_dir": str(SUBMISSION_DIR),
-    }

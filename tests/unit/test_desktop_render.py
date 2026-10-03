@@ -29,7 +29,8 @@ class SubtitleRenderServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # CI 临时目录是 8.3 短路径，服务内部 resolve 后为长路径
+        self.root = Path(self.temp.name).resolve()
         folder = self.root / "【中文】😊"
         folder.mkdir()
         self.video = folder / "短片.mp4"
@@ -164,9 +165,14 @@ class SubtitleRenderQtTests(unittest.TestCase):
         from autoslice.desktop.qt_app.window import DesktopWindow
 
         with patch("autoslice.desktop.qt_app.window.MpvAdapter",
-                   side_effect=OSError("测试无播放器")), \
-             patch.object(DesktopWindow, "_start_waveform"):
+                   side_effect=OSError("测试无播放器")):
             reopened = DesktopWindow(SubmissionProjectService(self.root), self.storage)
+        # 波形在异步载入完成后才生成，须在实例上替换并覆盖整个用例；构造期间 patch
+        # DesktopWindow 类属性既拦不到这次调用，还会让 PySide 在构造第二个窗口时崩溃。
+        waveform = patch.object(reopened.waveform_cache, "load_or_generate",
+                                side_effect=RuntimeError("测试不生成波形"))
+        waveform.start()
+        self.addCleanup(waveform.stop)
         reopened.show()
 
         def close_reopened():
@@ -322,6 +328,10 @@ class SubtitleRenderQtTests(unittest.TestCase):
             def seek(self, position, pause=True):
                 self.seeks.append((position, pause))
 
+            def close(self):
+                # 用例收尾关窗时 closeEvent 会调用 player.close()
+                pass
+
         self.window.player = FakePlayer()
         self.window._media_ready = True
         self.window._player_duration = 20.0
@@ -343,12 +353,27 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.assertIsNone(self.window._seek_guard_target)
 
     def test_bottom_subtitle_click_keeps_seek_behavior(self):
+        class FakePlayer:
+            def __init__(self):
+                self.seeks = []
+
+            def seek(self, position, pause=True):
+                self.seeks.append((position, pause))
+
+            def close(self):
+                pass
+
+        player = FakePlayer()
+        self.window.player = player
+        self.window._media_ready = True
+        self.window._player_duration = 20.0
         index = self.window.model.index(0, 0)
         self.window._player_position = 9.0
         self.window._player_paused = True
-        with patch.object(self.window, "_seek_to") as seek_to:
-            self.window._cue_clicked(index)
-        seek_to.assert_called_once_with(0.0)
+        self.window._cue_clicked(index)
+        # 从播放器与时间轴的结果验证跳转，不替换私有 _seek_to
+        self.assertEqual(player.seeks, [(0.0, True)])
+        self.assertAlmostEqual(self.window.timeline.playhead, 0.0, delta=0.001)
         self.assertEqual(self.window.selection.active, 1)
 
     def test_timeline_selection_preserves_manual_view(self):

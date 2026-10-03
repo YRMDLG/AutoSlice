@@ -550,7 +550,7 @@ def main(argv=None):
         print("  按 Ctrl+C 同时停止本次启动的服务\n")
         print("=" * 50 + "\n")
 
-        from autoslice.topic_engine import funasr_public_status
+        from autoslice.transcription.model_runtime import funasr_public_status
         from autoslice.web.app import app
 
         asr_status = funasr_public_status()

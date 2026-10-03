@@ -243,7 +243,7 @@ def parse_json_topics_response(
             end_str = str(item.get("end", "")).strip()
             start_s = timecode.parse_hms(start_str)
             end_s = timecode.parse_hms(end_str)
-        except Exception:
+        except (ValueError, IndexError):
             continue
         if not is_topic_in_chunk(
             start_s,

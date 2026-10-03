@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -82,6 +83,9 @@ class DesktopFoundationTests(unittest.TestCase):
             self.source, dependencies=[self.corrected],
         )
         self.source.write_text("外部修改发生在首次自动保存前", encoding="utf-8")
+        # 新内容恰与原文同为 42 字节；粗粒度文件时间下 mtime 可能不变，显式推后
+        changed = self.source.stat()
+        os.utime(self.source, ns=(changed.st_atime_ns, baseline["source"]["mtime_ns"] + 10**9))
         self.storage.save_draft(
             "subtitle", self.project, self.source, {"text": "编辑器内容"},
             dependencies=[self.corrected], baseline=baseline,

@@ -65,6 +65,7 @@ def main() -> int:
     required_resources = (
         package_root / "resources" / "templates" / "topic_v2.html",
         package_root / "resources" / "static" / "workbench.css",
+        package_root / "resources" / "static" / "topic_v2.js",
         package_root / "streamer_profiles.json",
         package_root / "title_style_profile.example.json",
     )

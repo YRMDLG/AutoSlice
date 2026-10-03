@@ -20,6 +20,7 @@ from autoslice.llm.prompts import PromptContext, build_title_hook_guide
 from autoslice.media_formats import SUPPORTED_VIDEO_EXTENSIONS
 from autoslice.streamer_profiles import StreamerProfile, merge_profile_subtitle_glossary
 from autoslice.transcription import background_filter as background_filter_contract
+from autoslice.transcription import segments as subtitle_segments
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -441,38 +442,6 @@ def _normalise_split_groups(cues, split_groups, deleted_indices):
     return result
 
 
-def _split_subtitle_cues(cues, text_updates, deleted_indices, split_groups):
-    """把拆分段展开成输出 SRT cue；首段沿用源序号，后续段使用稳定新序号。"""
-    used = {cue.index for cue in cues}
-    next_index = max(used, default=0) + 1
-    output = []
-    for cue in cues:
-        if cue.index in deleted_indices:
-            continue
-        segments = split_groups.get(cue.index)
-        if not segments:
-            output.append(SubtitleCue(
-                cue.index,
-                cue.start,
-                cue.end,
-                cue.settings,
-                text_updates.get(cue.index, cue.text),
-            ))
-            continue
-        for position, segment in enumerate(segments):
-            index = cue.index if position == 0 else next_index
-            if position:
-                next_index += 1
-            output.append(SubtitleCue(
-                index,
-                segment["start"],
-                segment["end"],
-                cue.settings,
-                segment["text"],
-            ))
-    return output
-
-
 def serialise_srt(
         cues, text_updates=None, deleted_indices=None, *, merge_pairs=None,
         merge_overrides=None, time_overrides=None, split_groups=None):
@@ -691,6 +660,41 @@ def reflow_subtitle_srt_for_display(
     }
 
 
+def _edit_structure_payload(
+        deleted, previous_by_child, normalized_merge_overrides,
+        normalized_time_overrides, normalized_split_groups):
+    """保存与读取共用的编辑结构字段；字段顺序与旧状态文件保持一致。"""
+    return {
+        "deleted_indices": sorted(deleted),
+        "merge_pairs": [
+            {"first": first, "second": second}
+            for second, first in sorted(previous_by_child.items())
+        ],
+        "merge_overrides": {
+            str(index): text
+            for index, text in sorted(normalized_merge_overrides.items())
+        },
+        "time_overrides": {
+            str(index): {
+                "start": timing["start_seconds"],
+                "end": timing["end_seconds"],
+            }
+            for index, timing in sorted(normalized_time_overrides.items())
+        },
+        "split_groups": [
+            {
+                "source": source,
+                "segments": [
+                    {"id": item["id"], "start": item["start_seconds"],
+                     "end": item["end_seconds"], "text": item["text"]}
+                    for item in segments
+                ],
+            }
+            for source, segments in sorted(normalized_split_groups.items())
+        ],
+    }
+
+
 def save_corrected_srt(
         source_srt_path, corrections, output_path=None, *, deleted_indices=None,
         merge_pairs=None, merge_overrides=None, time_overrides=None,
@@ -785,33 +789,13 @@ def save_corrected_srt(
                 }
                 for index, corrected in sorted(updates.items())
             ],
-            "deleted_indices": sorted(deleted),
-            "merge_pairs": [
-                {"first": first, "second": second}
-                for second, first in sorted(previous_by_child.items())
-            ],
-            "merge_overrides": {
-                str(index): text
-                for index, text in sorted(normalized_merge_overrides.items())
-            },
-            "time_overrides": {
-                str(index): {
-                    "start": timing["start_seconds"],
-                    "end": timing["end_seconds"],
-                }
-                for index, timing in sorted(normalized_time_overrides.items())
-            },
-            "split_groups": [
-                {
-                    "source": source,
-                    "segments": [
-                        {"id": item["id"], "start": item["start_seconds"],
-                         "end": item["end_seconds"], "text": item["text"]}
-                        for item in segments
-                    ],
-                }
-                for source, segments in sorted(normalized_split_groups.items())
-            ],
+            **_edit_structure_payload(
+                deleted,
+                previous_by_child,
+                normalized_merge_overrides,
+                normalized_time_overrides,
+                normalized_split_groups,
+            ),
         }
         _atomic_write_text(
             _subtitle_edit_state_path(source_srt_path),
@@ -886,33 +870,13 @@ def load_subtitle_edit_state(source_srt_path):
             "state_path": str(state_path),
             "corrected_srt_path": str(corrected),
             "corrections": corrections,
-            "deleted_indices": sorted(deleted),
-            "merge_pairs": [
-                {"first": first, "second": second}
-                for second, first in sorted(previous_by_child.items())
-            ],
-            "merge_overrides": {
-                str(index): text
-                for index, text in sorted(normalized_merge_overrides.items())
-            },
-            "time_overrides": {
-                str(index): {
-                    "start": timing["start_seconds"],
-                    "end": timing["end_seconds"],
-                }
-                for index, timing in sorted(normalized_time_overrides.items())
-            },
-            "split_groups": [
-                {
-                    "source": source,
-                    "segments": [
-                        {"id": item["id"], "start": item["start_seconds"],
-                         "end": item["end_seconds"], "text": item["text"]}
-                        for item in segments
-                    ],
-                }
-                for source, segments in sorted(normalized_split_groups.items())
-            ],
+            **_edit_structure_payload(
+                deleted,
+                previous_by_child,
+                normalized_merge_overrides,
+                normalized_time_overrides,
+                normalized_split_groups,
+            ),
         }
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
@@ -2074,10 +2038,6 @@ def _escape_ass_text(text):
     )
 
 
-def _subtitle_display_text_size(text):
-    return len(re.sub(r"\s+", "", str(text or "")))
-
-
 def _subtitle_display_char_limit(width, geometry):
     """按输出画布、字号和描边估算一行字幕的安全字数。"""
     usable_width = max(1.0, float(width) - geometry["margin"] * 2)
@@ -2088,46 +2048,12 @@ def _subtitle_display_char_limit(width, geometry):
     return max(6, min(32, int(usable_width / glyph_width)))
 
 
-def _split_subtitle_text_for_ass(text, max_chars):
-    """将显示过长的单条字幕拆为安全行，优先保留词间空格。"""
-    remaining = re.sub(r"\s+", " ", str(text or "")).strip()
-    parts = []
-    while _subtitle_display_text_size(remaining) > max_chars:
-        visible_count = 0
-        hard_cut = len(remaining)
-        for index, char in enumerate(remaining):
-            if not char.isspace():
-                visible_count += 1
-            if visible_count >= max_chars:
-                hard_cut = index + 1
-                break
-        preferred_cut = remaining.rfind(" ", 0, hard_cut)
-        if (
-                preferred_cut > 0
-                and _subtitle_display_text_size(remaining[:preferred_cut])
-                >= max(2, int(max_chars * 0.55))):
-            cut = preferred_cut
-        else:
-            cut = hard_cut
-        part = remaining[:cut].strip()
-        if not part:
-            part = remaining[:hard_cut].strip()
-            cut = hard_cut
-        if not part:
-            break
-        parts.append(part)
-        remaining = remaining[cut:].lstrip()
-    if remaining:
-        parts.append(remaining)
-    return parts
-
-
 def _wrap_subtitle_text_for_ass(text, max_chars):
     """只做视觉换行，不改变 cue 的时间范围；显式换行也必须保留。"""
     source = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
     wrapped_lines = []
     for source_line in source.split("\n"):
-        parts = _split_subtitle_text_for_ass(source_line, max_chars)
+        parts = subtitle_segments.split_subtitle_text_for_display(source_line, max_chars=max_chars)
         if parts:
             wrapped_lines.extend(parts)
         elif source_line == "":
@@ -2137,7 +2063,7 @@ def _wrap_subtitle_text_for_ass(text, max_chars):
 
 def _split_cue_for_ass(cue, max_chars):
     """把一条 SRT cue 拆成连续事件；仅供显式 SRT 重排使用。"""
-    parts = _split_subtitle_text_for_ass(cue.text, max_chars)
+    parts = subtitle_segments.split_subtitle_text_for_display(cue.text, max_chars=max_chars)
     if not parts:
         return []
     start = cue.start_seconds
@@ -2148,7 +2074,7 @@ def _split_cue_for_ass(cue, max_chars):
     if len(parts) == 1:
         return [(start, end, parts[0])]
 
-    weights = [max(1, _subtitle_display_text_size(part)) for part in parts]
+    weights = [max(1, subtitle_segments.subtitle_text_size(part)) for part in parts]
     total_weight = sum(weights)
     duration = end - start
     minimum_duration = min(0.05, duration / len(parts))
