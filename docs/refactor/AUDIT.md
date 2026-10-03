@@ -268,3 +268,22 @@
 - **最大的类**：`DesktopWindow` 2268 行，`CoverWorkspace` 647 行，`SubtitleTimeline` 604 行，`SecurityPolicy` 538 行，`TaskStore` 538 行。
 - **改动最频繁的仍然很大的文件**：`pipeline.py`（50 次提交），`web/app.py`（15 次），`analysis/boundaries.py`（13 次），`reporting.py`（13 次）。
 - **测试覆盖**：只有 5 个生产模块在测试中完全没有被引用，其中 `media_preview` 实际上经路由和类名被间接测试，真正的缺口只有 `desktop/waveform.py`。
+
+## 8. 处理记录
+
+阶段 0 和阶段 1 已在 `desktop-vnext-refactor` 上完成，提交到 `desktop-vnext-dev` 等待合并：
+
+| 项 | 处理 |
+|---|---|
+| §3 护栏 | 合入 PR #1 的测试修复；新增的私有 patch 改为依赖注入或替身对象，回到上限 17；函数计数断言改为读取快照；重新生成快照 |
+| M9 | 桌面端改由 `runtime_config` 解析投稿目录，去掉写死的本机路径；文档改为配置说明；发布扫描通过 |
+| M4 | 字幕断行和字宽改用 `transcription.segments`；校对状态的结构字段由一个函数生成；两个 Flask 程序的响应收尾移到 `SecurityPolicy.finalize_flask_response` |
+| L1 | 删除 `_split_subtitle_cues`、`_render_task`、`retain`、`template_defaults`；`follow_playback` 暂时保留，避免和 UI 分支冲突 |
+| L2 | 只去掉集合里的重复项；改成规则表留到以后 |
+| L3 | 两处改为只捕获具体异常；项目没有使用 `logging`，不加日志 |
+| L4 | 闭包改用默认参数绑定 |
+| M3 | Web 主程序和启动器改为直接从真实模块导入，测试的 patch 目标同步修改 |
+| M7 | 脚本抽到 `static/topic_v2.js`，默认目录经 JSON 数据块注入，事件改为 `addEventListener` 绑定；CI 对两个外置脚本跑 `node --check` |
+| M5 | 等维护者决定 |
+
+阶段 2～4 尚未开始。
