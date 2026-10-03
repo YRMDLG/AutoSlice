@@ -8,9 +8,10 @@ import subprocess
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -18,10 +19,12 @@ try:
     from PySide6.QtCore import QPoint, QRectF, Qt
     from PySide6.QtGui import QPixmap
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QGroupBox
 except ImportError:
     QApplication = None
+    QGroupBox = None
 
+from autoslice.desktop.cover_model import TextObject
 from autoslice.desktop.cover_service import (
     CoverDraft,
     CoverService,
@@ -121,6 +124,17 @@ class CoverServiceTests(unittest.TestCase):
             self.assertGreater(image.width, 0)
             self.assertGreater(image.height, 0)
 
+    def test_nearby_frames_are_extracted_around_center_without_blocking_ui_contract(self):
+        _make_real_video(self.video_path)
+        frames = self.service.extract_nearby_frames(
+            self.video,
+            0.4,
+            (-0.4, 0.0, 0.4),
+        )
+        self.assertEqual(len(frames), 3)
+        self.assertEqual([round(item[1], 1) for item in frames], [0.0, 0.4, 0.8])
+        self.assertTrue(all(path.is_file() for path, _timestamp in frames))
+
     def test_background_transform_roundtrip_stays_in_private_storage(self):
         image = self.service.import_image(self.image_path)
         draft = CoverDraft(
@@ -136,6 +150,19 @@ class CoverServiceTests(unittest.TestCase):
         self.assertAlmostEqual(loaded.background_y, 0.77)
         self.assertAlmostEqual(loaded.background_scale, 1.6)
 
+    def test_legacy_auto_copy_compacts_long_a_b_into_short_b(self):
+        source_title = "〖泽音〗音姐今天要给沐霂点男模👀“哎呀我还没见过男模啥样呢😋”那种事情不要啊😭"
+        project = replace(self.project, title=source_title)
+        document = CoverDraft(
+            "音姐今天要给沐霂点男模\n哎呀我还没见过男模啥样呢",
+        ).to_document()
+        self.service.save_document(project, self.video, document)
+
+        loaded, _ = self.service.load_document(project, self.video)
+        text = next(item for item in loaded.objects if isinstance(item, TextObject))
+        self.assertEqual(text.text, "哎呀我还没见过男模啥样呢")
+        self.assertLess(text.rect.width, 0.8)
+
     def test_export_matches_preview_for_same_transform_state(self):
         image = self.service.import_image(self.image_path)
         draft = CoverDraft(
@@ -150,6 +177,77 @@ class CoverServiceTests(unittest.TestCase):
         preview = self.service.render_preview(self.video, draft)
         exported = self.service.export(self.project, self.video, draft)
         self.assertEqual(preview.read_bytes(), exported.read_bytes())
+
+    def test_document_preview_and_export_share_text_style(self):
+        image = self.service.import_image(self.image_path)
+        document = CoverDraft("文档样式", str(image), font_size=88).to_document()
+        text = next(item for item in document.objects if isinstance(item, TextObject))
+        styled = replace(
+            text,
+            style=replace(
+                text.style,
+                fill="#00E5FF",
+                stroke="#111111",
+                stroke_width=8,
+                font_weight=900,
+            ),
+        )
+        document = replace(document, objects=tuple(styled if item.id == text.id else item for item in document.objects))
+        preview = self.service.render_preview_document(self.video, document)
+        exported = self.service.export_document(self.project, self.video, document)
+        self.assertEqual(preview.read_bytes(), exported.read_bytes())
+        with Image.open(preview) as rendered:
+            cyan_pixels = sum(
+                1
+                for red, green, blue in rendered.convert("RGB").getdata()
+                if blue > 180 and green > 130 and red < 100
+            )
+        self.assertGreater(cyan_pixels, 20)
+
+    def test_preview_and_export_default_to_four_by_three_canvas(self):
+        image = self.service.import_image(self.image_path)
+        draft = CoverDraft("4:3 主画布", str(image), font_size=72)
+        preview = self.service.render_preview(self.video, draft)
+        exported = self.service.export(self.project, self.video, draft)
+        with Image.open(preview) as preview_image:
+            self.assertEqual(preview_image.size, (1440, 1080))
+        with Image.open(exported) as exported_image:
+            self.assertEqual(exported_image.size, (1440, 1080))
+
+    def test_check_preview_is_secondary_sixteen_by_nine_view(self):
+        image = self.service.import_image(self.image_path)
+        draft = CoverDraft("检查比例", str(image), font_size=72)
+        check = self.service.render_check_preview(self.video, draft)
+        with Image.open(check) as check_image:
+            self.assertEqual(check_image.size, (1920, 1080))
+        self.assertTrue(check.name.endswith("-16x9-check.jpg"))
+
+    def test_preview_and_export_can_use_sixteen_by_nine_main_canvas(self):
+        image = self.service.import_image(self.image_path)
+        draft = CoverDraft("横版主画布", str(image), font_size=72)
+        preview = self.service.render_preview(self.video, draft, canvas_key="16x9")
+        exported = self.service.export(
+            self.project, self.video, draft, canvas_key="16x9"
+        )
+        with Image.open(preview) as preview_image:
+            self.assertEqual(preview_image.size, (1920, 1080))
+        with Image.open(exported) as exported_image:
+            self.assertEqual(exported_image.size, (1920, 1080))
+        self.assertIn("-16x9", exported.name)
+
+    def test_text_position_prefers_quieter_side_of_frame(self):
+        image_path = Path(self.temp.name) / "layout.jpg"
+        image = Image.new("RGB", (1440, 1080), (180, 180, 180))
+        draw = ImageDraw.Draw(image)
+        for x in range(0, 700, 14):
+            draw.line((x, 0, x, 1080), fill=(20 if x % 28 else 245,) * 3, width=7)
+        image.save(image_path)
+        x, y = self.service.suggest_text_position(
+            image_path,
+            CoverDraft("短标题", font_size=96),
+        )
+        self.assertGreater(x, 0.4)
+        self.assertLess(y, 0.5)
 
     def test_long_multiline_title_is_wrapped_and_transforms_stay_in_bounds(self):
         title = "这是一个很长很长的中文标题，用来验证自动换行不会横穿画布\n第二行 😀"
@@ -182,12 +280,53 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
 
     def test_page_inherits_current_project_and_exposes_editor_controls(self):
         self.widget.set_context(self.project, self.project.videos[0])
+        self.assertEqual(self.widget.workflow_label.text(), "自动生成基础封面")
+        self.assertIn("换一张帧图", self.widget.workflow_hint.text())
         self.assertEqual(self.widget.project_label.text(), "项目甲")
         self.assertEqual(self.widget.video_label.text(), "视频.mp4")
         self.assertEqual(self.widget.title_edit.text(), "项目甲")
+        self.assertIn("4:3", self.widget.export_button.text())
+        self.assertIn("1440×1080", self.widget.export_summary.text())
+        self.assertFalse(self.widget.copy_controls.isHidden())
+        self.assertTrue(self.widget.media_controls.isHidden())
         self.assertFalse(self.widget.export_button.isEnabled())
         self.assertTrue(self.widget.frame_button.isEnabled())
         self.assertIn("从当前视频取帧", self.widget.frame_button.text())
+
+    def test_context_panel_switches_between_copy_and_background_controls(self):
+        self.widget._canvas_selection_changed(False)
+        self.assertTrue(self.widget.copy_controls.isHidden())
+        self.assertFalse(self.widget.media_controls.isHidden())
+        self.assertEqual(self.widget.findChild(QGroupBox).title(), "底图")
+        self.widget._canvas_selection_changed(True)
+        self.assertFalse(self.widget.copy_controls.isHidden())
+        self.assertTrue(self.widget.media_controls.isHidden())
+
+    def test_main_canvas_ratio_switch_updates_preview_and_export_contract(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.widget.canvas_ratio_buttons["16x9"].click()
+        self.assertEqual(self.widget._canvas_key, "16x9")
+        self.assertIn("16:9", self.widget.canvas_hint.text())
+        self.assertIn("1920×1080", self.widget.export_summary.text())
+        self.assertIn("16:9", self.widget.export_button.text())
+        self.widget.canvas_ratio_buttons["4x3"].click()
+        self.assertEqual(self.widget._canvas_key, "4x3")
+        self.assertIn("1440×1080", self.widget.export_summary.text())
+
+    def test_stale_frame_callback_is_ignored_after_context_reset(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        old_generation = self.widget._frame_request_generation
+        self.widget.set_context(None, None)
+        self.widget._frame_ready(
+            old_generation,
+            True,
+            (Path(self.temp.name) / "late-frame.jpg", 1.0),
+            None,
+        )
+        self.assertIsNone(self.widget.project)
+        self.assertIsNone(self.widget.video)
+        self.assertIsNone(self.widget.draft.image_path)
+        self.assertIn("加载底图", self.widget.canvas.text())
 
     def test_title_drag_updates_normalized_position_and_current_playhead_is_read_only(self):
         self.widget.set_context(self.project, self.project.videos[0])
@@ -221,6 +360,66 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertTrue(title_positions)
         self.assertTrue(background_positions)
         self.assertGreater(title_positions[-1][0], 0.1)
+
+    def test_title_drag_preserves_mouse_offset_without_forced_safe_margin(self):
+        from autoslice.desktop.cover_canvas import CoverCanvas
+
+        canvas = CoverCanvas()
+        canvas.resize(900, 600)
+        canvas.set_preview(QPixmap(900, 506))
+        canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
+        canvas.show()
+        self.app.processEvents()
+        positions = []
+        canvas.title_position_changed.connect(lambda x, y: positions.append((x, y)))
+
+        # 图片在 QLabel 中上下留白约 47 px；按下点位于标题内部，
+        # 移动后标题左上角应跟随同一按下偏移，而不是跳到鼠标位置。
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(220, 140))
+        QTest.mouseMove(canvas, QPoint(320, 190))
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(320, 190))
+
+        self.assertTrue(positions)
+        x, y = positions[-1]
+        self.assertAlmostEqual(x, 0.2111, places=2)
+        self.assertAlmostEqual(y, 0.1988, places=2)
+        self.assertGreater(x, 0.1)
+        self.assertGreater(y, 0.1)
+
+    def test_title_drag_can_reach_edge_without_safety_lock(self):
+        from autoslice.desktop.cover_canvas import CoverCanvas
+
+        canvas = CoverCanvas()
+        canvas.resize(900, 600)
+        canvas.set_preview(QPixmap(900, 506))
+        canvas.set_title_rect(QRectF(0.2, 0.2, 0.3, 0.2))
+        canvas.show()
+        self.app.processEvents()
+        positions = []
+        canvas.title_position_changed.connect(lambda x, y: positions.append((x, y)))
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(300, 170))
+        QTest.mouseMove(canvas, QPoint(80, 80))
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(80, 80))
+        self.assertTrue(positions)
+        self.assertLess(positions[-1][0], 0.06)
+        self.assertLess(positions[-1][1], 0.06)
+
+    def test_canvas_selection_feedback_distinguishes_title_and_background(self):
+        from autoslice.desktop.cover_canvas import CoverCanvas
+
+        canvas = CoverCanvas()
+        canvas.resize(900, 600)
+        canvas.set_preview(QPixmap(900, 506))
+        canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
+        canvas.show()
+        self.app.processEvents()
+        selected = []
+        canvas.selected_object_changed.connect(selected.append)
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(220, 140))
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(220, 140))
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(700, 400))
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(700, 400))
+        self.assertEqual(selected[-2:], ["title", "background"])
 
     def test_qt_navigation_shares_selected_project_with_cover_page(self):
         from unittest.mock import patch

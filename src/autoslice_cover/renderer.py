@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 from math import ceil, floor, isfinite
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from PIL import (
     Image,
@@ -35,6 +35,7 @@ from .style import (
     get_palette,
     get_template,
 )
+from .text_layout import style_value
 from .titles import CoverLine, create_cover_copy, recommend_visual_style
 
 PRESERVE_FRAME_MODES = {
@@ -122,6 +123,22 @@ class StickerOverlay:
     rotation: float = 0.0
     center_x: bool = False
     center_y: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeOverlay:
+    """第一版强调形状；坐标和尺寸均为画布归一化值。"""
+
+    shape_id: str
+    shape_type: str
+    x: float
+    y: float
+    width: float = 0.22
+    height: float = 0.16
+    stroke: str = "#FFDB4D"
+    stroke_width: int = 8
+    fill: str | None = None
+    rotation: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -512,6 +529,7 @@ def compose_background(
     focus_x: float | None = None,
     focus_y: float = 0.5,
     background_scale: float = 1.0,
+    fit_mode: str = "cover",
 ) -> Image.Image:
     """按模板独立适配画布，避免把 16:9 成品机械裁成 4:3。"""
 
@@ -526,7 +544,13 @@ def compose_background(
         template.background_mode in PRESERVE_FRAME_MODES
         and abs(source_ratio - target_ratio) > 0.03
     )
-    if should_preserve:
+    if fit_mode not in {"cover", "contain"}:
+        raise ValueError("背景适配模式必须是 cover 或 contain")
+    if fit_mode == "contain":
+        background = Image.new("RGB", target_size, "#080b0e")
+        foreground = ImageOps.contain(source, target_size, method=Image.Resampling.LANCZOS)
+        background.paste(foreground, ((canvas.width - foreground.width) // 2, (canvas.height - foreground.height) // 2))
+    elif should_preserve:
         backdrop_brightness = 0.94 if template.background_mode == "portrait_latest" else 0.78
         background = _blurred_backdrop(
             source,
@@ -618,11 +642,12 @@ def _measure_text_at_size(
     line: CoverLine,
     font_size: int,
     font_paths: tuple[str | None, ...],
+    stroke_width_override: int | None = None,
 ) -> tuple[_TextFontLayout, int, int, int, int]:
     """使用指定的实际字号测量一行文字。"""
 
     font_size = max(24, min(320, int(font_size)))
-    stroke_width = max(3, font_size // 16)
+    stroke_width = max(0, int(stroke_width_override)) if stroke_width_override is not None else max(3, font_size // 16)
     layout, width, height = _measure_font_layout(
         draw,
         line.text,
@@ -716,6 +741,89 @@ def _fit_independent_text(
         if total_height <= max_height or all(base_size <= 42 for base_size in base_sizes):
             return max(base_sizes, default=42), measured, gap
         base_sizes = [max(42, base_size - 4) for base_size in base_sizes]
+
+
+def _fit_text_block(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    *,
+    role: str,
+    area: tuple[int, int, int, int],
+    requested_size: int,
+    stroke_width: int,
+    line_spacing: float,
+    font_paths: tuple[str | None, ...],
+    max_lines: int = 2,
+) -> tuple[list[CoverLine], list[tuple[_TextFontLayout, int, int, int, int]], int]:
+    """按真实 glyph bbox 在独立区域内寻找 1~2 行方案。
+
+    v4 文档以前由服务层按近似字符数切行，随后又把每一行当成固定坐标
+    绘制，容易出现一两个字的尾行。这里把断行和字号搜索放回 renderer，
+    与最终绘制使用同一个字体、描边和 bbox 测量，避免“计算时能放下、实际
+    绘制却溢出”的漂移。
+    """
+
+    left, top, right, bottom = area
+    max_width = max(24, right - left)
+    max_height = max(24, bottom - top)
+    explicit = "\n" in text
+    source_lines = [part.strip() for part in text.replace("\r\n", "\n").split("\n") if part.strip()]
+    if not source_lines:
+        source_lines = [" "]
+    max_lines = max(1, min(8, int(max_lines)))
+
+    def candidates(value: str) -> list[tuple[str, ...]]:
+        if explicit:
+            return [tuple(source_lines[:max_lines])]
+        result: list[tuple[str, ...]] = [(value,)]
+        if max_lines >= 2 and len(value) > 1:
+            result.extend((value[:index].strip(), value[index:].strip()) for index in range(1, len(value)))
+        return [candidate for candidate in result if all(candidate_line for candidate_line in candidate)]
+
+    minimum = 36 if role == "context" else 42
+    requested_size = max(minimum, min(320, int(requested_size)))
+    for size in range(requested_size, minimum - 1, -2):
+        scored: list[tuple[tuple[float, ...], list[CoverLine], list[tuple[_TextFontLayout, int, int, int, int]], int]] = []
+        for raw_lines in candidates(text):
+            measured = [
+                _measure_text_at_size(
+                    draw,
+                    CoverLine(line, role),
+                    size,
+                    font_paths,
+                    stroke_width,
+                )
+                for line in raw_lines
+            ]
+            gap = max(8, round(size * max(0.08, min(0.30, float(line_spacing) - 1.0))))
+            total_height = sum(item[4] for item in measured) + gap * (len(measured) - 1)
+            if max(item[3] for item in measured) > max_width or total_height > max_height:
+                continue
+            short_tail = len(raw_lines[-1]) <= 2 if len(raw_lines) > 1 else False
+            # 一行优先；两行时优先平衡宽度，同时明确排除 1~2 字尾行。
+            if short_tail and not explicit:
+                continue
+            balance = abs(measured[0][3] - measured[-1][3]) if len(measured) > 1 else 0
+            score = (
+                float(len(measured) - 1),
+                float(balance),
+                float(-min(item[3] for item in measured)),
+            )
+            scored.append((score, [CoverLine(line, role) for line in raw_lines], measured, gap))
+        if scored:
+            _score, lines, measured, gap = min(scored, key=lambda item: item[0])
+            return lines, measured, gap
+
+    # 极端情况下区域小于最小字号：保留完整文字并让上层缩小区域外的
+    # 影响，不能重新退回近似字符切行。
+    size = minimum
+    raw_lines = candidates(text)[0]
+    measured = [
+        _measure_text_at_size(draw, CoverLine(line, role), size, font_paths, stroke_width)
+        for line in raw_lines
+    ]
+    gap = max(8, round(size * max(0.08, min(0.30, float(line_spacing) - 1.0))))
+    return [CoverLine(line, role) for line in raw_lines], measured, gap
 
 
 def _stack_positions(
@@ -918,6 +1026,38 @@ def draw_stickers(
     return tuple(placements)
 
 
+def draw_shapes(
+    image: Image.Image,
+    shapes: Sequence[ShapeOverlay],
+    canvas: CanvasSpec,
+) -> None:
+    """绘制圆圈、箭头和矩形强调框；不引入复杂蒙版或路径系统。"""
+
+    draw = ImageDraw.Draw(image)
+    for shape in shapes:
+        if shape.shape_type not in {"circle", "arrow", "rect"}:
+            raise ValueError(f"不支持的强调形状：{shape.shape_type}")
+        if not 0.0 <= shape.x <= 1.0 or not 0.0 <= shape.y <= 1.0:
+            raise ValueError("强调形状位置必须在 0 到 1 之间")
+        width = max(8, round(canvas.width * max(0.02, min(0.95, shape.width))))
+        height = max(8, round(canvas.height * max(0.02, min(0.95, shape.height))))
+        x = min(max(0, round(shape.x * canvas.width)), max(0, canvas.width - width))
+        y = min(max(0, round(shape.y * canvas.height)), max(0, canvas.height - height))
+        stroke_width = max(1, min(64, int(shape.stroke_width)))
+        stroke = _rgb(shape.stroke)
+        fill = _rgb(shape.fill) if shape.fill else None
+        if shape.shape_type == "circle":
+            draw.ellipse((x, y, x + width, y + height), fill=fill, outline=stroke, width=stroke_width)
+        elif shape.shape_type == "arrow":
+            start = (x, y + height)
+            end = (x + width, y)
+            draw.line((start, end), fill=stroke, width=stroke_width)
+            head = max(8, min(width, height) // 4)
+            draw.polygon((end, (end[0] - head, end[1]), (end[0], end[1] + head)), fill=stroke)
+        else:
+            draw.rectangle((x, y, x + width, y + height), fill=fill, outline=stroke, width=stroke_width)
+
+
 def _rgb(color: str) -> tuple[int, int, int]:
     return ImageColor.getrgb(color[:7])
 
@@ -933,6 +1073,9 @@ def draw_cover_text(
     line_colors: Sequence[str] | None = None,
     line_stroke_colors: Sequence[str] | None = None,
     text_transforms: Sequence[TextTransform] | None = None,
+    text_style: object | None = None,
+    text_area: tuple[float, float, float, float] | None = None,
+    text_role: str = "emphasis",
 ) -> tuple[TextPlacement, ...]:
     """在安全区内排版封面大字，并返回每行实际边界框。"""
 
@@ -951,49 +1094,107 @@ def draw_cover_text(
         font_paths = (*font_paths, emoji_font_path)
     draw = ImageDraw.Draw(image)
     area = _text_area(canvas, template)
-    if template.key in INDEPENDENT_TEXT_TEMPLATES:
+    if text_area is not None:
+        area = (
+            max(0, min(canvas.width - 1, round(float(text_area[0]) * canvas.width))),
+            max(0, min(canvas.height - 1, round(float(text_area[1]) * canvas.height))),
+            max(1, min(canvas.width, round(float(text_area[2]) * canvas.width))),
+            max(1, min(canvas.height, round(float(text_area[3]) * canvas.height))),
+        )
+        if area[2] <= area[0]:
+            area = (area[0], area[1], min(canvas.width, area[0] + 24), area[3])
+        if area[3] <= area[1]:
+            area = (area[0], area[1], area[2], min(canvas.height, area[1] + 24))
+
+    block_fitted = text_area is not None and text_transforms is None
+    if block_fitted:
+        requested_size = max(24, min(320, int(style_value(text_style, "font_size", 104))))
+        requested_stroke = max(0, min(64, int(style_value(text_style, "stroke_width", max(3, requested_size // 16)))))
+        effective_role = text_role if text_role in {"context", "quote", "emphasis", "neutral"} else "emphasis"
+        lines, measured, gap = _fit_text_block(
+            draw,
+            "\n".join(item.text if isinstance(item, CoverLine) else str(item) for item in lines),
+            role=effective_role,
+            area=area,
+            requested_size=requested_size,
+            stroke_width=requested_stroke,
+            line_spacing=float(style_value(text_style, "line_spacing", 1.12)),
+            font_paths=font_paths,
+            max_lines=8,
+        )
+        horizontal = "center" if text_style is not None and style_value(text_style, "align", "left") == "center" else "left"
+        positions = _stack_positions(area, measured, gap, horizontal=horizontal, vertical="top")
+    elif text_style is not None:
+        # v4 文档由桌面编辑器直接提供样式和字号；不再套用模板的
+        # context/quote/emphasis 缩放，确保 Canvas、预览和导出使用同一字号。
+        requested_size = max(24, min(320, int(style_value(text_style, "font_size", 104))))
+        requested_stroke = max(0, min(64, int(style_value(text_style, "stroke_width", max(3, requested_size // 16)))))
+        measured = [
+            _measure_text_at_size(draw, line, requested_size, font_paths, requested_stroke)
+            for line in lines
+        ]
+        gap = max(1, round(requested_size * float(style_value(text_style, "line_spacing", 1.12)) - requested_size))
+    elif template.key in INDEPENDENT_TEXT_TEMPLATES:
         _, measured, gap = _fit_independent_text(draw, lines, area, font_paths)
     else:
         _, measured, gap = _fit_text(draw, lines, area, font_paths)
-    if text_transforms is None:
-        positions = _positions_for_template(template, area, measured, gap)
-    else:
-        measured = [
-            _manual_measurement(draw, line, automatic, transform, canvas, font_paths)
-            for line, automatic, transform in zip(lines, measured, text_transforms)
-        ]
-        positions = [
-            _manual_position(transform, measured_line, canvas)
-            for transform, measured_line in zip(text_transforms, measured)
-        ]
+    if not block_fitted:
+        if text_transforms is None:
+            positions = _positions_for_template(template, area, measured, gap)
+        elif text_style is not None:
+            positions = [
+                _manual_position(transform, measured_line, canvas)
+                for transform, measured_line in zip(text_transforms, measured)
+            ]
+        else:
+            measured = [
+                _manual_measurement(draw, line, automatic, transform, canvas, font_paths)
+                for line, automatic, transform in zip(lines, measured, text_transforms)
+            ]
+            positions = [
+                _manual_position(transform, measured_line, canvas)
+                for transform, measured_line in zip(text_transforms, measured)
+            ]
+    custom_fill = style_value(text_style, "fill_color") if text_style is not None else None
+    custom_stroke = style_value(text_style, "stroke_color") if text_style is not None else None
+    custom_stroke_width = style_value(text_style, "stroke_width") if text_style is not None else None
+    custom_shadow = bool(style_value(text_style, "shadow", True)) if text_style is not None else True
     placements = []
     for index, (line, measured_line, position) in enumerate(zip(lines, measured, positions)):
         font_layout, font_size, stroke_width, width, height = measured_line
         x, y = position
-        color = line_colors[index] if line_colors is not None else palette.color_for_role(line.role)
+        color = (
+            str(custom_fill)
+            if custom_fill is not None
+            else line_colors[index] if line_colors is not None else palette.color_for_role(line.role)
+        )
         stroke_color = (
-            line_stroke_colors[index]
+            str(custom_stroke)
+            if custom_stroke is not None
+            else line_stroke_colors[index]
             if line_stroke_colors is not None
             else palette.stroke_for_role(line.role)
         )
-        shadow_offset = max(2, font_size // (34 if stroke_color == "#111111" else 24))
-        _draw_text_layout(
-            image,
-            draw,
-            (x + shadow_offset, y + shadow_offset),
-            font_layout,
-            fill=_rgb(palette.shadow_color),
-            stroke_width=stroke_width + 1,
-            stroke_fill=_rgb(palette.shadow_color),
-            draw_emoji=False,
-        )
+        effective_stroke_width = int(custom_stroke_width) if custom_stroke_width is not None else stroke_width
+        if custom_shadow:
+            shadow_offset = max(2, font_size // (34 if stroke_color == "#111111" else 24))
+            _draw_text_layout(
+                image,
+                draw,
+                (x + shadow_offset, y + shadow_offset),
+                font_layout,
+                fill=_rgb("#000000B8" if text_style is not None else palette.shadow_color),
+                stroke_width=effective_stroke_width + 1,
+                stroke_fill=_rgb("#000000B8" if text_style is not None else palette.shadow_color),
+                draw_emoji=False,
+            )
         _draw_text_layout(
             image,
             draw,
             (x, y),
             font_layout,
             fill=_rgb(color),
-            stroke_width=stroke_width,
+            stroke_width=effective_stroke_width,
             stroke_fill=_rgb(stroke_color),
         )
         placements.append(
@@ -1123,11 +1324,15 @@ def render_cover(
     line_stroke_colors: Sequence[str] | None = None,
     text_transforms: Sequence[TextTransform] | None = None,
     stickers: Sequence[StickerOverlay] | None = None,
+    shapes: Sequence[ShapeOverlay] | None = None,
     font_path: str | Path | None = None,
     focus_x: float | None = None,
     focus_y: float = 0.5,
     background_scale: float = 1.0,
+    background_fit_mode: str = "cover",
     background_output_path: str | Path | None = None,
+    text_style: object | None = None,
+    text_blocks: Sequence[Mapping[str, object]] | None = None,
     quality: int = 92,
     max_bytes: int = 5_000_000,
 ) -> RenderResult:
@@ -1151,6 +1356,8 @@ def render_cover(
     canvas = get_canvas_spec(canvas_key)
 
     lines: list[CoverLine] | None = None
+    if text_blocks is not None and copy_lines is not None:
+        raise ValueError("text_blocks 与 copy_lines 不能同时使用")
     if copy_lines is not None:
         cleaned = [str(line).strip() for line in copy_lines if str(line).strip()]
         if not cleaned:
@@ -1170,7 +1377,7 @@ def render_cover(
     background_image: Image.Image | None = None
     with Image.open(source) as frame:
         layout_template = _auto_adjust_text_side(frame, template)
-        if lines is None:
+        if lines is None and text_blocks is None:
             max_line_units = template.max_line_units
             if (
                 layout_template.background_mode in {"portrait_side", "portrait_latest"}
@@ -1191,6 +1398,7 @@ def render_cover(
                 focus_x=focus_x,
                 focus_y=focus_y,
                 background_scale=background_scale,
+                fit_mode=background_fit_mode,
             )
         else:
             # 交互预览需要保留一张未二次放大的纯背景，浏览器才能在拖动时
@@ -1202,6 +1410,7 @@ def render_cover(
                 focus_x=focus_x,
                 focus_y=focus_y,
                 background_scale=1.0,
+                fit_mode=background_fit_mode,
             )
             background_image = image.copy()
             effective_focus_x = (
@@ -1220,18 +1429,55 @@ def render_cover(
                 raise
     try:
         sticker_placements = draw_stickers(image, stickers or (), canvas)
-        assert lines is not None
-        placements = draw_cover_text(
-            image,
-            lines,
-            canvas,
-            layout_template,
-            palette,
-            font_path=str(font_path) if font_path is not None else None,
-            line_colors=line_colors,
-            line_stroke_colors=line_stroke_colors,
-            text_transforms=text_transforms,
-        )
+        draw_shapes(image, shapes or (), canvas)
+        if text_blocks is not None:
+            placements = []
+            for block in text_blocks:
+                raw_text = block.get("text")
+                if raw_text is not None and str(raw_text).strip():
+                    block_lines = [str(raw_text).strip()]
+                else:
+                    block_lines = [str(item).strip() for item in block.get("lines", ()) if str(item).strip()]
+                if not block_lines:
+                    continue
+                rotation = float(block.get("rotation", 0.0) or 0.0)
+                target_image = image
+                if abs(rotation) >= 0.05:
+                    target_image = Image.new("RGBA", image.size, (0, 0, 0, 0))
+                block_placements = draw_cover_text(
+                    target_image,
+                    [CoverLine(item, str(block.get("text_role") or "emphasis")) for item in block_lines],
+                    canvas,
+                    layout_template,
+                    palette,
+                    font_path=str(block.get("font_path")) if block.get("font_path") else None,
+                    text_transforms=block.get("text_transforms"),  # type: ignore[arg-type]
+                    text_style=block.get("text_style"),
+                    text_area=block.get("text_area"),  # type: ignore[arg-type]
+                    text_role=str(block.get("text_role") or "emphasis"),
+                )
+                if abs(rotation) >= 0.05:
+                    rotated = target_image.rotate(rotation, resample=Image.Resampling.BICUBIC, center=(image.width / 2, image.height / 2))
+                    image.paste(rotated, (0, 0), rotated)
+                    rotated.close()
+                    target_image.close()
+                placements.extend(block_placements)
+            # 允许只有背景、贴图或强调形状的可编辑文档导出；文字块为空
+            # 不应阻止用户先完成素材构图。
+        else:
+            assert lines is not None
+            placements = draw_cover_text(
+                image,
+                lines,
+                canvas,
+                layout_template,
+                palette,
+                font_path=str(font_path) if font_path is not None else None,
+                line_colors=line_colors,
+                line_stroke_colors=line_stroke_colors,
+                text_transforms=text_transforms,
+                text_style=text_style,
+            )
 
         jpeg_outputs: list[tuple[Image.Image, Path]] = []
         if background_image is not None and base_output is not None:
@@ -1253,7 +1499,7 @@ def render_cover(
         template_key=template.key,
         palette_key=palette.key,
         file_size=file_size,
-        placements=placements,
+        placements=tuple(placements),
         sticker_placements=sticker_placements,
         background_path=background_path,
     )

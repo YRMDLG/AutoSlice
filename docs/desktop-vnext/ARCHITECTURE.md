@@ -1,59 +1,134 @@
-# Desktop vNext 架构与迁移契约
+# Desktop vNext 架构与迁移约束
 
-## Desktop-08.7 交互边界
+> 本文整理桌面端当前的分层边界和长期实现约束。它服务于代码评审和后续迁移，不把一次实现细节当成永远不变的 API；若要改变下列边界，应在 [DECISIONS.md](DECISIONS.md) 留下新的决策记录。
 
-- `desktop/selection.py` 的 `CueSelection` 保存 active、anchor 和 selected set；Qt 列表与时间轴只通过它同步，不在控件内部维护第二套多选状态。
-- `desktop/commands.py` 的 `CommandDispatcher` 登记命令名与处理函数，窗口快捷键只负责映射；文字编辑焦点关闭时间轴命令作用域，为未来设置页保留统一注册表。
-- `desktop/snap.py` 的 `SnapEngine` 按屏幕像素计算阈值并维护吸附目标和脱离迟滞。时间轴只向它提供候选边界，Alt 作为临时 bypass。
-- 波形和 `subtitle_preview.py` 生成的 ASS 都属于 DesktopStorage 的派生 cache；UI 线程只调度/接收结果，不能写投稿原件。字幕预览复用 `subtitle_workflow.build_ass_document`，播放器 adapter 只负责加载或移除私有字幕。
-- 08.7 的拆分首先是文档内存命令；右侧无 caret 时保持空文本待编辑，禁止 AI 猜断句。正式状态持久化和恢复需要为 synthetic split cue 扩展旧 SRT 状态契约，未在本轮改变旧保存业务。
+## 1. 总体依赖方向
 
-以 [MIGRATION_MAP.md](MIGRATION_MAP.md) 的 17 项静态审计为迁移依据。新 Desktop 经稳定的 application / service / adapter 边界调用旧能力；UI 只依赖桌面端自己的项目、字幕、画布和任务状态，不直接读写旧页面内部状态。
+Desktop vNext 是桌面壳对既有 AutoSlice 能力的编排层，不能把旧 Web 页面、整条自动切片流水线或播放器细节重新复制进窗口控件。
 
-## 迁移边界
+```text
+Qt DesktopWindow / 页面路由
+        │ 只持有页面、项目和任务入口
+        ▼
+WorkspaceContext / 项目与当前视频快照
+        ├── SubtitleDocument + 字幕编辑服务
+        ├── PlayerAdapter + 播放头快照
+        ├── SubtitleRenderService + 后台压制
+        └── CoverEditorWidget
+                ├── CoverCanvas（手势与显示）
+                ├── CoverService（取帧、草稿、预览、导出）
+                ├── CoverDocument（唯一封面编辑模型）
+                └── autoslice_cover.renderer（纯渲染）
+```
 
-| 方式 | 能力与边界 |
-| --- | --- |
-| 直接复用 | SRT 解析、验证、序列化、校对保存及状态恢复的 Python 契约；视频/SRT 识别与配对规则；默认字幕样式、参数校验和 ASS 几何换算。保留源 SRT 与 `*_校对.srt` 分离。 |
-| 包装复用 | 投稿扫描、AI 字幕检查与缓存、字幕压制/FFmpeg、AutoCover `CoverWorkspace` 扫描与磁盘草稿、素材库和 Python 渲染/导出、模型传输、后台任务注册与资源冲突控制。桌面 adapter 负责路径授权、配置注入、进度、取消、错误和进程生命周期。 |
-| 重写交互状态 | AI 建议的采纳/跳过/手工保护/撤销；连续视频播放与 cue 定位；封面画布编辑、双比例同步和属性栏。可复用旧数据字段、画布规格与渲染契约，不移植旧页面内存状态。 |
-| 冻结不迁移 | 自动分析/自动切片主流程、旧字幕 UI、旧 AutoCover UI。旧实现可保留作参考和过渡，不成为 vNext 主界面或启动前置条件。 |
+硬规则：底层领域模块不能反向导入 `DesktopWindow`、Qt 页面或旧 Web UI；生产消费者应依赖真实 owner，而不是继续从根目录兼容模块复制业务逻辑。
 
-## 边界规则
+## 2. `DesktopWindow` 的膨胀风险
 
-- `F:\Videos\投稿` 是本机默认投稿根目录，不写死为底层扫描函数的唯一合法目录；沿用已有配置/路径边界。桌面项目层按标题文件夹组织项目，复用现有视频/SRT 扫描与配对规则，并统一供两个功能页使用。当前扫描是请求驱动的刷新，不能假定有文件监听。
-- 项目文件夹是项目事实来源；数据库或草稿状态只补充编辑、缓存与任务信息。状态缺失时仍能扫描并打开项目。
-- 草稿与正式结果分层：字幕编辑自动保存草稿，显式保存才通过现有契约写校对 SRT；封面编辑状态落盘并能恢复，导出沿用渲染器的暂存提交机制。
-- AI 检查结果字段可复用，但建议处理状态须由新应用层管理；模型 transport 可复用，不能把话题分析 prompt 或整条切片流水线带入字幕/封面功能。封面 AI 生成结构化、可编辑布局，由本地渲染器实现成图。
-- Desktop-07 的 `desktop/ai_review.py` 是旧 `suggest_subtitle_corrections` 与 Qt 间的 adapter。它把 `SubtitleDocument.entries` 序列化为用户应用数据目录中的临时 SRT，调用旧检查器及其主播词表/固定错词映射和模型 transport；旧检查器的原始缓存也留在私有目录。Qt 只接收 `Suggestion` / `AIReviewSession`，不接旧 Web 页面状态。缓存键覆盖源路径、当前字幕快照、标题、模型与 API 类型、推理配置、主播规则指纹和旧 prompt 版本；处理状态另存私有会话，核对源文件及文档快照后恢复。后台沿用 Qt `QRunnable` 边界，单个检查任务跨页继续，取消在旧检查器回调边界协作完成。详细字段见 [AI_SUGGESTIONS.md](AI_SUGGESTIONS.md)。
-- Desktop-08 的边界为 `qt_app/window.py` → `desktop/subtitle_render.py:SubtitleRenderService` → 旧 `subtitle_workflow.burn_subtitles` → FFmpeg。Qt 只传视频、已保存 `*_校对.srt` 的路径与内容指纹；adapter 验证两者在同一目录，将 SRT 副本、ASS、样式 JSON、FFmpeg `.part.mp4` 放在 `%LOCALAPPDATA%\AutoSlice\cache\temp`，复用旧默认样式、默认导出、字体检查、NVENC 回退、进度与视频校验。旧工作流不复制命令拼接到 Qt。适配层把成片排他发布到源视频同目录 `*_字幕版.mp4`；同名时顺延 ` (2)`、` (3)`，绝不替换既有成片或源视频。失败详细记录在 `logs/subtitle-render.log`，临时目录在任务结束后清理。
-- 压制由 Qt `QRunnable` 调用，进度经信号回主线程；项目 ID 防止同项目重复任务和状态串线，不同项目可并行。`burn_subtitles` 新增协作取消参数，停止请求会终止正在运行的 FFmpeg。任务只属于当前进程；窗口最小化可继续，退出前须等待停止完成，重启不续跑。无服务进程时不能承诺窗口彻底关闭后仍在后台压制。
-- 后台任务可复用 SQLite 注册、冲突与取消契约；进度传递和桌面进程生命周期另适配。重启后的运行中任务按现有语义标记 `interrupted`，不能承诺线程续跑。
-- 旧字幕静帧预览不等于连续播放器；已有短片媒体服务绑定自动分析任务清单，不能直接当作任意投稿视频的播放入口。
-- AutoCover 的精调 manifest 仅是可选输入；无 manifest、无数据库记录、未运行自动切片时，项目扫描及封面制作仍须可用。
+`DesktopWindow` 只负责窗口生命周期、一级导航、页面装配、当前项目/视频选择、简短状态和任务入口。以下状态不应继续塞入窗口：
 
-## AutoCover-01 桌面边界
+- 字幕文档的正文、选中集合、时间轴拖动状态和 AI 建议状态；
+- AutoCover 的对象、布局、草稿、候选帧、预览和导出历史；
+- 播放器的具体 seek、字幕叠加和解码器调用细节；
+- 任务的取消、generation、重试、缓存和文件指纹；
+- 任何依赖页面控件排列的业务状态机。
 
-Qt 封面页由 `desktop/cover.py:CoverEditorWidget` 和 `desktop/cover_service.py:CoverService` 组成。`DesktopWindow` 只负责创建工作区并把已经选中的 `SubmissionProject` / `ProjectVideo` 传入；项目扫描、字幕状态和当前视频仍由同一 `SubmissionProjectService` 管理。封面服务只依赖 `autoslice_cover.video.extract_frame_at_timestamp` 与 `autoslice_cover.renderer.render_cover`，不导入旧 Web 页面或 `CoverWorkspace` 的独立任务状态。
+当窗口再次出现项目、媒体、封面或 AI 的字段时，应先确认它是否属于 `WorkspaceContext`、页面 service 或独立领域模型；不要通过增加私有字段把窗口变成第二个应用服务。
 
-取帧、渲染和导出都在 Qt 线程池执行，UI 线程只接收结果并刷新预览。导入图片先复制到 `DesktopStorage.thumbnails/cover-assets`；取帧显式传入 `DesktopStorage.thumbnails/cover-frames`，避免回写旧 AutoCover 数据目录。草稿使用 `DesktopStorage.save_draft("cover", project.directory, video.path, ...)`，以项目目录和视频文件签名检测外部变化；项目目录只允许出现用户点击导出产生的 JPG。
+## 3. `WorkspaceContext` 与状态共享
 
-AutoCover-01 只保存一个 16:9 编辑状态：标题、归一化文字位置、字号、选中时间和私有底图路径。默认模板的描边/阴影由生产渲染器提供。4:3、拖拽图形场景、贴图层级、AI 文案/构图缓存和批量导出留在 AutoCover-02 及以后；不为提前满足这些需求扩张 `window.py`。
+项目和当前视频是页面之间需要共享的最小上下文。建议上下文至少能表达：
 
-## Desktop-04.5 定型后的桌面基座
+- `project_id`、项目目录、视频路径和稳定视频身份；
+- 当前视频的源 SRT、校对 SRT 和文件指纹；
+- 当前页面、当前 cue、当前 playhead 快照；
+- 字幕文档版本或内容 hash；
+- 封面草稿 key、封面文档版本和 active profile；
+- 后台任务所属的项目/视频/generation key。
 
-技术比较与实测边界见 [ADR-001](ADR-001-desktop-gui-and-player.md)，完整运行/恢复规范见 [DESKTOP_FOUNDATION.md](DESKTOP_FOUNDATION.md)。后续桌面 GUI 采用 PySide6/Qt Widgets；Desktop-03/04 的 Tk 壳保留到 Desktop-04.6 迁移验收通过。Qt 层只调用桌面项目、字幕、状态和任务 adapter，不直接读写旧 Web 页面状态。封面自由画布以 Qt 图形场景为首选起点，不提前复用旧 Web DOM。
+上下文是快照式的：页面读取上下文，明确提交用户动作，不让封面页暗中改变播放器或字幕页。项目目录是事实来源；数据库、草稿和缓存只保存编辑、派生物和任务状态，状态丢失时仍能重新扫描并打开项目。
 
-播放器以可替换 adapter 接入 libmpv：Qt 负责窗口和交互，libmpv 负责连续播放/seek，FFmpeg 保留探测、截帧及离线输出职责。QtMultimedia 是已做单样本验证的备选。播放器事件通过 Qt 信号交给 UI；扫描、AI、FFmpeg 和缓存生成不得阻塞 UI 线程。
+## 4. 异步任务与 generation/token
 
-桌面私有状态统一在 `%LOCALAPPDATA%\AutoSlice\`，通过 `autoslice.desktop.foundation.DesktopStorage` 管理会话/草稿/缓存/日志目录。该目录与投稿项目事实来源分离；草稿先原子写入私有目录，显式保存才使用既有校对 SRT 契约。旧源码态 `autoslice.paths` 和 AutoCover 数据目录在迁移期间保留兼容，不被自动搬迁或覆盖。Qt 壳负责单实例、窗口恢复和高 DPI；这些除最小存储接口外尚未接入生产入口。
+取帧、附近帧、预览、另一比例预览、AI 候选和字幕压制都可能晚于用户切换项目或文档。每个任务必须携带可比较的 generation/token：
 
-Windows 发布主路线为隔离构建的 PyInstaller 目录式无控制台 EXE + Inno Setup；备选 Nuitka standalone + Inno Setup。正式安装器、应用图标、任务栏身份及完整依赖分发仍需后续实施和实机验收。
+1. 开始任务时捕获项目、视频、源文件指纹和文档/页面 generation。
+2. 任务完成回到 UI 线程时，先比较 token、项目、视频和必要的文档 hash。
+3. 任一项不匹配，丢弃结果并记录轻量可见状态，不覆盖当前页面。
+4. 取消、关闭、最小化和切页只改变任务可见性或取消意图，不靠控件销毁来猜测任务归属。
 
-## Desktop-08.7.1 字幕文档与媒体派生物
+切换项目不默认启动全片扫描。附近帧按需生成，预览使用节流，重复输入优先命中缓存；失败要保留当前草稿和可执行重试路径。
 
-字幕文档的正式状态包含 `corrections`、`deleted_indices`、`merge_pairs`、`time_overrides` 和 `split_groups`。`split_groups` 以源 cue 为根，保存连续 segment 的稳定 ID、时间和正文；校对 SRT 仍是正式输出，源 SRT 永不覆盖。`SubtitleDocument` 根据当前 entries 重建这些关系，Undo/Redo 只记录一次完整快照。
+## 5. AutoCover 隔离边界
 
-波形由 `autoslice.desktop.waveform.WaveformCache` 管理。缓存 key 绑定规范化视频路径、文件大小和 `mtime_ns`，数据以 JSON 幅度包络写入应用私有目录。Qt 通过线程池调用 `load_or_generate`，切换项目时用 generation 丢弃迟到结果；时间轴只消费缓存结果，不在 UI 线程解码音频。
+AutoCover 只接收不可变的项目/视频上下文和明确的 playhead 快照；它不得读取 `DesktopWindow`、`MpvAdapter` 或字幕文档的内部状态，也不能反向 seek 播放器。
 
-边界试听和循环都使用播放器的绝对 seek 与暂停/播放命令。试听保存一个结束边界，循环按 active cue 的起止加减余量，状态轮询到达边界时重新 seek；普通 seek、AI 定位、Q/W 和拆分会清除试听边界，不改字幕文档。
+封面侧的边界如下：
+
+- `CoverCanvas`：负责显示、命中、拖动、缩放和轻量暂态信号，不直接写磁盘，不启动渲染任务。
+- `CoverEditorWidget`：负责把用户动作转换成 `CoverDocument` 快照、历史提交、自动保存和预览调度；不实现媒体解码和 Pillow 绘制。
+- `CoverService`：负责草稿读写、旧草稿迁移、取帧、素材、预览、导出、风格记忆和导出历史；不持有 Qt 控件布局。
+- `CoverDocument`：负责可序列化封面对象、双比例 profile 和对象替换语义；不依赖媒体文件存在。
+- `autoslice_cover.renderer`：消费明确的布局/渲染输入，输出预览或最终图片；不反向读取桌面上下文。
+
+CoverDocument 与媒体资产引用分开：文档保存对象、变换、文本和资源标识；服务层验证路径、生成缓存和导出文件。封面缺少 manifest、数据库记录或自动切片结果时，项目扫描和封面制作仍然应该可用。
+
+## 6. `CoverDocument` 与 `CoverDraft`
+
+`CoverDocument` 是当前唯一真实封面编辑模型，包含 `BackgroundObject`、`TextObject`、`ImageObject`、`StickerObject` 和 `ShapeObject`，以及 4:3/16:9 profile override。对象使用稳定 id、归一化坐标、z-index、可见/锁定状态，文档采用不可变快照式替换。
+
+`CoverDraft` 只承担 v1～v3 旧草稿兼容和迁移：
+
+- 新代码不得把 CoverDraft 字段当成第二套状态源。
+- 读取旧草稿后迁移到 v4 `CoverDocument`，尽量原子保存。
+- 新的 A/B、素材、形状、双比例覆盖、锁帧和历史只能落在 CoverDocument。
+
+Undo/Redo 保留完整文档快照，拖动期间使用暂态对象；提交发生在鼠标释放、明确属性变更或候选采纳等边界。
+
+## 7. 字幕模块边界
+
+字幕编辑使用既有 `SubtitleDocument`、选择模型、时间轴、AI review 和压制 service。Desktop vNext 只做适配和编排：
+
+- 原始 SRT 与正式 `*_校对.srt` 的保存契约不变；自动保存写草稿，显式保存才写正式文件。
+- 播放器 adapter 只负责播放、暂停、seek、位置和媒体状态，不保存字幕业务状态。
+- ASS、波形和预览属于派生缓存；UI 线程只调度和接收结果，不能把缓存写回投稿原件。
+- AI 建议的缓存、采纳/跳过、撤销和文档 hash 由字幕应用层管理，不能把旧 Web 页面状态带进 Qt。
+- 字幕压制沿用旧 `subtitle_workflow`/FFmpeg owner，通过 `SubtitleRenderService` 在后台调用，不复制命令拼接。
+
+字幕语义已冻结，封面或架构重构不得顺手改变字幕快捷键、选中态、时间轴命中优先级和保存语义。
+
+## 8. 持久化与文件边界
+
+- 项目目录是输入和正式结果的事实来源；用户源视频、源 SRT 和既有成片不能被草稿或预览覆盖。
+- 草稿、缓存、波形、预览、AI 会话和导出历史写入桌面应用数据目录或明确的封面输出草稿目录；写入采用临时文件加原子替换。
+- 路径必须经过允许根目录和资源类型校验；日志、SSE 和页面状态不泄露不必要的绝对路径、令牌、字幕正文或本机配置。
+- 源文件指纹变化时，旧草稿、帧图和缓存应标记为失效或要求确认，不能静默套用旧结果。
+- 任务失败时清理临时文件，保留草稿、错误原因和可重试入口；重启后的运行中任务按既有语义标记 interrupted，不承诺进程退出后继续执行。
+
+## 9. 性能和并发原则
+
+- UI 线程只做轻量状态更新和布局，不执行取帧、整图渲染、波形、FFmpeg、模型调用或全片扫描。
+- 用户拖动期间只更新暂态画面和控件反馈；释放鼠标后再写历史、自动保存和排队预览。
+- 附近帧、预览和风格/AI 结果按需、可取消、可缓存；切项目时旧 generation 结果不得落到新项目。
+- 任务状态按项目和视频隔离，同一项目禁止重复启动相同压制；不同项目是否并行由 service 和资源约束决定。
+- 默认 AI 不运行，默认不扫描全片；任何昂贵或有外部副作用的动作都必须由用户明确触发。
+
+## 10. 部署与兼容边界
+
+- `src/autoslice` 和 `src/autoslice_cover` 是当前生产 owner；`autocover_tool` 只保留旧入口、兼容导入和本机数据发现，不加入新的业务逻辑。
+- `启动.py` 仍是 AutoSlice 与相邻 AutoCover 服务的既有管理入口；桌面 vNext 的开发和打包路径需要与服务入口分开验收。
+- Qt 壳、播放器 adapter、字体、FFmpeg 和安装包依赖必须通过单独的发布验收矩阵确认；历史 mpv/QtMultimedia/打包实验只作参考，不能直接当作发布承诺。
+- 本文档整理不安装依赖、不启动服务、不改构建脚本；部署决策若变化，先更新 `DECISIONS.md` 和对应 ADR 证据。
+
+## 11. 结构性验收护栏
+
+后续重构至少保持以下检查：
+
+- `DesktopWindow` 不持有封面对象、AI 建议和字幕文档的第二套状态。
+- `autoslice_cover` 不反向导入 Qt 窗口、旧 Web 页面或整条切片流水线。
+- 项目/视频/generation 不匹配时，迟到的取帧、预览、AI、波形和压制结果不会覆盖当前页面。
+- CoverDocument 可以从旧 CoverDraft 迁移、保存、恢复、Undo/Redo，并按两个 profile 导出。
+- 字幕草稿、封面草稿和正式输出分层；源 SRT、源视频和既有成片保持不变。
+- 自动化检查通过后仍需执行真实字体、真实素材、真实窗口尺寸和连续生产的人工验收。
+
+更早的架构审计和阶段迁移证据保留在 [archive/ARCHITECTURE_REVIEW.md](archive/ARCHITECTURE_REVIEW.md) 等历史文件中。

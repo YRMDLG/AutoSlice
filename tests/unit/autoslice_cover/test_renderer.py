@@ -390,6 +390,79 @@ class RendererTests(unittest.TestCase):
                 copy_lines=["第一行", "第二行"],
                 line_colors=["#ff0000"],
             )
+
+    def test_document_text_style_is_used_for_preview_export_rendering(self) -> None:
+        style = {
+            "font_size": 112,
+            "font_weight": 900,
+            "fill_color": "#FFE438",
+            "stroke_color": "#111111",
+            "stroke_width": 9,
+            "shadow": True,
+            "line_spacing": 1.12,
+        }
+        result = render_cover(
+            self.frame_path,
+            "测试",
+            self.root / "document-style.jpg",
+            canvas_key="4x3",
+            template_key="headline",
+            copy_lines=["第一行", "第二行"],
+            text_transforms=[
+                TextTransform(x=0.10, y=0.16, font_size=112),
+                TextTransform(x=0.10, y=0.30, font_size=112),
+            ],
+            text_style=style,
+        )
+        self.assertEqual([item.font_size for item in result.placements], [112, 112])
+        self.assertEqual([item.color for item in result.placements], ["#FFE438", "#FFE438"])
+        self.assertEqual([item.stroke_color for item in result.placements], ["#111111", "#111111"])
+        self.assertEqual([item.stroke_width for item in result.placements], [9, 9])
+        with Image.open(result.output_path) as image:
+            # 成品中应存在正式黄字像素，证明没有退化成默认黑字。
+            yellow_pixels = sum(
+                1
+                for pixel in image.convert("RGB").getdata()
+                if pixel[0] > 200 and pixel[1] > 150 and pixel[2] < 130
+            )
+        self.assertGreater(yellow_pixels, 20)
+
+    def test_independent_text_blocks_fit_real_font_and_avoid_short_tail(self) -> None:
+        style_a = {
+            "font_size": 75,
+            "font_weight": 700,
+            "fill_color": "#FFE438",
+            "stroke_color": "#111111",
+            "stroke_width": 6,
+            "shadow": True,
+            "line_spacing": 1.12,
+        }
+        style_b = {**style_a, "font_size": 104, "font_weight": 900}
+        result = render_cover(
+            self.frame_path,
+            "测试",
+            self.root / "fit-blocks.jpg",
+            canvas_key="4x3",
+            template_key="headline",
+            text_blocks=[
+                {
+                    "text": "音姐今天要给沐霂点男模",
+                    "text_role": "context",
+                    "text_area": (0.06, 0.05, 0.76, 0.20),
+                    "text_style": style_a,
+                },
+                {
+                    "text": "哎呀我还没见过男模啥样呢",
+                    "text_role": "emphasis",
+                    "text_area": (0.06, 0.25, 0.76, 0.55),
+                    "text_style": style_b,
+                },
+            ],
+        )
+        self.assertEqual(result.placements[0].text, "音姐今天要给沐霂点男模")
+        self.assertTrue(all(len(item.text) > 2 for item in result.placements[1:]))
+        self.assertGreater(result.placements[-1].box[1], result.placements[0].box[3])
+        self.assertLessEqual(result.placements[-1].box[3], round(HOME_4_3.height * 0.55))
         with self.assertRaisesRegex(ValueError, "描边颜色数量"):
             render_cover(
                 self.frame_path,
