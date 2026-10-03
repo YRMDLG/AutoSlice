@@ -129,10 +129,10 @@ class CoverEditorWidget(QWidget):
         # ── 单行工具栏：比例 + 撤销/重做 + 导出 ──
         toolbar = QWidget()
         toolbar.setObjectName("coverToolbar")
-        toolbar.setFixedHeight(48)
+        toolbar.setFixedHeight(44)
         toolbar_row = QHBoxLayout(toolbar)
-        toolbar_row.setContentsMargins(16, 0, 16, 0)
-        toolbar_row.setSpacing(8)
+        toolbar_row.setContentsMargins(12, 0, 12, 0)
+        toolbar_row.setSpacing(6)
 
         self.canvas_ratio_group = QButtonGroup(self)
         self.canvas_ratio_group.setExclusive(True)
@@ -140,8 +140,8 @@ class CoverEditorWidget(QWidget):
         for key, text in (("4x3", "4:3"), ("16x9", "16:9")):
             btn = QPushButton(text)
             btn.setCheckable(True)
-            btn.setMinimumWidth(56)
-            btn.setFixedHeight(32)
+            btn.setMinimumWidth(48)
+            btn.setFixedHeight(28)
             btn.setToolTip(f"切换 {text} 主画布")
             self.canvas_ratio_group.addButton(btn)
             self.canvas_ratio_buttons[key] = btn
@@ -149,16 +149,16 @@ class CoverEditorWidget(QWidget):
             btn.clicked.connect(lambda _c=False, k=key: self._set_canvas_key(k))
         self.canvas_ratio_buttons["4x3"].setChecked(True)
 
-        toolbar_row.addSpacing(12)
+        toolbar_row.addSpacing(8)
 
         self.undo_button = QPushButton("↶")
-        self.undo_button.setFixedSize(32, 32)
+        self.undo_button.setFixedSize(28, 28)
         self.undo_button.setObjectName("quiet")
         self.undo_button.setToolTip("撤销")
         self.undo_button.setEnabled(False)
         self.undo_button.clicked.connect(self._undo)
         self.redo_button = QPushButton("↷")
-        self.redo_button.setFixedSize(32, 32)
+        self.redo_button.setFixedSize(28, 28)
         self.redo_button.setObjectName("quiet")
         self.redo_button.setToolTip("重做")
         self.redo_button.setEnabled(False)
@@ -172,19 +172,27 @@ class CoverEditorWidget(QWidget):
         self.draft_status.setObjectName("subtle")
         toolbar_row.addWidget(self.draft_status)
 
-        self.export_button = QPushButton("导出 4:3")
+        self.export_button = QPushButton("导出")
         self.export_button.setObjectName("primary")
-        self.export_button.setFixedHeight(32)
+        self.export_button.setFixedHeight(28)
         self.export_button.setToolTip("导出当前画布比例")
         self.export_button.setEnabled(False)
         self.export_button.clicked.connect(self._export)
         toolbar_row.addWidget(self.export_button)
         self.export_both_button = QPushButton("双比例")
-        self.export_both_button.setFixedHeight(32)
+        self.export_both_button.setFixedHeight(28)
         self.export_both_button.setToolTip("分别导出 4:3 与 16:9")
         self.export_both_button.setEnabled(False)
         self.export_both_button.clicked.connect(self._export_both)
         toolbar_row.addWidget(self.export_both_button)
+
+        # 面板折叠按钮
+        self.panel_toggle = QPushButton("▶")
+        self.panel_toggle.setFixedSize(28, 28)
+        self.panel_toggle.setObjectName("quiet")
+        self.panel_toggle.setToolTip("收起/展开属性面板")
+        self.panel_toggle.setCheckable(True)
+        toolbar_row.addWidget(self.panel_toggle)
         root.addWidget(toolbar)
 
         # ── 隐藏控件：被代码引用但不直接放在布局里 ──
@@ -210,12 +218,7 @@ class CoverEditorWidget(QWidget):
         self.media_controls.setVisible(False)
         self.import_button = QPushButton("导入底图")
         self.import_button.clicked.connect(self._import_image)
-        self.frame_button = QPushButton("从当前视频取帧")
-        self.frame_button.clicked.connect(self._extract_frame)
-        self.timestamp = QDoubleSpinBox()
-        self.timestamp.setRange(0.0, 24 * 60 * 60)
-        self.timestamp.setDecimals(2)
-        self.timestamp.setSuffix(" 秒")
+        self.import_button.setVisible(False)
 
         # ── 主内容区：画布 + 右侧上下文面板 ──
         content = QHBoxLayout()
@@ -248,7 +251,7 @@ class CoverEditorWidget(QWidget):
         self.check_preview = QLabel("")
         self.check_preview.setObjectName("subtle")
         self.check_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.check_preview.setFixedHeight(56)
+        self.check_preview.setFixedHeight(48)
         self.check_preview.setMinimumWidth(100)
         self.check_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         check_row.addWidget(self.check_preview, 1)
@@ -256,13 +259,13 @@ class CoverEditorWidget(QWidget):
         content.addWidget(center, 1)
 
         # ── 右侧上下文面板（QStackedWidget 按选中对象切换）──
-        right = QWidget()
-        right.setObjectName("coverPanel")
-        right.setMinimumWidth(260)
-        right.setMaximumWidth(300)
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.setSpacing(8)
+        self.right_panel = QWidget()
+        self.right_panel.setObjectName("coverPanel")
+        self.right_panel.setMinimumWidth(0)
+        self.right_panel.setMaximumWidth(280)
+        right_layout = QVBoxLayout(self.right_panel)
+        right_layout.setContentsMargins(10, 10, 10, 10)
+        right_layout.setSpacing(6)
 
         # 面板标题（随上下文变化）
         self.panel_title = QLabel("封面文案")
@@ -289,49 +292,50 @@ class CoverEditorWidget(QWidget):
         self.empty_controls = self._build_empty_panel()
         self.panel_stack.addWidget(self.empty_controls)
 
-        content.addWidget(right)
+        content.addWidget(self.right_panel)
+
+        # 面板折叠逻辑
+        self._panel_visible = True
+        self._last_panel_width = 280
+        self.panel_toggle.toggled.connect(self._toggle_panel)
         root.addLayout(content, 1)
 
         # ── 底部附近帧条（精简为一行）──
         strip = QWidget()
         strip.setObjectName("frameStrip")
-        strip_layout = QVBoxLayout(strip)
-        strip_layout.setContentsMargins(12, 6, 12, 8)
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(12, 4, 12, 6)
         strip_layout.setSpacing(4)
-        strip_header = QHBoxLayout()
-        strip_header.setSpacing(6)
         self.frame_center_label = QLabel("0.00s")
         self.frame_center_label.setObjectName("subtle")
-        strip_header.addWidget(self.frame_center_label)
-        strip_header.addStretch(1)
+        self.frame_center_label.setFixedWidth(48)
+        strip_layout.addWidget(self.frame_center_label)
         self.current_frame_button = QPushButton("当前帧")
-        self.current_frame_button.setFixedHeight(26)
+        self.current_frame_button.setFixedHeight(24)
         self.current_frame_button.setObjectName("quiet")
         self.current_frame_button.setToolTip("读取字幕页播放位置")
         self.current_frame_button.clicked.connect(self._use_current_frame)
-        strip_header.addWidget(self.current_frame_button)
+        strip_layout.addWidget(self.current_frame_button)
         self.frame_lock_button = QPushButton("锁帧")
-        self.frame_lock_button.setFixedHeight(26)
+        self.frame_lock_button.setFixedHeight(24)
         self.frame_lock_button.setObjectName("quiet")
         self.frame_lock_button.setCheckable(True)
         self.frame_lock_button.setToolTip("锁定后候选和AI不换帧")
         self.frame_lock_button.clicked.connect(self._toggle_frame_lock)
-        strip_header.addWidget(self.frame_lock_button)
+        strip_layout.addWidget(self.frame_lock_button)
         self.more_frames_button = QPushButton("更多")
-        self.more_frames_button.setFixedHeight(26)
+        self.more_frames_button.setFixedHeight(24)
         self.more_frames_button.setObjectName("quiet")
         self.more_frames_button.setToolTip("扩大取帧范围")
         self.more_frames_button.clicked.connect(self._find_more_frames)
-        strip_header.addWidget(self.more_frames_button)
-        strip_layout.addLayout(strip_header)
-        frame_row = QHBoxLayout()
-        frame_row.setSpacing(4)
+        strip_layout.addWidget(self.more_frames_button)
+        strip_layout.addSpacing(8)
         self.nearby_frame_buttons = []
         for _ in range(7):
             button = QPushButton("--")
-            button.setMinimumHeight(56)
-            button.setMaximumHeight(64)
-            button.setIconSize(QSize(96, 54))
+            button.setMinimumHeight(48)
+            button.setMaximumHeight(56)
+            button.setIconSize(QSize(80, 45))
             button.setProperty("timestamp", 0.0)
             button.clicked.connect(
                 lambda _checked=False, item=button: self._choose_nearby_frame(
@@ -339,22 +343,52 @@ class CoverEditorWidget(QWidget):
                 )
             )
             self.nearby_frame_buttons.append(button)
-            frame_row.addWidget(button, 1)
-        strip_layout.addLayout(frame_row)
+            strip_layout.addWidget(button, 1)
         root.addWidget(strip)
 
-        self._canvas_selection_changed(True)
+        # 初始状态：无项目时隐藏右侧面板，显示空状态
+        self._hide_panel()
+        self.panel_toggle.setEnabled(False)
+        self._show_empty_panel()
+
+    def _toggle_panel(self, checked):
+        """手动切换面板折叠/展开。"""
+        if checked:
+            self._hide_panel()
+        else:
+            self._show_panel()
+
+    def _hide_panel(self):
+        """收起右侧面板。"""
+        if self.right_panel.width() > 0:
+            self._last_panel_width = self.right_panel.width()
+        self.right_panel.setMaximumWidth(0)
+        self.right_panel.setMinimumWidth(0)
+        self.panel_toggle.setText("◀")
+        self._panel_visible = False
+
+    def _show_panel(self):
+        """展开右侧面板。"""
+        self.right_panel.setMinimumWidth(0)
+        self.right_panel.setMaximumWidth(self._last_panel_width)
+        self.panel_toggle.setText("▶")
+        self._panel_visible = True
+
+    def _show_empty_panel(self):
+        """显示空状态面板（无项目或无选中对象）。"""
+        self.panel_title.setText("封面工具")
+        self.panel_stack.setCurrentWidget(self.empty_controls)
 
     def _build_text_panel(self) -> QWidget:
         """文字对象属性面板：文案、字号、对齐、样式。"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         self.title_edit = _TitleEdit()
         self.title_edit.setPlaceholderText("封面文案…")
-        self.title_edit.setMaximumHeight(80)
+        self.title_edit.setMaximumHeight(72)
         self.title_edit.textChanged.connect(self._draft_changed)
         layout.addWidget(self.title_edit)
 
@@ -367,8 +401,8 @@ class CoverEditorWidget(QWidget):
         for role, text in (("A", "A"), ("B", "B")):
             btn = QPushButton(text)
             btn.setCheckable(True)
-            btn.setFixedHeight(28)
-            btn.setMinimumWidth(36)
+            btn.setFixedHeight(26)
+            btn.setMinimumWidth(32)
             btn.setToolTip(f"编辑文字块 {role}")
             btn.clicked.connect(lambda _c=False, r=role: self._select_copy_role(r))
             self.copy_role_group.addButton(btn)
@@ -376,7 +410,7 @@ class CoverEditorWidget(QWidget):
             role_row.addWidget(btn)
         role_row.addStretch(1)
         self.copy_button = QPushButton("换一版")
-        self.copy_button.setFixedHeight(28)
+        self.copy_button.setFixedHeight(26)
         self.copy_button.setObjectName("quiet")
         self.copy_button.setToolTip("切换本地文案候选")
         self.copy_button.clicked.connect(self._cycle_copy)
@@ -385,12 +419,12 @@ class CoverEditorWidget(QWidget):
 
         # 字号 + 对齐
         size_align = QHBoxLayout()
-        size_align.setSpacing(8)
+        size_align.setSpacing(6)
         size_align.addWidget(QLabel("字号"))
         self.font_spin = QSpinBox()
         self.font_spin.setRange(24, 320)
         self.font_spin.setSuffix(" px")
-        self.font_spin.setFixedHeight(28)
+        self.font_spin.setFixedHeight(26)
         self.font_spin.valueChanged.connect(self._draft_changed)
         size_align.addWidget(self.font_spin, 1)
         self.align_buttons: dict[str, QPushButton] = {}
@@ -399,8 +433,8 @@ class CoverEditorWidget(QWidget):
         for key, text in (("left", "左"), ("center", "中"), ("right", "右")):
             btn = QPushButton(text)
             btn.setCheckable(True)
-            btn.setFixedHeight(28)
-            btn.setMinimumWidth(32)
+            btn.setFixedHeight(26)
+            btn.setMinimumWidth(28)
             self.align_group.addButton(btn)
             self.align_buttons[key] = btn
             size_align.addWidget(btn)
@@ -410,14 +444,14 @@ class CoverEditorWidget(QWidget):
 
         # 样式折叠区
         self.style_toggle = QPushButton("样式 ▸")
-        self.style_toggle.setFixedHeight(28)
+        self.style_toggle.setFixedHeight(26)
         self.style_toggle.setObjectName("quiet")
         self.style_toggle.setCheckable(True)
         layout.addWidget(self.style_toggle)
         self.style_widget = QWidget()
         style_form = QFormLayout(self.style_widget)
         style_form.setContentsMargins(8, 0, 0, 0)
-        style_form.setSpacing(6)
+        style_form.setSpacing(4)
         self.fill_edit = QLineEdit()
         self.fill_edit.setPlaceholderText("#FFE438")
         self.fill_edit.editingFinished.connect(self._draft_changed)
@@ -448,21 +482,21 @@ class CoverEditorWidget(QWidget):
 
         # 更多折叠区
         self.more_toggle = QPushButton("更多 ▸")
-        self.more_toggle.setFixedHeight(28)
+        self.more_toggle.setFixedHeight(26)
         self.more_toggle.setObjectName("quiet")
         self.more_toggle.setCheckable(True)
         layout.addWidget(self.more_toggle)
         self.more_widget = QWidget()
         more_form = QFormLayout(self.more_widget)
         more_form.setContentsMargins(8, 0, 0, 0)
-        more_form.setSpacing(6)
+        more_form.setSpacing(4)
         font_row = QHBoxLayout()
         self.font_path_edit = QLineEdit()
         self.font_path_edit.setReadOnly(True)
         self.font_path_edit.setPlaceholderText("默认字体")
         font_row.addWidget(self.font_path_edit, 1)
         self.font_button = QPushButton("…")
-        self.font_button.setFixedWidth(28)
+        self.font_button.setFixedWidth(24)
         self.font_button.clicked.connect(self._pick_font)
         font_row.addWidget(self.font_button)
         more_form.addRow("字体", font_row)
@@ -495,32 +529,32 @@ class CoverEditorWidget(QWidget):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         # 对象操作
         ops_row = QHBoxLayout()
         ops_row.setSpacing(4)
         self.duplicate_asset_button = QPushButton("复制")
-        self.duplicate_asset_button.setFixedHeight(28)
+        self.duplicate_asset_button.setFixedHeight(26)
         self.duplicate_asset_button.clicked.connect(self._duplicate_selected_object)
         ops_row.addWidget(self.duplicate_asset_button)
         self.delete_asset_button = QPushButton("删除")
-        self.delete_asset_button.setFixedHeight(28)
+        self.delete_asset_button.setFixedHeight(26)
         self.delete_asset_button.clicked.connect(self._delete_selected_object)
         ops_row.addWidget(self.delete_asset_button)
         self.raise_asset_button = QPushButton("前移")
-        self.raise_asset_button.setFixedHeight(28)
+        self.raise_asset_button.setFixedHeight(26)
         self.raise_asset_button.clicked.connect(lambda: self._move_selected_layer(1))
         ops_row.addWidget(self.raise_asset_button)
         self.lower_asset_button = QPushButton("后移")
-        self.lower_asset_button.setFixedHeight(28)
+        self.lower_asset_button.setFixedHeight(26)
         self.lower_asset_button.clicked.connect(lambda: self._move_selected_layer(-1))
         ops_row.addWidget(self.lower_asset_button)
         layout.addLayout(ops_row)
 
         # 变换
         transform_form = QFormLayout()
-        transform_form.setSpacing(6)
+        transform_form.setSpacing(4)
         self.overlay_scale_spin = QDoubleSpinBox()
         self.overlay_scale_spin.setRange(0.05, 4.0)
         self.overlay_scale_spin.setSingleStep(0.05)
@@ -537,6 +571,24 @@ class CoverEditorWidget(QWidget):
         transform_form.addRow("旋转", self.overlay_rotation_spin)
         layout.addLayout(transform_form)
 
+        # 添加新素材入口
+        layout.addSpacing(4)
+        add_row = QHBoxLayout()
+        add_row.setSpacing(4)
+        self.import_asset_button2 = QPushButton("导入")
+        self.import_asset_button2.setFixedHeight(26)
+        self.import_asset_button2.setObjectName("quiet")
+        self.import_asset_button2.setToolTip("导入图片素材")
+        self.import_asset_button2.clicked.connect(self._import_asset)
+        add_row.addWidget(self.import_asset_button2)
+        self.add_shape_button2 = QPushButton("形状")
+        self.add_shape_button2.setFixedHeight(26)
+        self.add_shape_button2.setObjectName("quiet")
+        self.add_shape_button2.setToolTip("添加圆圈/箭头/矩形")
+        self.add_shape_button2.clicked.connect(self._add_shape)
+        add_row.addWidget(self.add_shape_button2)
+        layout.addLayout(add_row)
+
         layout.addStretch(1)
         return panel
 
@@ -545,7 +597,7 @@ class CoverEditorWidget(QWidget):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         zoom_row = QHBoxLayout()
         zoom_row.addWidget(QLabel("缩放"))
@@ -554,6 +606,7 @@ class CoverEditorWidget(QWidget):
         self.zoom_spin.setSingleStep(0.1)
         self.zoom_spin.setDecimals(1)
         self.zoom_spin.setSuffix(" ×")
+        self.zoom_spin.setFixedHeight(26)
         self.zoom_spin.valueChanged.connect(self._zoom_changed)
         zoom_row.addWidget(self.zoom_spin, 1)
         layout.addLayout(zoom_row)
@@ -561,26 +614,54 @@ class CoverEditorWidget(QWidget):
         fit_row = QHBoxLayout()
         fit_row.setSpacing(4)
         self.fill_button = QPushButton("充满")
-        self.fill_button.setFixedHeight(28)
+        self.fill_button.setFixedHeight(26)
         self.fill_button.clicked.connect(self._fill_canvas)
         fit_row.addWidget(self.fill_button)
         self.fit_button = QPushButton("适应")
-        self.fit_button.setFixedHeight(28)
+        self.fit_button.setFixedHeight(26)
         self.fit_button.clicked.connect(self._fit_canvas)
         fit_row.addWidget(self.fit_button)
         layout.addLayout(fit_row)
+
+        # 取帧操作
+        layout.addSpacing(4)
+        extract_row = QHBoxLayout()
+        extract_row.setSpacing(4)
+        self.extract_button = QPushButton("取帧")
+        self.extract_button.setFixedHeight(26)
+        self.extract_button.setObjectName("quiet")
+        self.extract_button.setToolTip("从当前视频指定时间取帧")
+        self.extract_button.clicked.connect(self._extract_frame)
+        extract_row.addWidget(self.extract_button)
+        self.import_bg_button = QPushButton("导入底图")
+        self.import_bg_button.setFixedHeight(26)
+        self.import_bg_button.setObjectName("quiet")
+        self.import_bg_button.clicked.connect(self._import_image)
+        extract_row.addWidget(self.import_bg_button)
+        layout.addLayout(extract_row)
+
+        # 精确时间
+        time_row = QHBoxLayout()
+        time_row.addWidget(QLabel("时间"))
+        self.timestamp_edit = QDoubleSpinBox()
+        self.timestamp_edit.setRange(0.0, 24 * 60 * 60)
+        self.timestamp_edit.setDecimals(2)
+        self.timestamp_edit.setSuffix(" 秒")
+        self.timestamp_edit.setFixedHeight(26)
+        time_row.addWidget(self.timestamp_edit, 1)
+        layout.addLayout(time_row)
 
         layout.addStretch(1)
         return panel
 
     def _build_empty_panel(self) -> QWidget:
-        """无选中对象时的默认面板：素材入口 + AI。"""
+        """无项目/无选中时的默认面板：素材入口 + AI。"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
-        hint = QLabel("点击画布中的文字或素材进行编辑")
+        hint = QLabel("选择项目后，点击画布中的文字或素材进行编辑")
         hint.setObjectName("subtle")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -594,17 +675,17 @@ class CoverEditorWidget(QWidget):
         asset_row = QHBoxLayout()
         asset_row.setSpacing(4)
         self.import_asset_button = QPushButton("导入")
-        self.import_asset_button.setFixedHeight(28)
+        self.import_asset_button.setFixedHeight(26)
         self.import_asset_button.setToolTip("导入图片素材")
         self.import_asset_button.clicked.connect(self._import_asset)
         asset_row.addWidget(self.import_asset_button)
         self.browse_asset_button = QPushButton("素材库")
-        self.browse_asset_button.setFixedHeight(28)
+        self.browse_asset_button.setFixedHeight(26)
         self.browse_asset_button.setToolTip("浏览本地素材")
         self.browse_asset_button.clicked.connect(self._browse_assets)
         asset_row.addWidget(self.browse_asset_button)
         self.add_shape_button = QPushButton("形状")
-        self.add_shape_button.setFixedHeight(28)
+        self.add_shape_button.setFixedHeight(26)
         self.add_shape_button.setToolTip("添加圆圈/箭头/矩形")
         self.add_shape_button.clicked.connect(self._add_shape)
         asset_row.addWidget(self.add_shape_button)
@@ -617,7 +698,7 @@ class CoverEditorWidget(QWidget):
         ai_label.setObjectName("subtle")
         layout.addWidget(ai_label)
         self.ai_button = QPushButton("✨ 三个方案")
-        self.ai_button.setFixedHeight(28)
+        self.ai_button.setFixedHeight(26)
         self.ai_button.setToolTip("生成可编辑候选（默认不调用真实AI）")
         self.ai_button.clicked.connect(self._request_ai_candidates)
         layout.addWidget(self.ai_button)
@@ -1190,7 +1271,7 @@ class CoverEditorWidget(QWidget):
     def _choose_nearby_frame(self, timestamp: float):
         if self.video is None:
             return
-        self.timestamp.setValue(max(0.0, float(timestamp)))
+        self.timestamp_edit.setValue(max(0.0, float(timestamp)))
         self._extract_frame()
 
     def _toggle_frame_lock(self, checked: bool):
@@ -1208,7 +1289,7 @@ class CoverEditorWidget(QWidget):
         if self.video is None or not Path(self.video.path).is_file():
             self.status_changed.emit("请先选择有视频的投稿项目")
             return
-        center = self.timestamp.value() if self.draft.image_path else self._current_playhead
+        center = self.timestamp_edit.value() if self.draft.image_path else self._current_playhead
         request_generation = self._nearby_request_generation + 1
         self._nearby_request_generation = request_generation
         video = self.video
@@ -1315,14 +1396,17 @@ class CoverEditorWidget(QWidget):
             self.canvas.setText("加载底图后在这里预览")
             self.check_preview.clear()
             self.check_preview.setText("生成后显示另一比例")
-            self.frame_button.setEnabled(False)
+            self.extract_button.setEnabled(False)
             self.current_frame_button.setEnabled(False)
-            self.frame_button.setToolTip("请先选择包含视频的投稿项目")
             self.export_button.setEnabled(False)
             self.export_both_button.setEnabled(False)
             self.undo_button.setEnabled(False)
             self.redo_button.setEnabled(False)
             self.frame_lock_button.setChecked(False)
+            # 无项目时隐藏右侧面板，画布占满
+            self._hide_panel()
+            self.panel_toggle.setEnabled(False)
+            self._show_empty_panel()
             return
         if self.project is not None and self.project.id == project.id and self.video is not None and self.video.path == video.path:
             return
@@ -1336,9 +1420,13 @@ class CoverEditorWidget(QWidget):
         self._update_export_summary()
         video_path = Path(video.path)
         video_available = video_path.is_file()
-        self.frame_button.setEnabled(video_available)
+        self.extract_button.setEnabled(video_available)
         self.current_frame_button.setEnabled(video_available)
-        self.frame_button.setToolTip("从指定时间取帧" if video_available else f"当前视频不存在：{video_path}")
+        self.extract_button.setToolTip("从指定时间取帧" if video_available else f"当前视频不存在：{video_path}")
+        # 有项目时恢复右侧面板
+        self._show_panel()
+        self.panel_toggle.setEnabled(True)
+        self.panel_toggle.setChecked(False)
         self._preview_path = None
         self._busy = False
         self._check_busy = False
@@ -1374,6 +1462,8 @@ class CoverEditorWidget(QWidget):
             -1,
         )
         self._apply_draft()
+        # 有项目时默认显示文字面板
+        self._canvas_selection_changed(True)
         if not video_available:
             self.draft_status.setText(f"当前视频不可用：{video_path}")
         elif read.status == "ready":
@@ -1404,7 +1494,7 @@ class CoverEditorWidget(QWidget):
             self.y_spin.setValue(self.draft.text_y)
             self.font_spin.setValue(self.draft.font_size)
             self.zoom_spin.setValue(self.draft.background_scale)
-            self.timestamp.setValue(self.draft.selected_timestamp)
+            self.timestamp_edit.setValue(self.draft.selected_timestamp)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
@@ -1690,7 +1780,7 @@ class CoverEditorWidget(QWidget):
         self._render_preview()
 
     def _use_current_frame(self):
-        self.timestamp.setValue(self._current_playhead)
+        self.timestamp_edit.setValue(self._current_playhead)
         self._refresh_nearby_frame_strip(self._current_playhead)
         self._extract_frame()
 
@@ -1699,7 +1789,7 @@ class CoverEditorWidget(QWidget):
             self.status_changed.emit("请先选择投稿项目和视频")
             return
         first_background = not bool(self.draft.image_path)
-        self.frame_button.setEnabled(False)
+        self.extract_button.setEnabled(False)
         self.current_frame_button.setEnabled(False)
         for button in self.nearby_frame_buttons:
             button.setEnabled(False)
@@ -1707,7 +1797,7 @@ class CoverEditorWidget(QWidget):
         self._frame_request_generation += 1
         request_generation = self._frame_request_generation
         video = self.video
-        timestamp = self.timestamp.value()
+        timestamp = self.timestamp_edit.value()
         self.status_changed.emit("正在从视频取帧…")
         self._run(
             lambda: self.service.extract_frame(video, timestamp),
@@ -1720,9 +1810,9 @@ class CoverEditorWidget(QWidget):
         if request_generation != self._frame_request_generation:
             return
         self._frame_extract_pending = False
-        self.frame_button.setEnabled(self.video is not None and Path(self.video.path).is_file())
-        self.current_frame_button.setEnabled(self.frame_button.isEnabled())
-        self._refresh_nearby_frame_strip(self.timestamp.value())
+        self.extract_button.setEnabled(self.video is not None and Path(self.video.path).is_file())
+        self.current_frame_button.setEnabled(self.extract_button.isEnabled())
+        self._refresh_nearby_frame_strip(self.timestamp_edit.value())
         if error:
             self.status_changed.emit(f"取帧失败：{error}")
             return
@@ -1778,7 +1868,7 @@ class CoverEditorWidget(QWidget):
             self.history.commit(self.document)
             self.undo_button.setEnabled(self.history.can_undo)
             self.redo_button.setEnabled(self.history.can_redo)
-        self.timestamp.setValue(timestamp)
+        self.timestamp_edit.setValue(timestamp)
         self._refresh_nearby_frame_strip(timestamp)
         self._save_draft()
         self.status_changed.emit("已加载当前视频画面")

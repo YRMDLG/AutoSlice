@@ -287,8 +287,8 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertIn("1440×1080", self.widget.export_summary.text())
         self.assertIs(self.widget.panel_stack.currentWidget(), self.widget.copy_controls)
         self.assertFalse(self.widget.export_button.isEnabled())
-        self.assertTrue(self.widget.frame_button.isEnabled())
-        self.assertIn("从当前视频取帧", self.widget.frame_button.text())
+        self.assertTrue(self.widget.extract_button.isEnabled())
+        self.assertIn("取帧", self.widget.extract_button.text())
 
     def test_context_panel_switches_between_copy_and_background_controls(self):
         self.widget._canvas_selection_changed(False)
@@ -326,12 +326,12 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
 
     def test_title_drag_updates_normalized_position_and_current_playhead_is_read_only(self):
         self.widget.set_context(self.project, self.project.videos[0])
-        self.widget.timestamp.setValue(3.0)
+        self.widget.timestamp_edit.setValue(3.0)
         self.widget.set_current_playhead(8.5)
         self.widget._title_position_changed(0.42, 0.37)
         self.assertAlmostEqual(self.widget.draft.text_x, 0.42)
         self.assertAlmostEqual(self.widget.draft.text_y, 0.37)
-        self.assertAlmostEqual(self.widget.timestamp.value(), 3.0)
+        self.assertAlmostEqual(self.widget.timestamp_edit.value(), 3.0)
         self.assertAlmostEqual(self.widget._current_playhead, 8.5)
 
     def test_canvas_mouse_gestures_emit_title_and_background_changes(self):
@@ -484,7 +484,7 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
 
     def test_real_frame_click_updates_draft_canvas_and_export(self):
         self.widget.set_context(self.project, self.project.videos[0])
-        self.assertTrue(self.widget.frame_button.isEnabled())
+        self.assertTrue(self.widget.extract_button.isEnabled())
         self.widget._extract_frame()
         for _ in range(240):
             self.app.processEvents()
