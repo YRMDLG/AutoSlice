@@ -538,28 +538,6 @@ def _render_task_result(
     )
 
 
-def _render_task(
-    app: Flask,
-    workspace: CoverWorkspace,
-    task: CoverTask,
-    canvas_key: str,
-    output_path: Path,
-    payload: dict[str, Any],
-    *,
-    include_background: bool = False,
-) -> dict[str, Any]:
-    result = _render_task_result(
-        app,
-        workspace,
-        task,
-        canvas_key,
-        output_path,
-        payload,
-        include_background=include_background,
-    )
-    return _render_result_payload(workspace, result)
-
-
 def _save_task(
     app: Flask,
     workspace: CoverWorkspace,

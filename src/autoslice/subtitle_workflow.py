@@ -442,38 +442,6 @@ def _normalise_split_groups(cues, split_groups, deleted_indices):
     return result
 
 
-def _split_subtitle_cues(cues, text_updates, deleted_indices, split_groups):
-    """把拆分段展开成输出 SRT cue；首段沿用源序号，后续段使用稳定新序号。"""
-    used = {cue.index for cue in cues}
-    next_index = max(used, default=0) + 1
-    output = []
-    for cue in cues:
-        if cue.index in deleted_indices:
-            continue
-        segments = split_groups.get(cue.index)
-        if not segments:
-            output.append(SubtitleCue(
-                cue.index,
-                cue.start,
-                cue.end,
-                cue.settings,
-                text_updates.get(cue.index, cue.text),
-            ))
-            continue
-        for position, segment in enumerate(segments):
-            index = cue.index if position == 0 else next_index
-            if position:
-                next_index += 1
-            output.append(SubtitleCue(
-                index,
-                segment["start"],
-                segment["end"],
-                cue.settings,
-                segment["text"],
-            ))
-    return output
-
-
 def serialise_srt(
         cues, text_updates=None, deleted_indices=None, *, merge_pairs=None,
         merge_overrides=None, time_overrides=None, split_groups=None):
