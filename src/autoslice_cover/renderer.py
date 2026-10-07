@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import secrets
 import threading
-import unicodedata
 from dataclasses import asdict, dataclass, replace
-from functools import lru_cache
 from math import ceil, floor, isfinite
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -22,7 +20,8 @@ from PIL import (
     ImageStat,
 )
 
-from .emoji import get_emoji_font_path, is_emoji_character, render_emoji_image
+from .document_layout import font_runs as _font_run_specs
+from .emoji import get_emoji_font_path, render_emoji_image
 
 # resolve_font_path 保留为历史公开导入，供外部调用继续从 renderer 获取同一对象。
 from .fonts import resolve_font_path, resolve_font_stack  # noqa: F401
@@ -202,59 +201,6 @@ def _load_font(size: int, font_path: str | None) -> ImageFont.ImageFont:
         return ImageFont.truetype("DejaVuSans-Bold.ttf", size=size)
     except OSError:
         return ImageFont.load_default(size=size)
-
-
-def _glyph_signature(font: ImageFont.ImageFont, character: str) -> tuple[object, ...]:
-    mask = font.getmask(character, mode="L")
-    return mask.size, mask.getbbox(), bytes(mask)
-
-
-@lru_cache(maxsize=8192)
-def _font_supports_character(font_path: str | None, character: str) -> bool:
-    """判断字体是否真的包含字形，避免把 .notdef 缺字符号当作正文。"""
-
-    if character.isspace() or unicodedata.category(character) in {"Cc", "Cf"}:
-        return True
-    if unicodedata.combining(character):
-        return True
-    font = _load_font(64, font_path)
-    candidate = _glyph_signature(font, character)
-    if candidate[1] is None:
-        return False
-    return candidate != _glyph_signature(font, "\uffff")
-
-
-@lru_cache(maxsize=8192)
-def _font_path_for_character(
-    font_paths: tuple[str | None, ...],
-    character: str,
-) -> str | None:
-    if is_emoji_character(character):
-        for font_path in font_paths:
-            if font_path and Path(font_path).name.casefold() == "seguiemj.ttf":
-                return font_path
-    for font_path in font_paths:
-        if font_path and Path(font_path).name.casefold() == "seguiemj.ttf":
-            continue
-        if _font_supports_character(font_path, character):
-            return font_path
-    return font_paths[0]
-
-
-def _font_run_specs(
-    text: str,
-    font_paths: tuple[str | None, ...],
-) -> list[tuple[str | None, str, bool]]:
-    specs: list[tuple[str | None, str, bool]] = []
-    for character in text:
-        font_path = _font_path_for_character(font_paths, character)
-        emoji = bool(font_path and Path(font_path).name.casefold() == "seguiemj.ttf")
-        if specs and specs[-1][0] == font_path and specs[-1][2] == emoji:
-            previous_path, previous_text, _ = specs[-1]
-            specs[-1] = previous_path, previous_text + character, emoji
-        else:
-            specs.append((font_path, character, emoji))
-    return specs
 
 
 def _measure_font_layout(
@@ -1298,6 +1244,18 @@ def _save_jpeg_batch(
     finally:
         for temporary, _ in pending:
             _cleanup_file(temporary)
+
+
+def save_cover_jpeg(
+    image: Image.Image,
+    output_path: str | Path,
+    *,
+    quality: int = 92,
+    max_bytes: int = 5_000_000,
+) -> int:
+    """原子写出单张封面 JPEG，返回文件字节数。"""
+
+    return _save_jpeg_batch([(image, _jpeg_output_path(output_path))], quality, max_bytes)[0]
 
 
 def _jpeg_output_path(path: str | Path) -> Path:
