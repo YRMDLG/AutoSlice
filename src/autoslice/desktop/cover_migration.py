@@ -27,6 +27,7 @@ from .cover_model import (
     Transform,
     default_profiles,
     object_for_profile,
+    stroke_for,
     text_override_payload,
 )
 
@@ -93,7 +94,7 @@ def _copy_text_object(
         stroke=str(DEFAULT_TEXT_STYLE["stroke_color"]),
         # 旧版 context 与 emphasis 共用色板，但 context 的描边更轻；
         # 这样 A 不会和 B 叠成一块同权重的大字。
-        stroke_width=4 if copy_role == "A" else int(DEFAULT_TEXT_STYLE["stroke_width"]),
+        stroke_width=stroke_for(size),
         shadow=bool(DEFAULT_TEXT_STYLE["shadow"]),
         line_spacing=float(DEFAULT_TEXT_STYLE["line_spacing"]),
     )

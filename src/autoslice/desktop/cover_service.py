@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import io
 import json
@@ -30,7 +31,6 @@ from autoslice_cover.video import (
     probe_video,
 )
 
-from .cover_ai import CoverAIBeta, CoverAICandidate
 from .cover_assets import CoverAssetLibrary
 from .cover_copy import BasicCoverCopy, generate_basic_copy_variants
 from .cover_layout import canvas_size, document_layers, fitted_font_size, text_layout
@@ -41,6 +41,7 @@ from .cover_migration import (
     draft_values_from_document,
 )
 from .cover_model import (
+    AssetRef,
     BackgroundObject,
     CoverDocument,
     ImageObject,
@@ -48,6 +49,7 @@ from .cover_model import (
     StickerObject,
     TextObject,
     object_for_profile,
+    resize_text_style,
     text_override_payload,
 )
 from .cover_style import (
@@ -211,6 +213,9 @@ _SPLIT_FONT_B = 150
 # 槽位代价表里上下两条宽带的键；不参与单槽位选择。
 _SPLIT_TOP_KEY = "split-top"
 _SPLIT_BOTTOM_KEY = "split-bottom"
+# “标题在上”构图：大标题两行高、小字一行高。
+_STACK_HEAD_HEIGHT = 0.24
+_STACK_SUB_HEIGHT = 0.11
 # 只有 B 时的宽带高度：两行大字。
 _BAND_HEIGHT = 0.30
 # 方案的初始请求字号：自动排版在槽位里只缩不放，所以先给足。
@@ -218,7 +223,7 @@ _SCHEME_FONT_A = 73
 _SCHEME_FONT_B = 104
 _SCHEME_FONT_BIG = 168
 # “换一批”轮换的配色；第一个方案保留当前（记忆）样式。
-_SCHEME_PRESETS = ("duo", "red-bar", "double", "white", "yellow-bar", "dark-bar")
+_SCHEME_PRESETS = ("duo", "yellow-red", "yellow-purple", "white", "classic")
 
 
 @dataclass(frozen=True)
@@ -258,7 +263,6 @@ class CoverService:
         self.previews = storage.thumbnails / "cover-previews"
         self.asset_library = CoverAssetLibrary(storage.root)
         self.style_memory = CoverStyleMemoryStore(storage.root)
-        self.ai = CoverAIBeta(enabled=False)
         self.export_history_path = storage.root / "cover-export-history.json"
         # 同一视频只探测一次时长与尺寸；取帧任务会并发调用。
         self._metadata: dict[tuple[str, int, int], VideoMetadata] = {}
@@ -374,9 +378,12 @@ class CoverService:
         return replace(document, objects=objects)
 
     def remember_style(self, project: SubmissionProject, document: CoverDocument) -> None:
-        text = next((item for item in document.objects if isinstance(item, TextObject) and item.copy_role == "B"), None)
-        if text is None:
+        ids = primary_copy_ids(document)
+        text = object_for_profile(document, ids["B"], "4x3") if "B" in ids else None
+        if not isinstance(text, TextObject):
             return
+        context = object_for_profile(document, ids["A"], "4x3") if "A" in ids else None
+        context_style = context.style if isinstance(context, TextObject) and context.visible else None
         style = text.style
         memory = CoverStyleMemory(
             font_family=style.font_family,
@@ -390,6 +397,8 @@ class CoverService:
             outer_stroke=style.outer_stroke,
             outer_stroke_width=style.outer_stroke_width,
             backdrop=style.backdrop,
+            context_fill=context_style.fill_color if context_style and context_style.fill_color != style.fill_color else "",
+            context_stroke=context_style.stroke_color if context_style and context_style.stroke_color != style.stroke_color else "",
         )
         self.style_memory.save(memory, streamer=streamer_key(project.title))
 
@@ -708,11 +717,6 @@ class CoverService:
     def frame_is_locked(document: CoverDocument) -> bool:
         return bool(document.source.frame_locked)
 
-    def ai_candidates(self, document: CoverDocument, *, profile_key: str = "4x3") -> tuple[CoverAICandidate, ...]:
-        """显式入口；真实 relay 未配置时只返回可编辑 mock 候选。"""
-
-        return self.ai.suggest(document, profile_key=profile_key)
-
     @staticmethod
     def _text_slot_costs(
         image_path: str | Path,
@@ -795,6 +799,7 @@ class CoverService:
         """新底图的默认构图：两个比例分别保住主体、给 A/B 找空区。
 
         mode="split" 强制上下分置（A 上缘、B 下缘；只有 B 时占代价更低的一条宽带），
+        mode="stack" 大标题在上、A 作小字紧跟其下，整组放在更空的上缘或下缘，
         mode="slot" 强制放进最空的单侧槽位。
         只排 A/B 主文案；用户新建或复制的文本框不动。
         """
@@ -856,7 +861,7 @@ class CoverService:
                     shaped,
                     rect=Rect(width=width, height=height),
                     wrap=replace(item.wrap, max_width=width, max_lines=8),
-                    style=replace(item.style, font_size=size),
+                    style=resize_text_style(item.style, size),
                 )
 
             def text_height(item: TextObject) -> float:
@@ -868,7 +873,30 @@ class CoverService:
                 (text, current if isinstance(current := object_for_profile(document, text.id, key), TextObject) else text)
                 for text in texts
             ]
-            if split:
+            if mode == "stack":
+                # 大标题 + 小字（参考账号“晚安小音音 + 一行小字”式封面），整组放在更空的一缘。
+                at_top = bands is None or bands[0] <= bands[1]
+                cursor = _SPLIT_TOP
+                placed: list[tuple[TextObject, TextObject]] = []
+                head_size = _SPLIT_FONT_B
+                for text, current in sorted(current_texts, key=lambda pair: pair[0].copy_role != "B"):
+                    head = text.copy_role == "B"
+                    if not head and not (has_context and current.visible):
+                        continue
+                    updated = place(
+                        current, _SPLIT_X, cursor, _SPLIT_WIDTH, _STACK_HEAD_HEIGHT if head else _STACK_SUB_HEIGHT,
+                        requested=max(current.style.font_size, _SPLIT_FONT_B) if head else max(40, round(head_size * 0.55)),
+                        max_lines=2 if head else 1, align="center",
+                    )
+                    if head:
+                        head_size = updated.style.font_size
+                    placed.append((text, updated))
+                    cursor += text_height(updated) + 0.015
+                shift = 0.0 if at_top else (1.0 - _SPLIT_TOP) - (cursor - 0.015)
+                for text, updated in placed:
+                    moved = replace(updated, transform=replace(updated.transform, y=updated.transform.y + shift))
+                    overrides[text.id] = text_override_payload(moved)
+            elif split:
                 # 上下分置：A 放上缘单行、B 放下缘，居中大字；只有 B 时占代价更低的一条宽带。
                 lone = not has_context
                 band_top = lone and bands is not None and bands[0] < bands[1]
@@ -907,6 +935,42 @@ class CoverService:
             profiles[key] = replace(profile, overrides=overrides)
         return replace(document, profiles=profiles)
 
+    @staticmethod
+    def existing_exports(project: SubmissionProject, video: ProjectVideo) -> tuple[Path, ...]:
+        """项目目录里这个视频已经导出过的封面（任意比例、任意序号）。"""
+
+        stem = Path(video.name).stem or "封面"
+        pattern = str(Path(glob.escape(project.directory)) / f"AutoCover-{glob.escape(stem)}*.jpg")
+        return tuple(sorted(Path(item) for item in glob.glob(pattern)))
+
+    def has_draft(self, project: SubmissionProject, video: ProjectVideo) -> bool:
+        return self.storage.read_draft("cover", project.directory, video.path).status == "ready"
+
+    def auto_cover(self, project: SubmissionProject, video: ProjectVideo) -> tuple[Path, Path]:
+        """批量出图：有草稿按草稿导出；没有就全片选帧、自动排版后导出，并存成草稿方便回头再改。"""
+
+        document, _read = self.load_document(project, video)
+        background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
+        image = background.asset.path if background is not None and background.asset else None
+        if not image or not Path(image).is_file():
+            if not Path(video.path).is_file():
+                raise ValueError(f"视频不存在：{video.path}")
+            best = best_overview_frame(self.overview_candidates(video))
+            if best is None:
+                raise ValueError("没有取到可用画面")
+            document = replace(
+                document,
+                source=replace(document.source, selected_timestamp=best.timestamp, image_asset_id=str(best.path)),
+                objects=tuple(
+                    replace(item, asset=replace(item.asset, path=str(best.path)) if item.asset else AssetRef(path=str(best.path)))
+                    if isinstance(item, BackgroundObject) else item
+                    for item in document.objects
+                ),
+            )
+            document = self.apply_auto_layout(document, best.path)
+            self.save_document(project, video, document)
+        return self.export_both(project, video, document)
+
     def overview_candidates(self, video: ProjectVideo, *, count: int = 8) -> tuple[CoverFrame, ...]:
         """全片均匀候选（避开片头片尾），没有播放位置时据此自动挑首帧。"""
 
@@ -933,7 +997,7 @@ class CoverService:
                     style = preset.apply(style, item.copy_role)
                 size = (_SCHEME_FONT_BIG if big else _SCHEME_FONT_B) if item.copy_role == "B" else _SCHEME_FONT_A
                 item = replace(
-                    item, text=value, visible=bool(value), style=replace(style, font_size=size),
+                    item, text=value, visible=bool(value), style=resize_text_style(style, size),
                     transform=replace(item.transform, rotation=0.0, scale=1.0),
                 )
             objects.append(item)
@@ -969,21 +1033,22 @@ class CoverService:
             return self.apply_auto_layout(self._seed_copy(document, copy, style, big=big), image_path, mode=mode)
 
         recommended = build(first, None)
-        # 第二套换一种构图：推荐是宽带就给单侧或大字，推荐是单侧就给上下分置。
+        # 第二套换一种构图；“换一批”在与推荐不同的构图之间轮换。
+        alternatives: list[CoverScheme] = []
         if first.context.strip():
-            middle = CoverScheme("split", "上下分置", "A 放上缘、B 放下缘，人物留在中间", build(first, None, mode="split"))
-            if middle.document == recommended:
-                middle = CoverScheme(
-                    "headline", "大字", "只留主文案放大成一条宽带，首页小图也看得清",
-                    build(replace(first, context=""), None, big=True, mode="split"),
-                )
-        else:
-            middle = CoverScheme("side", "侧边", "文字放到画面较空的一侧，人物更完整", build(first, None, mode="slot"))
-            if middle.document == recommended:
-                middle = CoverScheme(
-                    "headline", "大字", "主文案放大成一条宽带，首页小图也看得清",
-                    build(first, None, big=True, mode="split"),
-                )
+            alternatives += [
+                CoverScheme("split", "上下分置", "A 放上缘、B 放下缘，人物留在中间", build(first, None, mode="split")),
+                CoverScheme("stack", "标题在上", "大标题在上、A 作小字紧跟其下", build(first, None, mode="stack")),
+            ]
+        alternatives += [
+            CoverScheme(
+                "headline", "大字", "只留主文案放大成一条宽带，首页小图也看得清",
+                build(replace(first, context=""), None, big=True, mode="split"),
+            ),
+            CoverScheme("side", "侧边", "文字放到画面较空的一侧，人物更完整", build(first, None, mode="slot")),
+        ]
+        distinct = [item for item in alternatives if item.document != recommended] or alternatives
+        middle = distinct[batch % len(distinct)]
         return (
             CoverScheme("recommended", "推荐", "避开人物主体自动排版：A 交代背景，B 放大爆点", recommended),
             middle,
@@ -1068,35 +1133,6 @@ class CoverService:
         self.previews.mkdir(parents=True, exist_ok=True)
         output = self.previews / f"{self._identity(Path(video.path))}-{canvas_key}-document-preview.jpg"
         self._render_document(document, video, output, canvas_key=canvas_key)
-        return output
-
-    def render_check_preview(self, video: ProjectVideo, draft: CoverDraft) -> Path:
-        """保留旧调用方的 16:9 检查图接口。"""
-
-        if not draft.image_path or not Path(draft.image_path).is_file():
-            raise ValueError("请先加载底图或从当前视频取帧")
-        self.previews.mkdir(parents=True, exist_ok=True)
-        output = self.previews / f"{self._identity(Path(video.path))}-16x9-check.jpg"
-        lines = wrap_cover_title(draft.title, draft.font_size, canvas_width=1920)
-        render_cover(
-            draft.image_path,
-            draft.title,
-            output,
-            video_path=video.path,
-            canvas_key="16x9",
-            template_key="headline",
-            copy_lines=lines,
-            text_transforms=text_transforms_for(draft, lines),
-            focus_x=draft.background_x,
-            focus_y=draft.background_y,
-            background_scale=draft.background_scale,
-        )
-        return output
-
-    def render_check_preview_document(self, video: ProjectVideo, document: CoverDocument) -> Path:
-        self.previews.mkdir(parents=True, exist_ok=True)
-        output = self.previews / f"{self._identity(Path(video.path))}-16x9-document-check.jpg"
-        self._render_document(document, video, output, canvas_key="16x9")
         return output
 
     def _render_document(

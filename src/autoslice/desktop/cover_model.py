@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
 from autoslice_cover.text_layout import (
@@ -732,6 +732,34 @@ def object_for_profile(document: CoverDocument, object_id: str, profile_key: str
 
 
 # 两比例共享的文字样式字段；字号、位置、尺寸和对齐按比例分别保存。
+# 描边占字号的比例：参考账号封面的粗黑边（约 8%）。
+DEFAULT_STROKE_RATIO = 0.08
+
+
+def stroke_for(font_size: int, ratio: float = DEFAULT_STROKE_RATIO) -> int:
+    return max(2, round(int(font_size) * ratio)) if ratio > 0 else 0
+
+
+def resize_text_style(style: "TextStyle", font_size: int) -> "TextStyle":
+    """改字号时描边、外描边按比例跟随，粗细观感不变。"""
+
+    size = int(font_size)
+    old = max(1, int(style.font_size))
+    if size == old:
+        return style
+    scale = size / old
+
+    def scaled(width: int) -> int:
+        return max(1, round(width * scale)) if width else 0
+
+    return replace(
+        style,
+        font_size=size,
+        stroke_width=scaled(style.stroke_width),
+        outer_stroke_width=scaled(style.outer_stroke_width),
+    )
+
+
 SHARED_TEXT_STYLE_FIELDS = (
     "font_family",
     "font_weight",

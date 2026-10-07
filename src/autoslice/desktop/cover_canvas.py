@@ -66,6 +66,7 @@ from .cover_model import (
     TextObject,
     Transform,
     object_for_profile,
+    resize_text_style,
 )
 from .qt_preview.theme import COLORS
 
@@ -609,7 +610,7 @@ class CoverCanvas(QLabel):
             width = self._clamp(obj.rect.width * actual, 0.02, 3.0)
             self._emit_text(replace(
                 obj,
-                style=replace(obj.style, font_size=size),
+                style=resize_text_style(obj.style, size),
                 rect=replace(obj.rect, width=width, height=self._clamp(obj.rect.height * actual, 0.02, 3.0)),
                 wrap=replace(obj.wrap, max_width=min(1.0, width)),
             ), commit=False)

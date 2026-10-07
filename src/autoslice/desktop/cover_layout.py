@@ -113,11 +113,8 @@ def text_font_size(item: TextObject) -> int:
 
 
 def effective_stroke_width(item: TextObject) -> int:
-    # A 沿用旧版 context：程序默认的重描边收回一档。
-    style = item.style
-    if item.copy_role == "A" and style.stroke_width >= 6 and style.font_weight >= 700:
-        return 4
-    return int(style.stroke_width)
+    # 描边按字号比例存储（见 resize_text_style），A/B 粗细由各自字号决定。
+    return int(item.style.stroke_width)
 
 
 def text_layout(item: TextObject, size: tuple[int, int]) -> TextLayout:

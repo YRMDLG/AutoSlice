@@ -113,7 +113,7 @@ Desktop vNext 已经从“基础壳和局部能力”进入“功能基本铺开
 
 - 领域模型：`src/autoslice/desktop/cover_model.py`、`cover_migration.py`、`cover_history.py`。
 - 编辑器与画布：`src/autoslice/desktop/cover.py`、`cover_canvas.py`、`cover_service.py`。
-- 文案、风格和 AI：`cover_copy.py`、`cover_style.py`、`cover_ai.py`、`src/autoslice_cover/text_layout.py`。
+- 文案和风格：`cover_copy.py`、`cover_style.py`、`src/autoslice_cover/text_layout.py`。
 - 字幕和窗口边界：`src/autoslice/desktop/qt_app/window.py`、`subtitles.py`、`ai_review.py`、`subtitle_render.py`。
 - 旧稿和审计原文：见 [archive/README.md](archive/README.md)，它们只作历史证据。
 ## 长期协作上下文

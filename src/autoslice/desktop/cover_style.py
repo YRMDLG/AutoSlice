@@ -13,7 +13,7 @@ from pathlib import Path
 
 from autoslice_cover.text_layout import DEFAULT_TEXT_STYLE
 
-from .cover_model import TextStyle
+from .cover_model import DEFAULT_STROKE_RATIO, TextStyle, stroke_for
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,23 +24,29 @@ class CoverStyleMemory:
     context_size_ratio: float = 0.70
     fill_color: str = "#FFE438"
     stroke_color: str = "#111111"
-    stroke_width: int = 6
+    stroke_width: int = 8
     shadow: bool = True
     line_spacing: float = 1.12
     preferred_asset_ids: tuple[str, ...] = ()
     outer_stroke: str = ""
     outer_stroke_width: int = 0
     backdrop: str = ""
+    # A 的颜色；为空时与 B 相同（黄青、黄红等双色风格靠它延续到下一个封面）。
+    context_fill: str = ""
+    context_stroke: str = ""
 
     def text_style(self, *, role: str = "B") -> TextStyle:
         size = self.headline_size if role == "B" else max(24, round(self.headline_size * self.context_size_ratio))
+        context = role == "A"
+        # 描边按字号比例：A 字小，描边跟着细一点。
+        ratio = size / max(1, self.headline_size)
         return TextStyle(
             font_family=self.font_family,
             font_weight=self.font_weight if role == "B" else max(100, self.font_weight - 200),
             font_size=size,
-            fill=self.fill_color,
-            stroke=self.stroke_color,
-            stroke_width=self.stroke_width if role == "B" else max(1, self.stroke_width - 2),
+            fill=self.context_fill if context and self.context_fill else self.fill_color,
+            stroke=self.context_stroke if context and self.context_stroke else self.stroke_color,
+            stroke_width=max(1, round(self.stroke_width * ratio)) if self.stroke_width else 0,
             shadow=self.shadow,
             line_spacing=self.line_spacing,
             outer_stroke=self.outer_stroke,
@@ -61,42 +67,45 @@ def streamer_key(title: str | None) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class StylePreset:
-    """一键样式：只改颜色与效果，不动字号、字体和位置。"""
+    """一键样式：只改颜色与效果，不动字号、字体和位置；描边按字号比例。"""
 
     key: str
     label: str
     fill: str
     stroke: str
-    stroke_width: int
+    stroke_ratio: float
     shadow: bool
     outer_stroke: str = ""
-    outer_stroke_width: int = 0
+    outer_stroke_ratio: float = 0.0
     backdrop: str = ""
-    # A 的填充色；为空时与 B 相同（双色预设用）。
+    # A 的填充与描边；为空时与 B 相同（双色预设用）。
     context_fill: str = ""
+    context_stroke: str = ""
 
     def apply(self, style: TextStyle, role: str = "B") -> TextStyle:
+        context = role == "A"
         return replace(
             style,
-            fill=self.context_fill if role == "A" and self.context_fill else self.fill,
-            stroke=self.stroke,
-            stroke_width=self.stroke_width,
+            fill=self.context_fill if context and self.context_fill else self.fill,
+            stroke=self.context_stroke if context and self.context_stroke else self.stroke,
+            stroke_width=stroke_for(style.font_size, self.stroke_ratio),
             shadow=self.shadow,
             outer_stroke=self.outer_stroke,
-            outer_stroke_width=self.outer_stroke_width,
+            outer_stroke_width=stroke_for(style.font_size, self.outer_stroke_ratio) if self.outer_stroke else 0,
             backdrop=self.backdrop,
         )
 
 
-# 直播切片封面的常用组合；第一项即默认样式。
+# 配色参考 B 站“绝对忠诚的Y”的切片封面：黄字粗黑边为主，第二句用青、红（白边）或紫（白边）。
+_YELLOW, _CYAN, _RED, _PURPLE, _INK = "#FFE438", "#16D8ED", "#F44336", "#6739C6", "#111111"
 STYLE_PRESETS: tuple[StylePreset, ...] = (
-    StylePreset("classic", "黄字黑边", "#FFE438", "#111111", 6, True),
-    StylePreset("duo", "黄青双色", "#12D8E6", "#111111", 8, True, context_fill="#FFE438"),
-    StylePreset("white", "白字黑边", "#FFFFFF", "#111111", 6, True),
-    StylePreset("double", "双层描边", "#FFE438", "#111111", 6, True, "#FFFFFF", 6),
-    StylePreset("red-bar", "红底白字", "#FFFFFF", "#7A0A10", 2, False, backdrop="#E3262FF0"),
-    StylePreset("yellow-bar", "黄底黑字", "#111111", "#111111", 0, False, backdrop="#FFE438F5"),
-    StylePreset("dark-bar", "暗底白字", "#FFFFFF", "#000000", 2, False, backdrop="#000000B0"),
+    StylePreset("classic", "全黄黑边", _YELLOW, _INK, DEFAULT_STROKE_RATIO, True),
+    StylePreset("duo", "黄青", _CYAN, _INK, DEFAULT_STROKE_RATIO, True, context_fill=_YELLOW),
+    StylePreset("yellow-red", "黄红", _RED, "#FFFFFF", DEFAULT_STROKE_RATIO, True, context_fill=_YELLOW, context_stroke=_INK),
+    StylePreset("yellow-purple", "黄紫", _PURPLE, "#FFFFFF", DEFAULT_STROKE_RATIO, True, context_fill=_YELLOW, context_stroke=_INK),
+    StylePreset("white", "白字黑边", "#FFFFFF", _INK, DEFAULT_STROKE_RATIO, True),
+    StylePreset("double", "双层描边", _YELLOW, _INK, 0.06, True, "#FFFFFF", 0.05),
+    StylePreset("dark-bar", "暗底白字", "#FFFFFF", "#000000", 0.02, False, backdrop="#000000B0"),
 )
 
 

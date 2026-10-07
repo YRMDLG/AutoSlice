@@ -206,32 +206,6 @@ class CoverServiceTests(unittest.TestCase):
             )
         self.assertGreater(cyan_pixels, 20)
 
-    def test_ai_candidates_have_distinct_effective_layouts(self):
-        document = CoverDraft("上下文说明\n主视觉标题", font_size=96).to_document()
-        candidates = self.service.ai_candidates(document, profile_key="4x3")
-        self.assertEqual([item.candidate_id for item in candidates], ["safe", "alternate", "bold"])
-        effective = [
-            object_for_profile(
-                item.document,
-                next(obj.id for obj in item.document.objects if isinstance(obj, TextObject) and obj.copy_role == "B"),
-                "4x3",
-            )
-            for item in candidates
-        ]
-        self.assertTrue(all(isinstance(item, TextObject) for item in effective))
-        signatures = {
-            (
-                item.transform.x,
-                item.transform.y,
-                item.transform.scale,
-                item.style.font_size,
-                item.rect.width,
-                item.rect.height,
-            )
-            for item in effective
-        }
-        self.assertEqual(len(signatures), 3)
-
     def test_document_renderer_uses_resolved_font_path(self):
         image = self.service.import_image(self.image_path)
         document = CoverDraft("中文字体宽度", str(image), font_size=96).to_document()
@@ -253,14 +227,6 @@ class CoverServiceTests(unittest.TestCase):
             self.assertEqual(preview_image.size, (1440, 1080))
         with Image.open(exported) as exported_image:
             self.assertEqual(exported_image.size, (1440, 1080))
-
-    def test_check_preview_is_secondary_sixteen_by_nine_view(self):
-        image = self.service.import_image(self.image_path)
-        draft = CoverDraft("检查比例", str(image), font_size=72)
-        check = self.service.render_check_preview(self.video, draft)
-        with Image.open(check) as check_image:
-            self.assertEqual(check_image.size, (1920, 1080))
-        self.assertTrue(check.name.endswith("-16x9-check.jpg"))
 
     def test_preview_and_export_can_use_sixteen_by_nine_main_canvas(self):
         image = self.service.import_image(self.image_path)
@@ -352,17 +318,14 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertEqual(self.widget._canvas_key, "4x3")
         self.assertIn("1440×1080", self.widget.export_summary.text())
 
-    def test_cleanup_exposes_output_contract_and_on_demand_check_preview(self):
+    def test_cleanup_exposes_output_contract(self):
         self.widget.set_context(self.project, self.project.videos[0])
         self.assertIn("项目目录", self.widget.export_summary.text())
         self.assertIn("4:3", self.widget.export_both_button.text())
         self.assertIn("16:9", self.widget.export_both_button.text())
-        self.assertFalse(self.widget.check_preview.isVisible())
-        self.widget.show()
-        self.widget.check_preview_toggle.click()
-        self.app.processEvents()
-        self.assertTrue(self.widget.check_preview_toggle.isChecked())
-        self.assertTrue(self.widget.check_preview.isVisible())
+        # 已删除：AI 三个方案、另一比例小预览、X/Y 与旋转数值。
+        for name in ("ai_button", "check_preview", "check_preview_toggle", "x_spin", "y_spin", "rotation_spin"):
+            self.assertFalse(hasattr(self.widget, name), name)
 
     def test_nearby_frame_strip_marks_current_source(self):
         self.widget.set_context(self.project, self.project.videos[0])
@@ -479,7 +442,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertAlmostEqual(self.widget.timestamp_edit.value(), 3.0)
         self.assertAlmostEqual(self.widget._current_playhead, 8.5)
 
-    def test_ai_apply_survives_debounced_preview_and_undo_redo(self):
+    def test_document_change_survives_debounced_preview_and_undo_redo(self):
         image = Path(self.temp.name) / "font-and-ai.png"
         Image.new("RGB", (640, 480), "#334155").save(image)
         base = CoverDraft("上下文说明\n主视觉标题", str(image), font_size=96).to_document()
@@ -487,16 +450,20 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.widget.draft = CoverDraft.from_document(base)
         self.widget.history.reset(base)
         self.widget._apply_draft()
-        candidate = self.widget.service.ai_candidates(base, profile_key="4x3")[1]
+        from autoslice.desktop.cover_model import update_text_object
+
+        b_id = next(item.id for item in base.objects if isinstance(item, TextObject) and item.copy_role == "B")
+        current = object_for_profile(base, b_id, "4x3")
+        candidate = update_text_object(
+            base, replace(current, transform=replace(current.transform, x=0.66)), profile_key="4x3",
+        )
         before_generation = self.widget._preview_request_generation
-        self.widget.document = candidate.document
+        self.widget.document = candidate
         self.widget._commit_document_change(base)
-        b_id = next(item.id for item in candidate.document.objects if isinstance(item, TextObject) and item.copy_role == "B")
         applied = object_for_profile(self.widget.document, b_id, "4x3")
         self.assertIsInstance(applied, TextObject)
         self.assertAlmostEqual(applied.transform.x, 0.66, places=3)
         self.assertGreater(self.widget._preview_request_generation, before_generation)
-        self.assertAlmostEqual(self.widget.x_spin.value(), applied.transform.x, places=2)
 
         # 让自动保存、预览和旧回调都有机会执行，再检查文档没有被旧控件回写。
         for _ in range(90):

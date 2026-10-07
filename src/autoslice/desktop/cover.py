@@ -48,7 +48,6 @@ from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCA
 from autoslice_cover.document_render import rgba
 from autoslice_cover.fonts import resolve_font_selection
 
-from .cover_ai import CoverAICandidate
 from .cover_asset_dialog import CoverAssetDialog
 from .cover_canvas import CoverCanvas
 from .cover_history import CoverHistory
@@ -65,6 +64,7 @@ from .cover_model import (
     Transform,
     insert_overlay,
     object_for_profile,
+    resize_text_style,
     restack_object,
     set_object_visible,
     text_override_payload,
@@ -177,22 +177,21 @@ def _preset_icon(preset: StylePreset) -> QIcon:
     font = QFont()
     font.setPixelSize(16)
     font.setBold(True)
-    path = QPainterPath()
-    if preset.context_fill:
-        path.addText(2, 17, font, "黄")
-        second = QPainterPath()
-        second.addText(16, 17, font, "青")
-    else:
-        path.addText(7, 17, font, "字")
-        second = None
-    stroke = max(0.0, preset.stroke_width / 4.0)
-    for glyphs, fill in ((path, preset.context_fill or preset.fill), (second, preset.fill)):
-        if glyphs is None:
-            continue
-        if preset.outer_stroke:
-            painter.strokePath(glyphs, QPen(QColor(*rgba(preset.outer_stroke)), (stroke + preset.outer_stroke_width / 4.0) * 2))
+    # 双色预设画“黄青”这类两个字，A 色在前；描边按字号比例画。
+    pairs = (
+        ((2, preset.label[0], preset.context_fill, preset.context_stroke or preset.stroke), (16, preset.label[1], preset.fill, preset.stroke))
+        if preset.context_fill and len(preset.label) >= 2
+        else ((7, "字", preset.fill, preset.stroke),)
+    )
+    stroke = preset.stroke_ratio * 16
+    outer = preset.outer_stroke_ratio * 16
+    for x, glyph, fill, stroke_color in pairs:
+        glyphs = QPainterPath()
+        glyphs.addText(x, 17, font, glyph)
+        if preset.outer_stroke and outer:
+            painter.strokePath(glyphs, QPen(QColor(*rgba(preset.outer_stroke)), (stroke + outer) * 2))
         if stroke:
-            painter.strokePath(glyphs, QPen(QColor(*rgba(preset.stroke)), stroke * 2))
+            painter.strokePath(glyphs, QPen(QColor(*rgba(stroke_color)), stroke * 2))
         painter.fillPath(glyphs, QColor(*rgba(fill)))
     painter.end()
     return QIcon(pixmap)
@@ -222,25 +221,19 @@ class CoverEditorWidget(QWidget):
         self._copy_variants = ()
         self._copy_variant_index = -1
         self._selected_text_id: str | None = None
-        self._check_busy = False
-        self._check_dirty = False
         self._canvas_key = "4x3"
         self._preview_request_generation = 0
-        self._check_request_generation = 0
         self._jobs: set[_Job] = set()
         self.history = CoverHistory()
         self._frame_locked = False
         self._selected_frame_timestamp: float | None = None
-        self._check_preview_visible = False
         self._wider_frames: tuple[tuple[Path, float], ...] = ()
         self._nearby_pending: set[float] = set()
         self._nearby_results: list[CoverFrame] = []
         self._nearby_error = None
-        self._ai_candidates: tuple[CoverAICandidate, ...] = ()
         self._schemes: tuple[CoverScheme, ...] = ()
         self._scheme_batch = 0
         self._scheme_generation = 0
-        self._selected_ai_candidate: str | None = None
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
@@ -287,15 +280,6 @@ class CoverEditorWidget(QWidget):
             toolbar_row.addWidget(btn)
             btn.clicked.connect(lambda _c=False, k=key: self._set_canvas_key(k))
         self.canvas_ratio_buttons["4x3"].setChecked(True)
-
-        self.check_preview_toggle = QPushButton("另一比例")
-        self.check_preview_toggle.setCheckable(True)
-        self.check_preview_toggle.setObjectName("quiet")
-        self.check_preview_toggle.setFixedHeight(28)
-        self.check_preview_toggle.setEnabled(False)
-        self.check_preview_toggle.setToolTip("按需显示另一输出比例的预览；隐藏时不排队渲染")
-        self.check_preview_toggle.toggled.connect(self._toggle_check_preview)
-        toolbar_row.addWidget(self.check_preview_toggle)
 
         toolbar_row.addSpacing(8)
 
@@ -443,19 +427,6 @@ class CoverEditorWidget(QWidget):
         self.canvas.edit_requested.connect(self._edit_text)
         center_layout.addWidget(self.canvas, 1)
 
-        # 另一比例预览条（精简为一行）
-        check_row = QHBoxLayout()
-        check_row.setSpacing(8)
-        check_row.setContentsMargins(0, 0, 0, 0)
-        self.check_preview = QLabel("")
-        self.check_preview.setObjectName("subtle")
-        self.check_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.check_preview.setFixedHeight(72)
-        self.check_preview.setMinimumWidth(100)
-        self.check_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.check_preview.setVisible(False)
-        check_row.addWidget(self.check_preview, 1)
-        center_layout.addLayout(check_row)
         hint_row = QHBoxLayout()
         hint_row.setContentsMargins(0, 0, 0, 0)
         hint_row.setSpacing(8)
@@ -584,14 +555,6 @@ class CoverEditorWidget(QWidget):
         self.scheme_refresh_button.clicked.connect(self._next_scheme_batch)
         self.scheme_refresh_button.setEnabled(False)
         scheme_head.addWidget(self.scheme_refresh_button)
-        self.ai_button = QPushButton("")
-        self.ai_button.setIcon(icon("sparkles"))
-        self.ai_button.setIconSize(QSize(15, 15))
-        self.ai_button.setFixedSize(26, 26)
-        self.ai_button.setObjectName("quiet")
-        self.ai_button.setToolTip("AI 三个方案（Beta）：生成可编辑候选；未配置时不调用真实 AI")
-        self.ai_button.clicked.connect(self._request_ai_candidates)
-        scheme_head.addWidget(self.ai_button)
         section.addLayout(scheme_head)
         scheme_row = QHBoxLayout()
         scheme_row.setSpacing(4)
@@ -616,11 +579,6 @@ class CoverEditorWidget(QWidget):
             self.scheme_buttons.append(button)
             self.scheme_labels.append(caption)
         section.addLayout(scheme_row)
-        self.ai_candidate_label = QLabel("")
-        self.ai_candidate_label.setObjectName("subtle")
-        self.ai_candidate_label.setWordWrap(True)
-        self.ai_candidate_label.setMaximumHeight(36)
-        section.addWidget(self.ai_candidate_label)
         return section
 
     def _toggle_panel(self, checked):
@@ -650,17 +608,6 @@ class CoverEditorWidget(QWidget):
         """显示空状态面板（无项目或无选中对象）。"""
         self.panel_title.setText("封面工具")
         self.panel_stack.setCurrentWidget(self.empty_controls)
-
-    def _toggle_check_preview(self, checked: bool):
-        """按需显示另一比例预览；隐藏时不排队渲染。"""
-        self._check_preview_visible = bool(checked)
-        self.check_preview.setVisible(self._check_preview_visible)
-        if self._check_preview_visible:
-            self._queue_check_preview()
-        else:
-            self._check_request_generation += 1
-            self._check_busy = False
-            self._check_dirty = False
 
     def _set_notice(self, text: str = "", level: str = "info"):
         """显示稳定的本地状态出口，避免错误只存在于隐藏控件。"""
@@ -763,7 +710,7 @@ class CoverEditorWidget(QWidget):
         layout.addLayout(preset_row)
 
         # 样式细节折叠区
-        self.style_toggle = QPushButton("描边与效果")
+        self.style_toggle = QPushButton("字体与效果")
         self.style_toggle.setIcon(icon("chevron_right"))
         self.style_toggle.setIconSize(QSize(14, 14))
         self.style_toggle.setFixedHeight(26)
@@ -778,6 +725,16 @@ class CoverEditorWidget(QWidget):
         style_form.setContentsMargins(0, 0, 0, 0)
         style_form.setSpacing(4)
         style_outer.addLayout(style_form)
+        font_row = QHBoxLayout()
+        self.font_path_edit = QLineEdit()
+        self.font_path_edit.setReadOnly(True)
+        self.font_path_edit.setPlaceholderText("默认字体")
+        font_row.addWidget(self.font_path_edit, 1)
+        self.font_button = QPushButton("…")
+        self.font_button.setFixedWidth(24)
+        self.font_button.clicked.connect(self._pick_font)
+        font_row.addWidget(self.font_button)
+        style_form.addRow("字体", font_row)
         self.fill_color_button = _ColorButton()
         self.fill_color_button.color_changed.connect(self._draft_changed)
         style_form.addRow("填充", self.fill_color_button)
@@ -823,49 +780,6 @@ class CoverEditorWidget(QWidget):
             lambda checked: self.style_toggle.setIcon(icon("chevron_down" if checked else "chevron_right"))
         )
         layout.addWidget(self.style_widget)
-
-        # 更多折叠区
-        self.more_toggle = QPushButton("更多")
-        self.more_toggle.setIcon(icon("chevron_right"))
-        self.more_toggle.setIconSize(QSize(14, 14))
-        self.more_toggle.setFixedHeight(26)
-        self.more_toggle.setObjectName("quiet")
-        self.more_toggle.setCheckable(True)
-        layout.addWidget(self.more_toggle)
-        self.more_widget = QWidget()
-        more_form = QFormLayout(self.more_widget)
-        more_form.setContentsMargins(8, 0, 0, 0)
-        more_form.setSpacing(4)
-        font_row = QHBoxLayout()
-        self.font_path_edit = QLineEdit()
-        self.font_path_edit.setReadOnly(True)
-        self.font_path_edit.setPlaceholderText("默认字体")
-        font_row.addWidget(self.font_path_edit, 1)
-        self.font_button = QPushButton("…")
-        self.font_button.setFixedWidth(24)
-        self.font_button.clicked.connect(self._pick_font)
-        font_row.addWidget(self.font_button)
-        more_form.addRow("字体", font_row)
-        self.rotation_spin = QDoubleSpinBox()
-        self.rotation_spin.setRange(-180.0, 180.0)
-        self.rotation_spin.setSingleStep(1.0)
-        self.rotation_spin.setSuffix("°")
-        self.rotation_spin.valueChanged.connect(self._draft_changed)
-        more_form.addRow("旋转", self.rotation_spin)
-        self.x_spin = self._coordinate_spin()
-        self.y_spin = self._coordinate_spin()
-        self.x_spin.valueChanged.connect(self._draft_changed)
-        self.y_spin.valueChanged.connect(self._draft_changed)
-        xy_row = QHBoxLayout()
-        xy_row.addWidget(self.x_spin)
-        xy_row.addWidget(self.y_spin)
-        more_form.addRow("X/Y", xy_row)
-        self.more_widget.setVisible(False)
-        self.more_toggle.toggled.connect(self.more_widget.setVisible)
-        self.more_toggle.toggled.connect(
-            lambda checked: self.more_toggle.setIcon(icon("chevron_down" if checked else "chevron_right"))
-        )
-        layout.addWidget(self.more_widget)
 
         layout.addStretch(1)
         return panel
@@ -1040,14 +954,6 @@ class CoverEditorWidget(QWidget):
         layout.addStretch(1)
         return panel
 
-    @staticmethod
-    def _coordinate_spin() -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
-        spin.setRange(0.0, 1.0)
-        spin.setSingleStep(0.01)
-        spin.setDecimals(2)
-        return spin
-
     def _canvas_selection_changed(self, title_selected: bool):
         """根据画布选择切换右侧上下文面板。"""
 
@@ -1099,7 +1005,7 @@ class CoverEditorWidget(QWidget):
             return
         self.title_edit.blockSignals(True)
         self.font_spin.blockSignals(True)
-        for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check, self.rotation_spin):
+        for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check):
             widget.blockSignals(True)
         try:
             self.title_edit.setPlainText(text.text)
@@ -1124,7 +1030,6 @@ class CoverEditorWidget(QWidget):
             self.backdrop_button.set_color(text.style.backdrop)
             self.line_spacing_spin.setValue(float(text.style.line_spacing))
             self.shadow_check.setChecked(bool(text.style.shadow))
-            self.rotation_spin.setValue(float(text.transform.rotation))
             self._update_role_label(text)
             for key, button in self.align_buttons.items():
                 button.blockSignals(True)
@@ -1133,7 +1038,7 @@ class CoverEditorWidget(QWidget):
         finally:
             self.title_edit.blockSignals(False)
             self.font_spin.blockSignals(False)
-            for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check, self.rotation_spin):
+            for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check):
                 widget.blockSignals(False)
 
     def _canvas_object_selected(self, object_id: str):
@@ -1183,14 +1088,11 @@ class CoverEditorWidget(QWidget):
         self._preview_timer.start()
 
     def _invalidate_render_requests(self) -> None:
-        """使正在运行的预览/检查预览回调失效，并允许新状态立即排队。"""
+        """使正在运行的预览回调失效，并允许新状态立即排队。"""
 
         self._preview_request_generation += 1
         self._busy = False
         self._preview_dirty = False
-        self._check_request_generation += 1
-        self._check_busy = False
-        self._check_dirty = False
 
     def _undo(self):
         document = self.history.undo()
@@ -1337,7 +1239,7 @@ class CoverEditorWidget(QWidget):
             align="center",
         )
         if style is not None:
-            text = replace(text, style=replace(style, font_size=max(48, min(120, round(style.font_size * 0.8)))))
+            text = replace(text, style=resize_text_style(style, max(48, min(120, round(style.font_size * 0.8)))))
         self.document = replace(self.document, objects=(*self.document.objects, text), selected_object_id=new_id)
         self._selected_text_id = new_id
         self.canvas.set_selected_object(new_id)
@@ -1606,45 +1508,6 @@ class CoverEditorWidget(QWidget):
         self.document = restack_object(self.document, item.id, delta)
         if self.document != before:
             self._commit_document_change(before)
-
-    def _request_ai_candidates(self):
-        if self.document is None:
-            return
-        try:
-            self._ai_candidates = self.service.ai_candidates(
-                self.document, profile_key=self._canvas_key
-            )
-        except Exception as exc:  # noqa: BLE001 - AI 失败必须回到界面显示
-            message = f"AI 候选生成失败：{exc}"
-            self.ai_candidate_label.setText("AI 暂不可用，请继续手工编辑")
-            self._set_notice(message, "error")
-            self.status_changed.emit(message)
-            return
-        if not self._ai_candidates:
-            message = "当前没有明显更优的 AI 候选，请继续手工编辑"
-            self.ai_candidate_label.setText(message)
-            self._set_notice(message, "warning")
-            return
-        recommended = next((item for item in self._ai_candidates if item.recommended), self._ai_candidates[0])
-        self.ai_candidate_label.setText(f"推荐：{recommended.label} · {recommended.difference}（点击按钮后手动应用）")
-        box = QMessageBox(self)
-        box.setWindowTitle("AutoCover AI Beta 候选")
-        box.setText("候选只改变可编辑的 CoverDocument 布局，默认不会调用真实 AI。请选择要应用的方案：")
-        buttons = []
-        for item in self._ai_candidates:
-            button = box.addButton(f"使用：{item.label}", QMessageBox.ButtonRole.AcceptRole)
-            buttons.append((button, item))
-        box.addButton("暂不使用", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        clicked = box.clickedButton()
-        selected = next((item for button, item in buttons if button is clicked), None)
-        if selected is None:
-            return
-        before = self.document
-        self.document = selected.document
-        self._selected_ai_candidate = selected.candidate_id
-        self._commit_document_change(before)
-        self.status_changed.emit(f"已应用可编辑候选：{selected.label}")
 
     def _canvas_object_changed(self, item, profile_key: str):
         """接收手势提交后的对象变换，保持 CoverDocument 为唯一主状态。"""
@@ -2015,13 +1878,10 @@ class CoverEditorWidget(QWidget):
             self.document = None
             self.history.reset(None)
             self._busy = False
-            self._check_busy = False
-            self._check_dirty = False
             self._frame_extract_pending = False
             self._frame_request_generation += 1
             self._nearby_request_generation += 1
             self._preview_request_generation += 1
-            self._check_request_generation += 1
             self._copy_variants = ()
             self._copy_variant_index = -1
             self.project_label.setText("请选择项目")
@@ -2034,11 +1894,6 @@ class CoverEditorWidget(QWidget):
             self.canvas.set_preview(QPixmap())
             self.canvas.set_background_pixmap(QPixmap())
             self.canvas.setText("请先在字幕页选择投稿项目和视频")
-            self.check_preview.clear()
-            self.check_preview.setText("展开后显示另一比例预览")
-            self.check_preview_toggle.setChecked(False)
-            self.check_preview_toggle.setEnabled(False)
-            self.check_preview.setVisible(False)
             self._set_notice("")
             self.extract_button.setEnabled(False)
             self.current_frame_button.setEnabled(False)
@@ -2065,7 +1920,6 @@ class CoverEditorWidget(QWidget):
         self.project_label.setText(project.title if len(project.title) <= 32 else project.title[:32] + "…")
         self.project_label.setToolTip(project.title)
         self.video_label.setText(video.name)
-        self.check_preview_toggle.setEnabled(True)
         self.asset_menu_button.setEnabled(True)
         self.shape_menu_button.setEnabled(True)
         self.add_text_button.setEnabled(True)
@@ -2082,15 +1936,10 @@ class CoverEditorWidget(QWidget):
         self.panel_toggle.setChecked(False)
         self._preview_path = None
         self._busy = False
-        self._check_busy = False
-        self._check_dirty = False
-        self.check_preview.clear()
-        self.check_preview.setText("生成后显示另一比例")
         self._frame_extract_pending = False
         self._frame_request_generation += 1
         self._nearby_request_generation += 1
         self._preview_request_generation += 1
-        self._check_request_generation += 1
         self._canvas_key = "4x3"
         for key, button in self.canvas_ratio_buttons.items():
             button.setChecked(key == self._canvas_key)
@@ -2149,13 +1998,11 @@ class CoverEditorWidget(QWidget):
                 QTimer.singleShot(0, self._use_current_frame)
 
     def _apply_draft(self):
-        widgets = (self.title_edit, self.x_spin, self.y_spin, self.font_spin, self.zoom_spin)
+        widgets = (self.title_edit, self.font_spin, self.zoom_spin)
         for widget in widgets:
             widget.blockSignals(True)
         try:
             self.title_edit.setPlainText(self.draft.title)
-            self.x_spin.setValue(self.draft.text_x)
-            self.y_spin.setValue(self.draft.text_y)
             self.font_spin.setValue(self.draft.font_size)
             self.zoom_spin.setValue(self.draft.background_scale)
             self.timestamp_edit.setValue(self.draft.selected_timestamp)
@@ -2229,7 +2076,6 @@ class CoverEditorWidget(QWidget):
             current,
             text=typed_text,
             visible=bool(typed_text),
-            transform=replace(current.transform, x=self.x_spin.value(), y=self.y_spin.value(), rotation=self.rotation_spin.value()),
             style=replace(
                 current.style,
                 font_family=(
@@ -2292,8 +2138,6 @@ class CoverEditorWidget(QWidget):
         return replace(
             self.draft,
             title=self.title_edit.text().strip() or (self.project.title if self.project else "未命名封面"),
-            text_x=self.x_spin.value(),
-            text_y=self.y_spin.value(),
             font_size=self.font_spin.value(),
             background_scale=self.zoom_spin.value(),
         )
@@ -2315,28 +2159,19 @@ class CoverEditorWidget(QWidget):
         self._preview_timer.start()
 
     def _title_position_changed(self, x: float, y: float):
-        """同步坐标显示；文档和重型任务在 mouse release 提交。"""
+        """键盘微调等程序化移动写进文档；鼠标拖动由松手时的 object_changed 提交。"""
 
         if self.project is None or self.video is None:
             return
-        self.x_spin.blockSignals(True)
-        self.y_spin.blockSignals(True)
-        try:
-            self.x_spin.setValue(x)
-            self.y_spin.setValue(y)
-        finally:
-            self.x_spin.blockSignals(False)
-            self.y_spin.blockSignals(False)
         if self.document is None:
             # 兼容没有 v4 文档的旧调用方；这里只更新内存草稿。
             self.draft = replace(self.draft, text_x=x, text_y=y)
         elif getattr(self.canvas, "_mode", None) is None:
-            # 程序化调用（旧测试、键盘微调）仍需同步文档；真实鼠标拖动
-            # 在 canvas 的 release 提交前不会走这里的重型路径。
             text = self._selected_text()
             current = object_for_profile(self.document, text.id, self._canvas_key) if text else None
             if isinstance(current, TextObject) and (abs(current.transform.x - x) > 1e-6 or abs(current.transform.y - y) > 1e-6):
-                self._store_text_controls()
+                moved = replace(current, transform=replace(current.transform, x=x, y=y))
+                self.document = update_text_object(self.document, moved, profile_key=self._canvas_key)
                 self.draft = CoverDraft.from_document(self.document)
 
     def _background_position_changed(self, x: float, y: float):
@@ -2570,16 +2405,6 @@ class CoverEditorWidget(QWidget):
             # 新底图的默认构图：两个比例分别保住主体，A/B 避开人脸和杂乱区域。
             self.document = self.service.apply_auto_layout(self.document, path)
             draft = CoverDraft.from_document(self.document)
-            text = self._selected_text()
-            if text is not None:
-                self.x_spin.blockSignals(True)
-                self.y_spin.blockSignals(True)
-                try:
-                    self.x_spin.setValue(text.transform.x)
-                    self.y_spin.setValue(text.transform.y)
-                finally:
-                    self.x_spin.blockSignals(False)
-                    self.y_spin.blockSignals(False)
         elif first_background:
             text_x, text_y = self.service.suggest_text_position(path, draft, canvas_key=self._canvas_key)
             draft = replace(draft, text_x=text_x, text_y=text_y)
@@ -2643,74 +2468,16 @@ class CoverEditorWidget(QWidget):
         self.export_button.setEnabled(True)
         self.export_both_button.setEnabled(True)
         self._set_notice("")
-        self._queue_check_preview()
         if self._preview_dirty:
             self._preview_timer.start()
         elif self._pending_export:
             self._pending_export = False
             self._start_export()
 
-    def _queue_check_preview(self):
-        # 另一比例是低优先级缩略图；主画布始终由 _canvas_key 控制。
-        if (
-            not self._check_preview_visible
-            or not self.isVisible()
-            or self.video is None
-            or not self.draft.image_path
-        ):
-            return
-        if self._check_busy:
-            self._check_dirty = True
-            return
-        self._check_busy = True
-        self._check_dirty = False
-        self._check_request_generation += 1
-        request_generation = self._check_request_generation
-        canvas_key = "16x9" if self._canvas_key == "4x3" else "4x3"
-        video = self.video
-        document = self.document
-        draft = self.draft if document is not None else self._read_draft()
-        self._set_notice(f"正在生成 {canvas_key} 另一比例预览…", "info")
-        self._run(
-            lambda: self.service.render_preview_document(video, document, canvas_key=canvas_key) if document is not None else self.service.render_preview(video, draft, canvas_key=canvas_key),
-            lambda result, error: self._check_preview_ready(
-                request_generation, canvas_key, result, error
-            ),
-        )
-
-    def _check_preview_ready(self, request_generation: int, canvas_key: str, result, error):
-        if request_generation != self._check_request_generation:
-            return
-        self._check_busy = False
-        if error:
-            self.check_preview.clear()
-            self.check_preview.setText(f"{canvas_key} 预览暂不可用")
-            self._set_notice(f"另一比例预览失败：{error}", "warning")
-        else:
-            pixmap = QPixmap(str(result))
-            if pixmap.isNull():
-                self.check_preview.clear()
-                self.check_preview.setText(f"{canvas_key} 预览图无法读取")
-            else:
-                self.check_preview.setText("")
-                self.check_preview.setPixmap(
-                    pixmap.scaled(
-                        self.check_preview.size(),
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-                )
-                self._set_notice("")
-        if self._check_dirty:
-            self._check_dirty = False
-            self._queue_check_preview()
-
     def showEvent(self, event):
         super().showEvent(event)
         if self.video is not None and self.draft.image_path:
             QTimer.singleShot(0, lambda: self._queue_nearby_thumbnails(self.draft.selected_timestamp))
-        if self._check_preview_visible and self.video is not None and self.draft.image_path:
-            QTimer.singleShot(0, self._queue_check_preview)
 
     def _set_preview(self, path: Path):
         pixmap = QPixmap(str(path))
