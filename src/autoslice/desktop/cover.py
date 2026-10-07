@@ -223,6 +223,9 @@ class CoverEditorWidget(QWidget):
         self._selected_frame_timestamp: float | None = None
         self._check_preview_visible = False
         self._wider_frames: tuple[tuple[Path, float], ...] = ()
+        self._nearby_pending: set[float] = set()
+        self._nearby_results: list[CoverFrame] = []
+        self._nearby_error = None
         self._ai_candidates: tuple[CoverAICandidate, ...] = ()
         self._selected_ai_candidate: str | None = None
         self._draft_timer = QTimer(self)
@@ -1570,12 +1573,36 @@ class CoverEditorWidget(QWidget):
         self._nearby_request_generation += 1
         request_generation = self._nearby_request_generation
         video = self.video
-        self._run(
-            lambda: self.service.nearby_candidates(video, center, offsets),
-            lambda result, error: self._nearby_frames_ready(
-                request_generation, result, error
-            ),
-        )
+        timestamps = sorted({round(max(0.0, center + offset), 3) for offset in offsets})
+        self._nearby_pending = set(timestamps)
+        self._nearby_results: list[CoverFrame] = []
+        self._nearby_error = None
+        # 每帧一个后台任务并行取帧，取到一张显示一张，不等整排完成。
+        for timestamp in timestamps:
+            self._run(
+                lambda value=timestamp: self.service.extract_frame_candidate(video, value),
+                lambda result, error, value=timestamp: self._nearby_frame_ready(
+                    request_generation, value, result, error
+                ),
+            )
+
+    def _nearby_frame_ready(self, request_generation: int, requested: float, result, error):
+        if request_generation != self._nearby_request_generation:
+            return
+        self._nearby_pending.discard(requested)
+        if error:
+            self._nearby_error = error
+        elif result is not None:
+            self._nearby_results.append(result)
+            button = min(
+                self.nearby_frame_buttons,
+                key=lambda item: abs(float(item.property("timestamp") or 0.0) - requested),
+            )
+            self._show_frame_on_button(button, result, recommended=False)
+        if not self._nearby_pending:
+            # 整排到齐后再比较画质，标出推荐帧。
+            frames = tuple(sorted(self._nearby_results, key=lambda item: item.timestamp))
+            self._nearby_frames_ready(request_generation, frames, None if frames else self._nearby_error)
 
     def _nearby_frames_ready(self, request_generation: int, result, error):
         if request_generation != self._nearby_request_generation:
