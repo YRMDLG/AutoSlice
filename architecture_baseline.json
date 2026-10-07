@@ -10020,17 +10020,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 987,
+      "line_count": 988,
       "longest_function": {
-        "end_line": 812,
+        "end_line": 813,
         "kind": "function",
         "line": 735,
-        "line_count": 78,
+        "line_count": 79,
         "qualname": "CoverService.apply_auto_layout"
       },
       "module": "autoslice.desktop.cover_service",
       "path": "src/autoslice/desktop/cover_service.py",
-      "sha256": "ee99a81c881d8da05b7e195abca444deffdd93fcaf133530c540010e563f55c3",
+      "sha256": "fb01efd7b2f48154eee50e719f8b40980eb93dbe92d5634fee60ee31b86d5a18",
       "top_level_classes": [
         {
           "end_line": 126,
@@ -10045,7 +10045,7 @@
           "name": "CoverFrame"
         },
         {
-          "end_line": 987,
+          "end_line": 988,
           "kind": "class",
           "line": 204,
           "name": "CoverService"
@@ -15767,17 +15767,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 639,
+      "line_count": 643,
       "longest_function": {
-        "end_line": 605,
+        "end_line": 609,
         "kind": "function",
-        "line": 516,
+        "line": 520,
         "line_count": 90,
         "qualname": "_relative_layout"
       },
       "module": "autoslice_cover.document_layout",
       "path": "src/autoslice_cover/document_layout.py",
-      "sha256": "8a4babcfca8a65eb1b914d1ae977d207c6f82d7136b1fe619e911a0e17690cd1",
+      "sha256": "69774970d899d4e9f09125a9db2f756a82936b0524ae33d8260aca7f762edf48",
       "top_level_classes": [
         {
           "end_line": 76,
@@ -15798,15 +15798,15 @@
           "name": "LineMetrics"
         },
         {
-          "end_line": 472,
+          "end_line": 476,
           "kind": "class",
-          "line": 467,
+          "line": 471,
           "name": "TextLine"
         },
         {
-          "end_line": 495,
+          "end_line": 499,
           "kind": "class",
-          "line": 476,
+          "line": 480,
           "name": "TextLayout"
         }
       ],
@@ -15932,57 +15932,57 @@
           "name": "_advances"
         },
         {
-          "end_line": 392,
+          "end_line": 393,
           "kind": "function",
-          "line": 391,
+          "line": 392,
           "name": "_word_character"
-        },
-        {
-          "end_line": 416,
-          "kind": "function",
-          "line": 395,
-          "name": "break_penalty"
         },
         {
           "end_line": 420,
           "kind": "function",
-          "line": 419,
-          "name": "_visible_length"
+          "line": 396,
+          "name": "break_penalty"
         },
         {
           "end_line": 424,
           "kind": "function",
           "line": 423,
+          "name": "_visible_length"
+        },
+        {
+          "end_line": 428,
+          "kind": "function",
+          "line": 427,
           "name": "_line_gap"
         },
         {
-          "end_line": 429,
+          "end_line": 433,
           "kind": "function",
-          "line": 427,
+          "line": 431,
           "name": "_fits"
         },
         {
-          "end_line": 463,
+          "end_line": 467,
           "kind": "function",
-          "line": 432,
+          "line": 436,
           "name": "_largest_fitting_size"
         },
         {
-          "end_line": 512,
+          "end_line": 516,
           "kind": "function",
-          "line": 498,
+          "line": 502,
           "name": "_candidates"
         },
         {
-          "end_line": 605,
+          "end_line": 609,
           "kind": "function",
-          "line": 516,
+          "line": 520,
           "name": "_relative_layout"
         },
         {
-          "end_line": 639,
+          "end_line": 643,
           "kind": "function",
-          "line": 608,
+          "line": 612,
           "name": "layout_text"
         }
       ]
@@ -18485,7 +18485,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 581,
-    "production_line_count": 59931,
+    "production_line_count": 59936,
     "production_module_count": 220,
     "test_private_patch_count": 17,
     "top_level_class_count": 196,
