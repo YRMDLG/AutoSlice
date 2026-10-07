@@ -665,6 +665,27 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         restored = object_for_profile(self.widget.document, b_id, "4x3")
         self.assertAlmostEqual(restored.transform.x, applied.transform.x, places=3)
 
+    def test_align_button_changes_only_current_ratio_and_can_undo(self):
+        image = Path(self.temp.name) / "align.png"
+        Image.new("RGB", (640, 480), "#334155").save(image)
+        base = CoverDraft("上下文说明\n主视觉标题", str(image), font_size=96).to_document()
+        self.widget.document = base
+        self.widget.draft = CoverDraft.from_document(base)
+        self.widget.history.reset(base)
+        self.widget._apply_draft()
+        text_id = self.widget._selected_text().id
+        original = object_for_profile(base, text_id, "4x3").align
+        self.assertNotEqual(original, "right")
+
+        self.widget._set_text_align("right")
+        self.assertEqual(object_for_profile(self.widget.document, text_id, "4x3").align, "right")
+        self.assertEqual(
+            object_for_profile(self.widget.document, text_id, "16x9").align,
+            object_for_profile(base, text_id, "16x9").align,
+        )
+        self.widget._undo()
+        self.assertEqual(object_for_profile(self.widget.document, text_id, "4x3").align, original)
+
     def test_canvas_and_renderer_report_same_resolved_chinese_font(self):
         from autoslice.desktop.cover_canvas import CoverCanvas
 

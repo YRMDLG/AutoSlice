@@ -21,6 +21,7 @@ from .cover_model import (
     TextObject,
     object_for_profile,
     set_object_visible,
+    set_profile_override,
     update_text_object,
 )
 from .cover_style import StylePreset
@@ -175,10 +176,7 @@ class CoverTextMixin:
             return
         current = object_for_profile(self.document, text.id, self._canvas_key)
         current = current if isinstance(current, TextObject) else text
-        updated = replace(current, align=align)
-        profile = self.document.profiles[self._canvas_key]
-        payload = {"transform": updated.transform.to_payload(), "visible": bool(updated.visible), "rect": updated.rect.to_payload(), "wrap": updated.wrap.to_payload(), "align": align, "style": updated.style.to_payload()}
-        self.document = replace(self.document, profiles={**self.document.profiles, self._canvas_key: replace(profile, overrides={**profile.overrides, updated.id: payload})})
+        self.document = set_profile_override(self.document, self._canvas_key, replace(current, align=align))
         self._record_history()
         self.canvas.set_document(self.document, self._canvas_key)
         self._draft_timer.start()
