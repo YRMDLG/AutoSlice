@@ -35,16 +35,25 @@ HIGH_LEVEL_SOURCE_MODULES = frozenset({
 
 # 这些目录只保存本地环境、用户媒体或生成产物，不属于源码扫描范围。
 EXCLUDED_DIRECTORY_NAMES = frozenset({
+    ".autoslice-state",
+    ".cache",
+    ".codex",
     ".git",
+    ".gstack",
     ".idea",
+    ".pytest_cache",
+    ".ruff_cache",
     ".test-tmp",
     ".venv",
     ".vscode",
     "__pycache__",
+    "build",
     "covers",
+    "dist",
     "local",
     "models",
     "output",
+    "outputs",
     "recordings",
     "screenshots",
     "stickers",
@@ -52,6 +61,7 @@ EXCLUDED_DIRECTORY_NAMES = frozenset({
     "timelines",
     "video-topic-analyzer",
     "venv",
+    "work",
 })
 EXCLUDED_DIRECTORY_PREFIXES = (".codex-tmp-",)
 
@@ -84,7 +94,7 @@ def discover_python_files(root: Path) -> tuple[list[Path], list[Path]]:
         relative_parts = current_path.relative_to(root).parts
         in_test_package = "tests" in relative_parts
         for file_name in sorted(file_names):
-            if not file_name.endswith(".py"):
+            if not file_name.endswith(".py") or file_name.startswith("_tmp_"):
                 continue
             path = current_path / file_name
             if path.is_symlink():

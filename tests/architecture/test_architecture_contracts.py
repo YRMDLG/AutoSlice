@@ -201,6 +201,19 @@ class ArchitectureSnapshotTests(unittest.TestCase):
             snapshot["scope"]["excluded_directory_names"],
         )
 
+    def test_local_work_artifacts_do_not_change_architecture_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "product.py").write_text("VALUE = 1\n", encoding="utf-8")
+            baseline = architecture_snapshot.build_snapshot(root)
+            for name in (".autoslice-state", ".codex", ".gstack", "work", "outputs"):
+                private_dir = root / name
+                private_dir.mkdir()
+                (private_dir / "private.py").write_text("不是有效 Python", encoding="utf-8")
+            (root / "_tmp_probe.py").write_text("不是有效 Python", encoding="utf-8")
+
+            self.assertEqual(architecture_snapshot.build_snapshot(root), baseline)
+
     def test_public_compile_uses_git_release_candidates(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

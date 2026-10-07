@@ -1,16 +1,18 @@
 """Desktop-08.7 选择、磁吸和波形预览契约。"""
 
+import json
+import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from autoslice.desktop.commands import CommandDispatcher
+from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.snap import SnapEngine
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
-from autoslice.desktop.foundation import DesktopStorage
 
 
 class DesktopInteractionTests(unittest.TestCase):
@@ -68,8 +70,11 @@ class DesktopInteractionTests(unittest.TestCase):
             entries = [SimpleNamespace(index=1, start="00:00:00,000",
                                        end="00:00:01,000", text="测试")]
             with patch(
-                "autoslice.desktop.subtitle_preview._probe_video_info",
-                return_value={"width": 1280, "height": 720},
+                "autoslice.desktop.subtitle_preview.subprocess.run",
+                return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps({
+                    "streams": [{"codec_type": "video", "width": 1280, "height": 720}],
+                    "format": {"duration": "1.0"},
+                })),
             ):
                 preview = service.render(source, entries)
             document = preview.read_text(encoding="utf-8")

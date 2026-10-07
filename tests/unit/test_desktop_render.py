@@ -9,7 +9,8 @@ import time
 import unittest
 from pathlib import Path
 from threading import Event
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.subtitle_render import SubtitleRenderService
@@ -91,6 +92,12 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.app = QApplication.instance() or QApplication([])
         storage = DesktopStorage(self.root / "app-data")
         self.storage = storage
+        waveform_patch = patch(
+            "autoslice.desktop.qt_app.window.WaveformCache.load",
+            return_value=SimpleNamespace(samples=(), duration=1.0),
+        )
+        waveform_patch.start()
+        self.addCleanup(waveform_patch.stop)
         with patch("autoslice.desktop.qt_app.window.MpvAdapter", side_effect=OSError("测试无播放器")):
             self.window = DesktopWindow(SubmissionProjectService(self.root), storage)
         self.window.show()
@@ -165,7 +172,8 @@ class SubtitleRenderQtTests(unittest.TestCase):
 
         with patch("autoslice.desktop.qt_app.window.MpvAdapter",
                    side_effect=OSError("测试无播放器")), \
-             patch.object(DesktopWindow, "_start_waveform"):
+             patch("autoslice.desktop.qt_app.window.WaveformCache.load",
+                   return_value=SimpleNamespace(samples=(), duration=1.0)):
             reopened = DesktopWindow(SubmissionProjectService(self.root), self.storage)
         reopened.show()
 
@@ -322,6 +330,9 @@ class SubtitleRenderQtTests(unittest.TestCase):
             def seek(self, position, pause=True):
                 self.seeks.append((position, pause))
 
+            def close(self):
+                pass
+
         self.window.player = FakePlayer()
         self.window._media_ready = True
         self.window._player_duration = 20.0
@@ -346,9 +357,11 @@ class SubtitleRenderQtTests(unittest.TestCase):
         index = self.window.model.index(0, 0)
         self.window._player_position = 9.0
         self.window._player_paused = True
-        with patch.object(self.window, "_seek_to") as seek_to:
-            self.window._cue_clicked(index)
-        seek_to.assert_called_once_with(0.0)
+        self.window.player = Mock()
+        self.window._media_ready = True
+        self.window._player_duration = 20.0
+        self.window._cue_clicked(index)
+        self.window.player.seek.assert_called_once_with(0.0, pause=True)
         self.assertEqual(self.window.selection.active, 1)
 
     def test_timeline_selection_preserves_manual_view(self):
