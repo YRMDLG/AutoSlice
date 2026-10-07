@@ -1322,6 +1322,7 @@ class DesktopWindow(PreviewWindow):
             return
         assert isinstance(snapshot, ProjectSnapshot)
         self.scan_status.setText(f"{snapshot.status} · {len(snapshot.projects)} 个项目")
+        self.cover_editor.set_project_list(snapshot.projects)
         while self.projects_layout.count() > 1:
             item = self.projects_layout.takeAt(0)
             item.widget().deleteLater()

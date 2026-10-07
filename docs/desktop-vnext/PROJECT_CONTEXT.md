@@ -164,7 +164,7 @@ AutoCover 主要代码：
 - `cover_copy.py`
 - `cover_style.py`
 - `cover_assets.py`
-- `cover_ai.py`
+- `cover_batch_dialog.py`
 - `src/autoslice_cover/renderer.py`
 - `src/autoslice_cover/text_layout.py`
 

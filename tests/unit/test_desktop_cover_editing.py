@@ -179,6 +179,15 @@ class SchemeTests(unittest.TestCase):
         layout_bottom = b.transform.y + text_layout(b, (1440, 1080)).area.height / 1080
         self.assertAlmostEqual(layout_bottom, 0.95, delta=0.01)
 
+    def test_stack_puts_small_context_under_big_headline(self):
+        laid = self.service.apply_auto_layout(self.document, self.frame, mode="stack")
+        a, b = object_for_profile(laid, "copy-a", "4x3"), object_for_profile(laid, "copy-b", "4x3")
+        self.assertLess(b.transform.y, a.transform.y)
+        self.assertLess(a.style.font_size, b.style.font_size)
+        self.assertEqual((a.align, b.align), ("center", "center"))
+        # 字号拟合后描边按比例跟随。
+        self.assertAlmostEqual(b.style.stroke_width / b.style.font_size, a.style.stroke_width / a.style.font_size, delta=0.02)
+
     def test_overview_pick_prefers_quality_without_subtitles(self):
         from autoslice.desktop.cover_service import CoverFrame, best_overview_frame
         from autoslice_cover.video import FrameMetrics
@@ -207,6 +216,52 @@ class StylePresetTests(unittest.TestCase):
             self.assertEqual(store.load(streamer_key("【泽音】另一期")).fill_color, "#12D8E6")
             self.assertEqual(store.load(streamer_key("〖新主播〗第一期")).fill_color, "#12D8E6")
             self.assertEqual(streamer_key("没有前缀"), None)
+
+
+class AccountStyleTests(unittest.TestCase):
+    """配色与粗细参考 B 站“绝对忠诚的Y”的切片封面。"""
+
+    def _preset(self, key):
+        return next(preset for preset in STYLE_PRESETS if preset.key == key)
+
+    def test_stroke_follows_font_size(self):
+        classic = self._preset("classic")
+        self.assertEqual(classic.apply(TextStyle(font_size=150)).stroke_width, 12)
+        self.assertEqual(classic.apply(TextStyle(font_size=75)).stroke_width, 6)
+        from autoslice.desktop.cover_model import resize_text_style
+
+        resized = resize_text_style(TextStyle(font_size=100, stroke_width=8, outer_stroke_width=4), 150)
+        self.assertEqual((resized.font_size, resized.stroke_width, resized.outer_stroke_width), (150, 12, 6))
+
+    def test_red_and_purple_lines_get_white_outline_while_context_stays_yellow(self):
+        for key, fill in (("yellow-red", "#F44336"), ("yellow-purple", "#6739C6")):
+            preset = self._preset(key)
+            b, a = preset.apply(TextStyle(font_size=120), "B"), preset.apply(TextStyle(font_size=80), "A")
+            self.assertEqual((b.fill_color, b.stroke_color), (fill, "#FFFFFF"))
+            self.assertEqual((a.fill_color, a.stroke_color), ("#FFE438", "#111111"))
+
+    def test_memory_keeps_two_tone_for_next_cover(self):
+        memory = CoverStyleMemory(fill_color="#16D8ED", context_fill="#FFE438", headline_size=120, stroke_width=10)
+        self.assertEqual(memory.text_style(role="B").fill_color, "#16D8ED")
+        a = memory.text_style(role="A")
+        self.assertEqual(a.fill_color, "#FFE438")
+        self.assertEqual(a.stroke_width, round(10 * a.font_size / 120))
+
+    def test_remember_style_records_context_colors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = CoverService(DesktopStorage(Path(directory) / "data"))
+            duo = self._preset("duo")
+            document = _document()
+            document = replace(document, objects=tuple(
+                replace(item, style=duo.apply(item.style, item.copy_role)) if isinstance(item, TextObject) else item
+                for item in document.objects
+            ))
+            from autoslice.desktop.projects import SubmissionProject
+
+            project = SubmissionProject("p", "〖泽音〗某期", directory, ())
+            service.remember_style(project, document)
+            memory = service.style_memory.load(streamer_key(project.title))
+            self.assertEqual((memory.fill_color, memory.context_fill), ("#16D8ED", "#FFE438"))
 
 
 class SplitLayoutTests(unittest.TestCase):

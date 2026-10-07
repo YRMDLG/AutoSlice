@@ -85,6 +85,11 @@ def stylesheet() -> str:
     return f"""
         QWidget {{ color: {c.text}; background: transparent; font-family: 'Microsoft YaHei UI', 'Segoe UI'; font-size: {m.text_base}px; }}
         QWidget#root {{ background: {c.canvas}; }}
+        QDialog {{ background: {c.rail}; }}
+        QListWidget {{ background: {c.player}; border: 1px solid {c.divider}; border-radius: 6px; padding: 4px; }}
+        QListWidget::item {{ padding: 4px 2px; }}
+        QListWidget::indicator {{ width: 13px; height: 13px; border: 1px solid {c.muted}; border-radius: 3px; background: {c.panel}; }}
+        QListWidget::indicator:checked {{ background: {c.accent}; border-color: {c.accent}; }}
         QWidget#appbar {{ background: {c.nav}; border-bottom: 1px solid {c.divider}; }}
         QWidget#navRail {{ background: {c.nav}; border-right: 1px solid {c.divider}; }}
         QWidget#projectRail, QWidget#aiPanel {{ background: {c.rail}; border-right: 1px solid {c.divider}; }}

@@ -49,6 +49,7 @@ from autoslice_cover.document_render import rgba
 from autoslice_cover.fonts import resolve_font_selection
 
 from .cover_asset_dialog import CoverAssetDialog
+from .cover_batch_dialog import BatchTarget, CoverBatchDialog
 from .cover_canvas import CoverCanvas
 from .cover_history import CoverHistory
 from .cover_model import (
@@ -232,6 +233,7 @@ class CoverEditorWidget(QWidget):
         self._nearby_results: list[CoverFrame] = []
         self._nearby_error = None
         self._schemes: tuple[CoverScheme, ...] = ()
+        self._batch_projects: tuple[SubmissionProject, ...] = ()
         self._scheme_batch = 0
         self._scheme_generation = 0
         self._draft_timer = QTimer(self)
@@ -340,6 +342,15 @@ class CoverEditorWidget(QWidget):
         self.draft_status.setObjectName("subtle")
         toolbar_row.addWidget(self.draft_status)
 
+        self.batch_button = QPushButton("批量出图")
+        self.batch_button.setIcon(icon("layers"))
+        self.batch_button.setIconSize(QSize(16, 16))
+        self.batch_button.setObjectName("quiet")
+        self.batch_button.setFixedHeight(28)
+        self.batch_button.setToolTip("给投稿目录里的多个视频一次出封面（4:3 + 16:9）")
+        self.batch_button.clicked.connect(self._open_batch)
+        self.batch_button.setEnabled(False)
+        toolbar_row.addWidget(self.batch_button)
         self.export_button = QPushButton("导出")
         self.export_button.setFixedHeight(28)
         self.export_button.setToolTip("导出当前画布比例")
@@ -2212,6 +2223,32 @@ class CoverEditorWidget(QWidget):
         # object_changed 已在 release 提交并启动防抖保存；释放时不同步写盘，
         # 连续拖动只在停手后写一次。
         self._draft_timer.start()
+
+    def set_project_list(self, projects) -> None:
+        """主窗口扫描后的投稿项目，供批量出图使用。"""
+
+        self._batch_projects = tuple(projects or ())
+        self.batch_button.setEnabled(any(project.videos for project in self._batch_projects))
+
+    def _open_batch(self):
+        self.flush_draft()
+        targets = tuple(
+            BatchTarget(
+                project, video,
+                exported=bool(self.service.existing_exports(project, video)),
+                has_draft=self.service.has_draft(project, video),
+            )
+            for project in self._batch_projects
+            for video in project.videos
+        )
+        if not targets:
+            self.status_changed.emit("投稿目录里没有可出图的视频")
+            return
+        dialog = CoverBatchDialog(targets, self.service.auto_cover, self._run, self)
+        dialog.finished_batch.connect(
+            lambda done, failed: self.status_changed.emit(f"批量出图完成：成功 {done} 个，失败 {failed} 个")
+        )
+        dialog.exec()
 
     def flush_draft(self):
         """关窗或离开前补写尚在防抖中的草稿。"""

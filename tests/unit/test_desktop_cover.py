@@ -417,6 +417,49 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
             self.assertGreaterEqual(min(stamps), 0.0)
             self.assertIn(round(center, 2), stamps)
 
+    def test_batch_dialog_preselects_unexported_and_reports_failures(self):
+        from autoslice.desktop.cover_batch_dialog import BatchTarget, CoverBatchDialog
+
+        video = self.project.videos[0]
+        other = SubmissionProject("project-2", "项目乙", self.project.directory, (video,))
+        targets = (
+            BatchTarget(self.project, video, exported=False, has_draft=False),
+            BatchTarget(other, video, exported=True, has_draft=True),
+        )
+        calls = []
+
+        def action(project, _video):
+            calls.append(project.id)
+            if project.id == "project-2":
+                raise ValueError("坏了")
+            return (Path("a.jpg"), Path("b.jpg"))
+
+        def run(work, callback):
+            try:
+                callback(work(), None)
+            except Exception as exc:  # noqa: BLE001 - 与真实后台任务一致，错误交给回调
+                callback(None, exc)
+
+        dialog = CoverBatchDialog(targets, action, run)
+        self.addCleanup(dialog.close)
+        self.assertEqual(dialog.checked_indices(), [0])
+        results = []
+        dialog.finished_batch.connect(lambda done, failed: results.append((done, failed)))
+        dialog.all_button.click()
+        dialog.start_button.click()
+        self.assertEqual(calls, ["project-1", "project-2"])
+        self.assertEqual(results, [(1, 1)])
+        self.assertIn("已导出 2 张", dialog.list.item(0).text())
+        self.assertIn("坏了", dialog.list.item(1).text())
+        self.assertFalse(dialog._running)
+
+    def test_batch_button_follows_project_list(self):
+        self.assertFalse(self.widget.batch_button.isEnabled())
+        self.widget.set_project_list((self.project,))
+        self.assertTrue(self.widget.batch_button.isEnabled())
+        self.widget.set_project_list(())
+        self.assertFalse(self.widget.batch_button.isEnabled())
+
     def test_stale_frame_callback_is_ignored_after_context_reset(self):
         self.widget.set_context(self.project, self.project.videos[0])
         old_generation = self.widget._frame_request_generation
@@ -751,6 +794,24 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         self.assertEqual(current.text, "新的文字")
         # 主文案不受影响。
         self.assertNotEqual(self.widget._primary_copy_ids().get("B"), added[0].id)
+
+    def test_auto_cover_exports_both_ratios_saves_draft_and_never_overwrites(self):
+        service = self.widget.service
+        project, video = self.project, self.project.videos[0]
+        self.assertEqual(service.existing_exports(project, video), ())
+        self.assertFalse(service.has_draft(project, video))
+        first = service.auto_cover(project, video)
+        sizes = []
+        for path in first:
+            with Image.open(path) as image:
+                sizes.append(image.size)
+        self.assertEqual(sizes, [(1440, 1080), (1920, 1080)])
+        self.assertTrue(service.has_draft(project, video))
+        self.assertEqual(len(service.existing_exports(project, video)), 2)
+        # 第二次按已存草稿导出，新文件带序号，不覆盖。
+        second = service.auto_cover(project, video)
+        self.assertTrue(all(path.exists() for path in first + second))
+        self.assertEqual(len(set(first + second)), 4)
 
     def test_real_png_import_updates_preview_canvas(self):
         from unittest.mock import patch
