@@ -21,16 +21,12 @@ from PySide6.QtWidgets import (
 
 from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCALE_MIN
 
+from .cover_draft import CoverDraft
+from .cover_frames import CoverFrame, best_overview_frame, recommended_frame
 from .cover_model import (
     AssetRef,
     BackgroundObject,
     object_for_profile,
-)
-from .cover_service import (
-    CoverDraft,
-    CoverFrame,
-    best_overview_frame,
-    recommended_frame,
 )
 
 

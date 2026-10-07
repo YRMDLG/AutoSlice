@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -24,26 +24,12 @@ from autoslice_cover.document_render import rgba
 from .cover_style import StylePreset
 
 
-class _JobSignals(QObject):
-    finished = Signal(object, object)
-
-class _Job(QRunnable):
-    def __init__(self, action):
-        super().__init__()
-        self.action = action
-        self.signals = _JobSignals()
-
-    def run(self):
-        try:
-            self.signals.finished.emit(self.action(), None)
-        except Exception as exc:  # noqa: BLE001 - 回到界面显示可执行错误
-            self.signals.finished.emit(None, exc)
-
 class _TitleEdit(QPlainTextEdit):
     """允许手动换行，并保留旧测试/调用方使用的 ``text()``。"""
 
     def text(self) -> str:
         return self.toPlainText()
+
 
 class _InlineTextEdit(_TitleEdit):
     """画布上的就地输入框：回车换行，Ctrl+回车或点别处完成，Esc 放弃。"""
@@ -63,6 +49,7 @@ class _InlineTextEdit(_TitleEdit):
         super().focusOutEvent(event)
         if self.isVisible():
             self.finished.emit(True)
+
 
 class _ColorButton(QPushButton):
     """带色块的颜色按钮；可选“无”与透明度，替代手填十六进制。"""
@@ -117,6 +104,7 @@ class _ColorButton(QPushButton):
             painter.drawLine(2, 12, 12, 2)
             painter.end()
         self.setIcon(QIcon(pixmap))
+
 
 def _preset_icon(preset: StylePreset) -> QIcon:
     """把预设画成“字”的小样，按钮上直接看到效果。"""

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from .cover_asset_dialog import CoverAssetDialog
+from .cover_draft import CoverDraft
 from .cover_model import (
     AssetRef,
     BackgroundObject,
@@ -38,9 +39,6 @@ from .cover_model import (
     text_override_payload,
     update_shared_fields,
     update_text_object,
-)
-from .cover_service import (
-    CoverDraft,
 )
 from .cover_style import streamer_key
 

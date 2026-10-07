@@ -24,14 +24,10 @@ except ImportError:
     QApplication = None
     QGroupBox = None
 
+from autoslice.desktop.cover_draft import CoverDraft, text_transforms_for, wrap_cover_title
 from autoslice.desktop.cover_layout import canvas_size, text_layout
 from autoslice.desktop.cover_model import CoverDocument, TextObject, object_for_profile
-from autoslice.desktop.cover_service import (
-    CoverDraft,
-    CoverService,
-    text_transforms_for,
-    wrap_cover_title,
-)
+from autoslice.desktop.cover_service import CoverService
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 from autoslice_cover.fonts import resolve_font_selection
@@ -488,7 +484,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.widget.close()
 
     def test_frame_slider_and_overview_choose_frames(self):
-        from autoslice.desktop.cover_service import CoverFrame
+        from autoslice.desktop.cover_frames import CoverFrame
 
         self.widget.set_context(self.project, self.project.videos[0])
         chosen = []
@@ -946,7 +942,7 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         return False
 
     def test_zero_playhead_picks_overview_frame_and_offers_schemes(self):
-        from autoslice.desktop.cover_service import CoverFrame
+        from autoslice.desktop.cover_frames import CoverFrame
 
         picked = Path(self.temp.name) / "picked.png"
         Image.new("RGB", (640, 360), "#335577").save(picked)

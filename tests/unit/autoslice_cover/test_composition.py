@@ -9,9 +9,10 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from autoslice.desktop.cover_frames import CoverFrame, recommended_frame
 from autoslice.desktop.cover_migration import document_from_basic_title_values
 from autoslice.desktop.cover_model import AssetRef, BackgroundObject, TextObject, object_for_profile
-from autoslice.desktop.cover_service import CoverFrame, CoverService, recommended_frame
+from autoslice.desktop.cover_service import CoverService
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice_cover.composition import best_crop_focus, region_cost, saliency_map
 from autoslice_cover.video import FrameMetrics

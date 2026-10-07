@@ -15,15 +15,13 @@ from PySide6.QtWidgets import (
 
 from autoslice_cover.fonts import resolve_font_selection
 
+from .cover_autolayout import primary_copy_ids
+from .cover_draft import CoverDraft
 from .cover_model import (
     TextObject,
     object_for_profile,
     set_object_visible,
     update_text_object,
-)
-from .cover_service import (
-    CoverDraft,
-    primary_copy_ids,
 )
 from .cover_style import StylePreset
 

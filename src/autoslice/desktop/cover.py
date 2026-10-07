@@ -22,12 +22,15 @@ from PySide6.QtWidgets import (
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 
+from .cover_autolayout import CoverScheme
+from .cover_draft import CoverDraft, wrap_cover_title
 from .cover_editor_export import CoverExportMixin
 from .cover_editor_frames import CoverFramesMixin
 from .cover_editor_objects import CoverObjectsMixin
 from .cover_editor_schemes import CoverSchemesMixin
 from .cover_editor_text import CoverTextMixin
 from .cover_editor_ui import CoverLayoutMixin
+from .cover_frames import CoverFrame
 from .cover_history import CoverHistory
 from .cover_model import (
     BackgroundObject,
@@ -38,16 +41,8 @@ from .cover_model import (
     TextObject,
     set_object_visible,
 )
-from .cover_service import (
-    CoverDraft,
-    CoverFrame,
-    CoverScheme,
-    CoverService,
-    wrap_cover_title,
-)
-from .cover_widgets import (
-    _Job,
-)
+from .cover_service import CoverService
+from .jobs import BackgroundJob
 
 
 class CoverEditorWidget(
@@ -87,7 +82,7 @@ class CoverEditorWidget(
         self._selected_text_id: str | None = None
         self._canvas_key = "4x3"
         self._preview_request_generation = 0
-        self._jobs: set[_Job] = set()
+        self._jobs: set[BackgroundJob] = set()
         self.history = CoverHistory()
         self._frame_locked = False
         self._selected_frame_timestamp: float | None = None
@@ -563,7 +558,7 @@ class CoverEditorWidget(
 
     def _run(self, action, callback):
         generation = self._context_generation
-        job = _Job(action)
+        job = BackgroundJob(action)
         self._jobs.add(job)
 
         def done(result, error):

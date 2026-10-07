@@ -17,8 +17,6 @@ from PySide6.QtCore import (
     QEvent,
     QItemSelectionModel,
     QModelIndex,
-    QObject,
-    QRunnable,
     QSize,
     Qt,
     QThreadPool,
@@ -54,6 +52,7 @@ from autoslice.desktop.ai_review import AIReviewService, document_hash
 from autoslice.desktop.commands import CommandDispatcher
 from autoslice.desktop.cover import CoverEditorWidget
 from autoslice.desktop.foundation import DesktopStorage
+from autoslice.desktop.jobs import BackgroundJob
 from autoslice.desktop.projects import ProjectSnapshot, SubmissionProject, SubmissionProjectService
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
@@ -111,23 +110,6 @@ class _ElidedQueueButton(QPushButton):
             QEvent.Type.EnabledChange,
         ):
             self._update_elided_text()
-
-
-class _Signals(QObject):
-    finished = Signal(object, object)
-
-
-class _Job(QRunnable):
-    def __init__(self, action):
-        super().__init__()
-        self.action = action
-        self.signals = _Signals()
-
-    def run(self):
-        try:
-            self.signals.finished.emit(self.action(), None)
-        except Exception as exc:  # 任务异常须回到界面，不能让工作线程消失。
-            self.signals.finished.emit(None, exc)
 
 
 class SubtitleTableModel(QAbstractTableModel):
@@ -1305,7 +1287,7 @@ class DesktopWindow(PreviewWindow):
         self._render_ai()
 
     def _run(self, action, callback):
-        job = _Job(action)
+        job = BackgroundJob(action)
         self._jobs.append(job)
         def done(result, error):
             self._jobs.remove(job)

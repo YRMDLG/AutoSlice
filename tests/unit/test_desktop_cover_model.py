@@ -7,7 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autoslice.desktop.cover_migration import document_from_basic_title_values, document_from_payload
+from autoslice.desktop.cover_migration import (
+    document_from_basic_title_values,
+    document_from_payload,
+)
 from autoslice.desktop.cover_model import (
     AssetRef,
     BackgroundObject,

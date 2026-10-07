@@ -189,7 +189,7 @@ class SchemeTests(unittest.TestCase):
         self.assertAlmostEqual(b.style.stroke_width / b.style.font_size, a.style.stroke_width / a.style.font_size, delta=0.02)
 
     def test_overview_pick_prefers_quality_without_subtitles(self):
-        from autoslice.desktop.cover_service import CoverFrame, best_overview_frame
+        from autoslice.desktop.cover_frames import CoverFrame, best_overview_frame
         from autoslice_cover.video import FrameMetrics
 
         def frame(timestamp, score, risk=0.0):
@@ -263,8 +263,8 @@ class LockAndSharedFieldTests(unittest.TestCase):
         self.assertAlmostEqual(object_for_profile(styled, "shape-1", "4x3").transform.x, 0.3)
 
     def test_schemes_and_ratio_sync_leave_locked_objects_alone(self):
+        from autoslice.desktop.cover_autolayout import CoverScheme
         from autoslice.desktop.cover_model import set_object_locked
-        from autoslice.desktop.cover_service import CoverScheme
 
         document = set_object_locked(_document(), "copy-b", True)
         source = replace(document, objects=tuple(
