@@ -16,6 +16,7 @@ from autoslice_cover.document_layout import (
     focus_after_drag,
     layout_text,
     overlay_box,
+    wrap_text,
 )
 from autoslice_cover.document_render import (
     BackgroundLayer,
@@ -112,6 +113,45 @@ class TextLayoutTests(unittest.TestCase):
         )
         self.assertEqual([line.text for line in first.lines], [line.text for line in moved.lines])
         self.assertAlmostEqual(moved.lines[0].baseline - first.lines[0].baseline, 220.0)
+
+
+class WrapTextTests(unittest.TestCase):
+    """固定字号 + 行宽换行：拉宽只改换行，框贴合文字。"""
+
+    def setUp(self):
+        self.fonts = resolve_font_stack()
+
+    def _wrap(self, text, width=720, size=104, align="left"):
+        return wrap_text(
+            text, origin=(100, 80), width=width, size=size, stroke_width=6,
+            line_spacing=1.12, align=align, font_paths=self.fonts,
+        )
+
+    def test_font_size_is_kept_and_long_text_wraps(self):
+        layout = self._wrap("一个晚上居然被冲了万楼原因居然是这个", width=520)
+        self.assertEqual(layout.font_size, 104)
+        self.assertGreaterEqual(len(layout.lines), 3)
+        self.assertGreater(len(layout.lines[-1].text), 2)
+        self.assertLessEqual(layout.ink.right, layout.area.right + 1)
+        # area 高度就是文字总高：框贴合文字，不留整块空白。
+        self.assertLessEqual(layout.ink.bottom, layout.area.bottom + 1)
+        self.assertLess(layout.area.bottom - layout.ink.bottom, 104 * 0.5)
+
+    def test_wider_box_means_fewer_lines_and_same_size(self):
+        narrow = self._wrap("拉宽文本框只会减少换行", width=420)
+        wide = self._wrap("拉宽文本框只会减少换行", width=1400)
+        self.assertGreater(len(narrow.lines), len(wide.lines))
+        self.assertEqual(len(wide.lines), 1)
+        self.assertEqual(narrow.font_size, wide.font_size)
+
+    def test_short_text_hugs_ink_not_wrap_width(self):
+        layout = self._wrap("短", width=900, align="center")
+        self.assertLess(layout.ink.width, 200)
+        self.assertAlmostEqual(layout.ink.center_x, layout.area.center_x, delta=4)
+
+    def test_explicit_newline_starts_new_line(self):
+        layout = self._wrap("第一行\n第二行", width=1400)
+        self.assertEqual([line.text for line in layout.lines], ["第一行", "第二行"])
 
 
 class ComposeTests(unittest.TestCase):

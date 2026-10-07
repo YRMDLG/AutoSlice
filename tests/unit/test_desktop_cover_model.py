@@ -193,7 +193,9 @@ class CoverMigrationTests(unittest.TestCase):
         self.assertEqual(text.style.stroke_width, 6)
         self.assertTrue(text.style.shadow)
         override = document.profiles["4x3"].overrides["title-main"]
-        self.assertEqual(override["style"]["font_size"], 107)
+        # 固定字号升级写回旧版实际显示的字号：0.12 高的框里 107 号会被缩小一点。
+        self.assertLessEqual(override["style"]["font_size"], 107)
+        self.assertGreaterEqual(override["style"]["font_size"], 100)
         self.assertEqual(override["style"]["fill_color"], "#FFE438")
         self.assertEqual(override["style"]["stroke_width"], 6)
         self.assertAlmostEqual(override["transform"]["x"], 0.71)

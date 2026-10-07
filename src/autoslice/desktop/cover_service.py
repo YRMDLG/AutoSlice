@@ -16,7 +16,7 @@ from PIL import Image
 from autoslice.desktop.foundation import DesktopStorage, DraftRead
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 from autoslice_cover.composition import best_crop_focus, region_cost, saliency_map
-from autoslice_cover.document_layout import background_box
+from autoslice_cover.document_layout import Box, background_box
 from autoslice_cover.document_render import compose_document
 from autoslice_cover.renderer import TextTransform, render_cover, save_cover_jpeg
 from autoslice_cover.text_layout import wrap_text_lines
@@ -30,7 +30,7 @@ from autoslice_cover.video import (
 from .cover_ai import CoverAIBeta, CoverAICandidate
 from .cover_assets import CoverAssetLibrary
 from .cover_copy import BasicCoverCopy, generate_basic_copy_variants
-from .cover_layout import canvas_size, document_layers
+from .cover_layout import canvas_size, document_layers, fitted_font_size, text_layout
 from .cover_migration import (
     document_from_basic_title_values,
     document_from_draft_values,
@@ -374,7 +374,8 @@ class CoverService:
             text = " ".join(lines[2:]).strip()
             if text:
                 blocks.append(text)
-        return " ".join(blocks)[:240]
+        # 每条字幕各自成段，避免多句被拼成一个文本框。
+        return " / ".join(blocks)[:240]
 
     def _reflow_auto_default_layout(
         self, document: CoverDocument, *, canvas_key: str,
@@ -773,42 +774,54 @@ class CoverService:
             ))
             if key == "4x3":
                 main_split = split
+            canvas_width, canvas_height = canvas_size(key)
+
+            def place(item: TextObject, x: float, y: float, width: float, height: float, *, requested: int, max_lines: int, align: str | None = None) -> TextObject:
+                # 字号在槽位内拟合一次后固定下来；之后编辑器按固定字号换行。
+                shaped = replace(item, align=align or item.align, transform=replace(item.transform, x=x, y=y, scale=1.0))
+                area = Box(x * canvas_width, y * canvas_height, width * canvas_width, height * canvas_height)
+                size = fitted_font_size(shaped, area, requested=requested, max_lines=max_lines) if item.text.strip() else requested
+                return replace(
+                    shaped,
+                    rect=Rect(width=width, height=height),
+                    wrap=replace(item.wrap, max_width=width, max_lines=8),
+                    style=replace(item.style, font_size=size),
+                )
+
+            def text_height(item: TextObject) -> float:
+                if not item.text.strip():
+                    return 0.0
+                return text_layout(item, (canvas_width, canvas_height)).area.height / canvas_height
+
+            current_texts = [
+                (text, current if isinstance(current := object_for_profile(document, text.id, key), TextObject) else text)
+                for text in texts
+            ]
             if split:
-                # 主体居中、上下两缘都可用：A 放上缘、B 放下缘，居中大字。
-                for text in texts:
-                    current = object_for_profile(document, text.id, key)
-                    current = current if isinstance(current, TextObject) else text
+                # 主体居中、上下两缘都可用：A 放上缘单行、B 放下缘，居中大字。
+                for text, current in current_texts:
                     top = text.copy_role == "A"
-                    updated = replace(
-                        current,
-                        align="center",
-                        transform=replace(current.transform, x=_SPLIT_X, y=_SPLIT_TOP if top else _SPLIT_BOTTOM, scale=1.0),
-                        rect=Rect(width=_SPLIT_WIDTH, height=_SPLIT_HEIGHT),
-                        # 上缘 A 保持单行，与真实封面一致；B 最多两行。
-                        wrap=replace(current.wrap, max_width=_SPLIT_WIDTH, max_lines=1 if top else 2),
-                        style=replace(current.style, font_size=max(current.style.font_size, _SPLIT_FONT_A if top else _SPLIT_FONT_B)),
+                    updated = place(
+                        current, _SPLIT_X, _SPLIT_TOP if top else _SPLIT_BOTTOM, _SPLIT_WIDTH, _SPLIT_HEIGHT,
+                        requested=max(current.style.font_size, _SPLIT_FONT_A if top else _SPLIT_FONT_B),
+                        max_lines=1 if top else 2, align="center",
                     )
                     overrides[text.id] = text_override_payload(updated)
             elif best is not None:
                 _cost, text_x, text_y = best[1]
                 slot_width = next(width for _x, _y, width, name in _TEXT_SLOTS.get(key, _TEXT_SLOTS["4x3"]) if name == best[0])
-                for text in texts:
-                    current = object_for_profile(document, text.id, key)
-                    current = current if isinstance(current, TextObject) else text
-                    # A/B 作为同一槽位的上下两块，B 在下且留出间距。
-                    if text.copy_role == "B" and has_context:
-                        target_y = max(0.16, text_y + 0.18)
-                    else:
-                        target_y = max(0.04 if text.copy_role == "A" else 0.05, text_y)
-                    # 文字区宽度收进槽位，避免延伸到画布外被裁掉。
-                    width = min(slot_width, current.rect.width * max(0.01, current.transform.scale))
-                    updated = replace(
-                        current,
-                        transform=replace(current.transform, x=text_x, y=target_y, scale=1.0),
-                        rect=replace(current.rect, width=width),
-                        wrap=replace(current.wrap, max_width=min(current.wrap.max_width, slot_width)),
+                # A/B 作为同一槽位的上下两块：A 在上，B 紧跟 A 的实际高度往下排。
+                cursor = max(0.04, text_y)
+                for text, current in sorted(current_texts, key=lambda pair: pair[0].copy_role != "A"):
+                    context = text.copy_role == "A"
+                    if context and not (has_context and current.visible):
+                        continue
+                    updated = place(
+                        current, text_x, cursor, slot_width, 0.14 if context else 0.30,
+                        requested=current.style.font_size, max_lines=1 if context else 2,
                     )
                     overrides[text.id] = text_override_payload(updated)
+                    cursor += text_height(updated) + (0.025 if context else 0.0)
             profiles[key] = replace(profile, overrides=overrides)
         return replace(document, profiles=profiles)
 

@@ -76,6 +76,48 @@ class ObjectEditingTests(unittest.TestCase):
         self.assertEqual(document.selected_object_id, "shape-7")
 
 
+class TextBoxMigrationTests(unittest.TestCase):
+    def test_old_area_fit_becomes_fixed_font_with_same_display(self):
+        from autoslice.desktop.cover_layout import text_layout
+        from autoslice.desktop.cover_migration import document_from_payload, migrate_text_boxes
+        from autoslice.desktop.cover_model import Rect, TextWrap, Transform
+
+        text = TextObject(
+            id="copy-b", copy_role="B", text="一个晚上居然被冲了万楼原因居然是这个",
+            transform=Transform(x=0.06, y=0.6, scale=1.0), rect=Rect(width=0.64, height=0.25),
+            wrap=TextWrap(max_width=0.48, max_lines=2), style=TextStyle(font_size=140),
+        )
+        old = CoverDocument(
+            objects=(BackgroundObject(id="background-main"), text), profiles=default_profiles(), text_revision=1,
+        )
+        migrated, changed = migrate_text_boxes(old)
+        self.assertTrue(changed)
+        item = object_for_profile(migrated, "copy-b", "4x3")
+        # 旧版行宽被 max_width 截到 0.48 并缩字；升级后显式写回实际字号和行宽。
+        self.assertAlmostEqual(item.rect.width, 0.48)
+        self.assertEqual(item.wrap.max_width, item.rect.width)
+        self.assertLess(item.style.font_size, 140)
+        self.assertLessEqual(len(text_layout(item, (1440, 1080)).lines), 2)
+        self.assertFalse(migrate_text_boxes(migrated)[1])
+        # 存档往返后不会再次迁移。
+        reloaded, again = document_from_payload(migrated.to_payload(), "标题")
+        self.assertFalse(again)
+        self.assertEqual(object_for_profile(reloaded, "copy-b", "4x3").style.font_size, item.style.font_size)
+
+    def test_new_documents_start_with_fitted_fixed_font(self):
+        from autoslice.desktop.cover_layout import text_layout
+
+        document = document_from_basic_title_values(
+            title="韩国选秀居然可以带手机，选曲全靠现场改，懂姐小音告诉你内幕",
+            image_path=None, selected_timestamp=0.0, background_x=0.5, background_y=0.5, background_scale=1.0,
+        )
+        for item in document.objects:
+            if isinstance(item, TextObject):
+                layout = text_layout(item, (1440, 1080))
+                self.assertLessEqual(len(layout.lines), 2)
+                self.assertEqual(layout.font_size, item.style.font_size)
+
+
 class StylePresetTests(unittest.TestCase):
     def test_preset_changes_colors_only_and_supports_two_tone(self):
         duo = next(preset for preset in STYLE_PRESETS if preset.key == "duo")

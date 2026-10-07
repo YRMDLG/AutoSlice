@@ -641,3 +641,146 @@ def layout_text(
     )
     # 缓存按取整后的区域尺寸命中；真实区域只用于平移和旋转中心。
     return replace(relative.translated(area.left, area.top), area=area)
+
+
+# ── 编辑器语义：固定字号按宽度换行 ──
+# 与剪映/Canva 一致：字号就是实际字号，不偷偷缩小；行宽决定换行，框贴合文字。
+# 上面的 layout_text 只用于自动构图时为槽位挑字号，以及旧草稿迁移。
+
+
+def _wrap_paragraph(
+    value: str,
+    width: float,
+    size: int,
+    stroke_width: int,
+    font_paths: tuple[str | None, ...],
+    weight: int,
+) -> list[str]:
+    advances = _advances(value, size, font_paths, weight)
+    prefix = [0.0]
+    for advance in advances:
+        prefix.append(prefix[-1] + advance)
+    margin = stroke_width * 2
+    total = len(value)
+    if prefix[total] + margin <= width:
+        return [value]
+
+    def solve(force: bool) -> list[str] | None:
+        # best[j]：前 j 个字符分行后的（行数, 代价, 上一断点）；先少行，再求语义代价最小。
+        best: list[tuple[int, float, int] | None] = [None] * (total + 1)
+        best[0] = (0, 0.0, -1)
+        for end in range(1, total + 1):
+            if end < total:
+                penalty = break_penalty(value, end)
+                if penalty is None:
+                    if not force:
+                        continue
+                    penalty = 1.0
+            else:
+                penalty = 0.0
+            for start in range(end - 1, -1, -1):
+                if best[start] is None:
+                    continue
+                span = prefix[end] - prefix[start] + margin
+                if span > width and end - start > 1:
+                    break
+                lines, cost, _previous = best[start]
+                slack = max(0.0, width - span) / width
+                cost = cost + penalty + (0.0 if end == total else slack * slack * 0.3)
+                if end == total and start > 0 and _visible_length(value[start:end]) <= 2:
+                    cost += 5.0
+                candidate = (lines + 1, cost, start)
+                if best[end] is None or candidate[:2] < best[end][:2]:
+                    best[end] = candidate
+        if best[total] is None:
+            return None
+        cuts: list[int] = []
+        position = total
+        while position > 0:
+            cuts.append(position)
+            position = best[position][2]
+        result, start = [], 0
+        for cut in reversed(cuts):
+            piece = value[start:cut].strip()
+            if piece:
+                result.append(piece)
+            start = cut
+        return result
+
+    return solve(False) or solve(True) or [value]
+
+
+@lru_cache(maxsize=512)
+def _relative_wrap(
+    text: str,
+    width: int,
+    size: int,
+    stroke_width: int,
+    line_spacing: float,
+    align: str,
+    font_paths: tuple[str | None, ...],
+    weight: int,
+) -> TextLayout:
+    width = max(8, width)
+    paragraphs = [part.strip() for part in text.replace("\r\n", "\n").split("\n") if part.strip()]
+    texts: list[str] = []
+    for paragraph in paragraphs:
+        effective = float(width)
+        for _attempt in range(3):
+            pieces = _wrap_paragraph(paragraph, effective, size, stroke_width, font_paths, weight)
+            # 逐字宽度是近似值，实测超出时收窄重排。
+            overflow = max(
+                measure_line(piece, size, stroke_width, font_paths, weight).width for piece in pieces
+            ) - width
+            if overflow <= 0.5 or len(pieces) == len(paragraph):
+                break
+            effective -= overflow + 1
+        texts.extend(pieces)
+    metrics = [measure_line(line, size, stroke_width, font_paths, weight) for line in texts]
+    gap = _line_gap(size, line_spacing)
+    lines: list[TextLine] = []
+    top = 0.0
+    ink: Box | None = None
+    for item in metrics:
+        if align == "center":
+            ink_left = (width - item.width) / 2.0
+        elif align == "right":
+            ink_left = width - item.width
+        else:
+            ink_left = 0.0
+        line_ink = Box(ink_left, top, item.width, item.height)
+        lines.append(TextLine(item.text, item.runs, ink_left - item.left, top - item.top, line_ink))
+        ink = line_ink if ink is None else ink.union(line_ink)
+        top += item.height + gap
+    height = max(1.0, top - gap) if lines else 1.0
+    return TextLayout(
+        tuple(lines), size, weight, stroke_width,
+        Box(0.0, 0.0, float(width), height), ink or Box(0.0, 0.0, 0.0, 0.0),
+    )
+
+
+def wrap_text(
+    text: str,
+    *,
+    origin: tuple[float, float],
+    width: float,
+    size: int,
+    stroke_width: int,
+    line_spacing: float,
+    align: str,
+    font_paths: tuple[str | None, ...],
+    weight: int = 900,
+) -> TextLayout:
+    """固定字号、按宽度换行；area 高度即文字总高，ink 为贴合文字的框。"""
+
+    relative = _relative_wrap(
+        str(text),
+        max(8, round(width)),
+        max(8, min(MAX_FONT_SIZE, int(size))),
+        max(0, int(stroke_width)),
+        round(float(line_spacing), 3),
+        align if align in {"left", "center", "right"} else "left",
+        tuple(font_paths),
+        int(weight),
+    )
+    return relative.translated(origin[0], origin[1])

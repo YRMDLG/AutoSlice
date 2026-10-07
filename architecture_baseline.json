@@ -2334,16 +2334,15 @@
         "autoslice.desktop.cover_model.BackgroundObject",
         "autoslice.desktop.cover_model.CoverDocument",
         "autoslice.desktop.cover_model.ImageObject",
-        "autoslice.desktop.cover_model.Rect",
         "autoslice.desktop.cover_model.ShapeObject",
         "autoslice.desktop.cover_model.StickerObject",
         "autoslice.desktop.cover_model.TextObject",
-        "autoslice.desktop.cover_model.TextWrap",
         "autoslice.desktop.cover_model.Transform",
         "autoslice.desktop.cover_model.insert_overlay",
         "autoslice.desktop.cover_model.object_for_profile",
         "autoslice.desktop.cover_model.restack_object",
         "autoslice.desktop.cover_model.set_object_visible",
+        "autoslice.desktop.cover_model.text_override_payload",
         "autoslice.desktop.cover_model.update_text_object"
       ],
       "lines": [
@@ -2361,7 +2360,7 @@
         "autoslice.desktop.cover_service.wrap_cover_title"
       ],
       "lines": [
-        72
+        71
       ],
       "to": "autoslice.desktop.cover_service"
     },
@@ -2372,7 +2371,7 @@
         "autoslice.desktop.cover_style.StylePreset"
       ],
       "lines": [
-        73
+        72
       ],
       "to": "autoslice.desktop.cover_style"
     },
@@ -2403,7 +2402,7 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        74
+        73
       ],
       "to": "autoslice.desktop.qt_preview.icons"
     },
@@ -2477,12 +2476,11 @@
         "autoslice.desktop.cover_layout.background_geometry",
         "autoslice.desktop.cover_layout.overlay_geometry",
         "autoslice.desktop.cover_layout.shape_geometry",
-        "autoslice.desktop.cover_layout.text_area",
         "autoslice.desktop.cover_layout.text_layout",
         "autoslice.desktop.cover_layout.text_paint"
       ],
       "lines": [
-        45
+        46
       ],
       "to": "autoslice.desktop.cover_layout"
     },
@@ -2534,7 +2532,7 @@
         "autoslice_cover.document_layout.shadow_offset"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice_cover.document_layout"
     },
@@ -2544,7 +2542,7 @@
         "autoslice_cover.document_render.rgba"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice_cover.document_render"
     },
@@ -2555,7 +2553,7 @@
         "autoslice_cover.fonts.resolve_font_selection"
       ],
       "lines": [
-        43
+        44
       ],
       "to": "autoslice_cover.fonts"
     },
@@ -2596,7 +2594,7 @@
         "autoslice.desktop.cover_model.object_for_profile"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.desktop.cover_model"
     },
@@ -2610,7 +2608,8 @@
         "autoslice_cover.document_layout.background_box",
         "autoslice_cover.document_layout.layout_text",
         "autoslice_cover.document_layout.overlay_box",
-        "autoslice_cover.document_layout.shape_box"
+        "autoslice_cover.document_layout.shape_box",
+        "autoslice_cover.document_layout.wrap_text"
       ],
       "lines": [
         15
@@ -2628,7 +2627,7 @@
         "autoslice_cover.document_render.TextPaint"
       ],
       "lines": [
-        25
+        26
       ],
       "to": "autoslice_cover.document_render"
     },
@@ -2638,7 +2637,7 @@
         "autoslice_cover.emoji.get_emoji_font_path"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice_cover.emoji"
     },
@@ -2650,7 +2649,7 @@
         "autoslice_cover.fonts.resolve_font_stack"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice_cover.fonts"
     },
@@ -2660,7 +2659,7 @@
         "autoslice_cover.paths.LOCAL_FONT_PATH"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice_cover.paths"
     },
@@ -2678,6 +2677,17 @@
     {
       "from": "autoslice.desktop.cover_migration",
       "imports": [
+        "autoslice.desktop.cover_layout.canvas_size",
+        "autoslice.desktop.cover_layout.fitted_font_size"
+      ],
+      "lines": [
+        354
+      ],
+      "to": "autoslice.desktop.cover_layout"
+    },
+    {
+      "from": "autoslice.desktop.cover_migration",
+      "imports": [
         "autoslice.desktop.cover_model.AssetRef",
         "autoslice.desktop.cover_model.BackgroundObject",
         "autoslice.desktop.cover_model.CoverDocument",
@@ -2685,16 +2695,29 @@
         "autoslice.desktop.cover_model.LAYER_REVISION",
         "autoslice.desktop.cover_model.Rect",
         "autoslice.desktop.cover_model.SourceRef",
+        "autoslice.desktop.cover_model.TEXT_BOX_REVISION",
         "autoslice.desktop.cover_model.TextObject",
         "autoslice.desktop.cover_model.TextStyle",
         "autoslice.desktop.cover_model.TextWrap",
         "autoslice.desktop.cover_model.Transform",
-        "autoslice.desktop.cover_model.default_profiles"
+        "autoslice.desktop.cover_model.default_profiles",
+        "autoslice.desktop.cover_model.object_for_profile",
+        "autoslice.desktop.cover_model.text_override_payload"
       ],
       "lines": [
         15
       ],
       "to": "autoslice.desktop.cover_model"
+    },
+    {
+      "from": "autoslice.desktop.cover_migration",
+      "imports": [
+        "autoslice_cover.document_layout.Box"
+      ],
+      "lines": [
+        352
+      ],
+      "to": "autoslice_cover.document_layout"
     },
     {
       "from": "autoslice.desktop.cover_migration",
@@ -2756,7 +2779,9 @@
       "from": "autoslice.desktop.cover_service",
       "imports": [
         "autoslice.desktop.cover_layout.canvas_size",
-        "autoslice.desktop.cover_layout.document_layers"
+        "autoslice.desktop.cover_layout.document_layers",
+        "autoslice.desktop.cover_layout.fitted_font_size",
+        "autoslice.desktop.cover_layout.text_layout"
       ],
       "lines": [
         33
@@ -2842,6 +2867,7 @@
     {
       "from": "autoslice.desktop.cover_service",
       "imports": [
+        "autoslice_cover.document_layout.Box",
         "autoslice_cover.document_layout.background_box"
       ],
       "lines": [
@@ -6311,10 +6337,10 @@
       "qualname": "run_pipeline_impl"
     },
     {
-      "end_line": 547,
+      "end_line": 548,
       "kind": "function",
-      "line": 250,
-      "line_count": 298,
+      "line": 249,
+      "line_count": 300,
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
       "qualname": "CoverEditorWidget._build"
@@ -6356,9 +6382,9 @@
       "qualname": "organize_existing_artifacts"
     },
     {
-      "end_line": 804,
+      "end_line": 805,
       "kind": "function",
-      "line": 619,
+      "line": 620,
       "line_count": 186,
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
@@ -6482,9 +6508,9 @@
       "qualname": "slice_from_marks_impl"
     },
     {
-      "end_line": 1896,
+      "end_line": 1969,
       "kind": "function",
-      "line": 1763,
+      "line": 1836,
       "line_count": 134,
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
@@ -9300,54 +9326,54 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 2523,
+      "line_count": 2596,
       "longest_function": {
-        "end_line": 547,
+        "end_line": 548,
         "kind": "function",
-        "line": 250,
-        "line_count": 298,
+        "line": 249,
+        "line_count": 300,
         "qualname": "CoverEditorWidget._build"
       },
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
-      "sha256": "395c90abd734345fc46034c70f487030d526d478227365b45428ea487f2aea1c",
+      "sha256": "6cbc3cf080cdce362a27c774e8bd911a39ee2094155a5b3a2200b4bf096e4d1a",
       "top_level_classes": [
         {
-          "end_line": 78,
+          "end_line": 77,
           "kind": "class",
-          "line": 77,
+          "line": 76,
           "name": "_JobSignals"
         },
         {
-          "end_line": 91,
+          "end_line": 90,
           "kind": "class",
-          "line": 81,
+          "line": 80,
           "name": "_Job"
         },
         {
-          "end_line": 98,
+          "end_line": 97,
           "kind": "class",
-          "line": 94,
+          "line": 93,
           "name": "_TitleEdit"
         },
         {
-          "end_line": 153,
+          "end_line": 152,
           "kind": "class",
-          "line": 101,
+          "line": 100,
           "name": "_ColorButton"
         },
         {
-          "end_line": 2523,
+          "end_line": 2596,
           "kind": "class",
-          "line": 191,
+          "line": 190,
           "name": "CoverEditorWidget"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 188,
+          "end_line": 187,
           "kind": "function",
-          "line": 156,
+          "line": 155,
           "name": "_preset_icon"
         }
       ]
@@ -9441,20 +9467,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1024,
+      "line_count": 1235,
       "longest_function": {
-        "end_line": 750,
+        "end_line": 913,
         "kind": "function",
-        "line": 672,
+        "line": 835,
         "line_count": 79,
         "qualname": "CoverCanvas.keyPressEvent"
       },
       "module": "autoslice.desktop.cover_canvas",
       "path": "src/autoslice/desktop/cover_canvas.py",
-      "sha256": "c73d22bdf3919a3afb9378b561a19d9ac372ba4b1d98574077444c5cc2a977ba",
+      "sha256": "7c3e225675200bca1e1d4206ef18427b80c45d136dad795349751b2cb1eb13ac",
       "top_level_classes": [
         {
-          "end_line": 1024,
+          "end_line": 1235,
           "kind": "class",
           "line": 75,
           "name": "CoverCanvas"
@@ -9471,17 +9497,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 419,
+      "line_count": 437,
       "longest_function": {
-        "end_line": 419,
+        "end_line": 437,
         "kind": "function",
-        "line": 364,
-        "line_count": 56,
+        "line": 377,
+        "line_count": 61,
         "qualname": "generate_basic_copy_variants"
       },
       "module": "autoslice.desktop.cover_copy",
       "path": "src/autoslice/desktop/cover_copy.py",
-      "sha256": "4a6feab096c6c4e27bd6dd35d33cce4614271755681ec70e075430766ae158e3",
+      "sha256": "e8d67b793bf5462134f4c5e606c699958f115ec6787417617cc09dbd9cee1ae5",
       "top_level_classes": [
         {
           "end_line": 114,
@@ -9490,7 +9516,7 @@
           "name": "BasicCoverCopy"
         },
         {
-          "end_line": 125,
+          "end_line": 127,
           "kind": "class",
           "line": 118,
           "name": "_Chunk"
@@ -9498,81 +9524,81 @@
       ],
       "top_level_functions": [
         {
-          "end_line": 130,
+          "end_line": 132,
           "kind": "function",
-          "line": 128,
+          "line": 130,
           "name": "_clean_title"
         },
         {
-          "end_line": 145,
+          "end_line": 147,
           "kind": "function",
-          "line": 133,
+          "line": 135,
           "name": "_phrase_start"
         },
         {
-          "end_line": 157,
+          "end_line": 159,
           "kind": "function",
-          "line": 148,
+          "line": 150,
           "name": "_phrase_end"
         },
         {
-          "end_line": 190,
+          "end_line": 192,
           "kind": "function",
-          "line": 160,
+          "line": 162,
           "name": "_display_clean"
         },
         {
-          "end_line": 200,
+          "end_line": 202,
           "kind": "function",
-          "line": 193,
+          "line": 195,
           "name": "_title_names"
         },
         {
-          "end_line": 219,
+          "end_line": 221,
           "kind": "function",
-          "line": 203,
+          "line": 205,
           "name": "_strip_lead"
         },
         {
-          "end_line": 235,
+          "end_line": 237,
           "kind": "function",
-          "line": 222,
+          "line": 224,
           "name": "_with_emphasis"
         },
         {
-          "end_line": 258,
+          "end_line": 262,
           "kind": "function",
-          "line": 238,
+          "line": 240,
           "name": "_chunks"
         },
         {
-          "end_line": 286,
+          "end_line": 293,
           "kind": "function",
-          "line": 261,
+          "line": 265,
           "name": "_headline_score"
         },
         {
-          "end_line": 295,
+          "end_line": 302,
           "kind": "function",
-          "line": 287,
+          "line": 294,
           "name": "_needs_context"
         },
         {
-          "end_line": 315,
+          "end_line": 325,
           "kind": "function",
-          "line": 298,
+          "line": 305,
           "name": "_should_pair_context"
         },
         {
-          "end_line": 361,
+          "end_line": 374,
           "kind": "function",
-          "line": 318,
+          "line": 328,
           "name": "_context_for"
         },
         {
-          "end_line": 419,
+          "end_line": 437,
           "kind": "function",
-          "line": 364,
+          "line": 377,
           "name": "generate_basic_copy_variants"
         }
       ]
@@ -9602,435 +9628,453 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 211,
+      "line_count": 237,
       "longest_function": {
-        "end_line": 211,
+        "end_line": 237,
         "kind": "function",
-        "line": 181,
+        "line": 207,
         "line_count": 31,
         "qualname": "document_layers"
       },
       "module": "autoslice.desktop.cover_layout",
       "path": "src/autoslice/desktop/cover_layout.py",
-      "sha256": "b8eb9f4127f7616f68cfc0b8b34587d460377a002438685ff40d772586584b42",
+      "sha256": "d85c0fa2db2fc78fa3b11ccdbba3fdc09c934d8409b877977dca03a908a00737",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 51,
+          "end_line": 52,
           "kind": "function",
-          "line": 50,
+          "line": 51,
           "name": "canvas_size"
         },
         {
-          "end_line": 61,
+          "end_line": 62,
           "kind": "function",
-          "line": 54,
+          "line": 55,
           "name": "effective_objects"
         },
         {
-          "end_line": 71,
+          "end_line": 72,
           "kind": "function",
-          "line": 65,
+          "line": 66,
           "name": "_font_stack"
         },
         {
-          "end_line": 81,
+          "end_line": 82,
           "kind": "function",
-          "line": 74,
+          "line": 75,
           "name": "font_stack"
         },
         {
-          "end_line": 94,
+          "end_line": 95,
           "kind": "function",
-          "line": 84,
+          "line": 85,
           "name": "text_area"
         },
         {
-          "end_line": 102,
+          "end_line": 99,
           "kind": "function",
-          "line": 97,
+          "line": 98,
+          "name": "text_font_size"
+        },
+        {
+          "end_line": 107,
+          "kind": "function",
+          "line": 102,
           "name": "effective_stroke_width"
         },
         {
-          "end_line": 118,
+          "end_line": 125,
           "kind": "function",
-          "line": 105,
+          "line": 110,
           "name": "text_layout"
         },
         {
-          "end_line": 131,
+          "end_line": 144,
           "kind": "function",
-          "line": 121,
+          "line": 128,
+          "name": "fitted_font_size"
+        },
+        {
+          "end_line": 157,
+          "kind": "function",
+          "line": 147,
           "name": "text_paint"
         },
         {
-          "end_line": 140,
+          "end_line": 166,
           "kind": "function",
-          "line": 135,
+          "line": 161,
           "name": "_image_size"
         },
         {
-          "end_line": 150,
+          "end_line": 176,
           "kind": "function",
-          "line": 143,
+          "line": 169,
           "name": "image_size"
         },
         {
-          "end_line": 155,
+          "end_line": 181,
           "kind": "function",
-          "line": 153,
+          "line": 179,
           "name": "asset_path"
         },
         {
-          "end_line": 162,
+          "end_line": 188,
           "kind": "function",
-          "line": 158,
+          "line": 184,
           "name": "overlay_geometry"
         },
         {
-          "end_line": 169,
+          "end_line": 195,
           "kind": "function",
-          "line": 165,
+          "line": 191,
           "name": "shape_geometry"
         },
         {
-          "end_line": 178,
+          "end_line": 204,
           "kind": "function",
-          "line": 172,
+          "line": 198,
           "name": "background_geometry"
         },
         {
-          "end_line": 211,
+          "end_line": 237,
           "kind": "function",
-          "line": 181,
+          "line": 207,
           "name": "document_layers"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 459,
+      "line_count": 509,
       "longest_function": {
-        "end_line": 316,
+        "end_line": 323,
         "kind": "function",
-        "line": 264,
+        "line": 271,
         "line_count": 53,
         "qualname": "migrate_v4_style_payload"
       },
       "module": "autoslice.desktop.cover_migration",
       "path": "src/autoslice/desktop/cover_migration.py",
-      "sha256": "7d15c9af1856d20da2413449b80b547035793caab29a5a3b156d0b92b6cd14e1",
+      "sha256": "92d76b75b1c4747969314ae7929d678aa114f41ad4a065c78f58f034309b462e",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 38,
+          "end_line": 41,
           "kind": "function",
-          "line": 33,
+          "line": 36,
           "name": "_number"
         },
         {
-          "end_line": 42,
+          "end_line": 45,
           "kind": "function",
-          "line": 41,
+          "line": 44,
           "name": "_bounded"
         },
         {
-          "end_line": 64,
+          "end_line": 67,
           "kind": "function",
-          "line": 45,
+          "line": 48,
           "name": "_legacy_values"
         },
         {
-          "end_line": 77,
+          "end_line": 80,
           "kind": "function",
-          "line": 67,
+          "line": 70,
           "name": "_text_rect"
         },
         {
-          "end_line": 112,
+          "end_line": 115,
           "kind": "function",
-          "line": 80,
+          "line": 83,
           "name": "_copy_text_object"
         },
         {
-          "end_line": 163,
+          "end_line": 168,
           "kind": "function",
-          "line": 115,
+          "line": 118,
           "name": "document_from_copy_values"
         },
         {
-          "end_line": 199,
+          "end_line": 205,
           "kind": "function",
-          "line": 166,
+          "line": 171,
           "name": "document_from_legacy_payload"
         },
         {
-          "end_line": 211,
+          "end_line": 218,
           "kind": "function",
-          "line": 202,
+          "line": 208,
           "name": "document_from_payload"
         },
         {
-          "end_line": 226,
+          "end_line": 233,
           "kind": "function",
-          "line": 214,
+          "line": 221,
           "name": "_canonical_style"
         },
         {
-          "end_line": 239,
+          "end_line": 246,
           "kind": "function",
-          "line": 229,
+          "line": 236,
           "name": "_rect_is_obviously_invalid"
         },
         {
-          "end_line": 249,
+          "end_line": 256,
           "kind": "function",
-          "line": 242,
+          "line": 249,
           "name": "_safe_rect"
         },
         {
-          "end_line": 261,
+          "end_line": 268,
           "kind": "function",
-          "line": 252,
+          "line": 259,
           "name": "_canonicalize_text_object"
         },
         {
-          "end_line": 316,
+          "end_line": 323,
           "kind": "function",
-          "line": 264,
+          "line": 271,
           "name": "migrate_v4_style_payload"
-        },
-        {
-          "end_line": 337,
-          "kind": "function",
-          "line": 319,
-          "name": "migrate_layer_order"
         },
         {
           "end_line": 344,
           "kind": "function",
-          "line": 340,
+          "line": 326,
+          "name": "migrate_layer_order"
+        },
+        {
+          "end_line": 387,
+          "kind": "function",
+          "line": 347,
+          "name": "migrate_text_boxes"
+        },
+        {
+          "end_line": 394,
+          "kind": "function",
+          "line": 390,
           "name": "migrate_cover_draft"
         },
         {
-          "end_line": 388,
+          "end_line": 438,
           "kind": "function",
-          "line": 347,
+          "line": 397,
           "name": "legacy_payload_from_document"
         },
         {
-          "end_line": 417,
+          "end_line": 467,
           "kind": "function",
-          "line": 391,
+          "line": 441,
           "name": "document_from_draft_values"
         },
         {
-          "end_line": 442,
+          "end_line": 492,
           "kind": "function",
-          "line": 420,
+          "line": 470,
           "name": "document_from_basic_title_values"
         },
         {
-          "end_line": 459,
+          "end_line": 509,
           "kind": "function",
-          "line": 445,
+          "line": 495,
           "name": "draft_values_from_document"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 838,
+      "line_count": 843,
       "longest_function": {
-        "end_line": 642,
+        "end_line": 646,
         "kind": "function",
-        "line": 583,
+        "line": 587,
         "line_count": 60,
         "qualname": "CoverDocument.replace_object"
       },
       "module": "autoslice.desktop.cover_model",
       "path": "src/autoslice/desktop/cover_model.py",
-      "sha256": "f26b0f0dd201f02d63fc77eeb960665df0af984c7448433482be75fe50be0e29",
+      "sha256": "4f94800919572ba6fde6b93874015ebab580c378745f741cb266da6c01f4e693",
       "top_level_classes": [
         {
-          "end_line": 83,
+          "end_line": 85,
           "kind": "class",
-          "line": 64,
+          "line": 66,
           "name": "Transform"
         },
         {
-          "end_line": 104,
+          "end_line": 106,
           "kind": "class",
-          "line": 87,
+          "line": 89,
           "name": "Rect"
         },
         {
-          "end_line": 128,
+          "end_line": 130,
           "kind": "class",
-          "line": 108,
+          "line": 110,
           "name": "AssetRef"
         },
         {
-          "end_line": 159,
+          "end_line": 161,
           "kind": "class",
-          "line": 132,
+          "line": 134,
           "name": "SourceRef"
         },
         {
-          "end_line": 182,
+          "end_line": 184,
           "kind": "class",
-          "line": 163,
+          "line": 165,
           "name": "TextWrap"
         },
         {
-          "end_line": 260,
+          "end_line": 262,
           "kind": "class",
-          "line": 186,
+          "line": 188,
           "name": "TextStyle"
         },
         {
-          "end_line": 280,
+          "end_line": 282,
           "kind": "class",
-          "line": 264,
+          "line": 266,
           "name": "RenderObject"
         },
         {
-          "end_line": 319,
+          "end_line": 321,
           "kind": "class",
-          "line": 284,
+          "line": 286,
           "name": "BackgroundObject"
         },
         {
-          "end_line": 364,
+          "end_line": 366,
           "kind": "class",
-          "line": 323,
+          "line": 325,
           "name": "TextObject"
         },
         {
-          "end_line": 394,
+          "end_line": 396,
           "kind": "class",
-          "line": 368,
+          "line": 370,
           "name": "ImageObject"
         },
         {
-          "end_line": 424,
+          "end_line": 426,
           "kind": "class",
-          "line": 398,
+          "line": 400,
           "name": "StickerObject"
         },
         {
-          "end_line": 468,
+          "end_line": 470,
           "kind": "class",
-          "line": 428,
+          "line": 430,
           "name": "ShapeObject"
         },
         {
-          "end_line": 532,
+          "end_line": 534,
           "kind": "class",
-          "line": 492,
+          "line": 494,
           "name": "LayoutProfile"
         },
         {
-          "end_line": 668,
+          "end_line": 673,
           "kind": "class",
-          "line": 536,
+          "line": 538,
           "name": "CoverDocument"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 30,
+          "end_line": 32,
           "kind": "function",
-          "line": 25,
+          "line": 27,
           "name": "_number"
         },
         {
-          "end_line": 34,
+          "end_line": 36,
           "kind": "function",
-          "line": 33,
+          "line": 35,
           "name": "_bounded"
         },
         {
-          "end_line": 38,
+          "end_line": 40,
           "kind": "function",
-          "line": 37,
+          "line": 39,
           "name": "_text"
         },
         {
-          "end_line": 45,
+          "end_line": 47,
           "kind": "function",
-          "line": 41,
+          "line": 43,
           "name": "_integer"
         },
         {
-          "end_line": 60,
+          "end_line": 62,
           "kind": "function",
-          "line": 48,
+          "line": 50,
           "name": "_color"
         },
         {
-          "end_line": 488,
+          "end_line": 490,
           "kind": "function",
-          "line": 474,
+          "line": 476,
           "name": "_object_from_payload"
         },
         {
-          "end_line": 675,
+          "end_line": 680,
           "kind": "function",
-          "line": 671,
+          "line": 676,
           "name": "default_profiles"
         },
         {
-          "end_line": 726,
+          "end_line": 731,
           "kind": "function",
-          "line": 678,
+          "line": 683,
           "name": "object_for_profile"
         },
         {
-          "end_line": 752,
+          "end_line": 757,
           "kind": "function",
-          "line": 744,
+          "line": 749,
           "name": "text_override_payload"
         },
         {
-          "end_line": 782,
+          "end_line": 787,
           "kind": "function",
-          "line": 755,
+          "line": 760,
           "name": "update_text_object"
         },
         {
-          "end_line": 801,
+          "end_line": 806,
           "kind": "function",
-          "line": 785,
+          "line": 790,
           "name": "set_object_visible"
         },
         {
-          "end_line": 823,
+          "end_line": 828,
           "kind": "function",
-          "line": 804,
+          "line": 809,
           "name": "restack_object"
         },
         {
-          "end_line": 838,
+          "end_line": 843,
           "kind": "function",
-          "line": 826,
+          "line": 831,
           "name": "insert_overlay"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 988,
+      "line_count": 1001,
       "longest_function": {
-        "end_line": 813,
+        "end_line": 826,
         "kind": "function",
-        "line": 735,
-        "line_count": 79,
+        "line": 736,
+        "line_count": 91,
         "qualname": "CoverService.apply_auto_layout"
       },
       "module": "autoslice.desktop.cover_service",
       "path": "src/autoslice/desktop/cover_service.py",
-      "sha256": "fb01efd7b2f48154eee50e719f8b40980eb93dbe92d5634fee60ee31b86d5a18",
+      "sha256": "8fc0bc44a741822602c5ecbdf79d09199216e709f064db11b34f396990fd5149",
       "top_level_classes": [
         {
           "end_line": 126,
@@ -10045,7 +10089,7 @@
           "name": "CoverFrame"
         },
         {
-          "end_line": 988,
+          "end_line": 1001,
           "kind": "class",
           "line": 204,
           "name": "CoverService"
@@ -15767,7 +15811,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 643,
+      "line_count": 786,
       "longest_function": {
         "end_line": 609,
         "kind": "function",
@@ -15777,7 +15821,7 @@
       },
       "module": "autoslice_cover.document_layout",
       "path": "src/autoslice_cover/document_layout.py",
-      "sha256": "69774970d899d4e9f09125a9db2f756a82936b0524ae33d8260aca7f762edf48",
+      "sha256": "7753f5d5f607991cb27418b470b2d384806fe75cbf5477c762205f957c80d7ae",
       "top_level_classes": [
         {
           "end_line": 76,
@@ -15984,6 +16028,24 @@
           "kind": "function",
           "line": 612,
           "name": "layout_text"
+        },
+        {
+          "end_line": 710,
+          "kind": "function",
+          "line": 651,
+          "name": "_wrap_paragraph"
+        },
+        {
+          "end_line": 759,
+          "kind": "function",
+          "line": 714,
+          "name": "_relative_wrap"
+        },
+        {
+          "end_line": 786,
+          "kind": "function",
+          "line": 762,
+          "name": "wrap_text"
         }
       ]
     },
@@ -18484,12 +18546,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 581,
-    "production_line_count": 59936,
+    "import_edge_count": 583,
+    "production_line_count": 60475,
     "production_module_count": 220,
     "test_private_patch_count": 17,
     "top_level_class_count": 196,
-    "top_level_function_count": 1186
+    "top_level_function_count": 1192
   },
   "test_private_patches": {
     "by_target_module": {

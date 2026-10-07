@@ -15,6 +15,7 @@ from .cover_copy import BasicCoverCopy, generate_basic_copy_variants
 from .cover_model import (
     DOCUMENT_VERSION,
     LAYER_REVISION,
+    TEXT_BOX_REVISION,
     AssetRef,
     BackgroundObject,
     CoverDocument,
@@ -25,6 +26,8 @@ from .cover_model import (
     TextWrap,
     Transform,
     default_profiles,
+    object_for_profile,
+    text_override_payload,
 )
 
 LEGACY_DRAFT_VERSIONS = {1, 2, 3}
@@ -152,7 +155,8 @@ def document_from_copy_values(
             object_id="copy-b", copy_role="B", text="未命名封面",
             font_size=font_size, x=0.06, y=0.16,
         ))
-    return CoverDocument(
+    # 初始框按旧版“区域内缩字”给出，换算成固定字号后再交给编辑器。
+    return migrate_text_boxes(CoverDocument(
         source=SourceRef(selected_timestamp=selected_timestamp, image_asset_id=image_path),
         profiles=default_profiles(),
         # B 放在序列首位兼容旧 CoverDraft 读取方；z_index 仍保证画布先绘制 A、
@@ -160,7 +164,8 @@ def document_from_copy_values(
         objects=(background, *sorted(objects, key=lambda item: item.copy_role != "B")),
         active_profile="4x3",
         selected_object_id=objects[-1].id,
-    )
+        text_revision=1,
+    ))[0]
 
 
 def document_from_legacy_payload(payload: Mapping[str, Any], fallback_title: str) -> CoverDocument:
@@ -187,7 +192,7 @@ def document_from_legacy_payload(payload: Mapping[str, Any], fallback_title: str
         style=TextStyle(font_size=values["font_size"]),
     )
     profiles = default_profiles()
-    return CoverDocument(
+    return migrate_text_boxes(CoverDocument(
         source=SourceRef(
             selected_timestamp=values["selected_timestamp"],
             image_asset_id=values["image_path"],
@@ -196,7 +201,8 @@ def document_from_legacy_payload(payload: Mapping[str, Any], fallback_title: str
         objects=(background, text),
         active_profile="4x3",
         selected_object_id=None,
-    )
+        text_revision=1,
+    ))[0]
 
 
 def document_from_payload(payload: Any, fallback_title: str) -> tuple[CoverDocument, bool]:
@@ -205,7 +211,8 @@ def document_from_payload(payload: Any, fallback_title: str) -> tuple[CoverDocum
     if isinstance(payload, Mapping) and payload.get("version") == DOCUMENT_VERSION:
         document, restyled = migrate_v4_style_payload(payload)
         document, relayered = migrate_layer_order(document)
-        return document, restyled or relayered
+        document, reboxed = migrate_text_boxes(document)
+        return document, restyled or relayered or reboxed
     if isinstance(payload, Mapping) and payload.get("version") in LEGACY_DRAFT_VERSIONS:
         return document_from_legacy_payload(payload, fallback_title), True
     raise ValueError("封面草稿版本不受支持")
@@ -335,6 +342,49 @@ def migrate_layer_order(document: CoverDocument) -> tuple[CoverDocument, bool]:
                 for item in objects
             )
     return replace(document, objects=objects, layer_revision=LAYER_REVISION), True
+
+
+def migrate_text_boxes(document: CoverDocument) -> tuple[CoverDocument, bool]:
+    """升级为固定字号语义：把旧版区域内自动缩字后实际显示的字号和行宽写回。"""
+
+    if document.text_revision >= TEXT_BOX_REVISION:
+        return document, False
+    from autoslice_cover.document_layout import Box
+
+    from .cover_layout import canvas_size, fitted_font_size
+
+    def fixed(item: TextObject, key: str) -> TextObject:
+        width, height = canvas_size(key)
+        scale = max(0.01, float(item.transform.scale or 1.0))
+        area_width = min(item.rect.width * scale, item.wrap.max_width)
+        area = Box(item.transform.x * width, item.transform.y * height, area_width * width, item.rect.height * scale * height)
+        font_size = (
+            fitted_font_size(item, area, requested=item.style.font_size, max_lines=item.wrap.max_lines)
+            if item.text.strip() else item.style.font_size
+        )
+        return replace(
+            item,
+            transform=replace(item.transform, scale=1.0),
+            rect=replace(item.rect, width=area_width, height=item.rect.height * scale),
+            wrap=replace(item.wrap, max_width=area_width, max_lines=8),
+            style=replace(item.style, font_size=font_size),
+        )
+
+    objects = list(document.objects)
+    profiles = dict(document.profiles)
+    for index, base in enumerate(document.objects):
+        if not isinstance(base, TextObject):
+            continue
+        # 本体按 4:3 换算；只有原本就有覆盖的比例才写回覆盖，不凭空新增。
+        objects[index] = fixed(base, "4x3")
+        for key, profile in document.profiles.items():
+            item = object_for_profile(document, base.id, key)
+            if base.id not in profile.overrides or not isinstance(item, TextObject):
+                continue
+            profiles[key] = replace(
+                profiles[key], overrides={**profiles[key].overrides, base.id: text_override_payload(fixed(item, key))},
+            )
+    return replace(document, objects=tuple(objects), profiles=profiles, text_revision=TEXT_BOX_REVISION), True
 
 
 def migrate_cover_draft(payload: Any, fallback_title: str) -> CoverDocument:

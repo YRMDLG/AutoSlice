@@ -379,6 +379,81 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
             1,
         )
 
+    def _text(self, object_id: str, profile: str = "4x3"):
+        from autoslice.desktop.cover_model import object_for_profile
+
+        return object_for_profile(self.widget.document, object_id, profile)
+
+    def test_copy_variant_switch_only_swaps_text_and_keeps_boxes(self):
+        from dataclasses import replace
+
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+        from autoslice.desktop.cover_model import update_text_object
+
+        self.widget.set_context(self.project, self.project.videos[0])
+        moved = replace(
+            self._text("copy-b"), transform=replace(self._text("copy-b").transform, x=0.31, y=0.55),
+            style=replace(self._text("copy-b").style, font_size=150),
+        )
+        self.widget.document = update_text_object(self.widget.document, moved, profile_key="4x3")
+        self.widget._copy_variants = (
+            BasicCoverCopy("旧上下文", "旧主文案"),
+            BasicCoverCopy("", "第二版主文案"),
+        )
+        self.widget._copy_variant_index = 0
+        self.widget._cycle_copy()
+        current = self._text("copy-b")
+        self.assertEqual(current.text, "第二版主文案")
+        self.assertEqual((current.transform.x, current.transform.y), (0.31, 0.55))
+        self.assertEqual(current.style.font_size, 150)
+        # 空 A 两个比例一起隐藏；换回有 A 的版本再显示。
+        if any(item.id == "copy-a" for item in self.widget.document.objects):
+            self.assertFalse(self._text("copy-a").visible)
+            self.assertFalse(self._text("copy-a", "16x9").visible)
+            self.widget._cycle_copy()
+            self.assertTrue(self._text("copy-a", "16x9").visible)
+            self.assertEqual(self._text("copy-a").text, "旧上下文")
+
+    def test_duplicate_button_makes_independent_text_box_and_delete_removes_it(self):
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+        from autoslice.desktop.cover_model import TextObject
+
+        self.widget.set_context(self.project, self.project.videos[0])
+        before = {item.id for item in self.widget.document.objects}
+        self.widget._duplicate_object("copy-b")
+        added = [item for item in self.widget.document.objects if item.id not in before]
+        self.assertEqual(len(added), 1)
+        copy_id = added[0].id
+        self.assertIsInstance(added[0], TextObject)
+        self.assertEqual(self.widget.document.selected_object_id, copy_id)
+        for profile in ("4x3", "16x9"):
+            source, duplicate = self._text("copy-b", profile), self._text(copy_id, profile)
+            self.assertTrue(duplicate.visible)
+            self.assertEqual(duplicate.text, source.text)
+            self.assertGreater(duplicate.transform.y, source.transform.y)
+        # 换一版只改 A/B 主文案，复制出来的文本框保持不变。
+        self.widget._copy_variants = (BasicCoverCopy("", "甲"), BasicCoverCopy("", "乙"))
+        self.widget._copy_variant_index = 0
+        original = self._text(copy_id).text
+        self.widget._cycle_copy()
+        self.assertEqual(self._text("copy-b").text, "乙")
+        self.assertEqual(self._text(copy_id).text, original)
+        self.widget._delete_object(copy_id)
+        self.assertNotIn(copy_id, {item.id for item in self.widget.document.objects})
+        self.assertNotIn(copy_id, self.widget.document.profiles["16x9"].overrides)
+        self.widget._delete_object("copy-b")
+        self.assertFalse(self._text("copy-b").visible)
+        self.assertIn("copy-b", {item.id for item in self.widget.document.objects})
+
+    def test_nearby_offsets_never_repeat_the_first_frame(self):
+        for center in (0.0, 0.3, 1.2, 8.0):
+            offsets = self.widget._nearby_offsets(center)
+            stamps = [round(center + offset, 2) for offset in offsets]
+            self.assertEqual(len(offsets), 7)
+            self.assertEqual(len(set(stamps)), 7)
+            self.assertGreaterEqual(min(stamps), 0.0)
+            self.assertIn(round(center, 2), stamps)
+
     def test_stale_frame_callback_is_ignored_after_context_reset(self):
         self.widget.set_context(self.project, self.project.videos[0])
         old_generation = self.widget._frame_request_generation

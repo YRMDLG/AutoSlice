@@ -57,16 +57,15 @@ from .cover_model import (
     BackgroundObject,
     CoverDocument,
     ImageObject,
-    Rect,
     ShapeObject,
     StickerObject,
     TextObject,
-    TextWrap,
     Transform,
     insert_overlay,
     object_for_profile,
     restack_object,
     set_object_visible,
+    text_override_payload,
     update_text_object,
 )
 from .cover_service import CoverDraft, CoverFrame, CoverService, recommended_frame, wrap_cover_title
@@ -409,6 +408,8 @@ class CoverEditorWidget(QWidget):
         self.canvas.safe_area_warning_changed.connect(self._canvas_safety_changed)
         self.canvas.object_changed.connect(self._canvas_object_changed)
         self.canvas.object_preview_changed.connect(self._canvas_object_preview_changed)
+        self.canvas.delete_requested.connect(self._delete_object)
+        self.canvas.duplicate_requested.connect(self._duplicate_object)
         center_layout.addWidget(self.canvas, 1)
 
         # 另一比例预览条（精简为一行）
@@ -1238,6 +1239,15 @@ class CoverEditorWidget(QWidget):
         label = {"circle": "圆圈", "arrow": "箭头", "rect": "矩形框"}[shape_type]
         self.status_changed.emit(f"已添加{label}，可直接在画布上拖动")
 
+    def _primary_copy_ids(self) -> dict[str, str]:
+        """每个角色的第一个文本框是 A/B 主文案；复制出来的不参与换一版。"""
+
+        ids: dict[str, str] = {}
+        for item in self.document.objects if self.document else ():
+            if isinstance(item, TextObject):
+                ids.setdefault(item.copy_role, item.id)
+        return ids
+
     def _selected_render_object(self):
         if self.document is None:
             return None
@@ -1319,6 +1329,60 @@ class CoverEditorWidget(QWidget):
         self._draft_timer.start()
         self._preview_timer.start()
 
+    def _delete_object(self, object_id: str):
+        """选中框左上角的删除按钮。"""
+
+        if self.document is None:
+            return
+        self.document = replace(self.document, selected_object_id=object_id)
+        self._delete_selected_object()
+        background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None)
+        if background is not None:
+            self._canvas_object_selected(background.id)
+
+    def _duplicate_object(self, object_id: str):
+        """选中框左下角的复制按钮：文字复制成新的独立文本框。"""
+
+        if self.document is None:
+            return
+        source = next((item for item in self.document.objects if item.id == object_id), None)
+        if isinstance(source, TextObject):
+            self._duplicate_text(source)
+            return
+        self.document = replace(self.document, selected_object_id=object_id)
+        self._duplicate_selected_object()
+
+    def _duplicate_text(self, source: TextObject):
+        before = self.document
+        new_id = self._new_object_id("text")
+        z_index = max((item.z_index for item in self.document.objects), default=0) + 1
+        profiles = {}
+        for key, profile in self.document.profiles.items():
+            effective = object_for_profile(self.document, source.id, key)
+            effective = effective if isinstance(effective, TextObject) else source
+            shifted = replace(
+                effective, id=new_id, z_index=z_index,
+                transform=replace(effective.transform, x=min(0.92, effective.transform.x + 0.03), y=min(0.92, effective.transform.y + 0.04)),
+            )
+            profiles[key] = replace(profile, overrides={**profile.overrides, new_id: text_override_payload(shifted)})
+        base = object_for_profile(self.document, source.id, self._canvas_key)
+        base = base if isinstance(base, TextObject) else source
+        duplicate = replace(
+            base, id=new_id, z_index=z_index, visible=True,
+            transform=replace(base.transform, x=min(0.92, base.transform.x + 0.03), y=min(0.92, base.transform.y + 0.04)),
+        )
+        self.document = replace(
+            self.document,
+            objects=(*self.document.objects, duplicate),
+            profiles=profiles,
+            selected_object_id=new_id,
+        )
+        self._selected_text_id = new_id
+        self.canvas.set_selected_object(new_id)
+        self._commit_document_change(before)
+        self._canvas_object_selected(new_id)
+        self.status_changed.emit("已复制文本框，可直接拖动到新位置")
+
     def _duplicate_selected_object(self):
         from dataclasses import replace as dc_replace
         item = self._selected_render_object()
@@ -1336,9 +1400,21 @@ class CoverEditorWidget(QWidget):
         if self.document is None or item is None or item.kind == "background":
             return
         before = self.document
-        if isinstance(item, TextObject):
-            # 两个比例一起隐藏；只改本体时比例覆盖仍是可见，删除会无效。
+        if isinstance(item, TextObject) and item.id in self._primary_copy_ids().values():
+            # A/B 主文案两个比例一起隐藏，换一版或重新填字后还能回来。
             self.document = replace(set_object_visible(self.document, item.id, False), selected_object_id=None)
+        elif isinstance(item, TextObject):
+            # 复制出来的文本框直接移除，连同比例覆盖。
+            profiles = {
+                key: replace(profile, overrides={k: v for k, v in profile.overrides.items() if k != item.id})
+                for key, profile in self.document.profiles.items()
+            }
+            self.document = replace(
+                self.document,
+                objects=tuple(obj for obj in self.document.objects if obj.id != item.id),
+                profiles=profiles,
+                selected_object_id=None,
+            )
         else:
             self.document = replace(self.document, objects=tuple(obj for obj in self.document.objects if obj.id != item.id), selected_object_id=None)
         self._commit_document_change(before)
@@ -1547,10 +1623,17 @@ class CoverEditorWidget(QWidget):
                 f"导出 {self._canvas_label()}（{size} JPG）到项目目录，不覆盖已有文件"
             )
 
+    @staticmethod
+    def _nearby_offsets(center: float) -> tuple[float, ...]:
+        """附近 7 帧的偏移；片头不足 1.2 秒时整体后移，避免重复的 0 秒帧。"""
+
+        before = min(3, int(max(0.0, float(center or 0.0)) / 0.4 + 1e-6))
+        return tuple(round((index - before) * 0.4, 2) for index in range(7))
+
     def _refresh_nearby_frame_strip(self, center: float):
         center = max(0.0, float(center or 0.0))
         self.frame_center_label.setText(f"当前 {center:.2f} 秒")
-        offsets = (-1.20, -0.80, -0.40, 0.0, 0.40, 0.80, 1.20)
+        offsets = self._nearby_offsets(center)
         available = self.video is not None and Path(self.video.path).is_file()
         for button, offset in zip(self.nearby_frame_buttons, offsets):
             timestamp = max(0.0, center + offset)
@@ -1569,7 +1652,7 @@ class CoverEditorWidget(QWidget):
         if not self.isVisible() or self.video is None or not Path(self.video.path).is_file():
             return
         center = max(0.0, float(center or 0.0))
-        offsets = (-1.20, -0.80, -0.40, 0.0, 0.40, 0.80, 1.20)
+        offsets = self._nearby_offsets(center)
         self._nearby_request_generation += 1
         request_generation = self._nearby_request_generation
         video = self.video
@@ -1714,31 +1797,21 @@ class CoverEditorWidget(QWidget):
         self._copy_variant_index = (self._copy_variant_index + 1) % len(self._copy_variants)
         candidate = self._copy_variants[self._copy_variant_index]
         if self.document is not None:
-            objects = []
-            for item in self.document.objects:
-                if not isinstance(item, TextObject):
-                    objects.append(item)
+            before = self.document
+            # 只换文字：A/B 各自是独立文本框，位置、字号和行宽沿用当前排版。
+            primary = set(self._primary_copy_ids().values())
+            for item in before.objects:
+                if not isinstance(item, TextObject) or item.id not in primary:
                     continue
                 value = candidate.context if item.copy_role == "A" else candidate.headline
-                visible = bool(value.strip())
-                font_size = item.style.font_size
-                line_count = max(1, len(wrap_cover_title(value or "标题", font_size, canvas_width=1440)))
-                width = min(0.60, max(0.24, len(value or "标题") * font_size / 1440.0 * 1.18))
-                height = min(0.55, max(0.06, line_count * font_size * 1.18 / 1080.0))
-                objects.append(replace(
-                    item,
-                    text=value,
-                    visible=visible,
-                    rect=Rect(width=width, height=height),
-                    wrap=TextWrap(max_width=width, max_lines=3),
-                ))
-            self.document = replace(self.document, objects=tuple(objects))
-            self.draft = CoverDraft.from_document(self.document)
-            self.canvas.set_document(self.document, self._canvas_key)
-            self._sync_selected_text_controls()
-            self.history.commit(self.document)
-            self.undo_button.setEnabled(self.history.can_undo)
-            self.redo_button.setEnabled(self.history.can_redo)
+                current = object_for_profile(self.document, item.id, self._canvas_key)
+                current = current if isinstance(current, TextObject) else item
+                self.document = update_text_object(
+                    self.document, replace(current, text=value), profile_key=self._canvas_key,
+                )
+                self.document = set_object_visible(self.document, item.id, bool(value.strip()))
+            if self.document != before:
+                self._commit_document_change(before)
         else:
             self.title_edit.setPlainText(candidate.headline)
         self.status_changed.emit(

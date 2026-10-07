@@ -21,6 +21,7 @@ from autoslice_cover.document_layout import (
     layout_text,
     overlay_box,
     shape_box,
+    wrap_text,
 )
 from autoslice_cover.document_render import (
     BackgroundLayer,
@@ -82,16 +83,20 @@ def font_stack(font_family: str) -> tuple[str | None, ...]:
 
 
 def text_area(item: TextObject, size: tuple[int, int]) -> Box:
-    """文字对象的可用区域；也是选中框和旋转中心。"""
+    """文字对象的行宽区域：左上角为位置，宽度即换行宽度；高度为旧语义保留值。"""
 
     width, height = size
     scale = max(0.01, float(item.transform.scale or 1.0))
     return Box(
         item.transform.x * width,
         item.transform.y * height,
-        min(item.rect.width * scale, item.wrap.max_width) * width,
+        item.rect.width * scale * width,
         item.rect.height * scale * height,
     )
+
+
+def text_font_size(item: TextObject) -> int:
+    return max(12, round(item.style.font_size * max(0.01, float(item.transform.scale or 1.0))))
 
 
 def effective_stroke_width(item: TextObject) -> int:
@@ -103,19 +108,40 @@ def effective_stroke_width(item: TextObject) -> int:
 
 
 def text_layout(item: TextObject, size: tuple[int, int]) -> TextLayout:
+    """编辑器语义：字号固定，按行宽换行；ink 为贴合文字的选中框。"""
+
     style = item.style
-    return layout_text(
+    area = text_area(item, size)
+    return wrap_text(
         item.text,
-        area=text_area(item, size),
-        requested_size=style.font_size,
+        origin=(area.left, area.top),
+        width=area.width,
+        size=text_font_size(item),
+        stroke_width=effective_stroke_width(item),
+        line_spacing=style.line_spacing,
+        align=item.align,
+        font_paths=font_stack(style.font_family),
+        weight=style.font_weight,
+    )
+
+
+def fitted_font_size(item: TextObject, area: Box, *, requested: int | None = None, max_lines: int = 2) -> int:
+    """在给定区域内能放下的最大字号（不超过 requested），用于自动构图和旧稿迁移。"""
+
+    style = item.style
+    layout = layout_text(
+        item.text,
+        area=area,
+        requested_size=requested or style.font_size,
         minimum_size=CONTEXT_MIN_FONT_SIZE if item.copy_role == "A" else EMPHASIS_MIN_FONT_SIZE,
         stroke_width=effective_stroke_width(item),
         line_spacing=style.line_spacing,
         align=item.align,
         font_paths=font_stack(style.font_family),
         weight=style.font_weight,
-        max_lines=item.wrap.max_lines,
+        max_lines=max_lines,
     )
+    return layout.font_size
 
 
 def text_paint(item: TextObject) -> TextPaint:

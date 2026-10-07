@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from typing import Any
 
@@ -47,7 +48,6 @@ from .cover_layout import (
     background_geometry,
     overlay_geometry,
     shape_geometry,
-    text_area,
     text_layout,
     text_paint,
 )
@@ -86,14 +86,31 @@ class CoverCanvas(QLabel):
     object_changed = Signal(object, str)
     # 手势进行中只同步轻量的控件显示，不触碰 CoverDocument 或预览任务。
     object_preview_changed = Signal(object, str)
+    # 选中框四角的删除/复制按钮：由编辑器执行，画布只发出请求。
+    delete_requested = Signal(str)
+    duplicate_requested = Signal(str)
 
     _SAFE_MARGIN = 0.06
     _HANDLE = 9.0
     # 旧版 Web Canvas 的行为常量：移动到画布中心附近 8px 即吸附，
     # 缩放按右下角位移换算为字号比例。
     _CENTER_SNAP_THRESHOLD_PX = 8.0
-    _MIN_FONT_SIZE = 24
+    _MIN_FONT_SIZE = 12
     _MAX_FONT_SIZE = 320
+    # 选中框：贴合对象，四角为操作按钮，文字左右为改宽手柄。
+    _CHROME_COLOR = QColor(59, 160, 255)
+    _CHROME_PAD = 6.0
+    _HANDLE_RADIUS = 11.0
+    _EDGE_HANDLE = 5.0
+    _ROTATE_SNAP_DEGREES = 4.0
+    _HANDLE_CURSORS = {
+        "delete": Qt.CursorShape.PointingHandCursor,
+        "duplicate": Qt.CursorShape.PointingHandCursor,
+        "rotate": Qt.CursorShape.CrossCursor,
+        "scale": Qt.CursorShape.SizeFDiagCursor,
+        "width-left": Qt.CursorShape.SizeHorCursor,
+        "width-right": Qt.CursorShape.SizeHorCursor,
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -112,15 +129,16 @@ class CoverCanvas(QLabel):
         self._start_transform = Transform()
         self._start_rect = Rect(width=0.58, height=0.30)
         self._start_background = (0.5, 0.5, 1.0)
-        self._resize_corner: str | None = None
         self._start_font_size = 104
+        self._start_object = None
+        self._start_frame = None
         self._safe_area_warning = False
         self._background_x = 0.5
         self._background_y = 0.5
         self._zoom = 1.0
         self._guide_vertical = False
         self._guide_horizontal = False
-        self._hover_handle = False
+        self._hover_handle: str | None = None
         self._font_family_cache: dict[str, str] = {}
         self._font_id_cache: dict[str, int] = {}
         self._variable_font_cache: dict[str, bool] = {}
@@ -256,8 +274,90 @@ class CoverCanvas(QLabel):
             box.height * factor,
         )
 
+    def _text_layout_for(self, obj: TextObject) -> TextLayout:
+        return text_layout(obj, self._export_size())
+
+    def _text_box(self, obj: TextObject) -> tuple[Box, Box]:
+        """（贴合文字的框, 行宽区域）；空文字时退回行宽区域。"""
+
+        layout = self._text_layout_for(obj)
+        area = layout.area
+        if layout.lines:
+            return layout.ink, area
+        return Box(area.left, area.top, area.width, max(24.0, area.height)), area
+
     def _display_rect(self, obj: TextObject) -> QRectF:
-        return self._to_screen(text_area(obj, self._export_size()))
+        """贴合文字的选中框（未旋转，屏幕坐标），用于命中、吸附与选中态。"""
+
+        return self._to_screen(self._text_box(obj)[0])
+
+    def _frame(self, obj: RenderObject) -> tuple[QRectF, QPointF, float] | None:
+        """对象选中框：未旋转矩形、旋转中心与角度（屏幕坐标），与导出旋转一致。"""
+
+        if isinstance(obj, TextObject):
+            box, area = self._text_box(obj)
+            center = self._to_screen(Box(area.center_x, area.center_y, 0, 0)).topLeft()
+            return self._to_screen(box), center, float(obj.transform.rotation)
+        if isinstance(obj, (ImageObject, StickerObject, ShapeObject)):
+            rect = self._object_display_rect(obj)
+            return rect, rect.center(), float(obj.transform.rotation)
+        return None
+
+    @staticmethod
+    def _rotate(point: QPointF, center: QPointF, degrees: float) -> QPointF:
+        if abs(degrees) < 0.01:
+            return QPointF(point)
+        radians = math.radians(degrees)
+        dx, dy = point.x() - center.x(), point.y() - center.y()
+        return QPointF(
+            center.x() + dx * math.cos(radians) - dy * math.sin(radians),
+            center.y() + dx * math.sin(radians) + dy * math.cos(radians),
+        )
+
+    def _frame_contains(self, obj: RenderObject, point: QPointF) -> bool:
+        frame = self._frame(obj)
+        if frame is None:
+            return False
+        rect, center, angle = frame
+        return rect.adjusted(-4, -4, 4, 4).contains(self._rotate(point, center, -angle))
+
+    def _selected_editable(self) -> RenderObject | None:
+        if self._document is None:
+            return None
+        return next(
+            (item for item in self._layered_objects() if item.id == self._selected_object and item.visible),
+            None,
+        )
+
+    def _handle_points(self, obj: RenderObject) -> dict[str, QPointF]:
+        """四角操作按钮与左右改宽手柄的屏幕位置（随对象旋转）。"""
+
+        frame = self._frame(obj)
+        if frame is None:
+            return {}
+        rect, center, angle = frame
+        rect = rect.adjusted(-self._CHROME_PAD, -self._CHROME_PAD, self._CHROME_PAD, self._CHROME_PAD)
+        local = {
+            "delete": rect.topLeft(),
+            "rotate": rect.topRight(),
+            "duplicate": rect.bottomLeft(),
+            "scale": rect.bottomRight(),
+        }
+        if isinstance(obj, TextObject):
+            local["width-left"] = QPointF(rect.left(), rect.center().y())
+            local["width-right"] = QPointF(rect.right(), rect.center().y())
+        return {name: self._rotate(position, center, angle) for name, position in local.items()}
+
+    def _handle_at(self, point: QPointF) -> tuple[str, RenderObject] | None:
+        obj = self._selected_editable()
+        if obj is None:
+            return None
+        for name, position in self._handle_points(obj).items():
+            radius = self._EDGE_HANDLE + 4 if name.startswith("width") else self._HANDLE_RADIUS + 2
+            if math.hypot(point.x() - position.x(), point.y() - position.y()) <= radius:
+                return name, obj
+        return None
+
 
     def _overlay_box(self, obj: RenderObject) -> Box:
         size = self._export_size()
@@ -352,13 +452,10 @@ class CoverCanvas(QLabel):
         return tuple(item for _z, _index, item in sorted(ordered, key=lambda value: (value[0], value[1])))
 
     def _hit_object(self, point: QPointF) -> RenderObject | None:
-        """按 z 从上到下命中第一个可见对象。"""
+        """按 z 从上到下命中第一个可见对象；旋转对象按旋转后的框命中。"""
 
         for item in reversed(self._layered_objects()):
-            if not item.visible:
-                continue
-            rect = self._display_rect(item) if isinstance(item, TextObject) else self._object_display_rect(item)
-            if rect.contains(point):
+            if item.visible and self._frame_contains(item, point):
                 return item
         return None
 
@@ -453,21 +550,6 @@ class CoverCanvas(QLabel):
                 self._set_local_effective(item)
                 self.object_changed.emit(item, self._profile_key)
 
-    def _corner_at(self, point: QPointF, rect: QRectF) -> str | None:
-        if rect.isNull():
-            return None
-        # 旧版只有一个右下角 resize-handle；保留单一抓取点可避免把
-        # 文字编辑误判成自由变形器，也让字号缩放手感与旧版一致。
-        corner = rect.bottomRight()
-        if QRectF(
-            corner.x() - self._HANDLE,
-            corner.y() - self._HANDLE,
-            self._HANDLE * 2,
-            self._HANDLE * 2,
-        ).contains(point):
-            return "br"
-        return None
-
     @staticmethod
     def _snap_to_center(
         candidate_x: float,
@@ -497,29 +579,89 @@ class CoverCanvas(QLabel):
         self._guide_horizontal = bool(horizontal)
         self.update()
 
-    def _resize_text(self, point: QPointF):
-        obj = self._find_text()
-        if obj is None or self._resize_corner is None:
-            return
-        canvas = self._canvas_rect()
-        delta_x = point.x() - self._press.x()
-        delta_y = point.y() - self._press.y()
-        start_size = max(36.0, canvas.width() * self._start_rect.width, canvas.height() * self._start_rect.height)
-        ratio = self._clamp(1.0 + (delta_x + delta_y) / (2.0 * start_size), 0.35, 2.5)
-        font_size = int(round(self._start_font_size * ratio))
-        font_size = int(self._clamp(font_size, self._MIN_FONT_SIZE, self._MAX_FONT_SIZE))
-        updated = replace(
+    def _screen_to_export(self) -> float:
+        return self._export_size()[0] / max(1.0, self._canvas_rect().width())
+
+    def _scale_gesture(self, point: QPointF):
+        """右下角：以左上角为锚点等比缩放；文字改字号和行宽，素材改缩放。"""
+
+        obj, (rect, center, angle) = self._start_object, self._start_frame
+        anchor = self._rotate(rect.topLeft(), center, angle)
+        start = math.hypot(self._press.x() - anchor.x(), self._press.y() - anchor.y())
+        now = math.hypot(point.x() - anchor.x(), point.y() - anchor.y())
+        ratio = self._clamp(now / max(8.0, start), 0.15, 6.0)
+        if isinstance(obj, TextObject):
+            size = int(self._clamp(round(obj.style.font_size * ratio), self._MIN_FONT_SIZE, self._MAX_FONT_SIZE))
+            actual = size / max(1, obj.style.font_size)
+            width = self._clamp(obj.rect.width * actual, 0.02, 3.0)
+            self._emit_text(replace(
+                obj,
+                style=replace(obj.style, font_size=size),
+                rect=replace(obj.rect, width=width, height=self._clamp(obj.rect.height * actual, 0.02, 3.0)),
+                wrap=replace(obj.wrap, max_width=min(1.0, width)),
+            ), commit=False)
+        else:
+            scale = self._clamp(obj.transform.scale * ratio, 0.05, 4.0)
+            self._emit_overlay(replace(obj, transform=replace(obj.transform, scale=scale)), commit=False)
+        self.update()
+
+    def _rotate_gesture(self, point: QPointF):
+        """右上角：绕对象中心旋转，接近 0°/±90°/180° 时吸附。"""
+
+        obj, (_rect, center, _angle) = self._start_object, self._start_frame
+        before = math.atan2(self._press.y() - center.y(), self._press.x() - center.x())
+        after = math.atan2(point.y() - center.y(), point.x() - center.x())
+        value = obj.transform.rotation + math.degrees(after - before)
+        value = (value + 180.0) % 360.0 - 180.0
+        for target in (-180.0, -90.0, 0.0, 90.0, 180.0):
+            if abs(value - target) <= self._ROTATE_SNAP_DEGREES:
+                value = target
+                break
+        updated = replace(obj, transform=replace(obj.transform, rotation=round(value, 1)))
+        if isinstance(obj, TextObject):
+            self._emit_text(updated, commit=False)
+        else:
+            self._emit_overlay(updated, commit=False)
+        self.update()
+
+    def _width_gesture(self, point: QPointF, *, left: bool):
+        """左右手柄：只改文字行宽，字号不变，文字随宽度重新换行。"""
+
+        obj, (_rect, _center, angle) = self._start_object, self._start_frame
+        radians = math.radians(angle)
+        axis = (math.cos(radians), math.sin(radians))
+        moved = (point.x() - self._press.x()) * axis[0] + (point.y() - self._press.y()) * axis[1]
+        moved *= self._screen_to_export()
+        width_px, height_px = self._export_size()
+        scale = max(0.01, float(obj.transform.scale or 1.0))
+        start = obj.rect.width * scale * width_px
+        minimum = max(24.0, obj.style.font_size * scale * 1.1)
+        new_width = max(minimum, start + (-moved if left else moved))
+        transform = obj.transform
+        if left:
+            # 左手柄移动的是左边界：位置沿旋转后的横轴同步平移。
+            shift = start - new_width
+            transform = replace(
+                transform,
+                x=transform.x + shift * axis[0] / width_px,
+                y=transform.y + shift * axis[1] / height_px,
+            )
+        normalized = new_width / scale / width_px
+        self._emit_text(replace(
             obj,
-            # 旧版字号变化后预览框会随文字自然尺寸更新；这里按同一比例
-            # 更新逻辑框宽高，保持自动换行比例稳定，不使用鼠标直接改四边。
-            rect=replace(
-                obj.rect,
-                width=self._clamp(self._start_rect.width * ratio, 0.02, 1.0),
-                height=self._clamp(self._start_rect.height * ratio, 0.02, 1.0),
-            ),
-            style=replace(obj.style, font_size=font_size),
-        )
-        self._emit_text(updated, commit=False)
+            transform=transform,
+            rect=replace(obj.rect, width=normalized),
+            wrap=replace(obj.wrap, max_width=min(1.0, normalized)),
+        ), commit=False)
+        self.update()
+
+    def _begin_handle(self, name: str, obj: RenderObject, point: QPointF):
+        self._mode = name
+        self._start_object = obj
+        self._start_frame = self._frame(obj)
+        self._press = point
+        self.grabMouse()
+        self.setCursor(self._HANDLE_CURSORS.get(name, Qt.CursorShape.ArrowCursor))
         self.update()
 
     def mousePressEvent(self, event):
@@ -527,33 +669,34 @@ class CoverCanvas(QLabel):
             super().mousePressEvent(event)
             return
         point = event.position()
+        handle = self._handle_at(point)
+        if handle is not None:
+            # 操作按钮可能在画面外缘，先于画面范围判断。
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            self._begin_handle(handle[0], handle[1], point)
+            event.accept()
+            return
         norm = self._norm_point(point)
         if norm is None:
             return
         self.setFocus(Qt.FocusReason.MouseFocusReason)
-        text = self._text_at(point) or self._find_text()
-        overlay = self._overlay_at(point) if self._text_at(point) is None else None
-        # 命中 A/B 中任意一块后，后续拖动和缩放必须使用被命中的那一块，
-        # 不能继续拿上一次选中的 B 的矩形。
-        rect = self._display_rect(text) if text is not None else self._object_display_rect(overlay) if overlay is not None else self._title_display_rect()
-        corner = self._corner_at(point, rect) if text and text.visible else None
-        if (text is not None and text.visible and (corner or rect.contains(point))) or (
-            text is None and overlay is None and self._document is None and rect.contains(point)
-        ):
+        hit = self._hit_object(point)
+        text = hit if isinstance(hit, TextObject) else None
+        overlay = hit if isinstance(hit, (ImageObject, StickerObject, ShapeObject)) else None
+        legacy = self._document is None and self._legacy_display_rect().contains(point)
+        if text is not None or legacy:
             self._selected_object = text.id if text is not None else "title"
-            self._mode = "text-resize" if corner else "text"
-            self._resize_corner = corner
+            self._mode = "text"
             if text is not None:
                 self._start_transform, self._start_rect = text.transform, text.rect
                 self._start_font_size = int(text.style.font_size)
             else:
                 self._start_transform = Transform(x=self._legacy_title_rect.left(), y=self._legacy_title_rect.top())
                 self._start_rect = Rect(width=self._legacy_title_rect.width(), height=self._legacy_title_rect.height())
-            if not corner:
-                self._drag_offset = QPointF(norm[0] - self._start_transform.x, norm[1] - self._start_transform.y)
+            self._drag_offset = QPointF(norm[0] - self._start_transform.x, norm[1] - self._start_transform.y)
             self.selected_changed.emit(True)
             self.selected_object_changed.emit(text.id if text is not None else "title")
-        elif overlay is not None and overlay.visible and rect.contains(point):
+        elif overlay is not None:
             self._selected_object = overlay.id
             self._mode = "object"
             self._start_transform = overlay.transform
@@ -582,25 +725,37 @@ class CoverCanvas(QLabel):
             self.update()
             return
         image = self._canvas_rect()
-        if self._mode == "text-resize":
-            self._resize_text(event.position())
+        point = event.position()
+        if self._mode == "scale":
+            self._scale_gesture(point)
+        elif self._mode == "rotate":
+            self._rotate_gesture(point)
+        elif self._mode in ("width-left", "width-right"):
+            self._width_gesture(point, left=self._mode == "width-left")
+        elif self._mode in ("delete", "duplicate"):
+            pass
         elif self._mode == "text":
             obj = self._find_text()
-            norm = self._norm_point(event.position(), clamp=True)
+            norm = self._norm_point(point, clamp=True)
             if obj is not None and norm is not None:
-                candidate_x = self._clamp(norm[0] - self._drag_offset.x(), 0.0, 1.0)
-                candidate_y = self._clamp(norm[1] - self._drag_offset.y(), 0.0, 1.0)
+                candidate_x = self._clamp(norm[0] - self._drag_offset.x(), -0.5, 1.0)
+                candidate_y = self._clamp(norm[1] - self._drag_offset.y(), -0.5, 1.0)
+                # 吸附以贴合文字的框为准：框中心对齐画面中心。
+                box, area = self._text_box(obj)
+                width_px, height_px = self._export_size()
+                offset_x = (box.left - area.left) / width_px
+                offset_y = (box.top - area.top) / height_px
                 display = self._display_rect(obj)
-                x, y, snap_x, snap_y = self._snap_to_center(
-                    candidate_x,
-                    candidate_y,
+                box_x, box_y, snap_x, snap_y = self._snap_to_center(
+                    candidate_x + offset_x,
+                    candidate_y + offset_y,
                     display.width(),
                     display.height(),
                     image.width(),
                     image.height(),
                 )
                 self._set_alignment_guides(snap_x, snap_y)
-                updated = replace(obj, transform=replace(obj.transform, x=x, y=y))
+                updated = replace(obj, transform=replace(obj.transform, x=box_x - offset_x, y=box_y - offset_y))
                 self._emit_text(updated, commit=False)
                 self.update()
             elif obj is None and norm is not None:
@@ -611,15 +766,15 @@ class CoverCanvas(QLabel):
                 self._set_safe_area_warning(self._title_outside_safe_area())
                 self.update()
         elif self._mode == "object":
-            norm = self._norm_point(event.position(), clamp=True)
+            norm = self._norm_point(point, clamp=True)
             obj = next((item for item in self._find_overlay_objects() if item.id == self._selected_object), None)
             if obj is not None and norm is not None:
-                candidate_x = self._clamp(norm[0] - self._drag_offset.x(), 0.0, 1.0)
-                candidate_y = self._clamp(norm[1] - self._drag_offset.y(), 0.0, 1.0)
+                candidate_x = self._clamp(norm[0] - self._drag_offset.x(), -0.5, 1.0)
+                candidate_y = self._clamp(norm[1] - self._drag_offset.y(), -0.5, 1.0)
                 self._emit_overlay(replace(obj, transform=replace(obj.transform, x=candidate_x, y=candidate_y)), commit=False)
         else:
-            dx = (event.position().x() - self._press.x()) / max(1.0, image.width())
-            dy = (event.position().y() - self._press.y()) / max(1.0, image.height())
+            dx = (point.x() - self._press.x()) / max(1.0, image.width())
+            dy = (point.y() - self._press.y()) / max(1.0, image.height())
             obj = self._find_background()
             if obj:
                 px, py, scale = self._start_background
@@ -639,15 +794,23 @@ class CoverCanvas(QLabel):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._mode is not None:
             mode = self._mode
+            target = self._start_object
+            clicked = (
+                mode in ("delete", "duplicate")
+                and math.hypot(event.position().x() - self._press.x(), event.position().y() - self._press.y()) <= self._HANDLE_RADIUS
+            )
             self._commit_gesture()
             self._mode = None
-            self._resize_corner = None
+            self._start_object = None
             self._set_alignment_guides(False, False)
             if self.mouseGrabber() is self:
                 self.releaseMouse()
             self.unsetCursor()
             self.update()
-            (self.title_position_finished if mode.startswith("text") else self.background_position_finished).emit()
+            if clicked and target is not None:
+                (self.delete_requested if mode == "delete" else self.duplicate_requested).emit(target.id)
+            elif mode not in ("delete", "duplicate"):
+                (self.background_position_finished if mode == "background" else self.title_position_finished).emit()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -750,15 +913,71 @@ class CoverCanvas(QLabel):
         super().keyPressEvent(event)
 
     def _update_hover_state(self, point: QPointF):
-        text = self._find_text()
-        rect = self._title_display_rect()
-        self._hover_handle = bool(text and text.visible and self._corner_at(point, rect))
-        if self._hover_handle:
-            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-        elif text and text.visible and rect.contains(point):
+        handle = self._handle_at(point)
+        self._hover_handle = handle[0] if handle else None
+        if handle is not None:
+            self.setCursor(self._HANDLE_CURSORS.get(handle[0], Qt.CursorShape.ArrowCursor))
+        elif self._hit_object(point) is not None or (
+            self._document is None and self._legacy_display_rect().contains(point)
+        ):
             self.setCursor(Qt.CursorShape.SizeAllCursor)
         else:
             self.unsetCursor()
+
+    def _draw_handle_icon(self, painter: QPainter, name: str, center: QPointF):
+        """白底圆形按钮 + 线性图标，参考剪映/Canva 的选中框。"""
+
+        radius = self._HANDLE_RADIUS
+        painter.save()
+        painter.setPen(QPen(QColor(0, 0, 0, 60), 1))
+        painter.setBrush(QColor(255, 255, 255, 245))
+        painter.drawEllipse(center, radius, radius)
+        pen = QPen(QColor(40, 48, 58), 1.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        x, y, r = center.x(), center.y(), radius * 0.42
+        if name == "delete":
+            painter.drawLine(QPointF(x - r, y - r), QPointF(x + r, y + r))
+            painter.drawLine(QPointF(x - r, y + r), QPointF(x + r, y - r))
+        elif name == "rotate":
+            painter.drawArc(QRectF(x - r, y - r, r * 2, r * 2), 40 * 16, 280 * 16)
+            tip = QPointF(x + r * math.cos(math.radians(40)), y - r * math.sin(math.radians(40)))
+            painter.drawLine(tip, QPointF(tip.x() + r * 0.55, tip.y() + r * 0.1))
+            painter.drawLine(tip, QPointF(tip.x() - r * 0.05, tip.y() - r * 0.6))
+        elif name == "duplicate":
+            painter.drawRoundedRect(QRectF(x - r, y - r * 0.4, r * 1.3, r * 1.4), 1.5, 1.5)
+            painter.drawRoundedRect(QRectF(x - r * 0.3, y - r, r * 1.3, r * 1.4), 1.5, 1.5)
+        else:
+            painter.drawLine(QPointF(x - r, y - r), QPointF(x + r, y + r))
+            for tip, sign in ((QPointF(x + r, y + r), -1), (QPointF(x - r, y - r), 1)):
+                painter.drawLine(tip, QPointF(tip.x() + sign * r * 0.75, tip.y()))
+                painter.drawLine(tip, QPointF(tip.x(), tip.y() + sign * r * 0.75))
+        painter.restore()
+
+    def _draw_selection(self, painter: QPainter, obj: RenderObject):
+        frame = self._frame(obj)
+        if frame is None:
+            return
+        rect, center, angle = frame
+        rect = rect.adjusted(-self._CHROME_PAD, -self._CHROME_PAD, self._CHROME_PAD, self._CHROME_PAD)
+        painter.save()
+        painter.translate(center)
+        painter.rotate(angle)
+        painter.translate(-center)
+        painter.setPen(QPen(self._CHROME_COLOR, 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect)
+        painter.restore()
+        for name, position in self._handle_points(obj).items():
+            if name.startswith("width"):
+                painter.setPen(QPen(self._CHROME_COLOR, 1.5))
+                painter.setBrush(QColor(255, 255, 255))
+                side = self._EDGE_HANDLE
+                painter.drawRect(QRectF(position.x() - side, position.y() - side, side * 2, side * 2))
+            else:
+                self._draw_handle_icon(painter, name, position)
 
     def _source_pixmap(self) -> QPixmap:
         return self._background_pixmap if not self._background_pixmap.isNull() else self._pixmap
@@ -980,7 +1199,6 @@ class CoverCanvas(QLabel):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), self.palette().window())
         canvas = self._canvas_rect()
-        overlays = self._find_overlay_objects()
         # 内容在导出像素坐标系中绘制后整体缩放，与 Pillow 导出逐像素对应。
         export_width, export_height = self._export_size()
         painter.save()
@@ -997,26 +1215,19 @@ class CoverCanvas(QLabel):
             else:
                 self._draw_overlay(painter, item)
         painter.restore()
-        text = self._find_text()
-        if text and self._selected_object == text.id:
-            rect = self._display_rect(text).adjusted(-4, -4, 4, 4)
+        selected = self._selected_editable()
+        if self._guide_vertical:
+            painter.setPen(QPen(QColor(66, 215, 255, 220), 1))
+            painter.drawLine(QPointF(canvas.center().x(), canvas.top()), QPointF(canvas.center().x(), canvas.bottom()))
+        if self._guide_horizontal:
+            painter.setPen(QPen(QColor(66, 215, 255, 220), 1))
+            painter.drawLine(QPointF(canvas.left(), canvas.center().y()), QPointF(canvas.right(), canvas.center().y()))
+        if selected is not None:
+            self._draw_selection(painter, selected)
+        elif self._document is None and not self._legacy_display_rect().isNull() and self._selected_object == "title":
             painter.setPen(QPen(QColor(255, 255, 255, 210), 1, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(rect)
-            if self._hover_handle or self._mode == "text-resize":
-                painter.setBrush(QColor(255, 255, 255, 230))
-                point = rect.bottomRight()
-                painter.drawRect(QRectF(point.x() - 3, point.y() - 3, 6, 6))
-            if self._guide_vertical:
-                painter.setPen(QPen(QColor(66, 215, 255, 220), 1))
-                painter.drawLine(QPointF(canvas.center().x(), canvas.top()), QPointF(canvas.center().x(), canvas.bottom()))
-            if self._guide_horizontal:
-                painter.setPen(QPen(QColor(66, 215, 255, 220), 1))
-                painter.drawLine(QPointF(canvas.left(), canvas.center().y()), QPointF(canvas.right(), canvas.center().y()))
-        elif overlay := next((item for item in overlays if item.id == self._selected_object), None):
-            painter.setPen(QPen(QColor(255, 219, 77, 220), 1, Qt.PenStyle.DashLine))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self._object_display_rect(overlay).adjusted(-4, -4, 4, 4))
+            painter.drawRect(self._legacy_display_rect().adjusted(-4, -4, 4, 4))
         elif self._selected_object == "background" or (self._find_background() and self._selected_object == self._find_background().id):
             painter.setPen(QPen(Qt.GlobalColor.cyan, 2, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)

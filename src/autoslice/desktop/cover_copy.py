@@ -123,6 +123,8 @@ class _Chunk:
     # 所在引语序号（-1 为叙述）；lead 为截取时舍去的同句前半段。
     group: int = -1
     lead: str = ""
+    # 来自字幕上下文的片段：只作备选，排在标题片段之后。
+    subtitle: bool = False
 
 
 def _clean_title(title: str) -> str:
@@ -239,6 +241,8 @@ def _chunks(title: str) -> tuple[_Chunk, ...]:
     cleaned = _clean_title(title)
     quotes = [_display_clean(item)[0] for item in _QUOTE_RE.findall(cleaned)]
     text = _EMOJI_RE.sub("|", cleaned)
+    # 中文之间的空格通常是分句，按分段处理（每段一个文本框）。
+    text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "|", text)
     text = re.sub(r"[“”「」『』\"]", "|", text)
     text = _RELATION_RE.sub(r"|\1", text)
     text = _BOUNDARY_RE.sub("|", text)
@@ -277,8 +281,11 @@ def _headline_score(chunk: _Chunk, total: int) -> float:
     elif length > 20:
         # 基础模式宁可换用更短的原文片段，也不把整句长标题塞进一个大框。
         score -= min(10.0, (length - 20) * 0.5)
-    if total > 1:
+    if total > 1 and not chunk.subtitle:
         score += 1.25 * chunk.index / (total - 1)
+    if chunk.subtitle:
+        # 字幕是当前时刻的口语，默认仍以投稿标题为准，字幕留作“换一版”。
+        score -= 2.5
     if any(item in text for item in _PACKAGING):
         score -= 12.0
     if any(item in text for item in _TAIL_COMMENTARY):
@@ -303,8 +310,11 @@ def _should_pair_context(chunks: tuple[_Chunk, ...], headline: _Chunk) -> bool:
     标题补最小上下文；强结果仍允许 B 单独成立。
     """
 
-    if headline.index != 1 or len(chunks) != 2:
+    # 只按投稿标题自身的分段判断；字幕备选不计入。
+    title_chunks = [item for item in chunks if not item.subtitle]
+    if headline.subtitle or headline.index != 1 or len(title_chunks) != 2:
         return False
+    chunks = tuple(title_chunks)
     if _needs_context(headline):
         return True
     if any(marker in headline.text for marker in _STRONG_MARKERS + _HIGH_VALUE_MARKERS):
@@ -344,6 +354,9 @@ def _context_for(chunks: tuple[_Chunk, ...], headline: _Chunk, names: tuple[str,
         elif not item.quoted:
             # 叙述句通常是事件背景，比另一句台词更能补足上下文。
             score += 1.5
+        elif headline.quoted and item.group != headline.group:
+            # 另一句台词很少能单独说明 B 的来由。
+            score -= 1.0
         if any(marker in item.text for marker in _STRONG_MARKERS):
             score -= 0.5
         ranked.append((score, item))
@@ -377,7 +390,7 @@ def generate_basic_copy_variants(
     if context_chunks and (not chunks or not any(any(marker in item.text for marker in _HIGH_VALUE_MARKERS) for item in chunks)):
         offset = len(chunks)
         chunks = chunks + tuple(
-            _Chunk(item.text, offset + index, item.quoted, item.relation)
+            _Chunk(item.text, offset + index, item.quoted, item.relation, -1, item.lead, True)
             for index, item in enumerate(context_chunks)
             if item.text not in {existing.text for existing in chunks}
         )
@@ -397,6 +410,11 @@ def generate_basic_copy_variants(
         paired_context = _context_for(chunks, headline, names) if _needs_context(headline) else (
             chunks[0].text if _should_pair_context(chunks, headline) else ""
         )
+        if headline.subtitle and not paired_context:
+            # 字幕作 B 时，上一句字幕作 A：两句字幕分成两个文本框。
+            previous = next((item for item in chunks if item.index == headline.index - 1 and item.subtitle), None)
+            if previous is not None and 2 <= len(previous.text) <= 16:
+                paired_context = previous.text
         candidate = BasicCoverCopy(
             context=paired_context,
             headline=_with_emphasis(headline.text, title),

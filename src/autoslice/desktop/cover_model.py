@@ -18,6 +18,8 @@ from autoslice_cover.text_layout import (
 DOCUMENT_VERSION = 4
 # 1：文字、图片、贴纸、形状统一按 z_index 绘制；0 为旧版“文字永远在最上”。
 LAYER_REVISION = 1
+# 2：文字字号固定、按行宽换行，框贴合文字；1 为旧版“区域内自动缩字”。
+TEXT_BOX_REVISION = 2
 OBJECT_KINDS = {"background", "text", "image", "sticker", "shape"}
 PROFILE_SIZES = {"4x3": (1440, 1080), "16x9": (1920, 1080)}
 
@@ -544,6 +546,7 @@ class CoverDocument:
     active_profile: str = "4x3"
     selected_object_id: str | None = None
     layer_revision: int = LAYER_REVISION
+    text_revision: int = TEXT_BOX_REVISION
 
     def __post_init__(self) -> None:
         if self.version != DOCUMENT_VERSION:
@@ -571,6 +574,7 @@ class CoverDocument:
             "active_profile": self.active_profile,
             "selected_object_id": self.selected_object_id,
             "layer_revision": self.layer_revision,
+            "text_revision": self.text_revision,
         }
 
     def object(self, object_id: str, profile_key: str | None = None) -> RenderableObject | None:
@@ -665,6 +669,7 @@ class CoverDocument:
             selected_object_id=selected if isinstance(selected, str) else None,
             # 缺失即旧草稿，由迁移层把文字提到素材之上后再升级。
             layer_revision=max(0, _integer(payload.get("layer_revision"), 0)),
+            text_revision=max(1, _integer(payload.get("text_revision"), 1)),
         )
 
 

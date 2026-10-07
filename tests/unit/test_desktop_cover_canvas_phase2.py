@@ -66,16 +66,107 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
         self.assertGreater(changes[-1].transform.x, 0.2)
         self.assertGreater(changes[-1].transform.y, 0.2)
 
-    def test_text_corner_resize_changes_box_without_losing_selection(self):
+    def _select_text(self) -> TextObject:
+        text = self.canvas._find_text()
+        center = self.canvas._display_rect(text).center().toPoint()
+        QTest.mouseClick(self.canvas, Qt.MouseButton.LeftButton, pos=center)
+        self.assertEqual(self.canvas._selected_object, text.id)
+        return self.canvas._find_text()
+
+    def _drag(self, start: QPointF, end: QPoint):
+        begin = start.toPoint()
+        QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, pos=begin)
+        QTest.mouseMove(self.canvas, end)
+        QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, pos=end)
+
+    def test_selection_box_hugs_text_instead_of_wrap_area(self):
+        short = self.canvas._find_text()
+        self.canvas.set_document(
+            CoverDocument(
+                objects=(self.document.objects[0], TextObject(
+                    id="title-main", text="短", transform=short.transform,
+                    rect=Rect(width=0.6, height=0.3), style=TextStyle(font_size=72),
+                )),
+                profiles=default_profiles(),
+            ),
+            "4x3",
+        )
+        text = self.canvas._find_text()
+        ink, area = self.canvas._text_box(text)
+        self.assertLess(ink.width, area.width * 0.4)
+        self.assertLess(self.canvas._display_rect(text).width(), 0.6 * self.canvas._canvas_rect().width() * 0.4)
+
+    def test_scale_handle_grows_font_and_wrap_width_together(self):
         changes = []
         self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
-        # bottom-right of the text box (canvas rect starts around x=50,y=0).
-        QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, pos=QPoint(528, 265))
-        QTest.mouseMove(self.canvas, QPoint(620, 320))
-        QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, pos=QPoint(620, 320))
+        text = self._select_text()
+        handle = self.canvas._handle_points(text)["scale"]
+        self._drag(handle, QPoint(round(handle.x()) + 90, round(handle.y()) + 50))
         self.assertTrue(changes)
-        self.assertGreater(changes[-1].rect.width, 0.4)
-        self.assertGreater(changes[-1].style.font_size, 72)
+        resized = changes[-1]
+        self.assertIsInstance(resized, TextObject)
+        self.assertGreater(resized.style.font_size, 72)
+        ratio = resized.style.font_size / 72
+        self.assertAlmostEqual(resized.rect.width, 0.4 * ratio, delta=0.02)
+        # 左上角是锚点，缩放不移动位置。
+        self.assertAlmostEqual(resized.transform.x, text.transform.x, places=6)
+        self.assertEqual(self.canvas._selected_object, text.id)
+
+    def test_width_handle_rewraps_without_changing_font_size(self):
+        changes = []
+        self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
+        text = self._select_text()
+        before_lines = len(self.canvas._text_layout_for(text).lines)
+        handle = self.canvas._handle_points(text)["width-right"]
+        self._drag(handle, QPoint(round(handle.x()) + 160, round(handle.y())))
+        widened = changes[-1]
+        self.assertEqual(widened.style.font_size, 72)
+        self.assertGreater(widened.rect.width, 0.4)
+        self.assertAlmostEqual(widened.wrap.max_width, widened.rect.width, places=6)
+        self.assertLessEqual(len(self.canvas._text_layout_for(widened).lines), before_lines)
+
+    def test_left_width_handle_keeps_right_edge(self):
+        changes = []
+        self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
+        text = self._select_text()
+        right = text.transform.x + text.rect.width
+        handle = self.canvas._handle_points(text)["width-left"]
+        self._drag(handle, QPoint(round(handle.x()) - 60, round(handle.y())))
+        moved = changes[-1]
+        self.assertLess(moved.transform.x, text.transform.x)
+        self.assertAlmostEqual(moved.transform.x + moved.rect.width, right, places=3)
+
+    def test_rotate_handle_turns_around_center_and_snaps(self):
+        changes = []
+        self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
+        text = self._select_text()
+        _rect, center, _angle = self.canvas._frame(text)
+        handle = self.canvas._handle_points(text)["rotate"]
+        # 把按钮绕中心转约 90°：(dx, dy) → (-dy, dx)。
+        dx, dy = handle.x() - center.x(), handle.y() - center.y()
+        target = QPoint(round(center.x() - dy), round(center.y() + dx))
+        self._drag(handle, target)
+        self.assertEqual(changes[-1].transform.rotation, 90.0)
+        # 旋转后手柄跟着框转，命中仍然按旋转后的框计算。
+        rotated = changes[-1]
+        self.canvas.set_document(
+            CoverDocument(objects=(self.document.objects[0], rotated), profiles=default_profiles(), selected_object_id=rotated.id),
+            "4x3",
+        )
+        self.canvas.set_selected_object(rotated.id)
+        moved = self.canvas._handle_points(rotated)["scale"]
+        self.assertEqual(self.canvas._handle_at(moved)[0], "scale")
+
+    def test_delete_and_duplicate_buttons_emit_requests_on_click(self):
+        deleted, duplicated = [], []
+        self.canvas.delete_requested.connect(deleted.append)
+        self.canvas.duplicate_requested.connect(duplicated.append)
+        text = self._select_text()
+        handles = self.canvas._handle_points(text)
+        QTest.mouseClick(self.canvas, Qt.MouseButton.LeftButton, pos=handles["duplicate"].toPoint())
+        QTest.mouseClick(self.canvas, Qt.MouseButton.LeftButton, pos=handles["delete"].toPoint())
+        self.assertEqual(duplicated, [text.id])
+        self.assertEqual(deleted, [text.id])
 
     def test_text_drag_snaps_to_center_at_8px_and_only_shows_guides_during_drag(self):
         changes = []
@@ -110,7 +201,6 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
     def test_many_mouse_moves_only_commit_once_after_release(self):
         changes = []
         self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
-        image = self.canvas._canvas_rect()
         rect = self.canvas._display_rect(self.canvas._find_text())
         start = QPoint(round(rect.center().x()), round(rect.center().y()))
         started = perf_counter()
