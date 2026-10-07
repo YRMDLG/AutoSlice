@@ -10,16 +10,28 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QColorDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -33,9 +45,11 @@ from PySide6.QtWidgets import (
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCALE_MIN
+from autoslice_cover.document_render import rgba
 from autoslice_cover.fonts import resolve_font_selection
 
 from .cover_ai import CoverAICandidate
+from .cover_asset_dialog import CoverAssetDialog
 from .cover_canvas import CoverCanvas
 from .cover_history import CoverHistory
 from .cover_model import (
@@ -49,10 +63,14 @@ from .cover_model import (
     TextObject,
     TextWrap,
     Transform,
+    insert_overlay,
     object_for_profile,
+    restack_object,
+    set_object_visible,
     update_text_object,
 )
 from .cover_service import CoverDraft, CoverFrame, CoverService, recommended_frame, wrap_cover_title
+from .cover_style import STYLE_PRESETS, StylePreset
 from .qt_preview.icons import icon
 
 
@@ -78,6 +96,96 @@ class _TitleEdit(QPlainTextEdit):
 
     def text(self) -> str:
         return self.toPlainText()
+
+
+class _ColorButton(QPushButton):
+    """带色块的颜色按钮；可选“无”与透明度，替代手填十六进制。"""
+
+    color_changed = Signal()
+
+    def __init__(self, *, allow_none: bool = False, allow_alpha: bool = False, parent=None):
+        super().__init__(parent)
+        self._color = ""
+        self._allow_none = allow_none
+        self._allow_alpha = allow_alpha
+        self.setFixedHeight(26)
+        self.setIconSize(QSize(14, 14))
+        if allow_none:
+            menu = QMenu(self)
+            menu.addAction("选择颜色…", self._pick)
+            menu.addAction("无", lambda: self._choose(""))
+            self.setMenu(menu)
+        else:
+            self.clicked.connect(self._pick)
+        self._refresh()
+
+    def color(self) -> str:
+        return self._color
+
+    def set_color(self, value: str | None) -> None:
+        self._color = (value or "").upper()
+        self._refresh()
+
+    def _choose(self, value: str) -> None:
+        if value != self._color:
+            self.set_color(value)
+            self.color_changed.emit()
+
+    def _pick(self) -> None:
+        options = QColorDialog.ColorDialogOption.ShowAlphaChannel if self._allow_alpha else QColorDialog.ColorDialogOption(0)
+        picked = QColorDialog.getColor(QColor(*rgba(self._color or "#FFFFFF")), self, "选择颜色", options)
+        if not picked.isValid():
+            return
+        value = f"#{picked.red():02X}{picked.green():02X}{picked.blue():02X}"
+        if self._allow_alpha and picked.alpha() < 255:
+            value += f"{picked.alpha():02X}"
+        self._choose(value)
+
+    def _refresh(self) -> None:
+        self.setText(self._color or "无")
+        pixmap = QPixmap(14, 14)
+        pixmap.fill(QColor(*rgba(self._color)) if self._color else QColor(0, 0, 0, 0))
+        if not self._color:
+            painter = QPainter(pixmap)
+            painter.setPen(QPen(QColor("#A1AFBC"), 1.5))
+            painter.drawLine(2, 12, 12, 2)
+            painter.end()
+        self.setIcon(QIcon(pixmap))
+
+
+def _preset_icon(preset: StylePreset) -> QIcon:
+    """把预设画成“字”的小样，按钮上直接看到效果。"""
+
+    pixmap = QPixmap(30, 22)
+    pixmap.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    if preset.backdrop:
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(*rgba(preset.backdrop)))
+        painter.drawRoundedRect(1, 1, 28, 20, 4, 4)
+    font = QFont()
+    font.setPixelSize(16)
+    font.setBold(True)
+    path = QPainterPath()
+    if preset.context_fill:
+        path.addText(2, 17, font, "黄")
+        second = QPainterPath()
+        second.addText(16, 17, font, "青")
+    else:
+        path.addText(7, 17, font, "字")
+        second = None
+    stroke = max(0.0, preset.stroke_width / 4.0)
+    for glyphs, fill in ((path, preset.context_fill or preset.fill), (second, preset.fill)):
+        if glyphs is None:
+            continue
+        if preset.outer_stroke:
+            painter.strokePath(glyphs, QPen(QColor(*rgba(preset.outer_stroke)), (stroke + preset.outer_stroke_width / 4.0) * 2))
+        if stroke:
+            painter.strokePath(glyphs, QPen(QColor(*rgba(preset.stroke)), stroke * 2))
+        painter.fillPath(glyphs, QColor(*rgba(fill)))
+    painter.end()
+    return QIcon(pixmap)
 
 
 class CoverEditorWidget(QWidget):
@@ -193,6 +301,25 @@ class CoverEditorWidget(QWidget):
         self.redo_button.clicked.connect(self._redo)
         toolbar_row.addWidget(self.undo_button)
         toolbar_row.addWidget(self.redo_button)
+        toolbar_row.addSpacing(8)
+        # 素材与形状入口常驻工具栏，不再藏在只有空状态才出现的面板里。
+        self.asset_menu_button = QPushButton("素材")
+        self.asset_menu_button.setObjectName("quiet")
+        self.asset_menu_button.setFixedHeight(28)
+        self.asset_menu_button.setToolTip("从素材库选择或导入图片，作为可编辑对象加入画布")
+        asset_menu = QMenu(self.asset_menu_button)
+        asset_menu.addAction("从素材库选择…", self._browse_assets)
+        asset_menu.addAction("导入图片…", self._import_asset)
+        self.asset_menu_button.setMenu(asset_menu)
+        self.asset_menu_button.setEnabled(False)
+        toolbar_row.addWidget(self.asset_menu_button)
+        self.shape_menu_button = QPushButton("形状")
+        self.shape_menu_button.setObjectName("quiet")
+        self.shape_menu_button.setFixedHeight(28)
+        self.shape_menu_button.setToolTip("添加圆圈、箭头或矩形强调框")
+        self.shape_menu_button.setMenu(self._shape_menu(self.shape_menu_button))
+        self.shape_menu_button.setEnabled(False)
+        toolbar_row.addWidget(self.shape_menu_button)
 
         toolbar_row.addStretch(1)
 
@@ -558,21 +685,59 @@ class CoverEditorWidget(QWidget):
         self.style_toggle.setCheckable(True)
         layout.addWidget(self.style_toggle)
         self.style_widget = QWidget()
-        style_form = QFormLayout(self.style_widget)
-        style_form.setContentsMargins(8, 0, 0, 0)
+        style_outer = QVBoxLayout(self.style_widget)
+        style_outer.setContentsMargins(8, 0, 0, 0)
+        style_outer.setSpacing(4)
+        # 一键预设：A/B 同时套用，只改颜色与效果，不动字号和位置。
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(3)
+        self.style_preset_buttons: dict[str, QPushButton] = {}
+        for preset in STYLE_PRESETS:
+            button = QPushButton("")
+            button.setIcon(_preset_icon(preset))
+            button.setIconSize(QSize(30, 22))
+            button.setFixedSize(36, 28)
+            button.setObjectName("quiet")
+            button.setToolTip(f"{preset.label}（同时应用到 A/B）")
+            button.clicked.connect(lambda _checked=False, item=preset: self._apply_style_preset(item))
+            self.style_preset_buttons[preset.key] = button
+            preset_row.addWidget(button)
+        preset_row.addStretch(1)
+        style_outer.addLayout(preset_row)
+        style_form = QFormLayout()
+        style_form.setContentsMargins(0, 0, 0, 0)
         style_form.setSpacing(4)
-        self.fill_edit = QLineEdit()
-        self.fill_edit.setPlaceholderText("#FFE438")
-        self.fill_edit.editingFinished.connect(self._draft_changed)
-        style_form.addRow("填充", self.fill_edit)
-        self.stroke_edit = QLineEdit()
-        self.stroke_edit.setPlaceholderText("#111111")
-        self.stroke_edit.editingFinished.connect(self._draft_changed)
-        style_form.addRow("描边", self.stroke_edit)
+        style_outer.addLayout(style_form)
+        self.fill_color_button = _ColorButton()
+        self.fill_color_button.color_changed.connect(self._draft_changed)
+        style_form.addRow("填充", self.fill_color_button)
+        stroke_row = QHBoxLayout()
+        stroke_row.setSpacing(4)
+        self.stroke_button = _ColorButton()
+        self.stroke_button.color_changed.connect(self._draft_changed)
         self.stroke_spin = QSpinBox()
         self.stroke_spin.setRange(0, 64)
+        self.stroke_spin.setToolTip("描边宽度")
         self.stroke_spin.valueChanged.connect(self._draft_changed)
-        style_form.addRow("描边宽", self.stroke_spin)
+        stroke_row.addWidget(self.stroke_button, 1)
+        stroke_row.addWidget(self.stroke_spin)
+        style_form.addRow("描边", stroke_row)
+        outer_row = QHBoxLayout()
+        outer_row.setSpacing(4)
+        self.outer_stroke_button = _ColorButton(allow_none=True)
+        self.outer_stroke_button.setToolTip("在描边外再加一层，常用白色外边")
+        self.outer_stroke_button.color_changed.connect(self._draft_changed)
+        self.outer_stroke_spin = QSpinBox()
+        self.outer_stroke_spin.setRange(0, 48)
+        self.outer_stroke_spin.setToolTip("外描边宽度")
+        self.outer_stroke_spin.valueChanged.connect(self._draft_changed)
+        outer_row.addWidget(self.outer_stroke_button, 1)
+        outer_row.addWidget(self.outer_stroke_spin)
+        style_form.addRow("外描边", outer_row)
+        self.backdrop_button = _ColorButton(allow_none=True, allow_alpha=True)
+        self.backdrop_button.setToolTip("文字底条，画面杂乱时提高可读性；可设透明度")
+        self.backdrop_button.color_changed.connect(self._draft_changed)
+        style_form.addRow("底条", self.backdrop_button)
         self.line_spacing_spin = QDoubleSpinBox()
         self.line_spacing_spin.setRange(0.5, 3.0)
         self.line_spacing_spin.setSingleStep(0.05)
@@ -696,7 +861,7 @@ class CoverEditorWidget(QWidget):
         self.add_shape_button2.setFixedHeight(26)
         self.add_shape_button2.setObjectName("quiet")
         self.add_shape_button2.setToolTip("添加圆圈/箭头/矩形")
-        self.add_shape_button2.clicked.connect(self._add_shape)
+        self.add_shape_button2.setMenu(self._shape_menu(self.add_shape_button2))
         add_row.addWidget(self.add_shape_button2)
         layout.addLayout(add_row)
 
@@ -798,7 +963,7 @@ class CoverEditorWidget(QWidget):
         self.add_shape_button = QPushButton("形状")
         self.add_shape_button.setFixedHeight(26)
         self.add_shape_button.setToolTip("添加圆圈/箭头/矩形")
-        self.add_shape_button.clicked.connect(self._add_shape)
+        self.add_shape_button.setMenu(self._shape_menu(self.add_shape_button))
         asset_row.addWidget(self.add_shape_button)
         layout.addLayout(asset_row)
 
@@ -864,7 +1029,7 @@ class CoverEditorWidget(QWidget):
             return
         self.title_edit.blockSignals(True)
         self.font_spin.blockSignals(True)
-        for widget in (self.font_path_edit, self.fill_edit, self.stroke_edit, self.stroke_spin, self.line_spacing_spin, self.shadow_check, self.rotation_spin):
+        for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check, self.rotation_spin):
             widget.blockSignals(True)
         try:
             self.title_edit.setPlainText(text.text)
@@ -881,9 +1046,12 @@ class CoverEditorWidget(QWidget):
                 + (f" · {font_resolution.warning}" if font_resolution.warning else "")
             )
             self.font_spin.setValue(int(text.style.font_size))
-            self.fill_edit.setText(text.style.fill_color)
-            self.stroke_edit.setText(text.style.stroke_color)
+            self.fill_color_button.set_color(text.style.fill_color)
+            self.stroke_button.set_color(text.style.stroke_color)
             self.stroke_spin.setValue(int(text.style.stroke_width))
+            self.outer_stroke_button.set_color(text.style.outer_stroke)
+            self.outer_stroke_spin.setValue(int(text.style.outer_stroke_width))
+            self.backdrop_button.set_color(text.style.backdrop)
             self.line_spacing_spin.setValue(float(text.style.line_spacing))
             self.shadow_check.setChecked(bool(text.style.shadow))
             self.rotation_spin.setValue(float(text.transform.rotation))
@@ -898,7 +1066,7 @@ class CoverEditorWidget(QWidget):
         finally:
             self.title_edit.blockSignals(False)
             self.font_spin.blockSignals(False)
-            for widget in (self.font_path_edit, self.fill_edit, self.stroke_edit, self.stroke_spin, self.line_spacing_spin, self.shadow_check, self.rotation_spin):
+            for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check, self.rotation_spin):
                 widget.blockSignals(False)
 
     def _canvas_object_selected(self, object_id: str):
@@ -994,20 +1162,12 @@ class CoverEditorWidget(QWidget):
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "无法导入素材", str(exc))
             return
-        before = self.document
-        object_id = f"image-{len(self.document.objects) + 1}"
-        z_index = max((item.z_index for item in self.document.objects), default=0) + 1
-        overlay = ImageObject(
-            id=object_id,
-            z_index=z_index,
+        self._insert_overlay(ImageObject(
+            id=self._new_object_id("image"),
             asset=AssetRef(path=asset.path, asset_id=asset.asset_id),
             transform=Transform(x=0.62, y=0.54, scale=0.85, rotation=0.0),
-        )
-        self.document = replace(self.document, objects=(*self.document.objects, overlay), selected_object_id=object_id)
+        ))
         self.service.asset_library.mark_used(asset.asset_id)
-        self._selected_text_id = None
-        self.canvas.set_selected_object(object_id)
-        self._commit_document_change(before)
 
     def _browse_assets(self):
         if self.document is None:
@@ -1024,57 +1184,56 @@ class CoverEditorWidget(QWidget):
             self._set_notice(message, "warning")
             self.status_changed.emit(message)
             return
-        box = QMessageBox(self)
-        box.setWindowTitle("本地素材")
-        box.setText("素材按当前主播、最近使用和使用频率排序；选择后会作为可编辑图片对象加入画布。")
-        buttons = []
-        for asset in assets[:12]:
-            button = box.addButton(f"{asset.name} · {asset.group} · {asset.usage_count} 次", QMessageBox.ButtonRole.AcceptRole)
-            buttons.append((button, asset))
-        box.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        clicked = box.clickedButton()
-        asset = next((asset for button, asset in buttons if button is clicked), None)
-        if asset is not None:
+        dialog = CoverAssetDialog(assets, self)
+        if dialog.exec() and (asset := dialog.selected_asset()) is not None:
             self._insert_asset_object(asset)
+
+    def _new_object_id(self, prefix: str) -> str:
+        existing = {item.id for item in self.document.objects} if self.document else set()
+        index = len(existing) + 1
+        while f"{prefix}-{index}" in existing:
+            index += 1
+        return f"{prefix}-{index}"
+
+    def _insert_overlay(self, overlay) -> None:
+        """新对象插在其他素材之上、文字之下，并立即选中。"""
+
+        before = self.document
+        self.document = insert_overlay(self.document, overlay)
+        self._selected_text_id = None
+        self.canvas.set_selected_object(overlay.id)
+        self._commit_document_change(before)
+        self._canvas_object_selected(overlay.id)
 
     def _insert_asset_object(self, asset):
         if self.document is None:
             return
-        before = self.document
-        object_id = f"image-{len(self.document.objects) + 1}"
         overlay_type = StickerObject if asset.group != "我的导入" else ImageObject
         overlay_kwargs = {
-            "id": object_id,
-            "z_index": max((item.z_index for item in self.document.objects), default=0) + 1,
+            "id": self._new_object_id("image"),
             "asset": AssetRef(path=asset.path, asset_id=asset.asset_id),
             "transform": Transform(x=0.62, y=0.54, scale=0.85),
         }
         if overlay_type is StickerObject:
             overlay_kwargs["category"] = asset.group
-        overlay = overlay_type(
-            **overlay_kwargs,
-        )
-        self.document = replace(self.document, objects=(*self.document.objects, overlay), selected_object_id=object_id)
+        self._insert_overlay(overlay_type(**overlay_kwargs))
         self.service.asset_library.mark_used(asset.asset_id)
-        self.canvas.set_selected_object(object_id)
-        self._commit_document_change(before)
 
-    def _add_shape(self):
-        if self.document is None:
+    def _shape_menu(self, parent) -> QMenu:
+        menu = QMenu(parent)
+        for shape_type, label in (("circle", "圆圈"), ("arrow", "箭头"), ("rect", "矩形框")):
+            menu.addAction(label, lambda value=shape_type: self._add_shape(value))
+        return menu
+
+    def _add_shape(self, shape_type: str = "circle"):
+        if self.document is None or shape_type not in {"circle", "arrow", "rect"}:
             return
-        before = self.document
-        choices = ("circle", "arrow", "rect")
-        index = getattr(self, "_shape_cycle", -1) + 1
-        self._shape_cycle = index % len(choices)
-        shape_type = choices[self._shape_cycle]
-        shape_id = f"shape-{len(self.document.objects) + 1}"
-        z_index = max((item.z_index for item in self.document.objects), default=0) + 1
-        shape = ShapeObject(id=shape_id, z_index=z_index, shape_type=shape_type, transform=Transform(x=0.58, y=0.44, scale=1.0))
-        self.document = replace(self.document, objects=(*self.document.objects, shape), selected_object_id=shape_id)
-        self.canvas.set_selected_object(shape_id)
-        self._commit_document_change(before)
-        self.status_changed.emit(f"已添加{shape_type}强调对象；再次点击可切换形状")
+        self._insert_overlay(ShapeObject(
+            id=self._new_object_id("shape"), shape_type=shape_type,
+            transform=Transform(x=0.58, y=0.44, scale=1.0),
+        ))
+        label = {"circle": "圆圈", "arrow": "箭头", "rect": "矩形框"}[shape_type]
+        self.status_changed.emit(f"已添加{label}，可直接在画布上拖动")
 
     def _selected_render_object(self):
         if self.document is None:
@@ -1163,12 +1322,11 @@ class CoverEditorWidget(QWidget):
         if self.document is None or not isinstance(item, (ImageObject, StickerObject, ShapeObject)):
             self.status_changed.emit("请先在画布上选中图片或强调对象")
             return
-        before = self.document
-        new_id = f"{item.kind}-{len(self.document.objects) + 1}"
-        duplicate = dc_replace(item, id=new_id, z_index=max(obj.z_index for obj in self.document.objects) + 1, transform=dc_replace(item.transform, x=min(0.92, item.transform.x + 0.04), y=min(0.92, item.transform.y + 0.04)))
-        self.document = replace(self.document, objects=(*self.document.objects, duplicate), selected_object_id=new_id)
-        self.canvas.set_selected_object(new_id)
-        self._commit_document_change(before)
+        duplicate = dc_replace(
+            item, id=self._new_object_id(item.kind),
+            transform=dc_replace(item.transform, x=min(0.92, item.transform.x + 0.04), y=min(0.92, item.transform.y + 0.04)),
+        )
+        self._insert_overlay(duplicate)
 
     def _delete_selected_object(self):
         item = self._selected_render_object()
@@ -1176,7 +1334,8 @@ class CoverEditorWidget(QWidget):
             return
         before = self.document
         if isinstance(item, TextObject):
-            self.document = replace(self.document, objects=tuple(replace(obj, visible=False) if obj.id == item.id else obj for obj in self.document.objects), selected_object_id=None)
+            # 两个比例一起隐藏；只改本体时比例覆盖仍是可见，删除会无效。
+            self.document = replace(set_object_visible(self.document, item.id, False), selected_object_id=None)
         else:
             self.document = replace(self.document, objects=tuple(obj for obj in self.document.objects if obj.id != item.id), selected_object_id=None)
         self._commit_document_change(before)
@@ -1186,9 +1345,10 @@ class CoverEditorWidget(QWidget):
         if self.document is None or item is None:
             return
         before = self.document
-        updated = replace(item, z_index=max(-100, min(1000, item.z_index + int(delta))))
-        self.document = replace(self.document, objects=tuple(updated if obj.id == item.id else obj for obj in self.document.objects))
-        self._commit_document_change(before)
+        # 与相邻对象交换次序，一次点击就能越过文字等相邻层。
+        self.document = restack_object(self.document, item.id, delta)
+        if self.document != before:
+            self._commit_document_change(before)
 
     def _request_ai_candidates(self):
         if self.document is None:
@@ -1255,10 +1415,20 @@ class CoverEditorWidget(QWidget):
                 profile_key: replace(profile, overrides={**profile.overrides, item.id: payload}),
             },
         )
+        if not getattr(item, "visible", True):
+            if isinstance(item, TextObject):
+                self.document = set_object_visible(self.document, item.id, False)
+            elif isinstance(item, (ImageObject, StickerObject, ShapeObject)):
+                self.document = replace(
+                    self.document,
+                    objects=tuple(obj for obj in self.document.objects if obj.id != item.id),
+                    selected_object_id=None,
+                )
         self.draft = CoverDraft.from_document(self.document)
         self.history.commit(self.document)
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
+        self.canvas.set_document(self.document, self._canvas_key)
         if isinstance(item, TextObject):
             self._selected_text_id = item.id
             # Canvas 手势先发 object_changed、再发位置兼容信号；先同步字号，
@@ -1598,6 +1768,8 @@ class CoverEditorWidget(QWidget):
             self._set_notice("")
             self.extract_button.setEnabled(False)
             self.current_frame_button.setEnabled(False)
+            self.asset_menu_button.setEnabled(False)
+            self.shape_menu_button.setEnabled(False)
             self.export_button.setEnabled(False)
             self.export_both_button.setEnabled(False)
             self.undo_button.setEnabled(False)
@@ -1618,6 +1790,8 @@ class CoverEditorWidget(QWidget):
         self.project_label.setToolTip(project.title)
         self.video_label.setText(video.name)
         self.check_preview_toggle.setEnabled(True)
+        self.asset_menu_button.setEnabled(True)
+        self.shape_menu_button.setEnabled(True)
         self._set_notice("")
         self._update_export_summary()
         video_path = Path(video.path)
@@ -1769,12 +1943,8 @@ class CoverEditorWidget(QWidget):
             current = text
         # 清空即隐藏该块；不再回填整条投稿标题。
         typed_text = self.title_edit.text().strip()
-        fill = self.fill_edit.text().strip() or current.style.fill_color
-        stroke = self.stroke_edit.text().strip() or current.style.stroke_color
-        if not (fill.startswith("#") and len(fill) in {4, 7, 9}):
-            fill = current.style.fill_color
-        if not (stroke.startswith("#") and len(stroke) in {4, 7, 9}):
-            stroke = current.style.stroke_color
+        fill = self.fill_color_button.color() or current.style.fill_color
+        stroke = self.stroke_button.color() or current.style.stroke_color
         updated = replace(
             current,
             text=typed_text,
@@ -1794,10 +1964,30 @@ class CoverEditorWidget(QWidget):
                 shadow=self.shadow_check.isChecked(),
                 line_spacing=self.line_spacing_spin.value(),
                 align=current.align,
+                outer_stroke=self.outer_stroke_button.color(),
+                outer_stroke_width=self.outer_stroke_spin.value(),
+                backdrop=self.backdrop_button.color(),
             ),
         )
         # 文案与样式写回对象本体并同步另一比例，位置和字号只写当前比例。
         self.document = update_text_object(self.document, updated, profile_key=self._canvas_key)
+        # 清空即在两个比例中隐藏，重新输入即恢复；这是内容操作，不分比例。
+        self.document = set_object_visible(self.document, updated.id, bool(typed_text))
+
+    def _apply_style_preset(self, preset: StylePreset) -> None:
+        if self.document is None:
+            return
+        before = self.document
+        for item in self.document.objects:
+            if not isinstance(item, TextObject):
+                continue
+            current = object_for_profile(self.document, item.id, self._canvas_key)
+            current = current if isinstance(current, TextObject) else item
+            updated = replace(current, style=preset.apply(current.style, item.copy_role))
+            self.document = update_text_object(self.document, updated, profile_key=self._canvas_key)
+        if self.document != before:
+            self._commit_document_change(before)
+            self.status_changed.emit(f"已套用样式：{preset.label}")
 
     def _store_background_controls(self):
         if self.document is None:
@@ -1950,7 +2140,6 @@ class CoverEditorWidget(QWidget):
                 # 这份快照，不能再次从可能过期的控件反向重建它。
                 self.draft = CoverDraft.from_document(self.document)
                 self.service.save_document(self.project, self.video, self.document)
-                self.service.remember_style(self.project, self.document)
             else:
                 self.draft = self._read_draft()
                 self.service.save(self.project, self.video, self.draft)

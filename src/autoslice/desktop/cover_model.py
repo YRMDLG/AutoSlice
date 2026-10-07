@@ -780,3 +780,59 @@ def update_text_object(document: CoverDocument, updated: TextObject, *, profile_
         profiles=profiles,
         active_profile=profile_key,
     )
+
+
+def set_object_visible(document: CoverDocument, object_id: str, visible: bool) -> CoverDocument:
+    """删除/恢复属于内容操作：对象本体和两个比例的覆盖一起改。"""
+
+    from dataclasses import replace
+
+    profiles = {
+        key: replace(profile, overrides={
+            **profile.overrides,
+            object_id: {**profile.overrides[object_id], "visible": bool(visible)},
+        }) if isinstance(profile.overrides.get(object_id), Mapping) else profile
+        for key, profile in document.profiles.items()
+    }
+    return replace(
+        document,
+        objects=tuple(replace(item, visible=bool(visible)) if item.id == object_id else item for item in document.objects),
+        profiles=profiles,
+    )
+
+
+def restack_object(document: CoverDocument, object_id: str, step: int) -> CoverDocument:
+    """前移/后移一层：与相邻对象交换次序，背景始终在最底。"""
+
+    from dataclasses import replace
+
+    layered = sorted(
+        (item for item in document.objects if not isinstance(item, BackgroundObject)),
+        key=lambda item: (item.z_index, document.objects.index(item)),
+    )
+    index = next((position for position, item in enumerate(layered) if item.id == object_id), None)
+    if index is None:
+        return document
+    target = max(0, min(len(layered) - 1, index + (1 if step > 0 else -1)))
+    if target == index:
+        return document
+    layered[index], layered[target] = layered[target], layered[index]
+    order = {item.id: position + 1 for position, item in enumerate(layered)}
+    return replace(document, objects=tuple(
+        replace(item, z_index=order[item.id]) if item.id in order else item for item in document.objects
+    ))
+
+
+def insert_overlay(document: CoverDocument, overlay: RenderableObject) -> CoverDocument:
+    """新素材插在其他素材之上、文字之下，避免一放进来就挡住文字。"""
+
+    from dataclasses import replace
+
+    texts = [item for item in document.objects if isinstance(item, TextObject)]
+    others = [item for item in document.objects if not isinstance(item, (TextObject, BackgroundObject))]
+    z_index = max((item.z_index for item in others), default=0) + 1
+    objects = document.objects
+    if texts and min(item.z_index for item in texts) <= z_index:
+        shift = z_index + 1 - min(item.z_index for item in texts)
+        objects = tuple(replace(item, z_index=item.z_index + shift) if isinstance(item, TextObject) else item for item in objects)
+    return replace(document, objects=(*objects, replace(overlay, z_index=z_index)), selected_object_id=overlay.id)

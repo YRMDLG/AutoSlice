@@ -47,7 +47,7 @@ from .cover_model import (
     object_for_profile,
     text_override_payload,
 )
-from .cover_style import CoverStyleMemory, CoverStyleMemoryStore
+from .cover_style import CoverStyleMemory, CoverStyleMemoryStore, streamer_key
 
 
 @dataclass(frozen=True)
@@ -191,6 +191,14 @@ _TEXT_SLOTS = {
     "16x9": ((0.06, 0.14, 0.44, "left"), (0.50, 0.14, 0.44, "right"), (0.08, 0.05, 0.66, "top"), (0.08, 0.60, 0.66, "bottom")),
 }
 _TEXT_SLOT_HEIGHT = 0.32
+# 上下分置布局：参考真实投稿封面，A/B 各占上下缘一条宽带。
+_SPLIT_X = 0.06
+_SPLIT_WIDTH = 0.88
+_SPLIT_HEIGHT = 0.22
+_SPLIT_TOP = 0.05
+_SPLIT_BOTTOM = 0.70
+_SPLIT_FONT_A = 136
+_SPLIT_FONT_B = 150
 
 
 class CoverService:
@@ -285,7 +293,7 @@ class CoverService:
             background_scale=1.0,
             font_size=104,
         )
-        fallback = self._apply_style_memory(fallback, self.style_memory.load(project.title))
+        fallback = self._apply_style_memory(fallback, self.style_memory.load(streamer_key(project.title)))
         if read.status != "ready":
             return fallback, read
         try:
@@ -331,8 +339,11 @@ class CoverService:
             stroke_width=style.stroke_width,
             shadow=style.shadow,
             line_spacing=style.line_spacing,
+            outer_stroke=style.outer_stroke,
+            outer_stroke_width=style.outer_stroke_width,
+            backdrop=style.backdrop,
         )
-        self.style_memory.save(memory, streamer=project.title)
+        self.style_memory.save(memory, streamer=streamer_key(project.title))
 
     @staticmethod
     def subtitle_context(video: ProjectVideo, timestamp: float, *, radius: float = 4.0) -> str:
@@ -654,15 +665,15 @@ class CoverService:
         return self.ai.suggest(document, profile_key=profile_key)
 
     @staticmethod
-    def _best_text_slot(
+    def _text_slot_costs(
         image_path: str | Path,
         canvas_key: str,
         *,
         focus_x: float,
         focus_y: float,
         scale: float,
-    ) -> tuple[float, float] | None:
-        """按显著图挑选文字槽位：避开人脸、杂乱细节和烧录字幕带。"""
+    ) -> dict[str, tuple[float, float, float]] | None:
+        """各文字槽位的代价：盖住人脸 > 杂乱细节 > 字幕带；返回 {槽位: (代价, x, y)}。"""
 
         saliency = saliency_map(image_path)
         if saliency is None:
@@ -674,8 +685,8 @@ class CoverService:
             return None
         canvas = canvas_size(canvas_key)
         frame = background_box(source_size, canvas, scale=scale, focus_x=focus_x, focus_y=focus_y)
-        scored: list[tuple[float, float, float]] = []
-        for order, (x, y, width, _name) in enumerate(_TEXT_SLOTS.get(canvas_key, _TEXT_SLOTS["4x3"])):
+        scored: dict[str, tuple[float, float, float]] = {}
+        for order, (x, y, width, name) in enumerate(_TEXT_SLOTS.get(canvas_key, _TEXT_SLOTS["4x3"])):
             # 画布槽位换算到源图归一化坐标，与当前取景一致。
             box = (
                 (x * canvas[0] - frame.left) / frame.width,
@@ -683,8 +694,23 @@ class CoverService:
                 ((x + width) * canvas[0] - frame.left) / frame.width,
                 ((y + _TEXT_SLOT_HEIGHT) * canvas[1] - frame.top) / frame.height,
             )
-            scored.append((region_cost(saliency, box) + order * 0.002, x, y))
-        _cost, x, y = min(scored)
+            scored[name] = (region_cost(saliency, box) + order * 0.002, x, y)
+        return scored
+
+    @classmethod
+    def _best_text_slot(
+        cls,
+        image_path: str | Path,
+        canvas_key: str,
+        *,
+        focus_x: float,
+        focus_y: float,
+        scale: float,
+    ) -> tuple[float, float] | None:
+        costs = cls._text_slot_costs(image_path, canvas_key, focus_x=focus_x, focus_y=focus_y, scale=scale)
+        if not costs:
+            return None
+        _cost, x, y = min(costs.values())
         return x, y
 
     def suggest_text_position(
@@ -735,9 +761,31 @@ class CoverService:
                     "pan_y": updated.pan_y,
                     "fit_mode": updated.fit_mode,
                 }
-            slot = self._best_text_slot(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
-            if slot is not None:
-                text_x, text_y = slot
+            costs = self._text_slot_costs(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
+            best = min(costs.items(), key=lambda item: item[1][0]) if costs else None
+            split = (
+                best is not None
+                and has_context
+                and best[0] in {"top", "bottom"}
+                and costs["top" if best[0] == "bottom" else "bottom"][0] <= best[1][0] * 1.5 + 0.05
+            )
+            if split:
+                # 主体居中、上下两缘都可用：A 放上缘、B 放下缘，居中大字。
+                for text in texts:
+                    current = object_for_profile(document, text.id, key)
+                    current = current if isinstance(current, TextObject) else text
+                    top = text.copy_role == "A"
+                    updated = replace(
+                        current,
+                        align="center",
+                        transform=replace(current.transform, x=_SPLIT_X, y=_SPLIT_TOP if top else _SPLIT_BOTTOM, scale=1.0),
+                        rect=Rect(width=_SPLIT_WIDTH, height=_SPLIT_HEIGHT),
+                        wrap=replace(current.wrap, max_width=_SPLIT_WIDTH),
+                        style=replace(current.style, font_size=max(current.style.font_size, _SPLIT_FONT_A if top else _SPLIT_FONT_B)),
+                    )
+                    overrides[text.id] = text_override_payload(updated)
+            elif best is not None:
+                _cost, text_x, text_y = best[1]
                 for text in texts:
                     current = object_for_profile(document, text.id, key)
                     current = current if isinstance(current, TextObject) else text
@@ -902,6 +950,8 @@ class CoverService:
             destination = Path(project.directory) / f"AutoCover-{stem}{suffix} ({index}).jpg"
             index += 1
         self._render_document(document, video, destination, canvas_key=canvas_key)
+        # 导出即用户确认的成品，此时才记忆风格，临时试色不进入长期偏好。
+        self.remember_style(project, document)
         for item in document.objects:
             if isinstance(item, (ImageObject, StickerObject)) and item.asset and item.asset.asset_id:
                 try:

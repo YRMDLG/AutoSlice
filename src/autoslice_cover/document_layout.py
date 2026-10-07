@@ -372,9 +372,9 @@ def _advances(text: str, size: int, font_paths: tuple[str | None, ...], weight: 
 # 参考 BudouX / 日文禁则的思路：标点和引号边界优先，避免切开数字、
 # 拉丁单词、数字与量词，以及把标点挤到行首。
 
-_NO_LINE_START = set("，。！？、；：,.!?;:）)]」』》】〉”’…—～~%")
+_NO_LINE_START = set("，。！？、；：⁉‼⁈⁇,.!?;:）)]」』》】〉”’…—～~%")
 _NO_LINE_END = set("（([「『《【〈“‘")
-_SOFT_AFTER = set("，。！？、；：,.!?;:…～~」』》】”’)]")
+_SOFT_AFTER = set("，。！？、；：⁉‼⁈⁇,.!?;:…～~」』》】”’)]")
 _PARTICLES = set("的了着过吗呢吧啊呀啦嘛哦哇呗")
 _LEADING_WORDS = (
     "然后", "结果", "但是", "可是", "不过", "所以", "因为", "于是", "居然", "竟然",

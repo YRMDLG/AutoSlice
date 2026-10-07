@@ -20,7 +20,7 @@ _PREFIX_RE = re.compile(r"^\s*(?:[〖【\[].{1,32}?[〗】\]])\s*")
 _TAG_RE = re.compile(r"^\s*[〖【\[](.{1,32}?)[〗】\]]")
 _EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]")
 _QUOTE_RE = re.compile(r"[“「『\"]([^”」』\"]+)[”」』\"]")
-_BOUNDARY_RE = re.compile(r"[，,。！？!?；;：:/／]+")
+_BOUNDARY_RE = re.compile(r"[，,。！？!?；;：:/／⁉‼⁈⁇]+")
 _RELATION_RE = re.compile(r"(结果得知|结果|然后|随后|没想到|但是|却|吓得|气得|秒变)")
 _SPACE_RE = re.compile(r"\s+")
 
@@ -86,7 +86,7 @@ _COMPACT_MARKERS = {
 }
 # 片段截取：起点只落在语义边界上，终点可带一个语气尾字，B 可带原文紧随的强调标点。
 _TRAILING_PARTICLES = "的了啊吧呢呀啦"
-_EMPHASIS_TAIL = "！？!?"
+_EMPHASIS_TAIL = "！？!?⁉‼⁈⁇"
 _PHRASE_START_BREAKS = {SEMANTIC_BREAK, CONNECTIVE_BREAK, SCRIPT_BREAK}
 _LEAD_ADVERBS = ("居然", "竟然", "突然", "直接", "结果", "然后", "就", "都", "也", "还", "又", "却")
 _CONTEXT_STARTERS = (
