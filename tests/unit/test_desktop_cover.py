@@ -452,6 +452,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         text = next(item for item in document.objects if isinstance(item, TextObject))
         resolution = resolve_font_selection(text.style.font_family)
         canvas = CoverCanvas()
+        self.addCleanup(canvas.close)
         canvas.resize(900, 600)
         canvas.set_preview(QPixmap(str(image)))
         canvas.set_document(document, "4x3")
@@ -484,6 +485,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         from autoslice.desktop.cover_canvas import CoverCanvas
 
         canvas = CoverCanvas()
+        self.addCleanup(canvas.close)
         canvas.resize(900, 600)
         canvas.set_preview(QPixmap(900, 506))
         canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
@@ -507,6 +509,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         from autoslice.desktop.cover_canvas import CoverCanvas
 
         canvas = CoverCanvas()
+        self.addCleanup(canvas.close)
         canvas.resize(900, 600)
         canvas.set_preview(QPixmap(900, 506))
         canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
@@ -532,6 +535,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         from autoslice.desktop.cover_canvas import CoverCanvas
 
         canvas = CoverCanvas()
+        self.addCleanup(canvas.close)
         canvas.resize(900, 600)
         canvas.set_preview(QPixmap(900, 506))
         canvas.set_title_rect(QRectF(0.2, 0.2, 0.3, 0.2))
@@ -550,6 +554,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         from autoslice.desktop.cover_canvas import CoverCanvas
 
         canvas = CoverCanvas()
+        self.addCleanup(canvas.close)
         canvas.resize(900, 600)
         canvas.set_preview(QPixmap(900, 506))
         canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
@@ -582,7 +587,8 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         with patch("autoslice.desktop.qt_app.window.MpvAdapter", side_effect=OSError("smoke")):
             window = DesktopWindow(service, storage)
         window.show()
-        self.addCleanup(lambda: (setattr(window, "_resolve_unsaved", lambda: True), window.close()))
+        # close 可能因后台任务被窗口拒绝；hide 兜底，避免残留窗口影响后续 Qt 测试。
+        self.addCleanup(lambda: (setattr(window, "_resolve_unsaved", lambda: True), window.close(), window.hide()))
         deadline = 200
         while not window.project_buttons and deadline:
             self.app.processEvents()
