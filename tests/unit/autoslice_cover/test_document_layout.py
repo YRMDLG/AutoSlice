@@ -74,6 +74,11 @@ class BreakRuleTests(unittest.TestCase):
         self.assertLess(particle, plain)
         self.assertEqual(break_penalty("你好，世界", 3), 0.0)
 
+    def test_break_after_pronoun_object_but_not_inside_plural(self):
+        text = "懂姐小音告诉你韩娱特殊操作"
+        self.assertLess(break_penalty(text, text.index("韩")), break_penalty(text, text.index("娱")))
+        self.assertEqual(break_penalty("你们好棒", 1), break_penalty("大家好棒", 1))
+
 
 class TextLayoutTests(unittest.TestCase):
     def setUp(self):

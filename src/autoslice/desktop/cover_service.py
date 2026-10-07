@@ -784,7 +784,8 @@ class CoverService:
                         align="center",
                         transform=replace(current.transform, x=_SPLIT_X, y=_SPLIT_TOP if top else _SPLIT_BOTTOM, scale=1.0),
                         rect=Rect(width=_SPLIT_WIDTH, height=_SPLIT_HEIGHT),
-                        wrap=replace(current.wrap, max_width=_SPLIT_WIDTH),
+                        # 上缘 A 保持单行，与真实封面一致；B 最多两行。
+                        wrap=replace(current.wrap, max_width=_SPLIT_WIDTH, max_lines=1 if top else 2),
                         style=replace(current.style, font_size=max(current.style.font_size, _SPLIT_FONT_A if top else _SPLIT_FONT_B)),
                     )
                     overrides[text.id] = text_override_payload(updated)

@@ -376,6 +376,7 @@ _NO_LINE_START = set("，。！？、；：⁉‼⁈⁇,.!?;:）)]」』》】�
 _NO_LINE_END = set("（([「『《【〈“‘")
 _SOFT_AFTER = set("，。！？、；：⁉‼⁈⁇,.!?;:…～~」』》】”’)]")
 _PARTICLES = set("的了着过吗呢吧啊呀啦嘛哦哇呗")
+_PRONOUNS = set("你我他她它")
 _LEADING_WORDS = (
     "然后", "结果", "但是", "可是", "不过", "所以", "因为", "于是", "居然", "竟然",
     "突然", "直接", "却", "就", "都", "还", "又", "才", "也", "被", "把", "给", "让",
@@ -407,6 +408,9 @@ def break_penalty(text: str, index: int) -> float | None:
     if before in _SOFT_AFTER or before.isspace() or after.isspace():
         return SEMANTIC_BREAK
     if before in _PARTICLES:
+        return PARTICLE_BREAK
+    # 代词宾语之后断开通常自然（“告诉你 / 韩娱…”），但不拆“你们”“你的”。
+    if before in _PRONOUNS and after not in "们的":
         return PARTICLE_BREAK
     if _word_character(before) != _word_character(after):
         return SCRIPT_BREAK
