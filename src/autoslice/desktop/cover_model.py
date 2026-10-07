@@ -78,8 +78,9 @@ class Transform:
     def from_payload(cls, payload: Any) -> "Transform":
         payload = payload if isinstance(payload, Mapping) else {}
         return cls(
-            x=_bounded(payload.get("x"), 0.5, 0.0, 1.0),
-            y=_bounded(payload.get("y"), 0.5, 0.0, 1.0),
+            # 对象可以拖出画布边缘（大字常比画布宽），位置允许为负或超过 1。
+            x=_bounded(payload.get("x"), 0.5, -5.0, 5.0),
+            y=_bounded(payload.get("y"), 0.5, -5.0, 5.0),
             scale=_bounded(payload.get("scale"), 1.0, 0.01, 100.0),
             rotation=_bounded(payload.get("rotation"), 0.0, -360.0, 360.0),
         )

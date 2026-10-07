@@ -25,7 +25,7 @@ except ImportError:
     QGroupBox = None
 
 from autoslice.desktop.cover_layout import canvas_size, text_layout
-from autoslice.desktop.cover_model import TextObject, object_for_profile
+from autoslice.desktop.cover_model import CoverDocument, TextObject, object_for_profile
 from autoslice.desktop.cover_service import (
     CoverDraft,
     CoverService,
@@ -592,6 +592,18 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertIn("16:9", dialog.list.item(0).text())
         dialog.list.setCurrentRow(1)
         self.assertEqual(dialog.selected_path(), exported)
+
+    def test_text_dragged_past_left_and_top_edges_stays_there_after_commit(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        current = self._text("copy-b")
+        moved = replace(current, transform=replace(current.transform, x=-0.3, y=-0.1))
+        # 走真实的松手提交路径：画布 object_changed → 比例覆盖 → 重新读出。
+        self.widget._canvas_object_changed(moved, "4x3")
+        self.assertAlmostEqual(self._text("copy-b").transform.x, -0.3)
+        self.assertAlmostEqual(self._text("copy-b").transform.y, -0.1)
+        self.assertAlmostEqual(self.widget.canvas._find_text().transform.x, -0.3)
+        reloaded = CoverDocument.from_payload(self.widget.document.to_payload())
+        self.assertAlmostEqual(object_for_profile(reloaded, "copy-b", "4x3").transform.x, -0.3)
 
     def test_batch_button_follows_project_list(self):
         self.assertFalse(self.widget.batch_button.isEnabled())

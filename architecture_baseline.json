@@ -9958,100 +9958,100 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 897,
+      "line_count": 898,
       "longest_function": {
-        "end_line": 646,
+        "end_line": 647,
         "kind": "function",
-        "line": 587,
+        "line": 588,
         "line_count": 60,
         "qualname": "CoverDocument.replace_object"
       },
       "module": "autoslice.desktop.cover_model",
       "path": "src/autoslice/desktop/cover_model.py",
-      "sha256": "c856df86ffc3e88f63b61cb42efb9a8c7e3ffaddf49abc229262ac726815d65e",
+      "sha256": "cd33b93a0c8c2e23917c028a590ed3cfcd973ad12ae9521ddcf960af838097a1",
       "top_level_classes": [
         {
-          "end_line": 85,
+          "end_line": 86,
           "kind": "class",
           "line": 66,
           "name": "Transform"
         },
         {
-          "end_line": 106,
+          "end_line": 107,
           "kind": "class",
-          "line": 89,
+          "line": 90,
           "name": "Rect"
         },
         {
-          "end_line": 130,
+          "end_line": 131,
           "kind": "class",
-          "line": 110,
+          "line": 111,
           "name": "AssetRef"
         },
         {
-          "end_line": 161,
+          "end_line": 162,
           "kind": "class",
-          "line": 134,
+          "line": 135,
           "name": "SourceRef"
         },
         {
-          "end_line": 184,
+          "end_line": 185,
           "kind": "class",
-          "line": 165,
+          "line": 166,
           "name": "TextWrap"
         },
         {
-          "end_line": 262,
+          "end_line": 263,
           "kind": "class",
-          "line": 188,
+          "line": 189,
           "name": "TextStyle"
         },
         {
-          "end_line": 282,
+          "end_line": 283,
           "kind": "class",
-          "line": 266,
+          "line": 267,
           "name": "RenderObject"
         },
         {
-          "end_line": 321,
+          "end_line": 322,
           "kind": "class",
-          "line": 286,
+          "line": 287,
           "name": "BackgroundObject"
         },
         {
-          "end_line": 366,
+          "end_line": 367,
           "kind": "class",
-          "line": 325,
+          "line": 326,
           "name": "TextObject"
         },
         {
-          "end_line": 396,
+          "end_line": 397,
           "kind": "class",
-          "line": 370,
+          "line": 371,
           "name": "ImageObject"
         },
         {
-          "end_line": 426,
+          "end_line": 427,
           "kind": "class",
-          "line": 400,
+          "line": 401,
           "name": "StickerObject"
         },
         {
-          "end_line": 470,
+          "end_line": 471,
           "kind": "class",
-          "line": 430,
+          "line": 431,
           "name": "ShapeObject"
         },
         {
-          "end_line": 534,
+          "end_line": 535,
           "kind": "class",
-          "line": 494,
+          "line": 495,
           "name": "LayoutProfile"
         },
         {
-          "end_line": 673,
+          "end_line": 674,
           "kind": "class",
-          "line": 538,
+          "line": 539,
           "name": "CoverDocument"
         }
       ],
@@ -10087,75 +10087,75 @@
           "name": "_color"
         },
         {
-          "end_line": 490,
+          "end_line": 491,
           "kind": "function",
-          "line": 476,
+          "line": 477,
           "name": "_object_from_payload"
         },
         {
-          "end_line": 680,
+          "end_line": 681,
           "kind": "function",
-          "line": 676,
+          "line": 677,
           "name": "default_profiles"
         },
         {
-          "end_line": 731,
+          "end_line": 732,
           "kind": "function",
-          "line": 683,
+          "line": 684,
           "name": "object_for_profile"
         },
         {
-          "end_line": 740,
+          "end_line": 741,
           "kind": "function",
-          "line": 739,
+          "line": 740,
           "name": "stroke_for"
         },
         {
-          "end_line": 760,
+          "end_line": 761,
           "kind": "function",
-          "line": 743,
+          "line": 744,
           "name": "resize_text_style"
         },
         {
-          "end_line": 785,
+          "end_line": 786,
           "kind": "function",
-          "line": 777,
+          "line": 778,
           "name": "text_override_payload"
         },
         {
-          "end_line": 815,
+          "end_line": 816,
           "kind": "function",
-          "line": 788,
+          "line": 789,
           "name": "update_text_object"
         },
         {
-          "end_line": 834,
+          "end_line": 835,
           "kind": "function",
-          "line": 818,
+          "line": 819,
           "name": "set_object_visible"
         },
         {
-          "end_line": 843,
+          "end_line": 844,
           "kind": "function",
-          "line": 837,
+          "line": 838,
           "name": "set_object_locked"
         },
         {
-          "end_line": 860,
+          "end_line": 861,
           "kind": "function",
-          "line": 846,
+          "line": 847,
           "name": "update_shared_fields"
         },
         {
-          "end_line": 882,
+          "end_line": 883,
           "kind": "function",
-          "line": 863,
+          "line": 864,
           "name": "restack_object"
         },
         {
-          "end_line": 897,
+          "end_line": 898,
           "kind": "function",
-          "line": 885,
+          "line": 886,
           "name": "insert_overlay"
         }
       ]
@@ -18664,7 +18664,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 583,
-    "production_line_count": 61599,
+    "production_line_count": 61600,
     "production_module_count": 221,
     "test_private_patch_count": 17,
     "top_level_class_count": 198,
