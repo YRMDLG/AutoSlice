@@ -737,6 +737,54 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         with Image.open(exported[0]) as image:
             image.verify()
 
+    def _wait(self, condition, seconds=12.0):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.app.processEvents()
+            if condition():
+                return True
+            time.sleep(0.03)
+        return False
+
+    def test_zero_playhead_picks_overview_frame_and_offers_schemes(self):
+        from autoslice.desktop.cover_service import CoverFrame
+
+        picked = Path(self.temp.name) / "picked.png"
+        Image.new("RGB", (640, 360), "#335577").save(picked)
+        calls = []
+        self.widget.service.overview_candidates = lambda video: (
+            CoverFrame(picked, 0.3, 50.0), CoverFrame(picked, 0.9, 70.0),
+        )
+        original = self.widget.service.extract_frame
+        self.widget.service.extract_frame = lambda video, timestamp: (calls.append(timestamp), original(video, timestamp))[1]
+        self.widget.show()
+        self.widget.set_current_playhead(0.0)
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and self.widget._schemes))
+        self.assertAlmostEqual(calls[0], 0.9)
+        before = self.widget.document
+        self.widget.scheme_buttons[1].click()
+        self.assertTrue(self.widget.scheme_buttons[1].isChecked())
+        self.assertNotEqual(self.widget.document, before)
+        self.widget._undo()
+        self.assertEqual(self.widget.document.profiles, before.profiles)
+        self.widget.close()
+
+    def test_add_text_creates_selected_box_ready_for_typing(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self.widget.add_text_button.isEnabled())
+        before = {item.id for item in self.widget.document.objects}
+        self.widget.add_text_button.click()
+        added = [item for item in self.widget.document.objects if item.id not in before]
+        self.assertEqual(len(added), 1)
+        self.assertEqual(self.widget.document.selected_object_id, added[0].id)
+        self.assertEqual(self.widget.copy_role_label.text(), "自建文本框")
+        self.widget.title_edit.setPlainText("新的文字")
+        current = [item for item in self.widget.document.objects if item.id == added[0].id][0]
+        self.assertEqual(current.text, "新的文字")
+        # 主文案不受影响。
+        self.assertNotEqual(self.widget._primary_copy_ids().get("B"), added[0].id)
+
     def test_real_png_import_updates_preview_canvas(self):
         from unittest.mock import patch
 

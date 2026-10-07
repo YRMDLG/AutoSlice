@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from autoslice.desktop.cover_layout import text_layout
 from autoslice.desktop.cover_migration import document_from_basic_title_values
 from autoslice.desktop.cover_model import (
     AssetRef,
@@ -116,6 +117,77 @@ class TextBoxMigrationTests(unittest.TestCase):
                 layout = text_layout(item, (1440, 1080))
                 self.assertLessEqual(len(layout.lines), 2)
                 self.assertEqual(layout.font_size, item.style.font_size)
+
+
+class SchemeTests(unittest.TestCase):
+    def setUp(self):
+        from tests.unit.autoslice_cover.test_composition import _person_frame
+
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.service = CoverService(DesktopStorage(root / "data"))
+        self.frame = _person_frame(root / "center.png", 960)
+        document = document_from_basic_title_values(
+            title="〖泽音〗泽音一个晚上居然被冲了万楼？！", image_path=str(self.frame), selected_timestamp=0.0,
+            background_x=0.5, background_y=0.5, background_scale=1.0,
+        )
+        self.document = replace(document, objects=tuple(
+            replace(item, asset=AssetRef(path=str(self.frame))) if isinstance(item, BackgroundObject) else item
+            for item in document.objects
+        ))
+
+    def _variants(self):
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+
+        return (BasicCoverCopy("泽音一个晚上", "居然被冲了万楼"), BasicCoverCopy("", "被冲了万楼？！"))
+
+    def test_three_distinct_schemes_with_thumbnails(self):
+        schemes = self.service.layout_schemes(self.document, self.frame, self._variants())
+        self.assertEqual(len(schemes), 3)
+        self.assertEqual(len({repr(item.document.profiles) + repr(item.document.objects) for item in schemes}), 3)
+        thumbnail = self.service.scheme_thumbnail(schemes[0].document, width=120)
+        self.assertTrue(thumbnail.startswith(b"\xff\xd8"))
+        # 换一批：第三套换配色。
+        again = self.service.layout_schemes(self.document, self.frame, self._variants(), batch=1)
+        self.assertNotEqual(schemes[2].label, again[2].label)
+
+    def test_apply_scheme_keeps_user_objects(self):
+        extra = TextObject(id="text-9", text="自建", copy_role="B", z_index=30)
+        image = ImageObject(id="image-1", z_index=5)
+        document = replace(self.document, objects=(*self.document.objects, extra, image))
+        schemes = self.service.layout_schemes(document, self.frame, self._variants())
+        applied = self.service.apply_scheme(document, schemes[1])
+        self.assertIn(extra, applied.objects)
+        self.assertIn(image, applied.objects)
+        self.assertNotIn("text-9", applied.profiles["4x3"].overrides)
+        before = object_for_profile(document, "copy-b", "4x3")
+        after = object_for_profile(applied, "copy-b", "4x3")
+        self.assertNotEqual((before.transform, before.style.font_size), (after.transform, after.style.font_size))
+
+    def test_auto_layout_only_moves_primary_copy(self):
+        extra = TextObject(id="text-9", text="自建文本框", copy_role="B", z_index=30)
+        document = replace(self.document, objects=(*self.document.objects, extra))
+        laid = self.service.apply_auto_layout(document, self.frame)
+        self.assertEqual(object_for_profile(laid, "text-9", "4x3"), extra)
+
+    def test_lone_headline_on_centered_subject_takes_a_bottom_band(self):
+        document = set_object_visible(self.document, "copy-a", False)
+        laid = self.service.apply_auto_layout(document, self.frame)
+        b = object_for_profile(laid, "copy-b", "4x3")
+        self.assertAlmostEqual(b.rect.width, 0.88)
+        layout_bottom = b.transform.y + text_layout(b, (1440, 1080)).area.height / 1080
+        self.assertAlmostEqual(layout_bottom, 0.95, delta=0.01)
+
+    def test_overview_pick_prefers_quality_without_subtitles(self):
+        from autoslice.desktop.cover_service import CoverFrame, best_overview_frame
+        from autoslice_cover.video import FrameMetrics
+
+        def frame(timestamp, score, risk=0.0):
+            return CoverFrame(Path(f"{timestamp}.jpg"), timestamp, score, FrameMetrics(0.5, 0.9, 0.5, 0.5, 0.3, risk))
+
+        self.assertEqual(best_overview_frame((frame(5, 60), frame(12, 70, 0.9), frame(20, 66))).timestamp, 20)
+        self.assertIsNone(best_overview_frame(()))
 
 
 class StylePresetTests(unittest.TestCase):

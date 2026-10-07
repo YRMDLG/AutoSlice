@@ -168,6 +168,34 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
         self.assertEqual(duplicated, [text.id])
         self.assertEqual(deleted, [text.id])
 
+    def test_drag_reuses_cached_layers_and_redraws_once_after_settle(self):
+        text = self._select_text()
+        self.canvas.repaint()
+        calls = []
+        original = self.canvas._draw_text
+        self.canvas._draw_text = lambda painter, item: (calls.append(item.id), original(painter, item))
+        start = self.canvas._display_rect(text).center().toPoint()
+        QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, pos=start)
+        for step in range(1, 8):
+            QTest.mouseMove(self.canvas, QPoint(start.x() + step * 6, start.y() + step * 2))
+            self.canvas.repaint()
+        # 拖动只平移选中层，不再逐帧重描边。
+        self.assertEqual(calls, [])
+        QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, pos=QPoint(start.x() + 42, start.y() + 14))
+        self.canvas.repaint()
+        self.assertEqual(calls, [])
+        # 空闲后按真实位置重画一次，静止画面与导出一致。
+        self.canvas._settle_timer.stop()
+        self.canvas.repaint()
+        self.assertEqual(calls, [text.id])
+
+    def test_double_click_text_requests_edit(self):
+        requested = []
+        self.canvas.edit_requested.connect(requested.append)
+        text = self.canvas._find_text()
+        QTest.mouseDClick(self.canvas, Qt.MouseButton.LeftButton, pos=self.canvas._display_rect(text).center().toPoint())
+        self.assertEqual(requested, [text.id])
+
     def test_text_drag_snaps_to_center_at_8px_and_only_shows_guides_during_drag(self):
         changes = []
         self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))

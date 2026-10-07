@@ -62,6 +62,23 @@ def effective_objects(document: CoverDocument, profile_key: str) -> tuple[Render
     return tuple(item for _z, _index, item in sorted(ordered, key=lambda value: (value[0], value[1])))
 
 
+def font_config() -> tuple[str, bool]:
+    """默认字体配置指纹；字体相关缓存都以它为键的一部分。"""
+
+    return os.environ.get(FONT_PATH_ENV, ""), LOCAL_FONT_PATH.is_file()
+
+
+@lru_cache(maxsize=64)
+def _resolved_font(font_family: str, _env: str, _local_font: bool):
+    return resolve_font_selection(font_family)
+
+
+def resolved_font(font_family: str):
+    """字体来源解析结果；画布每次重绘不再查文件系统。"""
+
+    return _resolved_font(str(font_family or ""), *font_config())
+
+
 @lru_cache(maxsize=64)
 def _font_stack(font_family: str, _env: str, _local_font: bool) -> tuple[str | None, ...]:
     resolution = resolve_font_selection(font_family)
@@ -75,11 +92,7 @@ def _font_stack(font_family: str, _env: str, _local_font: bool) -> tuple[str | N
 def font_stack(font_family: str) -> tuple[str | None, ...]:
     """主字体 + 系统中文回退 + 表情字体；随默认字体配置变化失效。"""
 
-    return _font_stack(
-        str(font_family or ""),
-        os.environ.get(FONT_PATH_ENV, ""),
-        LOCAL_FONT_PATH.is_file(),
-    )
+    return _font_stack(str(font_family or ""), *font_config())
 
 
 def text_area(item: TextObject, size: tuple[int, int]) -> Box:

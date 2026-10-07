@@ -2618,6 +2618,8 @@ class DesktopWindow(PreviewWindow):
         if not self._resolve_unsaved():
             event.ignore()
             return
+        if hasattr(self, "cover_editor"):
+            self.cover_editor.flush_draft()
         self._save_session()
         super().closeEvent(event)
         if event.isAccepted() and self.player:

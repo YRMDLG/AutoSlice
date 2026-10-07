@@ -11,7 +11,7 @@ import math
 from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -22,6 +22,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QPolygonF,
+    QTransform,
 )
 from PySide6.QtWidgets import QLabel
 
@@ -41,12 +42,14 @@ from autoslice_cover.document_layout import (
     shadow_offset,
 )
 from autoslice_cover.document_render import rgba
-from autoslice_cover.fonts import FontResolution, resolve_font_selection
+from autoslice_cover.fonts import FontResolution
 
 from .cover_layout import (
     asset_path,
     background_geometry,
+    font_config,
     overlay_geometry,
+    resolved_font,
     shape_geometry,
     text_layout,
     text_paint,
@@ -89,6 +92,8 @@ class CoverCanvas(QLabel):
     # 选中框四角的删除/复制按钮：由编辑器执行，画布只发出请求。
     delete_requested = Signal(str)
     duplicate_requested = Signal(str)
+    # 双击文字：编辑器把焦点交给文案框并全选。
+    edit_requested = Signal(str)
 
     _SAFE_MARGIN = 0.06
     _HANDLE = 9.0
@@ -145,6 +150,14 @@ class CoverCanvas(QLabel):
         self._glyph_path_cache: dict[tuple, tuple[QPainterPath, tuple]] = {}
         self._outline_cache: dict[tuple, QPainterPath] = {}
         self._overlay_pixmap_cache: dict[str, QPixmap] = {}
+        # 分层位图缓存：{层名: (键, 位图, 左上角)}；选中对象单独成层，拖动只平移。
+        self._layer_cache: dict[str, tuple[tuple, QPixmap, QPointF]] = {}
+        self._active_base: RenderObject | None = None
+        # 释放鼠标后先沿用平移的选中层，空闲时再按精确位置重画，释放不卡顿。
+        self._settle_timer = QTimer(self)
+        self._settle_timer.setSingleShot(True)
+        self._settle_timer.setInterval(160)
+        self._settle_timer.timeout.connect(self.update)
         self._last_resolved_font: FontResolution | None = None
         self._last_qt_font_family = ""
         self._last_qt_font_id = -1
@@ -791,6 +804,15 @@ class CoverCanvas(QLabel):
                 self.update()
         event.accept()
 
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            hit = self._hit_object(event.position())
+            if isinstance(hit, TextObject):
+                self.edit_requested.emit(hit.id)
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._mode is not None:
             mode = self._mode
@@ -801,6 +823,7 @@ class CoverCanvas(QLabel):
             )
             self._commit_gesture()
             self._mode = None
+            self._settle_timer.start()
             self._start_object = None
             self._set_alignment_guides(False, False)
             if self.mouseGrabber() is self:
@@ -1155,7 +1178,7 @@ class CoverCanvas(QLabel):
         return pen
 
     def _draw_text(self, painter: QPainter, text: TextObject):
-        self._last_resolved_font = resolve_font_selection(text.style.font_family)
+        self._last_resolved_font = resolved_font(text.style.font_family)
         layout = text_layout(text, self._export_size())
         if not layout.lines:
             return
@@ -1191,6 +1214,113 @@ class CoverCanvas(QLabel):
             painter.drawText(QPointF(x, y), value)
         painter.restore()
 
+    @staticmethod
+    def _paints(item: RenderObject) -> bool:
+        return bool(item.visible) and not (isinstance(item, TextObject) and not item.text.strip())
+
+    def _paint_layer(
+        self, name: str, objects: tuple[RenderObject, ...], bounds: QRectF, *, clip: bool,
+    ) -> tuple[QPixmap, QPointF] | None:
+        """把对象画进对齐设备像素的透明位图；内容与位置不变时直接复用。
+
+        绘制仍在导出像素坐标系内完成，只是目标从窗口换成位图，结果与直接绘制一致。
+        """
+
+        if not objects or bounds.isEmpty():
+            return None
+        canvas = self._canvas_rect()
+        dpr = max(1.0, float(self.devicePixelRatioF()))
+        left = math.floor(bounds.left() * dpr) / dpr
+        top = math.floor(bounds.top() * dpr) / dpr
+        width = max(1, math.ceil(bounds.right() * dpr) - math.floor(bounds.left() * dpr))
+        height = max(1, math.ceil(bounds.bottom() * dpr) - math.floor(bounds.top() * dpr))
+        export_width, export_height = self._export_size()
+        key = (
+            left, top, width, height, dpr, canvas.getRect(), (export_width, export_height),
+            clip, font_config(), objects,
+        )
+        cached = self._layer_cache.get(name)
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2]
+        pixmap = QPixmap(width, height)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.scale(dpr, dpr)
+        painter.translate(canvas.left() - left, canvas.top() - top)
+        painter.scale(canvas.width() / max(1, export_width), canvas.height() / max(1, export_height))
+        if clip:
+            painter.setClipRect(QRectF(0, 0, export_width, export_height))
+        for item in objects:
+            if isinstance(item, TextObject):
+                self._draw_text(painter, item)
+            else:
+                self._draw_overlay(painter, item)
+        painter.end()
+        pixmap.setDevicePixelRatio(dpr)
+        origin = QPointF(left, top)
+        self._layer_cache[name] = (key, pixmap, origin)
+        return pixmap, origin
+
+    def _object_bounds(self, obj: RenderObject) -> QRectF:
+        """对象绘制范围（屏幕坐标）：选中框外扩描边、阴影和底条余量，并计入旋转。"""
+
+        frame = self._frame(obj)
+        if frame is None:
+            return self._canvas_rect()
+        rect, center, angle = frame
+        if isinstance(obj, TextObject):
+            paint = text_paint(obj)
+            margin = obj.style.font_size * 0.5 + paint.stroke_width + paint.outer_stroke_width + 8
+        else:
+            margin = 8 + float(getattr(obj, "stroke_width", 0) or 0)
+        margin = margin / self._screen_to_export() + 2
+        rect = rect.adjusted(-margin, -margin, margin, margin)
+        if abs(angle) >= 0.05:
+            rect = QTransform().translate(center.x(), center.y()).rotate(angle).translate(-center.x(), -center.y()).mapRect(rect)
+        return rect
+
+    @staticmethod
+    def _same_except_position(base: RenderObject, current: RenderObject) -> bool:
+        if base.id != current.id or type(base) is not type(current):
+            return False
+        moved = replace(current, transform=replace(current.transform, x=base.transform.x, y=base.transform.y))
+        return moved == base
+
+    def _draw_object_layers(self, painter: QPainter, canvas: QRectF):
+        """选中对象之下、选中对象、之上分三层缓存；拖动时只平移选中层。"""
+
+        objects = tuple(item for item in self._layered_objects() if self._paints(item))
+        index = next((i for i, item in enumerate(objects) if item.id == self._selected_object), None)
+        layers = []
+        if index is None:
+            layers.append(self._paint_layer("below", objects, canvas, clip=True))
+            self._active_base = None
+        else:
+            active = objects[index]
+            base = self._active_base
+            reuse = base is not None and self._same_except_position(base, active)
+            if reuse and self._mode is None and base != active and not self._settle_timer.isActive():
+                # 手势结束后空闲时按真实位置重画，静止画面与导出逐像素一致。
+                reuse = False
+            if not reuse:
+                base = self._active_base = active
+            layers.append(self._paint_layer("below", objects[:index], canvas, clip=True))
+            sprite = self._paint_layer("active", (base,), self._object_bounds(base), clip=False)
+            if sprite is not None:
+                shift = QPointF(
+                    (active.transform.x - base.transform.x) * canvas.width(),
+                    (active.transform.y - base.transform.y) * canvas.height(),
+                )
+                layers.append((sprite[0], sprite[1] + shift))
+            layers.append(self._paint_layer("above", objects[index + 1:], canvas, clip=True))
+        painter.save()
+        painter.setClipRect(canvas)
+        for layer in layers:
+            if layer is not None:
+                painter.drawPixmap(layer[1], layer[0])
+        painter.restore()
+
     def paintEvent(self, event):
         if self._background_pixmap.isNull() and self._pixmap.isNull():
             super().paintEvent(event)
@@ -1206,15 +1336,8 @@ class CoverCanvas(QLabel):
         painter.scale(canvas.width() / max(1, export_width), canvas.height() / max(1, export_height))
         painter.setClipRect(QRectF(0, 0, export_width, export_height))
         self._draw_background(painter)
-        for item in self._layered_objects():
-            if not item.visible:
-                continue
-            if isinstance(item, TextObject):
-                if item.text.strip():
-                    self._draw_text(painter, item)
-            else:
-                self._draw_overlay(painter, item)
         painter.restore()
+        self._draw_object_layers(painter, canvas)
         selected = self._selected_editable()
         if self._guide_vertical:
             painter.setPen(QPen(QColor(66, 215, 255, 220), 1))

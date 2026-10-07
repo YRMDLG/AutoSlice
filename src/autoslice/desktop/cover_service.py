@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import shutil
 import statistics
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +26,7 @@ from autoslice_cover.video import (
     FrameMetrics,
     VideoMetadata,
     extract_frame_at_timestamp,
+    plan_candidate_timestamps,
     probe_video,
 )
 
@@ -47,7 +50,13 @@ from .cover_model import (
     object_for_profile,
     text_override_payload,
 )
-from .cover_style import CoverStyleMemory, CoverStyleMemoryStore, streamer_key
+from .cover_style import (
+    STYLE_PRESETS,
+    CoverStyleMemory,
+    CoverStyleMemoryStore,
+    StylePreset,
+    streamer_key,
+)
 
 
 @dataclass(frozen=True)
@@ -199,6 +208,45 @@ _SPLIT_TOP = 0.05
 _SPLIT_BOTTOM = 0.70
 _SPLIT_FONT_A = 136
 _SPLIT_FONT_B = 150
+# 槽位代价表里上下两条宽带的键；不参与单槽位选择。
+_SPLIT_TOP_KEY = "split-top"
+_SPLIT_BOTTOM_KEY = "split-bottom"
+# 只有 B 时的宽带高度：两行大字。
+_BAND_HEIGHT = 0.30
+# 方案的初始请求字号：自动排版在槽位里只缩不放，所以先给足。
+_SCHEME_FONT_A = 73
+_SCHEME_FONT_B = 104
+_SCHEME_FONT_BIG = 168
+# “换一批”轮换的配色；第一个方案保留当前（记忆）样式。
+_SCHEME_PRESETS = ("duo", "red-bar", "double", "white", "yellow-bar", "dark-bar")
+
+
+@dataclass(frozen=True)
+class CoverScheme:
+    """一套可直接套用的本地方案：文案、排版、配色一起换；参考旧网页端“推荐排版”。"""
+
+    key: str
+    label: str
+    reason: str
+    document: CoverDocument
+
+
+def primary_copy_ids(document: CoverDocument) -> dict[str, str]:
+    """每个角色的第一个文本框是 A/B 主文案；复制或新建的文本框不参与换文案与方案。"""
+
+    ids: dict[str, str] = {}
+    for item in document.objects:
+        if isinstance(item, TextObject):
+            ids.setdefault(item.copy_role, item.id)
+    return ids
+
+
+def best_overview_frame(frames: tuple[CoverFrame, ...]) -> CoverFrame | None:
+    """全片候选里画质最好、字幕风险低的一张。"""
+
+    if not frames:
+        return None
+    return max(frames, key=lambda item: (item.score - item.subtitle_risk * 20, -item.timestamp))
 
 
 class CoverService:
@@ -696,6 +744,14 @@ class CoverService:
                 ((y + _TEXT_SLOT_HEIGHT) * canvas[1] - frame.top) / frame.height,
             )
             scored[name] = (region_cost(saliency, box) + order * 0.002, x, y)
+        # 上下分置的两条宽带，与单槽位比较；不参与单槽位选择。
+        for name, top in ((_SPLIT_TOP_KEY, _SPLIT_TOP), (_SPLIT_BOTTOM_KEY, _SPLIT_BOTTOM)):
+            scored[name] = (region_cost(saliency, (
+                (_SPLIT_X * canvas[0] - frame.left) / frame.width,
+                (top * canvas[1] - frame.top) / frame.height,
+                ((_SPLIT_X + _SPLIT_WIDTH) * canvas[0] - frame.left) / frame.width,
+                ((top + _SPLIT_HEIGHT) * canvas[1] - frame.top) / frame.height,
+            )), _SPLIT_X, top)
         return scored
 
     @classmethod
@@ -711,7 +767,7 @@ class CoverService:
         costs = cls._text_slot_costs(image_path, canvas_key, focus_x=focus_x, focus_y=focus_y, scale=scale)
         if not costs:
             return None
-        _cost, x, y = min(costs.values())
+        _cost, x, y = min(value for name, value in costs.items() if name not in {_SPLIT_TOP_KEY, _SPLIT_BOTTOM_KEY})
         return x, y
 
     def suggest_text_position(
@@ -733,15 +789,20 @@ class CoverService:
     def warm_composition(image_path: str | Path) -> None:
         saliency_map(image_path)
 
-    def apply_auto_layout(self, document: CoverDocument, image_path: str | Path) -> CoverDocument:
+    def apply_auto_layout(
+        self, document: CoverDocument, image_path: str | Path, *, mode: str = "auto",
+    ) -> CoverDocument:
         """新底图的默认构图：两个比例分别保住主体、给 A/B 找空区。
 
-        只在首次取帧时调用；用户已经接管的布局由调用方保护，不在这里覆盖。
+        mode="split" 强制上下分置（A 上缘、B 下缘；只有 B 时占代价更低的一条宽带），
+        mode="slot" 强制放进最空的单侧槽位。
+        只排 A/B 主文案；用户新建或复制的文本框不动。
         """
 
         saliency = saliency_map(image_path)
         background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
-        texts = [item for item in document.objects if isinstance(item, TextObject)]
+        primary = set(primary_copy_ids(document).values())
+        texts = [item for item in document.objects if isinstance(item, TextObject) and item.id in primary]
         has_context = any(item.copy_role == "A" and item.visible and item.text.strip() for item in texts)
         profiles = dict(document.profiles)
         # 4:3 是主画布：先定 4:3 的布局方式，16:9 跟随上下分置，避免另一比例压脸。
@@ -766,12 +827,22 @@ class CoverService:
                     "fit_mode": updated.fit_mode,
                 }
             costs = self._text_slot_costs(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
+            bands = (costs.pop(_SPLIT_TOP_KEY)[0], costs.pop(_SPLIT_BOTTOM_KEY)[0]) if costs else None
             best = min(costs.items(), key=lambda item: item[1][0]) if costs else None
-            split = has_context and (main_split or (
+            # 人物居中（左右代价接近）时上下宽带通常比单侧槽位更空：代价不更高就用宽带；
+            # 人物偏一侧（左右代价悬殊）时文字去另一侧。有 A 比两条宽带的平均，只有 B 比更空的一条。
+            band_cost = (sum(bands) / 2 if has_context else min(bands)) if bands else None
+            sides = sorted(costs[name][0] for name in ("left", "right")) if costs else None
+            one_sided = sides is not None and sides[0] < sides[1] * 0.6
+            split = mode == "split" or mode == "auto" and main_split or mode == "auto" and (
                 best is not None
-                and best[0] in {"top", "bottom"}
-                and costs["top" if best[0] == "bottom" else "bottom"][0] <= best[1][0] * 1.5 + 0.05
-            ))
+                and (
+                    band_cost <= best[1][0] + 0.02 and not one_sided
+                    or has_context
+                    and best[0] in {"top", "bottom"}
+                    and costs["top" if best[0] == "bottom" else "bottom"][0] <= best[1][0] * 1.5 + 0.05
+                )
+            )
             if key == "4x3":
                 main_split = split
             canvas_width, canvas_height = canvas_size(key)
@@ -798,14 +869,25 @@ class CoverService:
                 for text in texts
             ]
             if split:
-                # 主体居中、上下两缘都可用：A 放上缘单行、B 放下缘，居中大字。
+                # 上下分置：A 放上缘单行、B 放下缘，居中大字；只有 B 时占代价更低的一条宽带。
+                lone = not has_context
+                band_top = lone and bands is not None and bands[0] < bands[1]
+                height = _BAND_HEIGHT if lone else _SPLIT_HEIGHT
+                bottom_edge = 1.0 - _SPLIT_TOP if lone else _SPLIT_BOTTOM + _SPLIT_HEIGHT
                 for text, current in current_texts:
                     top = text.copy_role == "A"
+                    if top and lone:
+                        continue
+                    y = _SPLIT_TOP if top or band_top else bottom_edge - height
                     updated = place(
-                        current, _SPLIT_X, _SPLIT_TOP if top else _SPLIT_BOTTOM, _SPLIT_WIDTH, _SPLIT_HEIGHT,
+                        current, _SPLIT_X, y, _SPLIT_WIDTH, height,
                         requested=max(current.style.font_size, _SPLIT_FONT_A if top else _SPLIT_FONT_B),
                         max_lines=1 if top else 2, align="center",
                     )
+                    if not (top or band_top):
+                        # 下缘贴底：行数少时整体下移，不悬在画面中部。
+                        settled = max(y, bottom_edge - text_height(updated))
+                        updated = replace(updated, transform=replace(updated.transform, y=settled))
                     overrides[text.id] = text_override_payload(updated)
             elif best is not None:
                 _cost, text_x, text_y = best[1]
@@ -824,6 +906,124 @@ class CoverService:
                     cursor += text_height(updated) + (0.025 if context else 0.0)
             profiles[key] = replace(profile, overrides=overrides)
         return replace(document, profiles=profiles)
+
+    def overview_candidates(self, video: ProjectVideo, *, count: int = 8) -> tuple[CoverFrame, ...]:
+        """全片均匀候选（避开片头片尾），没有播放位置时据此自动挑首帧。"""
+
+        metadata = self._video_metadata(video)
+        timestamps = plan_candidate_timestamps(metadata.duration, count)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            frames = list(pool.map(lambda value: self.extract_frame_candidate(video, value), timestamps))
+        return tuple(sorted(frames, key=lambda item: item.timestamp))
+
+    @staticmethod
+    def _seed_copy(
+        document: CoverDocument, copy: BasicCoverCopy, preset: StylePreset | None, *, big: bool,
+    ) -> CoverDocument:
+        """把一套文案和样式写回 A/B 主文案，清掉它们的比例覆盖，交给自动排版重新放置。"""
+
+        ids = set(primary_copy_ids(document).values())
+        objects = []
+        for item in document.objects:
+            if isinstance(item, TextObject) and item.id in ids:
+                value = (copy.context if item.copy_role == "A" else copy.headline).strip()
+                current = object_for_profile(document, item.id, "4x3")
+                style = current.style if isinstance(current, TextObject) else item.style
+                if preset is not None:
+                    style = preset.apply(style, item.copy_role)
+                size = (_SCHEME_FONT_BIG if big else _SCHEME_FONT_B) if item.copy_role == "B" else _SCHEME_FONT_A
+                item = replace(
+                    item, text=value, visible=bool(value), style=replace(style, font_size=size),
+                    transform=replace(item.transform, rotation=0.0, scale=1.0),
+                )
+            objects.append(item)
+        profiles = {
+            key: replace(profile, overrides={k: v for k, v in profile.overrides.items() if k not in ids})
+            for key, profile in document.profiles.items()
+        }
+        return replace(document, objects=tuple(objects), profiles=profiles)
+
+    def layout_schemes(
+        self,
+        document: CoverDocument,
+        image_path: str | Path,
+        variants: tuple[BasicCoverCopy, ...],
+        *,
+        batch: int = 0,
+    ) -> tuple[CoverScheme, ...]:
+        """三套方案：推荐 / 只留大字 / 换文案换配色；“换一批”轮换文案和配色。"""
+
+        if not variants:
+            ids = primary_copy_ids(document)
+            texts = {
+                role: item.text if isinstance(item := object_for_profile(document, object_id, "4x3"), TextObject) else ""
+                for role, object_id in ids.items()
+            }
+            variants = (BasicCoverCopy(context=texts.get("A", ""), headline=texts.get("B", "")),)
+        first = variants[batch % len(variants)]
+        second = variants[(batch + 1) % len(variants)]
+        presets = {preset.key: preset for preset in STYLE_PRESETS}
+        preset = presets[_SCHEME_PRESETS[batch % len(_SCHEME_PRESETS)]]
+
+        def build(copy: BasicCoverCopy, style: StylePreset | None, *, big: bool = False, mode: str = "auto") -> CoverDocument:
+            return self.apply_auto_layout(self._seed_copy(document, copy, style, big=big), image_path, mode=mode)
+
+        recommended = build(first, None)
+        # 第二套换一种构图：推荐是宽带就给单侧或大字，推荐是单侧就给上下分置。
+        if first.context.strip():
+            middle = CoverScheme("split", "上下分置", "A 放上缘、B 放下缘，人物留在中间", build(first, None, mode="split"))
+            if middle.document == recommended:
+                middle = CoverScheme(
+                    "headline", "大字", "只留主文案放大成一条宽带，首页小图也看得清",
+                    build(replace(first, context=""), None, big=True, mode="split"),
+                )
+        else:
+            middle = CoverScheme("side", "侧边", "文字放到画面较空的一侧，人物更完整", build(first, None, mode="slot"))
+            if middle.document == recommended:
+                middle = CoverScheme(
+                    "headline", "大字", "主文案放大成一条宽带，首页小图也看得清",
+                    build(first, None, big=True, mode="split"),
+                )
+        return (
+            CoverScheme("recommended", "推荐", "避开人物主体自动排版：A 交代背景，B 放大爆点", recommended),
+            middle,
+            CoverScheme("alternate", preset.label, "换一版文案并换配色", build(second, preset)),
+        )
+
+    @staticmethod
+    def apply_scheme(document: CoverDocument, scheme: CoverScheme) -> CoverDocument:
+        """套用方案：只替换 A/B 主文案和底图取景；用户加的素材和文本框保持不动。"""
+
+        source = scheme.document
+        ids = set(primary_copy_ids(source).values())
+        background = next((item.id for item in source.objects if isinstance(item, BackgroundObject)), None)
+        keys = ids | ({background} if background else set())
+        replaced = {item.id: item for item in source.objects if item.id in ids}
+        objects = tuple(replaced.get(item.id, item) for item in document.objects)
+        profiles = {}
+        for key, profile in document.profiles.items():
+            overrides = {k: v for k, v in profile.overrides.items() if k not in keys}
+            theirs = source.profiles.get(key)
+            if theirs is not None:
+                overrides.update({k: v for k, v in theirs.overrides.items() if k in keys})
+            profiles[key] = replace(profile, overrides=overrides)
+        return replace(document, objects=objects, profiles=profiles)
+
+    @staticmethod
+    def scheme_thumbnail(document: CoverDocument, *, canvas_key: str = "4x3", width: int = 240) -> bytes:
+        """方案缩略图（JPEG 字节）；与导出同一套图层，看到的就是套用后的样子。"""
+
+        background, layers = document_layers(document, canvas_key)
+        if background is None:
+            raise ValueError("方案缺少底图")
+        image = compose_document(canvas_size(canvas_key), background, layers)
+        try:
+            image.thumbnail((width, width), Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            image.convert("RGB").save(buffer, "JPEG", quality=88)
+            return buffer.getvalue()
+        finally:
+            image.close()
 
     def render_preview(
         self,

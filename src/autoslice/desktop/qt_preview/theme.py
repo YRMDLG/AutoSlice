@@ -141,6 +141,8 @@ def stylesheet() -> str:
         QPushButton#quiet:checked {{ color: {c.accent}; background: {c.accent_tint}; border: 1px solid {c.accent_medium}; }}
         QPushButton#frameThumb {{ padding: 2px 4px; min-height: 52px; max-height: 58px; border-radius: 5px; }}
         QPushButton#frameThumb:checked {{ color: {c.text}; background: {c.accent_tint}; border: 2px solid {c.accent}; }}
+        QPushButton#schemeThumb {{ padding: 2px; border-radius: 5px; }}
+        QPushButton#schemeThumb:checked {{ background: {c.accent_tint}; border: 2px solid {c.accent}; }}
         QPushButton#frameThumb[recommended="true"] {{ color: {c.accent_hover}; border: 1px dashed {c.accent_medium}; }}
         QLabel#coverNoticeInfo {{ color: {c.muted}; background: {c.panel}; border-bottom: 1px solid {c.divider}; padding: 4px 12px; }}
         QLabel#coverNoticeWarning {{ color: {c.text}; background: {c.raised}; border-bottom: 1px solid {c.button_hover_border}; padding: 4px 12px; }}

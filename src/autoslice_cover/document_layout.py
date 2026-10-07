@@ -386,7 +386,7 @@ SEMANTIC_BREAK = 0.0
 PARTICLE_BREAK = 0.03
 CONNECTIVE_BREAK = 0.04
 SCRIPT_BREAK = 0.05
-PLAIN_BREAK = 0.12
+PLAIN_BREAK = 0.2
 
 
 def _word_character(character: str) -> bool:

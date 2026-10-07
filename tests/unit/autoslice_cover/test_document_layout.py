@@ -99,6 +99,11 @@ class TextLayoutTests(unittest.TestCase):
         self.assertGreaterEqual(layout.ink.left, layout.area.left - 1)
         self.assertLessEqual(layout.ink.bottom, layout.area.bottom + 1)
 
+    def test_prefers_break_before_connective_over_bigger_size(self):
+        # 宁可字小一点，也不拆开“居然”。
+        layout = self._layout("韩国选秀居然可以带手机", width=600, height=324, size=120)
+        self.assertEqual([line.text for line in layout.lines], ["韩国选秀", "居然可以带手机"])
+
     def test_alignment_moves_ink_inside_area(self):
         left = self._layout("短标题", align="left")
         right = self._layout("短标题", align="right")

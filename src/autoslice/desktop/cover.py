@@ -57,9 +57,11 @@ from .cover_model import (
     BackgroundObject,
     CoverDocument,
     ImageObject,
+    Rect,
     ShapeObject,
     StickerObject,
     TextObject,
+    TextWrap,
     Transform,
     insert_overlay,
     object_for_profile,
@@ -68,7 +70,16 @@ from .cover_model import (
     text_override_payload,
     update_text_object,
 )
-from .cover_service import CoverDraft, CoverFrame, CoverService, recommended_frame, wrap_cover_title
+from .cover_service import (
+    CoverDraft,
+    CoverFrame,
+    CoverScheme,
+    CoverService,
+    best_overview_frame,
+    primary_copy_ids,
+    recommended_frame,
+    wrap_cover_title,
+)
 from .cover_style import STYLE_PRESETS, StylePreset
 from .qt_preview.icons import icon
 
@@ -226,6 +237,9 @@ class CoverEditorWidget(QWidget):
         self._nearby_results: list[CoverFrame] = []
         self._nearby_error = None
         self._ai_candidates: tuple[CoverAICandidate, ...] = ()
+        self._schemes: tuple[CoverScheme, ...] = ()
+        self._scheme_batch = 0
+        self._scheme_generation = 0
         self._selected_ai_candidate: str | None = None
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
@@ -304,8 +318,19 @@ class CoverEditorWidget(QWidget):
         toolbar_row.addWidget(self.undo_button)
         toolbar_row.addWidget(self.redo_button)
         toolbar_row.addSpacing(8)
-        # 素材与形状入口常驻工具栏，不再藏在只有空状态才出现的面板里。
+        # 插入：文字 / 素材 / 形状常驻工具栏。
+        self.add_text_button = QPushButton("文字")
+        self.add_text_button.setIcon(icon("text"))
+        self.add_text_button.setIconSize(QSize(16, 16))
+        self.add_text_button.setObjectName("quiet")
+        self.add_text_button.setFixedHeight(28)
+        self.add_text_button.setToolTip("新建文本框；双击画布上的文字可直接改字")
+        self.add_text_button.clicked.connect(self._add_text)
+        self.add_text_button.setEnabled(False)
+        toolbar_row.addWidget(self.add_text_button)
         self.asset_menu_button = QPushButton("素材")
+        self.asset_menu_button.setIcon(icon("image"))
+        self.asset_menu_button.setIconSize(QSize(16, 16))
         self.asset_menu_button.setObjectName("quiet")
         self.asset_menu_button.setFixedHeight(28)
         self.asset_menu_button.setToolTip("从素材库选择或导入图片，作为可编辑对象加入画布")
@@ -316,6 +341,8 @@ class CoverEditorWidget(QWidget):
         self.asset_menu_button.setEnabled(False)
         toolbar_row.addWidget(self.asset_menu_button)
         self.shape_menu_button = QPushButton("形状")
+        self.shape_menu_button.setIcon(icon("shapes"))
+        self.shape_menu_button.setIconSize(QSize(16, 16))
         self.shape_menu_button.setObjectName("quiet")
         self.shape_menu_button.setFixedHeight(28)
         self.shape_menu_button.setToolTip("添加圆圈、箭头或矩形强调框")
@@ -330,13 +357,16 @@ class CoverEditorWidget(QWidget):
         toolbar_row.addWidget(self.draft_status)
 
         self.export_button = QPushButton("导出")
-        self.export_button.setObjectName("primary")
         self.export_button.setFixedHeight(28)
         self.export_button.setToolTip("导出当前画布比例")
         self.export_button.setEnabled(False)
         self.export_button.clicked.connect(self._export)
         toolbar_row.addWidget(self.export_button)
         self.export_both_button = QPushButton("导出 4:3 + 16:9")
+        # 投稿要两个比例，双比例导出是主动作；旧网页端同样以“保存双比例”为主按钮。
+        self.export_both_button.setObjectName("primary")
+        self.export_both_button.setIcon(icon("download"))
+        self.export_both_button.setIconSize(QSize(16, 16))
         self.export_both_button.setFixedHeight(28)
         self.export_both_button.setToolTip("分别导出 4:3（1440×1080）与 16:9（1920×1080），不覆盖已有文件")
         self.export_both_button.setEnabled(False)
@@ -410,6 +440,7 @@ class CoverEditorWidget(QWidget):
         self.canvas.object_preview_changed.connect(self._canvas_object_preview_changed)
         self.canvas.delete_requested.connect(self._delete_object)
         self.canvas.duplicate_requested.connect(self._duplicate_object)
+        self.canvas.edit_requested.connect(self._edit_text)
         center_layout.addWidget(self.canvas, 1)
 
         # 另一比例预览条（精简为一行）
@@ -443,6 +474,9 @@ class CoverEditorWidget(QWidget):
         right_layout.setContentsMargins(10, 10, 10, 10)
         right_layout.setSpacing(6)
 
+        right_layout.addLayout(self._build_scheme_section())
+        right_layout.addSpacing(6)
+
         # 面板标题（随上下文变化）
         self.panel_title = QLabel("封面文案")
         self.panel_title.setObjectName("sectionTitle")
@@ -467,23 +501,6 @@ class CoverEditorWidget(QWidget):
         # ── 空状态面板（无选中/无项目）──
         self.empty_controls = self._build_empty_panel()
         self.panel_stack.addWidget(self.empty_controls)
-
-        # AI 入口固定在面板底部，所有上下文都能触达
-        ai_row = QHBoxLayout()
-        ai_row.setSpacing(4)
-        self.ai_button = QPushButton("AI 三个方案")
-        self.ai_button.setIcon(icon("sparkles"))
-        self.ai_button.setIconSize(QSize(16, 16))
-        self.ai_button.setFixedHeight(28)
-        self.ai_button.setToolTip("生成可编辑候选（默认不调用真实 AI）")
-        self.ai_button.clicked.connect(self._request_ai_candidates)
-        ai_row.addWidget(self.ai_button, 1)
-        right_layout.addLayout(ai_row)
-        self.ai_candidate_label = QLabel("")
-        self.ai_candidate_label.setObjectName("subtle")
-        self.ai_candidate_label.setWordWrap(True)
-        self.ai_candidate_label.setMaximumHeight(36)
-        right_layout.addWidget(self.ai_candidate_label)
 
         content.addWidget(self.right_panel)
 
@@ -546,6 +563,65 @@ class CoverEditorWidget(QWidget):
         self.panel_toggle.setEnabled(False)
         self._show_empty_panel()
         self._update_canvas_hint()
+
+    def _build_scheme_section(self) -> QVBoxLayout:
+        """快速方案：参考旧网页端“推荐排版”，三张缩略图三选一后再微调。"""
+
+        section = QVBoxLayout()
+        section.setSpacing(4)
+        scheme_head = QHBoxLayout()
+        scheme_head.setSpacing(4)
+        scheme_title = QLabel("快速方案")
+        scheme_title.setObjectName("sectionTitle")
+        scheme_head.addWidget(scheme_title)
+        scheme_head.addStretch(1)
+        self.scheme_refresh_button = QPushButton("")
+        self.scheme_refresh_button.setIcon(icon("refresh"))
+        self.scheme_refresh_button.setIconSize(QSize(15, 15))
+        self.scheme_refresh_button.setFixedSize(26, 26)
+        self.scheme_refresh_button.setObjectName("quiet")
+        self.scheme_refresh_button.setToolTip("换一批：轮换文案和配色（本地生成，不调用 AI）")
+        self.scheme_refresh_button.clicked.connect(self._next_scheme_batch)
+        self.scheme_refresh_button.setEnabled(False)
+        scheme_head.addWidget(self.scheme_refresh_button)
+        self.ai_button = QPushButton("")
+        self.ai_button.setIcon(icon("sparkles"))
+        self.ai_button.setIconSize(QSize(15, 15))
+        self.ai_button.setFixedSize(26, 26)
+        self.ai_button.setObjectName("quiet")
+        self.ai_button.setToolTip("AI 三个方案（Beta）：生成可编辑候选；未配置时不调用真实 AI")
+        self.ai_button.clicked.connect(self._request_ai_candidates)
+        scheme_head.addWidget(self.ai_button)
+        section.addLayout(scheme_head)
+        scheme_row = QHBoxLayout()
+        scheme_row.setSpacing(4)
+        self.scheme_buttons: list[QPushButton] = []
+        self.scheme_labels: list[QLabel] = []
+        for index in range(3):
+            column = QVBoxLayout()
+            column.setSpacing(2)
+            button = QPushButton("")
+            button.setObjectName("schemeThumb")
+            button.setCheckable(True)
+            button.setFixedSize(84, 66)
+            button.setIconSize(QSize(78, 58))
+            button.setEnabled(False)
+            button.clicked.connect(lambda _checked=False, value=index: self._apply_scheme(value))
+            caption = QLabel("—")
+            caption.setObjectName("subtle")
+            caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            column.addWidget(button, 0, Qt.AlignmentFlag.AlignHCenter)
+            column.addWidget(caption)
+            scheme_row.addLayout(column)
+            self.scheme_buttons.append(button)
+            self.scheme_labels.append(caption)
+        section.addLayout(scheme_row)
+        self.ai_candidate_label = QLabel("")
+        self.ai_candidate_label.setObjectName("subtle")
+        self.ai_candidate_label.setWordWrap(True)
+        self.ai_candidate_label.setMaximumHeight(36)
+        section.addWidget(self.ai_candidate_label)
+        return section
 
     def _toggle_panel(self, checked):
         """手动切换面板折叠/展开。"""
@@ -630,27 +706,16 @@ class CoverEditorWidget(QWidget):
         self.title_edit.textChanged.connect(self._draft_changed)
         layout.addWidget(self.title_edit)
 
-        # A/B 快速切换（紧凑）
+        # 当前文本框身份 + 换文案；选择文本框直接在画布上点。
         role_row = QHBoxLayout()
         role_row.setSpacing(4)
-        self.copy_role_buttons: dict[str, QPushButton] = {}
-        self.copy_role_group = QButtonGroup(self)
-        self.copy_role_group.setExclusive(True)
-        for role, text in (("A", "A"), ("B", "B")):
-            btn = QPushButton(text)
-            btn.setCheckable(True)
-            btn.setFixedHeight(26)
-            btn.setMinimumWidth(32)
-            btn.setToolTip(f"编辑文字块 {role}")
-            btn.clicked.connect(lambda _c=False, r=role: self._select_copy_role(r))
-            self.copy_role_group.addButton(btn)
-            self.copy_role_buttons[role] = btn
-            role_row.addWidget(btn)
-        role_row.addStretch(1)
-        self.copy_button = QPushButton("换一版")
+        self.copy_role_label = QLabel("")
+        self.copy_role_label.setObjectName("subtle")
+        role_row.addWidget(self.copy_role_label, 1)
+        self.copy_button = QPushButton("换一版文案")
         self.copy_button.setFixedHeight(26)
         self.copy_button.setObjectName("quiet")
-        self.copy_button.setToolTip("切换本地文案候选")
+        self.copy_button.setToolTip("只换 A/B 主文案的文字，位置和字号不变")
         self.copy_button.clicked.connect(self._cycle_copy)
         role_row.addWidget(self.copy_button)
         layout.addLayout(role_row)
@@ -680,8 +745,25 @@ class CoverEditorWidget(QWidget):
         self.align_buttons["left"].setChecked(True)
         layout.addLayout(size_align)
 
-        # 样式折叠区
-        self.style_toggle = QPushButton("样式")
+        # 配色预设常驻：最常用的一步，不藏在折叠里。
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(3)
+        self.style_preset_buttons: dict[str, QPushButton] = {}
+        for preset in STYLE_PRESETS:
+            button = QPushButton("")
+            button.setIcon(_preset_icon(preset))
+            button.setIconSize(QSize(26, 20))
+            button.setFixedSize(32, 26)
+            button.setObjectName("quiet")
+            button.setToolTip(f"{preset.label}（同时应用到所有文本框）")
+            button.clicked.connect(lambda _checked=False, item=preset: self._apply_style_preset(item))
+            self.style_preset_buttons[preset.key] = button
+            preset_row.addWidget(button)
+        preset_row.addStretch(1)
+        layout.addLayout(preset_row)
+
+        # 样式细节折叠区
+        self.style_toggle = QPushButton("描边与效果")
         self.style_toggle.setIcon(icon("chevron_right"))
         self.style_toggle.setIconSize(QSize(14, 14))
         self.style_toggle.setFixedHeight(26)
@@ -692,22 +774,6 @@ class CoverEditorWidget(QWidget):
         style_outer = QVBoxLayout(self.style_widget)
         style_outer.setContentsMargins(8, 0, 0, 0)
         style_outer.setSpacing(4)
-        # 一键预设：A/B 同时套用，只改颜色与效果，不动字号和位置。
-        preset_row = QHBoxLayout()
-        preset_row.setSpacing(3)
-        self.style_preset_buttons: dict[str, QPushButton] = {}
-        for preset in STYLE_PRESETS:
-            button = QPushButton("")
-            button.setIcon(_preset_icon(preset))
-            button.setIconSize(QSize(30, 22))
-            button.setFixedSize(36, 28)
-            button.setObjectName("quiet")
-            button.setToolTip(f"{preset.label}（同时应用到 A/B）")
-            button.clicked.connect(lambda _checked=False, item=preset: self._apply_style_preset(item))
-            self.style_preset_buttons[preset.key] = button
-            preset_row.addWidget(button)
-        preset_row.addStretch(1)
-        style_outer.addLayout(preset_row)
         style_form = QFormLayout()
         style_form.setContentsMargins(0, 0, 0, 0)
         style_form.setSpacing(4)
@@ -1059,10 +1125,7 @@ class CoverEditorWidget(QWidget):
             self.line_spacing_spin.setValue(float(text.style.line_spacing))
             self.shadow_check.setChecked(bool(text.style.shadow))
             self.rotation_spin.setValue(float(text.transform.rotation))
-            for role, button in self.copy_role_buttons.items():
-                button.blockSignals(True)
-                button.setChecked(role == text.copy_role)
-                button.blockSignals(False)
+            self._update_role_label(text)
             for key, button in self.align_buttons.items():
                 button.blockSignals(True)
                 button.setChecked(key == text.align)
@@ -1240,13 +1303,128 @@ class CoverEditorWidget(QWidget):
         self.status_changed.emit(f"已添加{label}，可直接在画布上拖动")
 
     def _primary_copy_ids(self) -> dict[str, str]:
-        """每个角色的第一个文本框是 A/B 主文案；复制出来的不参与换一版。"""
+        """每个角色的第一个文本框是 A/B 主文案；复制或新建的不参与换一版。"""
 
-        ids: dict[str, str] = {}
-        for item in self.document.objects if self.document else ():
-            if isinstance(item, TextObject):
-                ids.setdefault(item.copy_role, item.id)
-        return ids
+        return primary_copy_ids(self.document) if self.document else {}
+
+    def _update_role_label(self, text: TextObject | None) -> None:
+        if text is None:
+            self.copy_role_label.setText("")
+        elif self._primary_copy_ids().get(text.copy_role) != text.id:
+            self.copy_role_label.setText("自建文本框")
+        else:
+            self.copy_role_label.setText("主文案 B · 大字" if text.copy_role == "B" else "上下文 A · 小字")
+
+    def _add_text(self):
+        """新建文本框：沿用主文案样式放在画面中部，选中后直接输入文字。"""
+
+        if self.document is None:
+            return
+        before = self.document
+        source_id = self._primary_copy_ids().get("B")
+        source = object_for_profile(self.document, source_id, self._canvas_key) if source_id else None
+        style = source.style if isinstance(source, TextObject) else None
+        new_id = self._new_object_id("text")
+        width = 0.6
+        text = TextObject(
+            id=new_id,
+            copy_role="B",
+            text="双击修改文字",
+            z_index=max((item.z_index for item in self.document.objects), default=0) + 1,
+            transform=Transform(x=0.2, y=0.42),
+            rect=Rect(width=width, height=0.16),
+            wrap=TextWrap(max_width=width, max_lines=8),
+            align="center",
+        )
+        if style is not None:
+            text = replace(text, style=replace(style, font_size=max(48, min(120, round(style.font_size * 0.8)))))
+        self.document = replace(self.document, objects=(*self.document.objects, text), selected_object_id=new_id)
+        self._selected_text_id = new_id
+        self.canvas.set_selected_object(new_id)
+        self._commit_document_change(before)
+        self._edit_text(new_id)
+        self.status_changed.emit("已新建文本框：直接输入文字，拖四角缩放")
+
+    def _edit_text(self, object_id: str):
+        """双击文字：右侧文案框获得焦点并全选，直接输入即可替换。"""
+
+        if self.document is None:
+            return
+        self._canvas_object_selected(object_id)
+        if not self._panel_visible:
+            self.panel_toggle.setChecked(False)
+            self._show_panel()
+        self.title_edit.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.title_edit.selectAll()
+
+    def _clear_schemes(self, caption: str = "—"):
+        self._scheme_generation += 1
+        self._schemes = ()
+        for button, label in zip(self.scheme_buttons, self.scheme_labels):
+            button.setIcon(QIcon())
+            button.setChecked(False)
+            button.setEnabled(False)
+            label.setText(caption)
+        self.scheme_refresh_button.setEnabled(False)
+
+    def _refresh_schemes(self, *, batch: int | None = None):
+        """后台生成三套方案和缩略图；只出缩略图，不改当前封面。"""
+
+        if self.document is None or not self.draft.image_path:
+            self._clear_schemes()
+            return
+        if batch is not None:
+            self._scheme_batch = max(0, int(batch))
+        self._clear_schemes("生成中…")
+        generation = self._scheme_generation
+        document, image_path = self.document, self.draft.image_path
+        variants, scheme_batch, service = self._copy_variants, self._scheme_batch, self.service
+
+        def build():
+            schemes = service.layout_schemes(document, image_path, variants, batch=scheme_batch)
+            return schemes, tuple(service.scheme_thumbnail(item.document, width=156) for item in schemes)
+
+        self._run(build, lambda result, error: self._schemes_ready(generation, result, error))
+
+    def _schemes_ready(self, generation: int, result, error):
+        if generation != self._scheme_generation:
+            return
+        self.scheme_refresh_button.setEnabled(self.document is not None)
+        if error or not result:
+            for label in self.scheme_labels:
+                label.setText("—")
+            if error:
+                self.status_changed.emit(f"方案生成失败：{error}")
+            return
+        schemes, thumbnails = result
+        self._schemes = tuple(schemes)
+        for index, (button, label) in enumerate(zip(self.scheme_buttons, self.scheme_labels)):
+            if index >= len(self._schemes):
+                continue
+            scheme = self._schemes[index]
+            pixmap = QPixmap()
+            pixmap.loadFromData(thumbnails[index])
+            button.setIcon(QIcon(pixmap))
+            button.setEnabled(True)
+            button.setToolTip(f"{scheme.label}：{scheme.reason}\n点击套用，Ctrl+Z 可撤销")
+            label.setText(scheme.label)
+
+    def _apply_scheme(self, index: int):
+        if self.document is None or not 0 <= index < len(self._schemes):
+            return
+        scheme = self._schemes[index]
+        before = self.document
+        self.document = self.service.apply_scheme(self.document, scheme)
+        for position, button in enumerate(self.scheme_buttons):
+            button.setChecked(position == index)
+        if self.document != before:
+            self._commit_document_change(before)
+            self.canvas.set_document(self.document, self._canvas_key)
+            self._sync_selected_text_controls()
+        self.status_changed.emit(f"已套用方案：{scheme.label}（Ctrl+Z 可撤销）")
+
+    def _next_scheme_batch(self):
+        self._refresh_schemes(batch=self._scheme_batch + 1)
 
     def _selected_render_object(self):
         if self.document is None:
@@ -1542,10 +1720,6 @@ class CoverEditorWidget(QWidget):
                 button.blockSignals(True)
                 button.setChecked(key == item.align)
                 button.blockSignals(False)
-            for role, button in self.copy_role_buttons.items():
-                button.blockSignals(True)
-                button.setChecked(role == item.copy_role)
-                button.blockSignals(False)
         elif isinstance(item, BackgroundObject):
             self.zoom_spin.blockSignals(True)
             try:
@@ -1569,7 +1743,7 @@ class CoverEditorWidget(QWidget):
             self.canvas_hint.setText("先到“字幕”页选择投稿项目和视频")
             return
         self.canvas_hint.setText(
-            f"{self._canvas_label()} 主画布 · 选中标题或底图后拖动；滚轮缩放"
+            f"{self._canvas_label()} 主画布 · 拖动文字或底图；四角缩放/旋转，两侧改行宽；双击改字；滚轮缩放底图"
         )
 
     def _set_canvas_key(self, canvas_key: str):
@@ -1870,6 +2044,8 @@ class CoverEditorWidget(QWidget):
             self.current_frame_button.setEnabled(False)
             self.asset_menu_button.setEnabled(False)
             self.shape_menu_button.setEnabled(False)
+            self.add_text_button.setEnabled(False)
+            self._clear_schemes()
             self.export_button.setEnabled(False)
             self.export_both_button.setEnabled(False)
             self.undo_button.setEnabled(False)
@@ -1892,6 +2068,7 @@ class CoverEditorWidget(QWidget):
         self.check_preview_toggle.setEnabled(True)
         self.asset_menu_button.setEnabled(True)
         self.shape_menu_button.setEnabled(True)
+        self.add_text_button.setEnabled(True)
         self._set_notice("")
         self._update_export_summary()
         video_path = Path(video.path)
@@ -1959,10 +2136,13 @@ class CoverEditorWidget(QWidget):
         self._refresh_nearby_frame_strip(
             self.draft.selected_timestamp if self.draft.image_path else self._current_playhead
         )
+        self._scheme_batch = 0
         if self.draft.image_path:
             self._render_preview()
             self._queue_nearby_thumbnails(self.draft.selected_timestamp)
+            self._refresh_schemes()
         else:
+            self._clear_schemes()
             self.canvas.setText("正在准备当前帧…" if self.isVisible() else "进入封面页后自动加载当前帧")
             self.export_button.setEnabled(False)
             if self.isVisible() and not self._frame_extract_pending:
@@ -2194,10 +2374,16 @@ class CoverEditorWidget(QWidget):
         self._preview_timer.start()
 
     def _gesture_finished(self):
-        # object_changed 已在 release 提交；取消同一手势留下的 debounce，
-        # 避免释放时立即保存后又在 500ms 再写一次。
-        self._draft_timer.stop()
-        self._save_draft()
+        # object_changed 已在 release 提交并启动防抖保存；释放时不同步写盘，
+        # 连续拖动只在停手后写一次。
+        self._draft_timer.start()
+
+    def flush_draft(self):
+        """关窗或离开前补写尚在防抖中的草稿。"""
+
+        if self._draft_timer.isActive():
+            self._draft_timer.stop()
+            self._save_draft()
 
     def _fill_canvas(self):
         self._set_background_transform(0.5, 0.5, 1.0, fit_mode="cover")
@@ -2291,9 +2477,39 @@ class CoverEditorWidget(QWidget):
         self._render_preview()
 
     def _use_current_frame(self):
+        if not self.draft.image_path and self._current_playhead < 0.5:
+            # 字幕页没有播放过：不取片头黑帧，按旧网页端从全片挑画质好的一张。
+            self._auto_pick_frame()
+            return
         self.timestamp_edit.setValue(self._current_playhead)
         self._update_nearby_frame_selection(self._current_playhead)
         self._refresh_nearby_frame_strip(self._current_playhead)
+        self._extract_frame()
+
+    def _auto_pick_frame(self):
+        if self.video is None or not Path(self.video.path).is_file():
+            self._extract_frame()
+            return
+        self._frame_extract_pending = True
+        self._frame_request_generation += 1
+        request_generation = self._frame_request_generation
+        video = self.video
+        self.canvas.setText("正在从全片挑选画面…")
+        self._set_notice("没有播放位置：正在从全片挑一张画质好的画面…", "info")
+        self._run(
+            lambda: self.service.overview_candidates(video),
+            lambda result, error: self._overview_ready(request_generation, result, error),
+        )
+
+    def _overview_ready(self, request_generation: int, result, error):
+        if request_generation != self._frame_request_generation:
+            return
+        self._frame_extract_pending = False
+        best = None if error else best_overview_frame(tuple(result or ()))
+        timestamp = best.timestamp if best is not None else self._current_playhead
+        self.timestamp_edit.setValue(timestamp)
+        self._update_nearby_frame_selection(timestamp)
+        self._refresh_nearby_frame_strip(timestamp)
         self._extract_frame()
 
     def _extract_frame(self):
@@ -2374,11 +2590,16 @@ class CoverEditorWidget(QWidget):
             self.redo_button.setEnabled(self.history.can_redo)
         self.timestamp_edit.setValue(timestamp)
         self._refresh_nearby_frame_strip(timestamp)
+        if first_background:
+            # 自动排版改了字号和对齐，右侧控件跟着刷新。
+            self.canvas.set_document(self.document, self._canvas_key)
+            self._sync_selected_text_controls()
         self._save_draft()
         self._set_notice("")
         self.status_changed.emit("已加载当前视频画面")
         self._render_preview()
         self._queue_nearby_thumbnails(timestamp)
+        self._refresh_schemes()
 
     def _render_preview(self):
         if self.video is None or not self.draft.image_path:
