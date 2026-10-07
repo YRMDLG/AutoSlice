@@ -86,6 +86,7 @@ def stylesheet() -> str:
         QWidget {{ color: {c.text}; background: transparent; font-family: 'Microsoft YaHei UI', 'Segoe UI'; font-size: {m.text_base}px; }}
         QWidget#root {{ background: {c.canvas}; }}
         QDialog {{ background: {c.rail}; }}
+        QPlainTextEdit#inlineTextEdit {{ background: rgba(12, 16, 22, 235); color: #FFFFFF; border: 1px solid {c.accent}; border-radius: 6px; padding: 4px 6px; font-size: 15px; }}
         QListWidget {{ background: {c.player}; border: 1px solid {c.divider}; border-radius: 6px; padding: 4px; }}
         QListWidget::item {{ padding: 4px 2px; }}
         QListWidget::indicator {{ width: 13px; height: 13px; border: 1px solid {c.muted}; border-radius: 3px; background: {c.panel}; }}

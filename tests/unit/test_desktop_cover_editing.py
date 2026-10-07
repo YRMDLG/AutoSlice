@@ -199,6 +199,51 @@ class SchemeTests(unittest.TestCase):
         self.assertIsNone(best_overview_frame(()))
 
 
+class RatioSyncTests(unittest.TestCase):
+    def test_sync_keeps_font_pixel_width_and_center(self):
+        from autoslice.desktop.cover_model import Rect, TextWrap, Transform
+
+        text = TextObject(
+            id="copy-b", copy_role="B", text="同步到另一比例", z_index=11,
+            transform=Transform(x=0.2, y=0.6), rect=Rect(width=0.6, height=0.2),
+            wrap=TextWrap(max_width=0.6, max_lines=8), style=TextStyle(font_size=120),
+        )
+        shape = ShapeObject(id="shape-1", z_index=5, width=0.2, height=0.1, transform=Transform(x=0.1, y=0.1))
+        document = CoverDocument(objects=(BackgroundObject(id="background-main"), text, shape), profiles=default_profiles())
+        synced = CoverService.sync_profile(document, "4x3", "16x9")
+        wide = object_for_profile(synced, "copy-b", "16x9")
+        self.assertEqual(wide.style.font_size, 120)
+        self.assertAlmostEqual(wide.rect.width * 1920, 0.6 * 1440, places=3)
+        self.assertAlmostEqual(wide.transform.x + wide.rect.width / 2, 0.5, places=6)
+        self.assertAlmostEqual(wide.transform.y, 0.6)
+        moved_shape = object_for_profile(synced, "shape-1", "16x9")
+        self.assertAlmostEqual(moved_shape.width * 1920, 0.2 * 1440, places=3)
+        # 底图取景不同步；源比例不变。
+        self.assertNotIn("background-main", synced.profiles["16x9"].overrides)
+        self.assertEqual(synced.profiles["4x3"], document.profiles["4x3"])
+
+
+class AssetLibraryTests(unittest.TestCase):
+    def test_recent_assets_newest_first(self):
+        from autoslice.desktop.cover_assets import CoverAssetLibrary
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stickers = root / "stickers" / "泽音"
+            stickers.mkdir(parents=True)
+            for name in ("a", "b", "c"):
+                Image.new("RGBA", (16, 16), "red").save(stickers / f"{name}.png")
+            library = CoverAssetLibrary(root / "data", legacy_root=root / "stickers")
+            assets = {item.name: item for item in library.list_assets()}
+            self.assertEqual(library.recent_assets(), ())
+            first = next(item for name, item in assets.items() if name.startswith("a"))
+            second = next(item for name, item in assets.items() if name.startswith("b"))
+            library.mark_used(first.asset_id)
+            library.mark_used(second.asset_id)
+            self.assertEqual([item.asset_id for item in library.recent_assets()], [second.asset_id, first.asset_id])
+            self.assertEqual(len(library.recent_assets(1)), 1)
+
+
 class StylePresetTests(unittest.TestCase):
     def test_preset_changes_colors_only_and_supports_two_tone(self):
         duo = next(preset for preset in STYLE_PRESETS if preset.key == "duo")

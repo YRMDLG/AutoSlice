@@ -465,6 +465,59 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.widget._set_notice("")
         self.assertFalse(self.widget.notice_label.isVisible())
 
+    def test_inline_edit_types_on_canvas_and_escape_restores(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.widget.show()
+        self.app.processEvents()
+        original = self._text("copy-b").text
+        self.widget._edit_text("copy-b")
+        self.assertTrue(self.widget.inline_edit.isVisible())
+        self.assertEqual(self.widget.inline_edit.toPlainText(), original)
+        self.widget.inline_edit.setPlainText("画布上直接打字")
+        self.assertEqual(self._text("copy-b").text, "画布上直接打字")
+        self.assertEqual(self._text("copy-b", "16x9").text, "画布上直接打字")
+        QTest.keyClick(self.widget.inline_edit, Qt.Key.Key_Escape)
+        self.assertFalse(self.widget.inline_edit.isVisible())
+        self.assertEqual(self._text("copy-b").text, original)
+        # 再进一次，Ctrl+回车保留。
+        self.widget._edit_text("copy-b")
+        self.widget.inline_edit.setPlainText("保留这句")
+        QTest.keyClick(self.widget.inline_edit, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+        self.assertFalse(self.widget.inline_edit.isVisible())
+        self.assertEqual(self._text("copy-b").text, "保留这句")
+        self.widget.close()
+
+    def test_frame_slider_and_overview_choose_frames(self):
+        from autoslice.desktop.cover_service import CoverFrame
+
+        self.widget.set_context(self.project, self.project.videos[0])
+        chosen = []
+        self.widget._choose_nearby_frame = chosen.append
+        self.widget._video_duration_ready(self.widget._context_generation, 125.0, None)
+        self.assertTrue(self.widget.frame_slider.isEnabled())
+        self.assertEqual(self.widget.frame_slider.maximum(), 1250)
+        self.assertEqual(self.widget.duration_label.text(), "2:05")
+        self.widget.frame_slider.setValue(423)
+        self.widget._slider_frame()
+        self.assertEqual(chosen, [42.3])
+        frames = tuple(CoverFrame(Path(f"{t}.jpg"), t, 50.0 + t) for t in range(0, 120, 10))
+        self.widget._nearby_request_generation += 1
+        self.widget._wider_frames_ready(self.widget._nearby_request_generation, frames, None, scope="全片")
+        stamps = [float(button.property("timestamp")) for button in self.widget.nearby_frame_buttons]
+        self.assertEqual(stamps, [50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0])
+
+    def test_sync_button_follows_ratio(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self.widget.sync_ratio_button.isEnabled())
+        self.assertEqual(self.widget.sync_ratio_button.text(), "同步到 16:9")
+        self.widget.canvas_ratio_buttons["16x9"].click()
+        self.assertEqual(self.widget.sync_ratio_button.text(), "同步到 4:3")
+        before = self.widget.document
+        self.widget._sync_other_ratio()
+        self.assertNotEqual(self.widget.document.profiles["4x3"], before.profiles["4x3"])
+        self.widget._undo()
+        self.assertEqual(self.widget.document.profiles["4x3"], before.profiles["4x3"])
+
     def test_batch_button_follows_project_list(self):
         self.assertFalse(self.widget.batch_button.isEnabled())
         self.widget.set_project_list((self.project,))

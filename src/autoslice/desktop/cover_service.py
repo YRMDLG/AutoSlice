@@ -33,7 +33,13 @@ from autoslice_cover.video import (
 
 from .cover_assets import CoverAssetLibrary
 from .cover_copy import BasicCoverCopy, generate_basic_copy_variants
-from .cover_layout import canvas_size, document_layers, fitted_font_size, text_layout
+from .cover_layout import (
+    canvas_size,
+    document_layers,
+    fitted_font_size,
+    overlay_geometry,
+    text_layout,
+)
 from .cover_migration import (
     document_from_basic_title_values,
     document_from_draft_values,
@@ -46,6 +52,7 @@ from .cover_model import (
     CoverDocument,
     ImageObject,
     Rect,
+    ShapeObject,
     StickerObject,
     TextObject,
     object_for_profile,
@@ -942,6 +949,61 @@ class CoverService:
         stem = Path(video.name).stem or "封面"
         pattern = str(Path(glob.escape(project.directory)) / f"AutoCover-{glob.escape(stem)}*.jpg")
         return tuple(sorted(Path(item) for item in glob.glob(pattern)))
+
+    def video_duration(self, video: ProjectVideo) -> float:
+        return float(self._video_metadata(video).duration)
+
+    @staticmethod
+    def sync_profile(document: CoverDocument, source_key: str, target_key: str) -> CoverDocument:
+        """把一个比例里调好的文字和素材套到另一个比例：字号与像素尺寸不变，中心横向位置不变。
+
+        底图取景不同步，两个比例各自保住主体。
+        """
+
+        if source_key == target_key or target_key not in document.profiles:
+            return document
+        source_width, _ = canvas_size(source_key)
+        target_width, _ = canvas_size(target_key)
+        ratio = source_width / target_width
+        profile = document.profiles[target_key]
+        overrides = dict(profile.overrides)
+        for base in document.objects:
+            item = object_for_profile(document, base.id, source_key)
+            if isinstance(item, TextObject):
+                width = min(0.92, item.rect.width * ratio)
+                center = item.transform.x + item.rect.width / 2
+                moved = replace(
+                    item,
+                    transform=replace(item.transform, x=max(-0.5, min(1.0, center - width / 2))),
+                    rect=replace(item.rect, width=width),
+                    wrap=replace(item.wrap, max_width=width),
+                )
+                overrides[base.id] = text_override_payload(moved)
+            elif isinstance(item, (ImageObject, StickerObject)):
+                box = overlay_geometry(item, canvas_size(source_key))
+                if box is None:
+                    continue
+                center = (box.left + box.width / 2) / source_width
+                scale = item.transform.scale * ratio
+                x = max(-0.5, min(1.0, center - box.width / target_width / 2))
+                overrides[base.id] = {
+                    **overrides.get(base.id, {}),
+                    "transform": replace(item.transform, x=x, scale=scale).to_payload(),
+                    "visible": bool(item.visible),
+                    "opacity": item.opacity,
+                }
+            elif isinstance(item, ShapeObject):
+                width = item.width * ratio
+                center = item.transform.x + item.width * item.transform.scale / 2
+                x = max(-0.5, min(1.0, center - width * item.transform.scale / 2))
+                overrides[base.id] = {
+                    **overrides.get(base.id, {}),
+                    "transform": replace(item.transform, x=x).to_payload(),
+                    "visible": bool(item.visible),
+                    "shape_type": item.shape_type, "fill": item.fill, "stroke": item.stroke,
+                    "stroke_width": item.stroke_width, "width": width, "height": item.height,
+                }
+        return replace(document, profiles={**document.profiles, target_key: replace(profile, overrides=overrides)})
 
     def has_draft(self, project: SubmissionProject, video: ProjectVideo) -> bool:
         return self.storage.read_draft("cover", project.directory, video.path).status == "ready"

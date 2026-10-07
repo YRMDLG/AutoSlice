@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
@@ -81,7 +82,7 @@ from .cover_service import (
     recommended_frame,
     wrap_cover_title,
 )
-from .cover_style import STYLE_PRESETS, StylePreset
+from .cover_style import STYLE_PRESETS, StylePreset, streamer_key
 from .qt_preview.icons import icon
 
 
@@ -107,6 +108,26 @@ class _TitleEdit(QPlainTextEdit):
 
     def text(self) -> str:
         return self.toPlainText()
+
+
+class _InlineTextEdit(_TitleEdit):
+    """画布上的就地输入框：回车换行，Ctrl+回车或点别处完成，Esc 放弃。"""
+
+    finished = Signal(bool)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.finished.emit(False)
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.finished.emit(True)
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        if self.isVisible():
+            self.finished.emit(True)
 
 
 class _ColorButton(QPushButton):
@@ -235,6 +256,9 @@ class CoverEditorWidget(QWidget):
         self._nearby_error = None
         self._schemes: tuple[CoverScheme, ...] = ()
         self._batch_projects: tuple[SubmissionProject, ...] = ()
+        self._inline_target: str | None = None
+        self._inline_original = ""
+        self._video_duration = 0.0
         self._scheme_batch = 0
         self._scheme_generation = 0
         self._draft_timer = QTimer(self)
@@ -283,6 +307,13 @@ class CoverEditorWidget(QWidget):
             toolbar_row.addWidget(btn)
             btn.clicked.connect(lambda _c=False, k=key: self._set_canvas_key(k))
         self.canvas_ratio_buttons["4x3"].setChecked(True)
+        self.sync_ratio_button = QPushButton("同步到 16:9")
+        self.sync_ratio_button.setObjectName("quiet")
+        self.sync_ratio_button.setFixedHeight(28)
+        self.sync_ratio_button.setToolTip("把当前比例里调好的文字和素材位置套到另一个比例；底图取景各自保留")
+        self.sync_ratio_button.clicked.connect(self._sync_other_ratio)
+        self.sync_ratio_button.setEnabled(False)
+        toolbar_row.addWidget(self.sync_ratio_button)
 
         toolbar_row.addSpacing(8)
 
@@ -321,10 +352,10 @@ class CoverEditorWidget(QWidget):
         self.asset_menu_button.setObjectName("quiet")
         self.asset_menu_button.setFixedHeight(28)
         self.asset_menu_button.setToolTip("从素材库选择或导入图片，作为可编辑对象加入画布")
-        asset_menu = QMenu(self.asset_menu_button)
-        asset_menu.addAction("从素材库选择…", self._browse_assets)
-        asset_menu.addAction("导入图片…", self._import_asset)
-        self.asset_menu_button.setMenu(asset_menu)
+        self.asset_menu = QMenu(self.asset_menu_button)
+        self.asset_menu.aboutToShow.connect(self._fill_asset_menu)
+        self._fill_asset_menu()
+        self.asset_menu_button.setMenu(self.asset_menu)
         self.asset_menu_button.setEnabled(False)
         toolbar_row.addWidget(self.asset_menu_button)
         self.shape_menu_button = QPushButton("形状")
@@ -437,6 +468,13 @@ class CoverEditorWidget(QWidget):
         self.canvas.delete_requested.connect(self._delete_object)
         self.canvas.duplicate_requested.connect(self._duplicate_object)
         self.canvas.edit_requested.connect(self._edit_text)
+        self.inline_edit = _InlineTextEdit(self.canvas)
+        self.inline_edit.setObjectName("inlineTextEdit")
+        self.inline_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.inline_edit.setToolTip("回车换行；Ctrl+回车或点别处完成；Esc 放弃")
+        self.inline_edit.hide()
+        self.inline_edit.textChanged.connect(self._inline_text_changed)
+        self.inline_edit.finished.connect(self._finish_inline_edit)
         center_layout.addWidget(self.canvas, 1)
 
         hint_row = QHBoxLayout()
@@ -496,9 +534,33 @@ class CoverEditorWidget(QWidget):
         # ── 底部附近帧条（精简为一行）──
         strip = QWidget()
         strip.setObjectName("frameStrip")
-        strip_layout = QHBoxLayout(strip)
-        strip_layout.setContentsMargins(12, 4, 12, 6)
+        strip_column = QVBoxLayout(strip)
+        strip_column.setContentsMargins(12, 4, 12, 6)
+        strip_column.setSpacing(2)
+        # 拖动选帧：参考旧网页端“精确选帧”，松手后从这个时间取帧。
+        scrub_row = QHBoxLayout()
+        scrub_row.setSpacing(6)
+        self.frame_slider = QSlider(Qt.Orientation.Horizontal)
+        self.frame_slider.setRange(0, 0)
+        self.frame_slider.setEnabled(False)
+        self.frame_slider.setToolTip("拖动选帧：松手后从这个时间取帧")
+        self.frame_slider.sliderMoved.connect(lambda value: self.frame_center_label.setText(f"选到 {value / 10:.1f} 秒"))
+        self.frame_slider.sliderReleased.connect(self._slider_frame)
+        self._slider_timer = QTimer(self)
+        self._slider_timer.setSingleShot(True)
+        self._slider_timer.setInterval(300)
+        self._slider_timer.timeout.connect(self._slider_frame)
+        self.frame_slider.valueChanged.connect(
+            lambda _value: None if self.frame_slider.isSliderDown() else self._slider_timer.start()
+        )
+        scrub_row.addWidget(self.frame_slider, 1)
+        self.duration_label = QLabel("")
+        self.duration_label.setObjectName("subtle")
+        scrub_row.addWidget(self.duration_label)
+        strip_column.addLayout(scrub_row)
+        strip_layout = QHBoxLayout()
         strip_layout.setSpacing(4)
+        strip_column.addLayout(strip_layout)
         self.frame_center_label = QLabel("0.00s")
         self.frame_center_label.setObjectName("subtle")
         self.frame_center_label.setMinimumWidth(62)
@@ -522,6 +584,12 @@ class CoverEditorWidget(QWidget):
         self.more_frames_button.setToolTip("扩大取帧范围")
         self.more_frames_button.clicked.connect(self._find_more_frames)
         strip_layout.addWidget(self.more_frames_button)
+        self.overview_button = QPushButton("全片")
+        self.overview_button.setFixedHeight(24)
+        self.overview_button.setObjectName("quiet")
+        self.overview_button.setToolTip("从整个视频按画质挑 7 张")
+        self.overview_button.clicked.connect(self._find_overview_frames)
+        strip_layout.addWidget(self.overview_button)
         strip_layout.addSpacing(8)
         self.nearby_frame_buttons = []
         for _ in range(7):
@@ -1158,7 +1226,8 @@ class CoverEditorWidget(QWidget):
         if self.document is None:
             return
         try:
-            assets = self.service.asset_library.list_assets(preferred_group=self.project.title if self.project else None)
+            preferred = (streamer_key(self.project.title) or self.project.title) if self.project else None
+            assets = self.service.asset_library.list_assets(preferred_group=preferred)
         except (OSError, ValueError) as exc:
             message = f"素材库暂不可用：{exc}"
             self._set_notice(message, "error")
@@ -1264,16 +1333,144 @@ class CoverEditorWidget(QWidget):
         self.status_changed.emit("已新建文本框：直接输入文字，拖四角缩放")
 
     def _edit_text(self, object_id: str):
-        """双击文字：右侧文案框获得焦点并全选，直接输入即可替换。"""
+        """双击文字：就在文字旁边打字，画布实时显示效果。"""
 
         if self.document is None:
             return
+        self._finish_inline_edit(True)
         self._canvas_object_selected(object_id)
-        if not self._panel_visible:
-            self.panel_toggle.setChecked(False)
-            self._show_panel()
-        self.title_edit.setFocus(Qt.FocusReason.OtherFocusReason)
-        self.title_edit.selectAll()
+        text = self._selected_text()
+        if text is None or text.id != object_id:
+            return
+        current = object_for_profile(self.document, object_id, self._canvas_key)
+        current = current if isinstance(current, TextObject) else text
+        self._inline_target = object_id
+        self._inline_original = current.text
+        self.inline_edit.blockSignals(True)
+        self.inline_edit.setPlainText(current.text)
+        self.inline_edit.blockSignals(False)
+        self._place_inline_edit()
+        self.inline_edit.show()
+        self.inline_edit.raise_()
+        self.inline_edit.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.inline_edit.selectAll()
+
+    def _place_inline_edit(self):
+        """输入框贴在文字框下方，放不下就放上方，始终留在画布里。"""
+
+        target = next((item for item in self.canvas._layered_objects() if item.id == self._inline_target), None)
+        if not isinstance(target, TextObject):
+            return
+        box = self.canvas._display_rect(target)
+        bounds = self.canvas.rect().adjusted(8, 8, -8, -8)
+        lines = max(1, min(4, self.inline_edit.toPlainText().count("\n") + 1))
+        height = self.inline_edit.fontMetrics().lineSpacing() * lines + 18
+        width = max(240, min(int(box.width()), bounds.width()))
+        x = int(min(max(box.left(), bounds.left()), bounds.right() - width))
+        y = int(box.bottom() + 10)
+        if y + height > bounds.bottom():
+            y = int(max(bounds.top(), box.top() - height - 10))
+        self.inline_edit.setGeometry(x, y, width, height)
+
+    def _inline_text_changed(self):
+        if self._inline_target is None:
+            return
+        # 走右侧文案框的同一条写回路径：文字两比例共享、清空即隐藏、可撤销。
+        self.title_edit.setPlainText(self.inline_edit.toPlainText())
+        self.canvas.set_document(self.document, self._canvas_key)
+        self._place_inline_edit()
+
+    def _finish_inline_edit(self, keep: bool = True):
+        if self._inline_target is None:
+            return
+        self._inline_target = None
+        changed = self.inline_edit.toPlainText() != self._inline_original
+        self.inline_edit.hide()
+        if not keep and changed:
+            self.title_edit.setPlainText(self._inline_original)
+            self.canvas.set_document(self.document, self._canvas_key)
+        self.canvas.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _sync_other_ratio(self):
+        if self.document is None:
+            return
+        target = "16x9" if self._canvas_key == "4x3" else "4x3"
+        before = self.document
+        self.document = self.service.sync_profile(self.document, self._canvas_key, target)
+        if self.document != before:
+            self._commit_document_change(before)
+        label = "16:9" if target == "16x9" else "4:3"
+        self.status_changed.emit(f"已把 {self._canvas_label()} 的文字和素材位置同步到 {label}（Ctrl+Z 可撤销）")
+
+    def _fill_asset_menu(self):
+        """素材菜单：最近用过的素材一键插入，其余从素材库挑。"""
+
+        menu = self.asset_menu
+        menu.clear()
+        menu.addAction("从素材库选择…", self._browse_assets)
+        menu.addAction("导入图片…", self._import_asset)
+        if self.document is None:
+            return
+        try:
+            recent = self.service.asset_library.recent_assets(6)
+        except (OSError, ValueError):
+            recent = ()
+        if not recent:
+            return
+        menu.addSeparator()
+        menu.addSection("最近使用")
+        for asset in recent:
+            pixmap = QPixmap(asset.path)
+            action_icon = QIcon(pixmap.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)) if not pixmap.isNull() else QIcon()
+            menu.addAction(action_icon, asset.name, lambda item=asset: self._insert_asset_object(item))
+
+    def _load_video_duration(self):
+        video = self.video
+        if video is None or not Path(video.path).is_file():
+            self.frame_slider.setEnabled(False)
+            return
+        generation = self._context_generation
+        self._run(
+            lambda: self.service.video_duration(video),
+            lambda result, error: self._video_duration_ready(generation, result, error),
+        )
+
+    def _video_duration_ready(self, generation: int, result, error):
+        if generation != self._context_generation or error or not result:
+            return
+        self._video_duration = float(result)
+        self.frame_slider.blockSignals(True)
+        self.frame_slider.setRange(0, int(self._video_duration * 10))
+        self.frame_slider.setPageStep(50)
+        self.frame_slider.setValue(int((self._selected_frame_timestamp or 0.0) * 10))
+        self.frame_slider.blockSignals(False)
+        self.frame_slider.setEnabled(True)
+        minutes, seconds = divmod(int(self._video_duration), 60)
+        self.duration_label.setText(f"{minutes}:{seconds:02d}")
+
+    def _sync_frame_slider(self, timestamp: float):
+        self.frame_slider.blockSignals(True)
+        self.frame_slider.setValue(int(max(0.0, timestamp) * 10))
+        self.frame_slider.blockSignals(False)
+
+    def _slider_frame(self):
+        self._slider_timer.stop()
+        if self.video is None or not self.frame_slider.isEnabled():
+            return
+        self._choose_nearby_frame(self.frame_slider.value() / 10)
+
+    def _find_overview_frames(self):
+        if self.video is None or not Path(self.video.path).is_file():
+            return
+        request_generation = self._nearby_request_generation + 1
+        self._nearby_request_generation = request_generation
+        video = self.video
+        self.overview_button.setEnabled(False)
+        self._set_notice("正在从全片按画质挑画面…", "info")
+        self._run(
+            lambda: self.service.overview_candidates(video, count=12),
+            lambda result, error: self._wider_frames_ready(request_generation, result, error, scope="全片"),
+        )
 
     def _clear_schemes(self, caption: str = "—"):
         self._scheme_generation += 1
@@ -1628,6 +1825,8 @@ class CoverEditorWidget(QWidget):
     def _set_canvas_key(self, canvas_key: str):
         if canvas_key not in {"4x3", "16x9"} or canvas_key == self._canvas_key:
             return
+        self._finish_inline_edit(True)
+        self.sync_ratio_button.setText("同步到 4:3" if canvas_key == "16x9" else "同步到 16:9")
         if self.document is not None:
             self.document = replace(self.document, active_profile=canvas_key)
             self.draft = CoverDraft.from_document(self.document)
@@ -1686,6 +1885,7 @@ class CoverEditorWidget(QWidget):
     def _refresh_nearby_frame_strip(self, center: float):
         center = max(0.0, float(center or 0.0))
         self.frame_center_label.setText(f"当前 {center:.2f} 秒")
+        self._sync_frame_slider(center)
         offsets = self._nearby_offsets(center)
         available = self.video is not None and Path(self.video.path).is_file()
         for button, offset in zip(self.nearby_frame_buttons, offsets):
@@ -1818,8 +2018,9 @@ class CoverEditorWidget(QWidget):
             lambda result, error: self._wider_frames_ready(request_generation, result, error),
         )
 
-    def _wider_frames_ready(self, request_generation: int, result, error):
+    def _wider_frames_ready(self, request_generation: int, result, error, *, scope: str = "更大范围"):
         self.more_frames_button.setEnabled(self.video is not None)
+        self.overview_button.setEnabled(self.video is not None)
         if request_generation != self._nearby_request_generation or error:
             if error:
                 message = f"扩大取帧范围失败：{error}"
@@ -1841,7 +2042,7 @@ class CoverEditorWidget(QWidget):
         for button, frame in zip(self.nearby_frame_buttons, picked):
             self._show_frame_on_button(button, frame, recommended=frame is best)
         self._update_nearby_frame_selection()
-        message = f"已从 {len(frames)} 张更大范围画面中挑出画质较好的 {len(picked)} 张"
+        message = f"已从 {len(frames)} 张{scope}画面中挑出画质较好的 {len(picked)} 张"
         self.status_changed.emit(message)
 
     def _cycle_copy(self):
@@ -1887,6 +2088,7 @@ class CoverEditorWidget(QWidget):
                     QTimer.singleShot(0, self._use_current_frame)
 
     def set_context(self, project: SubmissionProject | None, video: ProjectVideo | None):
+        self._finish_inline_edit(True)
         if project is None or video is None:
             self._context_generation += 1
             self.project = None
@@ -1917,6 +2119,9 @@ class CoverEditorWidget(QWidget):
             self.asset_menu_button.setEnabled(False)
             self.shape_menu_button.setEnabled(False)
             self.add_text_button.setEnabled(False)
+            self.sync_ratio_button.setEnabled(False)
+            self.frame_slider.setEnabled(False)
+            self.duration_label.setText("")
             self._clear_schemes()
             self.export_button.setEnabled(False)
             self.export_both_button.setEnabled(False)
@@ -1940,6 +2145,10 @@ class CoverEditorWidget(QWidget):
         self.asset_menu_button.setEnabled(True)
         self.shape_menu_button.setEnabled(True)
         self.add_text_button.setEnabled(True)
+        self.sync_ratio_button.setEnabled(True)
+        self.sync_ratio_button.setText("同步到 16:9")
+        self.frame_slider.setEnabled(False)
+        self.duration_label.setText("")
         self._set_notice("")
         self._update_export_summary()
         video_path = Path(video.path)
@@ -2003,6 +2212,7 @@ class CoverEditorWidget(QWidget):
             self.draft.selected_timestamp if self.draft.image_path else self._current_playhead
         )
         self._scheme_batch = 0
+        self._load_video_duration()
         if self.draft.image_path:
             self._render_preview()
             self._queue_nearby_thumbnails(self.draft.selected_timestamp)

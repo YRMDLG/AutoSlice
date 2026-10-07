@@ -116,6 +116,15 @@ class CoverAssetLibrary:
             item.name.casefold(),
         )))
 
+    def recent_assets(self, limit: int = 6) -> tuple[CoverAsset, ...]:
+        """最近用过的素材，最新在前；素材菜单一键插入用。"""
+
+        if not self._loaded:
+            self.scan()
+        used = [item for item in self._assets.values() if item.last_used_at and Path(item.path).is_file()]
+        used.sort(key=lambda item: (item.last_used_at or "", item.usage_count), reverse=True)
+        return tuple(used[: max(0, int(limit))])
+
     def get(self, asset_id: str) -> CoverAsset:
         if not self._loaded:
             self.scan()
