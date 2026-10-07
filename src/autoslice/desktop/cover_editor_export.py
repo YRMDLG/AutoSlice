@@ -29,13 +29,12 @@ class CoverExportMixin:
         request_generation = self._preview_request_generation
         canvas_key = self._canvas_key
         document = self.document
-        # CoverDocument 是预览的唯一输入；只有兼容旧调用方的无文档路径
-        # 才需要读取控件草稿。
-        draft = self.draft if document is not None else self._read_draft()
-        self.draft = draft
+        if document is None:
+            self._busy = False
+            return
         video = self.video
         self._run(
-            lambda: self.service.render_preview_document(video, document, canvas_key=canvas_key) if document is not None else self.service.render_preview(video, draft, canvas_key=canvas_key),
+            lambda: self.service.render_preview_document(video, document, canvas_key=canvas_key),
             lambda result, error: self._preview_ready(
                 request_generation, canvas_key, result, error
             ),
@@ -78,7 +77,7 @@ class CoverExportMixin:
                 self._background_source = self.draft.image_path
         if self.document is not None:
             self.canvas.set_document(self.document, self._canvas_key)
-        self._update_title_rect()
+        self._refresh_canvas()
 
     def _export(self):
         if self.project is None or self.video is None:
@@ -121,15 +120,14 @@ class CoverExportMixin:
         self.status_changed.emit(f"双比例封面已导出：{names}")
 
     def _start_export(self):
-        if self.project is None or self.video is None:
+        if self.project is None or self.video is None or self.document is None:
             self._pending_export = False
             return
-        draft = self.draft if self.document is not None else self._read_draft()
         self._set_notice(f"正在导出 {self._canvas_label()} 主封面…", "info")
         self.status_changed.emit(f"正在导出 {self._canvas_label()} 主封面…")
         canvas_key = self._canvas_key
         self._run(
-            lambda: self.service.export_document(self.project, self.video, self.document, canvas_key=canvas_key) if self.document is not None else self.service.export(self.project, self.video, draft, canvas_key=canvas_key),
+            lambda: self.service.export_document(self.project, self.video, self.document, canvas_key=canvas_key),
             self._export_ready,
         )
 

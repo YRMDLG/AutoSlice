@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import (
     QKeySequence,
     QPixmap,
@@ -23,7 +23,7 @@ from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 
 from .cover_autolayout import CoverScheme
-from .cover_draft import CoverDraft, wrap_cover_title
+from .cover_draft import CoverDraft
 from .cover_editor_export import CoverExportMixin
 from .cover_editor_frames import CoverFramesMixin
 from .cover_editor_objects import CoverObjectsMixin
@@ -40,6 +40,7 @@ from .cover_model import (
     StickerObject,
     TextObject,
     set_object_visible,
+    set_profile_override,
 )
 from .cover_service import CoverService
 from .jobs import BackgroundJob
@@ -177,12 +178,17 @@ class CoverEditorWidget(
         # 为新文档，再启动任何延迟任务，避免旧控件反向覆盖 profile override。
         self._apply_draft()
         self._sync_overlay_controls()
-        self.history.commit(self.document)
-        self.undo_button.setEnabled(self.history.can_undo)
-        self.redo_button.setEnabled(self.history.can_redo)
+        self._record_history()
         self._invalidate_render_requests()
         self._draft_timer.start()
         self._preview_timer.start()
+
+    def _record_history(self):
+        """记一条撤销历史，撤销/重做按钮跟着可用状态。"""
+
+        self.history.commit(self.document)
+        self.undo_button.setEnabled(self.history.can_undo)
+        self.redo_button.setEnabled(self.history.can_redo)
 
     def _invalidate_render_requests(self) -> None:
         """使正在运行的预览回调失效，并允许新状态立即排队。"""
@@ -217,26 +223,12 @@ class CoverEditorWidget(
 
         if self.document is None or not hasattr(item, "id"):
             return
-        profile = self.document.profiles.get(profile_key)
-        if profile is None:
+        if profile_key not in self.document.profiles:
             return
-        payload = {"transform": item.transform.to_payload(), "visible": bool(getattr(item, "visible", True))}
-        if isinstance(item, BackgroundObject):
-            payload.update({"scale": item.scale, "pan_x": item.pan_x, "pan_y": item.pan_y, "fit_mode": item.fit_mode})
-        elif isinstance(item, TextObject):
-            payload.update({"rect": item.rect.to_payload(), "wrap": item.wrap.to_payload(), "align": item.align, "style": item.style.to_payload()})
-        elif isinstance(item, (ImageObject, StickerObject)):
-            payload.update({"opacity": item.opacity})
-        elif isinstance(item, ShapeObject):
-            payload.update({"shape_type": item.shape_type, "fill": item.fill, "stroke": item.stroke, "stroke_width": item.stroke_width, "width": item.width, "height": item.height})
         self.document = replace(
-            self.document,
+            set_profile_override(self.document, profile_key, item),
             active_profile=profile_key,
             selected_object_id=item.id,
-            profiles={
-                **self.document.profiles,
-                profile_key: replace(profile, overrides={**profile.overrides, item.id: payload}),
-            },
         )
         if not getattr(item, "visible", True):
             if isinstance(item, TextObject):
@@ -248,16 +240,14 @@ class CoverEditorWidget(
                     selected_object_id=None,
                 )
         self.draft = CoverDraft.from_document(self.document)
-        self.history.commit(self.document)
-        self.undo_button.setEnabled(self.history.can_undo)
-        self.redo_button.setEnabled(self.history.can_redo)
+        self._record_history()
         self.canvas.set_document(self.document, self._canvas_key)
         self._refresh_hidden_button()
         if isinstance(item, TextObject):
             # Canvas 手势先发 object_changed、再发位置兼容信号；先同步字号，
             # 避免后续旧兼容入口用右侧面板的旧值覆盖画布刚调整的字号。
             self._show_text_metrics(item)
-            self._update_title_rect()
+            self._refresh_canvas()
         elif isinstance(item, (ImageObject, StickerObject, ShapeObject)):
             self._sync_overlay_controls()
         self._draft_timer.start()
@@ -476,8 +466,6 @@ class CoverEditorWidget(
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
-        self.canvas.set_zoom(self.draft.background_scale)
-        self.canvas.set_background_focus(self.draft.background_x, self.draft.background_y)
         self.canvas.set_document(self.document, self._canvas_key)
         self._refresh_hidden_button()
         if self.document is not None:
@@ -494,20 +482,14 @@ class CoverEditorWidget(
                     None,
                 ) or next((item for item in self.document.objects if isinstance(item, TextObject)), None)
                 self._selected_text_id = text.id if text else None
-        self._update_title_rect()
+        self._refresh_canvas()
 
     def _read_draft(self) -> CoverDraft:
         self._store_text_controls()
         self._store_background_controls()
         if self.document is not None:
             self.draft = CoverDraft.from_document(self.document)
-            return self.draft
-        return replace(
-            self.draft,
-            title=self.title_edit.text().strip() or (self.project.title if self.project else "未命名封面"),
-            font_size=self.font_spin.value(),
-            background_scale=self.zoom_spin.value(),
-        )
+        return self.draft
 
     def _draft_changed(self):
         if self.project is None or self.video is None:
@@ -517,11 +499,9 @@ class CoverEditorWidget(
         self._store_background_controls()
         self.draft = CoverDraft.from_document(self.document) if self.document else self._read_draft()
         if self.document is not None and before != self.document:
-            self.history.commit(self.document)
-            self.undo_button.setEnabled(self.history.can_undo)
-            self.redo_button.setEnabled(self.history.can_redo)
+            self._record_history()
             self._invalidate_render_requests()
-        self._update_title_rect()
+        self._refresh_canvas()
         self._refresh_hidden_button()
         self._draft_timer.start()
         self._preview_timer.start()
@@ -542,14 +522,12 @@ class CoverEditorWidget(
         if self.project is None or self.video is None:
             return
         try:
-            if self.document is not None:
-                # 文档已经在控件信号/画布手势提交时写入；延迟保存只能消费
-                # 这份快照，不能再次从可能过期的控件反向重建它。
-                self.draft = CoverDraft.from_document(self.document)
-                self.service.save_document(self.project, self.video, self.document)
-            else:
-                self.draft = self._read_draft()
-                self.service.save(self.project, self.video, self.draft)
+            if self.document is None:
+                return
+            # 文档已经在控件信号/画布手势提交时写入；延迟保存只能消费
+            # 这份快照，不能再次从可能过期的控件反向重建它。
+            self.draft = CoverDraft.from_document(self.document)
+            self.service.save_document(self.project, self.video, self.document)
             self.draft_status.setText("已保存")
         except (OSError, ValueError) as exc:
             message = f"封面草稿保存失败：{exc}"
@@ -576,22 +554,11 @@ class CoverEditorWidget(
         if self.video is not None and self.draft.image_path:
             QTimer.singleShot(0, lambda: self._queue_nearby_thumbnails(self.draft.selected_timestamp))
 
-    def _update_title_rect(self):
+    def _refresh_canvas(self):
+        """文档变了：画布按当前比例重读一遍。"""
+
         if self.document is not None:
             self.canvas.set_document(self.document, self._canvas_key)
-            self.canvas.update()
-            return
-        title = self.title_edit.text() if hasattr(self, "title_edit") else self.draft.title
-        font_size = self.font_spin.value() if hasattr(self, "font_spin") else self.draft.font_size
-        canvas_width = 1440 if self._canvas_key == "4x3" else 1920
-        lines = wrap_cover_title(title or "标题", font_size, canvas_width=canvas_width)
-        width_units = max((len(line) for line in lines), default=4)
-        width = min(0.86, max(0.08, width_units * font_size / canvas_width * 1.18))
-        height = min(0.72, max(0.06, len(lines) * font_size * 1.18 / 1080))
-        self.canvas.set_title_rect(QRectF(self.draft.text_x, self.draft.text_y, width, height))
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._update_title_rect()
 
 

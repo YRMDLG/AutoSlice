@@ -1,8 +1,7 @@
 """AutoCover 的对象化编辑画布。
 
 画布只处理显示和鼠标手势，持久化由 ``CoverEditorWidget`` 通过
-``CoverDocument`` 完成。为了兼容 Phase 1 的调用方，本模块仍保留标题/底图
-位置变化信号和 ``set_title_rect`` 等旧入口；新代码应使用 ``set_document``。
+``CoverDocument`` 完成。绘制见 cover_canvas_paint，手势见 cover_canvas_gestures。
 """
 
 from __future__ import annotations
@@ -18,8 +17,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QLabel
 
 from autoslice_cover.document_layout import (
-    BACKGROUND_SCALE_MAX,
-    BACKGROUND_SCALE_MIN,
     Box,
     TextLayout,
 )
@@ -101,7 +98,6 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self._document: CoverDocument | None = None
         self._profile_key = "4x3"
         self._canvas_ratio = PROFILE_SIZES["4x3"]
-        self._legacy_title_rect = QRectF()
         self._selected_object = "title"
         self._mode: str | None = None
         self._press = QPointF()
@@ -113,9 +109,6 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self._start_object = None
         self._start_frame = None
         self._safe_area_warning = False
-        self._background_x = 0.5
-        self._background_y = 0.5
-        self._zoom = 1.0
         self._guide_vertical = False
         self._guide_horizontal = False
         self._hover_handle: str | None = None
@@ -198,31 +191,7 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self._selected_object = object_name
         self.update()
 
-    def set_zoom(self, zoom: float):
-        self._zoom = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, float(zoom)))
-        self.update()
-
-    def set_background_focus(self, x: float, y: float):
-        self._background_x = max(0.0, min(1.0, float(x)))
-        self._background_y = max(0.0, min(1.0, float(y)))
-        self.update()
-
-    def set_title_rect(self, rect: QRectF):
-        self._legacy_title_rect = rect
-        self._set_safe_area_warning(self._title_outside_safe_area())
-        self.update()
-
     def _canvas_rect(self) -> QRectF:
-        if self._document is None and not self._pixmap.isNull():
-            target = QRectF(self.rect())
-            ratio = self._pixmap.width() / max(1, self._pixmap.height())
-            if target.width() / max(1.0, target.height()) > ratio:
-                height = target.height()
-                width = height * ratio
-            else:
-                width = target.width()
-                height = width / ratio
-            return QRectF(target.center().x() - width / 2, target.center().y() - height / 2, width, height)
         width, height = self._canvas_ratio
         target = QRectF(self.rect()).adjusted(8, 8, -8, -8)
         ratio = width / max(1.0, height)
@@ -382,13 +351,6 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
     def _object_display_rect(self, obj: RenderObject) -> QRectF:
         return self._to_screen(self._overlay_box(obj))
 
-    def _legacy_display_rect(self) -> QRectF:
-        image = self._canvas_rect()
-        rect = self._legacy_title_rect
-        if rect.isNull():
-            return QRectF()
-        return QRectF(image.left() + rect.left() * image.width(), image.top() + rect.top() * image.height(), rect.width() * image.width(), rect.height() * image.height())
-
     def _find_text(self) -> TextObject | None:
         if self._document is None:
             return None
@@ -456,13 +418,6 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         if obj is None:
             return False
         return obj.transform.x < self._SAFE_MARGIN or obj.transform.y < self._SAFE_MARGIN or obj.transform.x + obj.rect.width > 1.0 - self._SAFE_MARGIN or obj.transform.y + obj.rect.height > 1.0 - self._SAFE_MARGIN
-
-    def _title_outside_safe_area(self) -> bool:
-        text = self._find_text()
-        if text:
-            return self._safe_area_warning_for(text)
-        rect = self._legacy_title_rect
-        return bool(rect) and (rect.left() < self._SAFE_MARGIN or rect.top() < self._SAFE_MARGIN or rect.right() > 1.0 - self._SAFE_MARGIN or rect.bottom() > 1.0 - self._SAFE_MARGIN)
 
     def _set_safe_area_warning(self, value: bool):
         value = bool(value)

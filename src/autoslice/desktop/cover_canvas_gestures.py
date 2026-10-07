@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from typing import Any
 
 from PySide6.QtCore import QPointF, Qt
 
@@ -20,13 +19,12 @@ from autoslice_cover.document_layout import (
 from .cover_model import (
     BackgroundObject,
     ImageObject,
-    Rect,
     RenderObject,
     ShapeObject,
     StickerObject,
     TextObject,
-    Transform,
     resize_text_style,
+    set_profile_override,
 )
 
 
@@ -34,21 +32,9 @@ class CanvasGestureMixin:
     def _set_local_effective(self, obj: object):
         if self._document is None:
             return
-        profile = self._document.profiles.get(self._profile_key)
-        if profile is None:
+        if self._profile_key not in self._document.profiles:
             return
-        overrides = dict(profile.overrides)
-        payload: dict[str, Any] = {"transform": obj.transform.to_payload()}  # type: ignore[attr-defined]
-        payload["visible"] = bool(getattr(obj, "visible", True))
-        if isinstance(obj, BackgroundObject):
-            payload.update({"scale": obj.scale, "pan_x": obj.pan_x, "pan_y": obj.pan_y})
-        elif isinstance(obj, TextObject):
-            payload.update({"rect": obj.rect.to_payload(), "align": obj.align, "wrap": obj.wrap.to_payload(), "style": obj.style.to_payload()})
-        elif isinstance(obj, (ImageObject, StickerObject)):
-            payload["opacity"] = obj.opacity
-        elif isinstance(obj, ShapeObject):
-            payload.update({"shape_type": obj.shape_type, "fill": obj.fill, "stroke": obj.stroke, "stroke_width": obj.stroke_width, "width": obj.width, "height": obj.height})
-        self._document = replace(self._document, profiles={**self._document.profiles, self._profile_key: replace(profile, overrides={**overrides, obj.id: payload})})  # type: ignore[attr-defined]
+        self._document = set_profile_override(self._document, self._profile_key, obj)
 
     def _emit_text(self, obj: TextObject, *, commit: bool = True):
         if commit:
@@ -241,19 +227,14 @@ class CanvasGestureMixin:
             return
         text = hit if isinstance(hit, TextObject) else None
         overlay = hit if isinstance(hit, (ImageObject, StickerObject, ShapeObject)) else None
-        legacy = self._document is None and self._legacy_display_rect().contains(point)
-        if text is not None or legacy:
-            self._selected_object = text.id if text is not None else "title"
+        if text is not None:
+            self._selected_object = text.id
             self._mode = "text"
-            if text is not None:
-                self._start_transform, self._start_rect = text.transform, text.rect
-                self._start_font_size = int(text.style.font_size)
-            else:
-                self._start_transform = Transform(x=self._legacy_title_rect.left(), y=self._legacy_title_rect.top())
-                self._start_rect = Rect(width=self._legacy_title_rect.width(), height=self._legacy_title_rect.height())
+            self._start_transform, self._start_rect = text.transform, text.rect
+            self._start_font_size = int(text.style.font_size)
             self._drag_offset = QPointF(norm[0] - self._start_transform.x, norm[1] - self._start_transform.y)
             self.selected_changed.emit(True)
-            self.selected_object_changed.emit(text.id if text is not None else "title")
+            self.selected_object_changed.emit(text.id)
         elif overlay is not None:
             self._selected_object = overlay.id
             self._mode = "object"
@@ -265,7 +246,7 @@ class CanvasGestureMixin:
             background = self._find_background()
             self._selected_object = background.id if background else "background"
             self._mode = "background"
-            self._start_background = (background.pan_x, background.pan_y, background.scale) if background else (self._background_x, self._background_y, self._zoom)
+            self._start_background = (background.pan_x, background.pan_y, background.scale) if background else None
             self.selected_changed.emit(False)
             self.selected_object_changed.emit(self._selected_object)
             self._set_alignment_guides(False, False)
@@ -294,7 +275,7 @@ class CanvasGestureMixin:
             pass
         elif self._mode == "text":
             obj = self._find_text()
-            norm = self._free_norm(point) if obj is not None else self._norm_point(point, clamp=True)
+            norm = self._free_norm(point)
             if obj is not None and norm is not None:
                 candidate_x = norm[0] - self._drag_offset.x()
                 candidate_y = norm[1] - self._drag_offset.y()
@@ -321,13 +302,6 @@ class CanvasGestureMixin:
                 updated = replace(obj, transform=replace(obj.transform, x=box_x - offset_x, y=box_y - offset_y))
                 self._emit_text(updated, commit=False)
                 self.update()
-            elif obj is None and norm is not None:
-                x = self._clamp(norm[0] - self._drag_offset.x(), 0.0, max(0.0, 1.0 - self._legacy_title_rect.width()))
-                y = self._clamp(norm[1] - self._drag_offset.y(), 0.0, max(0.0, 1.0 - self._legacy_title_rect.height()))
-                self._legacy_title_rect.moveTo(x, y)
-                self.title_position_changed.emit(x, y)
-                self._set_safe_area_warning(self._title_outside_safe_area())
-                self.update()
         elif self._mode == "object":
             norm = self._free_norm(point)
             obj = next((item for item in self._find_overlay_objects() if item.id == self._selected_object), None)
@@ -342,7 +316,7 @@ class CanvasGestureMixin:
             dx = (point.x() - self._press.x()) / max(1.0, image.width())
             dy = (point.y() - self._press.y()) / max(1.0, image.height())
             obj = self._find_background()
-            if obj:
+            if obj and self._start_background is not None:
                 px, py, scale = self._start_background
                 width, height = self._export_size()
                 drawn = self._background_box(replace(obj, scale=scale))
@@ -350,11 +324,6 @@ class CanvasGestureMixin:
                 pan_x = focus_after_drag(px, dx * width, width, drawn.width) if drawn else px
                 pan_y = focus_after_drag(py, dy * height, height, drawn.height) if drawn else py
                 self._emit_background(replace(obj, pan_x=pan_x, pan_y=pan_y, scale=scale), commit=False)
-            else:
-                self._background_x = self._clamp(self._start_background[0] + dx, 0.0, 1.0)
-                self._background_y = self._clamp(self._start_background[1] + dy, 0.0, 1.0)
-                self.background_position_changed.emit(self._background_x, self._background_y)
-                self.update()
         event.accept()
 
     def mouseDoubleClickEvent(self, event):
@@ -399,12 +368,10 @@ class CanvasGestureMixin:
         if not steps:
             return
         obj = self._find_background()
-        value = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, (obj.scale if obj else self._zoom) + steps * 0.1))
-        if obj:
-            self._emit_background(replace(obj, scale=value))
-        else:
-            self._zoom = value
-            self.zoom_changed.emit(value)
+        if obj is None:
+            return
+        value = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, obj.scale + steps * 0.1))
+        self._emit_background(replace(obj, scale=value))
         self.update()
         event.accept()
 
@@ -483,9 +450,7 @@ class CanvasGestureMixin:
         self._hover_handle = handle[0] if handle else None
         if handle is not None:
             self.setCursor(self._HANDLE_CURSORS.get(handle[0], Qt.CursorShape.ArrowCursor))
-        elif self._hit_object(point) is not None or (
-            self._document is None and self._legacy_display_rect().contains(point)
-        ):
+        elif self._hit_object(point) is not None:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
         else:
             self.unsetCursor()

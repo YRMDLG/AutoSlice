@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from autoslice_cover.renderer import TextTransform
-from autoslice_cover.text_layout import wrap_text_lines
-
 from .cover_migration import (
     document_from_draft_values,
     document_from_payload,
@@ -91,37 +88,5 @@ class CoverDraft:
             title, image_path, timestamp, text_x, text_y, font_size,
             background_x, background_y, background_scale,
         )
-
-def wrap_cover_title(
-    title: str,
-    font_size: int,
-    *,
-    max_width: float = 0.86,
-    canvas_width: int = 1440,
-) -> tuple[str, ...]:
-    """按近似字体宽度拆分标题，默认以 4:3 主画布宽度计算。"""
-
-    return wrap_text_lines(
-        title,
-        font_size,
-        max_width=max_width,
-        max_lines=8,
-        canvas_width=canvas_width,
-    )
-
-def text_transforms_for(draft: CoverDraft, lines: tuple[str, ...]):
-    """为多行标题生成同一拖动组的逐行变换。"""
-
-    step = min(0.18, max(0.035, draft.font_size * 1.16 / 1080.0))
-    max_y = max(0.0, 0.98 - step * max(0, len(lines) - 1) - draft.font_size / 1080.0)
-    y = min(max_y, max(0.0, draft.text_y))
-    return tuple(
-        TextTransform(
-            min(1.0, max(0.0, draft.text_x)),
-            min(1.0, max(0.0, y + index * step)),
-            font_size=draft.font_size,
-        )
-        for index in range(len(lines))
-    )
 
 

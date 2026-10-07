@@ -207,7 +207,6 @@ class CoverLayoutMixin:
         for signal, slot in (
             (self.canvas.title_position_changed, self._title_position_changed),
             (self.canvas.title_position_finished, self._gesture_finished),
-            (self.canvas.background_position_changed, self._background_position_changed),
             (self.canvas.background_position_finished, self._gesture_finished),
             (self.canvas.zoom_changed, self._zoom_changed),
             (self.canvas.selected_changed, self._canvas_selection_changed),

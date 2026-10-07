@@ -36,6 +36,7 @@ from .cover_model import (
     restack_object,
     set_object_locked,
     set_object_visible,
+    set_profile_override,
     text_override_payload,
     update_shared_fields,
     update_text_object,
@@ -252,30 +253,8 @@ class CoverObjectsMixin:
         )
         if updated == current:
             return
-        profile = self.document.profiles[self._canvas_key]
-        payload = {"transform": updated.transform.to_payload(), "visible": bool(updated.visible)}
-        if isinstance(updated, (ImageObject, StickerObject)):
-            payload["opacity"] = updated.opacity
-        else:
-            payload.update({
-                "shape_type": updated.shape_type,
-                "fill": updated.fill,
-                "stroke": updated.stroke,
-                "stroke_width": updated.stroke_width,
-                "width": updated.width,
-                "height": updated.height,
-            })
-        self.document = replace(
-            self.document,
-            active_profile=self._canvas_key,
-            profiles={
-                **self.document.profiles,
-                self._canvas_key: replace(profile, overrides={**profile.overrides, updated.id: payload}),
-            },
-        )
-        self.history.commit(self.document)
-        self.undo_button.setEnabled(self.history.can_undo)
-        self.redo_button.setEnabled(self.history.can_redo)
+        self.document = replace(set_profile_override(self.document, self._canvas_key, updated), active_profile=self._canvas_key)
+        self._record_history()
         self.canvas.set_document(self.document, self._canvas_key)
         self.draft = CoverDraft.from_document(self.document)
         self._invalidate_render_requests()

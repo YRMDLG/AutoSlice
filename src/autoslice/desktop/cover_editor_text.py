@@ -179,9 +179,7 @@ class CoverTextMixin:
         profile = self.document.profiles[self._canvas_key]
         payload = {"transform": updated.transform.to_payload(), "visible": bool(updated.visible), "rect": updated.rect.to_payload(), "wrap": updated.wrap.to_payload(), "align": align, "style": updated.style.to_payload()}
         self.document = replace(self.document, profiles={**self.document.profiles, self._canvas_key: replace(profile, overrides={**profile.overrides, updated.id: payload})})
-        self.history.commit(self.document)
-        self.undo_button.setEnabled(self.history.can_undo)
-        self.redo_button.setEnabled(self.history.can_redo)
+        self._record_history()
         self.canvas.set_document(self.document, self._canvas_key)
         self._draft_timer.start()
         self._preview_timer.start()
@@ -259,10 +257,7 @@ class CoverTextMixin:
 
         if self.project is None or self.video is None:
             return
-        if self.document is None:
-            # 兼容没有 v4 文档的旧调用方；这里只更新内存草稿。
-            self.draft = replace(self.draft, text_x=x, text_y=y)
-        elif getattr(self.canvas, "_mode", None) is None:
+        if self.document is not None and getattr(self.canvas, "_mode", None) is None:
             text = self._selected_text()
             current = object_for_profile(self.document, text.id, self._canvas_key) if text else None
             if isinstance(current, TextObject) and (abs(current.transform.x - x) > 1e-6 or abs(current.transform.y - y) > 1e-6):

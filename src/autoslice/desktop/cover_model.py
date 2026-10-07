@@ -728,6 +728,34 @@ def text_override_payload(item: TextObject) -> dict[str, Any]:
     }
 
 
+def object_override_payload(item: RenderableObject) -> dict[str, Any]:
+    """对象在某个比例里的完整覆盖：位置、可见性，以及该类型能按比例调整的字段。"""
+
+    if isinstance(item, TextObject):
+        return text_override_payload(item)
+    payload: dict[str, Any] = {"transform": item.transform.to_payload(), "visible": bool(item.visible)}
+    if isinstance(item, BackgroundObject):
+        payload.update({"scale": item.scale, "pan_x": item.pan_x, "pan_y": item.pan_y, "fit_mode": item.fit_mode})
+    elif isinstance(item, (ImageObject, StickerObject)):
+        payload["opacity"] = item.opacity
+    elif isinstance(item, ShapeObject):
+        payload.update({
+            "shape_type": item.shape_type, "fill": item.fill, "stroke": item.stroke,
+            "stroke_width": item.stroke_width, "width": item.width, "height": item.height,
+        })
+    return payload
+
+
+def set_profile_override(document: CoverDocument, profile_key: str, item: RenderableObject) -> CoverDocument:
+    """把对象当前的样子写成该比例的覆盖；另一比例不受影响。"""
+
+    profile = document.profiles[profile_key]
+    return replace(document, profiles={
+        **document.profiles,
+        profile_key: replace(profile, overrides={**profile.overrides, item.id: object_override_payload(item)}),
+    })
+
+
 def update_text_object(document: CoverDocument, updated: TextObject, *, profile_key: str) -> CoverDocument:
     """写回一次文字编辑：文案和样式同步到两个比例，其余只写当前比例。"""
 

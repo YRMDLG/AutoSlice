@@ -10,9 +10,9 @@ from pathlib import Path
 
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 from autoslice_cover.document_render import compose_document
-from autoslice_cover.renderer import render_cover, save_cover_jpeg
+from autoslice_cover.renderer import save_cover_jpeg
 
-from .cover_draft import CoverDraft, text_transforms_for, wrap_cover_title
+from .cover_draft import CoverDraft
 from .cover_frames import best_overview_frame
 from .cover_layout import (
     canvas_size,
@@ -99,36 +99,11 @@ class CoverExportService:
             self.save_document(project, video, document)
         return self.export_both(project, video, document)
 
-    def render_preview(
-        self,
-        video: ProjectVideo,
-        draft: CoverDraft,
-        *,
-        canvas_key: str = "4x3",
-    ) -> Path:
-        if not draft.image_path or not Path(draft.image_path).is_file():
-            raise ValueError("请先加载底图或从当前视频取帧")
-        self.previews.mkdir(parents=True, exist_ok=True)
-        if canvas_key not in {"4x3", "16x9"}:
-            raise ValueError(f"不支持的封面比例：{canvas_key}")
-        suffix = "" if canvas_key == "4x3" else "-16x9"
-        output = self.previews / f"{self._identity(Path(video.path))}{suffix}-preview.jpg"
-        canvas_width = 1440 if canvas_key == "4x3" else 1920
-        lines = wrap_cover_title(draft.title, draft.font_size, canvas_width=canvas_width)
-        render_cover(
-            draft.image_path,
-            draft.title,
-            output,
-            video_path=video.path,
-            canvas_key=canvas_key,
-            template_key="headline",
-            copy_lines=lines,
-            text_transforms=text_transforms_for(draft, lines),
-            focus_x=draft.background_x,
-            focus_y=draft.background_y,
-            background_scale=draft.background_scale,
-        )
-        return output
+    def render_preview(self, video: ProjectVideo, draft: CoverDraft, *, canvas_key: str = "4x3") -> Path:
+        """旧草稿调用方：转成文档后走同一条渲染管线。"""
+
+        self._require_draft_image(draft)
+        return self.render_preview_document(video, draft.to_document(), canvas_key=canvas_key)
 
     def render_preview_document(
         self,
@@ -167,41 +142,17 @@ class CoverExportService:
             image.close()
 
     def export(
-        self,
-        project: SubmissionProject,
-        video: ProjectVideo,
-        draft: CoverDraft,
-        *,
-        canvas_key: str = "4x3",
+        self, project: SubmissionProject, video: ProjectVideo, draft: CoverDraft, *, canvas_key: str = "4x3",
     ) -> Path:
+        """旧草稿调用方：转成文档后导出，命名与不覆盖规则同 export_document。"""
+
+        self._require_draft_image(draft)
+        return self.export_document(project, video, draft.to_document(), canvas_key=canvas_key)
+
+    @staticmethod
+    def _require_draft_image(draft: CoverDraft) -> None:
         if not draft.image_path or not Path(draft.image_path).is_file():
             raise ValueError("请先加载底图或从当前视频取帧")
-        if canvas_key not in {"4x3", "16x9"}:
-            raise ValueError(f"不支持的封面比例：{canvas_key}")
-        stem = Path(video.name).stem or "封面"
-        suffix = "" if canvas_key == "4x3" else "-16x9"
-        destination = Path(project.directory) / f"AutoCover-{stem}{suffix}.jpg"
-        index = 2
-        while destination.exists():
-            destination = Path(project.directory) / f"AutoCover-{stem}{suffix} ({index}).jpg"
-            index += 1
-        canvas_width = 1440 if canvas_key == "4x3" else 1920
-        lines = wrap_cover_title(draft.title, draft.font_size, canvas_width=canvas_width)
-        render_cover(
-            draft.image_path,
-            draft.title,
-            destination,
-            video_path=video.path,
-            canvas_key=canvas_key,
-            template_key="headline",
-            copy_lines=lines,
-            text_transforms=text_transforms_for(draft, lines),
-            focus_x=draft.background_x,
-            focus_y=draft.background_y,
-            background_scale=draft.background_scale,
-        )
-        self._record_export(project, video, destination, canvas_key)
-        return destination
 
     def export_document(
         self,

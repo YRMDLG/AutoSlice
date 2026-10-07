@@ -30,7 +30,6 @@ from autoslice_cover.document_layout import (
     arrow_head_size,
     backdrop_box,
     backdrop_radius,
-    background_box,
     load_font,
     shadow_offset,
 )
@@ -129,9 +128,7 @@ class CanvasPaintMixin:
             return None
         size = self._export_size()
         source = (pixmap.width(), pixmap.height())
-        if obj is not None:
-            return background_geometry(obj, size, source)
-        return background_box(source, size, scale=self._zoom, focus_x=self._background_x, focus_y=self._background_y)
+        return background_geometry(obj, size, source) if obj is not None else None
 
     def _draw_background(self, painter: QPainter):
         """导出像素坐标系内绘制；放置矩形与导出共用。"""
@@ -465,10 +462,6 @@ class CanvasPaintMixin:
             painter.drawLine(QPointF(canvas.left(), canvas.center().y()), QPointF(canvas.right(), canvas.center().y()))
         if selected is not None:
             self._draw_selection(painter, selected)
-        elif self._document is None and not self._legacy_display_rect().isNull() and self._selected_object == "title":
-            painter.setPen(QPen(QColor(255, 255, 255, 210), 1, Qt.PenStyle.DashLine))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self._legacy_display_rect().adjusted(-4, -4, 4, 4))
         elif self._selected_object == "background" or (self._find_background() and self._selected_object == self._find_background().id):
             painter.setPen(QPen(Qt.GlobalColor.cyan, 2, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)

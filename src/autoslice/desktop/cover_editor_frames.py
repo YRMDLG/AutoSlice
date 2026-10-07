@@ -27,6 +27,7 @@ from .cover_model import (
     AssetRef,
     BackgroundObject,
     object_for_profile,
+    set_profile_override,
 )
 
 
@@ -294,9 +295,7 @@ class CoverFramesMixin:
             else:
                 self.draft = replace(self._read_draft(), image_path=str(path))
         if self.document is not None and before_document != self.document:
-            self.history.commit(self.document)
-            self.undo_button.setEnabled(self.history.can_undo)
-            self.redo_button.setEnabled(self.history.can_redo)
+            self._record_history()
         else:
             self.draft = replace(self._read_draft(), image_path=str(path))
         self._save_draft()
@@ -407,14 +406,9 @@ class CoverFramesMixin:
             # 新底图的默认构图：两个比例分别保住主体，A/B 避开人脸和杂乱区域。
             self.document = self.service.apply_auto_layout(self.document, path)
             draft = CoverDraft.from_document(self.document)
-        elif first_background:
-            text_x, text_y = self.service.suggest_text_position(path, draft, canvas_key=self._canvas_key)
-            draft = replace(draft, text_x=text_x, text_y=text_y)
         self.draft = draft
         if self.document is not None and before_document != self.document:
-            self.history.commit(self.document)
-            self.undo_button.setEnabled(self.history.can_undo)
-            self.redo_button.setEnabled(self.history.can_redo)
+            self._record_history()
         self.timestamp_edit.setValue(timestamp)
         self._refresh_nearby_frame_strip(timestamp)
         if first_background:
@@ -438,43 +432,15 @@ class CoverFramesMixin:
         if not isinstance(current, BackgroundObject):
             current = background
         updated = replace(current, scale=self.zoom_spin.value())
-        profile = self.document.profiles[self._canvas_key]
-        payload = {"transform": updated.transform.to_payload(), "scale": updated.scale, "pan_x": updated.pan_x, "pan_y": updated.pan_y, "fit_mode": updated.fit_mode}
-        self.document = replace(self.document, active_profile=self._canvas_key, profiles={**self.document.profiles, self._canvas_key: replace(profile, overrides={**profile.overrides, updated.id: payload})})
-
-    def _background_position_changed(self, x: float, y: float):
-        if self.project is None or self.video is None:
-            return
-        # Canvas 已经持有拖动中的本地对象；这里只刷新轻量取景显示。
-        self.canvas.set_background_focus(x, y)
+        self.document = replace(set_profile_override(self.document, self._canvas_key, updated), active_profile=self._canvas_key)
 
     def _zoom_changed(self, value: float):
-        if self.project is None or self.video is None:
+        if self.project is None or self.video is None or self.document is None:
             return
-        value = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, float(value)))
-        self.zoom_spin.blockSignals(True)
-        self.zoom_spin.setValue(value)
-        self.zoom_spin.blockSignals(False)
-        before = self.document
-        if self.document is not None:
-            background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None)
-            if background is not None:
-                current = object_for_profile(self.document, background.id, self._canvas_key)
-                current = current if isinstance(current, BackgroundObject) else background
-                updated = replace(current, scale=value)
-                profile = self.document.profiles[self._canvas_key]
-                payload = {"transform": updated.transform.to_payload(), "scale": value, "pan_x": updated.pan_x, "pan_y": updated.pan_y, "fit_mode": updated.fit_mode}
-                self.document = replace(self.document, profiles={**self.document.profiles, self._canvas_key: replace(profile, overrides={**profile.overrides, updated.id: payload})})
-            self.draft = CoverDraft.from_document(self.document)
-        else:
-            self.draft = replace(self._read_draft(), background_scale=value)
-        if self.document is not None and before != self.document:
-            self.history.commit(self.document)
-            self.undo_button.setEnabled(self.history.can_undo)
-            self.redo_button.setEnabled(self.history.can_redo)
-        self.canvas.set_zoom(value)
-        self._draft_timer.start()
-        self._preview_timer.start()
+        background = self._current_background()
+        if background is not None:
+            value = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, float(value)))
+            self._set_background_transform(background.pan_x, background.pan_y, value)
 
     def _fill_canvas(self):
         self._set_background_transform(0.5, 0.5, 1.0, fit_mode="cover")
@@ -482,28 +448,28 @@ class CoverFramesMixin:
     def _fit_canvas(self):
         self._set_background_transform(0.5, 0.5, 1.0, fit_mode="contain")
 
+    def _current_background(self) -> BackgroundObject | None:
+        background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None) if self.document else None
+        if background is None:
+            return None
+        current = object_for_profile(self.document, background.id, self._canvas_key)
+        return current if isinstance(current, BackgroundObject) else background
+
     def _set_background_transform(self, x: float, y: float, scale: float, *, fit_mode: str | None = None):
+        """底图取景（焦点、缩放、充满/适应）写进当前比例，记一条历史。"""
+
+        current = self._current_background()
+        if current is None:
+            return
         before = self.document
-        if self.document is not None:
-            background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None)
-            if background is not None:
-                current = object_for_profile(self.document, background.id, self._canvas_key)
-                current = current if isinstance(current, BackgroundObject) else background
-                updated = replace(current, pan_x=x, pan_y=y, scale=scale, fit_mode=fit_mode or current.fit_mode)
-                profile = self.document.profiles[self._canvas_key]
-                payload = {"transform": updated.transform.to_payload(), "scale": scale, "pan_x": x, "pan_y": y, "fit_mode": updated.fit_mode}
-                self.document = replace(self.document, profiles={**self.document.profiles, self._canvas_key: replace(profile, overrides={**profile.overrides, updated.id: payload})})
-            self.draft = CoverDraft.from_document(self.document)
-        else:
-            self.draft = replace(self._read_draft(), background_x=x, background_y=y, background_scale=scale)
-        if self.document is not None and before != self.document:
-            self.history.commit(self.document)
-            self.undo_button.setEnabled(self.history.can_undo)
-            self.redo_button.setEnabled(self.history.can_redo)
+        updated = replace(current, pan_x=x, pan_y=y, scale=scale, fit_mode=fit_mode or current.fit_mode)
+        self.document = set_profile_override(self.document, self._canvas_key, updated)
+        self.draft = CoverDraft.from_document(self.document)
+        if before != self.document:
+            self._record_history()
         self.zoom_spin.blockSignals(True)
         self.zoom_spin.setValue(scale)
         self.zoom_spin.blockSignals(False)
-        self.canvas.set_zoom(scale)
-        self.canvas.set_background_focus(x, y)
+        self.canvas.set_document(self.document, self._canvas_key)
         self._draft_timer.start()
         self._preview_timer.start()

@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtCore import QPoint, QRectF, Qt, QThreadPool
+    from PySide6.QtCore import Qt, QThreadPool
     from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QPixmap
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QGroupBox
@@ -24,7 +24,7 @@ except ImportError:
     QApplication = None
     QGroupBox = None
 
-from autoslice.desktop.cover_draft import CoverDraft, text_transforms_for, wrap_cover_title
+from autoslice.desktop.cover_draft import CoverDraft
 from autoslice.desktop.cover_layout import canvas_size, text_layout
 from autoslice.desktop.cover_model import CoverDocument, TextObject, object_for_profile
 from autoslice.desktop.cover_service import CoverService
@@ -250,15 +250,6 @@ class CoverServiceTests(unittest.TestCase):
         )
         self.assertGreater(x, 0.4)
         self.assertLess(y, 0.5)
-
-    def test_long_multiline_title_is_wrapped_and_transforms_stay_in_bounds(self):
-        title = "这是一个很长很长的中文标题，用来验证自动换行不会横穿画布\n第二行 😀"
-        lines = wrap_cover_title(title, 104)
-        self.assertGreater(len(lines), 2)
-        transforms = text_transforms_for(CoverDraft(title, text_y=0.1), lines)
-        self.assertEqual(len(lines), len(transforms))
-        self.assertTrue(all(0.0 <= transform.x <= 1.0 for transform in transforms))
-        self.assertTrue(all(0.0 <= transform.y <= 1.0 for transform in transforms))
 
 
 @unittest.skipIf(QApplication is None, "PySide6 不在当前解释器中")
@@ -713,93 +704,6 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
             self.assertGreater(pillow_width, 0)
             self.assertGreater(qt_width / pillow_width, 0.45)
             self.assertLess(qt_width / pillow_width, 2.2)
-
-    def test_canvas_mouse_gestures_emit_title_and_background_changes(self):
-        from autoslice.desktop.cover_canvas import CoverCanvas
-
-        canvas = CoverCanvas()
-        self.addCleanup(canvas.close)
-        canvas.resize(900, 600)
-        canvas.set_preview(QPixmap(900, 506))
-        canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
-        canvas.show()
-        self.app.processEvents()
-        title_positions = []
-        background_positions = []
-        canvas.title_position_changed.connect(lambda x, y: title_positions.append((x, y)))
-        canvas.background_position_changed.connect(lambda x, y: background_positions.append((x, y)))
-        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(220, 100))
-        QTest.mouseMove(canvas, QPoint(320, 150))
-        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(320, 150))
-        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(700, 400))
-        QTest.mouseMove(canvas, QPoint(650, 350))
-        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(650, 350))
-        self.assertTrue(title_positions)
-        self.assertTrue(background_positions)
-        self.assertGreater(title_positions[-1][0], 0.1)
-
-    def test_title_drag_preserves_mouse_offset_without_forced_safe_margin(self):
-        from autoslice.desktop.cover_canvas import CoverCanvas
-
-        canvas = CoverCanvas()
-        self.addCleanup(canvas.close)
-        canvas.resize(900, 600)
-        canvas.set_preview(QPixmap(900, 506))
-        canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
-        canvas.show()
-        self.app.processEvents()
-        positions = []
-        canvas.title_position_changed.connect(lambda x, y: positions.append((x, y)))
-
-        # 图片在 QLabel 中上下留白约 47 px；按下点位于标题内部，
-        # 移动后标题左上角应跟随同一按下偏移，而不是跳到鼠标位置。
-        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(220, 140))
-        QTest.mouseMove(canvas, QPoint(320, 190))
-        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(320, 190))
-
-        self.assertTrue(positions)
-        x, y = positions[-1]
-        self.assertAlmostEqual(x, 0.2111, places=2)
-        self.assertAlmostEqual(y, 0.1988, places=2)
-        self.assertGreater(x, 0.1)
-        self.assertGreater(y, 0.1)
-
-    def test_title_drag_can_reach_edge_without_safety_lock(self):
-        from autoslice.desktop.cover_canvas import CoverCanvas
-
-        canvas = CoverCanvas()
-        self.addCleanup(canvas.close)
-        canvas.resize(900, 600)
-        canvas.set_preview(QPixmap(900, 506))
-        canvas.set_title_rect(QRectF(0.2, 0.2, 0.3, 0.2))
-        canvas.show()
-        self.app.processEvents()
-        positions = []
-        canvas.title_position_changed.connect(lambda x, y: positions.append((x, y)))
-        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(300, 170))
-        QTest.mouseMove(canvas, QPoint(80, 80))
-        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(80, 80))
-        self.assertTrue(positions)
-        self.assertLess(positions[-1][0], 0.06)
-        self.assertLess(positions[-1][1], 0.06)
-
-    def test_canvas_selection_feedback_distinguishes_title_and_background(self):
-        from autoslice.desktop.cover_canvas import CoverCanvas
-
-        canvas = CoverCanvas()
-        self.addCleanup(canvas.close)
-        canvas.resize(900, 600)
-        canvas.set_preview(QPixmap(900, 506))
-        canvas.set_title_rect(QRectF(0.1, 0.1, 0.3, 0.2))
-        canvas.show()
-        self.app.processEvents()
-        selected = []
-        canvas.selected_object_changed.connect(selected.append)
-        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(220, 140))
-        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(220, 140))
-        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(700, 400))
-        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(700, 400))
-        self.assertEqual(selected[-2:], ["title", "background"])
 
     def test_qt_navigation_shares_selected_project_with_cover_page(self):
         from unittest.mock import patch

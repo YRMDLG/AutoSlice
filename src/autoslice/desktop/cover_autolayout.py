@@ -30,6 +30,7 @@ from .cover_model import (
     StickerObject,
     TextObject,
     object_for_profile,
+    object_override_payload,
     resize_text_style,
     text_override_payload,
 )
@@ -212,14 +213,7 @@ class CoverLayoutService:
                     focus_x, focus_y = best_crop_focus(saliency, profile.width / max(1, profile.height))
                 scale = current.scale if saliency is None else 1.0
                 updated = replace(current, pan_x=focus_x, pan_y=focus_y, scale=scale)
-                overrides[background.id] = {
-                    "transform": updated.transform.to_payload(),
-                    "visible": bool(updated.visible),
-                    "scale": updated.scale,
-                    "pan_x": updated.pan_x,
-                    "pan_y": updated.pan_y,
-                    "fit_mode": updated.fit_mode,
-                }
+                overrides[background.id] = object_override_payload(updated)
             costs = self._text_slot_costs(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
             bands = (costs.pop(_SPLIT_TOP_KEY)[0], costs.pop(_SPLIT_BOTTOM_KEY)[0]) if costs else None
             best = min(costs.items(), key=lambda item: item[1][0]) if costs else None
@@ -359,23 +353,12 @@ class CoverLayoutService:
                 center = (box.left + box.width / 2) / source_width
                 scale = item.transform.scale * ratio
                 x = max(-0.5, min(1.0, center - box.width / target_width / 2))
-                overrides[base.id] = {
-                    **overrides.get(base.id, {}),
-                    "transform": replace(item.transform, x=x, scale=scale).to_payload(),
-                    "visible": bool(item.visible),
-                    "opacity": item.opacity,
-                }
+                overrides[base.id] = object_override_payload(replace(item, transform=replace(item.transform, x=x, scale=scale)))
             elif isinstance(item, ShapeObject):
                 width = item.width * ratio
                 center = item.transform.x + item.width * item.transform.scale / 2
                 x = max(-0.5, min(1.0, center - width * item.transform.scale / 2))
-                overrides[base.id] = {
-                    **overrides.get(base.id, {}),
-                    "transform": replace(item.transform, x=x).to_payload(),
-                    "visible": bool(item.visible),
-                    "shape_type": item.shape_type, "fill": item.fill, "stroke": item.stroke,
-                    "stroke_width": item.stroke_width, "width": width, "height": item.height,
-                }
+                overrides[base.id] = object_override_payload(replace(item, width=width, transform=replace(item.transform, x=x)))
         return replace(document, profiles={**document.profiles, target_key: replace(profile, overrides=overrides)})
 
     @staticmethod
