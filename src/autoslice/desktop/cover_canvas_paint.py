@@ -119,11 +119,8 @@ class CanvasPaintMixin:
             else:
                 self._draw_handle_icon(painter, name, position)
 
-    def _source_pixmap(self) -> QPixmap:
-        return self._background_pixmap if not self._background_pixmap.isNull() else self._pixmap
-
     def _background_box(self, obj: BackgroundObject | None) -> Box | None:
-        pixmap = self._source_pixmap()
+        pixmap = self._background_pixmap
         if pixmap.isNull():
             return None
         size = self._export_size()
@@ -134,7 +131,7 @@ class CanvasPaintMixin:
         """导出像素坐标系内绘制；放置矩形与导出共用。"""
 
         width, height = self._export_size()
-        pixmap = self._source_pixmap()
+        pixmap = self._background_pixmap
         if pixmap.isNull():
             painter.fillRect(QRectF(0, 0, width, height), QColor(COLORS.raised))
             return
@@ -437,7 +434,7 @@ class CanvasPaintMixin:
         painter.restore()
 
     def paintEvent(self, event):
-        if self._background_pixmap.isNull() and self._pixmap.isNull():
+        if self._background_pixmap.isNull():
             super().paintEvent(event)
             return
         painter = QPainter(self)

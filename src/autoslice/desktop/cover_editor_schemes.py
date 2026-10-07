@@ -117,7 +117,6 @@ class CoverSchemesMixin:
             f"已切换本地基础文案 {self._copy_variant_index + 1}/{len(self._copy_variants)}"
         )
         self._draft_timer.start()
-        self._preview_timer.start()
 
     def _sync_other_ratio(self):
         if self.document is None:

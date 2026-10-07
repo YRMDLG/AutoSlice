@@ -2796,7 +2796,7 @@
         "autoslice.desktop.cover_batch_dialog.CoverBatchDialog"
       ],
       "lines": [
-        14
+        10
       ],
       "to": "autoslice.desktop.cover_batch_dialog"
     },
@@ -2806,7 +2806,7 @@
         "autoslice.desktop.cover_export_dialog.CoverExportDialog"
       ],
       "lines": [
-        15
+        11
       ],
       "to": "autoslice.desktop.cover_export_dialog"
     },
@@ -9916,20 +9916,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 564,
+      "line_count": 543,
       "longest_function": {
-        "end_line": 431,
+        "end_line": 397,
         "kind": "function",
-        "line": 363,
-        "line_count": 69,
+        "line": 332,
+        "line_count": 66,
         "qualname": "CoverEditorWidget._enter_context"
       },
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
-      "sha256": "c23d188bbe04f18691c5a6593095afd091ac5e152a5073718c9d7562f1808dc3",
+      "sha256": "3c23030f3afab57b810336f87f3838727b848689f1eabae870e74eb7629cc34f",
       "top_level_classes": [
         {
-          "end_line": 561,
+          "end_line": 540,
           "kind": "class",
           "line": 49,
           "name": "CoverEditorWidget"
@@ -10056,20 +10056,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 428,
+      "line_count": 421,
       "longest_function": {
-        "end_line": 138,
+        "end_line": 137,
         "kind": "function",
         "line": 92,
-        "line_count": 47,
+        "line_count": 46,
         "qualname": "CoverCanvas.__init__"
       },
       "module": "autoslice.desktop.cover_canvas",
       "path": "src/autoslice/desktop/cover_canvas.py",
-      "sha256": "4f0de9fc164ae56a0608632ae9334bf38e045940d690102de65c4c091ef67107",
+      "sha256": "8c1a2672d4878d7f8ccaaf225ac078a217adccbe84e6ff6e5f00a1c472e7f605",
       "top_level_classes": [
         {
-          "end_line": 426,
+          "end_line": 419,
           "kind": "class",
           "line": 48,
           "name": "CoverCanvas"
@@ -10102,20 +10102,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 469,
+      "line_count": 466,
       "longest_function": {
-        "end_line": 378,
+        "end_line": 375,
         "kind": "function",
-        "line": 336,
+        "line": 333,
         "line_count": 43,
         "qualname": "CanvasPaintMixin._paint_layer"
       },
       "module": "autoslice.desktop.cover_canvas_paint",
       "path": "src/autoslice/desktop/cover_canvas_paint.py",
-      "sha256": "69bea6d17ad2f709e8bb811f1b61c770eb515ef128a15bfdd93a68194855211f",
+      "sha256": "3ab2ed519e51645ef510a3c3f728321b358c7e2576918085213406a9a68dc0d6",
       "top_level_classes": [
         {
-          "end_line": 469,
+          "end_line": 466,
           "kind": "class",
           "line": 62,
           "name": "CanvasPaintMixin"
@@ -10263,22 +10263,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 184,
+      "line_count": 112,
       "longest_function": {
-        "end_line": 41,
+        "end_line": 105,
         "kind": "function",
-        "line": 19,
-        "line_count": 23,
-        "qualname": "CoverExportMixin._render_preview"
+        "line": 87,
+        "line_count": 19,
+        "qualname": "CoverExportMixin._open_batch"
       },
       "module": "autoslice.desktop.cover_editor_export",
       "path": "src/autoslice/desktop/cover_editor_export.py",
-      "sha256": "2b7068699d8cf986563a46843925ff6782a07b71447d298056ac278fc4002805",
+      "sha256": "5d5d484c214ddebce97fa196ce55857ccf399803d110ba756d0297e00104d424",
       "top_level_classes": [
         {
-          "end_line": 184,
+          "end_line": 112,
           "kind": "class",
-          "line": 18,
+          "line": 14,
           "name": "CoverExportMixin"
         }
       ],
@@ -10286,20 +10286,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 475,
+      "line_count": 482,
       "longest_function": {
-        "end_line": 423,
+        "end_line": 431,
         "kind": "function",
-        "line": 381,
+        "line": 389,
         "line_count": 43,
         "qualname": "CoverFramesMixin._frame_ready"
       },
       "module": "autoslice.desktop.cover_editor_frames",
       "path": "src/autoslice/desktop/cover_editor_frames.py",
-      "sha256": "977697b9d04191568051649740f56c3e0a0fd9ba4c8814307c247725446f190c",
+      "sha256": "7afebf3dcc4bac55b92fb5fc004a7e0479208b194d17c958f7360a8c122b5de7",
       "top_level_classes": [
         {
-          "end_line": 475,
+          "end_line": 482,
           "kind": "class",
           "line": 34,
           "name": "CoverFramesMixin"
@@ -10309,7 +10309,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 461,
+      "line_count": 459,
       "longest_function": {
         "end_line": 232,
         "kind": "function",
@@ -10319,10 +10319,10 @@
       },
       "module": "autoslice.desktop.cover_editor_objects",
       "path": "src/autoslice/desktop/cover_editor_objects.py",
-      "sha256": "66600bc0ce2994679b88e1aac857c598358fbc8df9fafdda3172d44318d9356c",
+      "sha256": "9d060bd90803fa420a6e9c789fb1b0e0c9df1cb323af4303eeb10eb2ecf1fa13",
       "top_level_classes": [
         {
-          "end_line": 461,
+          "end_line": 459,
           "kind": "class",
           "line": 47,
           "name": "CoverObjectsMixin"
@@ -10332,20 +10332,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 131,
+      "line_count": 130,
       "longest_function": {
-        "end_line": 120,
+        "end_line": 119,
         "kind": "function",
         "line": 93,
-        "line_count": 28,
+        "line_count": 27,
         "qualname": "CoverSchemesMixin._cycle_copy"
       },
       "module": "autoslice.desktop.cover_editor_schemes",
       "path": "src/autoslice/desktop/cover_editor_schemes.py",
-      "sha256": "eccd209302b538ab404df0322abebbc0c249fbb130ff1751b5a978ccb647d357",
+      "sha256": "8d162dd2e37d485d4409d07ec9ffcedec20f4836b428b08f70d452bc62421b0a",
       "top_level_classes": [
         {
-          "end_line": 131,
+          "end_line": 130,
           "kind": "class",
           "line": 23,
           "name": "CoverSchemesMixin"
@@ -10355,7 +10355,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 280,
+      "line_count": 279,
       "longest_function": {
         "end_line": 85,
         "kind": "function",
@@ -10365,10 +10365,10 @@
       },
       "module": "autoslice.desktop.cover_editor_text",
       "path": "src/autoslice/desktop/cover_editor_text.py",
-      "sha256": "5f4027fa39853bd58ad692f82f931e8a542025c6cc061e24f556867ec336a9e6",
+      "sha256": "03f9f6edd16cb6501b1bab7bca626ca073f07b5c4d3634da14353b080cbef4cc",
       "top_level_classes": [
         {
-          "end_line": 280,
+          "end_line": 279,
           "kind": "class",
           "line": 29,
           "name": "CoverTextMixin"
@@ -19555,7 +19555,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 637,
-    "production_line_count": 61469,
+    "production_line_count": 61369,
     "production_module_count": 236,
     "test_private_patch_count": 17,
     "top_level_class_count": 208,

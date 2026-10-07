@@ -93,7 +93,6 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(420, 260)
-        self._pixmap = QPixmap()
         self._background_pixmap = QPixmap()
         self._document: CoverDocument | None = None
         self._profile_key = "4x3"
@@ -174,14 +173,8 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self._background_pixmap = pixmap
         self.update()
 
-    def set_preview(self, pixmap: QPixmap):
-        self._pixmap = pixmap
-        if self._background_pixmap.isNull():
-            self._background_pixmap = pixmap
-        self.update()
-
-    def pixmap(self):
-        return self._pixmap
+    def background_pixmap(self) -> QPixmap:
+        return self._background_pixmap
 
     def set_selected_object(self, object_name: str):
         if object_name == "title" and self._find_text() is not None:

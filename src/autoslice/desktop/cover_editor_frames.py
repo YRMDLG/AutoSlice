@@ -299,7 +299,15 @@ class CoverFramesMixin:
         else:
             self.draft = replace(self._read_draft(), image_path=str(path))
         self._save_draft()
-        self._render_preview()
+        self._show_new_frame()
+
+    def _show_new_frame(self):
+        """换了底图：画布底图和文档一起刷新。"""
+
+        self._show_background(self.draft.image_path)
+        if self.document is not None:
+            self.canvas.set_document(self.document, self._canvas_key)
+        self._refresh_canvas()
 
     def _use_current_frame(self):
         if not self.draft.image_path and self._reuse_layout_timestamp is not None:
@@ -418,7 +426,7 @@ class CoverFramesMixin:
         self._save_draft()
         self._set_notice("")
         self.status_changed.emit("已加载当前视频画面")
-        self._render_preview()
+        self._show_new_frame()
         self._queue_nearby_thumbnails(timestamp)
         self._refresh_schemes()
 
@@ -472,4 +480,3 @@ class CoverFramesMixin:
         self.zoom_spin.blockSignals(False)
         self.canvas.set_document(self.document, self._canvas_key)
         self._draft_timer.start()
-        self._preview_timer.start()

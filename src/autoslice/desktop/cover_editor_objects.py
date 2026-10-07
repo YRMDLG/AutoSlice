@@ -257,9 +257,7 @@ class CoverObjectsMixin:
         self._record_history()
         self.canvas.set_document(self.document, self._canvas_key)
         self.draft = CoverDraft.from_document(self.document)
-        self._invalidate_render_requests()
         self._draft_timer.start()
-        self._preview_timer.start()
 
     def _store_overlay_style(self):
         """透明度和形状颜色两个比例共享，改一处两边都变。"""

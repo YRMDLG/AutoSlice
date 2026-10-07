@@ -639,15 +639,13 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         candidate = update_text_object(
             base, replace(current, transform=replace(current.transform, x=0.66)), profile_key="4x3",
         )
-        before_generation = self.widget._preview_request_generation
         self.widget.document = candidate
         self.widget._commit_document_change(base)
         applied = object_for_profile(self.widget.document, b_id, "4x3")
         self.assertIsInstance(applied, TextObject)
         self.assertAlmostEqual(applied.transform.x, 0.66, places=3)
-        self.assertGreater(self.widget._preview_request_generation, before_generation)
 
-        # 让自动保存、预览和旧回调都有机会执行，再检查文档没有被旧控件回写。
+        # 让自动保存和旧回调都有机会执行，再检查文档没有被旧控件回写。
         for _ in range(90):
             self.app.processEvents()
             time.sleep(0.03)
@@ -678,7 +676,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         canvas = CoverCanvas()
         self.addCleanup(canvas.close)
         canvas.resize(900, 600)
-        canvas.set_preview(QPixmap(str(image)))
+        canvas.set_background_pixmap(QPixmap(str(image)))
         canvas.set_document(document, "4x3")
         canvas.show()
         self.app.processEvents()
@@ -817,11 +815,10 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         for _ in range(240):
             self.app.processEvents()
             time.sleep(0.05)
-            if self.widget._preview_path is not None:
+            if not self.widget.canvas.background_pixmap().isNull():
                 break
-        self.assertIsNotNone(self.widget._preview_path)
         self.assertTrue(Path(self.widget.draft.image_path).is_file())
-        pixmap = self.widget.canvas.pixmap()
+        pixmap = self.widget.canvas.background_pixmap()
         self.assertIsNotNone(pixmap)
         self.assertFalse(pixmap.isNull())
         self.assertTrue(self.widget.export_button.isEnabled())
@@ -943,12 +940,11 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         for _ in range(160):
             self.app.processEvents()
             time.sleep(0.05)
-            if self.widget._preview_path is not None:
+            if not self.widget.canvas.background_pixmap().isNull():
                 break
         self.assertIsNotNone(self.widget.draft.image_path)
         self.assertTrue(Path(self.widget.draft.image_path).is_file())
-        self.assertIsNotNone(self.widget._preview_path)
-        pixmap = self.widget.canvas.pixmap()
+        pixmap = self.widget.canvas.background_pixmap()
         self.assertIsNotNone(pixmap)
         self.assertFalse(pixmap.isNull())
 

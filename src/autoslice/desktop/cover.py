@@ -68,12 +68,8 @@ class CoverEditorWidget(
         self.video: ProjectVideo | None = None
         self.draft = CoverDraft("")
         self.document: CoverDocument | None = None
-        self._preview_path: Path | None = None
         self._background_source: str | None = None
         self._context_generation = 0
-        self._busy = False
-        self._preview_dirty = False
-        self._pending_export = False
         self._current_playhead = 0.0
         self._frame_extract_pending = False
         self._frame_request_generation = 0
@@ -82,7 +78,6 @@ class CoverEditorWidget(
         self._copy_variant_index = -1
         self._selected_text_id: str | None = None
         self._canvas_key = "4x3"
-        self._preview_request_generation = 0
         self._jobs: set[BackgroundJob] = set()
         self.history = CoverHistory()
         self._frame_locked = False
@@ -104,10 +99,6 @@ class CoverEditorWidget(
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
         self._draft_timer.timeout.connect(self._save_draft)
-        self._preview_timer = QTimer(self)
-        self._preview_timer.setSingleShot(True)
-        self._preview_timer.setInterval(120)
-        self._preview_timer.timeout.connect(self._render_preview)
         self._build()
         # 封面页自己的撤销/重做；文案框获得焦点时由输入框处理文字撤销。
         for sequence, action in (
@@ -179,9 +170,7 @@ class CoverEditorWidget(
         self._apply_draft()
         self._sync_overlay_controls()
         self._record_history()
-        self._invalidate_render_requests()
         self._draft_timer.start()
-        self._preview_timer.start()
 
     def _record_history(self):
         """记一条撤销历史，撤销/重做按钮跟着可用状态。"""
@@ -189,13 +178,6 @@ class CoverEditorWidget(
         self.history.commit(self.document)
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
-
-    def _invalidate_render_requests(self) -> None:
-        """使正在运行的预览回调失效，并允许新状态立即排队。"""
-
-        self._preview_request_generation += 1
-        self._busy = False
-        self._preview_dirty = False
 
     def _undo(self):
         self._restore_history(self.history.undo())
@@ -212,11 +194,9 @@ class CoverEditorWidget(
         self.draft = CoverDraft.from_document(self.document)
         self._apply_draft()
         self._sync_overlay_controls()
-        self._invalidate_render_requests()
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
         self._draft_timer.start()
-        self._preview_timer.start()
 
     def _canvas_object_changed(self, item, profile_key: str):
         """接收手势提交后的对象变换，保持 CoverDocument 为唯一主状态。"""
@@ -251,8 +231,6 @@ class CoverEditorWidget(
         elif isinstance(item, (ImageObject, StickerObject, ShapeObject)):
             self._sync_overlay_controls()
         self._draft_timer.start()
-        self._invalidate_render_requests()
-        self._preview_timer.start()
 
     def _canvas_object_preview_changed(self, item, _profile_key: str):
         """只更新轻量控件显示；拖动帧不得写文档、保存或渲染。"""
@@ -276,8 +254,6 @@ class CoverEditorWidget(
             self.draft = CoverDraft.from_document(self.document)
             self._draft_timer.start()
         self._canvas_key = canvas_key
-        # 旧比例的后台渲染结果只丢弃，不阻塞新比例的主画布。
-        self._invalidate_render_requests()
         for key, button in self.canvas_ratio_buttons.items():
             button.setChecked(key == canvas_key)
         self._update_canvas_hint()
@@ -285,11 +261,8 @@ class CoverEditorWidget(
         if self.document is not None:
             self._apply_draft()
             self._sync_overlay_controls()
-        if self.draft.image_path and self.video is not None:
-            self.canvas.setText(f"正在准备 {self._canvas_label()} 预览…")
-            self._render_preview()
-            return
-        self.canvas.setText(f"加载底图后在这里预览 {self._canvas_label()} 画布")
+        if self._background_source is None:
+            self.canvas.setText(f"加载底图后在这里预览 {self._canvas_label()} 画布")
 
     def set_context(self, project: SubmissionProject | None, video: ProjectVideo | None):
         """切换项目/视频：没有就清空页面；有则载入草稿，再排队取帧或预览。"""
@@ -305,13 +278,11 @@ class CoverEditorWidget(
         self._enter_context(project, video)
 
     def _cancel_background_work(self):
-        """在途的取帧、附近帧和预览回调全部作废；迟到结果按代际丢弃。"""
+        """在途的取帧、附近帧回调全部作废；迟到结果按代际丢弃。"""
 
-        self._busy = False
         self._frame_extract_pending = False
         self._frame_request_generation += 1
         self._nearby_request_generation += 1
-        self._preview_request_generation += 1
 
     def _set_editing_enabled(self, enabled: bool):
         for button in (
@@ -343,9 +314,7 @@ class CoverEditorWidget(
         self._refresh_nearby_frame_strip(0.0)
         self._update_export_summary()
         self._update_canvas_hint()
-        self.canvas.set_preview(QPixmap())
-        self.canvas.set_background_pixmap(QPixmap())
-        self._background_source = None
+        self._show_background(None)
         self.canvas.setText("请先在字幕页选择投稿项目和视频")
         self._set_notice("")
         self._set_editing_enabled(False)
@@ -379,7 +348,6 @@ class CoverEditorWidget(
         self._show_panel()
         self.panel_toggle.setEnabled(True)
         self.panel_toggle.setChecked(False)
-        self._preview_path = None
         self._cancel_background_work()
         self._canvas_key = "4x3"
         for key, button in self.canvas_ratio_buttons.items():
@@ -420,13 +388,11 @@ class CoverEditorWidget(
         self._scheme_batch = 0
         self._load_video_duration()
         if self.draft.image_path:
-            self._render_preview()
             self._queue_nearby_thumbnails(self.draft.selected_timestamp)
             self._refresh_schemes()
         else:
             self._clear_schemes()
             self.canvas.setText("正在准备当前帧…" if self.isVisible() else "进入封面页后自动加载当前帧")
-            self.export_button.setEnabled(False)
             if self.isVisible() and not self._frame_extract_pending:
                 QTimer.singleShot(0, self._use_current_frame)
 
@@ -466,6 +432,7 @@ class CoverEditorWidget(
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
+        self._show_background(self.draft.image_path or None)
         self.canvas.set_document(self.document, self._canvas_key)
         self._refresh_hidden_button()
         if self.document is not None:
@@ -484,6 +451,20 @@ class CoverEditorWidget(
                 self._selected_text_id = text.id if text else None
         self._refresh_canvas()
 
+    def _show_background(self, path: str | None):
+        """底图路径变了才重新解码（换帧、导入、撤销、换项目）；改字不重复读大图。有底图才能导出。"""
+
+        if path != self._background_source:
+            pixmap = QPixmap(path) if path else QPixmap()
+            self.canvas.set_background_pixmap(pixmap)
+            self._background_source = path if not pixmap.isNull() else None
+            if path and pixmap.isNull():
+                self.canvas.setText("底图无法读取")
+                self._set_notice(f"底图无法读取：{path}", "error")
+        ready = self._background_source is not None
+        self.export_button.setEnabled(ready)
+        self.export_both_button.setEnabled(ready)
+
     def _read_draft(self) -> CoverDraft:
         self._store_text_controls()
         self._store_background_controls()
@@ -500,11 +481,9 @@ class CoverEditorWidget(
         self.draft = CoverDraft.from_document(self.document) if self.document else self._read_draft()
         if self.document is not None and before != self.document:
             self._record_history()
-            self._invalidate_render_requests()
         self._refresh_canvas()
         self._refresh_hidden_button()
         self._draft_timer.start()
-        self._preview_timer.start()
 
     def _gesture_finished(self):
         # object_changed 已在 release 提交并启动防抖保存；释放时不同步写盘，

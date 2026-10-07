@@ -182,7 +182,6 @@ class CoverTextMixin:
         self._record_history()
         self.canvas.set_document(self.document, self._canvas_key)
         self._draft_timer.start()
-        self._preview_timer.start()
 
     def _pick_font(self):
         source, _ = QFileDialog.getOpenFileName(

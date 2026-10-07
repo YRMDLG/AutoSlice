@@ -1,4 +1,4 @@
-"""预览渲染、导出、批量出图、导出记录与“下一个”。
+"""导出、批量出图、导出记录与“下一个”。
 
 混入 CoverEditorWidget；只用 self 上的状态，不单独实例化。
 """
@@ -7,88 +7,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtGui import (
-    QPixmap,
-)
-
 from .cover_batch_dialog import BatchTarget, CoverBatchDialog
 from .cover_export_dialog import CoverExportDialog
 
 
 class CoverExportMixin:
-    def _render_preview(self):
-        if self.video is None or not self.draft.image_path:
-            return
-        if self._busy:
-            self._preview_dirty = True
-            return
-        self._preview_dirty = False
-        self._busy = True
-        # 画布本身就是所见即所得的预览；后台渲染静默进行，不打扰编辑。
-        self._preview_request_generation += 1
-        request_generation = self._preview_request_generation
-        canvas_key = self._canvas_key
-        document = self.document
-        if document is None:
-            self._busy = False
-            return
-        video = self.video
-        self._run(
-            lambda: self.service.render_preview_document(video, document, canvas_key=canvas_key),
-            lambda result, error: self._preview_ready(
-                request_generation, canvas_key, result, error
-            ),
-        )
-
-    def _preview_ready(self, request_generation: int, canvas_key: str, result, error):
-        if (
-            request_generation != self._preview_request_generation
-            or canvas_key != self._canvas_key
-        ):
-            return
-        self._busy = False
-        if error:
-            self.canvas.setText("预览失败")
-            self._set_notice(f"封面预览失败：{error}", "error")
-            self.export_button.setEnabled(False)
-            return
-        self._preview_path = Path(result)
-        self._set_preview(self._preview_path)
-        self.export_button.setEnabled(True)
-        self.export_both_button.setEnabled(True)
-        self._set_notice("")
-        if self._preview_dirty:
-            self._preview_timer.start()
-        elif self._pending_export:
-            self._pending_export = False
-            self._start_export()
-
-    def _set_preview(self, path: Path):
-        pixmap = QPixmap(str(path))
-        if pixmap.isNull():
-            self.canvas.setText("预览图片无法读取")
-            return
-        self.canvas.set_preview(pixmap)
-        if self.draft.image_path and self.draft.image_path != self._background_source:
-            # 底图只在换帧时解码一次，改字不再重复读大图。
-            source_pixmap = QPixmap(self.draft.image_path)
-            if not source_pixmap.isNull():
-                self.canvas.set_background_pixmap(source_pixmap)
-                self._background_source = self.draft.image_path
-        if self.document is not None:
-            self.canvas.set_document(self.document, self._canvas_key)
-        self._refresh_canvas()
-
     def _export(self):
         if self.project is None or self.video is None:
             return
         self._save_draft()
         self.export_button.setEnabled(False)
-        self._pending_export = True
-        self._preview_timer.stop()
-        # 强制把当前草稿重新渲染一次；导出从这次预览完成回调启动，确保
-        # 导出的 JPG 与画布最后显示的构图使用同一份状态。
-        self._render_preview()
+        self._start_export()
 
     def _export_both(self):
         if self.project is None or self.video is None or self.document is None:
@@ -106,8 +35,8 @@ class CoverExportMixin:
         )
 
     def _export_both_ready(self, result, error):
-        self.export_button.setEnabled(self._preview_path is not None)
-        self.export_both_button.setEnabled(self._preview_path is not None)
+        self.export_button.setEnabled(self._background_source is not None)
+        self.export_both_button.setEnabled(self._background_source is not None)
         if error:
             message = f"双比例导出失败：{error}"
             self._set_notice(message, "error")
@@ -121,7 +50,6 @@ class CoverExportMixin:
 
     def _start_export(self):
         if self.project is None or self.video is None or self.document is None:
-            self._pending_export = False
             return
         self._set_notice(f"正在导出 {self._canvas_label()} 主封面…", "info")
         self.status_changed.emit(f"正在导出 {self._canvas_label()} 主封面…")
@@ -132,8 +60,8 @@ class CoverExportMixin:
         )
 
     def _export_ready(self, result, error):
-        self.export_button.setEnabled(self._preview_path is not None)
-        self.export_both_button.setEnabled(self._preview_path is not None)
+        self.export_button.setEnabled(self._background_source is not None)
+        self.export_both_button.setEnabled(self._background_source is not None)
         if error:
             message = f"封面导出失败：{error}"
             self._set_notice(message, "error")
