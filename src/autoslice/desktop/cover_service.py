@@ -743,7 +743,10 @@ class CoverService:
         texts = [item for item in document.objects if isinstance(item, TextObject)]
         has_context = any(item.copy_role == "A" and item.visible and item.text.strip() for item in texts)
         profiles = dict(document.profiles)
-        for key, profile in document.profiles.items():
+        # 4:3 是主画布：先定 4:3 的布局方式，16:9 跟随上下分置，避免另一比例压脸。
+        main_split = False
+        ordered = sorted(document.profiles.items(), key=lambda item: item[0] != "4x3")
+        for key, profile in ordered:
             overrides = dict(profile.overrides)
             focus_x, focus_y, scale = 0.5, 0.5, 1.0
             if background is not None:
@@ -763,12 +766,13 @@ class CoverService:
                 }
             costs = self._text_slot_costs(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
             best = min(costs.items(), key=lambda item: item[1][0]) if costs else None
-            split = (
+            split = has_context and (main_split or (
                 best is not None
-                and has_context
                 and best[0] in {"top", "bottom"}
                 and costs["top" if best[0] == "bottom" else "bottom"][0] <= best[1][0] * 1.5 + 0.05
-            )
+            ))
+            if key == "4x3":
+                main_split = split
             if split:
                 # 主体居中、上下两缘都可用：A 放上缘、B 放下缘，居中大字。
                 for text in texts:
@@ -786,6 +790,7 @@ class CoverService:
                     overrides[text.id] = text_override_payload(updated)
             elif best is not None:
                 _cost, text_x, text_y = best[1]
+                slot_width = next(width for _x, _y, width, name in _TEXT_SLOTS.get(key, _TEXT_SLOTS["4x3"]) if name == best[0])
                 for text in texts:
                     current = object_for_profile(document, text.id, key)
                     current = current if isinstance(current, TextObject) else text
@@ -794,7 +799,14 @@ class CoverService:
                         target_y = max(0.16, text_y + 0.18)
                     else:
                         target_y = max(0.04 if text.copy_role == "A" else 0.05, text_y)
-                    updated = replace(current, transform=replace(current.transform, x=text_x, y=target_y))
+                    # 文字区宽度收进槽位，避免延伸到画布外被裁掉。
+                    width = min(slot_width, current.rect.width * max(0.01, current.transform.scale))
+                    updated = replace(
+                        current,
+                        transform=replace(current.transform, x=text_x, y=target_y, scale=1.0),
+                        rect=replace(current.rect, width=width),
+                        wrap=replace(current.wrap, max_width=min(current.wrap.max_width, slot_width)),
+                    )
                     overrides[text.id] = text_override_payload(updated)
             profiles[key] = replace(profile, overrides=overrides)
         return replace(document, profiles=profiles)

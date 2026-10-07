@@ -121,6 +121,13 @@ class SplitLayoutTests(unittest.TestCase):
             self.assertLess(texts["A"].transform.y, 0.2)
             self.assertGreater(texts["B"].transform.y, 0.6)
             self.assertEqual({texts["A"].align, texts["B"].align}, {"center"})
+            # 4:3 是主画布，16:9 跟随上下分置，避免另一比例把字压在脸上。
+            wide = {
+                item.copy_role: object_for_profile(document, item.id, "16x9")
+                for item in document.objects if isinstance(item, TextObject)
+            }
+            self.assertLess(wide["A"].transform.y, 0.2)
+            self.assertGreater(wide["B"].transform.y, 0.6)
 
 
 if __name__ == "__main__":

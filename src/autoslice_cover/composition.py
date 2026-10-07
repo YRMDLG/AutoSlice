@@ -195,11 +195,33 @@ def best_crop_focus(saliency: SaliencyMap, target_aspect: float) -> tuple[float,
     return (best_focus, 0.5) if horizontal else (0.5, best_focus)
 
 
+# 直播切片的主体（主播立绘或真人）通常在画面中部；二次元皮肤很浅、很平，
+# 肤色通道认不出来，用居中先验兜底，让文字优先去上下缘或干净的侧边。
+SUBJECT_PRIOR_WEIGHT = 0.6
+_SUBJECT_CENTER = (0.5, 0.45)
+_SUBJECT_SPREAD = (0.16, 0.24)
+
+
+def subject_prior(box: tuple[float, float, float, float], samples: int = 12) -> float:
+    x0, y0, x1, y1 = box
+    total = 0.0
+    for i in range(samples):
+        x = x0 + (x1 - x0) * (i + 0.5) / samples
+        for j in range(samples):
+            y = y0 + (y1 - y0) * (j + 0.5) / samples
+            total += math.exp(
+                -((x - _SUBJECT_CENTER[0]) ** 2 / (2 * _SUBJECT_SPREAD[0] ** 2)
+                  + (y - _SUBJECT_CENTER[1]) ** 2 / (2 * _SUBJECT_SPREAD[1] ** 2))
+            )
+    return total / (samples * samples)
+
+
 def region_cost(saliency: SaliencyMap, box: tuple[float, float, float, float]) -> float:
     """文字区域代价：盖住人脸最重，杂乱细节次之，压字幕带再加罚。"""
 
     cost = saliency.mean("skin", box) * 3.0 + saliency.mean("detail", box) * 1.2
     cost += saliency.mean("saturation", box) * 0.2
+    cost += subject_prior(box) * SUBJECT_PRIOR_WEIGHT
     band = saliency.subtitle_band
     if band is not None:
         overlap = max(0.0, min(box[3], band[1]) - max(box[1], band[0]))

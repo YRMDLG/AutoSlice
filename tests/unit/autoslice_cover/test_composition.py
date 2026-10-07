@@ -17,11 +17,14 @@ from autoslice_cover.composition import best_crop_focus, region_cost, saliency_m
 from autoslice_cover.video import FrameMetrics
 
 
-def _person_frame(path: Path, center_x: int, *, subtitle: bool = False) -> Path:
+def _person_frame(path: Path, center_x: int, *, subtitle: bool = False, texture: bool = True) -> Path:
     image = Image.new("RGB", (1920, 1080), (40, 60, 90))
     draw = ImageDraw.Draw(image)
     draw.ellipse((center_x - 170, 220, center_x + 170, 640), fill=(224, 172, 140))
     draw.rectangle((center_x - 260, 640, center_x + 260, 1080), fill=(60, 40, 120))
+    # 衣服纹理：真实画面里身体区域并不是平涂色块。
+    for y in (range(650, 1080, 18) if texture else ()):
+        draw.line((center_x - 260, y, center_x + 260, y), fill=(200, 190, 230), width=4)
     if subtitle:
         for x in range(420, 1500, 26):
             draw.rectangle((x, 880, x + 14, 930), fill=(255, 255, 255))
@@ -49,11 +52,11 @@ class CompositionTests(unittest.TestCase):
         self.assertEqual(best_crop_focus(center, 16 / 9), (0.5, 0.5))
 
     def test_burned_subtitle_band_is_detected(self):
-        saliency = saliency_map(_person_frame(self.root / "sub.png", 960, subtitle=True))
+        saliency = saliency_map(_person_frame(self.root / "sub.png", 960, subtitle=True, texture=False))
         self.assertIsNotNone(saliency.subtitle_band)
         top, bottom = saliency.subtitle_band
         self.assertLess(abs((top + bottom) / 2 - 0.84), 0.08)
-        self.assertIsNone(saliency_map(_person_frame(self.root / "clean.png", 960)).subtitle_band)
+        self.assertIsNone(saliency_map(_person_frame(self.root / "clean.png", 960, texture=False)).subtitle_band)
 
 
 class AutoLayoutTests(unittest.TestCase):
