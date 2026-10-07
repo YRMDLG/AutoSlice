@@ -10,10 +10,11 @@ from autoslice_cover.text_layout import (
     TEXT_STYLE_REVISION,
     wrap_text_lines,
 )
-from .cover_copy import BasicCoverCopy, generate_basic_copy_variants
 
+from .cover_copy import BasicCoverCopy, generate_basic_copy_variants
 from .cover_model import (
     DOCUMENT_VERSION,
+    LAYER_REVISION,
     AssetRef,
     BackgroundObject,
     CoverDocument,
@@ -202,7 +203,9 @@ def document_from_payload(payload: Any, fallback_title: str) -> tuple[CoverDocum
     """读取 v4 或迁移旧版本，返回文档和是否发生迁移。"""
 
     if isinstance(payload, Mapping) and payload.get("version") == DOCUMENT_VERSION:
-        return migrate_v4_style_payload(payload)
+        document, restyled = migrate_v4_style_payload(payload)
+        document, relayered = migrate_layer_order(document)
+        return document, restyled or relayered
     if isinstance(payload, Mapping) and payload.get("version") in LEGACY_DRAFT_VERSIONS:
         return document_from_legacy_payload(payload, fallback_title), True
     raise ValueError("封面草稿版本不受支持")
@@ -311,6 +314,27 @@ def migrate_v4_style_payload(payload: Mapping[str, Any]) -> tuple[CoverDocument,
         objects=objects,
         profiles=profiles,
     ), True
+
+
+def migrate_layer_order(document: CoverDocument) -> tuple[CoverDocument, bool]:
+    """升级到统一 z 排序：旧版总把文字画在素材之上，先保持原有观感。"""
+
+    if document.layer_revision >= LAYER_REVISION:
+        return document, False
+    texts = [item for item in document.objects if isinstance(item, TextObject)]
+    overlays = [
+        item for item in document.objects
+        if not isinstance(item, (TextObject, BackgroundObject))
+    ]
+    objects = document.objects
+    if texts and overlays:
+        shift = max(item.z_index for item in overlays) + 1 - min(item.z_index for item in texts)
+        if shift > 0:
+            objects = tuple(
+                replace(item, z_index=item.z_index + shift) if isinstance(item, TextObject) else item
+                for item in objects
+            )
+    return replace(document, objects=objects, layer_revision=LAYER_REVISION), True
 
 
 def migrate_cover_draft(payload: Any, fallback_title: str) -> CoverDocument:

@@ -13,14 +13,15 @@ from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 from autoslice.desktop.foundation import DesktopStorage, DraftRead
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
-from autoslice_cover.fonts import resolve_font_selection
-from autoslice_cover.renderer import ShapeOverlay, StickerOverlay, TextTransform, render_cover
+from autoslice_cover.document_render import compose_document
+from autoslice_cover.renderer import TextTransform, render_cover, save_cover_jpeg
 from autoslice_cover.text_layout import wrap_text_lines
 from autoslice_cover.video import extract_frame_at_timestamp
 
 from .cover_ai import CoverAIBeta, CoverAICandidate
 from .cover_assets import CoverAssetLibrary
 from .cover_copy import BasicCoverCopy, generate_basic_copy_variants
+from .cover_layout import canvas_size, document_layers
 from .cover_migration import (
     document_from_basic_title_values,
     document_from_draft_values,
@@ -32,7 +33,6 @@ from .cover_model import (
     CoverDocument,
     ImageObject,
     Rect,
-    ShapeObject,
     StickerObject,
     TextObject,
     object_for_profile,
@@ -719,127 +719,6 @@ class CoverService:
         self._render_document(document, video, output, canvas_key="16x9")
         return output
 
-    @staticmethod
-    def _document_text_inputs(document: CoverDocument, canvas_key: str) -> tuple[TextObject | None, tuple[str, ...], tuple[TextTransform, ...]]:
-        text = next((item for item in document.objects if isinstance(item, TextObject)), None)
-        if text is None or not text.visible:
-            return None, (), ()
-        effective = object_for_profile(document, text.id, canvas_key)
-        if not isinstance(effective, TextObject):
-            effective = text
-        canvas_width, canvas_height = {"4x3": (1440, 1080), "16x9": (1920, 1080)}.get(canvas_key, (1440, 1080))
-        lines = wrap_text_lines(
-            effective.text,
-            effective.style.font_size,
-            max_width=effective.wrap.max_width,
-            max_lines=effective.wrap.max_lines,
-            canvas_width=canvas_width,
-        )
-        step = effective.style.font_size * effective.style.line_spacing / canvas_height
-        transforms = tuple(
-            TextTransform(
-                effective.transform.x,
-                min(1.0, effective.transform.y + index * step),
-                scale=effective.transform.scale,
-                font_size=effective.style.font_size,
-            )
-            for index in range(len(lines))
-        )
-        return effective, lines, transforms
-
-    @staticmethod
-    def _document_text_blocks(document: CoverDocument, canvas_key: str) -> tuple[dict[str, object], ...]:
-        """把每个 A/B TextObject 转成 renderer 的独立文字块输入。"""
-
-        canvas_width, canvas_height = {"4x3": (1440, 1080), "16x9": (1920, 1080)}.get(canvas_key, (1440, 1080))
-        blocks: list[dict[str, object]] = []
-        texts = sorted(
-            (item for item in document.objects if isinstance(item, TextObject)),
-            key=lambda item: (item.z_index, item.copy_role != "A", item.id),
-        )
-        for base in texts:
-            effective = object_for_profile(document, base.id, canvas_key)
-            text = effective if isinstance(effective, TextObject) else base
-            if not text.visible or not text.text.strip():
-                continue
-            # 旧版 renderer 会在真实字体 bbox 上先 fit，再决定 1 行或 2 行。
-            # 新版不要在服务层按近似字符数提前切断，否则会把“男模”之类的
-            # 短尾行固定保存下来。rect 现在只表示该对象的可用区域，具体
-            # 断行和字号搜索交给 renderer 的 _fit_text_block。
-            # 与 Qt CoverCanvas._display_rect 保持相同的 profile 变换语义。
-            # 旧 renderer 忽略了 transform.scale，AI 候选放大后画布和预览
-            # 会出现明显分叉。
-            transform_scale = max(0.01, float(text.transform.scale or 1.0))
-            display_width = min(text.rect.width * transform_scale, text.wrap.max_width)
-            display_height = text.rect.height * transform_scale
-            area = (
-                max(0.0, min(0.96, float(text.transform.x))),
-                max(0.0, min(0.94, float(text.transform.y))),
-                max(0.04, min(1.0, float(text.transform.x) + display_width)),
-                max(0.04, min(1.0, float(text.transform.y) + display_height)),
-            )
-            role = "context" if text.copy_role == "A" else "emphasis"
-            style = replace(text.style, align=text.align)
-            if role == "context" and style.stroke_width >= 6 and style.font_weight >= 700:
-                # 旧版 context 使用同一色板但弱一档描边；保留用户已改过的
-                # 字号、填充和位置，只把程序默认的过重描边收回历史比例。
-                style = replace(style, stroke_width=4)
-            font_resolution = resolve_font_selection(text.style.font_family)
-            font_path = str(font_resolution.path) if font_resolution.path is not None else None
-            blocks.append({
-                "text": text.text,
-                "text_area": area,
-                "text_role": role,
-                "text_transforms": None,
-                "text_style": style,
-                "font_path": font_path,
-                # 保留实际解析结果，便于诊断 Qt/Pillow 字体分叉；renderer
-                # 仍只消费 font_path，避免把调试字段混入绘制契约。
-                "resolved_font": font_resolution.to_debug_dict(),
-                "rotation": text.transform.rotation,
-            })
-        return tuple(blocks)
-
-    @staticmethod
-    def _document_overlays(
-        document: CoverDocument, canvas_key: str,
-    ) -> tuple[tuple[StickerOverlay, ...], tuple[ShapeOverlay, ...]]:
-        """把图片/贴纸/强调框转换为渲染器的轻量覆盖层。"""
-
-        stickers: list[StickerOverlay] = []
-        shapes: list[ShapeOverlay] = []
-        for base in sorted(document.objects, key=lambda item: item.z_index):
-            item = object_for_profile(document, base.id, canvas_key)
-            if item is None or not item.visible:
-                continue
-            if isinstance(item, (ImageObject, StickerObject)):
-                path = item.asset.path if item.asset else None
-                if not path or not Path(path).is_file():
-                    continue
-                width = 0.24 * max(0.05, min(4.0, item.transform.scale))
-                stickers.append(StickerOverlay(
-                    asset_id=item.asset.asset_id or item.id,
-                    image_path=path,
-                    x=item.transform.x,
-                    y=item.transform.y,
-                    width=min(0.80, width),
-                    rotation=item.transform.rotation,
-                ))
-            elif isinstance(item, ShapeObject):
-                shapes.append(ShapeOverlay(
-                    shape_id=item.id,
-                    shape_type=item.shape_type,
-                    x=item.transform.x,
-                    y=item.transform.y,
-                    width=item.width * max(0.05, item.transform.scale),
-                    height=item.height * max(0.05, item.transform.scale),
-                    stroke=item.stroke,
-                    stroke_width=item.stroke_width,
-                    fill=item.fill,
-                    rotation=item.transform.rotation,
-                ))
-        return tuple(stickers), tuple(shapes)
-
     def _render_document(
         self,
         document: CoverDocument,
@@ -850,33 +729,17 @@ class CoverService:
     ) -> None:
         if canvas_key not in {"4x3", "16x9"}:
             raise ValueError(f"不支持的封面比例：{canvas_key}")
-        background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
-        if background is None:
+        if not any(isinstance(item, BackgroundObject) for item in document.objects):
             raise ValueError("封面文档缺少底图对象")
-        effective_background = object_for_profile(document, background.id, canvas_key)
-        if not isinstance(effective_background, BackgroundObject):
-            effective_background = background
-        image_path = effective_background.asset.path if effective_background.asset else None
-        if not image_path or not Path(image_path).is_file():
+        # 与 CoverCanvas 共用 cover_layout 的几何、字号和断行，保证所见即所得。
+        background, layers = document_layers(document, canvas_key)
+        if background is None:
             raise ValueError("请先加载底图或从当前视频取帧")
-        text_blocks = self._document_text_blocks(document, canvas_key)
-        stickers, shapes = self._document_overlays(document, canvas_key)
-        render_cover(
-            image_path,
-            "",
-            output,
-            video_path=video.path,
-            canvas_key=canvas_key,
-            template_key="headline",
-            palette_key="latest_yellow",
-            text_blocks=text_blocks,
-            stickers=stickers,
-            shapes=shapes,
-            focus_x=effective_background.pan_x,
-            focus_y=effective_background.pan_y,
-            background_scale=effective_background.scale,
-            background_fit_mode=effective_background.fit_mode,
-        )
+        image = compose_document(canvas_size(canvas_key), background, layers)
+        try:
+            save_cover_jpeg(image, output)
+        finally:
+            image.close()
 
     def export(
         self,

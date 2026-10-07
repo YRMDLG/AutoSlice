@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCALE_MIN
 from autoslice_cover.fonts import resolve_font_selection
 
 from .cover_ai import CoverAICandidate
@@ -49,6 +50,7 @@ from .cover_model import (
     TextWrap,
     Transform,
     object_for_profile,
+    update_text_object,
 )
 from .cover_service import CoverDraft, CoverService, wrap_cover_title
 from .qt_preview.icons import icon
@@ -702,7 +704,7 @@ class CoverEditorWidget(QWidget):
         zoom_row = QHBoxLayout()
         zoom_row.addWidget(QLabel("缩放"))
         self.zoom_spin = QDoubleSpinBox()
-        self.zoom_spin.setRange(1.0, 2.5)
+        self.zoom_spin.setRange(BACKGROUND_SCALE_MIN, BACKGROUND_SCALE_MAX)
         self.zoom_spin.setSingleStep(0.1)
         self.zoom_spin.setDecimals(1)
         self.zoom_spin.setSuffix(" ×")
@@ -1731,10 +1733,8 @@ class CoverEditorWidget(QWidget):
         current = object_for_profile(self.document, text.id, self._canvas_key)
         if not isinstance(current, TextObject):
             current = text
+        # 清空即隐藏该块；不再回填整条投稿标题。
         typed_text = self.title_edit.text().strip()
-        if current.copy_role == "A" and not typed_text:
-            typed_text = ""
-        fallback_text = (self.project.title if self.project else "未命名封面") if current.copy_role == "B" else ""
         fill = self.fill_edit.text().strip() or current.style.fill_color
         stroke = self.stroke_edit.text().strip() or current.style.stroke_color
         if not (fill.startswith("#") and len(fill) in {4, 7, 9}):
@@ -1743,8 +1743,8 @@ class CoverEditorWidget(QWidget):
             stroke = current.style.stroke_color
         updated = replace(
             current,
-            text=typed_text or fallback_text,
-            visible=bool(typed_text.strip() or fallback_text),
+            text=typed_text,
+            visible=bool(typed_text),
             transform=replace(current.transform, x=self.x_spin.value(), y=self.y_spin.value(), rotation=self.rotation_spin.value()),
             style=replace(
                 current.style,
@@ -1762,9 +1762,8 @@ class CoverEditorWidget(QWidget):
                 align=current.align,
             ),
         )
-        profile = self.document.profiles[self._canvas_key]
-        payload = {"transform": updated.transform.to_payload(), "visible": bool(updated.visible), "rect": updated.rect.to_payload(), "wrap": updated.wrap.to_payload(), "align": updated.align, "style": updated.style.to_payload()}
-        self.document = replace(self.document, active_profile=self._canvas_key, profiles={**self.document.profiles, self._canvas_key: replace(profile, overrides={**profile.overrides, updated.id: payload})})
+        # 文案与样式写回对象本体并同步另一比例，位置和字号只写当前比例。
+        self.document = update_text_object(self.document, updated, profile_key=self._canvas_key)
 
     def _store_background_controls(self):
         if self.document is None:
@@ -1845,7 +1844,7 @@ class CoverEditorWidget(QWidget):
     def _zoom_changed(self, value: float):
         if self.project is None or self.video is None:
             return
-        value = max(1.0, min(2.5, float(value)))
+        value = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, float(value)))
         self.zoom_spin.blockSignals(True)
         self.zoom_spin.setValue(value)
         self.zoom_spin.blockSignals(False)

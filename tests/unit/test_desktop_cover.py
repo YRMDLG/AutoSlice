@@ -24,6 +24,7 @@ except ImportError:
     QApplication = None
     QGroupBox = None
 
+from autoslice.desktop.cover_layout import canvas_size, text_layout
 from autoslice.desktop.cover_model import TextObject, object_for_profile
 from autoslice.desktop.cover_service import (
     CoverDraft,
@@ -236,10 +237,11 @@ class CoverServiceTests(unittest.TestCase):
         document = CoverDraft("中文字体宽度", str(image), font_size=96).to_document()
         text = next(item for item in document.objects if isinstance(item, TextObject))
         resolution = resolve_font_selection(text.style.font_family)
-        block = self.service._document_text_blocks(document, "4x3")[0]
+        layout = text_layout(text, canvas_size("4x3"))
+        fonts = {run.font_path for line in layout.lines for run in line.runs}
         self.assertEqual(
-            Path(block["font_path"]).resolve() if block["font_path"] else None,
-            resolution.path.resolve() if resolution.path else None,
+            {Path(path).resolve() for path in fonts if path},
+            {resolution.path.resolve()} if resolution.path else set(),
         )
 
     def test_preview_and_export_default_to_four_by_three_canvas(self):

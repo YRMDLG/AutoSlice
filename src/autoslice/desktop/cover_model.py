@@ -16,6 +16,8 @@ from autoslice_cover.text_layout import (
 )
 
 DOCUMENT_VERSION = 4
+# 1：文字、图片、贴纸、形状统一按 z_index 绘制；0 为旧版“文字永远在最上”。
+LAYER_REVISION = 1
 OBJECT_KINDS = {"background", "text", "image", "sticker", "shape"}
 PROFILE_SIZES = {"4x3": (1440, 1080), "16x9": (1920, 1080)}
 
@@ -41,6 +43,21 @@ def _integer(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _color(value: Any) -> str:
+    """可选颜色：#RGB/#RRGGBB/#RRGGBBAA，其余视为关闭。"""
+
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if len(value) in {4, 7, 9} and value.startswith("#"):
+        try:
+            int(value[1:], 16)
+        except ValueError:
+            return ""
+        return value.upper()
+    return ""
 
 
 @dataclass(frozen=True)
@@ -184,6 +201,10 @@ class TextStyle:
     shadow: bool = bool(DEFAULT_TEXT_STYLE["shadow"])
     line_spacing: float = float(DEFAULT_TEXT_STYLE["line_spacing"])
     align: str = "left"
+    # 可选效果：外描边（双层描边）与文字底条；空字符串表示关闭。
+    outer_stroke: str = ""
+    outer_stroke_width: int = 0
+    backdrop: str = ""
 
     @property
     def fill_color(self) -> str:
@@ -210,6 +231,9 @@ class TextStyle:
             "shadow": self.shadow,
             "line_spacing": self.line_spacing,
             "align": self.align,
+            "outer_stroke": self.outer_stroke,
+            "outer_stroke_width": self.outer_stroke_width,
+            "backdrop": self.backdrop,
         }
 
     @classmethod
@@ -230,6 +254,9 @@ class TextStyle:
             shadow=bool(payload.get("shadow", DEFAULT_TEXT_STYLE["shadow"])),
             line_spacing=_bounded(payload.get("line_spacing"), float(DEFAULT_TEXT_STYLE["line_spacing"]), 0.5, 3.0),
             align=payload.get("align") if payload.get("align") in {"left", "center", "right"} else "left",
+            outer_stroke=_color(payload.get("outer_stroke")),
+            outer_stroke_width=min(48, max(0, _integer(payload.get("outer_stroke_width"), 0))),
+            backdrop=_color(payload.get("backdrop")),
         )
 
 
@@ -516,6 +543,7 @@ class CoverDocument:
     objects: tuple[RenderableObject, ...] = ()
     active_profile: str = "4x3"
     selected_object_id: str | None = None
+    layer_revision: int = LAYER_REVISION
 
     def __post_init__(self) -> None:
         if self.version != DOCUMENT_VERSION:
@@ -542,6 +570,7 @@ class CoverDocument:
             "objects": [item.to_payload() for item in self.objects],
             "active_profile": self.active_profile,
             "selected_object_id": self.selected_object_id,
+            "layer_revision": self.layer_revision,
         }
 
     def object(self, object_id: str, profile_key: str | None = None) -> RenderableObject | None:
@@ -634,6 +663,8 @@ class CoverDocument:
             objects=objects,
             active_profile=_text(payload.get("active_profile"), "4x3"),
             selected_object_id=selected if isinstance(selected, str) else None,
+            # 缺失即旧草稿，由迁移层把文字提到素材之上后再升级。
+            layer_revision=max(0, _integer(payload.get("layer_revision"), 0)),
         )
 
 
@@ -693,3 +724,59 @@ def object_for_profile(document: CoverDocument, object_id: str, profile_key: str
         return item
     from dataclasses import replace
     return replace(item, **changes)
+
+
+# 两比例共享的文字样式字段；字号、位置、尺寸和对齐按比例分别保存。
+SHARED_TEXT_STYLE_FIELDS = (
+    "font_family",
+    "font_weight",
+    "fill",
+    "stroke",
+    "stroke_width",
+    "shadow",
+    "line_spacing",
+    "outer_stroke",
+    "outer_stroke_width",
+    "backdrop",
+)
+
+
+def text_override_payload(item: TextObject) -> dict[str, Any]:
+    return {
+        "transform": item.transform.to_payload(),
+        "visible": bool(item.visible),
+        "rect": item.rect.to_payload(),
+        "wrap": item.wrap.to_payload(),
+        "align": item.align,
+        "style": item.style.to_payload(),
+    }
+
+
+def update_text_object(document: CoverDocument, updated: TextObject, *, profile_key: str) -> CoverDocument:
+    """写回一次文字编辑：文案和样式同步到两个比例，其余只写当前比例。"""
+
+    from dataclasses import replace
+
+    base = next((item for item in document.objects if item.id == updated.id), None)
+    if not isinstance(base, TextObject):
+        return document
+    shared = {name: getattr(updated.style, name) for name in SHARED_TEXT_STYLE_FIELDS}
+    new_base = replace(base, text=updated.text, style=replace(base.style, **shared))
+    profiles: dict[str, LayoutProfile] = {}
+    for key, profile in document.profiles.items():
+        override = profile.overrides.get(updated.id)
+        if key == profile_key:
+            payload: dict[str, Any] = text_override_payload(updated)
+        elif isinstance(override, Mapping) and isinstance(override.get("style"), Mapping):
+            style = replace(TextStyle.from_payload(override["style"]), **shared)
+            payload = {**override, "style": style.to_payload()}
+        else:
+            profiles[key] = profile
+            continue
+        profiles[key] = replace(profile, overrides={**profile.overrides, updated.id: payload})
+    return replace(
+        document,
+        objects=tuple(new_base if item.id == updated.id else item for item in document.objects),
+        profiles=profiles,
+        active_profile=profile_key,
+    )

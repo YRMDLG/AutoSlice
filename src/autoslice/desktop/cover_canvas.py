@@ -15,17 +15,42 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QFontDatabase,
-    QFontMetrics,
     QPainter,
     QPainterPath,
+    QPainterPathStroker,
     QPen,
     QPixmap,
     QPolygonF,
 )
 from PySide6.QtWidgets import QLabel
 
+from autoslice_cover.document_layout import (
+    BACKGROUND_FILL,
+    BACKGROUND_SCALE_MAX,
+    BACKGROUND_SCALE_MIN,
+    SHADOW_ALPHA,
+    Box,
+    TextLayout,
+    arrow_head_size,
+    backdrop_box,
+    backdrop_radius,
+    background_box,
+    focus_after_drag,
+    load_font,
+    shadow_offset,
+)
+from autoslice_cover.document_render import rgba
 from autoslice_cover.fonts import FontResolution, resolve_font_selection
 
+from .cover_layout import (
+    asset_path,
+    background_geometry,
+    overlay_geometry,
+    shape_geometry,
+    text_area,
+    text_layout,
+    text_paint,
+)
 from .cover_model import (
     PROFILE_SIZES,
     BackgroundObject,
@@ -40,6 +65,11 @@ from .cover_model import (
     object_for_profile,
 )
 from .qt_preview.theme import COLORS
+
+
+def _qcolor(value: str | None, default: str = "#000000") -> QColor:
+    # 模型颜色为 #RRGGBBAA，Qt 的同长度写法是 #AARRGGBB，统一走同一解析。
+    return QColor(*rgba(value, default))
 
 
 class CoverCanvas(QLabel):
@@ -93,6 +123,10 @@ class CoverCanvas(QLabel):
         self._hover_handle = False
         self._font_family_cache: dict[str, str] = {}
         self._font_id_cache: dict[str, int] = {}
+        self._variable_font_cache: dict[str, bool] = {}
+        self._glyph_path_cache: dict[tuple, tuple[QPainterPath, tuple]] = {}
+        self._outline_cache: dict[tuple, QPainterPath] = {}
+        self._overlay_pixmap_cache: dict[str, QPixmap] = {}
         self._last_resolved_font: FontResolution | None = None
         self._last_qt_font_family = ""
         self._last_qt_font_id = -1
@@ -159,7 +193,7 @@ class CoverCanvas(QLabel):
         self.update()
 
     def set_zoom(self, zoom: float):
-        self._zoom = max(1.0, min(4.0, float(zoom)))
+        self._zoom = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, float(zoom)))
         self.update()
 
     def set_background_focus(self, x: float, y: float):
@@ -207,33 +241,38 @@ class CoverCanvas(QLabel):
             max(0.0, min(1.0, (point.y() - image.top()) / max(1.0, image.height()))),
         )
 
-    def _display_rect(self, obj: TextObject) -> QRectF:
+    def _export_size(self) -> tuple[int, int]:
+        return PROFILE_SIZES.get(self._profile_key, self._canvas_ratio) if self._document is not None else self._canvas_ratio
+
+    def _to_screen(self, box: Box) -> QRectF:
+        """导出像素矩形映射到屏幕；与导出共用同一几何。"""
+
         image = self._canvas_rect()
-        scale = max(0.01, float(obj.transform.scale or 1.0))
-        width = min(obj.rect.width * scale, obj.wrap.max_width)
-        height = obj.rect.height * scale
+        factor = image.width() / max(1, self._export_size()[0])
         return QRectF(
-            image.left() + obj.transform.x * image.width(),
-            image.top() + obj.transform.y * image.height(),
-            width * image.width(),
-            height * image.height(),
+            image.left() + box.left * factor,
+            image.top() + box.top * factor,
+            box.width * factor,
+            box.height * factor,
         )
+
+    def _display_rect(self, obj: TextObject) -> QRectF:
+        return self._to_screen(text_area(obj, self._export_size()))
+
+    def _overlay_box(self, obj: RenderObject) -> Box:
+        size = self._export_size()
+        if isinstance(obj, ShapeObject):
+            return shape_geometry(obj, size)
+        box = overlay_geometry(obj, size) if isinstance(obj, (ImageObject, StickerObject)) else None
+        if box is None:
+            # 资源缺失时保留可点选的占位框，便于删除或替换。
+            width, height = size
+            scale = max(0.05, float(obj.transform.scale or 1.0))
+            return Box(obj.transform.x * width, obj.transform.y * height, width * 0.24 * scale, height * 0.18 * scale)
+        return box
 
     def _object_display_rect(self, obj: RenderObject) -> QRectF:
-        """为图片/贴纸/形状提供轻量命中区域。"""
-
-        image = self._canvas_rect()
-        scale = max(0.05, float(obj.transform.scale or 1.0))
-        if isinstance(obj, ShapeObject):
-            width, height = obj.width * scale, obj.height * scale
-        else:
-            width, height = 0.24 * scale, 0.18 * scale
-        return QRectF(
-            image.left() + obj.transform.x * image.width(),
-            image.top() + obj.transform.y * image.height(),
-            min(0.9, width) * image.width(),
-            min(0.9, height) * image.height(),
-        )
+        return self._to_screen(self._overlay_box(obj))
 
     def _legacy_display_rect(self) -> QRectF:
         image = self._canvas_rect()
@@ -297,19 +336,39 @@ class CoverCanvas(QLabel):
                     result.append(effective)
         return tuple(result)
 
-    def _text_at(self, point: QPointF) -> TextObject | None:
-        """按 z 顺序命中最上层可见文字。"""
+    def _layered_objects(self) -> tuple[RenderObject, ...]:
+        """除背景外的对象（含手势暂态），按 z 排序；与导出绘制顺序一致。"""
 
-        for item in sorted(self._find_texts(), key=lambda value: value.z_index, reverse=True):
-            if item.visible and self._display_rect(item).contains(point):
+        if self._document is None:
+            return ()
+        ordered = []
+        for index, item in enumerate(self._document.objects):
+            if isinstance(item, BackgroundObject):
+                continue
+            live = self._gesture_objects.get(item.id)
+            effective = live if isinstance(live, type(item)) else object_for_profile(self._document, item.id, self._profile_key)
+            if effective is not None:
+                ordered.append((effective.z_index, index, effective))
+        return tuple(item for _z, _index, item in sorted(ordered, key=lambda value: (value[0], value[1])))
+
+    def _hit_object(self, point: QPointF) -> RenderObject | None:
+        """按 z 从上到下命中第一个可见对象。"""
+
+        for item in reversed(self._layered_objects()):
+            if not item.visible:
+                continue
+            rect = self._display_rect(item) if isinstance(item, TextObject) else self._object_display_rect(item)
+            if rect.contains(point):
                 return item
         return None
+
+    def _text_at(self, point: QPointF) -> TextObject | None:
+        hit = self._hit_object(point)
+        return hit if isinstance(hit, TextObject) else None
 
     def _overlay_at(self, point: QPointF) -> RenderObject | None:
-        for item in sorted(self._find_overlay_objects(), key=lambda value: value.z_index, reverse=True):
-            if item.visible and self._object_display_rect(item).contains(point):
-                return item
-        return None
+        hit = self._hit_object(point)
+        return hit if isinstance(hit, (ImageObject, StickerObject, ShapeObject)) else None
 
     def _title_display_rect(self) -> QRectF:
         text = self._find_text()
@@ -564,15 +623,12 @@ class CoverCanvas(QLabel):
             obj = self._find_background()
             if obj:
                 px, py, scale = self._start_background
-                self._emit_background(
-                    replace(
-                        obj,
-                        pan_x=self._clamp(px + dx, 0.0, 1.0),
-                        pan_y=self._clamp(py + dy, 0.0, 1.0),
-                        scale=scale,
-                    ),
-                    commit=False,
-                )
+                width, height = self._export_size()
+                drawn = self._background_box(replace(obj, scale=scale))
+                # focus 语义与导出一致，换算后画面跟手移动。
+                pan_x = focus_after_drag(px, dx * width, width, drawn.width) if drawn else px
+                pan_y = focus_after_drag(py, dy * height, height, drawn.height) if drawn else py
+                self._emit_background(replace(obj, pan_x=pan_x, pan_y=pan_y, scale=scale), commit=False)
             else:
                 self._background_x = self._clamp(self._start_background[0] + dx, 0.0, 1.0)
                 self._background_y = self._clamp(self._start_background[1] + dy, 0.0, 1.0)
@@ -604,7 +660,7 @@ class CoverCanvas(QLabel):
         if not steps:
             return
         obj = self._find_background()
-        value = max(1.0, min(4.0, (obj.scale if obj else self._zoom) + steps * 0.1))
+        value = max(BACKGROUND_SCALE_MIN, min(BACKGROUND_SCALE_MAX, (obj.scale if obj else self._zoom) + steps * 0.1))
         if obj:
             self._emit_background(replace(obj, scale=value))
         else:
@@ -704,164 +760,216 @@ class CoverCanvas(QLabel):
         else:
             self.unsetCursor()
 
-    def _draw_background(self, painter: QPainter, canvas: QRectF):
-        pixmap = self._background_pixmap if not self._background_pixmap.isNull() else self._pixmap
-        if pixmap.isNull():
-            painter.fillRect(canvas, QColor(COLORS.raised))
-            return
-        obj = self._find_background()
-        scale = obj.scale if obj else self._zoom
-        pan_x = obj.pan_x if obj else self._background_x
-        pan_y = obj.pan_y if obj else self._background_y
-        fit_mode = obj.fit_mode if obj else "cover"
-        factor = (min if fit_mode == "contain" else max)(canvas.width() / pixmap.width(), canvas.height() / pixmap.height()) * scale
-        draw_w, draw_h = pixmap.width() * factor, pixmap.height() * factor
-        if fit_mode == "contain":
-            painter.fillRect(canvas, QColor(COLORS.player))
-        center_x = canvas.center().x() + (pan_x - 0.5) * (draw_w - canvas.width())
-        center_y = canvas.center().y() + (pan_y - 0.5) * (draw_h - canvas.height())
-        target = QRectF(center_x - draw_w / 2, center_y - draw_h / 2, draw_w, draw_h)
-        painter.save()
-        painter.setClipRect(canvas)
-        painter.drawPixmap(target, pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()))
-        painter.restore()
+    def _source_pixmap(self) -> QPixmap:
+        return self._background_pixmap if not self._background_pixmap.isNull() else self._pixmap
 
-    def _draw_overlay(self, painter: QPainter, canvas: QRectF, item: RenderObject):
-        rect = self._object_display_rect(item)
+    def _background_box(self, obj: BackgroundObject | None) -> Box | None:
+        pixmap = self._source_pixmap()
+        if pixmap.isNull():
+            return None
+        size = self._export_size()
+        source = (pixmap.width(), pixmap.height())
+        if obj is not None:
+            return background_geometry(obj, size, source)
+        return background_box(source, size, scale=self._zoom, focus_x=self._background_x, focus_y=self._background_y)
+
+    def _draw_background(self, painter: QPainter):
+        """导出像素坐标系内绘制；放置矩形与导出共用。"""
+
+        width, height = self._export_size()
+        pixmap = self._source_pixmap()
+        if pixmap.isNull():
+            painter.fillRect(QRectF(0, 0, width, height), QColor(COLORS.raised))
+            return
+        painter.fillRect(QRectF(0, 0, width, height), _qcolor(BACKGROUND_FILL))
+        box = self._background_box(self._find_background())
+        if box is not None:
+            painter.drawPixmap(
+                QRectF(box.left, box.top, box.width, box.height),
+                pixmap,
+                QRectF(0, 0, pixmap.width(), pixmap.height()),
+            )
+
+    @staticmethod
+    def _rotate_about(painter: QPainter, center_x: float, center_y: float, rotation: float):
+        if abs(rotation) >= 0.05:
+            painter.translate(center_x, center_y)
+            painter.rotate(rotation)
+            painter.translate(-center_x, -center_y)
+
+    def _overlay_pixmap(self, path: str | None) -> QPixmap:
+        if not path:
+            return QPixmap()
+        pixmap = self._overlay_pixmap_cache.get(path)
+        if pixmap is None:
+            if len(self._overlay_pixmap_cache) > 48:
+                self._overlay_pixmap_cache.clear()
+            pixmap = QPixmap(path)
+            self._overlay_pixmap_cache[path] = pixmap
+        return pixmap
+
+    def _draw_overlay(self, painter: QPainter, item: RenderObject):
+        box = self._overlay_box(item)
+        target = QRectF(box.left, box.top, box.width, box.height)
         if isinstance(item, (ImageObject, StickerObject)):
-            path = item.asset.path if item.asset else None
-            pixmap = QPixmap(path) if path else QPixmap()
+            pixmap = self._overlay_pixmap(asset_path(item))
             if pixmap.isNull():
                 return
-            scaled = pixmap.scaled(rect.size().toSize(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            target = QRectF(rect.left(), rect.top(), scaled.width(), scaled.height())
             painter.save()
             painter.setOpacity(max(0.0, min(1.0, item.opacity)))
-            if abs(item.transform.rotation) > 0.01:
-                painter.translate(target.center())
-                painter.rotate(item.transform.rotation)
-                painter.translate(-target.center())
-            painter.drawPixmap(target, scaled)
+            self._rotate_about(painter, box.center_x, box.center_y, item.transform.rotation)
+            painter.drawPixmap(target, pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()))
             painter.restore()
             return
         if isinstance(item, ShapeObject):
             painter.save()
-            pen = QPen(QColor(item.stroke), max(1.0, float(item.stroke_width) * canvas.width() / max(1, self._canvas_ratio[0])))
+            self._rotate_about(painter, box.center_x, box.center_y, item.transform.rotation)
+            stroke = _qcolor(item.stroke, "#FFDB4D")
+            pen = QPen(stroke, max(1.0, float(item.stroke_width)))
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
             painter.setPen(pen)
-            painter.setBrush(QColor(item.fill) if item.fill else Qt.BrushStyle.NoBrush)
-            if abs(item.transform.rotation) > 0.01:
-                painter.translate(rect.center())
-                painter.rotate(item.transform.rotation)
-                painter.translate(-rect.center())
+            painter.setBrush(_qcolor(item.fill) if item.fill else Qt.BrushStyle.NoBrush)
             if item.shape_type == "circle":
-                painter.drawEllipse(rect)
+                painter.drawEllipse(target)
             elif item.shape_type == "arrow":
-                painter.drawLine(rect.bottomLeft(), rect.topRight())
-                head = min(rect.width(), rect.height()) * 0.25
-                painter.drawPolygon(QPolygonF((rect.topRight(), QPointF(rect.right() - head, rect.top()), QPointF(rect.right(), rect.top() + head))))
+                painter.drawLine(target.bottomLeft(), target.topRight())
+                head = arrow_head_size(box)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(stroke)
+                painter.drawPolygon(QPolygonF((
+                    target.topRight(),
+                    QPointF(target.right() - head, target.top()),
+                    QPointF(target.right(), target.top() + head),
+                )))
             else:
-                painter.drawRect(rect)
+                painter.drawRect(target)
             painter.restore()
 
-    def _draw_text(self, painter: QPainter, canvas: QRectF, text: TextObject):
-        rect = self._display_rect(text)
-        style = text.style
-        resolution = resolve_font_selection(style.font_family)
-        self._last_resolved_font = resolution
-        font_path = str(resolution.path or "")
-        font_id = self._font_id_cache.get(font_path, -1)
-        family = self._font_family_cache.get(font_path)
-        if family is None and font_path:
-            font_id = QFontDatabase.addApplicationFont(font_path)
+    def _qt_family(self, font_path: str | None) -> str:
+        key = font_path or ""
+        family = self._font_family_cache.get(key)
+        if family is None:
+            font_id = QFontDatabase.addApplicationFont(font_path) if font_path else -1
             loaded = QFontDatabase.applicationFontFamilies(font_id) if font_id >= 0 else []
-            family = loaded[0] if loaded else resolution.family
-            self._font_family_cache[font_path] = family
-            self._font_id_cache[font_path] = font_id
-        family = family or resolution.family or self.font().family()
-        self._last_qt_font_family = family
-        self._last_qt_font_id = font_id
-        font = QFont(family)
-        base_pixel_size = max(8, int(style.font_size * canvas.width() / max(1, self._canvas_ratio[0])))
-        font.setPixelSize(base_pixel_size)
-        weight = max(100, min(1000, int(style.font_weight)))
-        # PySide6 绑定要求 QFont.Weight 枚举，不能直接传 CSS 数值整数。
-        font.setWeight(
-            QFont.Weight.Black
-            if weight >= 850
-            else QFont.Weight.Bold
-            if weight >= 650
-            else QFont.Weight.Normal
+            family = loaded[0] if loaded else self.font().family()
+            self._font_family_cache[key] = family
+            self._font_id_cache[key] = font_id
+        return family
+
+    def _is_variable_font(self, font_path: str | None) -> bool:
+        if not font_path:
+            return False
+        cached = self._variable_font_cache.get(font_path)
+        if cached is None:
+            try:
+                axes = load_font(font_path, 32).get_variation_axes()
+                cached = any(axis.get("name") in (b"Weight", "Weight") for axis in axes)
+            except (AttributeError, OSError):
+                cached = False
+            self._variable_font_cache[font_path] = cached
+        return cached
+
+    def _qt_font(self, font_path: str | None, size: int, weight: int) -> QFont:
+        font = QFont(self._qt_family(font_path))
+        font.setPixelSize(max(1, int(size)))
+        # 只给可变字体设字重，静态字体用文件本身字重，避免 Qt 合成粗体。
+        if self._is_variable_font(font_path):
+            font.setVariableAxis(QFont.Tag("wght"), float(weight))
+            font.setWeight(
+                QFont.Weight.Black if weight >= 850 else QFont.Weight.Bold if weight >= 650 else QFont.Weight.Normal
+            )
+        return font
+
+    def _glyph_path(self, layout: TextLayout) -> tuple[QPainterPath, tuple, tuple]:
+        """相对文字区域左上角构建字形路径；拖动只平移，路径可复用。"""
+
+        key = (
+            layout.font_size,
+            layout.font_weight,
+            tuple(
+                (line.text, line.runs, round(line.origin_x - layout.area.left, 2), round(line.baseline - layout.area.top, 2))
+                for line in layout.lines
+            ),
         )
-        # 与 Pillow renderer 的独立文字块 fit 保持同一行为：默认只搜索
-        # 1~2 行，优先整行，禁止自动生成 1~2 字尾行。Qt 使用 QFontMetrics
-        # 做同样的真实字宽测量，避免画布和预览在换行上再次漂移。
-        explicit = "\n" in text.text
-        source = [part.strip() for part in text.text.replace("\r\n", "\n").split("\n") if part.strip()] or [" "]
-        max_width_px = max(24.0, rect.width())
-        max_height_px = max(24.0, rect.height())
-        max_lines = max(2, min(8, int(text.wrap.max_lines))) if explicit else 2
-        selected_lines = source[:max_lines] if explicit else None
-        selected_font = QFont(font)
-        for pixel_size in range(base_pixel_size, max(12, int(base_pixel_size * 0.45)) - 1, -2):
-            candidate_font = QFont(font)
-            candidate_font.setPixelSize(pixel_size)
-            metrics = QFontMetrics(candidate_font)
-            candidates = [tuple(source)] if explicit else [(text.text.strip(),)]
-            if not explicit and len(text.text.strip()) > 1:
-                value = text.text.strip()
-                candidates.extend((value[:index], value[index:]) for index in range(1, len(value)))
-            fitting: list[tuple[tuple[float, ...], tuple[str, ...]]] = []
-            for candidate in candidates:
-                if len(candidate) > max_lines or any(not item for item in candidate):
+        cached = self._glyph_path_cache.get(key)
+        if cached is not None:
+            return cached[0], cached[1], key
+        path = QPainterPath()
+        emoji = []
+        for line in layout.lines:
+            for run in line.runs:
+                x = line.origin_x - layout.area.left + run.offset
+                y = line.baseline - layout.area.top
+                if run.emoji:
+                    emoji.append((x, y, run.text, run.font_path))
                     continue
-                widths = [metrics.horizontalAdvance(item) for item in candidate]
-                gap = max(8.0, pixel_size * max(0.08, min(0.30, float(style.line_spacing) - 1.0)))
-                total_height = sum(metrics.height() for _ in candidate) + gap * (len(candidate) - 1)
-                if max(widths, default=0) > max_width_px or total_height > max_height_px:
-                    continue
-                if len(candidate) > 1 and not explicit and len(candidate[-1]) <= 2:
-                    continue
-                balance = abs(widths[0] - widths[-1]) if len(candidate) > 1 else 0
-                fitting.append(((float(len(candidate) - 1), float(balance)), candidate))
-            if fitting:
-                _score, selected_lines = min(fitting, key=lambda item: item[0])
-                selected_font = candidate_font
-                break
-        lines = list(selected_lines or source[:max_lines])
-        font = selected_font
-        line_height = max(1.0, font.pixelSize() * float(style.line_spacing))
-        align = text.align if text.align in {"left", "center", "right"} else "left"
-        effective_stroke_width = 4 if text.copy_role == "A" and style.stroke_width >= 6 else style.stroke_width
-        stroke_width = max(0.0, float(effective_stroke_width) * canvas.width() / max(1, self._canvas_ratio[0]))
+                path.addText(QPointF(x, y), self._qt_font(run.font_path, layout.font_size, layout.font_weight), run.text)
+        if len(self._glyph_path_cache) > 64:
+            self._glyph_path_cache.clear()
+            self._outline_cache.clear()
+        self._glyph_path_cache[key] = (path, tuple(emoji))
+        return path, tuple(emoji), key
 
-        def build_path(offset_x: float = 0.0, offset_y: float = 0.0) -> QPainterPath:
-            path = QPainterPath()
-            metrics = painter.fontMetrics()
-            for index, line in enumerate(lines):
-                line_width = metrics.horizontalAdvance(line)
-                if align == "center":
-                    x = rect.center().x() - line_width / 2
-                elif align == "right":
-                    x = rect.right() - line_width
-                else:
-                    x = rect.left()
-                baseline = rect.top() + metrics.ascent() + index * line_height
-                path.addText(x + offset_x, baseline + offset_y, font, line)
-            return path
+    def _outline(self, path: QPainterPath, key: tuple, radius: float) -> QPainterPath:
+        """描边轮廓与字形合并为一块，半透明填充时不会在重叠处加深。"""
 
+        cache_key = (key, round(radius, 2))
+        cached = self._outline_cache.get(cache_key)
+        if cached is None:
+            if radius > 0:
+                stroker = QPainterPathStroker()
+                stroker.setWidth(radius * 2)
+                stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+                cached = stroker.createStroke(path).united(path)
+            else:
+                cached = QPainterPath(path)
+            self._outline_cache[cache_key] = cached
+        return cached
+
+    @staticmethod
+    def _round_pen(color: QColor, radius: float) -> QPen:
+        # Pillow 描边按半径向外扩，Qt 画笔以路径为中心，宽度取两倍。
+        pen = QPen(color, max(0.0, radius) * 2)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        return pen
+
+    def _draw_text(self, painter: QPainter, text: TextObject):
+        self._last_resolved_font = resolve_font_selection(text.style.font_family)
+        layout = text_layout(text, self._export_size())
+        if not layout.lines:
+            return
+        paint = text_paint(text)
+        primary = next((run.font_path for line in layout.lines for run in line.runs if not run.emoji), None)
+        self._last_qt_font_family = self._qt_family(primary)
+        self._last_qt_font_id = self._font_id_cache.get(primary or "", -1)
+        path, emoji, key = self._glyph_path(layout)
+        area = layout.area
+        stroke = max(0, int(paint.stroke_width))
+        outer = max(0, int(paint.outer_stroke_width)) if paint.outer_stroke else 0
         painter.save()
-        painter.setFont(font)
-        if abs(text.transform.rotation) > 0.01:
-            painter.translate(rect.center())
-            painter.rotate(text.transform.rotation)
-            painter.translate(-rect.center())
-        if style.shadow:
-            shadow = build_path(2.0, 3.0)
-            painter.fillPath(shadow, QColor(0, 0, 0, 184))
-            painter.strokePath(shadow, QPen(QColor(0, 0, 0, 184), stroke_width + 1.0))
-        glyphs = build_path()
-        painter.fillPath(glyphs, QColor(style.fill_color))
-        painter.strokePath(glyphs, QPen(QColor(style.stroke_color), max(1.0, stroke_width)))
+        self._rotate_about(painter, area.center_x, area.center_y, text.transform.rotation)
+        if paint.backdrop:
+            backdrop = backdrop_box(layout.ink, layout.font_size)
+            radius = backdrop_radius(layout.font_size)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_qcolor(paint.backdrop))
+            painter.drawRoundedRect(QRectF(backdrop.left, backdrop.top, backdrop.width, backdrop.height), radius, radius)
+        painter.translate(area.left, area.top)
+        if paint.shadow:
+            offset = shadow_offset(layout.font_size)
+            shadow = self._outline(path, key, stroke + outer + 1)
+            painter.fillPath(shadow.translated(offset, offset), QColor(0, 0, 0, SHADOW_ALPHA))
+        if outer:
+            painter.strokePath(path, self._round_pen(_qcolor(paint.outer_stroke), stroke + outer))
+        if stroke:
+            painter.strokePath(path, self._round_pen(_qcolor(paint.stroke, "#111111"), stroke))
+        painter.fillPath(path, _qcolor(paint.fill, "#FFE438"))
+        for x, y, value, font_path in emoji:
+            painter.setFont(self._qt_font(font_path, layout.font_size, layout.font_weight))
+            painter.setPen(QColor(0, 0, 0))
+            painter.drawText(QPointF(x, y), value)
         painter.restore()
 
     def paintEvent(self, event):
@@ -872,15 +980,23 @@ class CoverCanvas(QLabel):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), self.palette().window())
         canvas = self._canvas_rect()
-        self._draw_background(painter, canvas)
-        texts = self._find_texts()
         overlays = self._find_overlay_objects()
-        for item in sorted(overlays, key=lambda value: value.z_index):
-            if item.visible:
-                self._draw_overlay(painter, canvas, item)
-        for item in sorted(texts, key=lambda value: value.z_index):
-            if item.visible:
-                self._draw_text(painter, canvas, item)
+        # 内容在导出像素坐标系中绘制后整体缩放，与 Pillow 导出逐像素对应。
+        export_width, export_height = self._export_size()
+        painter.save()
+        painter.translate(canvas.left(), canvas.top())
+        painter.scale(canvas.width() / max(1, export_width), canvas.height() / max(1, export_height))
+        painter.setClipRect(QRectF(0, 0, export_width, export_height))
+        self._draw_background(painter)
+        for item in self._layered_objects():
+            if not item.visible:
+                continue
+            if isinstance(item, TextObject):
+                if item.text.strip():
+                    self._draw_text(painter, item)
+            else:
+                self._draw_overlay(painter, item)
+        painter.restore()
         text = self._find_text()
         if text and self._selected_object == text.id:
             rect = self._display_rect(text).adjusted(-4, -4, 4, 4)
