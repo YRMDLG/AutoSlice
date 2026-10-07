@@ -70,6 +70,8 @@ AutoCover 只接收不可变的项目/视频上下文和明确的 playhead 快�
 - `CoverService`：负责草稿读写、旧草稿迁移、取帧、素材、预览、导出、风格记忆和导出历史；不持有 Qt 控件布局。
 - `CoverDocument`：负责可序列化封面对象、双比例 profile 和对象替换语义；不依赖媒体文件存在。
 - `autoslice_cover.renderer`：消费明确的布局/渲染输入，输出预览或最终图片；不反向读取桌面上下文。
+- `cover_layout`：把 `CoverDocument` 换算成导出像素下的背景放置、素材框、文字字号与断行。画布显示和导出都只从这里取几何，不各算一套；新增对象类型或样式效果时，两端的绘制都要跟着它改。
+- `autoslice_cover.document_layout` / `document_render`：纯 Pillow 的共享排版和图层合成；`composition` 提供显著图，只产出构图建议，不直接改文档。
 
 CoverDocument 与媒体资产引用分开：文档保存对象、变换、文本和资源标识；服务层验证路径、生成缓存和导出文件。封面缺少 manifest、数据库记录或自动切片结果时，项目扫描和封面制作仍然应该可用。
 
