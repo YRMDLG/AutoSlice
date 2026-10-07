@@ -2682,7 +2682,11 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                         import_edges,
                     )
 
-        self.assertEqual(current["summary"]["top_level_function_count"], 1059)
+        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(
+            current["summary"]["top_level_function_count"],
+            baseline["summary"]["top_level_function_count"],
+        )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])
         self.assertEqual(
@@ -5432,9 +5436,10 @@ class ArchitectureDefinitionTests(unittest.TestCase):
                 import_edges,
             )
 
+        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         self.assertEqual(
             current["summary"]["top_level_function_count"],
-            1059,
+            baseline["summary"]["top_level_function_count"],
         )
         self.assertEqual(current["dependency_cycles"], [])
         self.assertEqual(current["duplicate_top_level_definitions"], [])

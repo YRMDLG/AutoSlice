@@ -146,6 +146,9 @@ class SubtitleTimelineQtTests(unittest.TestCase):
         _entry, _start, _end, rect = self._block()
         y = int(rect.center().y())
 
+        # 离开旧鼠标位置，确保多个 Qt 测试共享 QApplication 时仍触发 hover。
+        QTest.mouseMove(self.timeline, QPoint(0, 0))
+        self.app.processEvents()
         QTest.mouseMove(self.timeline, QPoint(int(rect.left() + 2), y))
         self.app.processEvents()
         self.assertEqual(self.timeline.cursor().shape(), Qt.CursorShape.SizeHorCursor)

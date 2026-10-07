@@ -69,6 +69,7 @@ class DesktopAIQtTests(unittest.TestCase):
         project = next(p for p in self.window.service.snapshot.projects if p.title == "中文项目")
         self.window._select_real_project(project)
         self.wait_for(lambda: self.window.document is not None)
+        self.wait_for(lambda: not self.window._jobs and not self.window.cover_editor._jobs)
 
     def wait_for(self, condition):
         deadline = time.monotonic() + 5
@@ -239,10 +240,24 @@ class DesktopAIQtTests(unittest.TestCase):
         self.assertTrue(self.window.table.isEnabled())
 
     def test_playhead_full_height_blank_scrub_and_cue_priority(self):
-        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
         from PySide6.QtTest import QTest
 
         timeline = self.window.timeline
+
+        def move_pointer(point, *, dragging=False):
+            # offscreen 的系统鼠标受虚拟屏幕边界限制；显式 Qt 事件用于验证
+            # 整段高度的状态机，真实窗口的可达性仍由实机验收负责。
+            event = QMouseEvent(
+                QEvent.Type.MouseMove, QPointF(point),
+                QPointF(timeline.mapToGlobal(point)), Qt.MouseButton.NoButton,
+                Qt.MouseButton.LeftButton if dragging else Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            QApplication.sendEvent(timeline, event)
+            self.app.processEvents()
+
         timeline.set_duration(24)
         timeline.center = 2.5
         timeline.set_playhead(2.5, playing=False)
@@ -250,25 +265,35 @@ class DesktopAIQtTests(unittest.TestCase):
         selected = self.window.selected_index
         emitted = []
         timeline.seek_requested.connect(emitted.append)
-        marker = int(timeline._x(2.5))
-        for y in (20, 38, timeline.height() - 2):
-            QTest.mouseMove(timeline, QPoint(marker, y))
-            self.assertEqual(timeline.cursor().shape(), Qt.CursorShape.SizeHorCursor)
+        for fixed_y in (20, 38, None):
+            y = timeline.height() - 2 if fixed_y is None else fixed_y
+            marker = int(timeline._x(2.5))
+            move_pointer(QPoint(marker - 16, y))
+            move_pointer(QPoint(marker, y))
+            self.assertEqual(
+                timeline.cursor().shape(), Qt.CursorShape.SizeHorCursor,
+                f"y={y}, height={timeline.height()}, marker={marker}, playhead={timeline.playhead}",
+            )
             QTest.mousePress(timeline, Qt.MouseButton.LeftButton, pos=QPoint(marker, y))
+            self.assertEqual(timeline._press["kind"], "playhead")
+            self.assertIsNone(timeline._scrub)
+            move_pointer(QPoint(marker + 16, y), dragging=True)
             self.assertIsNotNone(timeline._scrub)
-            QTest.mouseMove(timeline, QPoint(marker + 16, y))
             QTest.mouseRelease(timeline, Qt.MouseButton.LeftButton,
                                pos=QPoint(marker + 16, y))
             timeline.set_playhead(2.5, playing=False)
         blank = int(timeline._x(5))
         QTest.mousePress(timeline, Qt.MouseButton.LeftButton,
                          pos=QPoint(blank, timeline.height() - 2))
-        self.assertIsNotNone(timeline._scrub)
-        QTest.mouseMove(timeline, QPoint(blank + 20, timeline.height() - 2))
+        self.assertIsNotNone(timeline._blank)
+        self.assertIsNone(timeline._scrub)
+        move_pointer(QPoint(blank + 20, timeline.height() - 2), dragging=True)
+        self.assertIsNotNone(timeline._marquee)
+        self.assertIsNone(timeline._scrub)
         QTest.mouseRelease(timeline, Qt.MouseButton.LeftButton,
                            pos=QPoint(blank + 20, timeline.height() - 2))
         # 空白拖动已经进入矩形框选，不再把释放位置解释为 scrub seek。
-        self.assertEqual(len(emitted), 3)
+        self.assertEqual(len(emitted), 4)
         self.assertEqual(self.window.selected_index, selected)
         self.assertFalse(self.window.document.dirty)
         block = next(item for item in timeline._visible_blocks() if item[0].index == 1)[3]
@@ -276,7 +301,9 @@ class DesktopAIQtTests(unittest.TestCase):
                         (block.right() - 1, "right")):
             point = QPoint(int(x), 38)
             QTest.mousePress(timeline, Qt.MouseButton.LeftButton, pos=point)
-            self.assertEqual(timeline._drag["mode"], mode)
+            self.assertEqual(timeline._press["kind"], "cue")
+            self.assertEqual(timeline._press["mode"], mode)
+            self.assertIsNone(timeline._drag)
             self.assertIsNone(timeline._scrub)
             QTest.mouseRelease(timeline, Qt.MouseButton.LeftButton, pos=point)
         self.window._draft_timer.stop()

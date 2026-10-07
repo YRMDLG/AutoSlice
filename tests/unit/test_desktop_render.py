@@ -106,6 +106,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.projects = {p.title: p for p in self.window.service.snapshot.projects}
         self.window._select_real_project(self.projects["项目甲"])
         self.wait_for(lambda: self.window.document is not None)
+        self.wait_for(lambda: not self.window._jobs and not self.window.cover_editor._jobs)
 
     def _close(self):
         self.window._resolve_unsaved = lambda: True
