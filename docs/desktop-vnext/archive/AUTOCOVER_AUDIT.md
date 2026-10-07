@@ -4,7 +4,7 @@
 
 仓库里已经有一套完整的 `src/autoslice_cover/` 生产能力：`video.py` 负责 ffprobe/FFmpeg 取帧和私有缓存，`renderer.py` 负责 16:9/4:3 背景裁切、标题排版、描边与阴影，`titles.py`、`style.py` 和 profile 规则负责标题拆句与视觉建议，`drafts.py` 和旧 Web 页面负责历史封面草稿与预览记录。`CoverWorkspace` 的输入是切片目录，默认会忽略封面/成片目录并使用自己的任务队列；它适合作为旧 AutoCover 兼容入口，不适合作为 Qt 投稿项目的第二套项目扫描器。
 
-Qt vNext 原先只有封面导航和占位画布，没有读取项目图片、保存封面草稿或导出结果的能力。`SubmissionProjectService` 已经把 `F:\Videos\投稿\<标题>` 扫描为字幕页和封面页共同使用的 `ProjectSnapshot`，因此 AutoCover-01 直接继承该快照，不再引入旧 `CoverWorkspace` 的独立项目体系。
+Qt vNext 原先只有封面导航和占位画布，没有读取项目图片、保存封面草稿或导出结果的能力。`SubmissionProjectService` 已经把 `submissions/<标题>` 扫描为字幕页和封面页共同使用的 `ProjectSnapshot`，因此 AutoCover-01 直接继承该快照，不再引入旧 `CoverWorkspace` 的独立项目体系。
 
 ### 复用、冻结与丢弃
 

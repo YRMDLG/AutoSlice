@@ -1,10 +1,10 @@
 # Desktop vNext 后续短任务
 
-按序交付；每项以可独立验证的工作结果收口。具体实现仍需遵守 [PRODUCT.md](PRODUCT.md)、[UX.md](UX.md)、[ARCHITECTURE.md](ARCHITECTURE.md) 和 [MIGRATION_MAP.md](MIGRATION_MAP.md)。
+按序交付；每项以可独立验证的工作结果收口。具体实现仍需遵守 [PRODUCT.md](../PRODUCT.md)、[UX.md](UX.md)、[ARCHITECTURE.md](../ARCHITECTURE.md) 和 [MIGRATION_MAP.md](MIGRATION_MAP.md)。
 
 | 任务 | 单一交付切片 / 验收点 |
 | --- | --- |
-| Desktop-03（已完成） | 新 Desktop 最小壳与统一投稿项目服务：首次进入字幕页；两个功能页从默认 `F:\Videos\投稿` 刷新同一批标题文件夹项目，无需手动添加。上次页面恢复延后。 |
+| Desktop-03（已完成） | 新 Desktop 最小壳与统一投稿项目服务：首次进入字幕页；两个功能页从默认 `submissions/` 刷新同一批标题文件夹项目，无需手动添加。上次页面恢复延后。 |
 | Desktop-04（已完成） | 基础字幕列表：按现有契约加载 SRT、单击编辑与 Delete 删除、内存级撤销/重做；明确保存后产生校对 SRT，原始 SRT 不被键入覆盖。自动恢复草稿见下方补项。 |
 | Desktop-04.5（已完成） | 审查 Tk 真实入口，隔离验证 Qt 壳、libmpv/QtMultimedia 单样本播放与 PyInstaller 最小无控制台 EXE；固定桌面数据/恢复协议与选型。证据见 [DESKTOP_FOUNDATION.md](DESKTOP_FOUNDATION.md)。 |
 | Desktop-04.55（已完成） | 独立可停留 Qt 视觉预览：窄左导航、共享示例项目列、视频/薄时间轴/字幕列表占位、可收起 AI 栏、可拖动 splitter 与集中深色主题。视觉契约见 [VISUAL_SYSTEM.md](VISUAL_SYSTEM.md)；不接业务。 |

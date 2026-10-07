@@ -14,6 +14,8 @@
 4. [ARCHITECTURE.md](ARCHITECTURE.md)：模块边界、状态共享、异步任务和持久化约束。
 5. [DECISIONS.md](DECISIONS.md)：已经冻结的关键决策，按 ADR-like 条目集中维护。
 6. [ROADMAP.md](ROADMAP.md)：近期、中期和暂缓事项，以及进入下一阶段的验收门槛。
+7. [UI_CLEANUP_PLAN.md](UI_CLEANUP_PLAN.md)：AutoCover UI Cleanup 原始清单、本次实施对照和待验收项。
+8. [SECURITY_NOTES.md](SECURITY_NOTES.md)：安全审计提炼出的发布可靠性、路径边界和打包门槛。
 
 需要追溯背景时，再阅读根目录的长期参考或进入 [archive/README.md](archive/README.md)。
 
@@ -27,6 +29,8 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架构边界和不可违反的实现约束 | 当前有效 |
 | [DECISIONS.md](DECISIONS.md) | 冻结决策清单 | 当前有效；新决策追加或更新状态 |
 | [ROADMAP.md](ROADMAP.md) | 后续路线和暂缓范围 | 当前有效；不代替执行计划 |
+| [UI_CLEANUP_PLAN.md](UI_CLEANUP_PLAN.md) | AutoCover UI Cleanup 的原始清单与实施对照 | 部分实现；实机验收待完成 |
+| [SECURITY_NOTES.md](SECURITY_NOTES.md) | 安全审计提炼、发布可靠性与打包门槛 | 当前有效；发布前更新 |
 
 这些文件描述“应该保持什么”，不会代替代码、测试或用户实际反馈成为实现证据。
 
@@ -75,6 +79,8 @@ docs/desktop-vnext/
 ├── ARCHITECTURE.md                   # 架构与迁移约束
 ├── DECISIONS.md                      # 冻结决策
 ├── ROADMAP.md                        # 后续路线
+├── UI_CLEANUP_PLAN.md                # 当前 AutoCover UI Cleanup 执行计划
+├── SECURITY_NOTES.md                 # 安全与发布可靠性备注
 ├── AUTOCOVER_COPY_GOLDEN_SET.md      # 长期参考：文案黄金集
 ├── AUTOCOVER_LAYOUT_GOLDEN_SET.md    # 长期参考：布局黄金集
 ├── AUTOCOVER_EDITOR_MODEL_PLAN.md    # 长期参考：编辑器模型规划

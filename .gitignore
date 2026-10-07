@@ -73,3 +73,14 @@ autocover_tool/local/
 autocover_tool/output/
 autocover_tool/covers/
 autocover_tool/screenshots/
+
+# 本地测试、审计和临时工作产物
+/work/
+/outputs/
+/.gstack/
+/_tmp_*
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/

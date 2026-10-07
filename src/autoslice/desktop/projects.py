@@ -10,7 +10,7 @@ from pathlib import Path
 from autoslice import runtime_config
 from autoslice.subtitle_workflow import scan_submission_pairs
 
-DEFAULT_SUBMISSION_ROOT = Path(r"F:\Videos\投稿")
+DEFAULT_SUBMISSION_ROOT = runtime_config.PROJECT_DIR / "submissions"
 
 
 def configured_submission_root() -> Path:

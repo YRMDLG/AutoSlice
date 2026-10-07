@@ -2,7 +2,7 @@
 
 > 审查日期：2026-10-01  
 > 审查范围：`src/autoslice/desktop/`、`src/autoslice_cover/`、Qt Desktop 入口及相关架构契约  
-> 对照依据：[`AUTOSLICE_VNEXT_PRODUCT_ROADMAP.md`](AUTOSLICE_VNEXT_PRODUCT_ROADMAP.md)、[`ARCHITECTURE.md`](ARCHITECTURE.md)、[`MIGRATION_MAP.md`](MIGRATION_MAP.md)、[`AI_SUGGESTIONS.md`](AI_SUGGESTIONS.md)  
+> 对照依据：[`AUTOSLICE_VNEXT_PRODUCT_ROADMAP.md`](AUTOSLICE_VNEXT_PRODUCT_ROADMAP.md)、[`ARCHITECTURE.md`](../ARCHITECTURE.md)、[`MIGRATION_MAP.md`](MIGRATION_MAP.md)、[`AI_SUGGESTIONS.md`](AI_SUGGESTIONS.md)
 > 方法：静态代码审查与 AST 结构统计；未启动桌面端、Flask、AutoCover、FFmpeg 或外部 LLM。
 
 ## 结论
@@ -11,7 +11,7 @@ Desktop vNext 已经形成了比较清晰的基础分层：项目扫描在 `proj
 
 最大的未来风险集中在 **Qt 主窗口和跨模块上下文**，而不是底层媒体或封面渲染：
 
-1. [`qt_app/window.py`](../../src/autoslice/desktop/qt_app/window.py) 已达到 2,664 行，`DesktopWindow` 有 120 个方法、约 122 个实例字段；它同时管理窗口构建、字幕文档、选择状态、播放器、时间轴、AI 队列、草稿、压制任务、会话恢复和关闭流程。
+1. [`qt_app/window.py`](../../../src/autoslice/desktop/qt_app/window.py) 已达到 2,664 行，`DesktopWindow` 有 120 个方法、约 122 个实例字段；它同时管理窗口构建、字幕文档、选择状态、播放器、时间轴、AI 队列、草稿、压制任务、会话恢复和关闭流程。
 2. AutoCover 的控件与服务已经隔离，但 `DesktopWindow` 仍负责创建它、注入项目/视频上下文、转发播放头，并承载页面切换生命周期。只要封面功能继续增加，主窗口很容易重新成为跨模块协调中心。
 3. AI 业务大体已在 `ai_review.py`，但 `DesktopWindow` 仍持有 AI 会话的全部交互状态和撤销/跳过历史；未来增加封面 AI、标题候选或更多审查阶段时，当前结构会把不同 AI 用例重新揉进窗口。
 4. `SubmissionProjectService.snapshot` 是可用的扫描快照，但它还不是完整的应用级 `Project Context`。当前项目、视频、字幕文档、封面草稿、播放头、AI 会话和任务状态分别保存在窗口与子控件中，切页、刷新、异步回调和恢复时存在状态串线的增长风险。
@@ -52,8 +52,8 @@ Desktop vNext 已经形成了比较清晰的基础分层：项目扫描在 `proj
 
 ### 已经做对的部分
 
-- `CoverEditorWidget` 位于 [`desktop/cover.py`](../../src/autoslice/desktop/cover.py)，编辑状态、拖拽反馈和控件事件没有放回主窗口。
-- `CoverService` 位于 [`desktop/cover_service.py`](../../src/autoslice/desktop/cover_service.py)，负责取帧、导入图片、草稿读写、预览与导出所需的数据准备；实际 Pillow 渲染继续由 `autoslice_cover.renderer` 完成。
+- `CoverEditorWidget` 位于 [`desktop/cover.py`](../../../src/autoslice/desktop/cover.py)，编辑状态、拖拽反馈和控件事件没有放回主窗口。
+- `CoverService` 位于 [`desktop/cover_service.py`](../../../src/autoslice/desktop/cover_service.py)，负责取帧、导入图片、草稿读写、预览与导出所需的数据准备；实际 Pillow 渲染继续由 `autoslice_cover.renderer` 完成。
 - `CoverCanvas` 单独维护画布交互，封面 service 不依赖旧 Web 页面或自动切片任务状态。
 - `DesktopWindow._cover_page()` 只创建编辑器，项目/视频通过 `set_context(project, video)` 注入；当前没有发现封面模块反向导入 Qt 主窗口。
 - `cover.py` 使用 `_context_generation` 丢弃切换项目后的迟到取帧/渲染结果，方向正确。
