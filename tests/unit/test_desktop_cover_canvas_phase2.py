@@ -245,6 +245,22 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
         final = self.canvas._display_rect(self.canvas._find_text())
         self.assertGreaterEqual(final.right(), image.left() + image.width() * 0.05 - 1)
 
+    def test_plus_minus_keys_scale_text_like_the_corner_handle(self):
+        changes = []
+        self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
+        text = self._select_text()
+        styled = replace(text, style=replace(text.style, stroke_width=6))
+        self.canvas.set_document(replace(self.document, objects=(self.document.objects[0], styled)), "4x3")
+        self.canvas.set_selected_object(styled.id)
+        QTest.keyClick(self.canvas, Qt.Key.Key_Equal, Qt.KeyboardModifier.ShiftModifier)
+        grown = changes[-1]
+        self.assertEqual(grown.style.font_size, 84)
+        self.assertEqual(grown.style.stroke_width, 7)
+        self.assertAlmostEqual(grown.rect.width, 0.4 * 84 / 72, places=6)
+        self.assertAlmostEqual(grown.wrap.max_width, grown.rect.width, places=6)
+        QTest.keyClick(self.canvas, Qt.Key.Key_Minus)
+        self.assertEqual(changes[-1].style.font_size, 80)
+
     def test_text_drag_snaps_to_center_at_8px_and_only_shows_guides_during_drag(self):
         changes = []
         self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))

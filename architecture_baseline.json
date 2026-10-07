@@ -2576,17 +2576,32 @@
     {
       "from": "autoslice.desktop.cover_canvas",
       "imports": [
-        "autoslice.desktop.cover_layout.asset_path",
-        "autoslice.desktop.cover_layout.background_geometry",
-        "autoslice.desktop.cover_layout.font_config",
-        "autoslice.desktop.cover_layout.overlay_geometry",
-        "autoslice.desktop.cover_layout.resolved_font",
-        "autoslice.desktop.cover_layout.shape_geometry",
-        "autoslice.desktop.cover_layout.text_layout",
-        "autoslice.desktop.cover_layout.text_paint"
+        "autoslice.desktop.cover_canvas_gestures.CanvasGestureMixin"
       ],
       "lines": [
-        47
+        28
+      ],
+      "to": "autoslice.desktop.cover_canvas_gestures"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas",
+      "imports": [
+        "autoslice.desktop.cover_canvas_paint.CanvasPaintMixin"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.desktop.cover_canvas_paint"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas",
+      "imports": [
+        "autoslice.desktop.cover_layout.overlay_geometry",
+        "autoslice.desktop.cover_layout.shape_geometry",
+        "autoslice.desktop.cover_layout.text_layout"
+      ],
+      "lines": [
+        30
       ],
       "to": "autoslice.desktop.cover_layout"
     },
@@ -2603,11 +2618,10 @@
         "autoslice.desktop.cover_model.StickerObject",
         "autoslice.desktop.cover_model.TextObject",
         "autoslice.desktop.cover_model.Transform",
-        "autoslice.desktop.cover_model.object_for_profile",
-        "autoslice.desktop.cover_model.resize_text_style"
+        "autoslice.desktop.cover_model.object_for_profile"
       ],
       "lines": [
-        57
+        35
       ],
       "to": "autoslice.desktop.cover_model"
     },
@@ -2617,41 +2631,22 @@
         "autoslice.desktop.qt_preview.theme.COLORS"
       ],
       "lines": [
-        71
+        48
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
     {
       "from": "autoslice.desktop.cover_canvas",
       "imports": [
-        "autoslice_cover.document_layout.BACKGROUND_FILL",
         "autoslice_cover.document_layout.BACKGROUND_SCALE_MAX",
         "autoslice_cover.document_layout.BACKGROUND_SCALE_MIN",
         "autoslice_cover.document_layout.Box",
-        "autoslice_cover.document_layout.SHADOW_ALPHA",
-        "autoslice_cover.document_layout.TextLayout",
-        "autoslice_cover.document_layout.arrow_head_size",
-        "autoslice_cover.document_layout.backdrop_box",
-        "autoslice_cover.document_layout.backdrop_radius",
-        "autoslice_cover.document_layout.background_box",
-        "autoslice_cover.document_layout.focus_after_drag",
-        "autoslice_cover.document_layout.load_font",
-        "autoslice_cover.document_layout.shadow_offset"
+        "autoslice_cover.document_layout.TextLayout"
       ],
       "lines": [
-        29
+        20
       ],
       "to": "autoslice_cover.document_layout"
-    },
-    {
-      "from": "autoslice.desktop.cover_canvas",
-      "imports": [
-        "autoslice_cover.document_render.rgba"
-      ],
-      "lines": [
-        44
-      ],
-      "to": "autoslice_cover.document_render"
     },
     {
       "from": "autoslice.desktop.cover_canvas",
@@ -2659,9 +2654,108 @@
         "autoslice_cover.fonts.FontResolution"
       ],
       "lines": [
-        45
+        26
       ],
       "to": "autoslice_cover.fonts"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas_gestures",
+      "imports": [
+        "autoslice.desktop.cover_model.BackgroundObject",
+        "autoslice.desktop.cover_model.ImageObject",
+        "autoslice.desktop.cover_model.Rect",
+        "autoslice.desktop.cover_model.RenderObject",
+        "autoslice.desktop.cover_model.ShapeObject",
+        "autoslice.desktop.cover_model.StickerObject",
+        "autoslice.desktop.cover_model.TextObject",
+        "autoslice.desktop.cover_model.Transform",
+        "autoslice.desktop.cover_model.resize_text_style"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.desktop.cover_model"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas_gestures",
+      "imports": [
+        "autoslice_cover.document_layout.BACKGROUND_SCALE_MAX",
+        "autoslice_cover.document_layout.BACKGROUND_SCALE_MIN",
+        "autoslice_cover.document_layout.focus_after_drag"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice_cover.document_layout"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas_paint",
+      "imports": [
+        "autoslice.desktop.cover_layout.asset_path",
+        "autoslice.desktop.cover_layout.background_geometry",
+        "autoslice.desktop.cover_layout.font_config",
+        "autoslice.desktop.cover_layout.resolved_font",
+        "autoslice.desktop.cover_layout.text_layout",
+        "autoslice.desktop.cover_layout.text_paint"
+      ],
+      "lines": [
+        39
+      ],
+      "to": "autoslice.desktop.cover_layout"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas_paint",
+      "imports": [
+        "autoslice.desktop.cover_model.BackgroundObject",
+        "autoslice.desktop.cover_model.ImageObject",
+        "autoslice.desktop.cover_model.RenderObject",
+        "autoslice.desktop.cover_model.ShapeObject",
+        "autoslice.desktop.cover_model.StickerObject",
+        "autoslice.desktop.cover_model.TextObject"
+      ],
+      "lines": [
+        47
+      ],
+      "to": "autoslice.desktop.cover_model"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas_paint",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS"
+      ],
+      "lines": [
+        55
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas_paint",
+      "imports": [
+        "autoslice_cover.document_layout.BACKGROUND_FILL",
+        "autoslice_cover.document_layout.Box",
+        "autoslice_cover.document_layout.SHADOW_ALPHA",
+        "autoslice_cover.document_layout.TextLayout",
+        "autoslice_cover.document_layout.arrow_head_size",
+        "autoslice_cover.document_layout.backdrop_box",
+        "autoslice_cover.document_layout.backdrop_radius",
+        "autoslice_cover.document_layout.background_box",
+        "autoslice_cover.document_layout.load_font",
+        "autoslice_cover.document_layout.shadow_offset"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice_cover.document_layout"
+    },
+    {
+      "from": "autoslice.desktop.cover_canvas_paint",
+      "imports": [
+        "autoslice_cover.document_render.rgba"
+      ],
+      "lines": [
+        37
+      ],
+      "to": "autoslice_cover.document_render"
     },
     {
       "from": "autoslice.desktop.cover_copy",
@@ -9986,30 +10080,76 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1385,
+      "line_count": 473,
       "longest_function": {
-        "end_line": 959,
+        "end_line": 145,
         "kind": "function",
-        "line": 873,
-        "line_count": 87,
-        "qualname": "CoverCanvas.keyPressEvent"
+        "line": 95,
+        "line_count": 51,
+        "qualname": "CoverCanvas.__init__"
       },
       "module": "autoslice.desktop.cover_canvas",
       "path": "src/autoslice/desktop/cover_canvas.py",
-      "sha256": "47173e8d2829037b06f27d15e616cd4b6f67aadbb52b845dfb10a5c9f8258c28",
+      "sha256": "4c188f514d0e3727b37a7ba2903851b53dd15434cbd4d800a573ab416286cbb6",
       "top_level_classes": [
         {
-          "end_line": 1385,
+          "end_line": 471,
           "kind": "class",
-          "line": 79,
+          "line": 51,
           "name": "CoverCanvas"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 491,
+      "longest_function": {
+        "end_line": 358,
+        "kind": "function",
+        "line": 280,
+        "line_count": 79,
+        "qualname": "CanvasGestureMixin.mouseMoveEvent"
+      },
+      "module": "autoslice.desktop.cover_canvas_gestures",
+      "path": "src/autoslice/desktop/cover_canvas_gestures.py",
+      "sha256": "6366a8fef19c72f85fe7dbb4ef153fb7e66f15c4f88e905c3ebc514cec920384",
+      "top_level_classes": [
+        {
+          "end_line": 491,
+          "kind": "class",
+          "line": 33,
+          "name": "CanvasGestureMixin"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 476,
+      "longest_function": {
+        "end_line": 381,
+        "kind": "function",
+        "line": 339,
+        "line_count": 43,
+        "qualname": "CanvasPaintMixin._paint_layer"
+      },
+      "module": "autoslice.desktop.cover_canvas_paint",
+      "path": "src/autoslice/desktop/cover_canvas_paint.py",
+      "sha256": "5b19e0e3133f6529e057f59e447f88a478c64293aa2e282ee8ca31ff497c63e3",
+      "top_level_classes": [
+        {
+          "end_line": 476,
+          "kind": "class",
+          "line": 63,
+          "name": "CanvasPaintMixin"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 76,
+          "end_line": 60,
           "kind": "function",
-          "line": 74,
+          "line": 58,
           "name": "_qcolor"
         }
       ]
@@ -19225,6 +19365,8 @@
       "src/autoslice/desktop/cover_autolayout.py",
       "src/autoslice/desktop/cover_batch_dialog.py",
       "src/autoslice/desktop/cover_canvas.py",
+      "src/autoslice/desktop/cover_canvas_gestures.py",
+      "src/autoslice/desktop/cover_canvas_paint.py",
       "src/autoslice/desktop/cover_copy.py",
       "src/autoslice/desktop/cover_draft.py",
       "src/autoslice/desktop/cover_editor_export.py",
@@ -19437,11 +19579,11 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 631,
-    "production_line_count": 61670,
-    "production_module_count": 234,
+    "import_edge_count": 639,
+    "production_line_count": 61725,
+    "production_module_count": 236,
     "test_private_patch_count": 17,
-    "top_level_class_count": 206,
+    "top_level_class_count": 208,
     "top_level_function_count": 1201
   },
   "test_private_patches": {
