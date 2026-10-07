@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -126,6 +126,15 @@ class CoverEditorWidget(QWidget):
         self._preview_timer.setInterval(120)
         self._preview_timer.timeout.connect(self._render_preview)
         self._build()
+        # 封面页自己的撤销/重做；文案框获得焦点时由输入框处理文字撤销。
+        for sequence, action in (
+            (QKeySequence.StandardKey.Undo, self._undo),
+            (QKeySequence.StandardKey.Redo, self._redo),
+            (QKeySequence("Ctrl+Y"), self._redo),
+        ):
+            shortcut = QShortcut(sequence, self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(action)
 
     def _build(self):
         root = QVBoxLayout(self)

@@ -1799,9 +1799,18 @@ class DesktopWindow(PreviewWindow):
         # 不用 focus loss 自动提交：同一编辑单元格内部的鼠标点击在 Qt 中可能
         # 先短暂触发 focus 迁移，若此时提交会让用户无法二次点击定位 caret。
         # 真正的“点到编辑器外部就结束编辑”由全局 MouseButtonPress 过滤器负责。
-        editing = self._is_subtitle_editor_widget(now) or self._subtitle_editor_open()
-        for key in ("Space", "Delete", "Q", "W", "Ctrl+B"):
-            self._shortcuts[key].setEnabled(not editing)
+        self._sync_shortcuts(now)
+
+    def _sync_shortcuts(self, focus=None):
+        """字幕快捷键只在字幕页生效；封面页的 Delete、撤销等交给封面编辑器。"""
+
+        if not getattr(self, "_shortcuts", None):
+            return
+        subtitle_page = self.pages.currentIndex() == 0
+        editing = self._is_subtitle_editor_widget(focus) or self._subtitle_editor_open()
+        for key, shortcut in self._shortcuts.items():
+            text_sensitive = key in ("Space", "Delete", "Q", "W", "Ctrl+B")
+            shortcut.setEnabled(subtitle_page and not (text_sensitive and editing))
 
     def _escape_context(self):
         if self._subtitle_editor_open():
@@ -2530,6 +2539,7 @@ class DesktopWindow(PreviewWindow):
 
     def _select_page(self, index):
         super()._select_page(index)
+        self._sync_shortcuts(QApplication.instance().focusWidget())
         if index == 1 and hasattr(self, "cover_editor"):
             # 只读取字幕页当前播放位置，切页不 seek、不暂停、不修改字幕状态。
             self.cover_editor.set_current_playhead(getattr(self, "_player_position", 0.0))
