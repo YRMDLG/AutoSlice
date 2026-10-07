@@ -275,6 +275,27 @@ class CoverCanvas(QLabel):
             max(0.0, min(1.0, (point.y() - image.top()) / max(1.0, image.height()))),
         )
 
+    def _free_norm(self, point: QPointF) -> tuple[float, float] | None:
+        """不夹到画布内的归一化坐标：对象可以拖出画布边缘。"""
+
+        image = self._canvas_rect()
+        if image.isNull():
+            return None
+        return (
+            (point.x() - image.left()) / max(1.0, image.width()),
+            (point.y() - image.top()) / max(1.0, image.height()),
+        )
+
+    # 拖出画布时至少留这么多在画面里，避免整块拖丢。
+    _KEEP_VISIBLE = 0.05
+
+    def _keep_visible(self, left: float, top: float, width: float, height: float) -> tuple[float, float]:
+        keep = self._KEEP_VISIBLE
+        return (
+            self._clamp(left, keep - width, 1.0 - keep),
+            self._clamp(top, keep - height, 1.0 - keep),
+        )
+
     def _export_size(self) -> tuple[int, int]:
         return PROFILE_SIZES.get(self._profile_key, self._canvas_ratio) if self._document is not None else self._canvas_ratio
 
@@ -692,11 +713,12 @@ class CoverCanvas(QLabel):
             self._begin_handle(handle[0], handle[1], point)
             event.accept()
             return
-        norm = self._norm_point(point)
-        if norm is None:
+        norm = self._free_norm(point)
+        hit = self._hit_object(point)
+        # 画布外只认对象本身（大字可能超出画布）；点空白处不切到背景。
+        if norm is None or (hit is None and not self._canvas_rect().contains(point)):
             return
         self.setFocus(Qt.FocusReason.MouseFocusReason)
-        hit = self._hit_object(point)
         if hit is not None and getattr(hit, "locked", False):
             # 锁定对象只能选中查看和改属性，不能拖动。
             self._selected_object = hit.id
@@ -761,19 +783,24 @@ class CoverCanvas(QLabel):
             pass
         elif self._mode == "text":
             obj = self._find_text()
-            norm = self._norm_point(point, clamp=True)
+            norm = self._free_norm(point) if obj is not None else self._norm_point(point, clamp=True)
             if obj is not None and norm is not None:
-                candidate_x = self._clamp(norm[0] - self._drag_offset.x(), -0.5, 1.0)
-                candidate_y = self._clamp(norm[1] - self._drag_offset.y(), -0.5, 1.0)
+                candidate_x = norm[0] - self._drag_offset.x()
+                candidate_y = norm[1] - self._drag_offset.y()
                 # 吸附以贴合文字的框为准：框中心对齐画面中心。
                 box, area = self._text_box(obj)
                 width_px, height_px = self._export_size()
                 offset_x = (box.left - area.left) / width_px
                 offset_y = (box.top - area.top) / height_px
                 display = self._display_rect(obj)
+                # 鼠标不夹在画布内，文字可以拖出边缘；只保证至少一小截留在画面里。
+                box_left, box_top = self._keep_visible(
+                    candidate_x + offset_x, candidate_y + offset_y,
+                    display.width() / max(1.0, image.width()), display.height() / max(1.0, image.height()),
+                )
                 box_x, box_y, snap_x, snap_y = self._snap_to_center(
-                    candidate_x + offset_x,
-                    candidate_y + offset_y,
+                    box_left,
+                    box_top,
                     display.width(),
                     display.height(),
                     image.width(),
@@ -791,11 +818,14 @@ class CoverCanvas(QLabel):
                 self._set_safe_area_warning(self._title_outside_safe_area())
                 self.update()
         elif self._mode == "object":
-            norm = self._norm_point(point, clamp=True)
+            norm = self._free_norm(point)
             obj = next((item for item in self._find_overlay_objects() if item.id == self._selected_object), None)
             if obj is not None and norm is not None:
-                candidate_x = self._clamp(norm[0] - self._drag_offset.x(), -0.5, 1.0)
-                candidate_y = self._clamp(norm[1] - self._drag_offset.y(), -0.5, 1.0)
+                rect = self._object_display_rect(obj)
+                candidate_x, candidate_y = self._keep_visible(
+                    norm[0] - self._drag_offset.x(), norm[1] - self._drag_offset.y(),
+                    rect.width() / max(1.0, image.width()), rect.height() / max(1.0, image.height()),
+                )
                 self._emit_overlay(replace(obj, transform=replace(obj.transform, x=candidate_x, y=candidate_y)), commit=False)
         else:
             dx = (point.x() - self._press.x()) / max(1.0, image.width())
@@ -891,7 +921,7 @@ class CoverCanvas(QLabel):
             dy = -step if key == Qt.Key.Key_Up else step if key == Qt.Key.Key_Down else 0.0
             if dx or dy:
                 event.accept()
-                self._emit_overlay(replace(overlay, transform=replace(overlay.transform, x=self._clamp(overlay.transform.x + dx, 0.0, 1.0), y=self._clamp(overlay.transform.y + dy, 0.0, 1.0))))
+                self._emit_overlay(replace(overlay, transform=replace(overlay.transform, x=self._clamp(overlay.transform.x + dx, -1.0, 1.0), y=self._clamp(overlay.transform.y + dy, -1.0, 1.0))))
                 return
         if (
             text is None
@@ -923,16 +953,16 @@ class CoverCanvas(QLabel):
         x, y = text.transform.x, text.transform.y
         changed = False
         if key == Qt.Key.Key_Left:
-            x = self._clamp(x - move_step, 0.0, 1.0)
+            x = self._clamp(x - move_step, -1.0, 1.0)
             changed = True
         elif key == Qt.Key.Key_Right:
-            x = self._clamp(x + move_step, 0.0, 1.0)
+            x = self._clamp(x + move_step, -1.0, 1.0)
             changed = True
         elif key == Qt.Key.Key_Up:
-            y = self._clamp(y - move_step, 0.0, 1.0)
+            y = self._clamp(y - move_step, -1.0, 1.0)
             changed = True
         elif key == Qt.Key.Key_Down:
-            y = self._clamp(y + move_step, 0.0, 1.0)
+            y = self._clamp(y + move_step, -1.0, 1.0)
             changed = True
         elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
             updated_style = replace(text.style, font_size=min(self._MAX_FONT_SIZE, text.style.font_size + resize_step))

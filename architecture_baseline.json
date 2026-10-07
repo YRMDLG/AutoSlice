@@ -9487,20 +9487,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1382,
+      "line_count": 1412,
       "longest_function": {
-        "end_line": 956,
+        "end_line": 986,
         "kind": "function",
-        "line": 870,
+        "line": 900,
         "line_count": 87,
         "qualname": "CoverCanvas.keyPressEvent"
       },
       "module": "autoslice.desktop.cover_canvas",
       "path": "src/autoslice/desktop/cover_canvas.py",
-      "sha256": "d1b5eb6c3d16b62b8f824189670639520465417160c1af4e094f0f61dbba6469",
+      "sha256": "bf11fa7990c446b4be1decf2ba6beff9f21b6eb01677940441456fcc391ad0b5",
       "top_level_classes": [
         {
-          "end_line": 1382,
+          "end_line": 1412,
           "kind": "class",
           "line": 79,
           "name": "CoverCanvas"
@@ -18664,7 +18664,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 583,
-    "production_line_count": 61569,
+    "production_line_count": 61599,
     "production_module_count": 221,
     "test_private_patch_count": 17,
     "top_level_class_count": 198,

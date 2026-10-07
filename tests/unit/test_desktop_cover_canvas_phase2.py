@@ -215,6 +215,36 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
         self.assertEqual(changes, [])
         self.assertEqual(len(hints), 2)
 
+    def test_text_wider_than_canvas_drags_left_from_outside_and_stays_findable(self):
+        wide = replace(
+            self.canvas._find_text(), text="选秀带手机居然会改变选曲",
+            transform=Transform(x=0.05, y=0.4), rect=Rect(width=1.4, height=0.3),
+            style=TextStyle(font_size=160),
+        )
+        wide = replace(wide, wrap=replace(wide.wrap, max_width=1.4))
+        self.canvas.set_document(replace(self.document, objects=(self.document.objects[0], wide)), "4x3")
+        changes = []
+        self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
+        image = self.canvas._canvas_rect()
+        box = self.canvas._display_rect(self.canvas._find_text())
+        self.assertGreater(box.right(), image.right())
+        # 按在画布右侧外面那截文字上，往左拖 300px。
+        start = QPoint(round(image.right()) + 30, round(box.center().y()))
+        QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(self.canvas, QPoint(start.x() - 150, start.y()))
+        QTest.mouseMove(self.canvas, QPoint(start.x() - 300, start.y()))
+        QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, pos=QPoint(start.x() - 300, start.y()))
+        self.assertTrue(changes)
+        self.assertAlmostEqual(changes[-1].transform.x, 0.05 - 300 / image.width(), delta=0.02)
+        # 再往左甩很远：至少留一截在画面里。
+        moved = self.canvas._display_rect(self.canvas._find_text())
+        start = moved.center().toPoint()
+        QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(self.canvas, QPoint(start.x() - 3000, start.y()))
+        QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, pos=QPoint(start.x() - 3000, start.y()))
+        final = self.canvas._display_rect(self.canvas._find_text())
+        self.assertGreaterEqual(final.right(), image.left() + image.width() * 0.05 - 1)
+
     def test_text_drag_snaps_to_center_at_8px_and_only_shows_guides_during_drag(self):
         changes = []
         self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
