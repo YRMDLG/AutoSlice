@@ -5,18 +5,27 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import statistics
+import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PIL import Image, ImageFilter, ImageOps, ImageStat
+from PIL import Image
 
 from autoslice.desktop.foundation import DesktopStorage, DraftRead
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+from autoslice_cover.composition import best_crop_focus, region_cost, saliency_map
+from autoslice_cover.document_layout import background_box
 from autoslice_cover.document_render import compose_document
 from autoslice_cover.renderer import TextTransform, render_cover, save_cover_jpeg
 from autoslice_cover.text_layout import wrap_text_lines
-from autoslice_cover.video import extract_frame_at_timestamp
+from autoslice_cover.video import (
+    FrameMetrics,
+    VideoMetadata,
+    extract_frame_at_timestamp,
+    probe_video,
+)
 
 from .cover_ai import CoverAIBeta, CoverAICandidate
 from .cover_assets import CoverAssetLibrary
@@ -36,6 +45,7 @@ from .cover_model import (
     StickerObject,
     TextObject,
     object_for_profile,
+    text_override_payload,
 )
 from .cover_style import CoverStyleMemory, CoverStyleMemoryStore
 
@@ -150,6 +160,39 @@ def text_transforms_for(draft: CoverDraft, lines: tuple[str, ...]):
     )
 
 
+@dataclass(frozen=True)
+class CoverFrame:
+    """一张已取出的候选帧及其画质评分（复用旧版 AutoCover 评分）。"""
+
+    path: Path
+    timestamp: float
+    score: float
+    metrics: FrameMetrics | None = None
+
+    @property
+    def subtitle_risk(self) -> float:
+        return self.metrics.subtitle_risk if self.metrics else 0.0
+
+
+def recommended_frame(frames: tuple[CoverFrame, ...]) -> CoverFrame | None:
+    """附近帧里明显更好的一张；差距不明显时不推荐，避免噪声。"""
+
+    scored = [item for item in frames if item.metrics is not None]
+    if len(scored) < 3:
+        return None
+    median = statistics.median(item.score for item in scored)
+    best = max(scored, key=lambda item: (item.score - item.subtitle_risk * 20, -abs(item.timestamp)))
+    return best if best.score - median >= 4.0 and best.subtitle_risk < 0.5 else None
+
+
+# 默认文字槽位：(x, y, 宽度)；高度统一 0.32，按比例分别给出。
+_TEXT_SLOTS = {
+    "4x3": ((0.06, 0.14, 0.48, "left"), (0.46, 0.14, 0.48, "right"), (0.08, 0.05, 0.72, "top"), (0.08, 0.60, 0.72, "bottom")),
+    "16x9": ((0.06, 0.14, 0.44, "left"), (0.50, 0.14, 0.44, "right"), (0.08, 0.05, 0.66, "top"), (0.08, 0.60, 0.66, "bottom")),
+}
+_TEXT_SLOT_HEIGHT = 0.32
+
+
 class CoverService:
     """封面草稿、素材缓存和导出的无 UI 服务。"""
 
@@ -161,6 +204,9 @@ class CoverService:
         self.style_memory = CoverStyleMemoryStore(storage.root)
         self.ai = CoverAIBeta(enabled=False)
         self.export_history_path = storage.root / "cover-export-history.json"
+        # 同一视频只探测一次时长与尺寸；取帧任务会并发调用。
+        self._metadata: dict[tuple[str, int, int], VideoMetadata] = {}
+        self._metadata_lock = threading.Lock()
 
     def _record_export(self, project: SubmissionProject, video: ProjectVideo, output: Path, canvas_key: str) -> None:
         """保存最近导出记录，供连续生产时轻量回退和定位。"""
@@ -514,23 +560,41 @@ class CoverService:
             "cover", project.directory, video.path, document.to_payload(),
         )
 
-    def extract_frame(self, video: ProjectVideo, timestamp: float) -> tuple[Path, float]:
+    def _video_metadata(self, video: ProjectVideo) -> VideoMetadata:
+        source = Path(video.path).expanduser().resolve()
+        stat = source.stat()
+        key = (str(source), stat.st_size, stat.st_mtime_ns)
+        with self._metadata_lock:
+            cached = self._metadata.get(key)
+        if cached is None:
+            cached = probe_video(source)
+            with self._metadata_lock:
+                self._metadata[key] = cached
+        return cached
+
+    def extract_frame_candidate(self, video: ProjectVideo, timestamp: float) -> CoverFrame:
+        metadata = self._video_metadata(video)
         candidate, _metadata = extract_frame_at_timestamp(
             video.path,
-            timestamp,
+            min(max(0.0, float(timestamp)), metadata.duration),
             cache_dir=self.storage.thumbnails / "cover-frames",
+            metadata=metadata,
         )
-        return Path(candidate.path), candidate.timestamp
+        return CoverFrame(Path(candidate.path), candidate.timestamp, candidate.score, candidate.metrics)
 
-    def extract_nearby_frames(
+    def extract_frame(self, video: ProjectVideo, timestamp: float) -> tuple[Path, float]:
+        frame = self.extract_frame_candidate(video, timestamp)
+        return frame.path, frame.timestamp
+
+    def nearby_candidates(
         self,
         video: ProjectVideo,
         center: float,
         offsets: tuple[float, ...],
-    ) -> tuple[tuple[Path, float], ...]:
-        """顺序提取当前时刻附近帧，供后台缩略条使用。"""
+    ) -> tuple[CoverFrame, ...]:
+        """顺序提取当前时刻附近帧并评分，供后台缩略条使用。"""
 
-        frames: list[tuple[Path, float]] = []
+        frames: list[CoverFrame] = []
         seen: set[int] = set()
         for offset in offsets:
             timestamp = max(0.0, float(center) + float(offset))
@@ -538,8 +602,30 @@ class CoverService:
             if key in seen:
                 continue
             seen.add(key)
-            frames.append(self.extract_frame(video, timestamp))
+            frames.append(self.extract_frame_candidate(video, timestamp))
         return tuple(frames)
+
+    def extract_nearby_frames(
+        self,
+        video: ProjectVideo,
+        center: float,
+        offsets: tuple[float, ...],
+    ) -> tuple[tuple[Path, float], ...]:
+        return tuple((frame.path, frame.timestamp) for frame in self.nearby_candidates(video, center, offsets))
+
+    @staticmethod
+    def _wider_offsets(span: float, count: int) -> tuple[float, ...]:
+        count = max(3, min(31, int(count)))
+        span = max(1.0, min(180.0, float(span)))
+        step = (span * 2.0) / (count - 1)
+        return tuple(-span + index * step for index in range(count))
+
+    def wider_candidates(
+        self, video: ProjectVideo, center: float, *, span: float = 12.0, count: int = 13,
+    ) -> tuple[CoverFrame, ...]:
+        """显式“寻找更多画面”入口；只按需采样，不在切项目时阻塞。"""
+
+        return self.nearby_candidates(video, center, self._wider_offsets(span, count))
 
     def extract_wider_frames(
         self,
@@ -549,13 +635,10 @@ class CoverService:
         span: float = 12.0,
         count: int = 13,
     ) -> tuple[tuple[Path, float], ...]:
-        """显式“寻找更多画面”入口；只按需采样，不在切项目时阻塞。"""
-
-        count = max(3, min(31, int(count)))
-        span = max(1.0, min(180.0, float(span)))
-        step = (span * 2.0) / (count - 1)
-        offsets = tuple(-span + index * step for index in range(count))
-        return self.extract_nearby_frames(video, center, offsets)
+        return tuple(
+            (frame.path, frame.timestamp)
+            for frame in self.wider_candidates(video, center, span=span, count=count)
+        )
 
     @staticmethod
     def set_frame_locked(document: CoverDocument, locked: bool) -> CoverDocument:
@@ -570,6 +653,40 @@ class CoverService:
 
         return self.ai.suggest(document, profile_key=profile_key)
 
+    @staticmethod
+    def _best_text_slot(
+        image_path: str | Path,
+        canvas_key: str,
+        *,
+        focus_x: float,
+        focus_y: float,
+        scale: float,
+    ) -> tuple[float, float] | None:
+        """按显著图挑选文字槽位：避开人脸、杂乱细节和烧录字幕带。"""
+
+        saliency = saliency_map(image_path)
+        if saliency is None:
+            return None
+        try:
+            with Image.open(image_path) as source:
+                source_size = source.size
+        except OSError:
+            return None
+        canvas = canvas_size(canvas_key)
+        frame = background_box(source_size, canvas, scale=scale, focus_x=focus_x, focus_y=focus_y)
+        scored: list[tuple[float, float, float]] = []
+        for order, (x, y, width, _name) in enumerate(_TEXT_SLOTS.get(canvas_key, _TEXT_SLOTS["4x3"])):
+            # 画布槽位换算到源图归一化坐标，与当前取景一致。
+            box = (
+                (x * canvas[0] - frame.left) / frame.width,
+                (y * canvas[1] - frame.top) / frame.height,
+                ((x + width) * canvas[0] - frame.left) / frame.width,
+                ((y + _TEXT_SLOT_HEIGHT) * canvas[1] - frame.top) / frame.height,
+            )
+            scored.append((region_cost(saliency, box) + order * 0.002, x, y))
+        _cost, x, y = min(scored)
+        return x, y
+
     def suggest_text_position(
         self,
         image_path: str | Path,
@@ -577,73 +694,62 @@ class CoverService:
         *,
         canvas_key: str = "4x3",
     ) -> tuple[float, float]:
-        """在少量构图槽位中选择较清爽的文字区域，给后续主体识别留接口。"""
+        """在少量构图槽位中选择较清爽的文字区域。"""
 
-        canvas_width, canvas_height = {
-            "4x3": (1440, 1080),
-            "16x9": (1920, 1080),
-        }.get(canvas_key, (1440, 1080))
-        # 与旧版 _text_area/_edge_positions 同一思路：先准备左、右、上、下
-        # 四个槽位，再根据画面边缘能量选锚点。槽位只负责给 A/B 一个
-        # 可用区域，真实字体 fit 在 renderer 内完成。
-        width = 0.72 if canvas_key == "4x3" else 0.66
-        side_width = 0.48 if canvas_key == "4x3" else 0.44
-        height = 0.32
-        slots = (
-            (0.06, 0.14, side_width, "left"),
-            (max(0.06, 0.94 - side_width), 0.14, side_width, "right"),
-            (0.08, 0.05, width, "top"),
-            (0.08, max(0.58, 0.92 - height), width, "bottom"),
+        position = self._best_text_slot(
+            image_path, canvas_key,
+            focus_x=draft.background_x, focus_y=draft.background_y, scale=draft.background_scale,
         )
-        try:
-            with Image.open(image_path) as source:
-                preview = ImageOps.fit(
-                    source.convert("RGB"),
-                    (360, 270),
-                    method=Image.Resampling.LANCZOS,
-                    centering=(draft.background_x, draft.background_y),
-                )
-                edges = preview.convert("L").filter(ImageFilter.FIND_EDGES)
-                scored: list[tuple[float, float, float, str]] = []
-                for x, y, slot_width, slot_name in slots:
-                    box = (
-                        max(0, int(x * edges.width)),
-                        max(0, int(y * edges.height)),
-                        min(edges.width, int((x + slot_width) * edges.width)),
-                        min(edges.height, int((y + height) * edges.height)),
-                    )
-                    region = edges.crop(box)
-                    energy = (
-                        ImageStat.Stat(region).mean[0]
-                        if region.width and region.height
-                        else 255.0
-                    )
-                    scored.append((energy, x, y, slot_name))
-                # 中央高显著区域按“人物/证据主体”处理，文字优先放上缘或下缘；
-                # 左右空区仍保留给侧边主体和旧版已验证的构图。
-                center = edges.crop((int(edges.width * 0.28), int(edges.height * 0.16), int(edges.width * 0.72), int(edges.height * 0.78)))
-                center_energy = ImageStat.Stat(center).mean[0] if center.width and center.height else 0.0
-                left_context = edges.crop((int(edges.width * 0.05), int(edges.height * 0.16), int(edges.width * 0.25), int(edges.height * 0.78)))
-                right_context = edges.crop((int(edges.width * 0.75), int(edges.height * 0.16), int(edges.width * 0.95), int(edges.height * 0.78)))
-                side_context_energy = max(
-                    ImageStat.Stat(left_context).mean[0] if left_context.width and left_context.height else 255.0,
-                    ImageStat.Stat(right_context).mean[0] if right_context.width and right_context.height else 255.0,
-                )
-                side_scores = [item for item in scored if item[3] in {"left", "right"}]
-                edge_scores = [item for item in scored if item[3] in {"top", "bottom"}]
-                if center_energy > max(12.0, side_context_energy * 1.12):
-                    # 中心主体优先上缘；若上缘纹理明显更复杂，再退到下缘。
-                    top = [item for item in edge_scores if item[3] == "top"]
-                    bottom = [item for item in edge_scores if item[3] == "bottom"]
-                    candidates = top + bottom
-                    if top and bottom and top[0][0] > bottom[0][0] * 1.25:
-                        candidates = bottom
-                else:
-                    candidates = side_scores or edge_scores
-                _score, x, y, _slot = min(candidates or scored, key=lambda item: item[0])
-                return x, y
-        except (OSError, ValueError):
-            return draft.text_x, draft.text_y
+        return position if position is not None else (draft.text_x, draft.text_y)
+
+    @staticmethod
+    def warm_composition(image_path: str | Path) -> None:
+        saliency_map(image_path)
+
+    def apply_auto_layout(self, document: CoverDocument, image_path: str | Path) -> CoverDocument:
+        """新底图的默认构图：两个比例分别保住主体、给 A/B 找空区。
+
+        只在首次取帧时调用；用户已经接管的布局由调用方保护，不在这里覆盖。
+        """
+
+        saliency = saliency_map(image_path)
+        background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
+        texts = [item for item in document.objects if isinstance(item, TextObject)]
+        has_context = any(item.copy_role == "A" and item.visible and item.text.strip() for item in texts)
+        profiles = dict(document.profiles)
+        for key, profile in document.profiles.items():
+            overrides = dict(profile.overrides)
+            focus_x, focus_y, scale = 0.5, 0.5, 1.0
+            if background is not None:
+                current = object_for_profile(document, background.id, key)
+                current = current if isinstance(current, BackgroundObject) else background
+                if saliency is not None and current.fit_mode == "cover":
+                    focus_x, focus_y = best_crop_focus(saliency, profile.width / max(1, profile.height))
+                scale = current.scale if saliency is None else 1.0
+                updated = replace(current, pan_x=focus_x, pan_y=focus_y, scale=scale)
+                overrides[background.id] = {
+                    "transform": updated.transform.to_payload(),
+                    "visible": bool(updated.visible),
+                    "scale": updated.scale,
+                    "pan_x": updated.pan_x,
+                    "pan_y": updated.pan_y,
+                    "fit_mode": updated.fit_mode,
+                }
+            slot = self._best_text_slot(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
+            if slot is not None:
+                text_x, text_y = slot
+                for text in texts:
+                    current = object_for_profile(document, text.id, key)
+                    current = current if isinstance(current, TextObject) else text
+                    # A/B 作为同一槽位的上下两块，B 在下且留出间距。
+                    if text.copy_role == "B" and has_context:
+                        target_y = max(0.16, text_y + 0.18)
+                    else:
+                        target_y = max(0.04 if text.copy_role == "A" else 0.05, text_y)
+                    updated = replace(current, transform=replace(current.transform, x=text_x, y=target_y))
+                    overrides[text.id] = text_override_payload(updated)
+            profiles[key] = replace(profile, overrides=overrides)
+        return replace(document, profiles=profiles)
 
     def render_preview(
         self,

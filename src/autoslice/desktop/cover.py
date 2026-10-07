@@ -52,7 +52,7 @@ from .cover_model import (
     object_for_profile,
     update_text_object,
 )
-from .cover_service import CoverDraft, CoverService, wrap_cover_title
+from .cover_service import CoverDraft, CoverFrame, CoverService, recommended_frame, wrap_cover_title
 from .qt_preview.icons import icon
 
 
@@ -1374,6 +1374,8 @@ class CoverEditorWidget(QWidget):
             timestamp = max(0.0, center + offset)
             button.setProperty("timestamp", timestamp)
             button.setText(f"{timestamp:.2f}s")
+            button.setToolTip(f"{timestamp:.2f} 秒")
+            button.setProperty("recommended", False)
             button.setIcon(QIcon())
             button.setEnabled(available)
         self._update_nearby_frame_selection(
@@ -1390,7 +1392,7 @@ class CoverEditorWidget(QWidget):
         request_generation = self._nearby_request_generation
         video = self.video
         self._run(
-            lambda: self.service.extract_nearby_frames(video, center, offsets),
+            lambda: self.service.nearby_candidates(video, center, offsets),
             lambda result, error: self._nearby_frames_ready(
                 request_generation, result, error
             ),
@@ -1408,14 +1410,34 @@ class CoverEditorWidget(QWidget):
             self._set_notice("没有找到附近可用画面", "warning")
             return
         frames = tuple(result)
+        best = recommended_frame(frames)
         for button in self.nearby_frame_buttons:
             target = float(button.property("timestamp") or 0.0)
-            path, _timestamp = min(frames, key=lambda item: abs(item[1] - target))
-            pixmap = QPixmap(str(path))
-            if pixmap.isNull():
-                continue
-            button.setIcon(QIcon(pixmap))
+            frame = min(frames, key=lambda item: abs(item.timestamp - target))
+            self._show_frame_on_button(button, frame, recommended=frame is best)
         self._set_notice("")
+
+    @staticmethod
+    def _show_frame_on_button(button: QPushButton, frame: CoverFrame, *, recommended: bool) -> None:
+        """缩略图、时间和画质说明；推荐只做标记，不替用户换帧。"""
+
+        button.setProperty("timestamp", frame.timestamp)
+        button.setText(f"{'★ ' if recommended else ''}{frame.timestamp:.2f}s")
+        pixmap = QPixmap(str(frame.path))
+        if not pixmap.isNull():
+            button.setIcon(QIcon(pixmap))
+        metrics = frame.metrics
+        lines = [f"{frame.timestamp:.2f} 秒"]
+        if metrics is not None:
+            lines.append(f"清晰度 {metrics.sharpness:.0%} · 曝光 {metrics.exposure:.0%} · 对比度 {metrics.contrast:.0%}")
+            if metrics.subtitle_risk >= 0.3:
+                lines.append("画面中下部可能有字幕或文字条")
+        if recommended:
+            lines.append("推荐：附近画面中画质明显更好；点击后才会换帧")
+        button.setToolTip("\n".join(lines))
+        button.setProperty("recommended", recommended)
+        button.style().unpolish(button)
+        button.style().polish(button)
 
     def _choose_nearby_frame(self, timestamp: float):
         if self.video is None:
@@ -1450,7 +1472,7 @@ class CoverEditorWidget(QWidget):
         self.more_frames_button.setEnabled(False)
         self.status_changed.emit("正在按需寻找更大范围画面…")
         self._run(
-            lambda: self.service.extract_wider_frames(video, center),
+            lambda: self.service.wider_candidates(video, center),
             lambda result, error: self._wider_frames_ready(request_generation, result, error),
         )
 
@@ -1462,19 +1484,22 @@ class CoverEditorWidget(QWidget):
                 self._set_notice(message, "error")
                 self.status_changed.emit(message)
             return
-        self._wider_frames = tuple(result or ())
-        if not self._wider_frames:
+        frames = tuple(result or ())
+        self._wider_frames = tuple((frame.path, frame.timestamp) for frame in frames)
+        if not frames:
             self._set_notice("没有找到更多可用画面", "warning")
             return
-        for button, item in zip(self.nearby_frame_buttons, self._wider_frames[:: max(1, len(self._wider_frames) // len(self.nearby_frame_buttons))]):
-            path, timestamp = item
-            button.setProperty("timestamp", timestamp)
-            button.setText(f"{timestamp:.2f}s")
-            pixmap = QPixmap(str(path))
-            if not pixmap.isNull():
-                button.setIcon(QIcon(pixmap))
+        # 旧版经验：后台先按画质筛选，用户最后确认；按时间顺序展示最好的几张。
+        count = len(self.nearby_frame_buttons)
+        picked = sorted(
+            sorted(frames, key=lambda frame: frame.score - frame.subtitle_risk * 20, reverse=True)[:count],
+            key=lambda frame: frame.timestamp,
+        )
+        best = recommended_frame(frames)
+        for button, frame in zip(self.nearby_frame_buttons, picked):
+            self._show_frame_on_button(button, frame, recommended=frame is best)
         self._update_nearby_frame_selection()
-        message = f"已补充 {len(self._wider_frames)} 张更大范围候选"
+        message = f"已从 {len(frames)} 张更大范围画面中挑出画质较好的 {len(picked)} 张"
         self.status_changed.emit(message)
 
     def _cycle_copy(self):
@@ -1991,8 +2016,17 @@ class CoverEditorWidget(QWidget):
         timestamp = self.timestamp_edit.value()
         self._set_notice("正在从视频取帧…", "info")
         self.status_changed.emit("正在从视频取帧…")
+        service = self.service
+
+        def extract():
+            path, actual = service.extract_frame(video, timestamp)
+            if first_background:
+                # 构图分析在后台预热缓存，回到界面线程的自动构图直接命中。
+                service.warm_composition(path)
+            return path, actual
+
         self._run(
-            lambda: self.service.extract_frame(video, timestamp),
+            extract,
             lambda result, error: self._frame_ready(
                 request_generation, first_background, result, error
             ),
@@ -2018,46 +2052,23 @@ class CoverEditorWidget(QWidget):
             backgrounds = tuple(replace(item, asset=replace(item.asset, path=str(path)) if item.asset else AssetRef(path=str(path))) if isinstance(item, BackgroundObject) else item for item in self.document.objects)
             self.document = replace(self.document, source=replace(self.document.source, selected_timestamp=timestamp, image_asset_id=str(path)), objects=backgrounds)
             draft = CoverDraft.from_document(self.document)
-        if first_background:
-            text_x, text_y = self.service.suggest_text_position(
-                path, draft, canvas_key=self._canvas_key
-            )
+        if first_background and self.document is not None:
+            # 新底图的默认构图：两个比例分别保住主体，A/B 避开人脸和杂乱区域。
+            self.document = self.service.apply_auto_layout(self.document, path)
+            draft = CoverDraft.from_document(self.document)
+            text = self._selected_text()
+            if text is not None:
+                self.x_spin.blockSignals(True)
+                self.y_spin.blockSignals(True)
+                try:
+                    self.x_spin.setValue(text.transform.x)
+                    self.y_spin.setValue(text.transform.y)
+                finally:
+                    self.x_spin.blockSignals(False)
+                    self.y_spin.blockSignals(False)
+        elif first_background:
+            text_x, text_y = self.service.suggest_text_position(path, draft, canvas_key=self._canvas_key)
             draft = replace(draft, text_x=text_x, text_y=text_y)
-            if self.document is not None:
-                profile = self.document.profiles[self._canvas_key]
-                overrides = dict(profile.overrides)
-                texts = [item for item in self.document.objects if isinstance(item, TextObject)]
-                has_context_block = any(item.copy_role == "A" and item.visible and item.text.strip() for item in texts)
-                for text in texts:
-                    # 沿用旧版的同一 anchor 槽位，但把 A/B 作为有明确
-                    # gap 的上下两块；旧的“B 固定 0.18、A 往上挤”会在
-                    # 两个 rect 高度变化后重新重叠。
-                    target_y = (
-                        max(0.16, text_y + 0.18)
-                        if text.copy_role == "B" and has_context_block
-                        else max(0.05, text_y)
-                        if text.copy_role == "B"
-                        else max(0.04, text_y)
-                    )
-                    updated = replace(text, transform=replace(text.transform, x=text_x, y=target_y))
-                    overrides[updated.id] = {
-                        "transform": updated.transform.to_payload(),
-                        "rect": updated.rect.to_payload(),
-                        "wrap": updated.wrap.to_payload(),
-                        "align": updated.align,
-                        "style": updated.style.to_payload(),
-                        "visible": bool(updated.visible),
-                    }
-                self.document = replace(self.document, profiles={**self.document.profiles, self._canvas_key: replace(profile, overrides=overrides)})
-                draft = CoverDraft.from_document(self.document)
-            self.x_spin.blockSignals(True)
-            self.y_spin.blockSignals(True)
-            try:
-                self.x_spin.setValue(text_x)
-                self.y_spin.setValue(text_y)
-            finally:
-                self.x_spin.blockSignals(False)
-                self.y_spin.blockSignals(False)
         self.draft = draft
         if self.document is not None and before_document != self.document:
             self.history.commit(self.document)

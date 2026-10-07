@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtCore import QPoint, QRectF, Qt
+    from PySide6.QtCore import QPoint, QRectF, Qt, QThreadPool
     from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QPixmap
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QGroupBox
@@ -624,6 +624,8 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         self.widget = CoverEditorWidget(DesktopStorage(root / "data"))
         self.widget.resize(900, 600)
         self.addCleanup(self.widget.deleteLater)
+        # 导出完成后后台仍可能在写导出历史；先等线程池结束再删临时目录。
+        self.addCleanup(QThreadPool.globalInstance().waitForDone)
 
     def test_real_frame_click_updates_draft_canvas_and_export(self):
         self.widget.set_context(self.project, self.project.videos[0])
