@@ -384,6 +384,7 @@ _UNITS = set("万千百亿个次楼岁元块位只条张天年月日号%")
 SEMANTIC_BREAK = 0.0
 PARTICLE_BREAK = 0.03
 CONNECTIVE_BREAK = 0.04
+SCRIPT_BREAK = 0.05
 PLAIN_BREAK = 0.12
 
 
@@ -407,6 +408,8 @@ def break_penalty(text: str, index: int) -> float | None:
         return SEMANTIC_BREAK
     if before in _PARTICLES:
         return PARTICLE_BREAK
+    if _word_character(before) != _word_character(after):
+        return SCRIPT_BREAK
     rest = text[index:]
     if any(rest.startswith(word) for word in _LEADING_WORDS):
         return CONNECTIVE_BREAK
