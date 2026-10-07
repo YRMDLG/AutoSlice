@@ -167,6 +167,14 @@ class TextWrap:
 
 @dataclass(frozen=True)
 class TextStyle:
+    """封面文字样式。
+
+    ``font_family`` 保留历史字段名：默认字体保存族名，用户明确选择的
+    自定义字体可以保存绝对文件路径。Qt 与 Pillow 必须通过
+    ``autoslice_cover.fonts.resolve_font_selection`` 把这个兼容值解析为同一
+    个实际字体文件和族名后再绘制。
+    """
+
     font_family: str = str(DEFAULT_TEXT_STYLE["font_family"])
     font_weight: int = int(DEFAULT_TEXT_STYLE["font_weight"])
     font_size: int = 104

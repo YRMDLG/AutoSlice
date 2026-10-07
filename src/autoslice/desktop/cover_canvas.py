@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
@@ -25,7 +24,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QLabel
 
-from autoslice_cover.fonts import get_default_font_status
+from autoslice_cover.fonts import FontResolution, resolve_font_selection
 
 from .cover_model import (
     PROFILE_SIZES,
@@ -40,6 +39,7 @@ from .cover_model import (
     Transform,
     object_for_profile,
 )
+from .qt_preview.theme import COLORS
 
 
 class CoverCanvas(QLabel):
@@ -92,11 +92,17 @@ class CoverCanvas(QLabel):
         self._guide_horizontal = False
         self._hover_handle = False
         self._font_family_cache: dict[str, str] = {}
+        self._font_id_cache: dict[str, int] = {}
+        self._last_resolved_font: FontResolution | None = None
+        self._last_qt_font_family = ""
+        self._last_qt_font_id = -1
         # 拖动期间的本地暂态对象，释放鼠标时才提交。
         self._gesture_objects: dict[str, object] = {}
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setStyleSheet("background: #111820; border: 1px solid #2f414d; border-radius: 6px;")
+        self.setStyleSheet(
+            f"background: {COLORS.nav}; border: 1px solid {COLORS.divider}; border-radius: 6px;"
+        )
 
     def set_document(self, document: CoverDocument | None, profile_key: str | None = None):
         self._document = document
@@ -110,6 +116,18 @@ class CoverCanvas(QLabel):
 
     def document(self) -> CoverDocument | None:
         return self._document
+
+    @property
+    def resolved_font(self) -> FontResolution | None:
+        """最近一次实际绘制文字所使用的字体来源，供诊断和 QTest 使用。"""
+
+        return self._last_resolved_font
+
+    @property
+    def resolved_qt_font(self) -> tuple[str, int]:
+        """最近一次绘制使用的 Qt family 与 application font id。"""
+
+        return self._last_qt_font_family, self._last_qt_font_id
 
     def set_canvas_ratio(self, profile_key: str | int, height: int | None = None):
         if isinstance(profile_key, str):
@@ -689,7 +707,7 @@ class CoverCanvas(QLabel):
     def _draw_background(self, painter: QPainter, canvas: QRectF):
         pixmap = self._background_pixmap if not self._background_pixmap.isNull() else self._pixmap
         if pixmap.isNull():
-            painter.fillRect(canvas, QColor("#202a33"))
+            painter.fillRect(canvas, QColor(COLORS.raised))
             return
         obj = self._find_background()
         scale = obj.scale if obj else self._zoom
@@ -699,7 +717,7 @@ class CoverCanvas(QLabel):
         factor = (min if fit_mode == "contain" else max)(canvas.width() / pixmap.width(), canvas.height() / pixmap.height()) * scale
         draw_w, draw_h = pixmap.width() * factor, pixmap.height() * factor
         if fit_mode == "contain":
-            painter.fillRect(canvas, QColor("#080b0e"))
+            painter.fillRect(canvas, QColor(COLORS.player))
         center_x = canvas.center().x() + (pan_x - 0.5) * (draw_w - canvas.width())
         center_y = canvas.center().y() + (pan_y - 0.5) * (draw_h - canvas.height())
         target = QRectF(center_x - draw_w / 2, center_y - draw_h / 2, draw_w, draw_h)
@@ -748,17 +766,20 @@ class CoverCanvas(QLabel):
     def _draw_text(self, painter: QPainter, canvas: QRectF, text: TextObject):
         rect = self._display_rect(text)
         style = text.style
-        status = get_default_font_status()
-        requested_family = style.font_family or status.family or self.font().family()
-        requested_path = Path(style.font_family) if style.font_family else None
-        font_path = str(requested_path) if requested_path and requested_path.is_file() else str(status.render_path or "")
+        resolution = resolve_font_selection(style.font_family)
+        self._last_resolved_font = resolution
+        font_path = str(resolution.path or "")
+        font_id = self._font_id_cache.get(font_path, -1)
         family = self._font_family_cache.get(font_path)
         if family is None and font_path:
             font_id = QFontDatabase.addApplicationFont(font_path)
             loaded = QFontDatabase.applicationFontFamilies(font_id) if font_id >= 0 else []
-            family = loaded[0] if loaded else requested_family
+            family = loaded[0] if loaded else resolution.family
             self._font_family_cache[font_path] = family
-        family = family or requested_family
+            self._font_id_cache[font_path] = font_id
+        family = family or resolution.family or self.font().family()
+        self._last_qt_font_family = family
+        self._last_qt_font_id = font_id
         font = QFont(family)
         base_pixel_size = max(8, int(style.font_size * canvas.width() / max(1, self._canvas_ratio[0])))
         font.setPixelSize(base_pixel_size)

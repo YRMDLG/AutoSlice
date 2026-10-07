@@ -13,6 +13,7 @@ from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 from autoslice.desktop.foundation import DesktopStorage, DraftRead
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+from autoslice_cover.fonts import resolve_font_selection
 from autoslice_cover.renderer import ShapeOverlay, StickerOverlay, TextTransform, render_cover
 from autoslice_cover.text_layout import wrap_text_lines
 from autoslice_cover.video import extract_frame_at_timestamp
@@ -765,11 +766,17 @@ class CoverService:
             # 新版不要在服务层按近似字符数提前切断，否则会把“男模”之类的
             # 短尾行固定保存下来。rect 现在只表示该对象的可用区域，具体
             # 断行和字号搜索交给 renderer 的 _fit_text_block。
+            # 与 Qt CoverCanvas._display_rect 保持相同的 profile 变换语义。
+            # 旧 renderer 忽略了 transform.scale，AI 候选放大后画布和预览
+            # 会出现明显分叉。
+            transform_scale = max(0.01, float(text.transform.scale or 1.0))
+            display_width = min(text.rect.width * transform_scale, text.wrap.max_width)
+            display_height = text.rect.height * transform_scale
             area = (
                 max(0.0, min(0.96, float(text.transform.x))),
                 max(0.0, min(0.94, float(text.transform.y))),
-                max(0.04, min(1.0, float(text.transform.x) + min(text.wrap.max_width, text.rect.width))),
-                max(0.04, min(1.0, float(text.transform.y) + text.rect.height)),
+                max(0.04, min(1.0, float(text.transform.x) + display_width)),
+                max(0.04, min(1.0, float(text.transform.y) + display_height)),
             )
             role = "context" if text.copy_role == "A" else "emphasis"
             style = replace(text.style, align=text.align)
@@ -777,7 +784,8 @@ class CoverService:
                 # 旧版 context 使用同一色板但弱一档描边；保留用户已改过的
                 # 字号、填充和位置，只把程序默认的过重描边收回历史比例。
                 style = replace(style, stroke_width=4)
-            font_path = text.style.font_family if text.style.font_family and Path(text.style.font_family).is_file() else None
+            font_resolution = resolve_font_selection(text.style.font_family)
+            font_path = str(font_resolution.path) if font_resolution.path is not None else None
             blocks.append({
                 "text": text.text,
                 "text_area": area,
@@ -785,6 +793,9 @@ class CoverService:
                 "text_transforms": None,
                 "text_style": style,
                 "font_path": font_path,
+                # 保留实际解析结果，便于诊断 Qt/Pillow 字体分叉；renderer
+                # 仍只消费 font_path，避免把调试字段混入绘制契约。
+                "resolved_font": font_resolution.to_debug_dict(),
                 "rotation": text.transform.rotation,
             })
         return tuple(blocks)

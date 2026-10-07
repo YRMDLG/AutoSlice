@@ -18,6 +18,12 @@ _PATHS = {
     "save": '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
     "render": '<path d="m4 4 16 8-16 8z"/><path d="M4 4v16"/>',
     "folder": '<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    "undo": '<path d="M9 7 4 12l5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/>',
+    "redo": '<path d="m15 7 5 5-5 5"/><path d="M19 12h-8a6 6 0 0 0-6 6"/>',
+    "chevron_left": '<path d="m15 6-6 6 6 6"/>',
+    "chevron_right": '<path d="m9 6 6 6-6 6"/>',
+    "chevron_down": '<path d="m6 9 6 6 6-6"/>',
+    "sparkles": '<path d="m12 3 1.1 3.1L16 7.2l-2.9 1.1L12 11l-1.1-2.7L8 7.2l2.9-1.1L12 3Z"/><path d="m18 13 .8 2.2L21 16l-2.2.8L18 19l-.8-2.2L15 16l2.2-.8L18 13Z"/><path d="m6 13 .7 1.8L8.5 15.5l-1.8.7L6 18l-.7-1.8-1.8-.7 1.8-.7L6 13Z"/>',
 }
 
 

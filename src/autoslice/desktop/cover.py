@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+from autoslice_cover.fonts import resolve_font_selection
 
 from .cover_ai import CoverAICandidate
 from .cover_canvas import CoverCanvas
@@ -50,6 +51,7 @@ from .cover_model import (
     object_for_profile,
 )
 from .cover_service import CoverDraft, CoverService, wrap_cover_title
+from .qt_preview.icons import icon
 
 
 class _JobSignals(QObject):
@@ -108,6 +110,8 @@ class CoverEditorWidget(QWidget):
         self._jobs: set[_Job] = set()
         self.history = CoverHistory()
         self._frame_locked = False
+        self._selected_frame_timestamp: float | None = None
+        self._check_preview_visible = False
         self._wider_frames: tuple[tuple[Path, float], ...] = ()
         self._ai_candidates: tuple[CoverAICandidate, ...] = ()
         self._selected_ai_candidate: str | None = None
@@ -149,15 +153,28 @@ class CoverEditorWidget(QWidget):
             btn.clicked.connect(lambda _c=False, k=key: self._set_canvas_key(k))
         self.canvas_ratio_buttons["4x3"].setChecked(True)
 
+        self.check_preview_toggle = QPushButton("另一比例")
+        self.check_preview_toggle.setCheckable(True)
+        self.check_preview_toggle.setObjectName("quiet")
+        self.check_preview_toggle.setFixedHeight(28)
+        self.check_preview_toggle.setEnabled(False)
+        self.check_preview_toggle.setToolTip("按需显示另一输出比例的预览；隐藏时不排队渲染")
+        self.check_preview_toggle.toggled.connect(self._toggle_check_preview)
+        toolbar_row.addWidget(self.check_preview_toggle)
+
         toolbar_row.addSpacing(8)
 
-        self.undo_button = QPushButton("↶")
+        self.undo_button = QPushButton("")
+        self.undo_button.setIcon(icon("undo"))
+        self.undo_button.setIconSize(QSize(16, 16))
         self.undo_button.setFixedSize(28, 28)
         self.undo_button.setObjectName("quiet")
         self.undo_button.setToolTip("撤销")
         self.undo_button.setEnabled(False)
         self.undo_button.clicked.connect(self._undo)
-        self.redo_button = QPushButton("↷")
+        self.redo_button = QPushButton("")
+        self.redo_button.setIcon(icon("redo"))
+        self.redo_button.setIconSize(QSize(16, 16))
         self.redo_button.setFixedSize(28, 28)
         self.redo_button.setObjectName("quiet")
         self.redo_button.setToolTip("重做")
@@ -179,15 +196,17 @@ class CoverEditorWidget(QWidget):
         self.export_button.setEnabled(False)
         self.export_button.clicked.connect(self._export)
         toolbar_row.addWidget(self.export_button)
-        self.export_both_button = QPushButton("双比例")
+        self.export_both_button = QPushButton("导出 4:3 + 16:9")
         self.export_both_button.setFixedHeight(28)
-        self.export_both_button.setToolTip("分别导出 4:3 与 16:9")
+        self.export_both_button.setToolTip("分别导出 4:3（1440×1080）与 16:9（1920×1080），不覆盖已有文件")
         self.export_both_button.setEnabled(False)
         self.export_both_button.clicked.connect(self._export_both)
         toolbar_row.addWidget(self.export_both_button)
 
         # 面板折叠按钮
-        self.panel_toggle = QPushButton("▶")
+        self.panel_toggle = QPushButton("")
+        self.panel_toggle.setIcon(icon("chevron_right"))
+        self.panel_toggle.setIconSize(QSize(16, 16))
         self.panel_toggle.setFixedSize(28, 28)
         self.panel_toggle.setObjectName("quiet")
         self.panel_toggle.setToolTip("收起/展开属性面板")
@@ -200,7 +219,14 @@ class CoverEditorWidget(QWidget):
         self.video_label = QLabel("")
         self.export_summary = QLabel("")
         self.export_summary.setObjectName("subtle")
-        self.export_summary.setWordWrap(True)
+        self.export_summary.setWordWrap(False)
+        self.export_summary.setMaximumWidth(420)
+        toolbar_row.insertWidget(toolbar_row.indexOf(self.export_button), self.export_summary)
+        self.notice_label = QLabel("")
+        self.notice_label.setObjectName("coverNoticeInfo")
+        self.notice_label.setWordWrap(True)
+        self.notice_label.setVisible(False)
+        root.insertWidget(1, self.notice_label)
         self.canvas_hint = QLabel("")
         self.canvas_hint.setObjectName("subtle")
         self.canvas_ratio_status = QLabel("")
@@ -251,11 +277,19 @@ class CoverEditorWidget(QWidget):
         self.check_preview = QLabel("")
         self.check_preview.setObjectName("subtle")
         self.check_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.check_preview.setFixedHeight(48)
+        self.check_preview.setFixedHeight(72)
         self.check_preview.setMinimumWidth(100)
         self.check_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.check_preview.setVisible(False)
         check_row.addWidget(self.check_preview, 1)
         center_layout.addLayout(check_row)
+        hint_row = QHBoxLayout()
+        hint_row.setContentsMargins(0, 0, 0, 0)
+        hint_row.setSpacing(8)
+        self.canvas_hint.setWordWrap(False)
+        self.canvas_hint.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        hint_row.addWidget(self.canvas_hint, 1)
+        center_layout.addLayout(hint_row)
         content.addWidget(center, 1)
 
         # ── 右侧上下文面板（QStackedWidget 按选中对象切换）──
@@ -295,9 +329,11 @@ class CoverEditorWidget(QWidget):
         # AI 入口固定在面板底部，所有上下文都能触达
         ai_row = QHBoxLayout()
         ai_row.setSpacing(4)
-        self.ai_button = QPushButton("✨ 三个方案")
+        self.ai_button = QPushButton("AI 三个方案")
+        self.ai_button.setIcon(icon("sparkles"))
+        self.ai_button.setIconSize(QSize(16, 16))
         self.ai_button.setFixedHeight(28)
-        self.ai_button.setToolTip("生成可编辑候选（默认不调用真实AI）")
+        self.ai_button.setToolTip("生成可编辑候选（默认不调用真实 AI）")
         self.ai_button.clicked.connect(self._request_ai_candidates)
         ai_row.addWidget(self.ai_button, 1)
         right_layout.addLayout(ai_row)
@@ -323,7 +359,7 @@ class CoverEditorWidget(QWidget):
         strip_layout.setSpacing(4)
         self.frame_center_label = QLabel("0.00s")
         self.frame_center_label.setObjectName("subtle")
-        self.frame_center_label.setFixedWidth(48)
+        self.frame_center_label.setMinimumWidth(62)
         strip_layout.addWidget(self.frame_center_label)
         self.current_frame_button = QPushButton("当前帧")
         self.current_frame_button.setFixedHeight(24)
@@ -348,8 +384,10 @@ class CoverEditorWidget(QWidget):
         self.nearby_frame_buttons = []
         for _ in range(7):
             button = QPushButton("--")
-            button.setMinimumHeight(48)
-            button.setMaximumHeight(56)
+            button.setObjectName("frameThumb")
+            button.setCheckable(True)
+            button.setMinimumWidth(86)
+            button.setMaximumHeight(58)
             button.setIconSize(QSize(80, 45))
             button.setProperty("timestamp", 0.0)
             button.clicked.connect(
@@ -365,6 +403,7 @@ class CoverEditorWidget(QWidget):
         self._hide_panel()
         self.panel_toggle.setEnabled(False)
         self._show_empty_panel()
+        self._update_canvas_hint()
 
     def _toggle_panel(self, checked):
         """手动切换面板折叠/展开。"""
@@ -379,20 +418,62 @@ class CoverEditorWidget(QWidget):
             self._last_panel_width = self.right_panel.width()
         self.right_panel.setMaximumWidth(0)
         self.right_panel.setMinimumWidth(0)
-        self.panel_toggle.setText("◀")
+        self.panel_toggle.setIcon(icon("chevron_left"))
         self._panel_visible = False
 
     def _show_panel(self):
         """展开右侧面板。"""
         self.right_panel.setMinimumWidth(0)
         self.right_panel.setMaximumWidth(self._last_panel_width)
-        self.panel_toggle.setText("▶")
+        self.panel_toggle.setIcon(icon("chevron_right"))
         self._panel_visible = True
 
     def _show_empty_panel(self):
         """显示空状态面板（无项目或无选中对象）。"""
         self.panel_title.setText("封面工具")
         self.panel_stack.setCurrentWidget(self.empty_controls)
+
+    def _toggle_check_preview(self, checked: bool):
+        """按需显示另一比例预览；隐藏时不排队渲染。"""
+        self._check_preview_visible = bool(checked)
+        self.check_preview.setVisible(self._check_preview_visible)
+        if self._check_preview_visible:
+            self._queue_check_preview()
+        else:
+            self._check_request_generation += 1
+            self._check_busy = False
+            self._check_dirty = False
+
+    def _set_notice(self, text: str = "", level: str = "info"):
+        """显示稳定的本地状态出口，避免错误只存在于隐藏控件。"""
+        text = str(text or "").strip()
+        if not text:
+            self.notice_label.clear()
+            self.notice_label.setVisible(False)
+            return
+        object_name = {
+            "error": "coverNoticeError",
+            "warning": "coverNoticeWarning",
+        }.get(level, "coverNoticeInfo")
+        self.notice_label.setObjectName(object_name)
+        self.notice_label.setText(text)
+        self.notice_label.setVisible(True)
+        self.notice_label.style().unpolish(self.notice_label)
+        self.notice_label.style().polish(self.notice_label)
+
+    def _update_nearby_frame_selection(self, timestamp: float | None = None):
+        if timestamp is not None:
+            self._selected_frame_timestamp = max(0.0, float(timestamp))
+        selected = self._selected_frame_timestamp
+        distances = [
+            abs(float(button.property("timestamp") or 0.0) - selected)
+            if selected is not None else float("inf")
+            for button in self.nearby_frame_buttons
+        ]
+        nearest = min(distances, default=float("inf"))
+        nearest_index = distances.index(nearest) if nearest <= 0.06 else -1
+        for index, button in enumerate(self.nearby_frame_buttons):
+            button.setChecked(index == nearest_index)
 
     def _build_text_panel(self) -> QWidget:
         """文字对象属性面板：文案、字号、对齐、样式。"""
@@ -458,7 +539,9 @@ class CoverEditorWidget(QWidget):
         layout.addLayout(size_align)
 
         # 样式折叠区
-        self.style_toggle = QPushButton("样式 ▸")
+        self.style_toggle = QPushButton("样式")
+        self.style_toggle.setIcon(icon("chevron_right"))
+        self.style_toggle.setIconSize(QSize(14, 14))
         self.style_toggle.setFixedHeight(26)
         self.style_toggle.setObjectName("quiet")
         self.style_toggle.setCheckable(True)
@@ -491,12 +574,14 @@ class CoverEditorWidget(QWidget):
         self.style_widget.setVisible(False)
         self.style_toggle.toggled.connect(self.style_widget.setVisible)
         self.style_toggle.toggled.connect(
-            lambda checked: self.style_toggle.setText("样式 ▾" if checked else "样式 ▸")
+            lambda checked: self.style_toggle.setIcon(icon("chevron_down" if checked else "chevron_right"))
         )
         layout.addWidget(self.style_widget)
 
         # 更多折叠区
-        self.more_toggle = QPushButton("更多 ▸")
+        self.more_toggle = QPushButton("更多")
+        self.more_toggle.setIcon(icon("chevron_right"))
+        self.more_toggle.setIconSize(QSize(14, 14))
         self.more_toggle.setFixedHeight(26)
         self.more_toggle.setObjectName("quiet")
         self.more_toggle.setCheckable(True)
@@ -532,7 +617,7 @@ class CoverEditorWidget(QWidget):
         self.more_widget.setVisible(False)
         self.more_toggle.toggled.connect(self.more_widget.setVisible)
         self.more_toggle.toggled.connect(
-            lambda checked: self.more_toggle.setText("更多 ▾" if checked else "更多 ▸")
+            lambda checked: self.more_toggle.setIcon(icon("chevron_down" if checked else "chevron_right"))
         )
         layout.addWidget(self.more_widget)
 
@@ -772,7 +857,18 @@ class CoverEditorWidget(QWidget):
             widget.blockSignals(True)
         try:
             self.title_edit.setPlainText(text.text)
-            self.font_path_edit.setText(text.style.font_family if Path(text.style.font_family).is_file() else "")
+            font_resolution = resolve_font_selection(text.style.font_family)
+            selected_font_path = Path(text.style.font_family) if text.style.font_family else None
+            self.font_path_edit.setText(
+                str(selected_font_path.resolve())
+                if selected_font_path is not None and selected_font_path.is_file()
+                else ""
+            )
+            self.font_path_edit.setToolTip(
+                f"实际字体：{font_resolution.family}"
+                + (f" · {font_resolution.path}" if font_resolution.path else "")
+                + (f" · {font_resolution.warning}" if font_resolution.warning else "")
+            )
             self.font_spin.setValue(int(text.style.font_size))
             self.fill_edit.setText(text.style.fill_color)
             self.stroke_edit.setText(text.style.stroke_color)
@@ -824,25 +920,41 @@ class CoverEditorWidget(QWidget):
         self._sync_selected_text_controls()
 
     def _commit_document_change(self, before: CoverDocument | None = None) -> None:
-        """把一次已完成编辑写入 Undo/Redo，并刷新轻量状态。"""
+        """原子提交文档，并让所有界面和异步任务转向同一份状态。"""
 
         if self.document is None:
             return
+        self.draft = CoverDraft.from_document(self.document)
+        # CoverDocument 是唯一主状态。候选、撤销和手势提交后先把控件重读
+        # 为新文档，再启动任何延迟任务，避免旧控件反向覆盖 profile override。
+        self._apply_draft()
+        self._sync_overlay_controls()
         self.history.commit(self.document)
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
-        self.canvas.set_document(self.document, self._canvas_key)
-        self._sync_overlay_controls()
-        self.draft = CoverDraft.from_document(self.document)
+        self._invalidate_render_requests()
         self._draft_timer.start()
         self._preview_timer.start()
+
+    def _invalidate_render_requests(self) -> None:
+        """使正在运行的预览/检查预览回调失效，并允许新状态立即排队。"""
+
+        self._preview_request_generation += 1
+        self._busy = False
+        self._preview_dirty = False
+        self._check_request_generation += 1
+        self._check_busy = False
+        self._check_dirty = False
 
     def _undo(self):
         document = self.history.undo()
         if document is None:
             return
         self.document = document
+        self.draft = CoverDraft.from_document(self.document)
         self._apply_draft()
+        self._sync_overlay_controls()
+        self._invalidate_render_requests()
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
         self._draft_timer.start()
@@ -853,7 +965,10 @@ class CoverEditorWidget(QWidget):
         if document is None:
             return
         self.document = document
+        self.draft = CoverDraft.from_document(self.document)
         self._apply_draft()
+        self._sync_overlay_controls()
+        self._invalidate_render_requests()
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
         self._draft_timer.start()
@@ -889,10 +1004,14 @@ class CoverEditorWidget(QWidget):
         try:
             assets = self.service.asset_library.list_assets(preferred_group=self.project.title if self.project else None)
         except (OSError, ValueError) as exc:
-            self.status_changed.emit(f"素材库暂不可用：{exc}")
+            message = f"素材库暂不可用：{exc}"
+            self._set_notice(message, "error")
+            self.status_changed.emit(message)
             return
         if not assets:
-            self.status_changed.emit("素材库为空；可以先导入一张自定义图片")
+            message = "素材库为空；可以先导入一张自定义图片"
+            self._set_notice(message, "warning")
+            self.status_changed.emit(message)
             return
         box = QMessageBox(self)
         box.setWindowTitle("本地素材")
@@ -1023,6 +1142,7 @@ class CoverEditorWidget(QWidget):
         self.redo_button.setEnabled(self.history.can_redo)
         self.canvas.set_document(self.document, self._canvas_key)
         self.draft = CoverDraft.from_document(self.document)
+        self._invalidate_render_requests()
         self._draft_timer.start()
         self._preview_timer.start()
 
@@ -1062,9 +1182,20 @@ class CoverEditorWidget(QWidget):
     def _request_ai_candidates(self):
         if self.document is None:
             return
-        self._ai_candidates = self.service.ai_candidates(self.document, profile_key=self._canvas_key)
+        try:
+            self._ai_candidates = self.service.ai_candidates(
+                self.document, profile_key=self._canvas_key
+            )
+        except Exception as exc:  # noqa: BLE001 - AI 失败必须回到界面显示
+            message = f"AI 候选生成失败：{exc}"
+            self.ai_candidate_label.setText("AI 暂不可用，请继续手工编辑")
+            self._set_notice(message, "error")
+            self.status_changed.emit(message)
+            return
         if not self._ai_candidates:
-            self.ai_candidate_label.setText("当前没有可用候选，请继续手工编辑")
+            message = "当前没有明显更优的 AI 候选，请继续手工编辑"
+            self.ai_candidate_label.setText(message)
+            self._set_notice(message, "warning")
             return
         recommended = next((item for item in self._ai_candidates if item.recommended), self._ai_candidates[0])
         self.ai_candidate_label.setText(f"推荐：{recommended.label} · {recommended.difference}（点击按钮后手动应用）")
@@ -1134,6 +1265,7 @@ class CoverEditorWidget(QWidget):
         elif isinstance(item, (ImageObject, StickerObject, ShapeObject)):
             self._sync_overlay_controls()
         self._draft_timer.start()
+        self._invalidate_render_requests()
         self._preview_timer.start()
 
     def _canvas_object_preview_changed(self, item, _profile_key: str):
@@ -1173,6 +1305,9 @@ class CoverEditorWidget(QWidget):
         return "4:3" if self._canvas_key == "4x3" else "16:9"
 
     def _update_canvas_hint(self):
+        if self.project is None or self.video is None:
+            self.canvas_hint.setText("先到“字幕”页选择投稿项目和视频")
+            return
         self.canvas_hint.setText(
             f"{self._canvas_label()} 主画布 · 选中标题或底图后拖动；滚轮缩放"
         )
@@ -1182,21 +1317,18 @@ class CoverEditorWidget(QWidget):
             return
         if self.document is not None:
             self.document = replace(self.document, active_profile=canvas_key)
+            self.draft = CoverDraft.from_document(self.document)
             self._draft_timer.start()
         self._canvas_key = canvas_key
         # 旧比例的后台渲染结果只丢弃，不阻塞新比例的主画布。
-        self._preview_request_generation += 1
-        self._busy = False
-        self._preview_dirty = False
-        self._check_request_generation += 1
-        self._check_busy = False
-        self._check_dirty = False
+        self._invalidate_render_requests()
         for key, button in self.canvas_ratio_buttons.items():
             button.setChecked(key == canvas_key)
         self._update_canvas_hint()
         self._update_export_summary()
         if self.document is not None:
-            self.canvas.set_document(self.document, canvas_key)
+            self._apply_draft()
+            self._sync_overlay_controls()
         if self.draft.image_path and self.video is not None:
             self.canvas.setText(f"正在准备 {self._canvas_label()} 预览…")
             self._render_preview()
@@ -1204,13 +1336,14 @@ class CoverEditorWidget(QWidget):
         self.canvas.setText(f"加载底图后在这里预览 {self._canvas_label()} 画布")
 
     def _update_export_summary(self):
-        """把当前固定的输出契约直接显示在首屏和导出入口旁。"""
+        """把当前输出契约放在导出动作旁，tooltip 只补充完整路径。"""
 
         if self.video is None:
-            self.export_summary.setText("输出：选择视频后确定文件名 · 4:3 主封面 1440×1080")
+            self.export_summary.setText("未选择视频 · 输出到项目目录")
+            self.export_summary.setToolTip("选择投稿项目和视频后显示封面文件名与完整输出路径")
             if hasattr(self, "export_button"):
-                self.export_button.setText("导出 4:3 主封面")
-                self.export_button.setToolTip("导出当前封面为 4:3 主封面（1440×1080 JPG）")
+                self.export_button.setText("导出 4:3")
+                self.export_button.setToolTip("导出 4:3（1440×1080 JPG）")
             return
         stem = Path(self.video.name).stem or "封面"
         if self._canvas_key == "4x3":
@@ -1219,13 +1352,15 @@ class CoverEditorWidget(QWidget):
         else:
             filename = f"AutoCover-{stem}-16x9.jpg"
             size = "1920×1080"
+        output_dir = Path(self.project.directory) if self.project is not None else Path(self.video.path).parent
         self.export_summary.setText(
-            f"输出：{filename} · {self._canvas_label()} 当前画布 {size}"
+            f"{self._canvas_label()} · {size} · 项目目录 · {filename}"
         )
+        self.export_summary.setToolTip(str(output_dir / filename))
         if hasattr(self, "export_button"):
-            self.export_button.setText(f"导出当前 {self._canvas_label()} 主封面")
+            self.export_button.setText(f"导出 {self._canvas_label()}")
             self.export_button.setToolTip(
-                f"导出当前封面为 {self._canvas_label()} 主封面（{size} JPG）"
+                f"导出 {self._canvas_label()}（{size} JPG）到项目目录，不覆盖已有文件"
             )
 
     def _refresh_nearby_frame_strip(self, center: float):
@@ -1239,9 +1374,13 @@ class CoverEditorWidget(QWidget):
             button.setText(f"{timestamp:.2f}s")
             button.setIcon(QIcon())
             button.setEnabled(available)
+        self._update_nearby_frame_selection(
+            self._selected_frame_timestamp if self._selected_frame_timestamp is not None else center
+        )
 
     def _queue_nearby_thumbnails(self, center: float):
-        if self.video is None or not Path(self.video.path).is_file():
+        # 页面未显示时不启动 FFmpeg；进入封面页后由 showEvent 补排队。
+        if not self.isVisible() or self.video is None or not Path(self.video.path).is_file():
             return
         center = max(0.0, float(center or 0.0))
         offsets = (-1.20, -0.80, -0.40, 0.0, 0.40, 0.80, 1.20)
@@ -1256,7 +1395,15 @@ class CoverEditorWidget(QWidget):
         )
 
     def _nearby_frames_ready(self, request_generation: int, result, error):
-        if request_generation != self._nearby_request_generation or error or not result:
+        if request_generation != self._nearby_request_generation:
+            return
+        if error:
+            message = f"附近帧预览失败：{error}"
+            self._set_notice(message, "warning")
+            self.status_changed.emit(message)
+            return
+        if not result:
+            self._set_notice("没有找到附近可用画面", "warning")
             return
         frames = tuple(result)
         for button in self.nearby_frame_buttons:
@@ -1266,11 +1413,14 @@ class CoverEditorWidget(QWidget):
             if pixmap.isNull():
                 continue
             button.setIcon(QIcon(pixmap))
+        self._set_notice("")
 
     def _choose_nearby_frame(self, timestamp: float):
         if self.video is None:
             return
-        self.timestamp_edit.setValue(max(0.0, float(timestamp)))
+        timestamp = max(0.0, float(timestamp))
+        self._update_nearby_frame_selection(timestamp)
+        self.timestamp_edit.setValue(timestamp)
         self._extract_frame()
 
     def _toggle_frame_lock(self, checked: bool):
@@ -1280,13 +1430,16 @@ class CoverEditorWidget(QWidget):
         before = self.document
         self._frame_locked = bool(checked)
         self.document = self.service.set_frame_locked(self.document, self._frame_locked)
-        self.frame_lock_button.setText("已锁定当前帧" if self._frame_locked else "锁定当前帧")
+        self.frame_lock_button.setText("已锁帧" if self._frame_locked else "锁帧")
         self._commit_document_change(before)
-        self.status_changed.emit("已锁定当前帧，后台不会自动换帧" if self._frame_locked else "已解除帧锁定")
+        message = "已锁定当前帧，后台候选和 AI 不会自动换帧" if self._frame_locked else "已解除帧锁定"
+        self.status_changed.emit(message)
 
     def _find_more_frames(self):
         if self.video is None or not Path(self.video.path).is_file():
-            self.status_changed.emit("请先选择有视频的投稿项目")
+            message = "请先在字幕页选择一个包含视频的投稿项目"
+            self._set_notice(message, "warning")
+            self.status_changed.emit(message)
             return
         center = self.timestamp_edit.value() if self.draft.image_path else self._current_playhead
         request_generation = self._nearby_request_generation + 1
@@ -1303,10 +1456,13 @@ class CoverEditorWidget(QWidget):
         self.more_frames_button.setEnabled(self.video is not None)
         if request_generation != self._nearby_request_generation or error:
             if error:
-                self.status_changed.emit(f"扩大取帧范围失败：{error}")
+                message = f"扩大取帧范围失败：{error}"
+                self._set_notice(message, "error")
+                self.status_changed.emit(message)
             return
         self._wider_frames = tuple(result or ())
         if not self._wider_frames:
+            self._set_notice("没有找到更多可用画面", "warning")
             return
         for button, item in zip(self.nearby_frame_buttons, self._wider_frames[:: max(1, len(self._wider_frames) // len(self.nearby_frame_buttons))]):
             path, timestamp = item
@@ -1315,7 +1471,9 @@ class CoverEditorWidget(QWidget):
             pixmap = QPixmap(str(path))
             if not pixmap.isNull():
                 button.setIcon(QIcon(pixmap))
-        self.status_changed.emit(f"已补充 {len(self._wider_frames)} 张更大范围候选")
+        self._update_nearby_frame_selection()
+        message = f"已补充 {len(self._wider_frames)} 张更大范围候选"
+        self.status_changed.emit(message)
 
     def _cycle_copy(self):
         if not self._copy_variants:
@@ -1388,13 +1546,20 @@ class CoverEditorWidget(QWidget):
             self._copy_variant_index = -1
             self.project_label.setText("请选择项目")
             self.video_label.setText("请选择视频")
-            self.draft_status.setText("尚未加载封面草稿")
+            self.draft_status.setText("未加载草稿")
+            self._selected_frame_timestamp = None
+            self._refresh_nearby_frame_strip(0.0)
             self._update_export_summary()
+            self._update_canvas_hint()
             self.canvas.set_preview(QPixmap())
             self.canvas.set_background_pixmap(QPixmap())
-            self.canvas.setText("加载底图后在这里预览")
+            self.canvas.setText("请先在字幕页选择投稿项目和视频")
             self.check_preview.clear()
-            self.check_preview.setText("生成后显示另一比例")
+            self.check_preview.setText("展开后显示另一比例预览")
+            self.check_preview_toggle.setChecked(False)
+            self.check_preview_toggle.setEnabled(False)
+            self.check_preview.setVisible(False)
+            self._set_notice("")
             self.extract_button.setEnabled(False)
             self.current_frame_button.setEnabled(False)
             self.export_button.setEnabled(False)
@@ -1416,6 +1581,8 @@ class CoverEditorWidget(QWidget):
         self.project_label.setText(project.title if len(project.title) <= 32 else project.title[:32] + "…")
         self.project_label.setToolTip(project.title)
         self.video_label.setText(video.name)
+        self.check_preview_toggle.setEnabled(True)
+        self._set_notice("")
         self._update_export_summary()
         video_path = Path(video.path)
         video_available = video_path.is_file()
@@ -1450,9 +1617,12 @@ class CoverEditorWidget(QWidget):
         self._frame_locked = bool(self.document.source.frame_locked)
         self.frame_lock_button.blockSignals(True)
         self.frame_lock_button.setChecked(self._frame_locked)
-        self.frame_lock_button.setText("已锁定当前帧" if self._frame_locked else "锁定当前帧")
+        self.frame_lock_button.setText("已锁帧" if self._frame_locked else "锁帧")
         self.frame_lock_button.blockSignals(False)
         self.draft = CoverDraft.from_document(self.document)
+        self._selected_frame_timestamp = (
+            float(self.draft.selected_timestamp) if self.draft.image_path else max(0.0, self._current_playhead)
+        )
         self._copy_variant_index = next(
             (
                 index for index, candidate in enumerate(self._copy_variants)
@@ -1464,13 +1634,18 @@ class CoverEditorWidget(QWidget):
         # 有项目时默认显示文字面板
         self._canvas_selection_changed(True)
         if not video_available:
-            self.draft_status.setText(f"当前视频不可用：{video_path}")
+            self.draft_status.setText("视频不可用")
+            self.draft_status.setToolTip(str(video_path))
+            self._set_notice(f"当前视频不可用：{video_path}", "error")
         elif read.status == "ready":
-            self.draft_status.setText("已恢复封面草稿")
+            self.draft_status.setText("已恢复草稿")
+            self.draft_status.setToolTip("")
         elif read.status == "missing":
-            self.draft_status.setText("暂无草稿，编辑会自动保存")
+            self.draft_status.setText("新草稿 · 自动保存")
+            self.draft_status.setToolTip("")
         else:
             self.draft_status.setText(f"草稿需检查：{read.status}")
+            self._set_notice(f"草稿状态需要检查：{read.status}", "warning")
         self._refresh_nearby_frame_strip(
             self.draft.selected_timestamp if self.draft.image_path else self._current_playhead
         )
@@ -1501,10 +1676,19 @@ class CoverEditorWidget(QWidget):
         self.canvas.set_background_focus(self.draft.background_x, self.draft.background_y)
         self.canvas.set_document(self.document, self._canvas_key)
         if self.document is not None:
-            text = next((item for item in self.document.objects if isinstance(item, TextObject) and item.copy_role == "B"), None)
-            text = text or next((item for item in self.document.objects if isinstance(item, TextObject)), None)
-            self._selected_text_id = text.id if text else None
-            self._sync_selected_text_controls()
+            selected = next(
+                (item for item in self.document.objects if item.id == self.document.selected_object_id),
+                None,
+            )
+            if isinstance(selected, TextObject):
+                self._selected_text_id = selected.id
+                self._sync_selected_text_controls()
+            elif self._selected_text_id is None:
+                text = next(
+                    (item for item in self.document.objects if isinstance(item, TextObject) and item.copy_role == "B"),
+                    None,
+                ) or next((item for item in self.document.objects if isinstance(item, TextObject)), None)
+                self._selected_text_id = text.id if text else None
         self._update_title_rect()
 
     def _set_text_align(self, align: str):
@@ -1622,6 +1806,7 @@ class CoverEditorWidget(QWidget):
             self.history.commit(self.document)
             self.undo_button.setEnabled(self.history.can_undo)
             self.redo_button.setEnabled(self.history.can_redo)
+            self._invalidate_render_requests()
         self._update_title_rect()
         self._draft_timer.start()
         self._preview_timer.start()
@@ -1727,15 +1912,20 @@ class CoverEditorWidget(QWidget):
         if self.project is None or self.video is None:
             return
         try:
-            self.draft = self._read_draft()
             if self.document is not None:
+                # 文档已经在控件信号/画布手势提交时写入；延迟保存只能消费
+                # 这份快照，不能再次从可能过期的控件反向重建它。
+                self.draft = CoverDraft.from_document(self.document)
                 self.service.save_document(self.project, self.video, self.document)
                 self.service.remember_style(self.project, self.document)
             else:
+                self.draft = self._read_draft()
                 self.service.save(self.project, self.video, self.draft)
-            self.draft_status.setText("草稿已保存到本机应用数据")
+            self.draft_status.setText("已保存")
         except (OSError, ValueError) as exc:
-            self.status_changed.emit(f"封面草稿保存失败：{exc}")
+            message = f"封面草稿保存失败：{exc}"
+            self._set_notice(message, "error")
+            self.status_changed.emit(message)
 
     def _run(self, action, callback):
         generation = self._context_generation
@@ -1780,12 +1970,15 @@ class CoverEditorWidget(QWidget):
 
     def _use_current_frame(self):
         self.timestamp_edit.setValue(self._current_playhead)
+        self._update_nearby_frame_selection(self._current_playhead)
         self._refresh_nearby_frame_strip(self._current_playhead)
         self._extract_frame()
 
     def _extract_frame(self):
         if self.video is None or not Path(self.video.path).is_file():
-            self.status_changed.emit("请先选择投稿项目和视频")
+            message = "请先在字幕页选择投稿项目和视频"
+            self._set_notice(message, "warning")
+            self.status_changed.emit(message)
             return
         first_background = not bool(self.draft.image_path)
         self.extract_button.setEnabled(False)
@@ -1797,6 +1990,7 @@ class CoverEditorWidget(QWidget):
         request_generation = self._frame_request_generation
         video = self.video
         timestamp = self.timestamp_edit.value()
+        self._set_notice("正在从视频取帧…", "info")
         self.status_changed.emit("正在从视频取帧…")
         self._run(
             lambda: self.service.extract_frame(video, timestamp),
@@ -1813,9 +2007,12 @@ class CoverEditorWidget(QWidget):
         self.current_frame_button.setEnabled(self.extract_button.isEnabled())
         self._refresh_nearby_frame_strip(self.timestamp_edit.value())
         if error:
-            self.status_changed.emit(f"取帧失败：{error}")
+            message = f"取帧失败：{error}"
+            self._set_notice(message, "error")
+            self.status_changed.emit(message)
             return
         path, timestamp = result
+        self._update_nearby_frame_selection(timestamp)
         before_document = self.document
         draft = replace(self._read_draft(), image_path=str(path), selected_timestamp=timestamp)
         if self.document is not None:
@@ -1870,6 +2067,7 @@ class CoverEditorWidget(QWidget):
         self.timestamp_edit.setValue(timestamp)
         self._refresh_nearby_frame_strip(timestamp)
         self._save_draft()
+        self._set_notice("")
         self.status_changed.emit("已加载当前视频画面")
         self._render_preview()
         self._queue_nearby_thumbnails(timestamp)
@@ -1882,12 +2080,15 @@ class CoverEditorWidget(QWidget):
             return
         self._preview_dirty = False
         self._busy = True
+        self._set_notice(f"正在生成 {self._canvas_label()} 预览…", "info")
         self._preview_request_generation += 1
         request_generation = self._preview_request_generation
         canvas_key = self._canvas_key
-        draft = self._read_draft()
-        self.draft = draft
         document = self.document
+        # CoverDocument 是预览的唯一输入；只有兼容旧调用方的无文档路径
+        # 才需要读取控件草稿。
+        draft = self.draft if document is not None else self._read_draft()
+        self.draft = draft
         video = self.video
         self._run(
             lambda: self.service.render_preview_document(video, document, canvas_key=canvas_key) if document is not None else self.service.render_preview(video, draft, canvas_key=canvas_key),
@@ -1904,13 +2105,15 @@ class CoverEditorWidget(QWidget):
             return
         self._busy = False
         if error:
-            self.canvas.setText(f"预览失败：{error}")
+            self.canvas.setText("预览失败")
+            self._set_notice(f"封面预览失败：{error}", "error")
             self.export_button.setEnabled(False)
             return
         self._preview_path = Path(result)
         self._set_preview(self._preview_path)
         self.export_button.setEnabled(True)
         self.export_both_button.setEnabled(True)
+        self._set_notice("")
         self._queue_check_preview()
         if self._preview_dirty:
             self._preview_timer.start()
@@ -1920,7 +2123,12 @@ class CoverEditorWidget(QWidget):
 
     def _queue_check_preview(self):
         # 另一比例是低优先级缩略图；主画布始终由 _canvas_key 控制。
-        if not self.isVisible() or self.video is None or not self.draft.image_path:
+        if (
+            not self._check_preview_visible
+            or not self.isVisible()
+            or self.video is None
+            or not self.draft.image_path
+        ):
             return
         if self._check_busy:
             self._check_dirty = True
@@ -1931,8 +2139,9 @@ class CoverEditorWidget(QWidget):
         request_generation = self._check_request_generation
         canvas_key = "16x9" if self._canvas_key == "4x3" else "4x3"
         video = self.video
-        draft = self._read_draft()
         document = self.document
+        draft = self.draft if document is not None else self._read_draft()
+        self._set_notice(f"正在生成 {canvas_key} 另一比例预览…", "info")
         self._run(
             lambda: self.service.render_preview_document(video, document, canvas_key=canvas_key) if document is not None else self.service.render_preview(video, draft, canvas_key=canvas_key),
             lambda result, error: self._check_preview_ready(
@@ -1947,6 +2156,7 @@ class CoverEditorWidget(QWidget):
         if error:
             self.check_preview.clear()
             self.check_preview.setText(f"{canvas_key} 预览暂不可用")
+            self._set_notice(f"另一比例预览失败：{error}", "warning")
         else:
             pixmap = QPixmap(str(result))
             if pixmap.isNull():
@@ -1961,6 +2171,7 @@ class CoverEditorWidget(QWidget):
                         Qt.TransformationMode.SmoothTransformation,
                     )
                 )
+                self._set_notice("")
         if self._check_dirty:
             self._check_dirty = False
             self._queue_check_preview()
@@ -1968,6 +2179,8 @@ class CoverEditorWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         if self.video is not None and self.draft.image_path:
+            QTimer.singleShot(0, lambda: self._queue_nearby_thumbnails(self.draft.selected_timestamp))
+        if self._check_preview_visible and self.video is not None and self.draft.image_path:
             QTimer.singleShot(0, self._queue_check_preview)
 
     def _set_preview(self, path: Path):
@@ -2021,6 +2234,7 @@ class CoverEditorWidget(QWidget):
         self.export_both_button.setEnabled(False)
         document = self.document
         project, video = self.project, self.video
+        self._set_notice("正在分别导出 4:3 与 16:9…", "info")
         self.status_changed.emit("正在分别导出 4:3 与 16:9…")
         self._run(
             lambda: self.service.export_both(project, video, document),
@@ -2031,17 +2245,22 @@ class CoverEditorWidget(QWidget):
         self.export_button.setEnabled(self._preview_path is not None)
         self.export_both_button.setEnabled(self._preview_path is not None)
         if error:
-            self.status_changed.emit(f"双比例导出失败：{error}")
+            message = f"双比例导出失败：{error}"
+            self._set_notice(message, "error")
+            self.status_changed.emit(message)
             return
         names = "、".join(Path(item).name for item in result)
-        self.export_summary.setText(f"已输出双比例：{names}")
+        self.export_summary.setText(f"已导出 4:3 + 16:9 · 项目目录 · {names}")
+        self.export_summary.setToolTip("\n".join(str(Path(item)) for item in result))
+        self._set_notice("")
         self.status_changed.emit(f"双比例封面已导出：{names}")
 
     def _start_export(self):
         if self.project is None or self.video is None:
             self._pending_export = False
             return
-        draft = self._read_draft()
+        draft = self.draft if self.document is not None else self._read_draft()
+        self._set_notice(f"正在导出 {self._canvas_label()} 主封面…", "info")
         self.status_changed.emit(f"正在导出 {self._canvas_label()} 主封面…")
         canvas_key = self._canvas_key
         self._run(
@@ -2053,13 +2272,17 @@ class CoverEditorWidget(QWidget):
         self.export_button.setEnabled(self._preview_path is not None)
         self.export_both_button.setEnabled(self._preview_path is not None)
         if error:
-            self.status_changed.emit(f"封面导出失败：{error}")
+            message = f"封面导出失败：{error}"
+            self._set_notice(message, "error")
+            self.status_changed.emit(message)
             return
         output_name = Path(result).name
         size = "1440×1080" if self._canvas_key == "4x3" else "1920×1080"
+        output_dir = Path(self.project.directory) if self.project is not None else Path(result).parent
         self.export_summary.setText(
-            f"已输出：{output_name} · {self._canvas_label()} 当前画布 {size}"
+            f"已导出 · {self._canvas_label()} · {size} · 项目目录 · {output_name}"
         )
-        self.status_changed.emit(
-            f"封面已导出：{output_name}（{self._canvas_label()} · {size}）"
-        )
+        self.export_summary.setToolTip(str(output_dir / output_name))
+        message = f"封面已导出：{output_name}（{self._canvas_label()} · {size}）"
+        self._set_notice("")
+        self.status_changed.emit(message)

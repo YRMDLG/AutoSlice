@@ -122,6 +122,8 @@ def stylesheet() -> str:
         QPushButton {{ background: {c.raised}; border: 1px solid {c.divider}; border-radius: {m.control_radius}px; padding: 0 12px; min-height: {m.button_height}px; color: {c.text}; }}
         QPushButton:hover {{ background: {c.button_hover}; border-color: {c.button_hover_border}; }}
         QPushButton:pressed {{ background: {c.button_pressed}; }}
+        QPushButton:checked {{ color: {c.accent}; background: {c.accent_tint}; border-color: {c.accent_medium}; }}
+        QPushButton:checked:hover {{ background: {c.project_selected}; border-color: {c.accent}; }}
         QPushButton:disabled {{ color: {c.disabled}; background: {c.panel}; border-color: {c.divider}; }}
         QPushButton#primary {{ color: {c.canvas}; background: {c.accent}; border-color: {c.accent}; font-weight: 600; }}
         QPushButton#primary:hover {{ background: {c.accent_hover}; border-color: {c.accent_hover}; }}
@@ -136,6 +138,12 @@ def stylesheet() -> str:
         QPushButton#quiet, QPushButton#navButton, QPushButton#projectItem, QPushButton#projectItemCompact {{ background: transparent; border: none; }}
         QPushButton#quiet:hover {{ background: {c.raised}; }}
         QPushButton#quiet:pressed {{ background: {c.accent_tint}; }}
+        QPushButton#quiet:checked {{ color: {c.accent}; background: {c.accent_tint}; border: 1px solid {c.accent_medium}; }}
+        QPushButton#frameThumb {{ padding: 2px 4px; min-height: 52px; max-height: 58px; border-radius: 5px; }}
+        QPushButton#frameThumb:checked {{ color: {c.text}; background: {c.accent_tint}; border: 2px solid {c.accent}; }}
+        QLabel#coverNoticeInfo {{ color: {c.muted}; background: {c.panel}; border-bottom: 1px solid {c.divider}; padding: 4px 12px; }}
+        QLabel#coverNoticeWarning {{ color: {c.text}; background: {c.raised}; border-bottom: 1px solid {c.button_hover_border}; padding: 4px 12px; }}
+        QLabel#coverNoticeError {{ color: {c.ai_removed}; background: {c.panel}; border-bottom: 1px solid {c.ai_removed}; padding: 4px 12px; }}
         QPushButton#aiQueueItem {{ text-align: left; padding: 0 8px; min-height: 30px; max-height: 30px; color: {c.muted}; background: transparent; border: 1px solid transparent; border-radius: 5px; }}
         QPushButton#aiQueueItem:hover {{ color: {c.text}; background: {c.raised}; border-color: {c.divider}; }}
         QPushButton#aiQueueItem:checked {{ color: {c.text}; background: {c.row_selected}; border-color: {c.accent_medium}; }}

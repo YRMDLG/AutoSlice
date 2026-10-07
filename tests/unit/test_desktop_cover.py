@@ -17,14 +17,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PySide6.QtCore import QPoint, QRectF, Qt
-    from PySide6.QtGui import QPixmap
+    from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QPixmap
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QGroupBox
 except ImportError:
     QApplication = None
     QGroupBox = None
 
-from autoslice.desktop.cover_model import TextObject
+from autoslice.desktop.cover_model import TextObject, object_for_profile
 from autoslice.desktop.cover_service import (
     CoverDraft,
     CoverService,
@@ -33,6 +33,7 @@ from autoslice.desktop.cover_service import (
 )
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+from autoslice_cover.fonts import resolve_font_selection
 
 
 def _make_real_video(path: Path) -> None:
@@ -204,6 +205,43 @@ class CoverServiceTests(unittest.TestCase):
             )
         self.assertGreater(cyan_pixels, 20)
 
+    def test_ai_candidates_have_distinct_effective_layouts(self):
+        document = CoverDraft("上下文说明\n主视觉标题", font_size=96).to_document()
+        candidates = self.service.ai_candidates(document, profile_key="4x3")
+        self.assertEqual([item.candidate_id for item in candidates], ["safe", "alternate", "bold"])
+        effective = [
+            object_for_profile(
+                item.document,
+                next(obj.id for obj in item.document.objects if isinstance(obj, TextObject) and obj.copy_role == "B"),
+                "4x3",
+            )
+            for item in candidates
+        ]
+        self.assertTrue(all(isinstance(item, TextObject) for item in effective))
+        signatures = {
+            (
+                item.transform.x,
+                item.transform.y,
+                item.transform.scale,
+                item.style.font_size,
+                item.rect.width,
+                item.rect.height,
+            )
+            for item in effective
+        }
+        self.assertEqual(len(signatures), 3)
+
+    def test_document_renderer_uses_resolved_font_path(self):
+        image = self.service.import_image(self.image_path)
+        document = CoverDraft("中文字体宽度", str(image), font_size=96).to_document()
+        text = next(item for item in document.objects if isinstance(item, TextObject))
+        resolution = resolve_font_selection(text.style.font_family)
+        block = self.service._document_text_blocks(document, "4x3")[0]
+        self.assertEqual(
+            Path(block["font_path"]).resolve() if block["font_path"] else None,
+            resolution.path.resolve() if resolution.path else None,
+        )
+
     def test_preview_and_export_default_to_four_by_three_canvas(self):
         image = self.service.import_image(self.image_path)
         draft = CoverDraft("4:3 主画布", str(image), font_size=72)
@@ -309,6 +347,33 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertEqual(self.widget._canvas_key, "4x3")
         self.assertIn("1440×1080", self.widget.export_summary.text())
 
+    def test_cleanup_exposes_output_contract_and_on_demand_check_preview(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertIn("项目目录", self.widget.export_summary.text())
+        self.assertIn("4:3", self.widget.export_both_button.text())
+        self.assertIn("16:9", self.widget.export_both_button.text())
+        self.assertFalse(self.widget.check_preview.isVisible())
+        self.widget.show()
+        self.widget.check_preview_toggle.click()
+        self.app.processEvents()
+        self.assertTrue(self.widget.check_preview_toggle.isChecked())
+        self.assertTrue(self.widget.check_preview.isVisible())
+
+    def test_nearby_frame_strip_marks_current_source(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.widget._selected_frame_timestamp = 10.0
+        self.widget._refresh_nearby_frame_strip(10.0)
+        checked = [button for button in self.widget.nearby_frame_buttons if button.isChecked()]
+        self.assertEqual(len(checked), 1)
+        self.assertAlmostEqual(float(checked[0].property("timestamp")), 10.0, places=2)
+        self.assertEqual(checked[0].objectName(), "frameThumb")
+        self.widget._selected_frame_timestamp = None
+        self.widget._refresh_nearby_frame_strip(0.0)
+        self.assertEqual(
+            len([button for button in self.widget.nearby_frame_buttons if button.isChecked()]),
+            1,
+        )
+
     def test_stale_frame_callback_is_ignored_after_context_reset(self):
         self.widget.set_context(self.project, self.project.videos[0])
         old_generation = self.widget._frame_request_generation
@@ -322,7 +387,7 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertIsNone(self.widget.project)
         self.assertIsNone(self.widget.video)
         self.assertIsNone(self.widget.draft.image_path)
-        self.assertIn("加载底图", self.widget.canvas.text())
+        self.assertIn("字幕页", self.widget.canvas.text())
 
     def test_title_drag_updates_normalized_position_and_current_playhead_is_read_only(self):
         self.widget.set_context(self.project, self.project.videos[0])
@@ -333,6 +398,82 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertAlmostEqual(self.widget.draft.text_y, 0.37)
         self.assertAlmostEqual(self.widget.timestamp_edit.value(), 3.0)
         self.assertAlmostEqual(self.widget._current_playhead, 8.5)
+
+    def test_ai_apply_survives_debounced_preview_and_undo_redo(self):
+        image = Path(self.temp.name) / "font-and-ai.png"
+        Image.new("RGB", (640, 480), "#334155").save(image)
+        base = CoverDraft("上下文说明\n主视觉标题", str(image), font_size=96).to_document()
+        self.widget.document = base
+        self.widget.draft = CoverDraft.from_document(base)
+        self.widget.history.reset(base)
+        self.widget._apply_draft()
+        candidate = self.widget.service.ai_candidates(base, profile_key="4x3")[1]
+        before_generation = self.widget._preview_request_generation
+        self.widget.document = candidate.document
+        self.widget._commit_document_change(base)
+        b_id = next(item.id for item in candidate.document.objects if isinstance(item, TextObject) and item.copy_role == "B")
+        applied = object_for_profile(self.widget.document, b_id, "4x3")
+        self.assertIsInstance(applied, TextObject)
+        self.assertAlmostEqual(applied.transform.x, 0.66, places=3)
+        self.assertGreater(self.widget._preview_request_generation, before_generation)
+        self.assertAlmostEqual(self.widget.x_spin.value(), applied.transform.x, places=2)
+
+        # 让自动保存、预览和旧回调都有机会执行，再检查文档没有被旧控件回写。
+        for _ in range(90):
+            self.app.processEvents()
+            time.sleep(0.03)
+        stable = object_for_profile(self.widget.document, b_id, "4x3")
+        self.assertIsInstance(stable, TextObject)
+        self.assertAlmostEqual(stable.transform.x, applied.transform.x, places=3)
+        self.assertAlmostEqual(stable.transform.y, applied.transform.y, places=3)
+
+        self.widget._undo()
+        undone = object_for_profile(self.widget.document, b_id, "4x3")
+        self.assertNotAlmostEqual(undone.transform.x, applied.transform.x, places=3)
+        self.widget._redo()
+        redone = object_for_profile(self.widget.document, b_id, "4x3")
+        self.assertAlmostEqual(redone.transform.x, applied.transform.x, places=3)
+        self.widget._set_canvas_key("16x9")
+        self.widget._set_canvas_key("4x3")
+        restored = object_for_profile(self.widget.document, b_id, "4x3")
+        self.assertAlmostEqual(restored.transform.x, applied.transform.x, places=3)
+
+    def test_canvas_and_renderer_report_same_resolved_chinese_font(self):
+        from autoslice.desktop.cover_canvas import CoverCanvas
+
+        image = Path(self.temp.name) / "font.png"
+        Image.new("RGB", (640, 480), "#475569").save(image)
+        document = CoverDraft("中文字体宽度", str(image), font_size=96).to_document()
+        text = next(item for item in document.objects if isinstance(item, TextObject))
+        resolution = resolve_font_selection(text.style.font_family)
+        canvas = CoverCanvas()
+        canvas.resize(900, 600)
+        canvas.set_preview(QPixmap(str(image)))
+        canvas.set_document(document, "4x3")
+        canvas.show()
+        self.app.processEvents()
+        self.assertIsNotNone(canvas.resolved_font)
+        self.assertEqual(canvas.resolved_font.path, resolution.path)
+        family, font_id = canvas.resolved_qt_font
+        self.assertTrue(family)
+        if resolution.path is not None:
+            self.assertGreaterEqual(font_id, 0)
+            self.assertIn(family, QFontDatabase.applicationFontFamilies(font_id))
+        qt_font = QFont(family)
+        qt_font.setPixelSize(96)
+        metrics = QFontMetrics(qt_font)
+        # 画布实际字体和 Pillow 来源至少都能测量同一条中文文案；具体抗锯齿
+        # 像素会随 Qt/Pillow 后端略有差异，这里断言字形宽度处于同一数量级。
+        from PIL import ImageFont
+
+        qt_width = metrics.horizontalAdvance("中文字体宽度")
+        pillow_font = ImageFont.truetype(str(resolution.path), size=96) if resolution.path else None
+        self.assertGreater(qt_width, 0)
+        if pillow_font is not None:
+            pillow_width = float(pillow_font.getlength("中文字体宽度"))
+            self.assertGreater(pillow_width, 0)
+            self.assertGreater(qt_width / pillow_width, 0.45)
+            self.assertLess(qt_width / pillow_width, 2.2)
 
     def test_canvas_mouse_gestures_emit_title_and_background_changes(self):
         from autoslice.desktop.cover_canvas import CoverCanvas

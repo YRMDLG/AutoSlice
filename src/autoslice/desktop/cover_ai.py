@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
-from .cover_model import CoverDocument, TextObject
+from .cover_model import CoverDocument, TextObject, object_for_profile
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,24 +68,149 @@ class CoverAIBeta:
         self.enabled = bool(enabled)
 
     def suggest(self, document: CoverDocument, *, profile_key: str = "4x3") -> tuple[CoverAICandidate, ...]:
-        text = next((item for item in document.objects if isinstance(item, TextObject) and item.copy_role == "B"), None)
-        if text is None:
+        profile = document.profiles.get(profile_key)
+        if profile is None:
             return ()
-        current = text.transform
-        variants = (
-            ("safe", "稳妥", "沿用当前风格，仅调整安全区", current, "保留当前验证过的层级"),
-            ("alternate", "换个构图", "把主视觉移向另一侧", replace(current, x=0.58 if current.x < 0.5 else 0.08), "减少与近期构图重复"),
-            ("bold", "大胆一点", "放大主视觉并下移", replace(current, y=min(0.72, current.y + 0.18), scale=min(1.35, current.scale * 1.12)), "允许更强的主视觉变化"),
+
+        text_objects = [item for item in document.objects if isinstance(item, TextObject)]
+        text_b = next((item for item in text_objects if item.copy_role == "B"), None)
+        if text_b is None:
+            text_b = text_objects[0] if text_objects else None
+        if text_b is None:
+            return ()
+        effective_b = object_for_profile(document, text_b.id, profile_key)
+        if not isinstance(effective_b, TextObject):
+            effective_b = text_b
+        text_a = next((item for item in text_objects if item.copy_role == "A"), None)
+        effective_a = object_for_profile(document, text_a.id, profile_key) if text_a else None
+        if not isinstance(effective_a, TextObject):
+            effective_a = text_a
+
+        def clamp(value: float, lower: float = 0.04, upper: float = 0.88) -> float:
+            return max(lower, min(upper, float(value)))
+
+        def nudge_side(value: float, amount: float = 0.04) -> float:
+            if value <= 0.12:
+                return clamp(value + amount)
+            if value >= 0.66:
+                return clamp(value - amount)
+            return clamp(value + amount)
+
+        def override(item: TextObject) -> dict[str, object]:
+            return {
+                "transform": item.transform.to_payload(),
+                "visible": bool(item.visible),
+                "rect": item.rect.to_payload(),
+                "wrap": item.wrap.to_payload(),
+                "align": item.align,
+                "style": item.style.to_payload(),
+            }
+
+        def with_layout(
+            candidate_id: str,
+            label: str,
+            difference: str,
+            reason: str,
+            updated_b: TextObject,
+            updated_a: TextObject | None,
+            confidence: float,
+            recommended: bool = False,
+        ) -> CoverAICandidate:
+            changed: dict[str, dict[str, object]] = {updated_b.id: override(updated_b)}
+            if updated_a is not None:
+                changed[updated_a.id] = override(updated_a)
+            updated_profile = replace(profile, overrides={**profile.overrides, **changed})
+            updated = replace(
+                document,
+                profiles={**document.profiles, profile_key: updated_profile},
+                active_profile=profile_key,
+            )
+            return CoverAICandidate(
+                candidate_id,
+                label,
+                difference,
+                updated,
+                LayoutSuggestion(profile_key, changed, reason, confidence),
+                recommended,
+            )
+
+        safe_b_transform = replace(
+            effective_b.transform,
+            x=nudge_side(effective_b.transform.x),
+            y=clamp(effective_b.transform.y + 0.025),
+            scale=max(0.01, min(100.0, effective_b.transform.scale * 1.03)),
         )
+        safe_b = replace(
+            effective_b,
+            transform=safe_b_transform,
+            rect=replace(effective_b.rect, width=clamp(effective_b.rect.width * 1.02, 0.04, 0.96)),
+        )
+        safe_a = (
+            replace(
+                effective_a,
+                transform=replace(
+                    effective_a.transform,
+                    x=safe_b_transform.x,
+                    y=clamp(safe_b_transform.y - max(0.10, effective_a.rect.height + 0.035), 0.04, 0.84),
+                ),
+            )
+            if effective_a is not None and effective_a.visible
+            else effective_a
+        )
+
+        alternate_x = 0.66 if effective_b.transform.x < 0.5 else 0.10
+        alternate_b = replace(
+            effective_b,
+            transform=replace(effective_b.transform, x=alternate_x, y=clamp(effective_b.transform.y + 0.01)),
+        )
+        alternate_a = (
+            replace(
+                effective_a,
+                transform=replace(
+                    effective_a.transform,
+                    x=alternate_x,
+                    y=clamp(alternate_b.transform.y - max(0.10, effective_a.rect.height + 0.035), 0.04, 0.84),
+                ),
+            )
+            if effective_a is not None and effective_a.visible
+            else effective_a
+        )
+
+        bold_y = effective_b.transform.y + 0.12
+        if bold_y > 0.76:
+            bold_y = effective_b.transform.y - 0.10
+        bold_size = max(24, min(320, effective_b.style.font_size + 12))
+        bold_b = replace(
+            effective_b,
+            transform=replace(
+                effective_b.transform,
+                y=clamp(bold_y),
+                scale=max(0.01, min(100.0, effective_b.transform.scale * 1.18)),
+            ),
+            style=replace(effective_b.style, font_size=bold_size),
+            rect=replace(
+                effective_b.rect,
+                width=clamp(effective_b.rect.width * 1.08, 0.04, 0.96),
+                height=clamp(effective_b.rect.height * 1.10, 0.04, 0.96),
+            ),
+        )
+        bold_a = (
+            replace(
+                effective_a,
+                transform=replace(
+                    effective_a.transform,
+                    x=bold_b.transform.x,
+                    y=clamp(bold_b.transform.y - max(0.10, effective_a.rect.height + 0.035), 0.04, 0.84),
+                ),
+                style=replace(effective_a.style, font_size=max(24, min(320, effective_a.style.font_size + 6))),
+            )
+            if effective_a is not None and effective_a.visible
+            else effective_a
+        )
+
         candidates: list[CoverAICandidate] = []
-        for candidate_id, label, difference, transform, reason in variants:
-            override = {"transform": transform.to_payload()}
-            suggestion = LayoutSuggestion(profile_key, {text.id: override}, reason, 0.72 if candidate_id == "safe" else 0.56)
-            profile = document.profiles.get(profile_key)
-            if profile is None:
-                continue
-            updated_profile = replace(profile, overrides={**profile.overrides, text.id: override})
-            updated = replace(document, profiles={**document.profiles, profile_key: updated_profile}, active_profile=profile_key)
-            candidates.append(CoverAICandidate(candidate_id, label, difference, updated, suggestion, candidate_id == "safe"))
+        candidates.append(with_layout("safe", "稳妥", "微调位置和安全区", "保留当前层级，给文字留出更均衡的安全边距", safe_b, safe_a, 0.72, True))
+        candidates.append(with_layout("alternate", "换个构图", "把 A/B 主视觉移到另一侧", "让文字避开当前主体区域，保持 A/B 间距", alternate_b, alternate_a, 0.56))
+        candidates.append(with_layout("bold", "大胆一点", "放大字号并下移主视觉", "提高主视觉层级，但仍限制在画布安全区", bold_b, bold_a, 0.56))
         return tuple(candidates)
 
