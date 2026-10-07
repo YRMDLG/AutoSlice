@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import tempfile
 import tkinter as tk
 import unittest
@@ -30,9 +31,16 @@ class DesktopAppTests(unittest.TestCase):
         except tk.TclError as exc:
             self.skipTest(f"Tk 不可用：{exc}")
         self.window.withdraw()
-        self.addCleanup(self.window.destroy)
+        self.addCleanup(self._release_tk)
         self.app = DesktopApp(self.window, SubmissionProjectService(root))
         self.window.update()
+
+    def _release_tk(self):
+        # Tk 对象之间有循环引用；若留给循环回收，回收可能发生在 Qt 后台
+        # 线程里，导致 Tcl_AsyncDelete 并中止整个测试进程。必须在主线程释放。
+        self.window.destroy()
+        del self.app, self.window
+        gc.collect()
 
     def _select(self, index):
         self.app.project_list.selection_clear(0, tk.END)
