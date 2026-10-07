@@ -27,7 +27,7 @@ AutoCover 的唯一生产实现位于 `src/autoslice_cover`。本目录保留旧
 4. 在预览区拖动、缩放标题和贴图，调整颜色、描边及画面焦点。
 5. 单独导出当前比例，或保存 `4:3` 和 `16:9` 双比例封面。
 
-濑户体不是仓库内的可再分发资源。可以通过 `AUTOCOVER_FONT_PATH` 指向本机合法取得的字体文件。贴图目录通过 `AUTOCOVER_STICKER_DIR` 指定，默认使用项目内的 `stickers` 目录。
+统一仓库现已内置濑户体，资源与原版权信息位于 [字体目录](../src/autoslice_cover/resources/fonts/NOTICE.md)。无本机配置时直接使用内置文件，仍可通过 `AUTOCOVER_FONT_PATH` 指向自定义字体。贴图目录通过 `AUTOCOVER_STICKER_DIR` 指定，默认使用项目内的 `stickers` 目录。
 
 ## 多视频草稿自动保存
 

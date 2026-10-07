@@ -234,6 +234,8 @@ required = (
     importlib.resources.files("autoslice_cover") / "resources" / "templates" / "index.html",
     importlib.resources.files("autoslice_cover") / "resources" / "static" / "app.js",
     importlib.resources.files("autoslice_cover") / "resources" / "static" / "styles.css",
+    importlib.resources.files("autoslice_cover") / "resources" / "fonts" / "seto-bilibili.ttf",
+    importlib.resources.files("autoslice_cover") / "resources" / "fonts" / "NOTICE.md",
 )
 if any(not resource.is_file() for resource in required):
     raise SystemExit("源码态包资源不完整")
@@ -425,6 +427,16 @@ def _verify_installed_runtime(
     }
     if after != before:
         raise RuntimeError("安装包在帮助或资源冒烟期间回写了 site-packages")
+
+    font_check = (
+        "from autoslice_cover.fonts import get_default_font_status; "
+        "s = get_default_font_status(); "
+        "assert s.available and s.source == 'bundled', s.to_public_dict(); "
+        "assert s.family == 'ACGN-SetoGB-Flash', s.family; "
+        "assert s.font_path.with_name('NOTICE.md').is_file(); "
+        "print('安装包内置字体可用：' + s.family)"
+    )
+    _run_checked([str(python), "-B", "-c", font_check], cwd=outside_root, env=runtime_env)
 
 
 def _verify_cli_and_resources(

@@ -84,3 +84,6 @@ autocover_tool/screenshots/
 .coverage
 .coverage.*
 htmlcov/
+
+# 随项目发布的指定字体资源
+!src/autoslice_cover/resources/fonts/seto-bilibili.ttf

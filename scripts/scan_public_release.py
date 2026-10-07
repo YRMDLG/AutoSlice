@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
-
 ROOT = Path(__file__).resolve().parents[1]
+PUBLIC_FONT_ASSETS = {
+    "src/autoslice_cover/resources/fonts/seto-bilibili.ttf":
+        "b7a4ddcae7cd07098d51daf6b8544c3fd37a188c981e8aeebb34c3db91abc176",
+}
 FORBIDDEN_NAMES = {
     ".env",
     "api_config.json",
@@ -75,7 +79,7 @@ def _path_errors(path: Path) -> list[str]:
     errors: list[str] = []
     if relative.name.casefold() in FORBIDDEN_NAMES:
         errors.append("禁止发布的本地配置或计划文件")
-    if path.suffix.casefold() in FORBIDDEN_SUFFIXES:
+    if path.suffix.casefold() in FORBIDDEN_SUFFIXES and relative.as_posix() not in PUBLIC_FONT_ASSETS:
         errors.append("禁止发布的视频、字幕、字体、时间轴或模型资产")
     if any(
         part in FORBIDDEN_PARTS or part.startswith(".codex-tmp-")
@@ -155,6 +159,15 @@ def main() -> int:
         relative = path.relative_to(ROOT).as_posix()
         for message in _path_errors(path):
             errors.append(f"{relative}：{message}")
+        if relative in PUBLIC_FONT_ASSETS:
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError as exc:
+                errors.append(f"{relative}：字体资源无法读取：{exc}")
+            else:
+                if digest != PUBLIC_FONT_ASSETS[relative]:
+                    errors.append(f"{relative}：字体资源 SHA-256 与发布清单不符")
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:

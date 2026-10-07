@@ -57,6 +57,7 @@ def application_data_root(
 PACKAGE_ROOT = Path(__file__).resolve().parent
 TEMPLATE_DIR = PACKAGE_ROOT / "resources" / "templates"
 STATIC_DIR = PACKAGE_ROOT / "resources" / "static"
+BUNDLED_FONT_PATH = PACKAGE_ROOT / "resources" / "fonts" / "seto-bilibili.ttf"
 DATA_ROOT = application_data_root(package_root=PACKAGE_ROOT)
 CACHE_DIR = DATA_ROOT / ".cache" / "frames"
 DEFAULT_INPUT_DIR = Path(
@@ -75,6 +76,7 @@ LOCAL_FONT_PATH = DATA_ROOT / "local" / "fonts" / "seto-bilibili.ttf"
 
 
 __all__ = [
+    "BUNDLED_FONT_PATH",
     "CACHE_DIR",
     "DATA_DIR_ENV_NAME",
     "DATA_ROOT",

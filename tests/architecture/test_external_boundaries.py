@@ -104,6 +104,15 @@ class ExternalBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "包/模型安装"):
             subprocess.run([sys.executable, "-m", "pip", "install", "funasr"], check=True)
 
+    def test_packaged_font_is_public_but_linux_logic_mode_still_blocks_it(self):
+        from tests.support.external_boundary_guard import PUBLIC_FONT_PATH
+
+        with EXTERNAL_BOUNDARY_GUARD.linux_logic_only_mode(False):
+            self.assertEqual(PUBLIC_FONT_PATH.read_bytes()[:4], b"\x00\x01\x00\x00")
+        with EXTERNAL_BOUNDARY_GUARD.linux_logic_only_mode():
+            with self.assertRaisesRegex(AssertionError, "用户媒体访问"):
+                PUBLIC_FONT_PATH.read_bytes()
+
     def test_linux_logic_only_rejects_optional_media_capabilities(self):
         private_config = Path(__file__).resolve().parent / "api_config.json"
         system_font = (

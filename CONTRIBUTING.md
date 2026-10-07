@@ -17,7 +17,8 @@ py -3.10 -m venv .venv
 ```
 
 Qt 入口是 `.\.venv\Scripts\python.exe Qt桌面端.py`。FFmpeg/ffprobe 和 libmpv
-是独立外部依赖；模型、CUDA 环境与字体不随 Git 仓库分发。完整能力与依赖边界见
+是独立外部依赖；模型和 CUDA 环境不随 Git 仓库分发。封面内置濑户体，原版权及
+文件校验见 [字体说明](src/autoslice_cover/resources/fonts/NOTICE.md)；字幕字体仍需本机安装。完整能力与依赖边界见
 [README](README.md) 和 [桌面架构](docs/desktop-vnext/ARCHITECTURE.md)。
 
 ## 本机配置与数据
@@ -26,8 +27,9 @@ Qt 入口是 `.\.venv\Scripts\python.exe Qt桌面端.py`。FFmpeg/ffprobe 和 li
 配置文件；已存在时不要覆盖。投稿目录优先使用 `AUTOSLICE_SUBMISSION_DIR` 环境变量，
 其次使用 `autoslice.local.json`，未配置时使用项目内 `submissions/`。
 
-本机配置、API 凭据、录播、字幕、字体、草稿、缓存、截图和 `work/` 测试产物均应
-留在忽略目录。公开示例使用占位值；文档中的源码引用使用仓库相对路径。
+本机配置、API 凭据、录播、字幕、个人字体、草稿、缓存、截图和 `work/` 测试产物均应
+留在忽略目录。内置字体采用指定路径和 SHA-256 清单放行，不要把其他字体加入资源目录。
+公开示例使用占位值；文档中的源码引用使用仓库相对路径。
 
 ## 实现与验证
 

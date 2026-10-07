@@ -5487,6 +5487,7 @@
     {
       "from": "autoslice_cover.fonts",
       "imports": [
+        "autoslice_cover.paths.BUNDLED_FONT_PATH",
         "autoslice_cover.paths.LOCAL_FONT_PATH"
       ],
       "lines": [
@@ -15285,7 +15286,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 263,
+      "line_count": 264,
       "longest_function": {
         "end_line": 144,
         "kind": "function",
@@ -15295,7 +15296,7 @@
       },
       "module": "autoslice_cover.fonts",
       "path": "src/autoslice_cover/fonts.py",
-      "sha256": "9bae98af419b2227759fdb66741afaf5e052e27ace4eb9ada5a7593f11f0c36a",
+      "sha256": "3594eff872d6618d6d5ee62af4bfc42cfc2ba54b01be6953f2c3f7172d88796d",
       "top_level_classes": [
         {
           "end_line": 52,
@@ -15342,21 +15343,21 @@
           "name": "_first_valid_font"
         },
         {
-          "end_line": 215,
+          "end_line": 216,
           "kind": "function",
           "line": 172,
           "name": "get_default_font_status"
         },
         {
-          "end_line": 232,
+          "end_line": 233,
           "kind": "function",
-          "line": 218,
+          "line": 219,
           "name": "resolve_font_path"
         },
         {
-          "end_line": 263,
+          "end_line": 264,
           "kind": "function",
-          "line": 235,
+          "line": 236,
           "name": "resolve_font_stack"
         }
       ]
@@ -15429,7 +15430,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 92,
+      "line_count": 94,
       "longest_function": {
         "end_line": 39,
         "kind": "function",
@@ -15439,7 +15440,7 @@
       },
       "module": "autoslice_cover.paths",
       "path": "src/autoslice_cover/paths.py",
-      "sha256": "6c910b0eb0f18971c9714eb213063e4d8234f517f427f0c7ca821cc8bfe901db",
+      "sha256": "c997b4576cb8b185a358c44446f2f6d49a906652330622ef8c0ef80080837ce5",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -16738,47 +16739,47 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 178,
+      "line_count": 191,
       "longest_function": {
-        "end_line": 120,
+        "end_line": 187,
         "kind": "function",
-        "line": 94,
-        "line_count": 27,
-        "qualname": "_text_errors"
+        "line": 155,
+        "line_count": 33,
+        "qualname": "main"
       },
       "module": "scripts.scan_public_release",
       "path": "scripts/scan_public_release.py",
-      "sha256": "78f06c5be8d9783e863badd6b18f418c7e5f1406389f701069d8d1f9d63bd9d6",
+      "sha256": "0debf2c393bdcabff652e2cd01ce10b0f6db4b8fbf2cc45fc3f05e0f593258f3",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 69,
+          "end_line": 73,
           "kind": "function",
-          "line": 61,
+          "line": 65,
           "name": "_candidate_files"
         },
         {
-          "end_line": 91,
+          "end_line": 95,
           "kind": "function",
-          "line": 72,
+          "line": 76,
           "name": "_path_errors"
         },
         {
-          "end_line": 120,
+          "end_line": 124,
           "kind": "function",
-          "line": 94,
+          "line": 98,
           "name": "_text_errors"
         },
         {
-          "end_line": 148,
+          "end_line": 152,
           "kind": "function",
-          "line": 123,
+          "line": 127,
           "name": "_ignore_errors"
         },
         {
-          "end_line": 174,
+          "end_line": 187,
           "kind": "function",
-          "line": 151,
+          "line": 155,
           "name": "main"
         }
       ]
@@ -16932,17 +16933,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 551,
+      "line_count": 563,
       "longest_function": {
-        "end_line": 393,
+        "end_line": 395,
         "kind": "function",
-        "line": 335,
+        "line": 337,
         "line_count": 59,
         "qualname": "_verify_bad_wheel"
       },
       "module": "scripts.verify_distribution",
       "path": "scripts/verify_distribution.py",
-      "sha256": "46e3590a8ac34181973e163f2df25e887bcb753eb3436b9e61cd935ba509948c",
+      "sha256": "15c6ebd0114f9a7ab993141c7d21135186f8b4d9d6c632a170f7f51aa49f2179",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -17018,63 +17019,63 @@
           "name": "_assert_imported_from_source"
         },
         {
-          "end_line": 241,
+          "end_line": 243,
           "kind": "function",
           "line": 211,
           "name": "_verify_source_runtime"
         },
         {
-          "end_line": 263,
+          "end_line": 265,
           "kind": "function",
-          "line": 244,
+          "line": 246,
           "name": "_install_editable"
         },
         {
-          "end_line": 318,
+          "end_line": 320,
           "kind": "function",
-          "line": 266,
+          "line": 268,
           "name": "_build_and_install_wheel"
         },
         {
-          "end_line": 332,
+          "end_line": 334,
           "kind": "function",
-          "line": 321,
+          "line": 323,
           "name": "_make_bad_wheel"
         },
         {
-          "end_line": 393,
+          "end_line": 395,
           "kind": "function",
-          "line": 335,
+          "line": 337,
           "name": "_verify_bad_wheel"
         },
         {
-          "end_line": 427,
+          "end_line": 439,
           "kind": "function",
-          "line": 396,
+          "line": 398,
           "name": "_verify_installed_runtime"
         },
         {
-          "end_line": 453,
+          "end_line": 465,
           "kind": "function",
-          "line": 430,
+          "line": 442,
           "name": "_verify_cli_and_resources"
         },
         {
-          "end_line": 475,
+          "end_line": 487,
           "kind": "function",
-          "line": 456,
+          "line": 468,
           "name": "_verify_editable_runtime"
         },
         {
-          "end_line": 528,
+          "end_line": 540,
           "kind": "function",
-          "line": 478,
+          "line": 490,
           "name": "_verify_distribution"
         },
         {
-          "end_line": 547,
+          "end_line": 559,
           "kind": "function",
-          "line": 531,
+          "line": 543,
           "name": "main"
         }
       ]
@@ -17441,6 +17442,7 @@
       "tests/architecture/test_compatibility_inventory.py",
       "tests/architecture/test_external_boundaries.py",
       "tests/architecture/test_pipeline_contracts.py",
+      "tests/architecture/test_public_font_asset.py",
       "tests/integration/__init__.py",
       "tests/integration/test_app.py",
       "tests/integration/test_core_compat.py",
@@ -17561,7 +17563,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 560,
-    "production_line_count": 57783,
+    "production_line_count": 57811,
     "production_module_count": 215,
     "test_private_patch_count": 17,
     "top_level_class_count": 181,

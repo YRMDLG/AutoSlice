@@ -57,6 +57,7 @@ class FontTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {}, clear=True),
             patch("autoslice_cover.fonts.LOCAL_FONT_PATH", self.root / "missing.ttf"),
+            patch("autoslice_cover.fonts.BUNDLED_FONT_PATH", self.root / "missing-bundled.ttf"),
             patch("autoslice_cover.fonts._system_font_candidates", return_value=(self.existing_font,)),
         ):
             status = fonts.get_default_font_status()
@@ -72,6 +73,21 @@ class FontTests(unittest.TestCase):
         self.assertEqual(Path(resolved), self.existing_font.resolve())
         with self.assertRaisesRegex(FileNotFoundError, "字体文件不存在"):
             fonts.resolve_font_path(self.root / "missing.ttf")
+
+    def test_bundled_font_works_without_local_configuration(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("autoslice_cover.fonts.LOCAL_FONT_PATH", self.root / "missing-local.ttf"),
+        ):
+            status = fonts.get_default_font_status()
+
+        self.assertTrue(status.available)
+        self.assertFalse(status.fallback)
+        self.assertEqual(status.source, "bundled")
+        self.assertEqual(status.font_path, fonts.BUNDLED_FONT_PATH.resolve())
+        self.assertEqual(status.family, "ACGN-SetoGB-Flash")
+        font = ImageFont.truetype(str(status.font_path), size=48)
+        self.assertGreater(font.getlength("中文封面濑户字体"), 0)
 
     def test_local_bilibili_font_can_render_chinese_when_configured(self) -> None:
         if not fonts.LOCAL_FONT_PATH.is_file():

@@ -51,7 +51,7 @@ autoslice = [
   "resources/static/*",
   "resources/templates/*",
 ]
-autoslice_cover = ["resources/static/*", "resources/templates/*"]
+autoslice_cover = ["resources/static/*", "resources/templates/*", "resources/fonts/*"]
 
 [tool.ruff]
 target-version = "py310"

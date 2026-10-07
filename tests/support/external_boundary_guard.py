@@ -67,6 +67,10 @@ PRIVATE_MEDIA_SUFFIXES = frozenset({
     ".xml",
 })
 SYSTEM_FONT_SUFFIXES = frozenset({".otf", ".ttc", ".ttf"})
+PUBLIC_FONT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "src" / "autoslice_cover" / "resources" / "fonts" / "seto-bilibili.ttf"
+).resolve()
 _MEDIA_SUFFIX_PATTERN = "|".join(
     re.escape(suffix.removeprefix("."))
     for suffix in sorted(PRIVATE_MEDIA_SUFFIXES, key=len, reverse=True)
@@ -247,7 +251,9 @@ class ExternalBoundaryGuard:
             linux_logic_only = self._linux_logic_only
         if any(path == root or root in path.parents for root in roots):
             return True
-        return not linux_logic_only and self._path_is_system_font(path)
+        return not linux_logic_only and (
+            self._path_is_system_font(path) or path == PUBLIC_FONT_PATH
+        )
 
     def validate_media_path(self, file: object) -> None:
         path = _resolved_path(file)

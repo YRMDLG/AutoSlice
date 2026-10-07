@@ -9,7 +9,7 @@ from typing import Iterable
 
 from PIL import ImageFont
 
-from .paths import LOCAL_FONT_PATH
+from .paths import BUNDLED_FONT_PATH, LOCAL_FONT_PATH
 
 DEFAULT_FONT_LABEL = "濑户体"
 FONT_PATH_ENV = "AUTOCOVER_FONT_PATH"
@@ -178,6 +178,7 @@ def get_default_font_status() -> FontStatus:
     if configured:
         preferred_candidates.append(("environment", _expanded_path(configured)))
     preferred_candidates.append(("local", LOCAL_FONT_PATH.resolve()))
+    preferred_candidates.append(("bundled", BUNDLED_FONT_PATH.resolve()))
 
     for source, path in preferred_candidates:
         if not path.is_file():
