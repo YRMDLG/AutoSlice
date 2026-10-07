@@ -211,6 +211,7 @@ class CoverEditorWidget(QWidget):
         self.draft = CoverDraft("")
         self.document: CoverDocument | None = None
         self._preview_path: Path | None = None
+        self._background_source: str | None = None
         self._context_generation = 0
         self._busy = False
         self._preview_dirty = False
@@ -621,8 +622,12 @@ class CoverEditorWidget(QWidget):
         self.panel_stack.setCurrentWidget(self.empty_controls)
 
     def _set_notice(self, text: str = "", level: str = "info"):
-        """显示稳定的本地状态出口，避免错误只存在于隐藏控件。"""
+        """警告和错误用画布上方的提示条；例行进度只进状态栏，不让画布上下跳。"""
         text = str(text or "").strip()
+        if level == "info":
+            if text:
+                self.status_changed.emit(text)
+            text = ""
         if not text:
             self.notice_label.clear()
             self.notice_label.setVisible(False)
@@ -1904,6 +1909,7 @@ class CoverEditorWidget(QWidget):
             self._update_canvas_hint()
             self.canvas.set_preview(QPixmap())
             self.canvas.set_background_pixmap(QPixmap())
+            self._background_source = None
             self.canvas.setText("请先在字幕页选择投稿项目和视频")
             self._set_notice("")
             self.extract_button.setEnabled(False)
@@ -2471,7 +2477,7 @@ class CoverEditorWidget(QWidget):
             return
         self._preview_dirty = False
         self._busy = True
-        self._set_notice(f"正在生成 {self._canvas_label()} 预览…", "info")
+        # 画布本身就是所见即所得的预览；后台渲染静默进行，不打扰编辑。
         self._preview_request_generation += 1
         request_generation = self._preview_request_generation
         canvas_key = self._canvas_key
@@ -2522,10 +2528,12 @@ class CoverEditorWidget(QWidget):
             self.canvas.setText("预览图片无法读取")
             return
         self.canvas.set_preview(pixmap)
-        if self.draft.image_path:
+        if self.draft.image_path and self.draft.image_path != self._background_source:
+            # 底图只在换帧时解码一次，改字不再重复读大图。
             source_pixmap = QPixmap(self.draft.image_path)
             if not source_pixmap.isNull():
                 self.canvas.set_background_pixmap(source_pixmap)
+                self._background_source = self.draft.image_path
         if self.document is not None:
             self.canvas.set_document(self.document, self._canvas_key)
         self._update_title_rect()

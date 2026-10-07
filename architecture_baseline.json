@@ -6342,9 +6342,9 @@
       "qualname": "run_pipeline_impl"
     },
     {
-      "end_line": 547,
+      "end_line": 548,
       "kind": "function",
-      "line": 258,
+      "line": 259,
       "line_count": 290,
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
@@ -6468,9 +6468,9 @@
       "qualname": "draw_cover_text"
     },
     {
-      "end_line": 796,
+      "end_line": 801,
       "kind": "function",
-      "line": 654,
+      "line": 659,
       "line_count": 143,
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
@@ -9331,17 +9331,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 2621,
+      "line_count": 2629,
       "longest_function": {
-        "end_line": 547,
+        "end_line": 548,
         "kind": "function",
-        "line": 258,
+        "line": 259,
         "line_count": 290,
         "qualname": "CoverEditorWidget._build"
       },
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
-      "sha256": "8a25fbabd4835dfc718acf7540cf387607fd394a8fa68c0632348d7665d8364a",
+      "sha256": "c8c8c4703ccaae4894f29be9bb3e462e474715254fe3e7b420ec90dd32bc93ac",
       "top_level_classes": [
         {
           "end_line": 89,
@@ -9368,7 +9368,7 @@
           "name": "_ColorButton"
         },
         {
-          "end_line": 2621,
+          "end_line": 2629,
           "kind": "class",
           "line": 201,
           "name": "CoverEditorWidget"
@@ -18594,7 +18594,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 582,
-    "production_line_count": 60898,
+    "production_line_count": 60906,
     "production_module_count": 220,
     "test_private_patch_count": 17,
     "top_level_class_count": 196,

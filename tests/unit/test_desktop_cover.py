@@ -453,6 +453,18 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertIn("坏了", dialog.list.item(1).text())
         self.assertFalse(dialog._running)
 
+    def test_routine_progress_goes_to_status_bar_without_shifting_canvas(self):
+        messages = []
+        self.widget.status_changed.connect(messages.append)
+        self.widget.show()
+        self.widget._set_notice("正在从视频取帧…", "info")
+        self.assertFalse(self.widget.notice_label.isVisible())
+        self.assertEqual(messages, ["正在从视频取帧…"])
+        self.widget._set_notice("没有找到附近可用画面", "warning")
+        self.assertTrue(self.widget.notice_label.isVisible())
+        self.widget._set_notice("")
+        self.assertFalse(self.widget.notice_label.isVisible())
+
     def test_batch_button_follows_project_list(self):
         self.assertFalse(self.widget.batch_button.isEnabled())
         self.widget.set_project_list((self.project,))
