@@ -1036,7 +1036,7 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         Image.new("RGB", (320, 180), "#d97706").save(source)
         self.widget.set_context(self.project, self.project.videos[0])
         with patch(
-            "autoslice.desktop.cover.QFileDialog.getOpenFileName",
+            "PySide6.QtWidgets.QFileDialog.getOpenFileName",
             return_value=(str(source), "图片 (*.png *.jpg *.jpeg *.webp *.bmp)"),
         ):
             self.widget._import_image()
