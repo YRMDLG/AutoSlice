@@ -190,7 +190,7 @@ BackgroundObject 独立于文字。
 - x/y；
 - 对象尺寸；
 - 背景 pan/scale；
-- fit/crop；
+- fit（cover/contain）；
 - 必要的显示状态。切换比例：
 - 不丢另一比例状态。
 - 不覆盖另一比例 profile。

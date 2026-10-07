@@ -834,6 +834,32 @@ def set_object_visible(document: CoverDocument, object_id: str, visible: bool) -
     )
 
 
+def set_object_locked(document: CoverDocument, object_id: str, locked: bool) -> CoverDocument:
+    """锁定是对象级状态：两个比例一起生效，锁定后不响应拖动、方案和比例同步。"""
+
+    return replace(
+        document,
+        objects=tuple(replace(item, locked=bool(locked)) if item.id == object_id else item for item in document.objects),
+    )
+
+
+def update_shared_fields(document: CoverDocument, object_id: str, **fields: Any) -> CoverDocument:
+    """透明度、形状颜色等外观字段两个比例共享：本体和已有覆盖一起改。"""
+
+    profiles = {}
+    for key, profile in document.profiles.items():
+        override = profile.overrides.get(object_id)
+        if isinstance(override, Mapping) and any(name in override for name in fields):
+            override = {**override, **{name: value for name, value in fields.items() if name in override}}
+            profile = replace(profile, overrides={**profile.overrides, object_id: override})
+        profiles[key] = profile
+    return replace(
+        document,
+        objects=tuple(replace(item, **fields) if item.id == object_id else item for item in document.objects),
+        profiles=profiles,
+    )
+
+
 def restack_object(document: CoverDocument, object_id: str, step: int) -> CoverDocument:
     """前移/后移一层：与相邻对象交换次序，背景始终在最底。"""
 

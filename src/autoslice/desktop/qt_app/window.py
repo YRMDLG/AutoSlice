@@ -409,6 +409,7 @@ class DesktopWindow(PreviewWindow):
         self._event_filter_busy = False
         super().__init__()
         self.cover_editor.status_changed.connect(self._show_transient_status)
+        self.cover_editor.next_video_requested.connect(self._next_cover_video)
         self._timeline_side_pan = TimelineSidePanController(self.timeline, self)
         self.ai_progress.connect(self._show_ai_progress)
         self.render_progress.connect(self._show_render_progress)
@@ -1400,6 +1401,26 @@ class DesktopWindow(PreviewWindow):
             self.video_stack.setCurrentIndex(0)
             self.subtitle_status.setText(project.error or "该项目没有视频")
         self._save_session()
+
+    def _next_cover_video(self):
+        """封面页“下一个”：同项目的下一个视频，否则列表里的下一个项目；页面停在封面。"""
+
+        if self.project is None:
+            return
+        current = self.cover_editor.video
+        videos = list(self.project.videos)
+        index = next((i for i, video in enumerate(videos) if current is not None and video.path == current.path), -1)
+        if 0 <= index < len(videos) - 1:
+            self.video_choice.setCurrentIndex(index + 1)
+            return
+        projects = [project for project in self.service.snapshot.projects if project.videos]
+        position = next((i for i, project in enumerate(projects) if project.id == self.project.id), -1)
+        if position + 1 >= len(projects):
+            self._show_transient_status("已经是投稿列表里的最后一个视频")
+            return
+        self._select_real_project(projects[position + 1])
+        if self.project is projects[position + 1]:
+            self._show_transient_status(f"已切到下一个：{self.project.title}")
 
     def _restore_project_button(self):
         if self.project and self.project.id in self.project_buttons:

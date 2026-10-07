@@ -518,6 +518,81 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.widget._undo()
         self.assertEqual(self.widget.document.profiles["4x3"], before.profiles["4x3"])
 
+    def test_hidden_text_can_be_restored_from_toolbar(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertFalse(self.widget.hidden_button.isVisibleTo(self.widget))
+        self.widget._delete_object("copy-b")
+        self.assertTrue(self.widget.hidden_button.isVisibleTo(self.widget))
+        self.assertEqual(self.widget.hidden_button.text(), "已隐藏 1")
+        self.widget._fill_hidden_menu()
+        labels = [action.text() for action in self.widget.hidden_menu.actions()]
+        self.assertTrue(any(label.startswith("主文案 B") for label in labels))
+        self.widget._restore_object("copy-b")
+        self.assertTrue(self._text("copy-b").visible)
+        self.assertTrue(self._text("copy-b", "16x9").visible)
+        self.assertFalse(self.widget.hidden_button.isVisibleTo(self.widget))
+
+    def test_empty_primary_text_gets_candidate_back_when_restored(self):
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.widget._copy_variants = (BasicCoverCopy("上下文候选", "主文案候选"),)
+        self.widget._copy_variant_index = 0
+        self.widget._select_copy_role("B")
+        self.widget.title_edit.setPlainText("")
+        self.assertFalse(self._text("copy-b").visible)
+        self.widget._restore_object("copy-b")
+        self.assertEqual(self._text("copy-b").text, "主文案候选")
+
+    def test_lock_toggle_and_locked_delete_is_refused(self):
+        messages = []
+        self.widget.status_changed.connect(messages.append)
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.widget._select_copy_role("B")
+        self.widget.lock_text_button.click()
+        self.assertTrue(next(item for item in self.widget.document.objects if item.id == "copy-b").locked)
+        self.widget._delete_selected_object()
+        self.assertTrue(self._text("copy-b").visible)
+        self.assertIn("锁定", messages[-1])
+        self.widget._undo()
+        self.assertFalse(next(item for item in self.widget.document.objects if item.id == "copy-b").locked)
+
+    def test_overlay_opacity_and_shape_style_apply_to_both_ratios(self):
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.widget._add_shape("circle")
+        shape_id = self.widget.document.selected_object_id
+        self.widget.shape_stroke_spin.setValue(14)
+        self.widget.shape_stroke_button.set_color("#FF0000")
+        self.widget._store_overlay_style()
+        for key in ("4x3", "16x9"):
+            shape = self._text(shape_id, key)
+            self.assertEqual((shape.stroke, shape.stroke_width), ("#FF0000", 14))
+        self.widget._hide_selected_object()
+        self.assertFalse(self._text(shape_id).visible)
+        self.assertEqual(self.widget.hidden_button.text(), "已隐藏 1")
+
+    def test_next_button_and_export_history_dialog(self):
+        from autoslice.desktop.cover_export_dialog import CoverExportDialog
+
+        self.widget.set_context(self.project, self.project.videos[0])
+        requested = []
+        self.widget.next_video_requested.connect(lambda: requested.append(True))
+        self.assertTrue(self.widget.next_button.isEnabled())
+        self.widget.next_button.click()
+        self.assertEqual(requested, [True])
+        exported = Path(self.temp.name) / "AutoCover-视频.jpg"
+        Image.new("RGB", (64, 48), "red").save(exported)
+        dialog = CoverExportDialog((
+            {"title": "项目甲", "canvas_key": "4x3", "output": str(exported), "timestamp": "2026-10-08T10:00:00+00:00"},
+            {"video": "旧.mp4", "canvas_key": "16x9", "output": str(exported.with_name("不存在.jpg")), "timestamp": "2026-10-08T11:00:00+00:00"},
+        ))
+        self.addCleanup(dialog.close)
+        self.assertEqual(dialog.list.count(), 2)
+        self.assertIn("不存在", dialog.list.item(0).text())
+        self.assertIn("16:9", dialog.list.item(0).text())
+        dialog.list.setCurrentRow(1)
+        self.assertEqual(dialog.selected_path(), exported)
+
     def test_batch_button_follows_project_list(self):
         self.assertFalse(self.widget.batch_button.isEnabled())
         self.widget.set_project_list((self.project,))
@@ -761,6 +836,43 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.assertIs(window.pages.currentWidget(), window.cover_editor.parentWidget())
 
 
+    def test_next_from_cover_moves_to_following_project(self):
+        from unittest.mock import patch
+
+        from autoslice.desktop.projects import SubmissionProjectService
+        from autoslice.desktop.qt_app.window import DesktopWindow
+
+        root = Path(self.temp.name) / "投稿根目录"
+        for name in ("项目一", "项目二"):
+            folder = root / name
+            folder.mkdir(parents=True)
+            (folder / "视频.mp4").write_bytes(b"video")
+        service = SubmissionProjectService(root)
+        storage = DesktopStorage(Path(self.temp.name) / "next-data")
+        with patch("autoslice.desktop.qt_app.window.MpvAdapter", side_effect=OSError("smoke")):
+            window = DesktopWindow(service, storage)
+        window.show()
+        self.addCleanup(lambda: (setattr(window, "_resolve_unsaved", lambda: True), window.close(), window.hide()))
+        for _ in range(200):
+            self.app.processEvents()
+            if window.project_buttons:
+                break
+        projects = service.snapshot.projects
+        window._select_real_project(projects[0])
+        for _ in range(300):
+            self.app.processEvents()
+            if window.cover_editor.video is not None and not window._loading:
+                break
+        window.cover_editor.next_button.click()
+        for _ in range(300):
+            self.app.processEvents()
+            if window.project is projects[1]:
+                break
+        self.assertIs(window.project, projects[1])
+        window.cover_editor.next_button.click()
+        self.assertIn("最后一个", window.app_status.text())
+
+
 @unittest.skipIf(QApplication is None, "PySide6 不在当前解释器中")
 class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
     def setUp(self):
@@ -877,6 +989,33 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         second = service.auto_cover(project, video)
         self.assertTrue(all(path.exists() for path in first + second))
         self.assertEqual(len(set(first + second)), 4)
+
+    def test_reexported_video_keeps_layout_and_retakes_frame_at_same_time(self):
+        from autoslice.desktop.cover import CoverEditorWidget
+        from autoslice.desktop.cover_model import update_text_object
+
+        project, video = self.project, self.project.videos[0]
+        self.widget.show()
+        self.widget.set_current_playhead(0.6)
+        self.widget.set_context(project, video)
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and not self.widget._jobs, 20))
+        current = object_for_profile(self.widget.document, "copy-b", "4x3")
+        moved = replace(current, transform=replace(current.transform, x=0.33, y=0.44))
+        self.widget.document = update_text_object(self.widget.document, moved, profile_key="4x3")
+        self.widget._save_draft()
+        self.widget.close()
+        _make_real_video(Path(video.path))
+        widget = CoverEditorWidget(self.widget.service.storage)
+        self.addCleanup(widget.close)
+        widget.show()
+        widget.set_current_playhead(0.0)
+        widget.set_context(project, video)
+        self.assertEqual(widget.draft_status.text(), "视频已更新 · 沿用原排版")
+        self.assertTrue(self._wait(lambda: widget.draft.image_path and not widget._jobs, 20))
+        kept = object_for_profile(widget.document, "copy-b", "4x3")
+        self.assertAlmostEqual(kept.transform.x, 0.33, places=3)
+        self.assertAlmostEqual(kept.transform.y, 0.44, places=3)
+        self.assertAlmostEqual(widget.document.source.selected_timestamp, 0.6, delta=0.15)
 
     def test_real_png_import_updates_preview_canvas(self):
         from unittest.mock import patch

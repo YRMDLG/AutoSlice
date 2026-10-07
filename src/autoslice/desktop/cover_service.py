@@ -288,7 +288,10 @@ class CoverService:
         if not isinstance(entries, list):
             entries = []
             payload["exports"] = entries
-        entries.append({"project": project.id, "video": video.path, "canvas_key": canvas_key, "output": str(output), "timestamp": datetime.now(timezone.utc).isoformat()})
+        entries.append({
+            "project": project.id, "title": project.title, "video": video.path, "canvas_key": canvas_key,
+            "output": str(output), "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
         payload["exports"] = entries[-40:]
         self.export_history_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.export_history_path.with_suffix(".tmp")
@@ -353,6 +356,13 @@ class CoverService:
             font_size=104,
         )
         fallback = self._apply_style_memory(fallback, self.style_memory.load(streamer_key(project.title)))
+        if read.status == "source_changed" and isinstance(read.payload, dict):
+            # 视频重新导出过：沿用原来的文字、样式和素材，只换底图（旧帧来自旧文件）。
+            try:
+                document, _migrated = document_from_payload(read.payload, fallback_title)
+            except (TypeError, ValueError):
+                return fallback, read
+            return self._detach_source_frame(document), read
         if read.status != "ready":
             return fallback, read
         try:
@@ -374,6 +384,19 @@ class CoverService:
                 # 迁移失败时保留读到的旧内容；当前编辑器仍可继续使用内存文档。
                 pass
         return document, read
+
+    @staticmethod
+    def _detach_source_frame(document: CoverDocument) -> CoverDocument:
+        """去掉来自旧视频的底图和锁帧，保留选中时间，供从新视频同一时刻重新取帧。"""
+
+        return replace(
+            document,
+            source=replace(document.source, image_asset_id=None, frame_locked=False),
+            objects=tuple(
+                replace(item, asset=None) if isinstance(item, BackgroundObject) else item
+                for item in document.objects
+            ),
+        )
 
     @staticmethod
     def _apply_style_memory(document: CoverDocument, memory: CoverStyleMemory) -> CoverDocument:
@@ -968,6 +991,8 @@ class CoverService:
         profile = document.profiles[target_key]
         overrides = dict(profile.overrides)
         for base in document.objects:
+            if base.locked:
+                continue
             item = object_for_profile(document, base.id, source_key)
             if isinstance(item, TextObject):
                 width = min(0.92, item.rect.width * ratio)
@@ -1011,13 +1036,17 @@ class CoverService:
     def auto_cover(self, project: SubmissionProject, video: ProjectVideo) -> tuple[Path, Path]:
         """批量出图：有草稿按草稿导出；没有就全片选帧、自动排版后导出，并存成草稿方便回头再改。"""
 
-        document, _read = self.load_document(project, video)
+        document, read = self.load_document(project, video)
         background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
         image = background.asset.path if background is not None and background.asset else None
         if not image or not Path(image).is_file():
             if not Path(video.path).is_file():
                 raise ValueError(f"视频不存在：{video.path}")
-            best = best_overview_frame(self.overview_candidates(video))
+            keep_layout = read.status == "source_changed"
+            if keep_layout:
+                best = self.extract_frame_candidate(video, document.source.selected_timestamp)
+            else:
+                best = best_overview_frame(self.overview_candidates(video))
             if best is None:
                 raise ValueError("没有取到可用画面")
             document = replace(
@@ -1029,7 +1058,8 @@ class CoverService:
                     for item in document.objects
                 ),
             )
-            document = self.apply_auto_layout(document, best.path)
+            if not keep_layout:
+                document = self.apply_auto_layout(document, best.path)
             self.save_document(project, video, document)
         return self.export_both(project, video, document)
 
@@ -1122,7 +1152,8 @@ class CoverService:
         """套用方案：只替换 A/B 主文案和底图取景；用户加的素材和文本框保持不动。"""
 
         source = scheme.document
-        ids = set(primary_copy_ids(source).values())
+        locked = {item.id for item in document.objects if item.locked}
+        ids = set(primary_copy_ids(source).values()) - locked
         background = next((item.id for item in source.objects if isinstance(item, BackgroundObject)), None)
         keys = ids | ({background} if background else set())
         replaced = {item.id: item for item in source.objects if item.id in ids}

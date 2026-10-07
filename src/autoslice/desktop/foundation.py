@@ -205,7 +205,8 @@ class DesktopStorage:
         except OSError:
             return DraftRead("source_missing")
         if envelope.get("source") != signature:
-            return DraftRead("source_changed")
+            # 带回旧内容但状态不是 ready：字幕页不会自动套用，封面可以沿用排版。
+            return DraftRead("source_changed", envelope.get("payload"), envelope.get("updated_at"))
         try:
             current_dependencies = [
                 self._dependency_signature(path) for path in dependencies

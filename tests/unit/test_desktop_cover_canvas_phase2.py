@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from time import perf_counter
 
 try:
@@ -195,6 +196,24 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
         text = self.canvas._find_text()
         QTest.mouseDClick(self.canvas, Qt.MouseButton.LeftButton, pos=self.canvas._display_rect(text).center().toPoint())
         self.assertEqual(requested, [text.id])
+
+    def test_locked_text_selects_but_does_not_move(self):
+        locked = replace(self.canvas._find_text(), locked=True)
+        self.canvas.set_document(replace(self.document, objects=(self.document.objects[0], locked)), "4x3")
+        hints, changes = [], []
+        self.canvas.locked_hint.connect(lambda: hints.append(True))
+        self.canvas.object_changed.connect(lambda item, _profile: changes.append(item))
+        center = self.canvas._display_rect(locked).center().toPoint()
+        QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, pos=center)
+        QTest.mouseMove(self.canvas, QPoint(center.x() + 80, center.y() + 40))
+        QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, pos=QPoint(center.x() + 80, center.y() + 40))
+        self.assertEqual(self.canvas._selected_object, locked.id)
+        self.assertEqual(changes, [])
+        self.assertEqual(self.canvas._handle_points(locked), {})
+        QTest.keyClick(self.canvas, Qt.Key.Key_Right)
+        QTest.keyClick(self.canvas, Qt.Key.Key_Delete)
+        self.assertEqual(changes, [])
+        self.assertEqual(len(hints), 2)
 
     def test_text_drag_snaps_to_center_at_8px_and_only_shows_guides_during_drag(self):
         changes = []

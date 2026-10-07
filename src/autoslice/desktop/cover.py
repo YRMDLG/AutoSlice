@@ -52,6 +52,7 @@ from autoslice_cover.fonts import resolve_font_selection
 from .cover_asset_dialog import CoverAssetDialog
 from .cover_batch_dialog import BatchTarget, CoverBatchDialog
 from .cover_canvas import CoverCanvas
+from .cover_export_dialog import CoverExportDialog
 from .cover_history import CoverHistory
 from .cover_model import (
     AssetRef,
@@ -68,8 +69,10 @@ from .cover_model import (
     object_for_profile,
     resize_text_style,
     restack_object,
+    set_object_locked,
     set_object_visible,
     text_override_payload,
+    update_shared_fields,
     update_text_object,
 )
 from .cover_service import (
@@ -223,6 +226,8 @@ class CoverEditorWidget(QWidget):
     """真正可鼠标操作的 AutoCover 编辑器。"""
 
     status_changed = Signal(str)
+    # 封面页“下一个”：由主窗口切到下一个视频/项目。
+    next_video_requested = Signal()
 
     def __init__(self, storage: DesktopStorage, parent=None):
         super().__init__(parent)
@@ -259,6 +264,8 @@ class CoverEditorWidget(QWidget):
         self._inline_target: str | None = None
         self._inline_original = ""
         self._video_duration = 0.0
+        # 视频重新导出过：从这个时间重新取帧，并沿用原排版（不再自动排版）。
+        self._reuse_layout_timestamp: float | None = None
         self._scheme_batch = 0
         self._scheme_generation = 0
         self._draft_timer = QTimer(self)
@@ -367,6 +374,17 @@ class CoverEditorWidget(QWidget):
         self.shape_menu_button.setMenu(self._shape_menu(self.shape_menu_button))
         self.shape_menu_button.setEnabled(False)
         toolbar_row.addWidget(self.shape_menu_button)
+        self.hidden_button = QPushButton("已隐藏")
+        self.hidden_button.setIcon(icon("eye"))
+        self.hidden_button.setIconSize(QSize(16, 16))
+        self.hidden_button.setObjectName("quiet")
+        self.hidden_button.setFixedHeight(28)
+        self.hidden_button.setToolTip("被删除或隐藏的文字和素材，点一下恢复")
+        self.hidden_menu = QMenu(self.hidden_button)
+        self.hidden_menu.aboutToShow.connect(self._fill_hidden_menu)
+        self.hidden_button.setMenu(self.hidden_menu)
+        self.hidden_button.setVisible(False)
+        toolbar_row.addWidget(self.hidden_button)
 
         toolbar_row.addStretch(1)
 
@@ -383,6 +401,14 @@ class CoverEditorWidget(QWidget):
         self.batch_button.clicked.connect(self._open_batch)
         self.batch_button.setEnabled(False)
         toolbar_row.addWidget(self.batch_button)
+        self.history_button = QPushButton("")
+        self.history_button.setIcon(icon("history"))
+        self.history_button.setIconSize(QSize(16, 16))
+        self.history_button.setFixedSize(28, 28)
+        self.history_button.setObjectName("quiet")
+        self.history_button.setToolTip("导出记录：回看最近导出的封面")
+        self.history_button.clicked.connect(self._open_export_history)
+        toolbar_row.addWidget(self.history_button)
         self.export_button = QPushButton("导出")
         self.export_button.setFixedHeight(28)
         self.export_button.setToolTip("导出当前画布比例")
@@ -399,6 +425,15 @@ class CoverEditorWidget(QWidget):
         self.export_both_button.setEnabled(False)
         self.export_both_button.clicked.connect(self._export_both)
         toolbar_row.addWidget(self.export_both_button)
+        self.next_button = QPushButton("下一个")
+        self.next_button.setIcon(icon("chevron_right"))
+        self.next_button.setIconSize(QSize(14, 14))
+        self.next_button.setObjectName("quiet")
+        self.next_button.setFixedHeight(28)
+        self.next_button.setToolTip("保存当前封面，切到投稿列表里的下一个视频")
+        self.next_button.clicked.connect(self._request_next_video)
+        self.next_button.setEnabled(False)
+        toolbar_row.addWidget(self.next_button)
 
         # 面板折叠按钮
         self.panel_toggle = QPushButton("")
@@ -468,6 +503,7 @@ class CoverEditorWidget(QWidget):
         self.canvas.delete_requested.connect(self._delete_object)
         self.canvas.duplicate_requested.connect(self._duplicate_object)
         self.canvas.edit_requested.connect(self._edit_text)
+        self.canvas.locked_hint.connect(lambda: self.status_changed.emit("对象已锁定：先在右侧解锁再移动或删除"))
         self.inline_edit = _InlineTextEdit(self.canvas)
         self.inline_edit.setObjectName("inlineTextEdit")
         self.inline_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -518,10 +554,6 @@ class CoverEditorWidget(QWidget):
         # ── 背景面板 ──
         self.bg_controls = self._build_bg_panel()
         self.panel_stack.addWidget(self.bg_controls)
-
-        # ── 空状态面板（无选中/无项目）──
-        self.empty_controls = self._build_empty_panel()
-        self.panel_stack.addWidget(self.empty_controls)
 
         content.addWidget(self.right_panel)
 
@@ -612,7 +644,6 @@ class CoverEditorWidget(QWidget):
         # 初始状态：无项目时隐藏右侧面板，显示空状态
         self._hide_panel()
         self.panel_toggle.setEnabled(False)
-        self._show_empty_panel()
         self._update_canvas_hint()
 
     def _build_scheme_section(self) -> QVBoxLayout:
@@ -684,11 +715,6 @@ class CoverEditorWidget(QWidget):
         self.panel_toggle.setIcon(icon("chevron_right"))
         self._panel_visible = True
 
-    def _show_empty_panel(self):
-        """显示空状态面板（无项目或无选中对象）。"""
-        self.panel_title.setText("封面工具")
-        self.panel_stack.setCurrentWidget(self.empty_controls)
-
     def _set_notice(self, text: str = "", level: str = "info"):
         """警告和错误用画布上方的提示条；例行进度只进状态栏，不让画布上下跳。"""
         text = str(text or "").strip()
@@ -743,6 +769,13 @@ class CoverEditorWidget(QWidget):
         self.copy_role_label = QLabel("")
         self.copy_role_label.setObjectName("subtle")
         role_row.addWidget(self.copy_role_label, 1)
+        self.lock_text_button = QPushButton("锁定")
+        self.lock_text_button.setCheckable(True)
+        self.lock_text_button.setFixedHeight(26)
+        self.lock_text_button.setObjectName("quiet")
+        self.lock_text_button.setToolTip("锁定位置：不能拖动，快速方案和比例同步也不会挪它")
+        self.lock_text_button.clicked.connect(self._toggle_lock)
+        role_row.addWidget(self.lock_text_button)
         self.copy_button = QPushButton("换一版文案")
         self.copy_button.setFixedHeight(26)
         self.copy_button.setObjectName("quiet")
@@ -895,6 +928,21 @@ class CoverEditorWidget(QWidget):
         self.lower_asset_button.clicked.connect(lambda: self._move_selected_layer(-1))
         ops_row.addWidget(self.lower_asset_button)
         layout.addLayout(ops_row)
+        state_row = QHBoxLayout()
+        state_row.setSpacing(4)
+        self.hide_asset_button = QPushButton("隐藏")
+        self.hide_asset_button.setFixedHeight(26)
+        self.hide_asset_button.setToolTip("先藏起来，之后从工具栏“已隐藏”恢复")
+        self.hide_asset_button.clicked.connect(self._hide_selected_object)
+        state_row.addWidget(self.hide_asset_button)
+        self.lock_asset_button = QPushButton("锁定")
+        self.lock_asset_button.setCheckable(True)
+        self.lock_asset_button.setFixedHeight(26)
+        self.lock_asset_button.setToolTip("锁定位置：不能拖动，比例同步也不会挪它")
+        self.lock_asset_button.clicked.connect(self._toggle_lock)
+        state_row.addWidget(self.lock_asset_button)
+        state_row.addStretch(1)
+        layout.addLayout(state_row)
 
         # 变换
         transform_form = QFormLayout()
@@ -913,6 +961,28 @@ class CoverEditorWidget(QWidget):
         self.overlay_rotation_spin.setSuffix("°")
         self.overlay_rotation_spin.valueChanged.connect(self._store_overlay_controls)
         transform_form.addRow("旋转", self.overlay_rotation_spin)
+        self.overlay_opacity_spin = QSpinBox()
+        self.overlay_opacity_spin.setRange(5, 100)
+        self.overlay_opacity_spin.setSingleStep(5)
+        self.overlay_opacity_spin.setSuffix(" %")
+        self.overlay_opacity_spin.valueChanged.connect(self._store_overlay_style)
+        transform_form.addRow("透明度", self.overlay_opacity_spin)
+        self.shape_stroke_button = _ColorButton()
+        self.shape_stroke_button.color_changed.connect(self._store_overlay_style)
+        self.shape_stroke_spin = QSpinBox()
+        self.shape_stroke_spin.setRange(1, 64)
+        self.shape_stroke_spin.setToolTip("线宽")
+        self.shape_stroke_spin.valueChanged.connect(self._store_overlay_style)
+        shape_stroke_row = QHBoxLayout()
+        shape_stroke_row.setSpacing(4)
+        shape_stroke_row.addWidget(self.shape_stroke_button, 1)
+        shape_stroke_row.addWidget(self.shape_stroke_spin)
+        transform_form.addRow("线条", shape_stroke_row)
+        self.shape_fill_button = _ColorButton(allow_none=True, allow_alpha=True)
+        self.shape_fill_button.setToolTip("填充；可设透明度，选“无”只留线条")
+        self.shape_fill_button.color_changed.connect(self._store_overlay_style)
+        transform_form.addRow("填充", self.shape_fill_button)
+        self._overlay_form = transform_form
         layout.addLayout(transform_form)
 
         # 添加新素材入口
@@ -998,46 +1068,6 @@ class CoverEditorWidget(QWidget):
         layout.addStretch(1)
         return panel
 
-    def _build_empty_panel(self) -> QWidget:
-        """无项目/无选中时的默认面板：素材入口 + AI。"""
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        hint = QLabel("选择项目后，点击画布中的文字或素材进行编辑")
-        hint.setObjectName("subtle")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        layout.addSpacing(8)
-
-        # 素材入口
-        assets_label = QLabel("素材")
-        assets_label.setObjectName("subtle")
-        layout.addWidget(assets_label)
-        asset_row = QHBoxLayout()
-        asset_row.setSpacing(4)
-        self.import_asset_button = QPushButton("导入")
-        self.import_asset_button.setFixedHeight(26)
-        self.import_asset_button.setToolTip("导入图片素材")
-        self.import_asset_button.clicked.connect(self._import_asset)
-        asset_row.addWidget(self.import_asset_button)
-        self.browse_asset_button = QPushButton("素材库")
-        self.browse_asset_button.setFixedHeight(26)
-        self.browse_asset_button.setToolTip("浏览本地素材")
-        self.browse_asset_button.clicked.connect(self._browse_assets)
-        asset_row.addWidget(self.browse_asset_button)
-        self.add_shape_button = QPushButton("形状")
-        self.add_shape_button.setFixedHeight(26)
-        self.add_shape_button.setToolTip("添加圆圈/箭头/矩形")
-        self.add_shape_button.setMenu(self._shape_menu(self.add_shape_button))
-        asset_row.addWidget(self.add_shape_button)
-        layout.addLayout(asset_row)
-
-        layout.addStretch(1)
-        return panel
-
     def _canvas_selection_changed(self, title_selected: bool):
         """根据画布选择切换右侧上下文面板。"""
 
@@ -1115,6 +1145,7 @@ class CoverEditorWidget(QWidget):
             self.line_spacing_spin.setValue(float(text.style.line_spacing))
             self.shadow_check.setChecked(bool(text.style.shadow))
             self._update_role_label(text)
+            self.lock_text_button.setChecked(bool(text.locked))
             for key, button in self.align_buttons.items():
                 button.blockSignals(True)
                 button.setChecked(key == text.align)
@@ -1569,6 +1600,28 @@ class CoverEditorWidget(QWidget):
         finally:
             for widget in (self.overlay_scale_spin, self.overlay_rotation_spin):
                 widget.blockSignals(False)
+        image = isinstance(selected, (ImageObject, StickerObject))
+        shape = isinstance(selected, ShapeObject)
+        style_widgets = (self.overlay_opacity_spin, self.shape_stroke_button, self.shape_stroke_spin, self.shape_fill_button)
+        for widget in style_widgets:
+            widget.blockSignals(True)
+        try:
+            if image:
+                self.overlay_opacity_spin.setValue(round(float(selected.opacity) * 100))
+            if shape:
+                self.shape_stroke_button.set_color(selected.stroke)
+                self.shape_stroke_spin.setValue(int(selected.stroke_width))
+                self.shape_fill_button.set_color(selected.fill)
+        finally:
+            for widget in style_widgets:
+                widget.blockSignals(False)
+        self._overlay_form.setRowVisible(self.overlay_opacity_spin, image)
+        # 第 3 行是“线条”（颜色 + 线宽的组合行，只能按行号控制）。
+        self._overlay_form.setRowVisible(3, shape)
+        self._overlay_form.setRowVisible(self.shape_fill_button, shape)
+        self.lock_asset_button.setChecked(bool(enabled and selected.locked))
+        self.hide_asset_button.setEnabled(enabled)
+        self.lock_asset_button.setEnabled(enabled)
 
     def _store_overlay_controls(self):
         """把对象缩放/旋转写入当前比例的 profile override。"""
@@ -1621,6 +1674,108 @@ class CoverEditorWidget(QWidget):
         self._invalidate_render_requests()
         self._draft_timer.start()
         self._preview_timer.start()
+
+    def _store_overlay_style(self):
+        """透明度和形状颜色两个比例共享，改一处两边都变。"""
+
+        if self.document is None:
+            return
+        selected = self._selected_render_object()
+        if isinstance(selected, (ImageObject, StickerObject)):
+            fields = {"opacity": self.overlay_opacity_spin.value() / 100}
+        elif isinstance(selected, ShapeObject):
+            fields = {
+                "stroke": self.shape_stroke_button.color() or selected.stroke,
+                "stroke_width": self.shape_stroke_spin.value(),
+                "fill": self.shape_fill_button.color(),
+            }
+        else:
+            return
+        before = self.document
+        self.document = update_shared_fields(self.document, selected.id, **fields)
+        if self.document != before:
+            self._commit_document_change(before)
+
+    def _toggle_lock(self, checked: bool):
+        item = self._selected_render_object()
+        if self.document is None or item is None or isinstance(item, BackgroundObject):
+            return
+        before = self.document
+        self.document = set_object_locked(self.document, item.id, bool(checked))
+        self._commit_document_change(before)
+        self.canvas.set_document(self.document, self._canvas_key)
+        self.status_changed.emit("已锁定：不能拖动，快速方案和比例同步也不会挪它" if checked else "已解锁")
+
+    def _hide_selected_object(self):
+        item = self._selected_render_object()
+        if self.document is None or item is None or isinstance(item, BackgroundObject):
+            return
+        before = self.document
+        self.document = replace(set_object_visible(self.document, item.id, False), selected_object_id=None)
+        self._commit_document_change(before)
+        self.status_changed.emit("已隐藏，可从工具栏“已隐藏”恢复")
+
+    def _hidden_objects(self) -> list:
+        if self.document is None:
+            return []
+        result = []
+        for item in self.document.objects:
+            if isinstance(item, BackgroundObject):
+                continue
+            effective = object_for_profile(self.document, item.id, self._canvas_key)
+            if effective is not None and not effective.visible:
+                result.append(effective)
+        return result
+
+    def _refresh_hidden_button(self):
+        count = len(self._hidden_objects())
+        self.hidden_button.setVisible(count > 0)
+        self.hidden_button.setText(f"已隐藏 {count}")
+
+    def _fill_hidden_menu(self):
+        self.hidden_menu.clear()
+        names = {ImageObject: "图片", StickerObject: "贴图", ShapeObject: "形状"}
+        primary = self._primary_copy_ids()
+        for item in self._hidden_objects():
+            if isinstance(item, TextObject):
+                role = {"A": "上下文 A", "B": "主文案 B"}.get(item.copy_role) if primary.get(item.copy_role) == item.id else "文字"
+                preview = item.text.strip().replace("\n", " ")
+                label = f"{role}：{preview[:14] or '（空）'}"
+            else:
+                label = names.get(type(item), "对象")
+                if isinstance(item, ShapeObject):
+                    label += {"circle": "：圆圈", "arrow": "：箭头", "rect": "：矩形"}.get(item.shape_type, "")
+            self.hidden_menu.addAction(label, lambda value=item.id: self._restore_object(value))
+        if self.hidden_menu.isEmpty():
+            self.hidden_menu.addAction("没有隐藏的对象").setEnabled(False)
+
+    def _restore_object(self, object_id: str):
+        """恢复隐藏的对象；空的主文案补回当前候选文字，再直接进入打字。"""
+
+        if self.document is None:
+            return
+        before = self.document
+        self.document = set_object_visible(self.document, object_id, True)
+        item = object_for_profile(self.document, object_id, self._canvas_key)
+        if isinstance(item, TextObject) and not item.text.strip():
+            candidate = self._copy_variants[max(0, self._copy_variant_index)] if self._copy_variants else None
+            value = (candidate.context if item.copy_role == "A" else candidate.headline) if candidate else ""
+            self.document = update_text_object(
+                self.document, replace(item, text=value.strip() or "双击修改文字"), profile_key=self._canvas_key,
+            )
+        self.document = replace(self.document, selected_object_id=object_id)
+        self._commit_document_change(before)
+        self._canvas_object_selected(object_id)
+        if isinstance(item, TextObject):
+            self._edit_text(object_id)
+        self.status_changed.emit("已恢复")
+
+    def _open_export_history(self):
+        CoverExportDialog(self.service.export_history(), self).exec()
+
+    def _request_next_video(self):
+        self.flush_draft()
+        self.next_video_requested.emit()
 
     def _delete_object(self, object_id: str):
         """选中框左上角的删除按钮。"""
@@ -1692,10 +1847,14 @@ class CoverEditorWidget(QWidget):
         item = self._selected_render_object()
         if self.document is None or item is None or item.kind == "background":
             return
+        if item.locked:
+            self.status_changed.emit("对象已锁定：先在右侧解锁再删除")
+            return
         before = self.document
         if isinstance(item, TextObject) and item.id in self._primary_copy_ids().values():
-            # A/B 主文案两个比例一起隐藏，换一版或重新填字后还能回来。
+            # A/B 主文案两个比例一起隐藏，可从工具栏“已隐藏”恢复。
             self.document = replace(set_object_visible(self.document, item.id, False), selected_object_id=None)
+            self.status_changed.emit("已隐藏，可从工具栏“已隐藏”恢复")
         elif isinstance(item, TextObject):
             # 复制出来的文本框直接移除，连同比例覆盖。
             profiles = {
@@ -1762,6 +1921,7 @@ class CoverEditorWidget(QWidget):
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
         self.canvas.set_document(self.document, self._canvas_key)
+        self._refresh_hidden_button()
         if isinstance(item, TextObject):
             self._selected_text_id = item.id
             # Canvas 手势先发 object_changed、再发位置兼容信号；先同步字号，
@@ -2119,6 +2279,9 @@ class CoverEditorWidget(QWidget):
             self.asset_menu_button.setEnabled(False)
             self.shape_menu_button.setEnabled(False)
             self.add_text_button.setEnabled(False)
+            self.next_button.setEnabled(False)
+            self.hidden_button.setVisible(False)
+            self._reuse_layout_timestamp = None
             self.sync_ratio_button.setEnabled(False)
             self.frame_slider.setEnabled(False)
             self.duration_label.setText("")
@@ -2131,7 +2294,6 @@ class CoverEditorWidget(QWidget):
             # 无项目时隐藏右侧面板，画布占满
             self._hide_panel()
             self.panel_toggle.setEnabled(False)
-            self._show_empty_panel()
             return
         if self.project is not None and self.project.id == project.id and self.video is not None and self.video.path == video.path:
             return
@@ -2145,6 +2307,7 @@ class CoverEditorWidget(QWidget):
         self.asset_menu_button.setEnabled(True)
         self.shape_menu_button.setEnabled(True)
         self.add_text_button.setEnabled(True)
+        self.next_button.setEnabled(True)
         self.sync_ratio_button.setEnabled(True)
         self.sync_ratio_button.setText("同步到 16:9")
         self.frame_slider.setEnabled(False)
@@ -2175,6 +2338,9 @@ class CoverEditorWidget(QWidget):
             subtitle_context=self.service.subtitle_context(video, self._current_playhead),
         )
         self.document, read = self.service.load_document(project, video)
+        self._reuse_layout_timestamp = (
+            float(self.document.source.selected_timestamp) if read.status == "source_changed" else None
+        )
         self.history.reset(self.document)
         self._frame_locked = bool(self.document.source.frame_locked)
         self.frame_lock_button.blockSignals(True)
@@ -2205,9 +2371,16 @@ class CoverEditorWidget(QWidget):
         elif read.status == "missing":
             self.draft_status.setText("新草稿 · 自动保存")
             self.draft_status.setToolTip("")
+        elif read.status == "source_changed":
+            self.draft_status.setText("视频已更新 · 沿用原排版")
+            self.draft_status.setToolTip("视频文件改过（比如重新导出）：文字、样式和素材沿用原来的，从新视频同一时刻重新取帧")
+            self.status_changed.emit(
+                f"视频文件更新过：已沿用原来的文字、样式和素材，从新视频的 {self._reuse_layout_timestamp:.2f} 秒重新取帧"
+            )
         else:
-            self.draft_status.setText(f"草稿需检查：{read.status}")
-            self._set_notice(f"草稿状态需要检查：{read.status}", "warning")
+            reason = {"invalid": "草稿文件损坏", "incompatible": "草稿版本过旧", "source_missing": "找不到原视频"}.get(read.status, read.status)
+            self.draft_status.setText(f"{reason} · 已新建")
+            self._set_notice(f"{reason}，已按新封面开始；旧草稿文件仍保留", "warning")
         self._refresh_nearby_frame_strip(
             self.draft.selected_timestamp if self.draft.image_path else self._current_playhead
         )
@@ -2239,6 +2412,7 @@ class CoverEditorWidget(QWidget):
         self.canvas.set_zoom(self.draft.background_scale)
         self.canvas.set_background_focus(self.draft.background_x, self.draft.background_y)
         self.canvas.set_document(self.document, self._canvas_key)
+        self._refresh_hidden_button()
         if self.document is not None:
             selected = next(
                 (item for item in self.document.objects if item.id == self.document.selected_object_id),
@@ -2382,6 +2556,7 @@ class CoverEditorWidget(QWidget):
             self.redo_button.setEnabled(self.history.can_redo)
             self._invalidate_render_requests()
         self._update_title_rect()
+        self._refresh_hidden_button()
         self._draft_timer.start()
         self._preview_timer.start()
 
@@ -2565,6 +2740,13 @@ class CoverEditorWidget(QWidget):
         self._render_preview()
 
     def _use_current_frame(self):
+        if not self.draft.image_path and self._reuse_layout_timestamp is not None:
+            # 视频重新导出过：回到原来选中的时刻取帧。
+            self.timestamp_edit.setValue(self._reuse_layout_timestamp)
+            self._update_nearby_frame_selection(self._reuse_layout_timestamp)
+            self._refresh_nearby_frame_strip(self._reuse_layout_timestamp)
+            self._extract_frame()
+            return
         if not self.draft.image_path and self._current_playhead < 0.5:
             # 字幕页没有播放过：不取片头黑帧，按旧网页端从全片挑画质好的一张。
             self._auto_pick_frame()
@@ -2654,7 +2836,11 @@ class CoverEditorWidget(QWidget):
             backgrounds = tuple(replace(item, asset=replace(item.asset, path=str(path)) if item.asset else AssetRef(path=str(path))) if isinstance(item, BackgroundObject) else item for item in self.document.objects)
             self.document = replace(self.document, source=replace(self.document.source, selected_timestamp=timestamp, image_asset_id=str(path)), objects=backgrounds)
             draft = CoverDraft.from_document(self.document)
-        if first_background and self.document is not None:
+        if first_background and self.document is not None and self._reuse_layout_timestamp is not None:
+            # 视频更新过：原来的排版是用户确认过的，只换底图不重排。
+            self._reuse_layout_timestamp = None
+            draft = CoverDraft.from_document(self.document)
+        elif first_background and self.document is not None:
             # 新底图的默认构图：两个比例分别保住主体，A/B 避开人脸和杂乱区域。
             self.document = self.service.apply_auto_layout(self.document, path)
             draft = CoverDraft.from_document(self.document)

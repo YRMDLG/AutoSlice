@@ -95,6 +95,8 @@ class CoverCanvas(QLabel):
     duplicate_requested = Signal(str)
     # 双击文字：编辑器把焦点交给文案框并全选。
     edit_requested = Signal(str)
+    # 对锁定对象做了拖动/删除等操作：编辑器提示先解锁。
+    locked_hint = Signal()
 
     _SAFE_MARGIN = 0.06
     _HANDLE = 9.0
@@ -347,7 +349,7 @@ class CoverCanvas(QLabel):
         """四角操作按钮与左右改宽手柄的屏幕位置（随对象旋转）。"""
 
         frame = self._frame(obj)
-        if frame is None:
+        if frame is None or getattr(obj, "locked", False):
             return {}
         rect, center, angle = frame
         rect = rect.adjusted(-self._CHROME_PAD, -self._CHROME_PAD, self._CHROME_PAD, self._CHROME_PAD)
@@ -695,6 +697,15 @@ class CoverCanvas(QLabel):
             return
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         hit = self._hit_object(point)
+        if hit is not None and getattr(hit, "locked", False):
+            # 锁定对象只能选中查看和改属性，不能拖动。
+            self._selected_object = hit.id
+            self.selected_changed.emit(isinstance(hit, TextObject))
+            self.selected_object_changed.emit(hit.id)
+            self._press = point
+            self.update()
+            event.accept()
+            return
         text = hit if isinstance(hit, TextObject) else None
         overlay = hit if isinstance(hit, (ImageObject, StickerObject, ShapeObject)) else None
         legacy = self._document is None and self._legacy_display_rect().contains(point)
@@ -863,6 +874,10 @@ class CoverCanvas(QLabel):
         overlay = next((item for item in self._find_overlay_objects() if item.id == self._selected_object), None)
         if overlay is not None and self._mode is None:
             key = event.key()
+            if overlay.locked and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace, Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+                event.accept()
+                self.locked_hint.emit()
+                return
             if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
                 event.accept()
                 self._emit_overlay(replace(overlay, visible=False))
@@ -888,6 +903,10 @@ class CoverCanvas(QLabel):
             return
         key = event.key()
         modifiers = event.modifiers()
+        if text.locked and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace, Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            event.accept()
+            self.locked_hint.emit()
+            return
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             event.accept()
             updated = replace(text, visible=False)
@@ -990,7 +1009,11 @@ class CoverCanvas(QLabel):
         painter.translate(center)
         painter.rotate(angle)
         painter.translate(-center)
-        painter.setPen(QPen(self._CHROME_COLOR, 1.5))
+        if getattr(obj, "locked", False):
+            # 锁定：灰色虚线框、没有手柄。
+            painter.setPen(QPen(QColor(200, 205, 212, 220), 1.5, Qt.PenStyle.DashLine))
+        else:
+            painter.setPen(QPen(self._CHROME_COLOR, 1.5))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect)
         painter.restore()

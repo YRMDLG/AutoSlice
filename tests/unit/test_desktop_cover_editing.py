@@ -244,6 +244,71 @@ class AssetLibraryTests(unittest.TestCase):
             self.assertEqual(len(library.recent_assets(1)), 1)
 
 
+class LockAndSharedFieldTests(unittest.TestCase):
+    def test_lock_is_object_level_and_shared_fields_reach_overrides(self):
+        from autoslice.desktop.cover_model import set_object_locked, update_shared_fields
+
+        document = insert_overlay(_document(), ShapeObject(id="shape-1", stroke="#FFDB4D", stroke_width=6))
+        document = set_object_locked(document, "copy-b", True)
+        self.assertTrue(object_for_profile(document, "copy-b", "16x9").locked)
+        moved = replace(object_for_profile(document, "shape-1", "4x3"), transform=replace(object_for_profile(document, "shape-1", "4x3").transform, x=0.3))
+        profile = document.profiles["4x3"]
+        document = replace(document, profiles={**document.profiles, "4x3": replace(profile, overrides={
+            **profile.overrides, "shape-1": {"transform": moved.transform.to_payload(), "stroke": moved.stroke, "stroke_width": 6},
+        })})
+        styled = update_shared_fields(document, "shape-1", stroke="#FF0000", stroke_width=10)
+        for key in ("4x3", "16x9"):
+            shape = object_for_profile(styled, "shape-1", key)
+            self.assertEqual((shape.stroke, shape.stroke_width), ("#FF0000", 10))
+        self.assertAlmostEqual(object_for_profile(styled, "shape-1", "4x3").transform.x, 0.3)
+
+    def test_schemes_and_ratio_sync_leave_locked_objects_alone(self):
+        from autoslice.desktop.cover_model import set_object_locked
+        from autoslice.desktop.cover_service import CoverScheme
+
+        document = set_object_locked(_document(), "copy-b", True)
+        source = replace(document, objects=tuple(
+            replace(item, text="方案里的新字") if isinstance(item, TextObject) else item for item in document.objects
+        ))
+        applied = CoverService.apply_scheme(document, CoverScheme("x", "x", "x", source))
+        self.assertEqual(next(item for item in applied.objects if item.id == "copy-b").text, "主文案")
+        self.assertEqual(next(item for item in applied.objects if item.id == "copy-a").text, "方案里的新字")
+        synced = CoverService.sync_profile(document, "4x3", "16x9")
+        self.assertNotIn("copy-b", synced.profiles["16x9"].overrides)
+        self.assertIn("copy-a", synced.profiles["16x9"].overrides)
+
+
+class SourceChangedDraftTests(unittest.TestCase):
+    def test_changed_video_keeps_layout_but_drops_old_frame(self):
+        from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_path = root / "clip.mp4"
+            video_path.write_bytes(b"first")
+            frame = root / "frame.jpg"
+            Image.new("RGB", (64, 36), "blue").save(frame)
+            project = SubmissionProject("p", "〖泽音〗某期", directory, ())
+            video = ProjectVideo("clip.mp4", str(video_path), "", "", False, False, "")
+            service = CoverService(DesktopStorage(root / "data"))
+            document = replace(_document(), objects=tuple(
+                replace(item, asset=AssetRef(path=str(frame))) if isinstance(item, BackgroundObject)
+                else replace(item, text="原来的主文案") if item.id == "copy-b" else item
+                for item in _document().objects
+            ))
+            document = replace(document, source=replace(document.source, selected_timestamp=12.5, frame_locked=True))
+            service.save_document(project, video, document)
+            video_path.write_bytes(b"re-exported and longer")
+            loaded, read = service.load_document(project, video)
+            self.assertEqual(read.status, "source_changed")
+            self.assertEqual(next(item for item in loaded.objects if item.id == "copy-b").text, "原来的主文案")
+            background = next(item for item in loaded.objects if isinstance(item, BackgroundObject))
+            self.assertIsNone(background.asset)
+            self.assertEqual(loaded.source.selected_timestamp, 12.5)
+            self.assertFalse(loaded.source.frame_locked)
+            self.assertFalse(service.has_draft(project, video))
+
+
 class StylePresetTests(unittest.TestCase):
     def test_preset_changes_colors_only_and_supports_two_tone(self):
         duo = next(preset for preset in STYLE_PRESETS if preset.key == "duo")
