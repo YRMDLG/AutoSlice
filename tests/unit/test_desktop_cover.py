@@ -317,6 +317,9 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         self.app = QApplication.instance() or QApplication([])
         self.widget = CoverEditorWidget(DesktopStorage(root / "data"))
         self.addCleanup(self.widget.deleteLater)
+        # 单元测试没有事件循环，deleteLater 不会执行；显示过的窗口必须关掉，
+        # 否则它会留在屏幕上截走后续 Qt 测试的悬停事件。
+        self.addCleanup(self.widget.close)
 
     def test_page_inherits_current_project_and_exposes_editor_controls(self):
         self.widget.set_context(self.project, self.project.videos[0])
