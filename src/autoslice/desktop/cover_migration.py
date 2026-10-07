@@ -25,7 +25,9 @@ from .cover_model import (
     TextStyle,
     TextWrap,
     Transform,
+    bounded_number,
     default_profiles,
+    finite_number,
     object_for_profile,
     stroke_for,
     text_override_payload,
@@ -34,16 +36,6 @@ from .cover_model import (
 LEGACY_DRAFT_VERSIONS = {1, 2, 3}
 
 
-def _number(value: Any, default: float) -> float:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return default
-    return result if result == result and abs(result) != float("inf") else default
-
-
-def _bounded(value: Any, default: float, lower: float, upper: float) -> float:
-    return min(upper, max(lower, _number(value, default)))
 
 
 def _legacy_values(payload: Mapping[str, Any], fallback_title: str) -> dict[str, Any]:
@@ -58,13 +50,13 @@ def _legacy_values(payload: Mapping[str, Any], fallback_title: str) -> dict[str,
     return {
         "title": title,
         "image_path": image_path,
-        "selected_timestamp": max(0.0, _number(payload.get("selected_timestamp"), 0.0)),
-        "text_x": _bounded(payload.get("text_x"), 0.06, 0.0, 1.0),
-        "text_y": _bounded(payload.get("text_y"), 0.18, 0.0, 1.0),
+        "selected_timestamp": max(0.0, finite_number(payload.get("selected_timestamp"), 0.0)),
+        "text_x": bounded_number(payload.get("text_x"), 0.06, 0.0, 1.0),
+        "text_y": bounded_number(payload.get("text_y"), 0.18, 0.0, 1.0),
         "font_size": min(320, max(24, font_size)),
-        "background_x": _bounded(payload.get("background_x"), 0.5, 0.0, 1.0),
-        "background_y": _bounded(payload.get("background_y"), 0.5, 0.0, 1.0),
-        "background_scale": _bounded(payload.get("background_scale"), 1.0, 1.0, 2.5),
+        "background_x": bounded_number(payload.get("background_x"), 0.5, 0.0, 1.0),
+        "background_y": bounded_number(payload.get("background_y"), 0.5, 0.0, 1.0),
+        "background_scale": bounded_number(payload.get("background_scale"), 1.0, 1.0, 2.5),
     }
 
 
@@ -388,12 +380,6 @@ def migrate_text_boxes(document: CoverDocument) -> tuple[CoverDocument, bool]:
     return replace(document, objects=tuple(objects), profiles=profiles, text_revision=TEXT_BOX_REVISION), True
 
 
-def migrate_cover_draft(payload: Any, fallback_title: str) -> CoverDocument:
-    """迁移旧 CoverDraft 载荷的明确入口，供服务和纯数据调用方使用。"""
-
-    document, _migrated = document_from_payload(payload, fallback_title)
-    return document
-
 
 def legacy_payload_from_document(document: CoverDocument) -> dict[str, object]:
     """为仍使用 CoverDraft 的旧服务/界面生成兼容 v3 载荷。"""
@@ -408,9 +394,9 @@ def legacy_payload_from_document(document: CoverDocument) -> dict[str, object]:
         if isinstance(override, Mapping):
             background = replace(
                 background,
-                scale=_bounded(override.get("scale"), background.scale, 1.0, 100.0),
-                pan_x=_bounded(override.get("pan_x"), background.pan_x, 0.0, 1.0),
-                pan_y=_bounded(override.get("pan_y"), background.pan_y, 0.0, 1.0),
+                scale=bounded_number(override.get("scale"), background.scale, 1.0, 100.0),
+                pan_x=bounded_number(override.get("pan_x"), background.pan_x, 0.0, 1.0),
+                pan_y=bounded_number(override.get("pan_y"), background.pan_y, 0.0, 1.0),
             )
     if text is not None and profile is not None:
         override = profile.overrides.get(text.id, {})

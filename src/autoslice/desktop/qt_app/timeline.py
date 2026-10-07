@@ -187,12 +187,6 @@ class SubtitleTimeline(QWidget):
         if view_moved:
             self._emit_view_changed()
 
-    def follow_playback(self):
-        self._manual_pan = False
-        self.center = self.playhead
-        self.update()
-        self._emit_view_changed()
-
     def select_cue(self, index: int | None, *, center: bool = True):
         self.selected_index = index
         view_moved = False

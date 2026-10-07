@@ -1210,21 +1210,14 @@ class CoverEditorWidget(QWidget):
         self._preview_dirty = False
 
     def _undo(self):
-        document = self.history.undo()
-        if document is None:
-            return
-        self.document = document
-        self.draft = CoverDraft.from_document(self.document)
-        self._apply_draft()
-        self._sync_overlay_controls()
-        self._invalidate_render_requests()
-        self.undo_button.setEnabled(self.history.can_undo)
-        self.redo_button.setEnabled(self.history.can_redo)
-        self._draft_timer.start()
-        self._preview_timer.start()
+        self._restore_history(self.history.undo())
 
     def _redo(self):
-        document = self.history.redo()
+        self._restore_history(self.history.redo())
+
+    def _restore_history(self, document: CoverDocument | None):
+        """撤销/重做：整份文档快照回到界面，控件和后台任务一起跟上。"""
+
         if document is None:
             return
         self.document = document
@@ -1923,18 +1916,9 @@ class CoverEditorWidget(QWidget):
         self.canvas.set_document(self.document, self._canvas_key)
         self._refresh_hidden_button()
         if isinstance(item, TextObject):
-            self._selected_text_id = item.id
             # Canvas 手势先发 object_changed、再发位置兼容信号；先同步字号，
             # 避免后续旧兼容入口用右侧面板的旧值覆盖画布刚调整的字号。
-            self.font_spin.blockSignals(True)
-            try:
-                self.font_spin.setValue(int(item.style.font_size))
-            finally:
-                self.font_spin.blockSignals(False)
-            for key, button in self.align_buttons.items():
-                button.blockSignals(True)
-                button.setChecked(key == item.align)
-                button.blockSignals(False)
+            self._show_text_metrics(item)
             self._update_title_rect()
         elif isinstance(item, (ImageObject, StickerObject, ShapeObject)):
             self._sync_overlay_controls()
@@ -1942,20 +1926,25 @@ class CoverEditorWidget(QWidget):
         self._invalidate_render_requests()
         self._preview_timer.start()
 
+    def _show_text_metrics(self, item: TextObject):
+        """画布上改了字号或对齐后，右侧控件只显示新值，不反向写回。"""
+
+        self._selected_text_id = item.id
+        self.font_spin.blockSignals(True)
+        try:
+            self.font_spin.setValue(int(item.style.font_size))
+        finally:
+            self.font_spin.blockSignals(False)
+        for key, button in self.align_buttons.items():
+            button.blockSignals(True)
+            button.setChecked(key == item.align)
+            button.blockSignals(False)
+
     def _canvas_object_preview_changed(self, item, _profile_key: str):
         """只更新轻量控件显示；拖动帧不得写文档、保存或渲染。"""
 
         if isinstance(item, TextObject):
-            self._selected_text_id = item.id
-            self.font_spin.blockSignals(True)
-            try:
-                self.font_spin.setValue(int(item.style.font_size))
-            finally:
-                self.font_spin.blockSignals(False)
-            for key, button in self.align_buttons.items():
-                button.blockSignals(True)
-                button.setChecked(key == item.align)
-                button.blockSignals(False)
+            self._show_text_metrics(item)
         elif isinstance(item, BackgroundObject):
             self.zoom_spin.blockSignals(True)
             try:

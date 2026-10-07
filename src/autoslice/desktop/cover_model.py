@@ -24,7 +24,9 @@ OBJECT_KINDS = {"background", "text", "image", "sticker", "shape"}
 PROFILE_SIZES = {"4x3": (1440, 1080), "16x9": (1920, 1080)}
 
 
-def _number(value: Any, default: float) -> float:
+def finite_number(value: Any, default: float) -> float:
+    """可解析的有限数字，否则回默认值。"""
+
     try:
         result = float(value)
     except (TypeError, ValueError):
@@ -32,8 +34,9 @@ def _number(value: Any, default: float) -> float:
     return result if result == result and abs(result) != float("inf") else default
 
 
-def _bounded(value: Any, default: float, lower: float, upper: float) -> float:
-    return min(upper, max(lower, _number(value, default)))
+def bounded_number(value: Any, default: float, lower: float, upper: float) -> float:
+    return min(upper, max(lower, finite_number(value, default)))
+
 
 
 def _text(value: Any, default: str = "") -> str:
@@ -79,10 +82,10 @@ class Transform:
         payload = payload if isinstance(payload, Mapping) else {}
         return cls(
             # 对象可以拖出画布边缘（大字常比画布宽），位置允许为负或超过 1。
-            x=_bounded(payload.get("x"), 0.5, -5.0, 5.0),
-            y=_bounded(payload.get("y"), 0.5, -5.0, 5.0),
-            scale=_bounded(payload.get("scale"), 1.0, 0.01, 100.0),
-            rotation=_bounded(payload.get("rotation"), 0.0, -360.0, 360.0),
+            x=bounded_number(payload.get("x"), 0.5, -5.0, 5.0),
+            y=bounded_number(payload.get("y"), 0.5, -5.0, 5.0),
+            scale=bounded_number(payload.get("scale"), 1.0, 0.01, 100.0),
+            rotation=bounded_number(payload.get("rotation"), 0.0, -360.0, 360.0),
         )
 
 
@@ -100,10 +103,10 @@ class Rect:
     def from_payload(cls, payload: Any) -> "Rect":
         payload = payload if isinstance(payload, Mapping) else {}
         return cls(
-            x=_bounded(payload.get("x"), 0.0, -10.0, 10.0),
-            y=_bounded(payload.get("y"), 0.0, -10.0, 10.0),
-            width=_bounded(payload.get("width"), 1.0, 0.001, 10.0),
-            height=_bounded(payload.get("height"), 1.0, 0.001, 10.0),
+            x=bounded_number(payload.get("x"), 0.0, -10.0, 10.0),
+            y=bounded_number(payload.get("y"), 0.0, -10.0, 10.0),
+            width=bounded_number(payload.get("width"), 1.0, 0.001, 10.0),
+            height=bounded_number(payload.get("height"), 1.0, 0.001, 10.0),
         )
 
 
@@ -152,7 +155,7 @@ class SourceRef:
         payload = payload if isinstance(payload, Mapping) else {}
         return cls(
             video_id=payload.get("video_id") if isinstance(payload.get("video_id"), str) else None,
-            selected_timestamp=max(0.0, _number(payload.get("selected_timestamp"), 0.0)),
+            selected_timestamp=max(0.0, finite_number(payload.get("selected_timestamp"), 0.0)),
             image_asset_id=(
                 payload.get("image_asset_id")
                 if isinstance(payload.get("image_asset_id"), str)
@@ -179,7 +182,7 @@ class TextWrap:
         except (TypeError, ValueError):
             max_lines = 8
         return cls(
-            max_width=_bounded(payload.get("max_width"), 0.86, 0.05, 1.0),
+            max_width=bounded_number(payload.get("max_width"), 0.86, 0.05, 1.0),
             mode=_text(payload.get("mode"), "wrap") if payload.get("mode") in {"wrap", "clip"} else "wrap",
             max_lines=min(32, max(1, max_lines)),
         )
@@ -255,7 +258,7 @@ class TextStyle:
             stroke=_text(payload.get("stroke_color", payload.get("stroke")), str(DEFAULT_TEXT_STYLE["stroke_color"])),
             stroke_width=min(64, max(0, stroke_width)),
             shadow=bool(payload.get("shadow", DEFAULT_TEXT_STYLE["shadow"])),
-            line_spacing=_bounded(payload.get("line_spacing"), float(DEFAULT_TEXT_STYLE["line_spacing"]), 0.5, 3.0),
+            line_spacing=bounded_number(payload.get("line_spacing"), float(DEFAULT_TEXT_STYLE["line_spacing"]), 0.5, 3.0),
             align=payload.get("align") if payload.get("align") in {"left", "center", "right"} else "left",
             outer_stroke=_color(payload.get("outer_stroke")),
             outer_stroke_width=min(48, max(0, _integer(payload.get("outer_stroke_width"), 0))),
@@ -315,9 +318,9 @@ class BackgroundObject(RenderObject):
             locked=bool(payload.get("locked", False)),
             asset=AssetRef.from_payload(payload.get("asset")),
             fit_mode=payload.get("fit_mode") if payload.get("fit_mode") in {"cover", "contain"} else "cover",
-            scale=_bounded(payload.get("scale"), 1.0, 0.01, 100.0),
-            pan_x=_bounded(payload.get("pan_x"), 0.5, 0.0, 1.0),
-            pan_y=_bounded(payload.get("pan_y"), 0.5, 0.0, 1.0),
+            scale=bounded_number(payload.get("scale"), 1.0, 0.01, 100.0),
+            pan_x=bounded_number(payload.get("pan_x"), 0.5, 0.0, 1.0),
+            pan_y=bounded_number(payload.get("pan_y"), 0.5, 0.0, 1.0),
             crop=Rect.from_payload(payload["crop"]) if isinstance(payload.get("crop"), Mapping) else None,
         )
 
@@ -392,7 +395,7 @@ class ImageObject(RenderObject):
             visible=bool(payload.get("visible", True)),
             locked=bool(payload.get("locked", False)),
             asset=AssetRef.from_payload(payload.get("asset")),
-            opacity=_bounded(payload.get("opacity"), 1.0, 0.0, 1.0),
+            opacity=bounded_number(payload.get("opacity"), 1.0, 0.0, 1.0),
             crop=Rect.from_payload(payload["crop"]) if isinstance(payload.get("crop"), Mapping) else None,
         )
 
@@ -423,7 +426,7 @@ class StickerObject(RenderObject):
             locked=bool(payload.get("locked", False)),
             asset=AssetRef.from_payload(payload.get("asset")),
             category=_text(payload.get("category"), "effect"),
-            opacity=_bounded(payload.get("opacity"), 1.0, 0.0, 1.0),
+            opacity=bounded_number(payload.get("opacity"), 1.0, 0.0, 1.0),
         )
 
 
@@ -466,8 +469,8 @@ class ShapeObject(RenderObject):
             fill=payload.get("fill") if isinstance(payload.get("fill"), str) else None,
             stroke=_text(payload.get("stroke"), "#FFDB4D"),
             stroke_width=min(64, max(0, stroke_width)),
-            width=_bounded(payload.get("width"), 0.22, 0.02, 0.95),
-            height=_bounded(payload.get("height"), 0.16, 0.02, 0.95),
+            width=bounded_number(payload.get("width"), 0.22, 0.02, 0.95),
+            height=bounded_number(payload.get("height"), 0.16, 0.02, 0.95),
         )
 
 
@@ -585,67 +588,6 @@ class CoverDocument:
             (item for item in self.objects if item.id == object_id), None
         )
 
-    def replace_object(
-        self,
-        updated: RenderableObject,
-        *,
-        profile_key: str | None = None,
-        persist_profile_override: bool = True,
-    ) -> "CoverDocument":
-        """返回替换对象后的新文档，避免 UI 层散落手写 profile 更新。"""
-
-        from dataclasses import replace
-
-        objects = tuple(updated if item.id == updated.id else item for item in self.objects)
-        result = replace(
-            self,
-            objects=objects,
-            active_profile=profile_key or self.active_profile,
-            selected_object_id=updated.id,
-        )
-        if not persist_profile_override:
-            return result
-        key = profile_key or self.active_profile
-        profile = result.profiles.get(key)
-        if profile is None:
-            return result
-        override: dict[str, Any] = {
-            "transform": updated.transform.to_payload(),
-            "visible": bool(updated.visible),
-        }
-        if isinstance(updated, BackgroundObject):
-            override.update({
-                "scale": updated.scale,
-                "pan_x": updated.pan_x,
-                "pan_y": updated.pan_y,
-                "fit_mode": updated.fit_mode,
-            })
-        elif isinstance(updated, TextObject):
-            override.update({
-                "rect": updated.rect.to_payload(),
-                "wrap": updated.wrap.to_payload(),
-                "align": updated.align,
-                "style": updated.style.to_payload(),
-            })
-        elif isinstance(updated, (ImageObject, StickerObject)):
-            override["opacity"] = updated.opacity
-        elif isinstance(updated, ShapeObject):
-            override.update({
-                "shape_type": updated.shape_type,
-                "fill": updated.fill,
-                "stroke": updated.stroke,
-                "stroke_width": updated.stroke_width,
-                "width": updated.width,
-                "height": updated.height,
-            })
-        return replace(
-            result,
-            profiles={
-                **result.profiles,
-                key: replace(profile, overrides={**profile.overrides, updated.id: override}),
-            },
-        )
-
     @classmethod
     def from_payload(cls, payload: Any) -> "CoverDocument":
         if not isinstance(payload, Mapping) or payload.get("version") != DOCUMENT_VERSION:
@@ -712,7 +654,7 @@ def object_for_profile(document: CoverDocument, object_id: str, profile_key: str
             changes["style"] = TextStyle.from_payload(override["style"])
     if isinstance(item, (ImageObject, StickerObject)):
         if "opacity" in override:
-            changes["opacity"] = _bounded(override.get("opacity"), item.opacity, 0.0, 1.0)
+            changes["opacity"] = bounded_number(override.get("opacity"), item.opacity, 0.0, 1.0)
     if isinstance(item, ShapeObject):
         if override.get("shape_type") in {"circle", "arrow", "rect"}:
             changes["shape_type"] = override["shape_type"]
@@ -723,9 +665,9 @@ def object_for_profile(document: CoverDocument, object_id: str, profile_key: str
         if "stroke_width" in override:
             changes["stroke_width"] = min(64, max(0, _integer(override.get("stroke_width"), item.stroke_width)))
         if "width" in override:
-            changes["width"] = _bounded(override.get("width"), item.width, 0.02, 0.95)
+            changes["width"] = bounded_number(override.get("width"), item.width, 0.02, 0.95)
         if "height" in override:
-            changes["height"] = _bounded(override.get("height"), item.height, 0.02, 0.95)
+            changes["height"] = bounded_number(override.get("height"), item.height, 0.02, 0.95)
     if not changes:
         return item
     from dataclasses import replace

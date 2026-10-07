@@ -434,21 +434,6 @@ class CoverCanvas(QLabel):
                 return effective
         return None
 
-    def _find_texts(self) -> tuple[TextObject, ...]:
-        """返回当前比例下的文字对象，支持最小 A/B 双块显示。"""
-
-        if self._document is None:
-            return ()
-        result: list[TextObject] = []
-        for item in self._document.objects:
-            if not isinstance(item, TextObject):
-                continue
-            live = self._gesture_objects.get(item.id)
-            effective = live if isinstance(live, TextObject) else object_for_profile(self._document, item.id, self._profile_key)
-            if isinstance(effective, TextObject):
-                result.append(effective)
-        return tuple(result)
-
     def _find_background(self) -> BackgroundObject | None:
         if self._document is None:
             return None
@@ -495,18 +480,6 @@ class CoverCanvas(QLabel):
             if item.visible and self._frame_contains(item, point):
                 return item
         return None
-
-    def _text_at(self, point: QPointF) -> TextObject | None:
-        hit = self._hit_object(point)
-        return hit if isinstance(hit, TextObject) else None
-
-    def _overlay_at(self, point: QPointF) -> RenderObject | None:
-        hit = self._hit_object(point)
-        return hit if isinstance(hit, (ImageObject, StickerObject, ShapeObject)) else None
-
-    def _title_display_rect(self) -> QRectF:
-        text = self._find_text()
-        return self._display_rect(text) if text else self._legacy_display_rect()
 
     def _safe_area_warning_for(self, obj: TextObject | None) -> bool:
         if obj is None:

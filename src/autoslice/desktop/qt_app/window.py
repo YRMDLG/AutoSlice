@@ -282,26 +282,8 @@ class SubtitleTextDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):
         editor = QPlainTextEdit(parent)
-        editor.setFont(option.font)
-        editor.document().setDocumentMargin(0)
-        editor.setTabChangesFocus(True)
-        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        editor.setContentsMargins(0, 0, 0, 0)
-        editor.setViewportMargins(0, 0, 0, 0)
-        editor.setAutoFillBackground(True)
-        editor.viewport().setAutoFillBackground(True)
+        _prepare_inline_editor(editor, option.font)
         editor.setProperty("autoslice_editor_initialised", False)
-        editor.setStyleSheet(
-            f"QPlainTextEdit {{ background: {COLORS.row_selected}; color: {COLORS.text}; "
-            f"border: none; padding: 10px 6px 0 6px; "
-            f"selection-background-color: {COLORS.accent_pressed}; }}"
-            "QPlainTextEdit:focus { border: none; }"
-        )
-        editor.viewport().setStyleSheet(
-            f"background: {COLORS.row_selected}; border: none;"
-        )
         editor.installEventFilter(parent.window())
         self._editing = self._key(index)
         try:
@@ -361,6 +343,30 @@ class SubtitleTextDelegate(QStyledItemDelegate):
 
     def setModelData(self, editor, model, index):
         model.finish_live_text(index, editor.toPlainText())
+
+
+def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:
+    """字幕行内编辑框：贴合表格行、不换行、选中行底色。两条编辑入口共用。"""
+
+    editor.setFont(font)
+    editor.document().setDocumentMargin(0)
+    editor.setTabChangesFocus(True)
+    editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+    editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    editor.setContentsMargins(0, 0, 0, 0)
+    editor.setViewportMargins(0, 0, 0, 0)
+    editor.setAutoFillBackground(True)
+    editor.viewport().setAutoFillBackground(True)
+    editor.setStyleSheet(
+        f"QPlainTextEdit {{ background: {COLORS.row_selected}; color: {COLORS.text}; "
+        f"border: none; padding: 10px 6px 0 6px; "
+        f"selection-background-color: {COLORS.accent_pressed}; }}"
+        "QPlainTextEdit:focus { border: none; }"
+    )
+    editor.viewport().setStyleSheet(
+        f"background: {COLORS.row_selected}; border: none;"
+    )
 
 
 class DesktopWindow(PreviewWindow):
@@ -1675,25 +1681,7 @@ class DesktopWindow(PreviewWindow):
         if not index.isValid() or index.column() != 2:
             return
         editor = InlineSubtitleEditor(self.table.viewport())
-        editor.setFont(self.table.font())
-        editor.document().setDocumentMargin(0)
-        editor.setTabChangesFocus(True)
-        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        editor.setContentsMargins(0, 0, 0, 0)
-        editor.setViewportMargins(0, 0, 0, 0)
-        editor.setAutoFillBackground(True)
-        editor.viewport().setAutoFillBackground(True)
-        editor.setStyleSheet(
-            f"QPlainTextEdit {{ background: {COLORS.row_selected}; color: {COLORS.text}; "
-            f"border: none; padding: 10px 6px 0 6px; "
-            f"selection-background-color: {COLORS.accent_pressed}; }}"
-            "QPlainTextEdit:focus { border: none; }"
-        )
-        editor.viewport().setStyleSheet(
-            f"background: {COLORS.row_selected}; border: none;"
-        )
+        _prepare_inline_editor(editor, self.table.font())
         editor.setPlainText(str(index.data(Qt.ItemDataRole.EditRole) or ""))
         editor.installEventFilter(self)
         editor.viewport().installEventFilter(self)

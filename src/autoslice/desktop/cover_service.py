@@ -320,11 +320,6 @@ class CoverService:
     ) -> tuple[BasicCoverCopy, ...]:
         return generate_basic_copy_variants(title, subtitle_context=subtitle_context)
 
-    def basic_hook_variants(self, title: str, *, subtitle_context: str | None = None) -> tuple[BasicCoverCopy, ...]:
-        """旧调用方兼容别名；返回基础文案候选，不生成“钩子”。"""
-
-        return self.basic_copy_variants(title, subtitle_context=subtitle_context)
-
     def load_document(
         self, project: SubmissionProject, video: ProjectVideo,
     ) -> tuple[CoverDocument, DraftRead]:
@@ -726,26 +721,9 @@ class CoverService:
 
         return self.nearby_candidates(video, center, self._wider_offsets(span, count))
 
-    def extract_wider_frames(
-        self,
-        video: ProjectVideo,
-        center: float,
-        *,
-        span: float = 12.0,
-        count: int = 13,
-    ) -> tuple[tuple[Path, float], ...]:
-        return tuple(
-            (frame.path, frame.timestamp)
-            for frame in self.wider_candidates(video, center, span=span, count=count)
-        )
-
     @staticmethod
     def set_frame_locked(document: CoverDocument, locked: bool) -> CoverDocument:
         return replace(document, source=replace(document.source, frame_locked=bool(locked)))
-
-    @staticmethod
-    def frame_is_locked(document: CoverDocument) -> bool:
-        return bool(document.source.frame_locked)
 
     @staticmethod
     def _text_slot_costs(

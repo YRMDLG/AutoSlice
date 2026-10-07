@@ -38,10 +38,3 @@ class CueSelection:
         if self.selected:
             self.anchor = self.active
 
-    def retain(self, order: list[int]) -> None:
-        allowed = set(order)
-        self.selected &= allowed
-        if self.active not in allowed:
-            self.active = next((item for item in order if item in self.selected), None)
-        if self.anchor not in allowed:
-            self.anchor = self.active
