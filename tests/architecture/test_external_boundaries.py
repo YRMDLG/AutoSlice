@@ -81,6 +81,14 @@ class ExternalBoundaryTests(unittest.TestCase):
                     f"ass='{ffmpeg_path}'",
                 ])
 
+    def test_relative_ass_filter_is_validated_against_subprocess_working_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            command = ["ffmpeg", "-vf", "scale=320:180,ass=subtitles.ass,format=yuv420p"]
+            with EXTERNAL_BOUNDARY_GUARD.linux_logic_only_mode(False):
+                EXTERNAL_BOUNDARY_GUARD.validate_subprocess(command, cwd=temp_dir)
+                with self.assertRaisesRegex(AssertionError, "用户媒体访问"):
+                    EXTERNAL_BOUNDARY_GUARD.validate_subprocess(command)
+
     def test_public_system_font_is_allowed_without_allowing_user_font(self):
         if not EXTERNAL_BOUNDARY_GUARD._system_font_roots:
             self.skipTest("当前平台没有已声明的系统字体目录")

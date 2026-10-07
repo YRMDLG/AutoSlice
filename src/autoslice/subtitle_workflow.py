@@ -2284,11 +2284,18 @@ def write_ass_from_srt(
 
 def _ffmpeg_filter_path(path):
     value = str(Path(path).resolve()).replace("\\", "/")
-    value = value.replace(":", r"\:").replace("'", r"\'")
+    if "'" in value:
+        raise ValueError("ASS 滤镜绝对路径包含单引号；请使用安全工作目录中的相对 ASS 文件名")
+    value = value.replace(":", r"\:")
     return f"'{value}'"
 
 
-def _ass_filter(ass_path):
+def _ass_filter(ass_path, *, relative=False):
+    if relative:
+        name = str(ass_path).replace("\\", "/")
+        if "/" in name or not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            raise ValueError("FFmpeg 相对 ASS 文件名必须是安全 ASCII 文件名")
+        return f"ass={name}"
     return f"ass={_ffmpeg_filter_path(ass_path)}"
 
 
@@ -2303,9 +2310,10 @@ def verify_exact_subtitle_font():
             [
                 "ffmpeg", "-hide_banner", "-loglevel", "verbose",
                 "-f", "lavfi", "-i", "color=c=black:s=320x180:d=0.5",
-                "-vf", _ass_filter(ass_path), "-frames:v", "1",
+                "-vf", _ass_filter(ass_path.name, relative=True), "-frames:v", "1",
                 "-f", "null", os.devnull,
             ],
+            cwd=td,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             encoding="utf-8",
@@ -2337,7 +2345,7 @@ def _ensure_exact_subtitle_font():
     return result
 
 
-def _video_filter_chain(ass_path, export_settings):
+def _video_filter_chain(ass_path, export_settings, *, relative_ass=False):
     width = export_settings["width"]
     height = export_settings["height"]
     fps = export_settings["fps"]
@@ -2346,7 +2354,7 @@ def _video_filter_chain(ass_path, export_settings):
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black",
         "setsar=1",
         f"fps={fps:g}",
-        _ass_filter(ass_path),
+        _ass_filter(ass_path, relative=relative_ass),
         "format=yuv420p",
     ))
 
@@ -2381,10 +2389,11 @@ def render_subtitle_preview(
         result = subprocess.run(
             [
                 "ffmpeg", "-hide_banner", "-loglevel", "error",
-                "-i", str(video_path), "-ss", f"{selected_time:.3f}",
-                "-vf", _video_filter_chain(ass_path, active_export), "-frames:v", "1",
+                "-i", str(Path(video_path).resolve()), "-ss", f"{selected_time:.3f}",
+                "-vf", _video_filter_chain(ass_path.name, active_export, relative_ass=True), "-frames:v", "1",
                 "-q:v", "2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
             ],
+            cwd=td,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -2429,9 +2438,11 @@ def _encoder_arguments(encoder, export_settings):
     ]
 
 
-def _run_subtitle_encode(command, duration, progress_callback=None, cancel_event=None):
+def _run_subtitle_encode(
+        command, duration, progress_callback=None, cancel_event=None, *, cwd=None):
     process = subprocess.Popen(
         command,
+        cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         encoding="utf-8",
@@ -2512,72 +2523,85 @@ def burn_subtitles(
     if selected_encoder not in {"h264_nvenc", "libx264"}:
         raise ValueError("不支持的字幕压制编码器")
 
-    def make_command(active_encoder):
-        command = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-i", str(video_path),
-            "-vf", _video_filter_chain(artifacts["ass_path"], active_export),
-            "-map", "0:v:0", "-map", "0:a:0?",
-        ]
-        command.extend(_encoder_arguments(active_encoder, active_export))
-        command.extend([
-            "-r", f"{active_export['fps']:g}",
-            "-pix_fmt", "yuv420p",
-            "-colorspace", "bt709", "-color_primaries", "bt709",
-            "-color_trc", "bt709", "-color_range", "tv",
-            "-bsf:v",
-            "h264_metadata=colour_primaries=1:transfer_characteristics=1:"
-            "matrix_coefficients=1:video_full_range_flag=0",
-            "-c:a", "copy", "-movflags", "+faststart",
-            "-max_muxing_queue_size", "4096", "-progress", "pipe:1", "-nostats",
-            str(part_path),
-        ])
-        return command
-
+    # libavfilter 对包含单引号的绝对路径有多层转义歧义。正式 ASS 仍保留
+    # 原始项目名用于用户复用，但 FFmpeg 只读取工作目录中的安全 ASCII 副本。
+    source_video = str(Path(video_path).resolve())
+    part_output = str(part_path.resolve())
     used_encoder = selected_encoder
-    try:
+    output_info = None
+    # 整个 FFmpeg 进程都在这个上下文内运行，退出时再清理安全 ASS 副本。
+    with tempfile.TemporaryDirectory(prefix="autoslice_ass_filter_") as filter_work:
+        safe_ass_name = "subtitles.ass"
+        safe_ass_path = Path(filter_work) / safe_ass_name
+        safe_ass_path.write_bytes(Path(artifacts["ass_path"]).read_bytes())
+
+        def make_command(active_encoder):
+            command = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", source_video,
+                "-vf", _video_filter_chain(safe_ass_name, active_export, relative_ass=True),
+                "-map", "0:v:0", "-map", "0:a:0?",
+            ]
+            command.extend(_encoder_arguments(active_encoder, active_export))
+            command.extend([
+                "-r", f"{active_export['fps']:g}",
+                "-pix_fmt", "yuv420p",
+                "-colorspace", "bt709", "-color_primaries", "bt709",
+                "-color_trc", "bt709", "-color_range", "tv",
+                "-bsf:v",
+                "h264_metadata=colour_primaries=1:transfer_characteristics=1:"
+                "matrix_coefficients=1:video_full_range_flag=0",
+                "-c:a", "copy", "-movflags", "+faststart",
+                "-max_muxing_queue_size", "4096", "-progress", "pipe:1", "-nostats",
+                part_output,
+            ])
+            return command
+
         try:
-            _run_subtitle_encode(
-                make_command(selected_encoder),
-                video_info["duration"],
-                progress_callback,
-                cancel_event,
-            )
-        except RuntimeError:
-            if selected_encoder != "h264_nvenc" or (cancel_event is not None and cancel_event.is_set()):
-                raise
+            try:
+                _run_subtitle_encode(
+                    make_command(selected_encoder),
+                    video_info["duration"],
+                    progress_callback,
+                    cancel_event,
+                    cwd=filter_work,
+                )
+            except RuntimeError:
+                if selected_encoder != "h264_nvenc" or (cancel_event is not None and cancel_event.is_set()):
+                    raise
+                if part_path.exists():
+                    part_path.unlink()
+                used_encoder = "libx264"
+                if progress_callback:
+                    progress_callback("NVENC 压制失败，自动改用软件编码...", 0, 100)
+                _run_subtitle_encode(
+                    make_command("libx264"),
+                    video_info["duration"],
+                    progress_callback,
+                    cancel_event,
+                    cwd=filter_work,
+                )
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("字幕压制已取消")
+            output_info = _probe_video_info(part_path)
+            if output_info["has_audio"] != video_info["has_audio"]:
+                raise RuntimeError("字幕版视频音频流与原视频不一致")
+            if abs(output_info["duration"] - video_info["duration"]) > 0.5:
+                raise RuntimeError("字幕版视频时长误差超过 0.5 秒")
+            if output_info["width"] != active_export["width"] or output_info["height"] != active_export["height"]:
+                raise RuntimeError("字幕版视频分辨率不符合导出参数")
+            if abs(output_info["fps"] - active_export["fps"]) > 0.05:
+                raise RuntimeError("字幕版视频帧率不符合导出参数")
+            if (
+                output_info["color_space"] != "bt709"
+                or output_info["color_transfer"] != "bt709"
+                or output_info["color_primaries"] != "bt709"
+            ):
+                raise RuntimeError("字幕版视频不是 Rec.709 SDR")
+            os.replace(part_path, destination)
+        finally:
             if part_path.exists():
                 part_path.unlink()
-            used_encoder = "libx264"
-            if progress_callback:
-                progress_callback("NVENC 压制失败，自动改用软件编码...", 0, 100)
-            _run_subtitle_encode(
-                make_command("libx264"),
-                video_info["duration"],
-                progress_callback,
-                cancel_event,
-            )
-        if cancel_event is not None and cancel_event.is_set():
-            raise RuntimeError("字幕压制已取消")
-        output_info = _probe_video_info(part_path)
-        if output_info["has_audio"] != video_info["has_audio"]:
-            raise RuntimeError("字幕版视频音频流与原视频不一致")
-        if abs(output_info["duration"] - video_info["duration"]) > 0.5:
-            raise RuntimeError("字幕版视频时长误差超过 0.5 秒")
-        if output_info["width"] != active_export["width"] or output_info["height"] != active_export["height"]:
-            raise RuntimeError("字幕版视频分辨率不符合导出参数")
-        if abs(output_info["fps"] - active_export["fps"]) > 0.05:
-            raise RuntimeError("字幕版视频帧率不符合导出参数")
-        if (
-            output_info["color_space"] != "bt709"
-            or output_info["color_transfer"] != "bt709"
-            or output_info["color_primaries"] != "bt709"
-        ):
-            raise RuntimeError("字幕版视频不是 Rec.709 SDR")
-        os.replace(part_path, destination)
-    finally:
-        if part_path.exists():
-            part_path.unlink()
     if progress_callback:
         progress_callback("字幕压制完成", 100, 100)
     return {

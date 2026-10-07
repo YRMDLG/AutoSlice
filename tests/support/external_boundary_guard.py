@@ -184,7 +184,13 @@ def _media_path_candidates(argument: str) -> tuple[str, ...]:
     absolute_paths = windows_paths or _POSIX_MEDIA_PATH_RE.findall(normalized)
     if absolute_paths:
         return tuple(dict.fromkeys(absolute_paths))
-    if normalized.startswith(("-", "/")) and "=" in normalized:
+    if "," in normalized:
+        return tuple(
+            candidate
+            for part in normalized.split(",")
+            for candidate in _media_path_candidates(part)
+        )
+    if "=" in normalized:
         normalized = normalized.split("=", 1)[1].strip("\"'")
     return (normalized,)
 
@@ -282,7 +288,7 @@ class ExternalBoundaryGuard:
                 else:
                     self._temporary_roots.pop(root, None)
 
-    def validate_subprocess(self, command: object) -> None:
+    def validate_subprocess(self, command: object, *, cwd: str | os.PathLike[str] | None = None) -> None:
         if isinstance(command, (str, bytes)):
             raw_command = os.fsdecode(command)
             try:
@@ -299,7 +305,10 @@ class ExternalBoundaryGuard:
             raise _boundary_error("包/模型安装", " ".join(parts[:3]))
         for part in parts:
             for candidate in _media_path_candidates(part):
-                self.validate_media_path(candidate)
+                candidate_path = Path(candidate)
+                if cwd is not None and not candidate_path.is_absolute():
+                    candidate_path = Path(cwd) / candidate_path
+                self.validate_media_path(candidate_path)
         if parts and self.linux_logic_only:
             executable = parts[0].strip('"\'').replace("\\", "/").rsplit("/", 1)[-1]
             executable = executable.casefold().removesuffix(".exe")
@@ -374,11 +383,11 @@ class ExternalBoundaryGuard:
         return _ORIGINAL_OPEN(file, *args, **kwargs)
 
     def _guarded_popen(self, args, *popen_args, **kwargs):
-        self.validate_subprocess(args)
+        self.validate_subprocess(args, cwd=kwargs.get("cwd"))
         return _ORIGINAL_SUBPROCESS_POPEN(args, *popen_args, **kwargs)
 
     def _guarded_run(self, args, *run_args, **kwargs):
-        self.validate_subprocess(args)
+        self.validate_subprocess(args, cwd=kwargs.get("cwd"))
         return _ORIGINAL_SUBPROCESS_RUN(args, *run_args, **kwargs)
 
 

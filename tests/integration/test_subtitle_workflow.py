@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import subprocess
@@ -7,11 +8,10 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from autoslice import subtitle_workflow
 from autoslice.llm import transport as llm_gateway
-from autoslice.transcription import contracts as transcription_contracts
 from autoslice.streamer_profiles import resolve_streamer_profile
 from autoslice.subtitle_workflow import (
     DEFAULT_SUBTITLE_GLOSSARY,
@@ -29,6 +29,7 @@ from autoslice.subtitle_workflow import (
     generate_subtitle_reference_titles,
     high_confidence_corrections,
     load_subtitle_edit_state,
+    normalise_subtitle_review_dictionary,
     normalise_subtitle_style,
     normalise_video_export,
     parse_srt_document,
@@ -37,14 +38,13 @@ from autoslice.subtitle_workflow import (
     save_corrected_srt,
     scan_submission_pairs,
     serialise_srt,
-    normalise_subtitle_review_dictionary,
     subtitle_review_profile_rules,
     suggest_subtitle_corrections,
     transcribe_submission_video,
     verify_exact_subtitle_font,
     write_ass_from_srt,
 )
-
+from autoslice.transcription import contracts as transcription_contracts
 
 ACCOUNT_SPECIFIC_GLOSSARY = {
     "朱鹮", "猪獾", "泽音Melody", "泽音melody", "泽音", "音音", "音姐",
@@ -1475,6 +1475,32 @@ class SubtitleRenderingTests(unittest.TestCase):
         if result["available"]:
             self.assertEqual(result["resolved"], EXACT_SUBTITLE_FONT_RESOLVED)
 
+    def test_ffmpeg_ass_filter_uses_safe_relative_working_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source_ass = root / "Bob's episode_字幕样式.ass"
+            safe_ass = root / "subtitles.ass"
+            cue = parse_srt_document_from_text(
+                "1\n00:00:00,000 --> 00:00:00,500\nquote path test\n"
+            )[0]
+            source_ass.write_text(build_ass_document([cue], 320, 180), encoding="utf-8")
+            safe_ass.write_bytes(source_ass.read_bytes())
+            filter_value = subtitle_workflow._ass_filter(safe_ass.name, relative=True)
+            self.assertEqual(filter_value, "ass=subtitles.ass")
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=c=black:s=320x180:d=0.5",
+                    "-vf", filter_value, "-frames:v", "1", "-f", "null", os.devnull,
+                ],
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_write_ass_saves_style_without_touching_srt(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -1499,60 +1525,124 @@ class SubtitleRenderingTests(unittest.TestCase):
             self.skipTest("需要本机安装指定的 Noto Sans S Chinese Black 字体")
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            video = root / "clip.mp4"
-            srt = root / "clip_校对.srt"
-            output = root / "clip_字幕版.mp4"
-            self._make_video(video)
-            srt.write_text(
-                "1\n00:00:00,000 --> 00:00:01,900\n音音字幕预览\n",
-                encoding="utf-8",
-            )
-
             fast_export = {
                 "width": 640,
                 "height": 360,
                 "fps": 30,
                 "bitrate_kbps": 1200,
             }
-            jpeg, selected_time = render_subtitle_preview(
-                video,
-                srt,
-                export_settings=fast_export,
-            )
-            result = burn_subtitles(
-                video,
-                srt,
-                output_path=output,
-                encoder="libx264",
-                export_settings=fast_export,
-            )
-            decode = subprocess.run(
-                [
-                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-xerror",
-                    "-i", str(output), "-f", "null", os.devnull,
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            for stem in ("Bob's episode", "Don't Stop"):
+                with self.subTest(stem=stem):
+                    video = root / f"{stem}.mp4"
+                    srt = root / f"{stem}_校对.srt"
+                    output = root / f"{stem}_字幕版.mp4"
+                    self._make_video(video)
+                    srt.write_text(
+                        "1\n00:00:00,000 --> 00:00:01,900\n音音字幕预览\n",
+                        encoding="utf-8",
+                    )
 
-            self.assertTrue(jpeg.startswith(b"\xff\xd8"))
-            self.assertGreater(len(jpeg), 1000)
-            self.assertAlmostEqual(selected_time, 0.95, places=2)
-            self.assertTrue(output.is_file())
-            self.assertEqual(result["encoder"], "libx264")
-            self.assertTrue(result["output_video_info"]["has_audio"])
-            self.assertEqual(result["output_video_info"]["width"], 640)
-            self.assertEqual(result["output_video_info"]["height"], 360)
-            self.assertAlmostEqual(result["output_video_info"]["fps"], 30, places=2)
-            self.assertEqual(result["output_video_info"]["color_space"], "bt709")
-            self.assertEqual(result["output_video_info"]["color_transfer"], "bt709")
-            self.assertEqual(result["output_video_info"]["color_primaries"], "bt709")
-            self.assertLess(
-                abs(result["output_video_info"]["duration"] - 2.0),
-                0.2,
-            )
-            self.assertEqual(decode.returncode, 0, decode.stderr.decode("utf-8", errors="replace"))
-            self.assertFalse((root / "clip_字幕版.part.mp4").exists())
+                    jpeg, selected_time = render_subtitle_preview(
+                        video,
+                        srt,
+                        export_settings=fast_export,
+                    )
+                    result = burn_subtitles(
+                        video,
+                        srt,
+                        output_path=output,
+                        encoder="libx264",
+                        export_settings=fast_export,
+                    )
+                    decode = subprocess.run(
+                        [
+                            "ffmpeg", "-hide_banner", "-loglevel", "error", "-xerror",
+                            "-i", str(output), "-f", "null", os.devnull,
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+
+                    self.assertTrue(jpeg.startswith(b"\xff\xd8"))
+                    self.assertGreater(len(jpeg), 1000)
+                    self.assertAlmostEqual(selected_time, 0.95, places=2)
+                    self.assertTrue(output.is_file())
+                    self.assertTrue(Path(result["ass_path"]).is_file())
+                    self.assertIn(stem, Path(result["ass_path"]).name)
+                    self.assertEqual(result["encoder"], "libx264")
+                    self.assertTrue(result["output_video_info"]["has_audio"])
+                    self.assertEqual(result["output_video_info"]["width"], 640)
+                    self.assertEqual(result["output_video_info"]["height"], 360)
+                    self.assertAlmostEqual(result["output_video_info"]["fps"], 30, places=2)
+                    self.assertEqual(result["output_video_info"]["color_space"], "bt709")
+                    self.assertEqual(result["output_video_info"]["color_transfer"], "bt709")
+                    self.assertEqual(result["output_video_info"]["color_primaries"], "bt709")
+                    self.assertLess(
+                        abs(result["output_video_info"]["duration"] - 2.0),
+                        0.2,
+                    )
+                    self.assertEqual(decode.returncode, 0, decode.stderr.decode("utf-8", errors="replace"))
+                    self.assertFalse((root / f"{stem}_字幕版.part.mp4").exists())
+
+
+class SubtitleFFmpegPathTests(unittest.TestCase):
+    def test_relative_ass_filter_rejects_paths_and_unsafe_names(self):
+        self.assertEqual(
+            subtitle_workflow._ass_filter("subtitles.ass", relative=True),
+            "ass=subtitles.ass",
+        )
+        for name in ("../subtitles.ass", "folder/subtitles.ass", "Bob's.ass", "字幕.ass"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                subtitle_workflow._ass_filter(name, relative=True)
+
+    def test_burn_uses_private_ass_copy_and_absolute_media_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            video = root / "Bob's episode.mp4"
+            srt = root / "Bob's episode.srt"
+            ass = root / "Bob's episode.ass"
+            output = root / "Bob's episode_字幕版.mp4"
+            ass.write_bytes(b"original-ass")
+            probe_payload = {"format": {"duration": "2.0"}, "streams": [
+                {"codec_type": "video", "width": 640, "height": 360,
+                 "avg_frame_rate": "30/1", "color_space": "bt709",
+                 "color_transfer": "bt709", "color_primaries": "bt709"},
+                {"codec_type": "audio"},
+            ]}
+            working_dirs = []
+
+            def encode(command, *, cwd, **_kwargs):
+                working_dirs.append(Path(cwd))
+                self.assertEqual((Path(cwd) / "subtitles.ass").read_bytes(), ass.read_bytes())
+                self.assertEqual(command[command.index("-i") + 1], str(video.resolve()))
+                self.assertIn("ass=subtitles.ass", command[command.index("-vf") + 1])
+                self.assertTrue(Path(command[-1]).is_absolute())
+                Path(command[-1]).write_bytes(b"encoded-output")
+                process = Mock(stdout=io.StringIO(""), stderr=io.StringIO(""))
+                process.wait.return_value = 0
+                return process
+
+            with (
+                patch.object(subtitle_workflow, "verify_exact_subtitle_font", return_value={"available": True}),
+                patch.object(subprocess, "run", return_value=subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout=json.dumps(probe_payload), stderr="",
+                )),
+                patch.object(subtitle_workflow, "write_ass_from_srt", return_value={
+                    "ass_path": str(ass), "style_path": str(root / "style.json"), "style": {},
+                }),
+                patch.object(subprocess, "Popen", side_effect=encode),
+            ):
+                result = burn_subtitles(
+                    video, srt, output_path=output, encoder="libx264",
+                    export_settings={"width": 640, "height": 360, "fps": 30},
+                )
+
+            self.assertEqual(output.read_bytes(), b"encoded-output")
+            self.assertEqual(ass.read_bytes(), b"original-ass")
+            self.assertEqual(result["ass_path"], str(ass))
+            self.assertTrue(working_dirs)
+            self.assertTrue(all(not directory.exists() for directory in working_dirs))
+            self.assertFalse(output.with_name(output.stem + ".part.mp4").exists())
 
 
 def parse_srt_document_from_text(text):
