@@ -218,7 +218,7 @@ python -m unittest tests.unit.test_desktop_cover tests.unit.test_desktop_cover_c
 另外两条本次明确排除：
 
 - **旧版候选帧质量评分迁移**（曝光/清晰度/饱和度打分、烧录字幕风险提示，来自 `AutoCover`）。这属于功能开发而非 UI 收口，范围和风险都大，应单独立项。
-- **`window.py` 2728 行 / `cover.py` 2065 行的拆分**。等 UI 通过实机验收后再动。
+- **`window.py` 2728 行 / `cover.py` 2065 行的拆分**。等 UI 通过实机验收后再动。（2026-10-08：用户要求先整理代码，已在 `desktop-cover-opus55` 分支按职责拆分，行为不变，见 DESKTOP_STATUS。）
 
 ---
 

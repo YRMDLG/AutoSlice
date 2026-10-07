@@ -155,9 +155,9 @@ AI 是显式辅助，不是默认依赖。
 历史兼容入口不应成为新业务 owner。
 
 AutoCover 主要代码：
-- `src/autoslice/desktop/cover.py`
-- `cover_canvas.py`
-- `cover_service.py`
+- `src/autoslice/desktop/cover.py`（编辑器核心）与 `cover_editor_*.py`
+- `cover_canvas.py`、`cover_canvas_paint.py`、`cover_canvas_gestures.py`
+- `cover_service.py`（组合 `cover_store.py`、`cover_frames.py`、`cover_autolayout.py`、`cover_exporting.py`）
 - `cover_model.py`
 - `cover_migration.py`
 - `cover_history.py`

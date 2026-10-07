@@ -16,7 +16,7 @@ WorkspaceContext / 项目与当前视频快照
         ├── SubtitleRenderService + 后台压制
         └── CoverEditorWidget
                 ├── CoverCanvas（手势与显示）
-                ├── CoverService（取帧、草稿、预览、导出）
+                ├── CoverService（草稿、取帧、自动排版、导出）
                 ├── CoverDocument（唯一封面编辑模型）
                 └── autoslice_cover.renderer（纯渲染）
 ```
@@ -35,6 +35,8 @@ WorkspaceContext / 项目与当前视频快照
 
 当窗口再次出现项目、媒体、封面或 AI 的字段时，应先确认它是否属于 `WorkspaceContext`、页面 service 或独立领域模型；不要通过增加私有字段把窗口变成第二个应用服务。
 
+代码组织上，`DesktopWindow` 已按职责拆成混入类：`window_projects`（项目与视频）、`window_ai`（AI 校对）、`window_subtitles`（字幕列表与就地编辑）、`window_input`（事件与快捷键分发）、`window_timeline`、`window_player`、`window_document`（保存、撤销与压制），`window.py` 只留窗口骨架。混入类只是按职责分文件，状态仍挂在窗口上：把状态迁到 `WorkspaceContext` 或页面 service 仍是上面的方向，不能因为文件变小就认为窗口不再膨胀。新增方法放进对应职责的混入类；混入类必须排在 `PreviewWindow` 之前，才能覆盖它的同名构建方法。
+
 ## 3. `WorkspaceContext` 与状态共享
 
 项目和当前视频是页面之间需要共享的最小上下文。建议上下文至少能表达：
@@ -50,14 +52,14 @@ WorkspaceContext / 项目与当前视频快照
 
 ## 4. 异步任务与 generation/token
 
-取帧、附近帧、预览、方案缩略图、批量出图和字幕压制都可能晚于用户切换项目或文档。每个任务必须携带可比较的 generation/token：
+取帧、附近帧、方案缩略图、批量出图、字幕叠加预览和字幕压制都可能晚于用户切换项目或文档。每个任务必须携带可比较的 generation/token：
 
 1. 开始任务时捕获项目、视频、源文件指纹和文档/页面 generation。
 2. 任务完成回到 UI 线程时，先比较 token、项目、视频和必要的文档 hash。
 3. 任一项不匹配，丢弃结果并记录轻量可见状态，不覆盖当前页面。
 4. 取消、关闭、最小化和切页只改变任务可见性或取消意图，不靠控件销毁来猜测任务归属。
 
-切换项目不默认启动全片扫描。附近帧按需生成，预览使用节流，重复输入优先命中缓存；失败要保留当前草稿和可执行重试路径。
+切换项目不默认启动全片扫描。附近帧按需生成，字幕叠加预览使用节流，重复输入优先命中缓存；失败要保留当前草稿和可执行重试路径。
 
 ## 5. AutoCover 隔离边界
 
@@ -65,9 +67,9 @@ AutoCover 只接收不可变的项目/视频上下文和明确的 playhead 快�
 
 封面侧的边界如下：
 
-- `CoverCanvas`：负责显示、命中、拖动、缩放和轻量暂态信号，不直接写磁盘，不启动渲染任务。对象按“选中对象之下 / 选中对象 / 之上”三层缓存成位图，键里包含对象值、画布尺寸和字体配置；拖动只平移选中层。新增会影响绘制的对象字段时，它会自动进入缓存键，不需要手动失效。
-- `CoverEditorWidget`：负责把用户动作转换成 `CoverDocument` 快照、历史提交、自动保存和预览调度；不实现媒体解码和 Pillow 绘制。
-- `CoverService`：负责草稿读写、旧草稿迁移、取帧、素材、预览、导出、风格记忆和导出历史；不持有 Qt 控件布局。
+- `CoverCanvas`：负责显示、命中、拖动、缩放和轻量暂态信号，不直接写磁盘，不启动渲染任务。对象按“选中对象之下 / 选中对象 / 之上”三层缓存成位图，键里包含对象值、画布尺寸和字体配置；拖动只平移选中层。新增会影响绘制的对象字段时，它会自动进入缓存键，不需要手动失效。绘制和手势分别在 `cover_canvas_paint`、`cover_canvas_gestures`。
+- `CoverEditorWidget`：负责把用户动作转换成 `CoverDocument` 快照、历史提交和自动保存；不实现媒体解码和 Pillow 绘制。画布本身就是预览，编辑过程中不在后台渲染预览图，只有导出才走 Pillow（D-025）。代码分在 `cover.py`（核心状态、提交与撤销）和 `cover_editor_ui/frames/objects/text/schemes/export` 混入类中。
+- `CoverService`：负责草稿读写、旧草稿迁移、取帧、素材、自动排版与快速方案、导出、风格记忆和导出历史；不持有 Qt 控件布局。它由 `cover_store`、`cover_frames`、`cover_autolayout`、`cover_exporting` 组合而成，`cover_draft` 是旧草稿兼容模型。
 - `CoverDocument`：负责可序列化封面对象、双比例 profile 和对象替换语义；不依赖媒体文件存在。
 - `autoslice_cover.renderer`：消费明确的布局/渲染输入，输出预览或最终图片；不反向读取桌面上下文。
 - `cover_layout`：把 `CoverDocument` 换算成导出像素下的背景放置、素材框、文字字号与断行。画布显示和导出都只从这里取几何，不各算一套；新增对象类型或样式效果时，两端的绘制都要跟着它改。
