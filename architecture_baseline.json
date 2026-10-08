@@ -2965,10 +2965,21 @@
     {
       "from": "autoslice.desktop.cover_editor_ai",
       "imports": [
-        "autoslice.desktop.cover_style.streamer_key"
+        "autoslice.desktop.cover_model.TextObject",
+        "autoslice.desktop.cover_model.object_for_profile"
       ],
       "lines": [
         11
+      ],
+      "to": "autoslice.desktop.cover_model"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_ai",
+      "imports": [
+        "autoslice.desktop.cover_style.streamer_key"
+      ],
+      "lines": [
+        12
       ],
       "to": "autoslice.desktop.cover_style"
     },
@@ -7678,6 +7689,15 @@
       "qualname": "generate_copy_recommendations"
     },
     {
+      "end_line": 387,
+      "kind": "function",
+      "line": 234,
+      "line_count": 154,
+      "module": "autoslice.desktop.cover_autolayout",
+      "path": "src/autoslice/desktop/cover_autolayout.py",
+      "qualname": "CoverLayoutService.apply_auto_layout"
+    },
+    {
       "end_line": 360,
       "kind": "function",
       "line": 207,
@@ -7721,15 +7741,6 @@
       "module": "autoslice.analysis.review.decisions",
       "path": "src/autoslice/analysis/review/decisions.py",
       "qualname": "apply_danmaku_slice_decisions"
-    },
-    {
-      "end_line": 381,
-      "kind": "function",
-      "line": 234,
-      "line_count": 148,
-      "module": "autoslice.desktop.cover_autolayout",
-      "path": "src/autoslice/desktop/cover_autolayout.py",
-      "qualname": "CoverLayoutService.apply_auto_layout"
     },
     {
       "end_line": 1157,
@@ -10738,96 +10749,96 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 324,
+      "line_count": 337,
       "longest_function": {
-        "end_line": 306,
+        "end_line": 315,
         "kind": "function",
-        "line": 241,
-        "line_count": 66,
+        "line": 245,
+        "line_count": 71,
         "qualname": "CoverAI.design"
       },
       "module": "autoslice.desktop.cover_ai",
       "path": "src/autoslice/desktop/cover_ai.py",
-      "sha256": "d53f452520a230a9730a2376f74fd286245f3c3fb033116a2c3d3265033789fe",
+      "sha256": "73032672161c0cb9283e08256b5621f3594d46138480d4301d1b20de9f6fa37c",
       "top_level_classes": [
         {
-          "end_line": 44,
+          "end_line": 46,
           "kind": "class",
-          "line": 43,
+          "line": 45,
           "name": "CoverAIError"
         },
         {
-          "end_line": 52,
+          "end_line": 54,
           "kind": "class",
-          "line": 48,
+          "line": 50,
           "name": "AIHighlight"
         },
         {
-          "end_line": 63,
+          "end_line": 65,
           "kind": "class",
-          "line": 56,
+          "line": 58,
           "name": "AICopy"
         },
         {
-          "end_line": 69,
+          "end_line": 71,
           "kind": "class",
-          "line": 67,
+          "line": 69,
           "name": "AIAnalysis"
         },
         {
-          "end_line": 78,
+          "end_line": 82,
           "kind": "class",
-          "line": 73,
+          "line": 75,
           "name": "AISchemeIdea"
         },
         {
-          "end_line": 84,
+          "end_line": 88,
           "kind": "class",
-          "line": 82,
+          "line": 86,
           "name": "AINote"
         },
         {
-          "end_line": 324,
+          "end_line": 337,
           "kind": "class",
-          "line": 141,
+          "line": 145,
           "name": "CoverAI"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 91,
+          "end_line": 95,
           "kind": "function",
-          "line": 87,
+          "line": 91,
           "name": "from_source"
         },
         {
-          "end_line": 106,
+          "end_line": 110,
           "kind": "function",
-          "line": 94,
+          "line": 98,
           "name": "jpeg_bytes"
         },
         {
-          "end_line": 111,
+          "end_line": 115,
           "kind": "function",
-          "line": 109,
+          "line": 113,
           "name": "_clean"
         },
         {
-          "end_line": 118,
+          "end_line": 122,
           "kind": "function",
-          "line": 114,
+          "line": 118,
           "name": "_seconds"
         },
         {
-          "end_line": 130,
+          "end_line": 134,
           "kind": "function",
-          "line": 121,
+          "line": 125,
           "name": "_subtitle_lines"
         },
         {
-          "end_line": 138,
+          "end_line": 142,
           "kind": "function",
-          "line": 133,
+          "line": 137,
           "name": "_work_examples"
         }
       ]
@@ -10886,17 +10897,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 574,
+      "line_count": 580,
       "longest_function": {
-        "end_line": 381,
+        "end_line": 387,
         "kind": "function",
         "line": 234,
-        "line_count": 148,
+        "line_count": 154,
         "qualname": "CoverLayoutService.apply_auto_layout"
       },
       "module": "autoslice.desktop.cover_autolayout",
       "path": "src/autoslice/desktop/cover_autolayout.py",
-      "sha256": "69b57cd709e1d55002f2ac9211e6a8e5a86fca7a20aa2f30bb815943fa0cf633",
+      "sha256": "6f77ea8ceea83c60dd040e6d3c1f8614131d62a7b0d4da72501d929db2ae504d",
       "top_level_classes": [
         {
           "end_line": 111,
@@ -10905,7 +10916,7 @@
           "name": "CoverScheme"
         },
         {
-          "end_line": 574,
+          "end_line": 580,
           "kind": "class",
           "line": 155,
           "name": "CoverLayoutService"
@@ -10986,20 +10997,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 456,
+      "line_count": 460,
       "longest_function": {
-        "end_line": 327,
+        "end_line": 331,
         "kind": "function",
-        "line": 261,
+        "line": 265,
         "line_count": 67,
         "qualname": "CanvasGestureMixin.mouseMoveEvent"
       },
       "module": "autoslice.desktop.cover_canvas_gestures",
       "path": "src/autoslice/desktop/cover_canvas_gestures.py",
-      "sha256": "69beb35afb351829a42beb0fd2dd4b70748827e29bf2cdbf08bb7a401a2d8eb7",
+      "sha256": "9aa6be8d62beaf6a92ed3560627eb37901a200505316253d3eaec27fbf4a84ae",
       "top_level_classes": [
         {
-          "end_line": 456,
+          "end_line": 460,
           "kind": "class",
           "line": 31,
           "name": "CanvasGestureMixin"
@@ -11194,22 +11205,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 105,
+      "line_count": 111,
       "longest_function": {
-        "end_line": 42,
+        "end_line": 43,
         "kind": "function",
-        "line": 15,
+        "line": 16,
         "line_count": 28,
         "qualname": "CoverAIMixin._ai_schemes"
       },
       "module": "autoslice.desktop.cover_editor_ai",
       "path": "src/autoslice/desktop/cover_editor_ai.py",
-      "sha256": "15dc5cdbf4d0f9c43d2ead03f8019765d6293f29fbb1e8498c4046dfd7203305",
+      "sha256": "9a501965e1b1075789eb3c50dff8c444a27a279050b6c76cc375672b22409031",
       "top_level_classes": [
         {
-          "end_line": 105,
+          "end_line": 111,
           "kind": "class",
-          "line": 14,
+          "line": 15,
           "name": "CoverAIMixin"
         }
       ],
@@ -20850,8 +20861,8 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 702,
-    "production_line_count": 63419,
+    "import_edge_count": 703,
+    "production_line_count": 63448,
     "production_module_count": 251,
     "test_private_patch_count": 17,
     "top_level_class_count": 233,

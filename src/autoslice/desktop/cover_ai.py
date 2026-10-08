@@ -25,6 +25,8 @@ from .cover_style import STYLE_PRESETS
 from .cover_works import CoverWork, describe_composition
 from .foundation import DesktopStorage
 
+# 每种排法可选的位置。
+PLACES = {"stack": ("top", "bottom"), "headline": ("top", "bottom"), "slot": ("left", "right", "top", "bottom")}
 LAYOUTS = {
     "split": "上下分置：A 放上缘一行，B 放下缘，人物留在中间",
     "stack": "标题在上：B 大标题、A 作小字紧跟其下，整组放在画面更空的上缘或下缘",
@@ -76,6 +78,8 @@ class AISchemeIdea:
     layout: str
     preset: str
     reason: str
+    # AI 看图选的位置：大字、标题在上用 top/bottom，侧边用 left/right；上下分置不用。
+    place: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,9 +282,12 @@ class CoverAI:
 最近封面的构图和配色：
 {recent_text}
 
-看清画面里人物的位置、画面原有的文字和杂乱区域再选排法。第 {round_index + 1} 次生成{"，请给出和之前不同的组合" if round_index else ""}。
+看清画面里人物的脸、画面原有的大字、弹幕和杂乱区域，再选排法和位置：
+- place 是文字放在哪：标题在上、大字填 top 或 bottom（上缘或下缘），侧边填 left、right、top 或 bottom；上下分置不用填。
+- 位置要避开人脸和画面原有的文字；上下分置的 A 一定在上缘、B 在下缘，上缘或下缘有原有大字时不要选上下分置。
+第 {round_index + 1} 次生成{"，请给出和之前不同的组合" if round_index else ""}。
 只输出 JSON，不要解释：
-{{"schemes": [{{"direction": "稳妥|换个构图|大胆一点", "copy": 文案序号, "layout": "排法", "preset": "配色", "reason": "这套的优点和风险（30 字内）"}}]}}"""
+{{"schemes": [{{"direction": "稳妥|换个构图|大胆一点", "copy": 文案序号, "layout": "排法", "place": "位置", "preset": "配色", "reason": "这套的优点和风险（30 字内）"}}]}}"""
         images = (frame, *recent_thumbnails[:3])
         payload = self._ask(prompt, vision=True, images=images)
         presets = {item.key for item in STYLE_PRESETS}
@@ -297,18 +304,24 @@ class CoverAI:
             direction = str(item.get("direction") or "").strip()
             if layout not in LAYOUTS or preset not in presets:
                 continue
+            place = str(item.get("place") or "").strip().lower()
             ideas.append(AISchemeIdea(
                 direction=direction if direction in DIRECTIONS else DIRECTIONS[min(len(ideas), 2)],
                 copy=copy, layout=layout, preset=preset, reason=_clean(item.get("reason"), 60),
+                place=place if place in PLACES.get(layout, ()) else "",
             ))
         if not ideas:
             raise CoverAIError("AI 没给出可用的方案（排法或配色不在可选范围内），可以再试一次")
         return tuple(ideas[:3])
 
-    def critique(self, cover: bytes, *, recent_thumbnails: Sequence[bytes] = ()) -> tuple[AINote, ...]:
+    def critique(
+        self, cover: bytes, *, texts: Sequence[str] = (), recent_thumbnails: Sequence[bytes] = (),
+    ) -> tuple[AINote, ...]:
         """按首页小图的尺寸看一眼成品：读不读得清、挡没挡脸、主次、和最近的像不像。"""
 
+        added = "、".join(f"「{text}」" for text in texts if text.strip()) or "（看不出）"
         prompt = f"""你是 B 站直播切片的封面审稿人。第一张图是准备导出的封面（按首页小图尺寸看）{"，后面几张是这位切片员最近导出的封面" if recent_thumbnails else ""}。
+封面上加的字只有：{added}。画面里原本就有的直播界面、弹幕、视频自带文字不是封面文字，不要评价它们本身；封面文字压住它们或被它们干扰才指出。
 从这几点挑最重要的问题，最多 4 条，没有问题就返回空列表：
 1. 首页小图上文字读不读得清；
 2. 有没有挡住人脸或画面关键信息；

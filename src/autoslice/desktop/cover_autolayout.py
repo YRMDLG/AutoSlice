@@ -67,13 +67,13 @@ _SPLIT_FONT_A = 136
 _SPLIT_FONT_B = 150
 
 # 主次：自动排版时 A 的字号不超过 B 的这个比例，再小也不低于下限。
-_CONTEXT_RATIO = 0.75
+_CONTEXT_RATIO = 0.65
 
 _CONTEXT_MIN_FONT = 40
 
 
 def _context_cap(headline_size: int) -> int:
-    """A 只补背景：字号压在 B 的四分之三以内，主次一眼可辨。"""
+    """A 只补背景：字号压在 B 的 65% 以内，主次一眼可辨。"""
 
     return max(_CONTEXT_MIN_FONT, round(headline_size * _CONTEXT_RATIO))
 
@@ -232,7 +232,7 @@ class CoverLayoutService:
         saliency_map(image_path)
 
     def apply_auto_layout(
-        self, document: CoverDocument, image_path: str | Path, *, mode: str = "auto",
+        self, document: CoverDocument, image_path: str | Path, *, mode: str = "auto", position: str = "",
     ) -> CoverDocument:
         """新底图的默认构图：两个比例分别保住主体、给 A/B 找空区。
 
@@ -240,6 +240,8 @@ class CoverLayoutService:
         mode="stack" 大标题在上、A 作小字紧跟其下，整组放在更空的上缘或下缘，
         mode="slot" 强制放进最空的单侧槽位。
         只排 A/B 主文案；用户新建或复制的文本框不动。
+        position 是看过画面的 AI 指定的位置（top/bottom/left/right），给了就按它放：
+        本地显著图只认人物，认不出画面里原有的大字和弹幕。
         """
 
         saliency = saliency_map(image_path)
@@ -265,6 +267,8 @@ class CoverLayoutService:
             costs = self._text_slot_costs(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
             bands = (costs.pop(_SPLIT_TOP_KEY)[0], costs.pop(_SPLIT_BOTTOM_KEY)[0]) if costs else None
             best = min(costs.items(), key=lambda item: item[1][0]) if costs else None
+            if mode == "slot" and costs and position in costs:
+                best = (position, costs[position])
             # 人物居中（左右代价接近）时上下宽带通常比单侧槽位更空：代价不更高就用宽带；
             # 人物偏一侧（左右代价悬殊）时文字去另一侧。有 A 比两条宽带的平均，只有 B 比更空的一条。
             band_cost = (sum(bands) / 2 if has_context else min(bands)) if bands else None
@@ -306,7 +310,7 @@ class CoverLayoutService:
             ]
             if mode == "stack":
                 # 大标题 + 小字（参考账号“晚安小音音 + 一行小字”式封面），整组放在更空的一缘。
-                at_top = bands is None or bands[0] <= bands[1]
+                at_top = position == "top" if position in ("top", "bottom") else bands is None or bands[0] <= bands[1]
                 cursor = _SPLIT_TOP
                 placed: list[tuple[TextObject, TextObject]] = []
                 head_size = _SPLIT_FONT_B
@@ -330,7 +334,9 @@ class CoverLayoutService:
             elif split:
                 # 上下分置：A 放上缘单行、B 放下缘，居中大字；只有 B 时占代价更低的一条宽带。
                 lone = not has_context
-                band_top = lone and bands is not None and bands[0] < bands[1]
+                band_top = lone and (
+                    position == "top" if position in ("top", "bottom") else bands is not None and bands[0] < bands[1]
+                )
                 height = _BAND_HEIGHT if lone else _SPLIT_HEIGHT
                 bottom_edge = 1.0 - _SPLIT_TOP if lone else _SPLIT_BOTTOM + _SPLIT_HEIGHT
                 headline_size = None
@@ -528,7 +534,7 @@ class CoverLayoutService:
                 copy = replace(copy, context="")
             mode = "split" if big else idea.layout
             built = self.apply_auto_layout(
-                self._seed_copy(document, copy, presets[idea.preset], big=big), image_path, mode=mode,
+                self._seed_copy(document, copy, presets[idea.preset], big=big), image_path, mode=mode, position=idea.place,
             )
             schemes.append(CoverScheme(f"ai:{idea.direction}", f"AI·{idea.direction}", idea.reason, built))
         return tuple(schemes)

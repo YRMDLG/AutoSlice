@@ -431,9 +431,9 @@ class SplitLayoutTests(unittest.TestCase):
             }
             self.assertLess(wide["A"].transform.y, 0.2)
             self.assertGreater(wide["B"].transform.y, 0.6)
-            # B 字多换两行后也不能比 A 小：A 只补背景，主次一眼可辨。
+            # B 字多换两行后也不能比 A 小：A 只补背景，字号不超过 B 的 65%。
             for profile in (texts, wide):
-                self.assertLessEqual(profile["A"].style.font_size, round(profile["B"].style.font_size * 0.75))
+                self.assertLessEqual(profile["A"].style.font_size, round(profile["B"].style.font_size * 0.65))
 
     def test_side_slot_keeps_context_weaker_than_headline(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -453,7 +453,7 @@ class SplitLayoutTests(unittest.TestCase):
             for key in ("4x3", "16x9"):
                 a = object_for_profile(document, "copy-a", key)
                 b = object_for_profile(document, "copy-b", key)
-                self.assertLessEqual(a.style.font_size, round(b.style.font_size * 0.75), key)
+                self.assertLessEqual(a.style.font_size, round(b.style.font_size * 0.65), key)
 
 
 if __name__ == "__main__":

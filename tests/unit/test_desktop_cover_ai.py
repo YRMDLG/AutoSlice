@@ -109,6 +109,43 @@ class CoverAIServiceTests(unittest.TestCase):
                          [("稳妥", "split", "居然会改变选曲"), ("换个构图", "slot", "居然会改变选曲")])
         self.assertEqual(model.calls[0][:2], ("gpt-5.6-luna", 3))
 
+    def test_place_is_kept_only_when_it_fits_the_layout(self):
+        analysis = AIAnalysis(None, (AICopy("", "交个备用机", "反差", ""),))
+        reply = json.dumps({"schemes": [
+            {"direction": "大胆一点", "copy": 0, "layout": "headline", "place": "top", "preset": "duo"},
+            {"direction": "换个构图", "copy": 0, "layout": "slot", "place": "LEFT", "preset": "duo"},
+            {"direction": "稳妥", "copy": 0, "layout": "split", "place": "left", "preset": "duo"},
+        ]}, ensure_ascii=False)
+        ideas = CoverAI(self.storage, llm=FakeModel(reply), settings=lambda: CONFIGURED).design(b"frame", analysis)
+        self.assertEqual([item.place for item in ideas], ["top", "left", ""])
+
+    def test_layout_engine_follows_the_place_ai_chose(self):
+        from autoslice.desktop.cover_ai import AISchemeIdea
+        from autoslice.desktop.cover_migration import document_from_basic_title_values
+        from autoslice.desktop.cover_service import CoverService
+        from tests.unit.autoslice_cover.test_composition import _person_frame
+
+        frame = _person_frame(Path(self.temp.name) / "frame.png", 960)
+        document = document_from_basic_title_values(
+            title="〖泽音〗交个备用机", image_path=str(frame), selected_timestamp=0.0,
+            background_x=0.5, background_y=0.5, background_scale=1.0,
+        )
+        service = CoverService(self.storage)
+
+        def headline(idea):
+            scheme, = service.schemes_from_ideas(document, frame, (idea,))
+            item = next(obj for obj in scheme.document.objects if isinstance(obj, TextObject) and obj.copy_role == "B")
+            return object_for_profile(scheme.document, item.id, "4x3")
+
+        copy = AICopy("", "交个备用机", "反差", "")
+        top = headline(AISchemeIdea("大胆一点", copy, "headline", "duo", "", place="top"))
+        bottom = headline(AISchemeIdea("大胆一点", copy, "headline", "duo", "", place="bottom"))
+        self.assertLess(top.transform.y, 0.3)
+        self.assertGreater(bottom.transform.y, 0.5)
+        left = headline(AISchemeIdea("换个构图", copy, "slot", "duo", "", place="left"))
+        right = headline(AISchemeIdea("换个构图", copy, "slot", "duo", "", place="right"))
+        self.assertLess(left.transform.x, right.transform.x)
+
     def test_critique_returns_short_notes(self):
         reply = json.dumps({"notes": [{"issue": "小图上 A 太小", "suggestion": "A 再大一点"}]}, ensure_ascii=False)
         notes = CoverAI(self.storage, llm=FakeModel(reply), settings=lambda: CONFIGURED).critique(b"cover")

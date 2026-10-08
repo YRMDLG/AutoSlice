@@ -8,6 +8,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMessageBox
 
 from .cover_ai import CoverAIError, jpeg_bytes
+from .cover_model import TextObject, object_for_profile
 from .cover_style import streamer_key
 
 
@@ -76,13 +77,18 @@ class CoverAIMixin:
         generation = self._ai_generation
         document, canvas_key, service = self.document, self._canvas_key, self.service
         streamer = streamer_key(self.project.title) or ""
+        texts = tuple(
+            current.text
+            for item in document.objects if isinstance(item, TextObject)
+            if isinstance(current := object_for_profile(document, item.id, canvas_key), TextObject) and current.visible
+        )
         self.ai_critique_button.setEnabled(False)
         self._set_notice("AI 正在看这张封面…", "info")
 
         def work():
             cover = jpeg_bytes(service.scheme_thumbnail(document, canvas_key=canvas_key, width=480), max_side=480)
             thumbnails = service.works.thumbnail_bytes(service.works.recent(streamer=streamer, limit=3))
-            return service.ai.critique(cover, recent_thumbnails=thumbnails)
+            return service.ai.critique(cover, texts=texts, recent_thumbnails=thumbnails)
 
         self._run(work, lambda result, error: self._ai_critique_ready(generation, result, error))
 
