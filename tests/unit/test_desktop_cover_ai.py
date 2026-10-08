@@ -25,6 +25,7 @@ from autoslice.desktop.cover_ai import (
 from autoslice.desktop.cover_model import AssetRef, BackgroundObject, TextObject, object_for_profile
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+from autoslice_cover.document_layout import background_box
 
 try:
     from PySide6.QtWidgets import QApplication
@@ -57,7 +58,7 @@ class RoutingModel:
         self.calls = []
 
     def __call__(self, prompt, *, max_tokens, model_override, images):
-        kind = "inspect" if "还没有加封面文字" in prompt else "choice" if "候选封面" in prompt else "analysis"
+        kind = "inspect" if "取景框" in prompt else "choice" if "候选封面" in prompt else "analysis"
         self.calls.append((kind, model_override, len(images)))
         return self.replies[kind]
 
@@ -152,12 +153,22 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertEqual((model_name, image_count), ("gpt-5.6-luna", 3))
         self.assertIn("一票否决", prompt)
 
-    def test_critique_names_the_cover_texts(self):
-        reply = json.dumps({"notes": [{"issue": "小图上 A 太小", "suggestion": "A 再大一点"}]}, ensure_ascii=False)
+    def test_fixes_come_only_from_the_menu_and_rewrites_must_come_from_source(self):
+        reply = json.dumps({"fixes": [
+            {"issue": "字压脸", "action": "move_bottom"},
+            {"issue": "加个贴纸", "action": "add_sticker"},
+            {"issue": "编的", "action": "rewrite", "headline": "全网震惊"},
+            {"issue": "文案空", "action": "rewrite", "context": "选秀", "headline": "居然会改变选曲"},
+            {"issue": "重复", "action": "move_bottom"},
+        ]}, ensure_ascii=False)
         model = FakeModel(reply)
-        notes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).critique(b"cover", texts=("选秀", "交手机"))
-        self.assertEqual([(note.issue, note.suggestion) for note in notes], [("小图上 A 太小", "A 再大一点")])
-        self.assertIn("「选秀」、「交手机」", model.calls[0][2])
+        fixes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).suggest_fixes(
+            b"cover", texts=("", "交手机"), title=TITLE, source=TITLE, frame=b"frame",
+        )
+        self.assertEqual([(fix.action, fix.headline) for fix in fixes], [("move_bottom", ""), ("rewrite", "居然会改变选曲")])
+        self.assertEqual(fixes[1].label, "换成 A「选秀」 B「居然会改变选曲」")
+        self.assertEqual(model.calls[0][1], 2)
+        self.assertIn("B「交手机」", model.calls[0][2])
 
     def test_jpeg_bytes_shrinks_long_side(self):
         path = Path(self.temp.name) / "big.png"
@@ -217,8 +228,35 @@ class CandidateTests(unittest.TestCase):
 
     def test_inspect_reads_busy_regions(self):
         reply = json.dumps({"busy": ["TOP", "middle", "right"], "note": "顶部有直播标题"}, ensure_ascii=False)
-        notes = CoverAI(self.service.storage, llm=FakeModel(reply), settings=lambda: CONFIGURED).inspect(b"frame")
+        notes = CoverAI(self.service.storage, llm=FakeModel(reply), settings=lambda: CONFIGURED).inspect(_thumb("red"))
         self.assertEqual(notes.busy, frozenset({"top", "right"}))
+        self.assertIsNone(notes.box)
+        framed = json.dumps({"box": [0.3, 0.16, 0.75, 0.76], "close": [0.4, 0.2, 0.42, 0.25], "text_zone": "BOTTOM"})
+        notes = CoverAI(self.service.storage, llm=FakeModel(framed), settings=lambda: CONFIGURED).inspect(_thumb("blue"))
+        # 太小的框不用；位置大小写不敏感。
+        self.assertEqual((notes.box, notes.close, notes.text_zone), ((0.3, 0.16, 0.75, 0.76), None, "bottom"))
+
+    def test_view_box_frames_the_person_and_text_goes_to_the_clean_zone(self):
+        view = (0.38, 0.15, 0.62, 0.62)
+        candidates = self.service.ai_candidates(self.document, self.frame, COPIES, views=(view, None), text_zone="bottom")
+        framed = [item for item in candidates if self._background(item.document).scale > 1.05]
+        self.assertGreaterEqual(len(framed), 6)
+        for item in framed:
+            # 字放在 AI 说干净的下方，人物靠上，留出字带。
+            self.assertGreater(self._headline(item.document).transform.y, 0.5)
+            context = next((obj for obj in item.document.objects if isinstance(obj, TextObject) and obj.copy_role == "A"), None)
+            context = object_for_profile(item.document, context.id, "4x3") if context is not None else None
+            if context is not None and context.visible and context.transform.y < 0.3:
+                continue  # 上下分置：上下都放字，人物居中
+            background = self._background(item.document)
+            drawn = background_box((1920, 1080), (1440, 1080), scale=background.scale,
+                                   focus_x=background.pan_x, focus_y=background.pan_y)
+            person_top = (drawn.top + view[1] * drawn.height) / 1080
+            person_bottom = (drawn.top + view[3] * drawn.height) / 1080
+            self.assertLess(person_top, 0.12)
+            self.assertLess(person_bottom, 0.72)
+        # 原画面留两张兜底。
+        self.assertTrue(any(self._background(item.document).scale == 1.0 for item in candidates))
 
     def test_layout_engine_follows_the_given_position(self):
         copy = AICopy("", "交个备用机", "反差", "")
@@ -259,8 +297,8 @@ class CoverAIEditorTests(unittest.TestCase):
         self.widget = CoverEditorWidget(DesktopStorage(root / "data"))
         self.addCleanup(self.widget.deleteLater)
         frame = _person_frame(root / "frame.png", 960)
-        # 第 1 张候选是上下分置 + 第一组文案（带 A），第 3 张是只留 B 的大字。
-        self.model = RoutingModel(_analysis_reply(), _choice_reply(("稳妥", 1), ("换个构图", 4), ("大胆一点", 3)))
+        # 第 1 张候选用标题提炼的文案；第 2 张用 AI 第一组（带 A）；第 3 张是只留 B 的大字。
+        self.model = RoutingModel(_analysis_reply(), _choice_reply(("稳妥", 1), ("换个构图", 2), ("大胆一点", 3)))
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=self.model, settings=lambda: CONFIGURED)
         self.widget.project, self.widget.video = self.project, video
         document = self.widget.service.load_document(self.project, video)[0]
@@ -307,7 +345,7 @@ class CoverAIEditorTests(unittest.TestCase):
         self.assertNotIn("A", self._texts())
         self.widget._ai_schemes()
         self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
-        self.widget._apply_scheme(0)
+        self.widget._apply_scheme(1)
         texts = self._texts()
         self.assertEqual((texts["A"].text, texts["A"].visible), ("选秀", True))
         self.assertLess(texts["A"].style.font_size, texts["B"].style.font_size)
@@ -330,6 +368,33 @@ class CoverAIEditorTests(unittest.TestCase):
             self.assertEqual((texts["A"].text, texts["A"].visible), ("选秀", True), key)
             self.assertLess(texts["A"].transform.y, texts["B"].transform.y, key)
             self.assertLess(texts["A"].style.font_size, texts["B"].style.font_size, key)
+
+    def test_ai_fixes_apply_to_the_cover_and_undo(self):
+        from autoslice.desktop.cover_ai import AIFix
+
+        def background():
+            item = next(obj for obj in self.widget.document.objects if isinstance(obj, BackgroundObject))
+            return object_for_profile(self.widget.document, item.id, "4x3")
+
+        start = self._texts()["B"]
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("字太小", "bigger")))
+        self.assertGreater(self._texts()["B"].style.font_size, start.style.font_size)
+        scale = background().scale
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("太远", "zoom_in")))
+        self.assertAlmostEqual(background().scale, scale * 1.25, places=3)
+        zoomed = background()
+        # 移字只重排文字，刚拉近的取景不动。
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("压脸", "move_top")))
+        self.assertLess(self._texts()["B"].transform.y, 0.3)
+        self.assertEqual((background().scale, background().pan_x, background().pan_y),
+                         (zoomed.scale, zoomed.pan_x, zoomed.pan_y))
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("文案空", "rewrite", "选秀", "居然会改变选曲")))
+        texts = self._texts()
+        self.assertEqual((texts["A"].text, texts["B"].text), ("选秀", "居然会改变选曲"))
+        for _ in range(4):
+            self.widget._undo()
+        self.assertEqual(self._texts()["B"].text, start.text)
+        self.assertEqual(self._texts()["B"].style.font_size, start.style.font_size)
 
     def test_ai_failure_shows_reason(self):
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=FakeModel(), settings=AISettings)

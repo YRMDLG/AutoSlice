@@ -104,30 +104,33 @@ class CoverSchemesMixin:
         self._copy_variant_index = (self._copy_variant_index + 1) % len(self._copy_variants)
         candidate = self._copy_variants[self._copy_variant_index]
         if self.document is not None:
-            before = self.document
-            if candidate.context.strip():
-                # 原封面只有 B 时先在 B 上方补一个 A 块，A 文案才有地方放。
-                self.document = ensure_context_text(self.document)
-            # 只换文字：A/B 各自是独立文本框，位置、字号和行宽沿用当前排版。
-            primary = set(self._primary_copy_ids().values())
-            for item in self.document.objects:
-                if not isinstance(item, TextObject) or item.id not in primary:
-                    continue
-                value = candidate.context if item.copy_role == "A" else candidate.headline
-                current = object_for_profile(self.document, item.id, self._canvas_key)
-                current = current if isinstance(current, TextObject) else item
-                self.document = update_text_object(
-                    self.document, replace(current, text=value), profile_key=self._canvas_key,
-                )
-                self.document = set_object_visible(self.document, item.id, bool(value.strip()))
-            if self.document != before:
-                self._commit_document_change(before)
+            self._replace_copy(candidate)
         else:
             self.title_edit.setPlainText(candidate.headline)
         self.status_changed.emit(
             f"已切换本地基础文案 {self._copy_variant_index + 1}/{len(self._copy_variants)}"
         )
         self._draft_timer.start()
+
+    def _replace_copy(self, candidate):
+        """只换 A/B 文字：位置、字号和行宽沿用当前排版；原封面只有 B 时先在 B 上方补一个 A 块。"""
+
+        before = self.document
+        if candidate.context.strip():
+            self.document = ensure_context_text(self.document)
+        primary = set(self._primary_copy_ids().values())
+        for item in self.document.objects:
+            if not isinstance(item, TextObject) or item.id not in primary:
+                continue
+            value = candidate.context if item.copy_role == "A" else candidate.headline
+            current = object_for_profile(self.document, item.id, self._canvas_key)
+            current = current if isinstance(current, TextObject) else item
+            self.document = update_text_object(
+                self.document, replace(current, text=value), profile_key=self._canvas_key,
+            )
+            self.document = set_object_visible(self.document, item.id, bool(value.strip()))
+        if self.document != before:
+            self._commit_document_change(before)
 
     def _sync_other_ratio(self):
         if self.document is None:

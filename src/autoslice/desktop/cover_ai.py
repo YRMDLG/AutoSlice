@@ -1,4 +1,4 @@
-"""封面 AI：读标题和字幕写 A/B 文案；看候选成品挑三张；看图点评。
+"""封面 AI：读标题和字幕写 A/B 文案；看候选成品挑三张；看成品给能一键应用的修改。
 
 AI 只在用户点击时运行。文案必须出自标题和字幕原文（逐字校验，允许删减、
 调序和补少量虚词，不许加实词）。方案不让 AI 给坐标：本地排版引擎先排出十几
@@ -83,6 +83,8 @@ class AISchemeIdea:
     place: str = ""
     # 大于 1 时把画面放大到人物，裁掉两侧的弹幕栏和直播界面。
     zoom: float = 1.0
+    # 看图模型给的取景框（源图比例坐标）；给了就按框裁切，优先于 zoom。
+    view: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,16 +106,40 @@ REGIONS = ("top", "bottom", "left", "right")
 
 @dataclass(frozen=True, slots=True)
 class AIFrameNotes:
-    """看图模型看原画面（没加字）的结论：哪些区域有画面自带的文字、弹幕或界面。"""
+    """看图模型看原画面（没加字）的结论：取景框、特写框、字放哪更干净、哪些区域有画面自带的字或界面。"""
 
     busy: frozenset[str]
     note: str
+    # 源图比例坐标 (x0, y0, x1, y1)；看不出来或不合理时为 None。
+    box: tuple[float, float, float, float] | None = None
+    close: tuple[float, float, float, float] | None = None
+    text_zone: str = ""
+
+
+# AI 修改建议只能从这些一键操作里选。
+FIX_ACTIONS = {
+    "move_bottom": "封面文字整体移到画面下方",
+    "move_top": "封面文字整体移到画面上方",
+    "zoom_in": "画面拉近人物，裁掉四周的界面和弹幕",
+    "zoom_out": "画面拉远一点（人物太大、没地方放字时）",
+    "bigger": "主文案 B 放大",
+    "smaller_context": "A 缩小，让 B 更突出",
+    "rewrite": "换一句文案",
+}
 
 
 @dataclass(frozen=True, slots=True)
-class AINote:
+class AIFix:
     issue: str
-    suggestion: str
+    action: str
+    context: str = ""
+    headline: str = ""
+
+    @property
+    def label(self) -> str:
+        if self.action == "rewrite":
+            return f"换成 A「{self.context}」 B「{self.headline}」" if self.context else f"换成「{self.headline}」"
+        return FIX_ACTIONS[self.action]
 
 
 def from_source(text: str, source: str) -> bool:
@@ -168,6 +194,20 @@ def contact_sheet(thumbnails: Sequence[bytes]) -> bytes:
     buffer = io.BytesIO()
     sheet.save(buffer, format="JPEG", quality=88)
     return buffer.getvalue()
+
+
+def _view(value: object) -> tuple[float, float, float, float] | None:
+    """模型给的框：四个 0~1 的数、左上在右下之前、宽高都不太小；不合理就不用。"""
+
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        x0, y0, x1, y1 = (min(1.0, max(0.0, float(item))) for item in value)
+    except (TypeError, ValueError):
+        return None
+    if x1 - x0 < 0.12 or y1 - y0 < 0.12:
+        return None
+    return x0, y0, x1, y1
 
 
 def _clean(value: object, limit: int) -> str:
@@ -256,6 +296,7 @@ class CoverAI:
 2. 优先用投稿标题里的爆点——标题是切片员自己写的总结；字幕用来确认爆点，或找到更有力的原话。
 3. 只能从标题和字幕里截取、删减、压缩，可以补“的、了、被、到”这类虚词让句子通顺；不许加原文没有的事实和词，不写营销话术。
 4. 不要只有看过视频才懂的碎片，比如「交个备用机」「4个emoji」「ins简介改了」：没头没尾，观众不知道在说谁、发生了什么。
+   也不要空泛的话，比如「这就是暗号」「粉丝就发现了」「原来是这样」：B 里要有这件事的关键名词（人物、东西、结果），让人一眼知道是什么事。
 5. “告诉你”“揭秘”“原因竟然是这个”这类预告语不能当 B。
 
 好的例子（这位切片员以前的标题 → 封面字）：
@@ -310,15 +351,29 @@ class CoverAI:
         return AIAnalysis(highlight=highlight, copies=tuple(copies))
 
     def inspect(self, frame: bytes) -> AIFrameNotes:
-        """看没加字的原画面：上缘、下缘、左侧、右侧哪里有画面自带的文字、弹幕或直播界面。"""
+        """看没加字的原画面：给封面取景框和特写框、字放上方还是下方，以及哪里有画面自带的字或界面。"""
 
-        prompt = """这是一帧直播切片画面，还没有加封面文字。
-判断画面的上缘（顶部约四分之一）、下缘（底部约四分之一）、左侧、右侧，哪些区域有画面自带的文字、弹幕、直播界面、字幕条或水印——封面大字放在那里会和它们叠在一起、显得乱。
+        try:
+            with Image.open(io.BytesIO(frame)) as image:
+                size = f"{image.size[0]}x{image.size[1]} 像素，"
+        except OSError:
+            size = ""
+        prompt = f"""这是一帧直播切片画面（{size}还没加封面文字），要做成 B 站封面（4:3）。
+1. box：封面取景框。框住主播（立绘或真人）的脸和上半身，脸要够大、表情清楚；尽量不包含弹幕、聊天栏、直播界面、画面原有的文字和水印；框里脸的上方或下方要留出能放两行大字、不压脸的干净区域。
+2. close：更紧的特写框，脸和肩膀，脸占框的三分之一以上。
+3. text_zone：在 box 里，大字放上方（top）还是下方（bottom）更干净、不压脸也不压原有的字。
+4. busy：整张原画面的上缘、下缘、左侧、右侧，哪些区域有画面自带的文字、弹幕、直播界面、字幕条或水印。
+框的坐标用画面比例（左上角 0,0，右下角 1,1），格式 [x0, y0, x1, y1]，按像素算宽高比尽量接近 4:3。
 只输出 JSON，不要解释：
-{"busy": ["top|bottom|left|right 中有原有文字或界面的区域"], "note": "画面原有文字和界面在哪（30 字内）"}"""
+{{"box": [x0, y0, x1, y1], "close": [x0, y0, x1, y1], "text_zone": "top|bottom", "busy": ["top|bottom|left|right"], "note": "画面原有文字和界面在哪（30 字内）"}}"""
         payload = self._ask(prompt, vision=True, images=(frame,), max_tokens=2000)
         busy = frozenset(str(item).strip().lower() for item in payload.get("busy") or () if str(item).strip().lower() in REGIONS)
-        return AIFrameNotes(busy=busy, note=_clean(payload.get("note"), 60))
+        zone = str(payload.get("text_zone") or "").strip().lower()
+        return AIFrameNotes(
+            busy=busy, note=_clean(payload.get("note"), 60),
+            box=_view(payload.get("box")), close=_view(payload.get("close")),
+            text_zone=zone if zone in ("top", "bottom") else "",
+        )
 
     def choose(
         self,
@@ -372,24 +427,44 @@ class CoverAI:
             ))
         return AIChoice(picks=tuple(picks[:3]), rejected=_clean(payload.get("rejected"), 60))
 
-    def critique(
-        self, cover: bytes, *, texts: Sequence[str] = (), recent_thumbnails: Sequence[bytes] = (),
-    ) -> tuple[AINote, ...]:
-        """按首页小图的尺寸看一眼成品：读不读得清、挡没挡脸、主次、和最近的像不像。"""
+    def suggest_fixes(
+        self,
+        cover: bytes,
+        *,
+        texts: tuple[str, str] = ("", ""),
+        title: str = "",
+        source: str = "",
+        frame: bytes | None = None,
+    ) -> tuple[AIFix, ...]:
+        """看成品挑最影响效果的问题，每条只给工具能一键做到的修改；没问题就返回空。"""
 
-        added = "、".join(f"「{text}」" for text in texts if text.strip()) or "（看不出）"
-        prompt = f"""你是 B 站直播切片的封面审稿人。第一张图是准备导出的封面（按首页小图尺寸看）{"，后面几张是这位切片员最近导出的封面" if recent_thumbnails else ""}。
-封面上加的字只有：{added}。画面里原本就有的直播界面、弹幕、视频自带文字不是封面文字，不要评价它们本身；封面文字压住它们或被它们干扰才指出。
-从这几点挑最重要的问题，最多 4 条，没有问题就返回空列表：
-1. 首页小图上文字读不读得清；
-2. 有没有挡住人脸或画面关键信息；
-3. 上下两块字主次清不清楚；
-4. 和最近的封面是不是太像。
-每条给一个具体可做的修改建议。只输出 JSON：
-{{"notes": [{{"issue": "问题（20 字内）", "suggestion": "怎么改（30 字内）"}}]}}"""
-        payload = self._ask(prompt, vision=True, images=(cover, *recent_thumbnails[:3]), max_tokens=3000)
-        notes = []
-        for item in payload.get("notes") or ():
-            if isinstance(item, dict) and str(item.get("issue") or "").strip():
-                notes.append(AINote(_clean(item.get("issue"), 40), _clean(item.get("suggestion"), 60)))
-        return tuple(notes[:4])
+        context, headline = texts
+        actions = "\n".join(f"- {key}：{text}" for key, text in FIX_ACTIONS.items())
+        prompt = f"""你是 B 站直播切片的封面审稿人。第一张图是准备导出的封面（按首页小图尺寸看）{"；第二张是没加字的原画面" if frame is not None else ""}。
+封面上加的字只有：A「{context}」（可能为空）、B「{headline}」。画面原有的直播界面、弹幕、视频自带文字不是封面文字，不要评价它们本身。
+投稿标题：{title or "未知"}
+
+找出最影响效果的问题，最多 3 条。每条只能从下面这些修改里选一个——这个工具能一键做到的只有这些：
+{actions}
+rewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截取、删减、压缩，可以补“的、了、被、到”这类虚词；B 要只看封面就能懂。
+没有明显问题就返回空列表，不要为了凑数提建议；不要提这些修改做不到的事。
+只输出 JSON，不要解释：
+{{"fixes": [{{"issue": "问题（20 字内）", "action": "上面的英文名之一", "context": "rewrite 时的新 A", "headline": "rewrite 时的新 B"}}]}}"""
+        images = (cover, *((frame,) if frame is not None else ()))
+        payload = self._ask(prompt, vision=True, images=images, max_tokens=3000)
+        fixes: list[AIFix] = []
+        for item in payload.get("fixes") or ():
+            if not isinstance(item, dict):
+                continue
+            action = str(item.get("action") or "").strip().lower()
+            if action not in FIX_ACTIONS or any(fix.action == action for fix in fixes):
+                continue
+            fix = AIFix(
+                issue=_clean(item.get("issue"), 40), action=action,
+                context=_clean(item.get("context"), _MAX_CONTEXT), headline=_clean(item.get("headline"), _MAX_HEADLINE),
+            )
+            # 换文案同样逐字校验，不能编。
+            if action == "rewrite" and (not fix.headline or not from_source(fix.context + fix.headline, source or title)):
+                continue
+            fixes.append(fix)
+        return tuple(fixes[:3])

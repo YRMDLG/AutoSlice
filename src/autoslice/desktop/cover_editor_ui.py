@@ -152,7 +152,7 @@ class CoverLayoutMixin:
         self.shape_menu_button.setMenu(self._shape_menu(self.shape_menu_button))
         self.hidden_button = self._button("已隐藏", icon_name="eye", tip="被删除或隐藏的文字和素材，点一下恢复")
         self.ai_critique_button = self._button(
-            "AI 点评", icon_name="sparkles", tip="让 AI 按首页小图看这张封面：读不读得清、挡没挡脸、和最近的像不像",
+            "AI 改一改", icon_name="sparkles", tip="让 AI 看这张封面，给出能一键应用的修改（移字、拉近、放大、换文案），可撤销",
             slot=self._ai_critique, enabled=False,
         )
         self.hidden_menu = QMenu(self.hidden_button)
