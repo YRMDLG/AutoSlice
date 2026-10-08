@@ -388,9 +388,17 @@ class SplitLayoutTests(unittest.TestCase):
                 title="〖泽音〗选秀带手机居然会改变选曲⁉ 懂姐小音告诉你韩娱特殊操作与内幕", image_path=str(frame),
                 selected_timestamp=0.0, background_x=0.5, background_y=0.5, background_scale=1.0, font_size=104,
             )
+            # 文案显式给定：短 A、长 B（B 会换两行），只测排版，不依赖文案打分。
+            words = {"A": "选秀带手机居然会改变选曲", "B": "懂姐小音告诉你韩娱特殊操作与内幕"}
             document = replace(document, objects=tuple(
-                replace(item, asset=AssetRef(path=str(frame))) if isinstance(item, BackgroundObject) else item
+                replace(item, asset=AssetRef(path=str(frame))) if isinstance(item, BackgroundObject)
+                else replace(item, text=words[item.copy_role], visible=True) if isinstance(item, TextObject)
+                else item
                 for item in document.objects
+            ) + tuple(
+                TextObject(id=f"copy-{role.lower()}", text=text, copy_role=role, z_index=10 + index)
+                for index, (role, text) in enumerate(words.items())
+                if role not in {item.copy_role for item in document.objects if isinstance(item, TextObject)}
             ))
             document = CoverService(DesktopStorage(root / "data")).apply_auto_layout(document, frame)
             texts = {
