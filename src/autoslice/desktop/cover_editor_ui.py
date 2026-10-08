@@ -151,11 +151,15 @@ class CoverLayoutMixin:
         self.shape_menu_button = self._button("形状", icon_name="shapes", tip="添加圆圈、箭头或矩形强调框", enabled=False)
         self.shape_menu_button.setMenu(self._shape_menu(self.shape_menu_button))
         self.hidden_button = self._button("已隐藏", icon_name="eye", tip="被删除或隐藏的文字和素材，点一下恢复")
+        self.ai_critique_button = self._button(
+            "AI 点评", icon_name="sparkles", tip="让 AI 按首页小图看这张封面：读不读得清、挡没挡脸、和最近的像不像",
+            slot=self._ai_critique, enabled=False,
+        )
         self.hidden_menu = QMenu(self.hidden_button)
         self.hidden_menu.aboutToShow.connect(self._fill_hidden_menu)
         self.hidden_button.setMenu(self.hidden_menu)
         self.hidden_button.setVisible(False)
-        for button in (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button):
+        for button in (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button, self.ai_critique_button):
             row.addWidget(button)
         row.addStretch(1)
 
@@ -332,10 +336,19 @@ class CoverLayoutMixin:
         section.setSpacing(4)
         scheme_head = QHBoxLayout()
         scheme_head.setSpacing(4)
-        scheme_title = QLabel("快速方案")
-        scheme_title.setObjectName("sectionTitle")
-        scheme_head.addWidget(scheme_title)
+        self.scheme_title = QLabel("快速方案")
+        self.scheme_title.setObjectName("sectionTitle")
+        scheme_head.addWidget(self.scheme_title)
         scheme_head.addStretch(1)
+        self.ai_scheme_button = QPushButton("AI 方案")
+        self.ai_scheme_button.setIcon(icon("sparkles"))
+        self.ai_scheme_button.setIconSize(QSize(15, 15))
+        self.ai_scheme_button.setFixedHeight(26)
+        self.ai_scheme_button.setObjectName("quiet")
+        self.ai_scheme_button.setToolTip("让 AI 读字幕找爆点、看画面，出“稳妥 / 换个构图 / 大胆一点”三套方案；再点一次换一批")
+        self.ai_scheme_button.clicked.connect(self._ai_schemes)
+        self.ai_scheme_button.setEnabled(False)
+        scheme_head.addWidget(self.ai_scheme_button)
         self.scheme_refresh_button = QPushButton("")
         self.scheme_refresh_button.setIcon(icon("refresh"))
         self.scheme_refresh_button.setIconSize(QSize(15, 15))
@@ -369,6 +382,11 @@ class CoverLayoutMixin:
             self.scheme_buttons.append(button)
             self.scheme_labels.append(caption)
         section.addLayout(scheme_row)
+        self.ai_hint = QLabel("")
+        self.ai_hint.setObjectName("subtle")
+        self.ai_hint.setWordWrap(True)
+        self.ai_hint.setVisible(False)
+        section.addWidget(self.ai_hint)
         return section
 
     def _toggle_panel(self, checked):

@@ -160,33 +160,41 @@ class CoverStoreService:
     def subtitle_context(video: ProjectVideo, timestamp: float, *, radius: float = 4.0) -> str:
         """读取当前帧附近的校对字幕文本；失败时返回空字符串。"""
 
+        blocks = [
+            text for start, end, text in CoverStoreService.subtitle_cues(video)
+            if not (end < timestamp - radius or start > timestamp + radius)
+        ]
+        # 每条字幕各自成段，避免多句被拼成一个文本框。
+        return " / ".join(blocks)[:240]
+
+    @staticmethod
+    def subtitle_cues(video: ProjectVideo) -> tuple[tuple[float, float, str], ...]:
+        """整份字幕（优先校对版）：(起, 止, 文本)；读不到返回空。"""
+
         source = video.corrected_srt_path if video.has_corrected_srt else video.srt_path
         if not source or not Path(source).is_file():
-            return ""
+            return ()
         try:
             raw = Path(source).read_text(encoding="utf-8-sig")
         except (OSError, UnicodeError):
-            return ""
+            return ()
         import re
         def seconds(value: str) -> float:
             match = re.match(r"(\d+):(\d{2}):(\d{2})[,.](\d{3})", value.strip())
             if not match:
                 return -1.0
             return int(match.group(1)) * 3600 + int(match.group(2)) * 60 + int(match.group(3)) + int(match.group(4)) / 1000
-        blocks: list[str] = []
+        cues: list[tuple[float, float, str]] = []
         for block in re.split(r"\r?\n\s*\r?\n", raw):
             lines = [line.strip() for line in block.splitlines() if line.strip()]
             if len(lines) < 2 or "-->" not in lines[1]:
                 continue
             start_raw, end_raw = [item.strip() for item in lines[1].split("-->", 1)]
             start, end = seconds(start_raw), seconds(end_raw)
-            if start < 0 or end < 0 or end < timestamp - radius or start > timestamp + radius:
-                continue
             text = " ".join(lines[2:]).strip()
-            if text:
-                blocks.append(text)
-        # 每条字幕各自成段，避免多句被拼成一个文本框。
-        return " / ".join(blocks)[:240]
+            if start >= 0 and end >= 0 and text:
+                cues.append((start, end, text))
+        return tuple(cues)
 
     def _reflow_auto_default_layout(
         self, document: CoverDocument, *, canvas_key: str,

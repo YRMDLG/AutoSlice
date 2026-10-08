@@ -24,6 +24,7 @@ from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 
 from .cover_autolayout import CoverScheme
 from .cover_draft import CoverDraft
+from .cover_editor_ai import CoverAIMixin
 from .cover_editor_export import CoverExportMixin
 from .cover_editor_frames import CoverFramesMixin
 from .cover_editor_objects import CoverObjectsMixin
@@ -53,6 +54,7 @@ class CoverEditorWidget(
     CoverTextMixin,
     CoverSchemesMixin,
     CoverExportMixin,
+    CoverAIMixin,
     QWidget,
 ):
     """真正可鼠标操作的 AutoCover 编辑器。"""
@@ -98,6 +100,9 @@ class CoverEditorWidget(
         # 作品库用：最近套用的快速方案，以及套用后又改了几步。
         self._applied_scheme = ""
         self._edits_after_scheme = 0
+        # AI 请求的代际（切项目即作废迟到结果）与“再点一次换一批”的轮次。
+        self._ai_generation = 0
+        self._ai_round = 0
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
@@ -291,6 +296,8 @@ class CoverEditorWidget(
         self._frame_extract_pending = False
         self._frame_request_generation += 1
         self._nearby_request_generation += 1
+        self._ai_generation += 1
+        self._ai_round = 0
 
     def _set_editing_enabled(self, enabled: bool):
         for button in (
@@ -462,7 +469,7 @@ class CoverEditorWidget(
         self._refresh_canvas()
 
     def _show_background(self, path: str | None):
-        """底图路径变了才重新解码（换帧、导入、撤销、换项目）；改字不重复读大图。有底图才能导出。"""
+        """底图路径变了才重新解码（换帧、导入、撤销、换项目）；改字不重复读大图。有底图才能导出和用 AI。"""
 
         if path != self._background_source:
             pixmap = QPixmap(path) if path else QPixmap()
@@ -472,8 +479,8 @@ class CoverEditorWidget(
                 self.canvas.setText("底图无法读取")
                 self._set_notice(f"底图无法读取：{path}", "error")
         ready = self._background_source is not None
-        self.export_button.setEnabled(ready)
-        self.export_both_button.setEnabled(ready)
+        for button in (self.export_button, self.export_both_button, self.ai_scheme_button, self.ai_critique_button):
+            button.setEnabled(ready)
 
     def _read_draft(self) -> CoverDraft:
         self._store_text_controls()

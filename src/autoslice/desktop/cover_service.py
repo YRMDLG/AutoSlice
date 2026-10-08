@@ -9,6 +9,7 @@ from autoslice_cover.video import (
     VideoMetadata,
 )
 
+from .cover_ai import CoverAI
 from .cover_assets import CoverAssetLibrary
 from .cover_autolayout import CoverLayoutService
 from .cover_exporting import CoverExportService
@@ -35,6 +36,7 @@ class CoverService(
         self.asset_library = CoverAssetLibrary(storage.root)
         self.style_memory = CoverStyleMemoryStore(storage.root)
         self.works = CoverWorks(storage)
+        self.ai = CoverAI(storage)
         self.export_history_path = storage.root / "cover-export-history.json"
         # 同一视频只探测一次时长与尺寸；取帧任务会并发调用。
         self._metadata: dict[tuple[str, int, int], VideoMetadata] = {}

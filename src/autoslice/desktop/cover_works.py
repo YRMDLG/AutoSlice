@@ -86,6 +86,8 @@ def describe_composition(signature: str) -> str:
 
 
 def describe_scheme(key: str) -> str:
+    if key.startswith("ai:"):
+        return f"AI·{key[3:]}"
     return _SCHEME_NAMES.get(key, key)
 
 
@@ -192,6 +194,19 @@ class CoverWorks:
                 return name
         except OSError:
             return ""
+
+    def thumbnail_bytes(self, works: Iterable[CoverWork]) -> tuple[bytes, ...]:
+        """作品缩略图（JPEG 字节），给看图模型对照；缺失的跳过。"""
+
+        images = []
+        for item in works:
+            if not item.thumbnail:
+                continue
+            try:
+                images.append((self.root / item.thumbnail).read_bytes())
+            except OSError:
+                continue
+        return tuple(images)
 
     def recent(self, *, streamer: str | None = None, limit: int = 12) -> tuple[CoverWork, ...]:
         """最近的作品，新的在前；给了主播就只看这个主播的。"""

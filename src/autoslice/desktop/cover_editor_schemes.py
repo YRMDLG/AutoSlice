@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 
+from .cover_autolayout import ensure_context_text
 from .cover_model import (
     TextObject,
     object_for_profile,
@@ -25,6 +26,8 @@ class CoverSchemesMixin:
     def _clear_schemes(self, caption: str = "—"):
         self._scheme_generation += 1
         self._schemes = ()
+        self.scheme_title.setText("快速方案")
+        self.ai_hint.setVisible(False)
         for button, label in zip(self.scheme_buttons, self.scheme_labels):
             button.setIcon(QIcon())
             button.setChecked(False)
@@ -102,9 +105,12 @@ class CoverSchemesMixin:
         candidate = self._copy_variants[self._copy_variant_index]
         if self.document is not None:
             before = self.document
+            if candidate.context.strip():
+                # 原封面只有 B 时先在 B 上方补一个 A 块，A 文案才有地方放。
+                self.document = ensure_context_text(self.document)
             # 只换文字：A/B 各自是独立文本框，位置、字号和行宽沿用当前排版。
             primary = set(self._primary_copy_ids().values())
-            for item in before.objects:
+            for item in self.document.objects:
                 if not isinstance(item, TextObject) or item.id not in primary:
                     continue
                 value = candidate.context if item.copy_role == "A" else candidate.headline

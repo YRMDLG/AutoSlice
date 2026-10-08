@@ -13,6 +13,7 @@ from autoslice_cover.composition import best_crop_focus, region_cost, saliency_m
 from autoslice_cover.document_layout import Box, background_box
 from autoslice_cover.document_render import compose_document
 
+from .cover_ai import AISchemeIdea
 from .cover_copy import BasicCoverCopy
 from .cover_draft import CoverDraft
 from .cover_layout import (
@@ -33,6 +34,7 @@ from .cover_model import (
     object_for_profile,
     object_override_payload,
     resize_text_style,
+    set_profile_override,
     text_override_payload,
 )
 from .cover_style import (
@@ -116,6 +118,38 @@ def primary_copy_ids(document: CoverDocument) -> dict[str, str]:
         if isinstance(item, TextObject):
             ids.setdefault(item.copy_role, item.id)
     return ids
+
+
+def ensure_context_text(document: CoverDocument) -> CoverDocument:
+    """文档里没有 A 块时，照着 B 的样式补一个空的隐藏 A 块：每个比例都放在 B 的上方，字号约为 B 的七成。
+
+    默认文案只有 B 时文档里没有 A 块；之后换上带 A 的文案（方案、换一版）需要有地方放。
+    """
+
+    ids = primary_copy_ids(document)
+    if "A" in ids or "B" not in ids:
+        return document
+    headline = next(item for item in document.objects if item.id == ids["B"])
+    used = {item.id for item in document.objects}
+    object_id = "copy-a" if "copy-a" not in used else next(
+        f"copy-a-{index}" for index in range(2, 1000) if f"copy-a-{index}" not in used
+    )
+
+    def above(item: TextObject) -> TextObject:
+        size = max(_CONTEXT_MIN_FONT, round(item.style.font_size * 0.7))
+        return replace(
+            item, id=object_id, copy_role="A", text="", visible=False,
+            style=resize_text_style(item.style, size),
+            transform=replace(item.transform, y=max(0.03, item.transform.y - 0.13)),
+        )
+
+    z_index = max((item.z_index for item in document.objects), default=0) + 1
+    document = replace(document, objects=(*document.objects, replace(above(headline), z_index=z_index)))
+    for key in document.profiles:
+        current = object_for_profile(document, headline.id, key)
+        if isinstance(current, TextObject):
+            document = set_profile_override(document, key, replace(above(current), z_index=z_index))
+    return document
 
 
 class CoverLayoutService:
@@ -395,6 +429,8 @@ class CoverLayoutService:
     ) -> CoverDocument:
         """把一套文案和样式写回 A/B 主文案，清掉它们的比例覆盖，交给自动排版重新放置。"""
 
+        if copy.context.strip():
+            document = ensure_context_text(document)
         ids = set(primary_copy_ids(document).values())
         objects = []
         for item in document.objects:
@@ -478,6 +514,25 @@ class CoverLayoutService:
             CoverScheme("alternate", preset.label, "换一版文案并换配色", build(second, preset)),
         )
 
+    def schemes_from_ideas(
+        self, document: CoverDocument, image_path: str | Path, ideas: tuple[AISchemeIdea, ...],
+    ) -> tuple[CoverScheme, ...]:
+        """AI 选的“文案 + 排法 + 配色”交给本地排版引擎，生成可编辑的方案。"""
+
+        presets = {preset.key: preset for preset in STYLE_PRESETS}
+        schemes = []
+        for idea in ideas:
+            copy = idea.copy.as_basic()
+            big = idea.layout == "headline"
+            if big:
+                copy = replace(copy, context="")
+            mode = "split" if big else idea.layout
+            built = self.apply_auto_layout(
+                self._seed_copy(document, copy, presets[idea.preset], big=big), image_path, mode=mode,
+            )
+            schemes.append(CoverScheme(f"ai:{idea.direction}", f"AI·{idea.direction}", idea.reason, built))
+        return tuple(schemes)
+
     @staticmethod
     def apply_scheme(document: CoverDocument, scheme: CoverScheme) -> CoverDocument:
         """套用方案：只替换 A/B 主文案和底图取景；用户加的素材和文本框保持不动。"""
@@ -488,7 +543,11 @@ class CoverLayoutService:
         background = next((item.id for item in source.objects if isinstance(item, BackgroundObject)), None)
         keys = ids | ({background} if background else set())
         replaced = {item.id: item for item in source.objects if item.id in ids}
-        objects = tuple(replaced.get(item.id, item) for item in document.objects)
+        existing = {item.id for item in document.objects}
+        # 方案里新补的 A 块（原封面只有 B 时）也一并带进来。
+        objects = tuple(replaced.get(item.id, item) for item in document.objects) + tuple(
+            item for item in source.objects if item.id in ids and item.id not in existing
+        )
         profiles = {}
         for key, profile in document.profiles.items():
             overrides = {k: v for k, v in profile.overrides.items() if k not in keys}
