@@ -26,6 +26,7 @@ from autoslice.desktop.qt_preview.window import ProjectItem, label, line
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
+from .ai_settings_panel import AISettingsPanel
 from .learning_panel import LearningPanel
 
 
@@ -124,11 +125,8 @@ class ProjectsMixin:
         layout.addSpacing(8)
 
         # ── AI ──
-        layout.addWidget(label("AI 检查", "sectionTitle"))
-        ai_help = label("沿用 AutoSlice 的 api_config.json 或环境变量配置。"
-                        "AI 只在手动点击时运行，不会在页面加载或切换时自动调用。", "muted")
-        ai_help.setWordWrap(True)
-        layout.addWidget(ai_help)
+        self.ai_settings_panel = AISettingsPanel(self._run)
+        layout.addWidget(self.ai_settings_panel)
 
         layout.addSpacing(8)
         layout.addWidget(line())

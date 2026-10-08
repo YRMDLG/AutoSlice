@@ -2271,19 +2271,31 @@
         "autoslice.desktop.foundation.DesktopStorage"
       ],
       "lines": [
-        17
+        19
       ],
       "to": "autoslice.desktop.foundation"
     },
     {
       "from": "autoslice.desktop.ai_settings",
       "imports": [
+        "autoslice.llm.contracts.is_loopback_host"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.llm.contracts"
+    },
+    {
+      "from": "autoslice.desktop.ai_settings",
+      "imports": [
         "autoslice.llm.transport.PROJECT_DIR",
+        "autoslice.llm.transport.call_llm",
         "autoslice.llm.transport.load_api_config",
         "autoslice.llm.transport.normalise_api_config"
       ],
       "lines": [
-        15
+        17,
+        165
       ],
       "to": "autoslice.llm.transport"
     },
@@ -3691,6 +3703,31 @@
       "to": "autoslice.desktop.qt_preview.theme"
     },
     {
+      "from": "autoslice.desktop.qt_app.ai_settings_panel",
+      "imports": [
+        "autoslice.desktop.ai_settings.SUGGESTED_MODELS",
+        "autoslice.desktop.ai_settings.check_connection",
+        "autoslice.desktop.ai_settings.is_plain_http",
+        "autoslice.desktop.ai_settings.read_ai_settings",
+        "autoslice.desktop.ai_settings.save_ai_settings",
+        "autoslice.desktop.ai_settings.split_endpoint"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.desktop.ai_settings"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.ai_settings_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.label"
+      ],
+      "lines": [
+        24
+      ],
+      "to": "autoslice.desktop.qt_preview.window"
+    },
+    {
       "from": "autoslice.desktop.qt_app.learning_panel",
       "imports": [
         "autoslice.desktop.correction_memory.CorrectionMemory"
@@ -4153,10 +4190,20 @@
     {
       "from": "autoslice.desktop.qt_app.window_projects",
       "imports": [
-        "autoslice.desktop.qt_app.learning_panel.LearningPanel"
+        "autoslice.desktop.qt_app.ai_settings_panel.AISettingsPanel"
       ],
       "lines": [
         29
+      ],
+      "to": "autoslice.desktop.qt_app.ai_settings_panel"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_projects",
+      "imports": [
+        "autoslice.desktop.qt_app.learning_panel.LearningPanel"
+      ],
+      "lines": [
+        30
       ],
       "to": "autoslice.desktop.qt_app.learning_panel"
     },
@@ -10364,55 +10411,79 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 111,
+      "line_count": 181,
       "longest_function": {
-        "end_line": 104,
+        "end_line": 141,
         "kind": "function",
-        "line": 79,
-        "line_count": 26,
+        "line": 110,
+        "line_count": 32,
         "qualname": "save_ai_settings"
       },
       "module": "autoslice.desktop.ai_settings",
       "path": "src/autoslice/desktop/ai_settings.py",
-      "sha256": "2dbd167c0d22b7f8394ec6edd8bd0e95d1f0f73d50ad2a32af3dd990505b486d",
+      "sha256": "752e6f00a918fc26381a2218b13553982fd988edadd16c16d3851ba930c62f7c",
       "top_level_classes": [
         {
-          "end_line": 37,
+          "end_line": 66,
           "kind": "class",
-          "line": 25,
+          "line": 53,
           "name": "AISettings"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 41,
+          "end_line": 39,
           "kind": "function",
-          "line": 40,
-          "name": "ai_config_path"
+          "line": 32,
+          "name": "split_endpoint"
         },
         {
           "end_line": 49,
           "kind": "function",
-          "line": 44,
+          "line": 42,
+          "name": "is_plain_http"
+        },
+        {
+          "end_line": 70,
+          "kind": "function",
+          "line": 69,
+          "name": "ai_config_path"
+        },
+        {
+          "end_line": 78,
+          "kind": "function",
+          "line": 73,
           "name": "_read_payload"
         },
         {
-          "end_line": 76,
+          "end_line": 107,
           "kind": "function",
-          "line": 52,
+          "line": 81,
           "name": "read_ai_settings"
         },
         {
-          "end_line": 104,
+          "end_line": 141,
           "kind": "function",
-          "line": 79,
+          "line": 110,
           "name": "save_ai_settings"
         },
         {
-          "end_line": 111,
+          "end_line": 148,
           "kind": "function",
-          "line": 107,
+          "line": 144,
           "name": "vision_model_name"
+        },
+        {
+          "end_line": 158,
+          "kind": "function",
+          "line": 151,
+          "name": "_red_square_png"
+        },
+        {
+          "end_line": 181,
+          "kind": "function",
+          "line": 161,
+          "name": "check_connection"
         }
       ]
     },
@@ -11959,20 +12030,50 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 111,
+      "line_count": 167,
       "longest_function": {
-        "end_line": 69,
+        "end_line": 96,
+        "kind": "function",
+        "line": 42,
+        "line_count": 55,
+        "qualname": "AISettingsPanel.__init__"
+      },
+      "module": "autoslice.desktop.qt_app.ai_settings_panel",
+      "path": "src/autoslice/desktop/qt_app/ai_settings_panel.py",
+      "sha256": "db3db3794ae8dc6ddd487a7f48a1eb8136e381bb50deaa0fed4e5581ce3c1f8b",
+      "top_level_classes": [
+        {
+          "end_line": 167,
+          "kind": "class",
+          "line": 41,
+          "name": "AISettingsPanel"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 38,
+          "kind": "function",
+          "line": 33,
+          "name": "_model_box"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 113,
+      "longest_function": {
+        "end_line": 68,
         "kind": "function",
         "line": 29,
-        "line_count": 41,
+        "line_count": 40,
         "qualname": "LearningPanel.__init__"
       },
       "module": "autoslice.desktop.qt_app.learning_panel",
       "path": "src/autoslice/desktop/qt_app/learning_panel.py",
-      "sha256": "f53440f28b435271f5655ed229e05fd52846b3471d007896c6ca9c2c9eb6a38c",
+      "sha256": "191b8e0d10b491af6dc41e060a3bc786d617a367e49b4af069997316eed4fc1b",
       "top_level_classes": [
         {
-          "end_line": 111,
+          "end_line": 113,
           "kind": "class",
           "line": 28,
           "name": "LearningPanel"
@@ -12163,22 +12264,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 418,
+      "line_count": 416,
       "longest_function": {
-        "end_line": 150,
+        "end_line": 148,
         "kind": "function",
-        "line": 65,
-        "line_count": 86,
+        "line": 66,
+        "line_count": 83,
         "qualname": "ProjectsMixin._settings_page"
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "b7e91b165d5b4bcd0f801c8ffe56523296f0b3458e027c8ab143eb94c98ecefa",
+      "sha256": "a2a516e42a0bdc0d7fb503dd1f6abddd1ebf78270b60c903df92ea48dcc42457",
       "top_level_classes": [
         {
-          "end_line": 418,
+          "end_line": 416,
           "kind": "class",
-          "line": 32,
+          "line": 33,
           "name": "ProjectsMixin"
         }
       ],
@@ -20300,6 +20401,7 @@
       "src/autoslice/desktop/waveform.py",
       "src/autoslice/desktop/qt_app/__init__.py",
       "src/autoslice/desktop/qt_app/__main__.py",
+      "src/autoslice/desktop/qt_app/ai_settings_panel.py",
       "src/autoslice/desktop/qt_app/learning_panel.py",
       "src/autoslice/desktop/qt_app/player.py",
       "src/autoslice/desktop/qt_app/timeline.py",
@@ -20419,6 +20521,7 @@
       "tests/unit/test_clip_scoring.py",
       "tests/unit/test_desktop_ai_qt.py",
       "tests/unit/test_desktop_ai_review.py",
+      "tests/unit/test_desktop_ai_settings.py",
       "tests/unit/test_desktop_app.py",
       "tests/unit/test_desktop_correction_memory.py",
       "tests/unit/test_desktop_cover.py",
@@ -20493,12 +20596,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 686,
-    "production_line_count": 62556,
-    "production_module_count": 248,
+    "import_edge_count": 690,
+    "production_line_count": 62793,
+    "production_module_count": 249,
     "test_private_patch_count": 17,
-    "top_level_class_count": 224,
-    "top_level_function_count": 1220
+    "top_level_class_count": 225,
+    "top_level_function_count": 1225
   },
   "test_private_patches": {
     "by_target_module": {

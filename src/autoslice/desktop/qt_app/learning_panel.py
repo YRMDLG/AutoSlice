@@ -43,7 +43,6 @@ class LearningPanel(QWidget):
         self.summary = label("", "muted")
         layout.addWidget(self.summary)
         self.list = QListWidget()
-        self.list.setMaximumHeight(220)
         self.list.itemSelectionChanged.connect(self._selection_changed)
         layout.addWidget(self.list)
         row = QHBoxLayout()
@@ -82,6 +81,9 @@ class LearningPanel(QWidget):
             f"已记住 {remembered} 条，观察中 {len(rows) - remembered} 条" if rows else "还没有学到错词：保存几次校对字幕后会出现在这里。"
         )
         self.list.setVisible(bool(rows))
+        # 按行数定高，最多约 8 行，超出滚动。
+        row_height = self.list.sizeHintForRow(0) if rows else 0
+        self.list.setFixedHeight(min(220, row_height * len(rows) + 14))
         self._selection_changed()
         self._refresh_works()
 
