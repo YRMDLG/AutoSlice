@@ -13,9 +13,9 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QFontDatabase,
+    QImage,
     QPainter,
     QPainterPath,
-    QPainterPathStroker,
     QPen,
     QPixmap,
     QPolygonF,
@@ -260,26 +260,40 @@ class CanvasPaintMixin:
                 path.addText(QPointF(x, y), self._qt_font(run.font_path, layout.font_size, layout.font_weight), run.text)
         if len(self._glyph_path_cache) > 64:
             self._glyph_path_cache.clear()
-            self._outline_cache.clear()
         self._glyph_path_cache[key] = (path, tuple(emoji))
         return path, tuple(emoji), key
 
-    def _outline(self, path: QPainterPath, key: tuple, radius: float) -> QPainterPath:
-        """描边轮廓与字形合并为一块，半透明填充时不会在重叠处加深。"""
+    def _fill_shadow(self, painter: QPainter, path: QPainterPath, radius: float, offset: float):
+        """半透明阴影 = 描边 ∪ 字形，整体按 SHADOW_ALPHA 合成，重叠处不加深。
 
-        cache_key = (key, round(radius, 2))
-        cached = self._outline_cache.get(cache_key)
-        if cached is None:
-            if radius > 0:
-                stroker = QPainterPathStroker()
-                stroker.setWidth(radius * 2)
-                stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
-                cached = stroker.createStroke(path).united(path)
-            else:
-                cached = QPainterPath(path)
-            self._outline_cache[cache_key] = cached
-        return cached
+        先用不透明黑色画进临时图，再整张半透明贴上，结果与“路径合并后填色”一致；
+        大字号时路径布尔合并要几百毫秒，拉大文本框会一卡一卡。
+        """
+
+        shape = path.translated(offset, offset)
+        margin = radius + 2
+        bounds = shape.boundingRect().adjusted(-margin, -margin, margin, margin)
+        transform = painter.deviceTransform()
+        device = transform.mapRect(bounds).toAlignedRect()
+        if device.isEmpty():
+            return
+        image = QImage(device.size(), QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        layer = QPainter(image)
+        layer.setRenderHint(QPainter.RenderHint.Antialiasing)
+        layer.setTransform(transform * QTransform.fromTranslate(-device.x(), -device.y()))
+        black = QColor(0, 0, 0)
+        if radius > 0:
+            layer.strokePath(shape, self._round_pen(black, radius))
+        layer.fillPath(shape, black)
+        layer.end()
+        ratio = painter.device().devicePixelRatioF() if painter.device() is not None else 1.0
+        image.setDevicePixelRatio(ratio)
+        painter.save()
+        painter.resetTransform()
+        painter.setOpacity(painter.opacity() * SHADOW_ALPHA / 255)
+        painter.drawImage(QPointF(device.x() / ratio, device.y() / ratio), image)
+        painter.restore()
 
     @staticmethod
     def _round_pen(color: QColor, radius: float) -> QPen:
@@ -312,9 +326,7 @@ class CanvasPaintMixin:
             painter.drawRoundedRect(QRectF(backdrop.left, backdrop.top, backdrop.width, backdrop.height), radius, radius)
         painter.translate(area.left, area.top)
         if paint.shadow:
-            offset = shadow_offset(layout.font_size)
-            shadow = self._outline(path, key, stroke + outer + 1)
-            painter.fillPath(shadow.translated(offset, offset), QColor(0, 0, 0, SHADOW_ALPHA))
+            self._fill_shadow(painter, path, stroke + outer + 1, shadow_offset(layout.font_size))
         if outer:
             painter.strokePath(path, self._round_pen(_qcolor(paint.outer_stroke), stroke + outer))
         if stroke:
@@ -399,6 +411,56 @@ class CanvasPaintMixin:
         moved = replace(current, transform=replace(current.transform, x=base.transform.x, y=base.transform.y))
         return moved == base
 
+    @staticmethod
+    def _same_except_size(base: RenderObject, current: RenderObject) -> bool:
+        """只有字号、框和行宽等比变化（缩放手柄）的同一段文字。"""
+
+        if not (isinstance(base, TextObject) and isinstance(current, TextObject)) or base.id != current.id:
+            return False
+        resized = replace(
+            current, style=base.style, rect=base.rect, wrap=base.wrap,
+            transform=replace(current.transform, x=base.transform.x, y=base.transform.y),
+        )
+        return resized == base
+
+    def _rewrap_shift(self, base: RenderObject, current: RenderObject) -> QPointF | None:
+        """改宽手柄：断行没变时，每行文字一模一样、只是整体平移（随对齐方式），返回屏幕上的平移量；
+        断行变了、字号变了或文字旋转过就返回 None，需要重画。"""
+
+        if not (isinstance(base, TextObject) and isinstance(current, TextObject)) or base.id != current.id:
+            return None
+        if abs(current.transform.rotation) >= 0.05:
+            return None
+        resized = replace(
+            current, rect=base.rect, wrap=base.wrap,
+            transform=replace(current.transform, x=base.transform.x, y=base.transform.y),
+        )
+        if resized != base:
+            return None
+        before, after = self._text_layout_for(base), self._text_layout_for(current)
+        if (
+            not before.lines or before.font_size != after.font_size
+            or [line.text for line in before.lines] != [line.text for line in after.lines]
+        ):
+            return None
+        scale = self._screen_to_export()
+        return QPointF(
+            (after.lines[0].origin_x - before.lines[0].origin_x) / scale,
+            (after.lines[0].baseline - before.lines[0].baseline) / scale,
+        )
+
+    def _scaled_sprite_target(self, sprite: tuple[QPixmap, QPointF], base: TextObject, active: TextObject) -> QRectF | None:
+        """缩放中的文字图贴到哪：以框中心为锚、按框宽的比例等比缩放（旋转绕中心，同样成立）。"""
+
+        before, after = self._frame(base), self._frame(active)
+        if before is None or after is None or before[0].width() <= 0:
+            return None
+        scale = after[0].width() / before[0].width()
+        pixmap, origin = sprite
+        size = pixmap.deviceIndependentSize()
+        top_left = after[1] + (origin - before[1]) * scale
+        return QRectF(top_left, size * scale)
+
     def _draw_object_layers(self, painter: QPainter, canvas: QRectF):
         """选中对象之下、选中对象、之上分三层缓存；拖动时只平移选中层。"""
 
@@ -415,11 +477,24 @@ class CanvasPaintMixin:
             if reuse and self._mode is None and base != active and not self._settle_timer.isActive():
                 # 手势结束后空闲时按真实位置重画，静止画面与导出逐像素一致。
                 reuse = False
-            if not reuse:
+            # 拖缩放手柄时字号每帧都在变，重画描边太慢；先把手势开始时的文字图等比缩放，松手后再精确重画。
+            scaling = (
+                not reuse and self._mode == "scale" and base is not None and self._same_except_size(base, active)
+            )
+            rewrap = (
+                self._rewrap_shift(base, active)
+                if not reuse and not scaling and self._mode in ("width-left", "width-right") and base is not None else None
+            )
+            if not reuse and not scaling and rewrap is None:
                 base = self._active_base = active
             layers.append(self._paint_layer("below", objects[:index], canvas, clip=True))
             sprite = self._paint_layer("active", (base,), self._object_bounds(base), clip=False)
-            if sprite is not None:
+            target = self._scaled_sprite_target(sprite, base, active) if scaling and sprite is not None else None
+            if target is not None:
+                layers.append((sprite[0], target))
+            elif sprite is not None and rewrap is not None:
+                layers.append((sprite[0], sprite[1] + rewrap))
+            elif sprite is not None:
                 shift = QPointF(
                     (active.transform.x - base.transform.x) * canvas.width(),
                     (active.transform.y - base.transform.y) * canvas.height(),
@@ -429,7 +504,15 @@ class CanvasPaintMixin:
         painter.save()
         painter.setClipRect(canvas)
         for layer in layers:
-            if layer is not None:
+            if layer is None:
+                continue
+            if isinstance(layer[1], QRectF):
+                # 缩放中的文字图：平滑缩放贴到目标框。
+                painter.save()
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+                painter.drawPixmap(layer[1], layer[0], QRectF(layer[0].rect()))
+                painter.restore()
+            else:
                 painter.drawPixmap(layer[1], layer[0])
         painter.restore()
 

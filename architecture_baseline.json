@@ -10963,20 +10963,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 421,
+      "line_count": 420,
       "longest_function": {
-        "end_line": 137,
+        "end_line": 136,
         "kind": "function",
         "line": 92,
-        "line_count": 46,
+        "line_count": 45,
         "qualname": "CoverCanvas.__init__"
       },
       "module": "autoslice.desktop.cover_canvas",
       "path": "src/autoslice/desktop/cover_canvas.py",
-      "sha256": "8c1a2672d4878d7f8ccaaf225ac078a217adccbe84e6ff6e5f00a1c472e7f605",
+      "sha256": "11ccc303a19f233840473f0ff21380dbebb4805b79cb5327aee7687c10f40e1c",
       "top_level_classes": [
         {
-          "end_line": 419,
+          "end_line": 418,
           "kind": "class",
           "line": 48,
           "name": "CoverCanvas"
@@ -11009,20 +11009,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 466,
+      "line_count": 549,
       "longest_function": {
-        "end_line": 375,
+        "end_line": 517,
         "kind": "function",
-        "line": 333,
-        "line_count": 43,
-        "qualname": "CanvasPaintMixin._paint_layer"
+        "line": 464,
+        "line_count": 54,
+        "qualname": "CanvasPaintMixin._draw_object_layers"
       },
       "module": "autoslice.desktop.cover_canvas_paint",
       "path": "src/autoslice/desktop/cover_canvas_paint.py",
-      "sha256": "3ab2ed519e51645ef510a3c3f728321b358c7e2576918085213406a9a68dc0d6",
+      "sha256": "b1f40d662045413166802eda9a79230b2f7e8e118459a345a701b0828ef1c196",
       "top_level_classes": [
         {
-          "end_line": 466,
+          "end_line": 549,
           "kind": "class",
           "line": 62,
           "name": "CanvasPaintMixin"
@@ -20779,6 +20779,7 @@
       "tests/unit/test_desktop_cover.py",
       "tests/unit/test_desktop_cover_ai.py",
       "tests/unit/test_desktop_cover_canvas_phase2.py",
+      "tests/unit/test_desktop_cover_canvas_resize.py",
       "tests/unit/test_desktop_cover_copy.py",
       "tests/unit/test_desktop_cover_editing.py",
       "tests/unit/test_desktop_cover_model.py",
@@ -20850,7 +20851,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 702,
-    "production_line_count": 63337,
+    "production_line_count": 63419,
     "production_module_count": 251,
     "test_private_patch_count": 17,
     "top_level_class_count": 233,

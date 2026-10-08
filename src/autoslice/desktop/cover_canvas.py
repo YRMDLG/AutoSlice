@@ -115,7 +115,6 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self._font_id_cache: dict[str, int] = {}
         self._variable_font_cache: dict[str, bool] = {}
         self._glyph_path_cache: dict[tuple, tuple[QPainterPath, tuple]] = {}
-        self._outline_cache: dict[tuple, QPainterPath] = {}
         self._overlay_pixmap_cache: dict[str, QPixmap] = {}
         # 分层位图缓存：{层名: (键, 位图, 左上角)}；选中对象单独成层，拖动只平移。
         self._layer_cache: dict[str, tuple[tuple, QPixmap, QPointF]] = {}
