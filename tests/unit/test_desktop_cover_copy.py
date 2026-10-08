@@ -77,6 +77,12 @@ class BasicCopyContractTests(unittest.TestCase):
         self.assertEqual(best.context, "音姐今天要给沐霂点男模")
         self.assertEqual(best.headline, "哎呀我还没见过男模啥样呢")
 
+    def test_teaser_promise_does_not_beat_the_surprise_clause(self):
+        # “××告诉你……内幕”是预告，“居然”所在的分句才是爆点。
+        best = generate_basic_copy_variants("【泽音】选秀带手机居然会改变选曲⁉ 懂姐小音告诉你韩娱特殊操作与内幕👀")[0]
+        self.assertEqual(best.headline, "选秀带手机居然会改变选曲⁉")
+        self.assertNotIn("告诉你", best.text)
+
 
 class GoldenSetTests(unittest.TestCase):
     """AUTOCOVER_COPY_GOLDEN_SET.md 中截取边界与上下文选择的代表案例。"""

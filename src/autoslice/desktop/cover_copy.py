@@ -71,6 +71,10 @@ _COMPACT_MARKERS = {
     "请勿外放": 8,
     "上当": 8,
 }
+# 预告式包装：“告诉你/揭秘”说的是“有内容”，不是内容本身。
+_TEASERS = ("告诉你", "揭秘", "带你看", "带你了解", "你知道吗", "教你")
+# 反转词所在的分句通常就是爆点。
+_SURPRISE = ("居然", "竟然", "没想到")
 # 能单独成句的强信息：命中时 B 不再配 A。
 _STANDALONE_MARKERS = ("请勿外放", "虚假宣传")
 # 片段截取：起点只落在语义边界上，终点可带一个语气尾字，B 可带原文紧随的强调标点。
@@ -316,6 +320,10 @@ def _headline_score(chunk: _Chunk, total: int, markers: _Markers = _GENERIC) -> 
     if chunk.subtitle:
         # 字幕是当前时刻的口语，默认仍以投稿标题为准，字幕留作“换一版”。
         score -= 2.5
+    if any(item in text for item in _TEASERS):
+        score -= 3.0
+    if any(item in text or item in chunk.lead for item in _SURPRISE):
+        score += 1.0
     if any(item in text for item in _PACKAGING):
         score -= 12.0
     if any(item in text for item in _TAIL_COMMENTARY):
