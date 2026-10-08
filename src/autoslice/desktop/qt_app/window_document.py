@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import threading
@@ -14,6 +15,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from autoslice.desktop.ai_review import document_hash
+from autoslice.streamer_profiles import resolve_streamer_profile
 
 
 class SubtitleDocumentMixin:
@@ -100,6 +102,7 @@ class SubtitleDocumentMixin:
                 document.source_path, dependencies=[document.corrected_path]
             )
             self._show_transient_status(f"✓ 已保存 · {Path(result).name}")
+            self._learn_corrections(document)
         self._update_status()
         if not error and self._save_then_render and self.document is document:
             self._save_then_render = False
@@ -110,6 +113,29 @@ class SubtitleDocumentMixin:
             self.save_button.setText("✓ 已保存")
             QTimer.singleShot(1800, lambda: self.save_button.setText("保存字幕")
                               if self.save_button.text() == "✓ 已保存" else None)
+
+    def _learn_corrections(self, document):
+        """保存后学这次的改动：同一错词在两个视频里都改过就记住。后台运行，失败不影响保存。"""
+
+        corrections = [
+            (str(item.get("original", "")), str(item.get("corrected", "")))
+            for item in (document.saved_state or {}).get("corrections", [])
+        ]
+        if not corrections:
+            return
+        title = self.project.title if self.project is not None else ""
+        video_key = hashlib.sha1(os.path.normcase(str(Path(document.video.path).resolve())).encode("utf-8")).hexdigest()[:16]
+
+        def learn():
+            profile = resolve_streamer_profile("auto", document.video.path, context_hint=title)
+            return self.correction_memory.learn(profile.id, video_key, corrections)
+
+        def done(result, error):
+            if error is None and result:
+                words = "、".join(f"{wrong}→{right}" for wrong, right in result[:3])
+                self._show_transient_status(f"✓ 已保存 · 记住了常见错字：{words}", timeout=6000)
+
+        self._run(learn, done)
 
     def _delete(self):
         if self.document is None or self._saving:

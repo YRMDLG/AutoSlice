@@ -40,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
         environment = {
             "AUTOSLICE_LOCAL_CONFIG": str(isolated_root / "autoslice.local.json"),
             "AUTOSLICE_TASK_DB": str(isolated_root / "tasks.sqlite3"),
+            # 字幕纠错记忆会写本机主播覆盖词库；测试一律写到临时目录。
+            "AUTOSLICE_STREAMER_PROFILE_OVERRIDES": str(isolated_root / "streamer_profile_overrides.json"),
             "AUTOSLICE_TITLE_STYLE_PROFILE": str(
                 ROOT / "title_style_profile.example.json"
             ),

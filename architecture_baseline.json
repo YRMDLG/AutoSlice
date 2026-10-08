@@ -2288,6 +2288,27 @@
       "to": "autoslice.desktop.subtitles"
     },
     {
+      "from": "autoslice.desktop.correction_memory",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.correction_memory",
+      "imports": [
+        "autoslice.streamer_profiles.add_streamer_profile_replacement",
+        "autoslice.streamer_profiles.remove_streamer_profile_replacement"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
       "from": "autoslice.desktop.cover",
       "imports": [
         "autoslice.desktop.cover_autolayout.CoverScheme"
@@ -2757,13 +2778,24 @@
     {
       "from": "autoslice.desktop.cover_copy",
       "imports": [
+        "autoslice.streamer_profiles.CoverEmphasisTerm",
+        "autoslice.streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.desktop.cover_copy",
+      "imports": [
         "autoslice_cover.document_layout.CONNECTIVE_BREAK",
         "autoslice_cover.document_layout.SCRIPT_BREAK",
         "autoslice_cover.document_layout.SEMANTIC_BREAK",
         "autoslice_cover.document_layout.break_penalty"
       ],
       "lines": [
-        12
+        13
       ],
       "to": "autoslice_cover.document_layout"
     },
@@ -2953,6 +2985,7 @@
         "autoslice.desktop.cover_model.TextObject",
         "autoslice.desktop.cover_model.object_for_profile",
         "autoslice.desktop.cover_model.set_object_visible",
+        "autoslice.desktop.cover_model.set_profile_override",
         "autoslice.desktop.cover_model.update_text_object"
       ],
       "lines": [
@@ -2966,7 +2999,7 @@
         "autoslice.desktop.cover_style.StylePreset"
       ],
       "lines": [
-        26
+        27
       ],
       "to": "autoslice.desktop.cover_style"
     },
@@ -3561,6 +3594,36 @@
       "to": "autoslice.desktop.qt_preview.theme"
     },
     {
+      "from": "autoslice.desktop.qt_app.learning_panel",
+      "imports": [
+        "autoslice.desktop.correction_memory.CorrectionMemory"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.desktop.correction_memory"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.learning_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.label"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.desktop.qt_preview.window"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.learning_panel",
+      "imports": [
+        "autoslice.streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
       "from": "autoslice.desktop.qt_app.timeline",
       "imports": [
         "autoslice.desktop.qt_preview.theme.COLORS",
@@ -3624,10 +3687,20 @@
     {
       "from": "autoslice.desktop.qt_app.window",
       "imports": [
-        "autoslice.desktop.cover.CoverEditorWidget"
+        "autoslice.desktop.correction_memory.CorrectionMemory"
       ],
       "lines": [
         31
+      ],
+      "to": "autoslice.desktop.correction_memory"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.cover.CoverEditorWidget"
+      ],
+      "lines": [
+        32
       ],
       "to": "autoslice.desktop.cover"
     },
@@ -3637,7 +3710,7 @@
         "autoslice.desktop.foundation.DesktopStorage"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.desktop.foundation"
     },
@@ -3647,7 +3720,7 @@
         "autoslice.desktop.jobs.BackgroundJob"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice.desktop.jobs"
     },
@@ -3658,7 +3731,7 @@
         "autoslice.desktop.projects.SubmissionProjectService"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice.desktop.projects"
     },
@@ -3668,7 +3741,7 @@
         "autoslice.desktop.qt_app.player.MpvAdapter"
       ],
       "lines": [
-        44
+        45
       ],
       "to": "autoslice.desktop.qt_app.player"
     },
@@ -3678,7 +3751,7 @@
         "autoslice.desktop.qt_app.timeline.TimelineSidePanController"
       ],
       "lines": [
-        45
+        46
       ],
       "to": "autoslice.desktop.qt_app.timeline"
     },
@@ -3688,7 +3761,7 @@
         "autoslice.desktop.qt_app.window_ai.AiReviewMixin"
       ],
       "lines": [
-        46
+        47
       ],
       "to": "autoslice.desktop.qt_app.window_ai"
     },
@@ -3698,7 +3771,7 @@
         "autoslice.desktop.qt_app.window_document.SubtitleDocumentMixin"
       ],
       "lines": [
-        47
+        48
       ],
       "to": "autoslice.desktop.qt_app.window_document"
     },
@@ -3708,7 +3781,7 @@
         "autoslice.desktop.qt_app.window_input.InputRoutingMixin"
       ],
       "lines": [
-        48
+        49
       ],
       "to": "autoslice.desktop.qt_app.window_input"
     },
@@ -3718,7 +3791,7 @@
         "autoslice.desktop.qt_app.window_player.PlayerMixin"
       ],
       "lines": [
-        49
+        50
       ],
       "to": "autoslice.desktop.qt_app.window_player"
     },
@@ -3728,7 +3801,7 @@
         "autoslice.desktop.qt_app.window_projects.ProjectsMixin"
       ],
       "lines": [
-        50
+        51
       ],
       "to": "autoslice.desktop.qt_app.window_projects"
     },
@@ -3738,7 +3811,7 @@
         "autoslice.desktop.qt_app.window_subtitles.SubtitleListMixin"
       ],
       "lines": [
-        51
+        52
       ],
       "to": "autoslice.desktop.qt_app.window_subtitles"
     },
@@ -3748,7 +3821,7 @@
         "autoslice.desktop.qt_app.window_timeline.TimelineMixin"
       ],
       "lines": [
-        52
+        53
       ],
       "to": "autoslice.desktop.qt_app.window_timeline"
     },
@@ -3758,7 +3831,7 @@
         "autoslice.desktop.qt_app.window_widgets._StatusLabel"
       ],
       "lines": [
-        53
+        54
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
     },
@@ -3768,7 +3841,7 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice.desktop.qt_preview.icons"
     },
@@ -3779,7 +3852,7 @@
         "autoslice.desktop.qt_preview.theme.SIZES"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -3791,7 +3864,7 @@
         "autoslice.desktop.qt_preview.window.line"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -3801,7 +3874,7 @@
         "autoslice.desktop.selection.CueSelection"
       ],
       "lines": [
-        38
+        39
       ],
       "to": "autoslice.desktop.selection"
     },
@@ -3811,7 +3884,7 @@
         "autoslice.desktop.subtitle_preview.SubtitlePreviewService"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.desktop.subtitle_preview"
     },
@@ -3821,7 +3894,7 @@
         "autoslice.desktop.subtitle_render.SubtitleRenderService"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.desktop.subtitle_render"
     },
@@ -3831,7 +3904,7 @@
         "autoslice.desktop.subtitles.SubtitleDocument"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -3841,7 +3914,7 @@
         "autoslice.desktop.waveform.WaveformCache"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice.desktop.waveform"
     },
@@ -3903,9 +3976,19 @@
         "autoslice.desktop.ai_review.document_hash"
       ],
       "lines": [
-        16
+        17
       ],
       "to": "autoslice.desktop.ai_review"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_document",
+      "imports": [
+        "autoslice.streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.streamer_profiles"
     },
     {
       "from": "autoslice.desktop.qt_app.window_player",
@@ -3957,6 +4040,16 @@
         24
       ],
       "to": "autoslice.desktop.projects"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_projects",
+      "imports": [
+        "autoslice.desktop.qt_app.learning_panel.LearningPanel"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.desktop.qt_app.learning_panel"
     },
     {
       "from": "autoslice.desktop.qt_app.window_projects",
@@ -7349,6 +7442,15 @@
       "qualname": "apply_danmaku_slice_decisions"
     },
     {
+      "end_line": 345,
+      "kind": "function",
+      "line": 198,
+      "line_count": 148,
+      "module": "autoslice.desktop.cover_autolayout",
+      "path": "src/autoslice/desktop/cover_autolayout.py",
+      "qualname": "CoverLayoutService.apply_auto_layout"
+    },
+    {
       "end_line": 1157,
       "kind": "function",
       "line": 1011,
@@ -7385,15 +7487,6 @@
       "qualname": "slice_from_marks_impl"
     },
     {
-      "end_line": 319,
-      "kind": "function",
-      "line": 186,
-      "line_count": 134,
-      "module": "autoslice.desktop.cover_autolayout",
-      "path": "src/autoslice/desktop/cover_autolayout.py",
-      "qualname": "CoverLayoutService.apply_auto_layout"
-    },
-    {
       "end_line": 747,
       "kind": "function",
       "line": 615,
@@ -7412,13 +7505,13 @@
       "qualname": "MediaPreviewOwner._registered_clip"
     },
     {
-      "end_line": 267,
+      "end_line": 201,
       "kind": "function",
-      "line": 139,
-      "line_count": 129,
-      "module": "autoslice.analysis.topic.normalization",
-      "path": "src/autoslice/analysis/topic/normalization.py",
-      "qualname": "is_meta_body_line"
+      "line": 71,
+      "line_count": 131,
+      "module": "autoslice.desktop.qt_app.window",
+      "path": "src/autoslice/desktop/qt_app/window.py",
+      "qualname": "DesktopWindow.__init__"
     }
   ],
   "modules": [
@@ -10221,6 +10314,48 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 162,
+      "longest_function": {
+        "end_line": 129,
+        "kind": "function",
+        "line": 103,
+        "line_count": 27,
+        "qualname": "CorrectionMemory.learn"
+      },
+      "module": "autoslice.desktop.correction_memory",
+      "path": "src/autoslice/desktop/correction_memory.py",
+      "sha256": "0157223ce3342079b740a2e377520679d55679aa81e2540fb9399ad4697a63ed",
+      "top_level_classes": [
+        {
+          "end_line": 36,
+          "kind": "class",
+          "line": 31,
+          "name": "LearnedCorrection"
+        },
+        {
+          "end_line": 162,
+          "kind": "class",
+          "line": 78,
+          "name": "CorrectionMemory"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 51,
+          "kind": "function",
+          "line": 39,
+          "name": "_learnable"
+        },
+        {
+          "end_line": 75,
+          "kind": "function",
+          "line": 54,
+          "name": "correction_pairs"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 543,
       "longest_function": {
         "end_line": 397,
@@ -10296,36 +10431,42 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 473,
+      "line_count": 499,
       "longest_function": {
-        "end_line": 319,
+        "end_line": 345,
         "kind": "function",
-        "line": 186,
-        "line_count": 134,
+        "line": 198,
+        "line_count": 148,
         "qualname": "CoverLayoutService.apply_auto_layout"
       },
       "module": "autoslice.desktop.cover_autolayout",
       "path": "src/autoslice/desktop/cover_autolayout.py",
-      "sha256": "910b58bad9ee92d0134c4878c8d7af154174a8abe57f677af2c48f058fbd092d",
+      "sha256": "02dc186e5ad997c188b694389f59e7aef13d37a0425982ac42053c70416805f8",
       "top_level_classes": [
         {
-          "end_line": 95,
+          "end_line": 107,
           "kind": "class",
-          "line": 89,
+          "line": 101,
           "name": "CoverScheme"
         },
         {
-          "end_line": 473,
+          "end_line": 499,
           "kind": "class",
-          "line": 107,
+          "line": 119,
           "name": "CoverLayoutService"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 104,
+          "end_line": 74,
           "kind": "function",
-          "line": 97,
+          "line": 71,
+          "name": "_context_cap"
+        },
+        {
+          "end_line": 116,
+          "kind": "function",
+          "line": 109,
           "name": "primary_copy_ids"
         }
       ]
@@ -10437,108 +10578,132 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 437,
+      "line_count": 482,
       "longest_function": {
-        "end_line": 437,
+        "end_line": 482,
         "kind": "function",
-        "line": 377,
-        "line_count": 61,
+        "line": 417,
+        "line_count": 66,
         "qualname": "generate_basic_copy_variants"
       },
       "module": "autoslice.desktop.cover_copy",
       "path": "src/autoslice/desktop/cover_copy.py",
-      "sha256": "e8d67b793bf5462134f4c5e606c699958f115ec6787417617cc09dbd9cee1ae5",
+      "sha256": "2fd2b63817d5184a863134be9498abda9bfc4077cb32d99f1460a881ac447b5b",
       "top_level_classes": [
         {
-          "end_line": 114,
+          "end_line": 102,
+          "kind": "class",
+          "line": 99,
+          "name": "CopyLexicon"
+        },
+        {
+          "end_line": 110,
           "kind": "class",
           "line": 106,
+          "name": "_Markers"
+        },
+        {
+          "end_line": 148,
+          "kind": "class",
+          "line": 140,
           "name": "BasicCoverCopy"
         },
         {
-          "end_line": 127,
+          "end_line": 161,
           "kind": "class",
-          "line": 118,
+          "line": 152,
           "name": "_Chunk"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 132,
+          "end_line": 123,
           "kind": "function",
-          "line": 130,
+          "line": 113,
+          "name": "_markers"
+        },
+        {
+          "end_line": 136,
+          "kind": "function",
+          "line": 129,
+          "name": "streamer_copy_lexicon"
+        },
+        {
+          "end_line": 166,
+          "kind": "function",
+          "line": 164,
           "name": "_clean_title"
         },
         {
-          "end_line": 147,
+          "end_line": 181,
           "kind": "function",
-          "line": 135,
+          "line": 169,
           "name": "_phrase_start"
         },
         {
-          "end_line": 159,
+          "end_line": 193,
           "kind": "function",
-          "line": 150,
+          "line": 184,
           "name": "_phrase_end"
         },
         {
-          "end_line": 192,
+          "end_line": 226,
           "kind": "function",
-          "line": 162,
+          "line": 196,
           "name": "_display_clean"
         },
         {
-          "end_line": 202,
+          "end_line": 236,
           "kind": "function",
-          "line": 195,
+          "line": 229,
           "name": "_title_names"
         },
         {
-          "end_line": 221,
+          "end_line": 255,
           "kind": "function",
-          "line": 205,
+          "line": 239,
           "name": "_strip_lead"
         },
         {
-          "end_line": 237,
+          "end_line": 271,
           "kind": "function",
-          "line": 224,
+          "line": 258,
           "name": "_with_emphasis"
         },
         {
-          "end_line": 262,
+          "end_line": 296,
           "kind": "function",
-          "line": 240,
+          "line": 274,
           "name": "_chunks"
         },
         {
-          "end_line": 293,
+          "end_line": 331,
           "kind": "function",
-          "line": 265,
+          "line": 299,
           "name": "_headline_score"
         },
         {
-          "end_line": 302,
+          "end_line": 340,
           "kind": "function",
-          "line": 294,
+          "line": 332,
           "name": "_needs_context"
         },
         {
-          "end_line": 325,
+          "end_line": 363,
           "kind": "function",
-          "line": 305,
+          "line": 343,
           "name": "_should_pair_context"
         },
         {
-          "end_line": 374,
+          "end_line": 414,
           "kind": "function",
-          "line": 328,
+          "line": 366,
           "name": "_context_for"
         },
         {
-          "end_line": 437,
+          "end_line": 482,
           "kind": "function",
-          "line": 377,
+          "line": 417,
           "name": "generate_basic_copy_variants"
         }
       ]
@@ -10660,22 +10825,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 279,
+      "line_count": 277,
       "longest_function": {
-        "end_line": 85,
+        "end_line": 86,
         "kind": "function",
-        "line": 44,
+        "line": 45,
         "line_count": 42,
         "qualname": "CoverTextMixin._sync_selected_text_controls"
       },
       "module": "autoslice.desktop.cover_editor_text",
       "path": "src/autoslice/desktop/cover_editor_text.py",
-      "sha256": "03f9f6edd16cb6501b1bab7bca626ca073f07b5c4d3634da14353b080cbef4cc",
+      "sha256": "bd789323504827cd44d53387453e98013fd639f849ed90d1eed5ec7f4063a671",
       "top_level_classes": [
         {
-          "end_line": 279,
+          "end_line": 277,
           "kind": "class",
-          "line": 29,
+          "line": 30,
           "name": "CoverTextMixin"
         }
       ],
@@ -11571,6 +11736,36 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 82,
+      "longest_function": {
+        "end_line": 57,
+        "kind": "function",
+        "line": 28,
+        "line_count": 30,
+        "qualname": "LearningPanel.__init__"
+      },
+      "module": "autoslice.desktop.qt_app.learning_panel",
+      "path": "src/autoslice/desktop/qt_app/learning_panel.py",
+      "sha256": "d655098655438a51d85581789e8baba5b0dbcae0b734c6591dd7e56e40af020c",
+      "top_level_classes": [
+        {
+          "end_line": 82,
+          "kind": "class",
+          "line": 27,
+          "name": "LearningPanel"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 24,
+          "kind": "function",
+          "line": 20,
+          "name": "_profile_label"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 247,
       "longest_function": {
         "end_line": 142,
@@ -11630,22 +11825,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 434,
+      "line_count": 439,
       "longest_function": {
-        "end_line": 198,
+        "end_line": 201,
         "kind": "function",
-        "line": 70,
-        "line_count": 129,
+        "line": 71,
+        "line_count": 131,
         "qualname": "DesktopWindow.__init__"
       },
       "module": "autoslice.desktop.qt_app.window",
       "path": "src/autoslice/desktop/qt_app/window.py",
-      "sha256": "6f5999c2f3463eebc8539b3183970a6d6719842e49fff9ff6017c71828652ef6",
+      "sha256": "b3cf5aaa43a768884de65f6ebfd14d4a80671775b79033dbc031a9c3a9777b95",
       "top_level_classes": [
         {
-          "end_line": 432,
+          "end_line": 437,
           "kind": "class",
-          "line": 56,
+          "line": 57,
           "name": "DesktopWindow"
         }
       ],
@@ -11676,22 +11871,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 282,
+      "line_count": 308,
       "longest_function": {
-        "end_line": 225,
+        "end_line": 251,
         "kind": "function",
-        "line": 183,
+        "line": 209,
         "line_count": 43,
         "qualname": "SubtitleDocumentMixin._start_render"
       },
       "module": "autoslice.desktop.qt_app.window_document",
       "path": "src/autoslice/desktop/qt_app/window_document.py",
-      "sha256": "1400c24f2c7bd3cf56a888fe3818f3f5a46e29035ce9a17162baa018aa1e6aff",
+      "sha256": "e55029e1a5a8f59ae65c3813d10ad4b2be9628e0a2ca1121d0f1561dc2f1f96a",
       "top_level_classes": [
         {
-          "end_line": 282,
+          "end_line": 308,
           "kind": "class",
-          "line": 19,
+          "line": 21,
           "name": "SubtitleDocumentMixin"
         }
       ],
@@ -11745,22 +11940,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 408,
+      "line_count": 418,
       "longest_function": {
-        "end_line": 140,
+        "end_line": 150,
         "kind": "function",
-        "line": 63,
-        "line_count": 78,
+        "line": 65,
+        "line_count": 86,
         "qualname": "ProjectsMixin._settings_page"
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "0091a5088139d1dfbe41c60c58c1175e4b40fe933d275feeef3c12711c2181cf",
+      "sha256": "87b4c37bb8786456fc455c99142d7b6dfefcdb37bf62b4ed69575891b427c70a",
       "top_level_classes": [
         {
-          "end_line": 408,
+          "end_line": 418,
           "kind": "class",
-          "line": 30,
+          "line": 32,
           "name": "ProjectsMixin"
         }
       ],
@@ -14238,17 +14433,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 907,
+      "line_count": 951,
       "longest_function": {
-        "end_line": 638,
+        "end_line": 682,
         "kind": "function",
-        "line": 549,
-        "line_count": 90,
+        "line": 588,
+        "line_count": 95,
         "qualname": "load_streamer_profiles"
       },
       "module": "autoslice.streamer_profiles",
       "path": "src/autoslice/streamer_profiles.py",
-      "sha256": "41d07ab2ceb795f6fd20c554daf7c6d7c9932a917ed7cb95550e662e7ddf7011",
+      "sha256": "0c97d4e1de026bf40e28864f739478faa13f846706d7179a359174f02be2286c",
       "top_level_classes": [
         {
           "end_line": 57,
@@ -14263,185 +14458,191 @@
           "name": "CoverSeriesRule"
         },
         {
-          "end_line": 156,
+          "end_line": 79,
           "kind": "class",
           "line": 71,
+          "name": "CoverEmphasisTerm"
+        },
+        {
+          "end_line": 195,
+          "kind": "class",
+          "line": 83,
           "name": "CoverRulesConfig"
         },
         {
-          "end_line": 217,
+          "end_line": 256,
           "kind": "class",
-          "line": 160,
+          "line": 199,
           "name": "StreamerProfile"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 222,
+          "end_line": 261,
           "kind": "function",
-          "line": 220,
+          "line": 259,
           "name": "_config_path"
         },
         {
-          "end_line": 235,
+          "end_line": 274,
           "kind": "function",
-          "line": 225,
+          "line": 264,
           "name": "streamer_profile_override_path"
         },
         {
-          "end_line": 245,
+          "end_line": 284,
           "kind": "function",
-          "line": 238,
+          "line": 277,
           "name": "_required_text"
         },
         {
-          "end_line": 256,
+          "end_line": 295,
           "kind": "function",
-          "line": 248,
+          "line": 287,
           "name": "_string_list"
         },
         {
-          "end_line": 275,
+          "end_line": 314,
           "kind": "function",
-          "line": 259,
+          "line": 298,
           "name": "_replacement_pairs"
         },
         {
-          "end_line": 308,
+          "end_line": 347,
           "kind": "function",
-          "line": 278,
+          "line": 317,
           "name": "_load_profile_overrides"
         },
         {
-          "end_line": 348,
+          "end_line": 387,
           "kind": "function",
-          "line": 311,
+          "line": 350,
           "name": "_merge_profile_overrides"
         },
         {
-          "end_line": 384,
+          "end_line": 423,
           "kind": "function",
-          "line": 351,
+          "line": 390,
           "name": "_atomic_write_profile_overrides"
         },
         {
-          "end_line": 439,
+          "end_line": 478,
           "kind": "function",
-          "line": 387,
+          "line": 426,
           "name": "add_streamer_profile_replacement"
         },
         {
-          "end_line": 480,
+          "end_line": 519,
           "kind": "function",
-          "line": 442,
+          "line": 481,
           "name": "remove_streamer_profile_replacement"
         },
         {
-          "end_line": 515,
+          "end_line": 554,
           "kind": "function",
-          "line": 483,
+          "line": 522,
           "name": "_title_style_path"
         },
         {
-          "end_line": 546,
+          "end_line": 585,
           "kind": "function",
-          "line": 518,
+          "line": 557,
           "name": "_outro_clip_config"
         },
         {
-          "end_line": 638,
+          "end_line": 682,
           "kind": "function",
-          "line": 549,
+          "line": 588,
           "name": "load_streamer_profiles"
         },
         {
-          "end_line": 659,
+          "end_line": 703,
           "kind": "function",
-          "line": 641,
+          "line": 685,
           "name": "infer_streamer_name_from_filename"
         },
         {
-          "end_line": 665,
+          "end_line": 709,
           "kind": "function",
-          "line": 662,
+          "line": 706,
           "name": "_normalise_profile_name"
         },
         {
-          "end_line": 676,
+          "end_line": 720,
           "kind": "function",
-          "line": 668,
+          "line": 712,
           "name": "_profile_filename_names"
         },
         {
-          "end_line": 691,
+          "end_line": 735,
           "kind": "function",
-          "line": 679,
+          "line": 723,
           "name": "_match_profile_by_filename_name"
         },
         {
-          "end_line": 729,
+          "end_line": 773,
           "kind": "function",
-          "line": 694,
+          "line": 738,
           "name": "_match_profile_by_context"
         },
         {
-          "end_line": 755,
+          "end_line": 799,
           "kind": "function",
-          "line": 732,
+          "line": 776,
           "name": "_dynamic_filename_profile"
         },
         {
-          "end_line": 798,
+          "end_line": 842,
           "kind": "function",
-          "line": 758,
+          "line": 802,
           "name": "resolve_streamer_profile"
         },
         {
-          "end_line": 819,
+          "end_line": 863,
           "kind": "function",
-          "line": 801,
+          "line": 845,
           "name": "profile_identity_names"
         },
         {
-          "end_line": 827,
+          "end_line": 871,
           "kind": "function",
-          "line": 822,
+          "line": 866,
           "name": "profile_matches_streamer"
         },
         {
-          "end_line": 836,
+          "end_line": 880,
           "kind": "function",
-          "line": 830,
+          "line": 874,
           "name": "infer_streamer_name"
         },
         {
-          "end_line": 849,
+          "end_line": 893,
           "kind": "function",
-          "line": 839,
+          "line": 883,
           "name": "merge_profile_subtitle_glossary"
         },
         {
-          "end_line": 855,
+          "end_line": 899,
           "kind": "function",
-          "line": 852,
+          "line": 896,
           "name": "active_streamer_profile"
         },
         {
-          "end_line": 865,
+          "end_line": 909,
           "kind": "function",
-          "line": 858,
+          "line": 902,
           "name": "current_streamer_profile"
         },
         {
-          "end_line": 890,
+          "end_line": 934,
           "kind": "function",
-          "line": 869,
+          "line": 913,
           "name": "streamer_profile_context"
         },
         {
-          "end_line": 907,
+          "end_line": 951,
           "kind": "function",
-          "line": 893,
+          "line": 937,
           "name": "public_streamer_profiles"
         }
       ]
@@ -19141,21 +19342,21 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 69,
+      "line_count": 71,
       "longest_function": {
-        "end_line": 65,
+        "end_line": 67,
         "kind": "function",
         "line": 22,
-        "line_count": 44,
+        "line_count": 46,
         "qualname": "main"
       },
       "module": "scripts.run_hermetic_tests",
       "path": "scripts/run_hermetic_tests.py",
-      "sha256": "41350968b41230a8fe6b741878e270e49c62ec5528daf60c2d0f86d8da9ce351",
+      "sha256": "4859cd509ff6c6774997148814f8cbca3f73f528c9fa52e7a1e9a3dac7e499a9",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 65,
+          "end_line": 67,
           "kind": "function",
           "line": 22,
           "name": "main"
@@ -19817,6 +20018,7 @@
       "src/autoslice/desktop/ai_review.py",
       "src/autoslice/desktop/app.py",
       "src/autoslice/desktop/commands.py",
+      "src/autoslice/desktop/correction_memory.py",
       "src/autoslice/desktop/cover.py",
       "src/autoslice/desktop/cover_asset_dialog.py",
       "src/autoslice/desktop/cover_assets.py",
@@ -19855,6 +20057,7 @@
       "src/autoslice/desktop/waveform.py",
       "src/autoslice/desktop/qt_app/__init__.py",
       "src/autoslice/desktop/qt_app/__main__.py",
+      "src/autoslice/desktop/qt_app/learning_panel.py",
       "src/autoslice/desktop/qt_app/player.py",
       "src/autoslice/desktop/qt_app/timeline.py",
       "src/autoslice/desktop/qt_app/window.py",
@@ -19974,6 +20177,7 @@
       "tests/unit/test_desktop_ai_qt.py",
       "tests/unit/test_desktop_ai_review.py",
       "tests/unit/test_desktop_app.py",
+      "tests/unit/test_desktop_correction_memory.py",
       "tests/unit/test_desktop_cover.py",
       "tests/unit/test_desktop_cover_canvas_phase2.py",
       "tests/unit/test_desktop_cover_copy.py",
@@ -20045,12 +20249,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 667,
-    "production_line_count": 61572,
-    "production_module_count": 244,
+    "import_edge_count": 676,
+    "production_line_count": 61972,
+    "production_module_count": 246,
     "test_private_patch_count": 17,
-    "top_level_class_count": 215,
-    "top_level_function_count": 1201
+    "top_level_class_count": 221,
+    "top_level_function_count": 1207
   },
   "test_private_patches": {
     "by_target_module": {

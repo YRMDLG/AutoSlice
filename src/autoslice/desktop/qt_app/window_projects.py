@@ -26,6 +26,8 @@ from autoslice.desktop.qt_preview.window import ProjectItem, label, line
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
+from .learning_panel import LearningPanel
+
 
 class ProjectsMixin:
     def _project_rail(self):
@@ -108,6 +110,14 @@ class ProjectsMixin:
         layout.addWidget(label("封面", "sectionTitle"))
         layout.addWidget(label("封面字体、默认样式和素材库在封面编辑器中直接管理。", "muted"))
         layout.addWidget(label("桌面草稿保存在用户应用数据目录，重启后可恢复。", "muted"))
+
+        layout.addSpacing(8)
+        layout.addWidget(line())
+        layout.addSpacing(8)
+
+        # ── 成长记录 ──
+        self.learning_panel = LearningPanel(self.correction_memory)
+        layout.addWidget(self.learning_panel)
 
         layout.addSpacing(8)
         layout.addWidget(line())

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.ai_review import AIReviewService
 from autoslice.desktop.commands import CommandDispatcher
+from autoslice.desktop.correction_memory import CorrectionMemory
 from autoslice.desktop.cover import CoverEditorWidget
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.jobs import BackgroundJob
@@ -75,6 +76,8 @@ class DesktopWindow(
         self.render_service = SubtitleRenderService(self.storage)
         self.preview_service = SubtitlePreviewService(self.storage)
         self.waveform_cache = WaveformCache(self.storage.waveforms)
+        # 设置页构建时就要用到，必须在 super().__init__ 之前创建。
+        self.correction_memory = CorrectionMemory(self.storage)
         self._render_jobs = {}
         self._render_result = None
         self._save_then_render = False
@@ -346,6 +349,8 @@ class DesktopWindow(
     def _select_page(self, index):
         super()._select_page(index)
         self._sync_shortcuts(QApplication.instance().focusWidget())
+        if index == 2 and hasattr(self, "learning_panel"):
+            self.learning_panel.refresh()
         if index == 1 and hasattr(self, "cover_editor"):
             # 只读取字幕页当前播放位置，切页不 seek、不暂停、不修改字幕状态。
             self.cover_editor.set_current_playhead(getattr(self, "_player_position", 0.0))

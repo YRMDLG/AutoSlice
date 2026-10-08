@@ -194,6 +194,26 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.assertEqual(reopened.document.entries[0].text, "原文")
         self.wait_for(lambda: not self.window._jobs)
 
+    def test_same_fix_in_two_videos_is_remembered_and_shown_in_settings(self):
+        overrides = self.root / "profile-overrides.json"
+        with patch.dict(os.environ, {"AUTOSLICE_STREAMER_PROFILE_OVERRIDES": str(overrides)}):
+            for title in ("项目甲", "项目乙"):
+                if self.window.project.title != title:
+                    self.window._select_real_project(self.projects[title])
+                    self.wait_for(lambda: self.window.document is not None
+                                  and self.window.project.title == title and not self.window._jobs)
+                self.window.document.edit_text(1, "原稿")
+                self.window._edited()
+                self.window.save()
+                self.wait_for(lambda: not self.window._saving and not self.window._jobs)
+            # 两个视频都把“原文”改成“原稿”：写进本机覆盖词库（测试里指向临时文件）。
+            self.assertIn("原稿", overrides.read_text(encoding="utf-8"))
+            self.assertIn("记住了常见错字", self.window.app_status.text())
+            self.window._select_page(2)
+            self.assertIn("原文 → 原稿", self.window.learning_panel.list.item(0).text())
+            self.assertIn("已记住", self.window.learning_panel.list.item(0).text())
+            self.window._select_page(0)
+
     def test_save_then_render_keeps_ui_usable_and_prevents_duplicate_project_job(self):
         self.window.document.edit_text(1, "校对文字")
         self.window._edited()
