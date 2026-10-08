@@ -95,7 +95,7 @@ def _response_rejects_reasoning_effort(response: Any) -> bool:
         text = str(response.text or "").casefold()
     except (AttributeError, TypeError, ValueError):
         return False
-    return "reasoning_effort" in text or "reasoning effort" in text
+    return "reasoning_effort" in text or "reasoning effort" in text or "reasoning.effort" in text
 
 
 def infer_api_type(base_url: Any, token: Any) -> str:
@@ -175,7 +175,7 @@ def normalise_api_config(
             api_type = normalise_protocol(raw_api_type)
         except ValueError as exc:
             raise ValueError(
-                f"API 配置 api_type 只支持 openai 或 anthropic：{source}"
+                f"API 配置 api_type 只支持 openai、openai-responses 或 anthropic：{source}"
             ) from exc
     analysis_reasoning_effort = normalise_reasoning_effort(
         payload["analysis_reasoning_effort"]
@@ -414,6 +414,40 @@ def parse_openai_response(data: dict, model: str, max_tokens: int) -> str:
     return content
 
 
+def parse_responses_response(data: dict, model: str, max_tokens: int) -> str:
+    """解析 OpenAI Responses 兼容响应：优先 output_text，其次 output[].content[] 的文本。"""
+    if isinstance(data.get("choices"), list):
+        # 少数中转在 /responses 上仍回 Chat Completions 结构。
+        return parse_openai_response(data, model, max_tokens)
+    content = data.get("output_text")
+    if not isinstance(content, str) or not content:
+        parts = []
+        output = data.get("output")
+        if not isinstance(output, list):
+            raise LLMResponseFormatError("Responses API 响应缺少 output 数组")
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") not in (None, "message"):
+                continue
+            blocks = item.get("content")
+            if not isinstance(blocks, list):
+                continue
+            for block in blocks:
+                if isinstance(block, dict) and block.get("type") in ("output_text", "text"):
+                    text = block.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+        content = "\n".join(part for part in parts if part)
+    details = data.get("incomplete_details") if isinstance(data.get("incomplete_details"), dict) else {}
+    truncated = data.get("status") == "incomplete" and details.get("reason") == "max_output_tokens"
+    if truncated and not response_has_complete_json(content):
+        raise LLMResponseTruncatedError(
+            f"{model} 输出被截断(max_tokens={max_tokens})，将缩短提示后重试"
+        )
+    if not content:
+        raise LLMResponseFormatError("Responses API 响应没有可用文本内容")
+    return content
+
+
 def parse_anthropic_response(data: dict, model: str, max_tokens: int) -> str:
     """解析 Anthropic Messages 兼容响应。"""
     blocks = data.get("content")
@@ -544,6 +578,17 @@ def _raise_for_status(response: Any, *, protocol: str, model: str) -> None:
 def _user_content(request: LLMRequest) -> Any:
     """用户消息内容：纯文字时就是字符串（与原请求一致）；带图片时按协议拼成多段。"""
 
+    if request.protocol == "openai-responses":
+        return [
+            {"type": "input_text", "text": request.prompt},
+            *(
+                {
+                    "type": "input_image",
+                    "image_url": f"data:{media_type};base64,{base64.b64encode(bytes(data)).decode('ascii')}",
+                }
+                for media_type, data in request.images
+            ),
+        ]
     if not request.images:
         return request.prompt
     encoded = [
@@ -614,6 +659,10 @@ def call_compatible_api(
         request_post,
     )
     try:
+        if request.protocol == "openai-responses":
+            return _call_responses_api(
+                request, base_url, token, request_post, proxy_request_kwargs, decode_response,
+            )
         if request.protocol == "openai":
             request_payload = {
                 "model": request.model,
@@ -697,6 +746,55 @@ def call_compatible_api(
     finally:
         if close_transport is not None:
             close_transport()
+
+
+def _call_responses_api(
+        request: LLMRequest, base_url: str, token: str, request_post: Callable,
+        proxy_request_kwargs: dict, decode_response: Callable) -> str:
+    """OpenAI Responses 接口。推理模型多数不收 temperature，这里不发；推理强度被拒时去掉重试。"""
+    request_payload: dict[str, Any] = {
+        "model": request.model,
+        "input": [{"role": "user", "content": _user_content(request)}],
+        "max_output_tokens": request.max_tokens,
+    }
+    capability_key = _reasoning_effort_capability_key(base_url, request.model)
+    send_reasoning_effort = bool(
+        request.reasoning_effort and not _reasoning_effort_is_disabled(capability_key)
+    )
+    if send_reasoning_effort:
+        request_payload["reasoning"] = {"effort": request.reasoning_effort}
+    if request.json_mode:
+        request_payload["text"] = {"format": {"type": "json_object"}}
+    request_url = f"{str(base_url).strip().rstrip('/')}/responses"
+    request_headers = {
+        "Authorization": _RedactedHeaderValue(f"Bearer {token}"),
+        "Content-Type": "application/json",
+    }
+
+    def post(payload):
+        return _post_http_request(
+            request_post,
+            request_url,
+            protocol=request.protocol,
+            model=request.model,
+            request_kwargs=proxy_request_kwargs,
+            headers=request_headers,
+            json=dict(payload),
+            timeout=request.timeout.as_requests_timeout(),
+        )
+
+    response = post(request_payload)
+    if send_reasoning_effort and _response_rejects_reasoning_effort(response):
+        _disable_reasoning_effort(capability_key)
+        fallback = dict(request_payload)
+        fallback.pop("reasoning", None)
+        response = post(fallback)
+    _raise_for_status(response, protocol=request.protocol, model=request.model)
+    return parse_responses_response(
+        decode_response(response, "OpenAI Responses"),
+        request.model,
+        request.max_tokens,
+    )
 
 
 def call_llm(

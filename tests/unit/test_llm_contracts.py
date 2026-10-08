@@ -43,10 +43,16 @@ class LLMProtocolContractTests(unittest.TestCase):
                 self.assertEqual(normalise_protocol(value), expected)
 
     def test_unknown_protocol_is_rejected(self):
-        for value in (None, "", "responses", "custom"):
+        for value in (None, "", "custom"):
             with self.subTest(value=value):
-                with self.assertRaisesRegex(ValueError, "openai 或 anthropic"):
+                with self.assertRaisesRegex(ValueError, "openai、openai-responses 或 anthropic"):
                     normalise_protocol(value)
+
+    def test_responses_protocol_aliases(self):
+        # 用户中转走 OpenAI Responses 接口（/v1/responses）。
+        for value in ("responses", "openai-responses", "Responses"):
+            with self.subTest(value=value):
+                self.assertEqual(normalise_protocol(value), "openai-responses")
 
 
 class LLMReasoningContractTests(unittest.TestCase):

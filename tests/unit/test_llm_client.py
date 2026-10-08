@@ -272,6 +272,52 @@ class VisionRequestTests(unittest.TestCase):
             self._call("openai", (("image/png", b""),))
 
 
+class ResponsesProtocolTests(unittest.TestCase):
+    """OpenAI Responses 接口：POST /responses，input 多段内容，解析 output_text。"""
+
+    def tearDown(self):
+        transport.reset_reasoning_effort_capability_cache()
+
+    def _call(self, body, *, images=(), json_mode=False):
+        config = LLMApiConfig("https://gateway.example/v1", "test-token", "gpt-5.6-terra", "openai-responses")
+        session = Mock()
+        session.post.return_value = make_response(body)
+        with patch.object(transport.requests, "Session", return_value=session):
+            text = transport.call_compatible_api(
+                "看这张图", max_tokens=100, json_mode=json_mode, model_override=None,
+                request_timeout=(1, 2), load_config=lambda: config, images=images,
+            )
+        return text, session.post.call_args
+
+    def test_posts_to_responses_with_input_parts_and_reads_output(self):
+        body = {"output": [
+            {"type": "reasoning", "summary": []},
+            {"type": "message", "content": [{"type": "output_text", "text": "完成"}]},
+        ]}
+        text, call = self._call(body, images=(("image/png", b"png"),), json_mode=True)
+        self.assertEqual(text, "完成")
+        self.assertTrue(call.args[0].endswith("/v1/responses"))
+        payload = call.kwargs["json"]
+        self.assertEqual(payload["max_output_tokens"], 100)
+        self.assertNotIn("temperature", payload)
+        self.assertEqual(payload["text"], {"format": {"type": "json_object"}})
+        content = payload["input"][0]["content"]
+        self.assertEqual(content[0], {"type": "input_text", "text": "看这张图"})
+        self.assertEqual(content[1], {"type": "input_image", "image_url": "data:image/png;base64,cG5n"})
+
+    def test_output_text_shortcut_and_truncation(self):
+        self.assertEqual(self._call({"output_text": "好"})[0], "好")
+        with self.assertRaises(transport.LLMResponseTruncatedError):
+            self._call({"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []})
+
+    def test_config_accepts_responses_protocol(self):
+        config = transport.normalise_api_config(
+            {"base_url": "https://gateway.example/v1", "token": "t", "model": "m", "api_type": "responses"},
+            "测试", default_model="",
+        )
+        self.assertEqual(config.api_type, "openai-responses")
+
+
 class ProxyModeTests(unittest.TestCase):
 
     @staticmethod

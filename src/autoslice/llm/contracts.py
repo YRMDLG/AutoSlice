@@ -61,6 +61,8 @@ class LLMProtocol(str, Enum):
 
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    # OpenAI Responses 接口：POST {base_url}/responses。
+    RESPONSES = "openai-responses"
 
 
 class ReasoningEffort(str, Enum):
@@ -100,6 +102,8 @@ _PROTOCOL_ALIASES = {
     "anthropic": LLMProtocol.ANTHROPIC.value,
     "anthropic-compatible": LLMProtocol.ANTHROPIC.value,
     "messages": LLMProtocol.ANTHROPIC.value,
+    "openai-responses": LLMProtocol.RESPONSES.value,
+    "responses": LLMProtocol.RESPONSES.value,
 }
 _REASONING_EFFORT_VALUES = {item.value for item in ReasoningEffort}
 _REASONING_EFFORT_ALIASES = {"max": ReasoningEffort.XHIGH.value}
@@ -172,7 +176,7 @@ def normalise_protocol(value: Any) -> str:
         return value.value
     protocol = _PROTOCOL_ALIASES.get(str(value or "").strip().casefold())
     if protocol is None:
-        raise ValueError("LLM 协议只支持 openai 或 anthropic")
+        raise ValueError("LLM 协议只支持 openai、openai-responses 或 anthropic")
     return protocol
 
 

@@ -2266,6 +2266,28 @@
       "to": "autoslice.subtitle_workflow"
     },
     {
+      "from": "autoslice.desktop.ai_settings",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.ai_settings",
+      "imports": [
+        "autoslice.llm.transport.PROJECT_DIR",
+        "autoslice.llm.transport.load_api_config",
+        "autoslice.llm.transport.normalise_api_config"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.llm.transport"
+    },
+    {
       "from": "autoslice.desktop.app",
       "imports": [
         "autoslice.desktop.projects.ProjectSnapshot",
@@ -7574,6 +7596,15 @@
       "qualname": "slice_from_marks_impl"
     },
     {
+      "end_line": 748,
+      "kind": "function",
+      "line": 615,
+      "line_count": 134,
+      "module": "autoslice.llm.transport",
+      "path": "src/autoslice/llm/transport.py",
+      "qualname": "call_compatible_api"
+    },
+    {
       "end_line": 747,
       "kind": "function",
       "line": 615,
@@ -7590,15 +7621,6 @@
       "module": "autoslice.media_preview",
       "path": "src/autoslice/media_preview.py",
       "qualname": "MediaPreviewOwner._registered_clip"
-    },
-    {
-      "end_line": 201,
-      "kind": "function",
-      "line": 71,
-      "line_count": 131,
-      "module": "autoslice.desktop.qt_app.window",
-      "path": "src/autoslice/desktop/qt_app/window.py",
-      "qualname": "DesktopWindow.__init__"
     }
   ],
   "modules": [
@@ -10342,6 +10364,60 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 111,
+      "longest_function": {
+        "end_line": 104,
+        "kind": "function",
+        "line": 79,
+        "line_count": 26,
+        "qualname": "save_ai_settings"
+      },
+      "module": "autoslice.desktop.ai_settings",
+      "path": "src/autoslice/desktop/ai_settings.py",
+      "sha256": "2dbd167c0d22b7f8394ec6edd8bd0e95d1f0f73d50ad2a32af3dd990505b486d",
+      "top_level_classes": [
+        {
+          "end_line": 37,
+          "kind": "class",
+          "line": 25,
+          "name": "AISettings"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 41,
+          "kind": "function",
+          "line": 40,
+          "name": "ai_config_path"
+        },
+        {
+          "end_line": 49,
+          "kind": "function",
+          "line": 44,
+          "name": "_read_payload"
+        },
+        {
+          "end_line": 76,
+          "kind": "function",
+          "line": 52,
+          "name": "read_ai_settings"
+        },
+        {
+          "end_line": 104,
+          "kind": "function",
+          "line": 79,
+          "name": "save_ai_settings"
+        },
+        {
+          "end_line": 111,
+          "kind": "function",
+          "line": 107,
+          "name": "vision_model_name"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 387,
       "longest_function": {
         "end_line": 282,
@@ -12710,106 +12786,106 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 522,
+      "line_count": 526,
       "longest_function": {
-        "end_line": 312,
+        "end_line": 316,
         "kind": "function",
-        "line": 270,
+        "line": 274,
         "line_count": 43,
         "qualname": "LLMApiConfig.__post_init__"
       },
       "module": "autoslice.llm.contracts",
       "path": "src/autoslice/llm/contracts.py",
-      "sha256": "0d38666ec79dfde4ef2c3ae435c44e9d7c333b5a11330e6ca62f6c4c96e8cb02",
+      "sha256": "58d404cea4119508df7b90c13f39bec5d296a4946e0a3fb11565038a014ff745",
       "top_level_classes": [
         {
-          "end_line": 63,
+          "end_line": 65,
           "kind": "class",
           "line": 59,
           "name": "LLMProtocol"
         },
         {
-          "end_line": 73,
+          "end_line": 75,
           "kind": "class",
-          "line": 66,
+          "line": 68,
           "name": "ReasoningEffort"
         },
         {
-          "end_line": 80,
+          "end_line": 82,
           "kind": "class",
-          "line": 76,
+          "line": 78,
           "name": "ReasoningStage"
         },
         {
-          "end_line": 93,
+          "end_line": 95,
           "kind": "class",
-          "line": 83,
+          "line": 85,
           "name": "RetryCategory"
         },
         {
-          "end_line": 125,
+          "end_line": 129,
           "kind": "class",
-          "line": 121,
+          "line": 125,
           "name": "_RedactedProxyUrl"
         },
         {
-          "end_line": 225,
+          "end_line": 229,
           "kind": "class",
-          "line": 211,
+          "line": 215,
           "name": "LLMTimeout"
         },
         {
-          "end_line": 327,
+          "end_line": 331,
           "kind": "class",
-          "line": 252,
+          "line": 256,
           "name": "LLMApiConfig"
         },
         {
-          "end_line": 387,
+          "end_line": 391,
           "kind": "class",
-          "line": 336,
+          "line": 340,
           "name": "LLMRequest"
         },
         {
-          "end_line": 408,
+          "end_line": 412,
           "kind": "class",
-          "line": 391,
+          "line": 395,
           "name": "LLMResponse"
         },
         {
-          "end_line": 445,
+          "end_line": 449,
           "kind": "class",
-          "line": 411,
+          "line": 415,
           "name": "LLMGatewayError"
         },
         {
-          "end_line": 458,
+          "end_line": 462,
           "kind": "class",
-          "line": 448,
+          "line": 452,
           "name": "LLMTransportError"
         },
         {
-          "end_line": 465,
+          "end_line": 469,
           "kind": "class",
-          "line": 461,
+          "line": 465,
           "name": "LLMResponseFormatError"
         },
         {
-          "end_line": 472,
+          "end_line": 476,
           "kind": "class",
-          "line": 468,
+          "line": 472,
           "name": "LLMResponseTruncatedError"
         },
         {
-          "end_line": 479,
+          "end_line": 483,
           "kind": "class",
-          "line": 475,
+          "line": 479,
           "name": "LLMStructuredOutputError"
         },
         {
-          "end_line": 486,
+          "end_line": 490,
           "kind": "class",
-          "line": 482,
+          "line": 486,
           "name": "LLMProviderUnavailableError"
         }
       ],
@@ -12833,69 +12909,69 @@
           "name": "validate_llm_endpoint_security"
         },
         {
-          "end_line": 135,
+          "end_line": 139,
           "kind": "function",
-          "line": 128,
+          "line": 132,
           "name": "redact_url_credentials"
         },
         {
-          "end_line": 143,
+          "end_line": 147,
           "kind": "function",
-          "line": 138,
+          "line": 142,
           "name": "normalise_proxy_mode"
         },
         {
-          "end_line": 166,
+          "end_line": 170,
           "kind": "function",
-          "line": 146,
+          "line": 150,
           "name": "normalise_proxy_url"
         },
         {
-          "end_line": 176,
+          "end_line": 180,
           "kind": "function",
-          "line": 169,
+          "line": 173,
           "name": "normalise_protocol"
         },
         {
-          "end_line": 195,
+          "end_line": 199,
           "kind": "function",
-          "line": 179,
+          "line": 183,
           "name": "normalise_reasoning_effort"
         },
         {
-          "end_line": 207,
+          "end_line": 211,
           "kind": "function",
-          "line": 198,
+          "line": 202,
           "name": "normalise_reasoning_stage"
         },
         {
-          "end_line": 237,
+          "end_line": 241,
           "kind": "function",
-          "line": 228,
+          "line": 232,
           "name": "_positive_seconds"
         },
         {
-          "end_line": 248,
+          "end_line": 252,
           "kind": "function",
-          "line": 240,
+          "line": 244,
           "name": "normalise_timeout"
         },
         {
-          "end_line": 501,
+          "end_line": 505,
           "kind": "function",
-          "line": 489,
+          "line": 493,
           "name": "http_retry_category"
         },
         {
-          "end_line": 517,
+          "end_line": 521,
           "kind": "function",
-          "line": 504,
+          "line": 508,
           "name": "classify_retry"
         },
         {
-          "end_line": 522,
+          "end_line": 526,
           "kind": "function",
-          "line": 520,
+          "line": 524,
           "name": "is_retryable_error"
         }
       ]
@@ -13010,17 +13086,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 994,
+      "line_count": 1092,
       "longest_function": {
-        "end_line": 699,
+        "end_line": 748,
         "kind": "function",
-        "line": 570,
-        "line_count": 130,
+        "line": 615,
+        "line_count": 134,
         "qualname": "call_compatible_api"
       },
       "module": "autoslice.llm.transport",
       "path": "src/autoslice/llm/transport.py",
-      "sha256": "26fec851c1f441673f06f9f08e1c5451329b65656c05a4dc606e6e0cdc7a8a28",
+      "sha256": "9ef20f030905535638c4ac21fdbc2cd9f2eb791ccb54960a9816da1e596b8d82",
       "top_level_classes": [
         {
           "end_line": 67,
@@ -13029,9 +13105,9 @@
           "name": "_RedactedHeaderValue"
         },
         {
-          "end_line": 842,
+          "end_line": 940,
           "kind": "class",
-          "line": 761,
+          "line": 859,
           "name": "LLMProviderRetryCoordinator"
         }
       ],
@@ -13133,81 +13209,93 @@
           "name": "parse_openai_response"
         },
         {
-          "end_line": 443,
+          "end_line": 448,
           "kind": "function",
           "line": 417,
+          "name": "parse_responses_response"
+        },
+        {
+          "end_line": 477,
+          "kind": "function",
+          "line": 451,
           "name": "parse_anthropic_response"
         },
         {
-          "end_line": 479,
+          "end_line": 513,
           "kind": "function",
-          "line": 446,
+          "line": 480,
           "name": "_select_http_transport"
         },
         {
-          "end_line": 506,
+          "end_line": 540,
           "kind": "function",
-          "line": 482,
+          "line": 516,
           "name": "_safe_transport_error"
         },
         {
-          "end_line": 526,
+          "end_line": 560,
           "kind": "function",
-          "line": 509,
+          "line": 543,
           "name": "_post_http_request"
         },
         {
-          "end_line": 541,
+          "end_line": 575,
           "kind": "function",
-          "line": 529,
+          "line": 563,
           "name": "_raise_for_status"
         },
         {
-          "end_line": 567,
+          "end_line": 612,
           "kind": "function",
-          "line": 544,
+          "line": 578,
           "name": "_user_content"
         },
         {
-          "end_line": 699,
+          "end_line": 748,
           "kind": "function",
-          "line": 570,
+          "line": 615,
           "name": "call_compatible_api"
         },
         {
-          "end_line": 721,
+          "end_line": 797,
           "kind": "function",
-          "line": 702,
+          "line": 751,
+          "name": "_call_responses_api"
+        },
+        {
+          "end_line": 819,
+          "kind": "function",
+          "line": 800,
           "name": "call_llm"
         },
         {
-          "end_line": 733,
+          "end_line": 831,
           "kind": "function",
-          "line": 724,
+          "line": 822,
           "name": "llm_http_status"
         },
         {
-          "end_line": 741,
+          "end_line": 839,
           "kind": "function",
-          "line": 736,
+          "line": 834,
           "name": "short_llm_error"
         },
         {
-          "end_line": 751,
+          "end_line": 849,
           "kind": "function",
-          "line": 744,
+          "line": 842,
           "name": "is_provider_service_unavailable"
         },
         {
-          "end_line": 758,
+          "end_line": 856,
           "kind": "function",
-          "line": 754,
+          "line": 852,
           "name": "is_retryable_llm_error"
         },
         {
-          "end_line": 956,
+          "end_line": 1054,
           "kind": "function",
-          "line": 845,
+          "line": 943,
           "name": "call_llm_with_retry"
         }
       ]
@@ -20169,6 +20257,7 @@
       "src/autoslice/desktop/__init__.py",
       "src/autoslice/desktop/__main__.py",
       "src/autoslice/desktop/ai_review.py",
+      "src/autoslice/desktop/ai_settings.py",
       "src/autoslice/desktop/app.py",
       "src/autoslice/desktop/commands.py",
       "src/autoslice/desktop/correction_memory.py",
@@ -20404,12 +20493,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 684,
-    "production_line_count": 62343,
-    "production_module_count": 247,
+    "import_edge_count": 686,
+    "production_line_count": 62556,
+    "production_module_count": 248,
     "test_private_patch_count": 17,
-    "top_level_class_count": 223,
-    "top_level_function_count": 1213
+    "top_level_class_count": 224,
+    "top_level_function_count": 1220
   },
   "test_private_patches": {
     "by_target_module": {
