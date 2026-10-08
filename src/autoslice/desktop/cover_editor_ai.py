@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+
 from PySide6.QtWidgets import QMessageBox
 
-from .cover_ai import CoverAIError, jpeg_bytes
+from .cover_ai import CoverAIError, contact_sheet, jpeg_bytes
 from .cover_model import TextObject, object_for_profile
 from .cover_style import streamer_key
 
@@ -31,14 +34,30 @@ class CoverAIMixin:
         def work():
             recent = service.works.recent(streamer=streamer, limit=6)
             thumbnails = service.works.thumbnail_bytes(recent[:3])
-            analysis = service.ai.analyze(
-                project.title, service.subtitle_cues(video), streamer=streamer, recent=recent, round_index=round_index,
+            frame = jpeg_bytes(image_path)
+            # 写文案（文字模型）和看原画面（看图模型）同时发出，不多等。
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                notes_future = pool.submit(service.ai.inspect, frame)
+                analysis = service.ai.analyze(
+                    project.title, service.subtitle_cues(video), streamer=streamer, recent=recent,
+                    round_index=round_index,
+                )
+                try:
+                    busy = notes_future.result().busy
+                except CoverAIError:
+                    busy = frozenset()
+            # 本地先排十几张候选并渲染成总图，AI 看成品挑：压脸、压字、看不懂的一票否决。
+            candidates = service.ai_candidates(document, image_path, analysis.copies, busy=busy)
+            sheet = contact_sheet(tuple(service.scheme_thumbnail(item.document, width=320) for item in candidates))
+            choice = service.ai.choose(
+                sheet, len(candidates), title=project.title, frame=frame, recent_thumbnails=thumbnails,
+                round_index=round_index,
             )
-            ideas = service.ai.design(
-                jpeg_bytes(image_path), analysis, recent=recent, recent_thumbnails=thumbnails, round_index=round_index,
+            schemes = tuple(
+                replace(candidates[pick.index], key=f"ai:{pick.direction}", label=f"AI·{pick.direction}", reason=pick.reason)
+                for pick in choice.picks
             )
-            schemes = service.schemes_from_ideas(document, image_path, ideas)
-            return analysis, schemes, tuple(service.scheme_thumbnail(item.document, width=156) for item in schemes)
+            return analysis, schemes, tuple(service.scheme_thumbnail(item.document, width=156) for item in schemes), choice
 
         self._run(work, lambda result, error: self._ai_schemes_ready(generation, result, error))
 
@@ -51,9 +70,14 @@ class CoverAIMixin:
             self._set_notice(message, "error")
             self.status_changed.emit(message)
             return
-        analysis, schemes, thumbnails = result
-        # 本地方案若还在生成，结果作废；三张卡换成 AI 方案。
-        self._scheme_generation += 1
+        analysis, schemes, thumbnails, choice = result
+        if not schemes:
+            message = f"AI 觉得这批候选都不合格（{choice.rejected or '没说原因'}），可以再点一次换一批，或手动调整"
+            self._set_notice(message, "warning")
+            self.status_changed.emit(message)
+            return
+        # 本地方案若还在生成，结果作废；先清空卡片（AI 可能少于三张），再换成 AI 挑中的。
+        self._clear_schemes()
         self._schemes_ready(self._scheme_generation, (schemes, thumbnails), None)
         self.scheme_title.setText("AI 方案")
         # AI 写的文案并入“换一版”的轮换，排在本地文案前面。

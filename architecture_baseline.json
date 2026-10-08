@@ -2517,7 +2517,7 @@
         "autoslice.desktop.ai_settings.read_ai_settings"
       ],
       "lines": [
-        22
+        23
       ],
       "to": "autoslice.desktop.ai_settings"
     },
@@ -2527,25 +2527,14 @@
         "autoslice.desktop.cover_copy.BasicCoverCopy"
       ],
       "lines": [
-        23
+        24
       ],
       "to": "autoslice.desktop.cover_copy"
     },
     {
       "from": "autoslice.desktop.cover_ai",
       "imports": [
-        "autoslice.desktop.cover_style.STYLE_PRESETS"
-      ],
-      "lines": [
-        24
-      ],
-      "to": "autoslice.desktop.cover_style"
-    },
-    {
-      "from": "autoslice.desktop.cover_ai",
-      "imports": [
-        "autoslice.desktop.cover_works.CoverWork",
-        "autoslice.desktop.cover_works.describe_composition"
+        "autoslice.desktop.cover_works.CoverWork"
       ],
       "lines": [
         25
@@ -2569,7 +2558,7 @@
         "autoslice.llm.transport.extract_json_payload"
       ],
       "lines": [
-        20
+        21
       ],
       "to": "autoslice.llm.transport"
     },
@@ -2596,6 +2585,7 @@
     {
       "from": "autoslice.desktop.cover_autolayout",
       "imports": [
+        "autoslice.desktop.cover_ai.AICopy",
         "autoslice.desktop.cover_ai.AISchemeIdea"
       ],
       "lines": [
@@ -2955,10 +2945,11 @@
       "from": "autoslice.desktop.cover_editor_ai",
       "imports": [
         "autoslice.desktop.cover_ai.CoverAIError",
+        "autoslice.desktop.cover_ai.contact_sheet",
         "autoslice.desktop.cover_ai.jpeg_bytes"
       ],
       "lines": [
-        10
+        13
       ],
       "to": "autoslice.desktop.cover_ai"
     },
@@ -2969,7 +2960,7 @@
         "autoslice.desktop.cover_model.object_for_profile"
       ],
       "lines": [
-        11
+        14
       ],
       "to": "autoslice.desktop.cover_model"
     },
@@ -2979,7 +2970,7 @@
         "autoslice.desktop.cover_style.streamer_key"
       ],
       "lines": [
-        12
+        15
       ],
       "to": "autoslice.desktop.cover_style"
     },
@@ -7673,6 +7664,15 @@
     {
       "end_line": 441,
       "kind": "function",
+      "line": 269,
+      "line_count": 173,
+      "module": "autoslice.desktop.cover_autolayout",
+      "path": "src/autoslice/desktop/cover_autolayout.py",
+      "qualname": "CoverLayoutService.apply_auto_layout"
+    },
+    {
+      "end_line": 441,
+      "kind": "function",
       "line": 276,
       "line_count": 166,
       "module": "autoslice.transcription.recognition",
@@ -7687,15 +7687,6 @@
       "module": "autoslice_cover.copy_recommendations",
       "path": "src/autoslice_cover/copy_recommendations.py",
       "qualname": "generate_copy_recommendations"
-    },
-    {
-      "end_line": 387,
-      "kind": "function",
-      "line": 234,
-      "line_count": 154,
-      "module": "autoslice.desktop.cover_autolayout",
-      "path": "src/autoslice/desktop/cover_autolayout.py",
-      "qualname": "CoverLayoutService.apply_auto_layout"
     },
     {
       "end_line": 360,
@@ -10749,96 +10740,120 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 337,
+      "line_count": 395,
       "longest_function": {
-        "end_line": 315,
+        "end_line": 310,
         "kind": "function",
-        "line": 245,
+        "line": 240,
         "line_count": 71,
-        "qualname": "CoverAI.design"
+        "qualname": "CoverAI.analyze"
       },
       "module": "autoslice.desktop.cover_ai",
       "path": "src/autoslice/desktop/cover_ai.py",
-      "sha256": "73032672161c0cb9283e08256b5621f3594d46138480d4301d1b20de9f6fa37c",
+      "sha256": "9577c397e35f4746eef07930fea9123498090f7b9d51d57c3e6d9dbac1518308",
       "top_level_classes": [
         {
-          "end_line": 46,
+          "end_line": 45,
           "kind": "class",
-          "line": 45,
+          "line": 44,
           "name": "CoverAIError"
         },
         {
-          "end_line": 54,
+          "end_line": 53,
           "kind": "class",
-          "line": 50,
+          "line": 49,
           "name": "AIHighlight"
         },
         {
-          "end_line": 65,
+          "end_line": 64,
           "kind": "class",
-          "line": 58,
+          "line": 57,
           "name": "AICopy"
         },
         {
-          "end_line": 71,
+          "end_line": 70,
           "kind": "class",
-          "line": 69,
+          "line": 68,
           "name": "AIAnalysis"
         },
         {
-          "end_line": 82,
+          "end_line": 85,
           "kind": "class",
-          "line": 75,
+          "line": 74,
           "name": "AISchemeIdea"
         },
         {
-          "end_line": 88,
+          "end_line": 92,
           "kind": "class",
-          "line": 86,
+          "line": 89,
+          "name": "AIPick"
+        },
+        {
+          "end_line": 98,
+          "kind": "class",
+          "line": 96,
+          "name": "AIChoice"
+        },
+        {
+          "end_line": 110,
+          "kind": "class",
+          "line": 106,
+          "name": "AIFrameNotes"
+        },
+        {
+          "end_line": 116,
+          "kind": "class",
+          "line": 114,
           "name": "AINote"
         },
         {
-          "end_line": 337,
+          "end_line": 395,
           "kind": "class",
-          "line": 145,
+          "line": 202,
           "name": "CoverAI"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 95,
+          "end_line": 123,
           "kind": "function",
-          "line": 91,
+          "line": 119,
           "name": "from_source"
         },
         {
-          "end_line": 110,
+          "end_line": 138,
           "kind": "function",
-          "line": 98,
+          "line": 126,
           "name": "jpeg_bytes"
         },
         {
-          "end_line": 115,
+          "end_line": 170,
           "kind": "function",
-          "line": 113,
+          "line": 141,
+          "name": "contact_sheet"
+        },
+        {
+          "end_line": 175,
+          "kind": "function",
+          "line": 173,
           "name": "_clean"
         },
         {
-          "end_line": 122,
+          "end_line": 182,
           "kind": "function",
-          "line": 118,
+          "line": 178,
           "name": "_seconds"
         },
         {
-          "end_line": 134,
+          "end_line": 194,
           "kind": "function",
-          "line": 125,
+          "line": 185,
           "name": "_subtitle_lines"
         },
         {
-          "end_line": 142,
+          "end_line": 199,
           "kind": "function",
-          "line": 137,
+          "line": 197,
           "name": "_work_examples"
         }
       ]
@@ -10897,28 +10912,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 580,
+      "line_count": 668,
       "longest_function": {
-        "end_line": 387,
+        "end_line": 441,
         "kind": "function",
-        "line": 234,
-        "line_count": 154,
+        "line": 269,
+        "line_count": 173,
         "qualname": "CoverLayoutService.apply_auto_layout"
       },
       "module": "autoslice.desktop.cover_autolayout",
       "path": "src/autoslice/desktop/cover_autolayout.py",
-      "sha256": "6f77ea8ceea83c60dd040e6d3c1f8614131d62a7b0d4da72501d929db2ae504d",
+      "sha256": "6e2185e4fcc1287c2d61759ffd78b306d8620562bb8fcccb89e9128336433f0c",
       "top_level_classes": [
         {
-          "end_line": 111,
+          "end_line": 130,
           "kind": "class",
-          "line": 105,
+          "line": 124,
           "name": "CoverScheme"
         },
         {
-          "end_line": 580,
+          "end_line": 668,
           "kind": "class",
-          "line": 155,
+          "line": 174,
           "name": "CoverLayoutService"
         }
       ],
@@ -10930,15 +10945,15 @@
           "name": "_context_cap"
         },
         {
-          "end_line": 120,
+          "end_line": 139,
           "kind": "function",
-          "line": 113,
+          "line": 132,
           "name": "primary_copy_ids"
         },
         {
-          "end_line": 152,
+          "end_line": 171,
           "kind": "function",
-          "line": 123,
+          "line": 142,
           "name": "ensure_context_text"
         }
       ]
@@ -11205,22 +11220,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 111,
+      "line_count": 135,
       "longest_function": {
-        "end_line": 43,
+        "end_line": 62,
         "kind": "function",
-        "line": 16,
-        "line_count": 28,
+        "line": 19,
+        "line_count": 44,
         "qualname": "CoverAIMixin._ai_schemes"
       },
       "module": "autoslice.desktop.cover_editor_ai",
       "path": "src/autoslice/desktop/cover_editor_ai.py",
-      "sha256": "9a501965e1b1075789eb3c50dff8c444a27a279050b6c76cc375672b22409031",
+      "sha256": "2ec77ae5c52f6e6efb75e9a1261db02d658679385c133d94df27ecf4b3907314",
       "top_level_classes": [
         {
-          "end_line": 111,
+          "end_line": 135,
           "kind": "class",
-          "line": 15,
+          "line": 18,
           "name": "CoverAIMixin"
         }
       ],
@@ -20861,12 +20876,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 703,
-    "production_line_count": 63448,
+    "import_edge_count": 702,
+    "production_line_count": 63618,
     "production_module_count": 251,
     "test_private_patch_count": 17,
-    "top_level_class_count": 233,
-    "top_level_function_count": 1232
+    "top_level_class_count": 236,
+    "top_level_function_count": 1233
   },
   "test_private_patches": {
     "by_target_module": {

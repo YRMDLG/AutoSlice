@@ -13,7 +13,7 @@ from autoslice_cover.composition import best_crop_focus, region_cost, saliency_m
 from autoslice_cover.document_layout import Box, background_box
 from autoslice_cover.document_render import compose_document
 
-from .cover_ai import AISchemeIdea
+from .cover_ai import AICopy, AISchemeIdea
 from .cover_copy import BasicCoverCopy
 from .cover_draft import CoverDraft
 from .cover_layout import (
@@ -100,6 +100,25 @@ _SCHEME_FONT_BIG = 168
 
 # “换一批”轮换的配色；第一个方案保留当前（记忆）样式。
 _SCHEME_PRESETS = ("duo", "yellow-red", "yellow-purple", "white", "classic")
+
+# AI 候选的排法和位置；前一轮用原画面，后一轮放大到人物、裁掉两侧杂物。
+_CANDIDATE_ARRANGEMENTS = (
+    ("split", ""), ("stack", "bottom"), ("headline", "bottom"), ("slot", "left"),
+    ("stack", "top"), ("slot", "right"), ("headline", "top"),
+)
+# 每种排法会用到画面的哪些区域（上下分置的 A 在上缘、B 在下缘；侧边槽位在画面中上部，也算上缘）。
+_ARRANGEMENT_REGIONS = {
+    ("split", ""): frozenset({"top", "bottom"}),
+    ("stack", "bottom"): frozenset({"bottom"}),
+    ("headline", "bottom"): frozenset({"bottom"}),
+    ("slot", "left"): frozenset({"left", "top"}),
+    ("stack", "top"): frozenset({"top"}),
+    ("slot", "right"): frozenset({"right", "top"}),
+    ("headline", "top"): frozenset({"top"}),
+}
+_CANDIDATE_ZOOM = 1.35
+# 拉近时画面上下方向的锚点：原取景高度的这个位置留在画面中线。
+_ZOOM_ANCHOR_Y = 0.42
 
 @dataclass(frozen=True)
 class CoverScheme:
@@ -231,8 +250,25 @@ class CoverLayoutService:
     def warm_composition(image_path: str | Path) -> None:
         saliency_map(image_path)
 
+    @staticmethod
+    def _centered_focus(
+        source_size: tuple[int, int], canvas: tuple[int, int], zoom: float, center: tuple[float, float],
+    ) -> tuple[float, float]:
+        """放大后让主体落在画面中间的 focus（与 background_box 的 focus 同义）。"""
+
+        drawn = background_box(source_size, canvas, scale=zoom)
+
+        def axis(value: float, extent: float, size: float) -> float:
+            span = extent - size
+            if abs(span) < 0.5:
+                return 0.5
+            return max(0.0, min(1.0, (extent / 2 - value * size) / span))
+
+        return axis(center[0], canvas[0], drawn.width), axis(center[1], canvas[1], drawn.height)
+
     def apply_auto_layout(
         self, document: CoverDocument, image_path: str | Path, *, mode: str = "auto", position: str = "",
+        zoom: float = 1.0,
     ) -> CoverDocument:
         """新底图的默认构图：两个比例分别保住主体、给 A/B 找空区。
 
@@ -240,8 +276,8 @@ class CoverLayoutService:
         mode="stack" 大标题在上、A 作小字紧跟其下，整组放在更空的上缘或下缘，
         mode="slot" 强制放进最空的单侧槽位。
         只排 A/B 主文案；用户新建或复制的文本框不动。
-        position 是看过画面的 AI 指定的位置（top/bottom/left/right），给了就按它放：
-        本地显著图只认人物，认不出画面里原有的大字和弹幕。
+        position 指定文字放在哪（top/bottom/left/right），给了就按它放。
+        zoom > 1 时把画面放大到主体，裁掉两侧的弹幕栏和直播界面。
         """
 
         saliency = saliency_map(image_path)
@@ -250,6 +286,13 @@ class CoverLayoutService:
         texts = [item for item in document.objects if isinstance(item, TextObject) and item.id in primary]
         has_context = any(item.copy_role == "A" and item.visible and item.text.strip() for item in texts)
         profiles = dict(document.profiles)
+        source_size = None
+        if zoom > 1.0 and saliency is not None:
+            try:
+                with Image.open(image_path) as source:
+                    source_size = source.size
+            except OSError:
+                source_size = None
         # 4:3 是主画布：先定 4:3 的布局方式，16:9 跟随上下分置，避免另一比例压脸。
         main_split = False
         ordered = sorted(document.profiles.items(), key=lambda item: item[0] != "4x3")
@@ -262,6 +305,17 @@ class CoverLayoutService:
                 if saliency is not None and current.fit_mode == "cover":
                     focus_x, focus_y = best_crop_focus(saliency, profile.width / max(1, profile.height))
                 scale = current.scale if saliency is None else 1.0
+                if source_size is not None and current.fit_mode == "cover":
+                    # 在原取景上拉近：以原画面中心为准、略偏上（脸通常在上半部），不去猜人物在哪——
+                    # 弹幕栏里的头像会把肤色重心拉偏。
+                    canvas = (profile.width, profile.height)
+                    shown = background_box(source_size, canvas, focus_x=focus_x, focus_y=focus_y)
+                    center = (
+                        (canvas[0] / 2 - shown.left) / shown.width,
+                        (canvas[1] * _ZOOM_ANCHOR_Y - shown.top) / shown.height,
+                    )
+                    scale = zoom
+                    focus_x, focus_y = self._centered_focus(source_size, canvas, zoom, center)
                 updated = replace(current, pan_x=focus_x, pan_y=focus_y, scale=scale)
                 overrides[background.id] = object_override_payload(updated)
             costs = self._text_slot_costs(image_path, key, focus_x=focus_x, focus_y=focus_y, scale=scale)
@@ -535,9 +589,43 @@ class CoverLayoutService:
             mode = "split" if big else idea.layout
             built = self.apply_auto_layout(
                 self._seed_copy(document, copy, presets[idea.preset], big=big), image_path, mode=mode, position=idea.place,
+                zoom=idea.zoom,
             )
             schemes.append(CoverScheme(f"ai:{idea.direction}", f"AI·{idea.direction}", idea.reason, built))
         return tuple(schemes)
+
+    def ai_candidates(
+        self, document: CoverDocument, image_path: str | Path, copies: tuple[AICopy, ...], *, limit: int = 12,
+        busy: frozenset[str] = frozenset(),
+    ) -> tuple[CoverScheme, ...]:
+        """给看图模型挑的候选：文案 × 排法和位置 × 取景（原画面 / 放大到人物）× 配色，尽量各不相同。
+
+        busy 是看图模型认出的、画面自带文字或界面所在的区域，用到这些区域的排法直接跳过；
+        剩下不到两种时不过滤，交给挑选环节把关。
+        """
+
+        if not copies:
+            return ()
+        arrangements = tuple(
+            item for item in _CANDIDATE_ARRANGEMENTS if not (_ARRANGEMENT_REGIONS[item] & busy)
+        )
+        if len(arrangements) < 2:
+            arrangements = _CANDIDATE_ARRANGEMENTS
+        half = len(arrangements)
+        ideas = []
+        for index in range(limit):
+            layout, position = arrangements[index % len(arrangements)]
+            ideas.append(AISchemeIdea(
+                direction="", copy=copies[index % len(copies)], layout=layout,
+                preset=_SCHEME_PRESETS[index % len(_SCHEME_PRESETS)], reason="", place=position,
+                zoom=1.0 if index < half else _CANDIDATE_ZOOM,
+            ))
+        candidates: list[CoverScheme] = []
+        for scheme in self.schemes_from_ideas(document, image_path, tuple(ideas)):
+            if all(item.document != scheme.document for item in candidates):
+                number = len(candidates) + 1
+                candidates.append(replace(scheme, key=f"candidate-{number}", label=str(number)))
+        return tuple(candidates)
 
     @staticmethod
     def apply_scheme(document: CoverDocument, scheme: CoverScheme) -> CoverDocument:
