@@ -243,6 +243,22 @@ class AssetLibraryTests(unittest.TestCase):
             self.assertEqual([item.asset_id for item in library.recent_assets()], [second.asset_id, first.asset_id])
             self.assertEqual(len(library.recent_assets(1)), 1)
 
+    def test_assets_kept_in_exports_rank_before_ones_only_tried(self):
+        from autoslice.desktop.cover_assets import CoverAssetLibrary
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stickers = root / "stickers" / "泽音"
+            stickers.mkdir(parents=True)
+            for name in ("a", "b"):
+                Image.new("RGBA", (16, 16), "red").save(stickers / f"{name}.png")
+            library = CoverAssetLibrary(root / "data", legacy_root=root / "stickers")
+            tried, kept = sorted(library.list_assets(), key=lambda item: item.name)
+            for _ in range(3):
+                library.mark_used(tried.asset_id)
+            library.mark_used(kept.asset_id, final_export=True)
+            self.assertEqual(library.list_assets()[0].asset_id, kept.asset_id)
+
 
 class LockAndSharedFieldTests(unittest.TestCase):
     def test_lock_is_object_level_and_shared_fields_reach_overrides(self):

@@ -111,8 +111,9 @@ class CoverAssetLibrary:
         preferred = (preferred_group or "").casefold()
         return tuple(sorted(values, key=lambda item: (
             0 if preferred and preferred in item.group.casefold() else 1,
-            -item.usage_count,
+            # 导出时还保留着的素材比只点过一次更能代表习惯。
             -item.final_export_count,
+            -item.usage_count,
             item.name.casefold(),
         )))
 
