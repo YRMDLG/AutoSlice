@@ -18,6 +18,7 @@ from .cover_model import (
     set_object_visible,
     update_text_object,
 )
+from .cover_style import streamer_key
 
 
 class CoverSchemesMixin:
@@ -43,9 +44,12 @@ class CoverSchemesMixin:
         generation = self._scheme_generation
         document, image_path = self.document, self.draft.image_path
         variants, scheme_batch, service = self._copy_variants, self._scheme_batch, self.service
+        streamer = streamer_key(self.project.title if self.project is not None else "") or ""
 
         def build():
-            schemes = service.layout_schemes(document, image_path, variants, batch=scheme_batch)
+            # 最近的作品：第二、三套方案优先给最近没用过的构图和配色。
+            recent = service.works.recent(streamer=streamer, limit=6)
+            schemes = service.layout_schemes(document, image_path, variants, batch=scheme_batch, recent=recent)
             return schemes, tuple(service.scheme_thumbnail(item.document, width=156) for item in schemes)
 
         self._run(build, lambda result, error: self._schemes_ready(generation, result, error))
@@ -85,6 +89,7 @@ class CoverSchemesMixin:
             self._commit_document_change(before)
             self.canvas.set_document(self.document, self._canvas_key)
             self._sync_selected_text_controls()
+        self._applied_scheme, self._edits_after_scheme = scheme.key, 0
         self.status_changed.emit(f"已套用方案：{scheme.label}（Ctrl+Z 可撤销）")
 
     def _next_scheme_batch(self):

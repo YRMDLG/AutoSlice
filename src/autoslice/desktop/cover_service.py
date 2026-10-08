@@ -17,6 +17,7 @@ from .cover_store import CoverStoreService
 from .cover_style import (
     CoverStyleMemoryStore,
 )
+from .cover_works import CoverWorks
 
 
 class CoverService(
@@ -33,6 +34,7 @@ class CoverService(
         self.previews = storage.thumbnails / "cover-previews"
         self.asset_library = CoverAssetLibrary(storage.root)
         self.style_memory = CoverStyleMemoryStore(storage.root)
+        self.works = CoverWorks(storage)
         self.export_history_path = storage.root / "cover-export-history.json"
         # 同一视频只探测一次时长与尺寸；取帧任务会并发调用。
         self._metadata: dict[tuple[str, int, int], VideoMetadata] = {}

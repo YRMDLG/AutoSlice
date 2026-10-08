@@ -25,6 +25,7 @@ from .cover_model import (
     ImageObject,
     StickerObject,
 )
+from .cover_style import streamer_key
 
 
 class CoverExportService:
@@ -97,7 +98,7 @@ class CoverExportService:
             if not keep_layout:
                 document = self.apply_auto_layout(document, best.path)
             self.save_document(project, video, document)
-        return self.export_both(project, video, document)
+        return self.export_both(project, video, document, work={"scheme": "batch"})
 
     def render_preview(self, video: ProjectVideo, draft: CoverDraft, *, canvas_key: str = "4x3") -> Path:
         """旧草稿调用方：转成文档后走同一条渲染管线。"""
@@ -161,6 +162,16 @@ class CoverExportService:
         document: CoverDocument,
         *,
         canvas_key: str = "4x3",
+        work: dict | None = None,
+    ) -> Path:
+        """导出一个比例；work 是编辑器给的作品信息（用了哪个方案、之后改了几步）。"""
+
+        destination = self._export_one(project, video, document, canvas_key)
+        self._after_export(project, video, document, (destination,), (canvas_key,), work)
+        return destination
+
+    def _export_one(
+        self, project: SubmissionProject, video: ProjectVideo, document: CoverDocument, canvas_key: str,
     ) -> Path:
         if canvas_key not in {"4x3", "16x9"}:
             raise ValueError(f"不支持的封面比例：{canvas_key}")
@@ -172,6 +183,20 @@ class CoverExportService:
             destination = Path(project.directory) / f"AutoCover-{stem}{suffix} ({index}).jpg"
             index += 1
         self._render_document(document, video, destination, canvas_key=canvas_key)
+        self._record_export(project, video, destination, canvas_key)
+        return destination
+
+    def _after_export(
+        self,
+        project: SubmissionProject,
+        video: ProjectVideo,
+        document: CoverDocument,
+        outputs: tuple[Path, ...],
+        canvas_keys: tuple[str, ...],
+        work: dict | None,
+    ) -> None:
+        """一次导出动作结束：风格、素材使用和作品库各只记一次（双比例不重复计）。"""
+
         # 导出即用户确认的成品，此时才记忆风格，临时试色不进入长期偏好。
         self.remember_style(project, document)
         for item in document.objects:
@@ -180,18 +205,28 @@ class CoverExportService:
                     self.asset_library.mark_used(item.asset.asset_id, final_export=True)
                 except (KeyError, OSError, ValueError):
                     pass
-        self._record_export(project, video, destination, canvas_key)
-        return destination
+        try:
+            self.works.record(
+                streamer=streamer_key(project.title) or "", project=project.title, video=video.name,
+                document=document, outputs=outputs, canvas_keys=canvas_keys, meta=work,
+            )
+        except (OSError, ValueError, KeyError):
+            # 作品库只是学习材料，写失败不能影响已经导出的文件。
+            pass
 
     def export_both(
         self,
         project: SubmissionProject,
         video: ProjectVideo,
         document: CoverDocument,
+        *,
+        work: dict | None = None,
     ) -> tuple[Path, Path]:
         """连续生产入口：明确生成 4:3 和 16:9 两个独立文件。"""
 
-        return (
-            self.export_document(project, video, document, canvas_key="4x3"),
-            self.export_document(project, video, document, canvas_key="16x9"),
+        outputs = (
+            self._export_one(project, video, document, "4x3"),
+            self._export_one(project, video, document, "16x9"),
         )
+        self._after_export(project, video, document, outputs, ("4x3", "16x9"), work)
+        return outputs

@@ -27,10 +27,11 @@ class CoverExportMixin:
         self.export_both_button.setEnabled(False)
         document = self.document
         project, video = self.project, self.video
+        work = self._work_meta()
         self._set_notice("正在分别导出 4:3 与 16:9…", "info")
         self.status_changed.emit("正在分别导出 4:3 与 16:9…")
         self._run(
-            lambda: self.service.export_both(project, video, document),
+            lambda: self.service.export_both(project, video, document, work=work),
             self._export_both_ready,
         )
 
@@ -48,14 +49,25 @@ class CoverExportMixin:
         self._set_notice("")
         self.status_changed.emit(f"双比例封面已导出：{names}")
 
+    def _work_meta(self) -> dict:
+        """给作品库的信息：套用过哪个快速方案、之后又改了几步、最初给的基础文案。"""
+
+        basic = self._copy_variants[0] if self._copy_variants else None
+        return {
+            "scheme": self._applied_scheme,
+            "edits_after_scheme": self._edits_after_scheme if self._applied_scheme else 0,
+            "basic_copy": (basic.context, basic.headline) if basic is not None else ("", ""),
+        }
+
     def _start_export(self):
         if self.project is None or self.video is None or self.document is None:
             return
         self._set_notice(f"正在导出 {self._canvas_label()} 主封面…", "info")
         self.status_changed.emit(f"正在导出 {self._canvas_label()} 主封面…")
         canvas_key = self._canvas_key
+        work = self._work_meta()
         self._run(
-            lambda: self.service.export_document(self.project, self.video, self.document, canvas_key=canvas_key),
+            lambda: self.service.export_document(self.project, self.video, self.document, canvas_key=canvas_key, work=work),
             self._export_ready,
         )
 

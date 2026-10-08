@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.correction_memory import CorrectionMemory
+from autoslice.desktop.cover_works import CoverWorks, describe_composition, describe_scheme
 from autoslice.desktop.qt_preview.window import label
 from autoslice.streamer_profiles import resolve_streamer_profile
 
@@ -25,9 +26,10 @@ def _profile_label(profile_id: str) -> str:
 
 
 class LearningPanel(QWidget):
-    def __init__(self, memory: CorrectionMemory, parent=None):
+    def __init__(self, memory: CorrectionMemory, works: CoverWorks | None = None, parent=None):
         super().__init__(parent)
         self.memory = memory
+        self.works = works
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -54,6 +56,16 @@ class LearningPanel(QWidget):
         self.forget_button.clicked.connect(self._forget)
         row.addWidget(self.forget_button)
         layout.addLayout(row)
+        layout.addSpacing(6)
+        layout.addWidget(label("封面作品库", "sectionTitle"))
+        works_help = label(
+            "每次导出记下构图、配色、文案和用了哪个方案；快速方案会优先给最近没用过的构图和配色。", "muted",
+        )
+        works_help.setWordWrap(True)
+        layout.addWidget(works_help)
+        self.works_summary = label("", "muted")
+        self.works_summary.setWordWrap(True)
+        layout.addWidget(self.works_summary)
         self.refresh()
 
     def refresh(self) -> None:
@@ -71,6 +83,23 @@ class LearningPanel(QWidget):
         )
         self.list.setVisible(bool(rows))
         self._selection_changed()
+        self._refresh_works()
+
+    def _refresh_works(self) -> None:
+        summary = self.works.summary() if self.works is not None else {"count": 0}
+        if not summary["count"]:
+            self.works_summary.setText("还没有作品：导出封面后会记在这里。")
+            return
+        lines = [f"已记录 {summary['count']} 张封面。"]
+        if summary["compositions"]:
+            lines.append("常用构图：" + "；".join(
+                f"{describe_composition(key)}（{count} 张）" for key, count in summary["compositions"]
+            ))
+        if summary["schemes"]:
+            lines.append("常用方案：" + "、".join(
+                f"{describe_scheme(key)} {count} 次" for key, count in summary["schemes"]
+            ))
+        self.works_summary.setText("\n".join(lines))
 
     def _selection_changed(self) -> None:
         self.forget_button.setEnabled(bool(self.list.selectedItems()))

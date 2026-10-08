@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -38,6 +39,7 @@ from .cover_style import (
     STYLE_PRESETS,
     StylePreset,
 )
+from .cover_works import CoverWork, composition_signature, palette_signature
 
 # 默认文字槽位：(x, y, 宽度)；高度统一 0.32，按比例分别给出。
 _TEXT_SLOTS = {
@@ -421,8 +423,12 @@ class CoverLayoutService:
         variants: tuple[BasicCoverCopy, ...],
         *,
         batch: int = 0,
+        recent: tuple[CoverWork, ...] = (),
     ) -> tuple[CoverScheme, ...]:
-        """三套方案：推荐 / 只留大字 / 换文案换配色；“换一批”轮换文案和配色。"""
+        """三套方案：推荐 / 换一种构图 / 换文案换配色；“换一批”轮换文案和配色。
+
+        recent 是最近导出的作品：第二套优先最近没用过的构图，第三套优先没用过的配色。
+        """
 
         if not variants:
             ids = primary_copy_ids(document)
@@ -434,7 +440,15 @@ class CoverLayoutService:
         first = variants[batch % len(variants)]
         second = variants[(batch + 1) % len(variants)]
         presets = {preset.key: preset for preset in STYLE_PRESETS}
-        preset = presets[_SCHEME_PRESETS[batch % len(_SCHEME_PRESETS)]]
+        # 只比 B 的颜色（主色调）；稳定排序：最近用得少的配色在前，同样少时保持原有轮换顺序。
+        used_palettes = Counter(item.palette.split("|")[0] for item in recent)
+        ranked_presets = sorted(
+            _SCHEME_PRESETS,
+            key=lambda key: used_palettes[
+                palette_signature(self._seed_copy(document, second, presets[key], big=False)).split("|")[0]
+            ],
+        )
+        preset = presets[ranked_presets[batch % len(ranked_presets)]]
 
         def build(copy: BasicCoverCopy, style: StylePreset | None, *, big: bool = False, mode: str = "auto") -> CoverDocument:
             return self.apply_auto_layout(self._seed_copy(document, copy, style, big=big), image_path, mode=mode)
@@ -455,6 +469,8 @@ class CoverLayoutService:
             CoverScheme("side", "侧边", "文字放到画面较空的一侧，人物更完整", build(first, None, mode="slot")),
         ]
         distinct = [item for item in alternatives if item.document != recommended] or alternatives
+        used_compositions = Counter(item.composition for item in recent)
+        distinct.sort(key=lambda item: used_compositions[composition_signature(item.document)])
         middle = distinct[batch % len(distinct)]
         return (
             CoverScheme("recommended", "推荐", "避开人物主体自动排版：A 交代背景，B 放大爆点", recommended),

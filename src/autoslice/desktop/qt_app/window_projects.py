@@ -116,7 +116,7 @@ class ProjectsMixin:
         layout.addSpacing(8)
 
         # ── 成长记录 ──
-        self.learning_panel = LearningPanel(self.correction_memory)
+        self.learning_panel = LearningPanel(self.correction_memory, self.cover_editor.service.works)
         layout.addWidget(self.learning_panel)
 
         layout.addSpacing(8)

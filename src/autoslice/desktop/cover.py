@@ -95,6 +95,9 @@ class CoverEditorWidget(
         self._reuse_layout_timestamp: float | None = None
         self._scheme_batch = 0
         self._scheme_generation = 0
+        # 作品库用：最近套用的快速方案，以及套用后又改了几步。
+        self._applied_scheme = ""
+        self._edits_after_scheme = 0
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
@@ -176,6 +179,7 @@ class CoverEditorWidget(
         """记一条撤销历史，撤销/重做按钮跟着可用状态。"""
 
         self.history.commit(self.document)
+        self._edits_after_scheme += 1
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
 
@@ -277,6 +281,10 @@ class CoverEditorWidget(
             self._save_draft()
         self._enter_context(project, video)
 
+    def _reset_work_tracking(self):
+        self._applied_scheme = ""
+        self._edits_after_scheme = 0
+
     def _cancel_background_work(self):
         """在途的取帧、附近帧回调全部作废；迟到结果按代际丢弃。"""
 
@@ -303,6 +311,7 @@ class CoverEditorWidget(
         self.video = None
         self.document = None
         self.history.reset(None)
+        self._reset_work_tracking()
         self._cancel_background_work()
         self._copy_variants = ()
         self._copy_variant_index = -1
@@ -362,6 +371,7 @@ class CoverEditorWidget(
             float(self.document.source.selected_timestamp) if read.status == "source_changed" else None
         )
         self.history.reset(self.document)
+        self._reset_work_tracking()
         self._frame_locked = bool(self.document.source.frame_locked)
         self.frame_lock_button.blockSignals(True)
         self.frame_lock_button.setChecked(self._frame_locked)
