@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from autoslice.streamer_profiles import CoverEmphasisTerm, resolve_streamer_profile
 from autoslice_cover.document_layout import (
     CONNECTIVE_BREAK,
     SCRIPT_BREAK,
@@ -37,6 +38,8 @@ _TAIL_COMMENTARY = (
     "太甜了",
     "笑死",
 )
+# 通用的情绪/反应词：任何主播的切片里都是看点。主播专属的梗和事件词放在
+# 主播档案的 cover_rules.emphasis_terms，按标题识别主播后加载，不写死在代码里。
 _STRONG_MARKERS = (
     "退钱",
     "滚",
@@ -45,45 +48,31 @@ _STRONG_MARKERS = (
     "吓",
     "气",
     "大骂",
-    "鸟叫",
     "秒懂",
     "心酸",
     "温柔",
-    "销毁证据",
-    "红色感叹号",
     "虚假宣传",
     "请勿外放",
-    "万楼",
     "低调",
     "是真的",
     "上当",
-    "秒懂",
-    "总会有机会",
 )
 _HIGH_VALUE_MARKERS = (
     "虚假宣传",
-    "销毁证据",
-    "红色感叹号",
     "请勿外放",
     "退钱",
-    "万楼",
-    "鸟叫",
     "秒懂",
-    "总会有机会",
     "上当",
 )
 _COMPACT_MARKERS = {
-    "万楼": 4,
     "虚假宣传": 8,
     "退钱": 4,
-    "销毁证据": 8,
-    "红色感叹号": 8,
-    "鸟叫": 6,
     "秒懂": 8,
-    "总会有机会": 8,
     "请勿外放": 8,
     "上当": 8,
 }
+# 能单独成句的强信息：命中时 B 不再配 A。
+_STANDALONE_MARKERS = ("请勿外放", "虚假宣传")
 # 片段截取：起点只落在语义边界上，终点可带一个语气尾字，B 可带原文紧随的强调标点。
 _TRAILING_PARTICLES = "的了啊吧呢呀啦"
 _EMPHASIS_TAIL = "！？!?⁉‼⁈⁇"
@@ -102,6 +91,47 @@ _CONTEXT_STARTERS = (
     "再",
     "原来",
 )
+@dataclass(frozen=True, slots=True)
+class CopyLexicon:
+    """主播专属的梗和事件词（来自主播档案），命中即视为强信息。"""
+
+    terms: tuple[CoverEmphasisTerm, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _Markers:
+    strong: tuple[str, ...]
+    high: tuple[str, ...]
+    compact: tuple[tuple[str, int], ...]
+    standalone: tuple[str, ...]
+
+
+def _markers(lexicon: CopyLexicon) -> _Markers:
+    """通用词表 + 主播专属词；专属词更具体，截取短爆点时先匹配。"""
+
+    terms = tuple(item.term for item in lexicon.terms)
+    return _Markers(
+        strong=_STRONG_MARKERS + terms,
+        high=_HIGH_VALUE_MARKERS + terms,
+        compact=tuple((item.term, item.compact) for item in lexicon.terms if item.compact)
+        + tuple(_COMPACT_MARKERS.items()),
+        standalone=_STANDALONE_MARKERS + tuple(item.term for item in lexicon.terms if item.standalone),
+    )
+
+
+_GENERIC = _markers(CopyLexicon())
+
+
+def streamer_copy_lexicon(title: str, video_path: str | None = None) -> CopyLexicon:
+    """按投稿标题（和视频路径）识别主播，取其档案里的强信息词；识别不了就用通用词表。"""
+
+    try:
+        profile = resolve_streamer_profile("auto", video_path, context_hint=title)
+    except (OSError, ValueError):
+        return CopyLexicon()
+    return CopyLexicon(profile.cover_rules.emphasis_terms)
+
+
 @dataclass(frozen=True, slots=True)
 class BasicCoverCopy:
     """一套基础封面文案候选。"""
@@ -159,7 +189,7 @@ def _phrase_end(value: str, minimum: int, maximum: int) -> int:
     return end
 
 
-def _display_clean(text: str) -> tuple[str, str]:
+def _display_clean(text: str, markers: _Markers = _GENERIC) -> tuple[str, str]:
     """清洗一个片段；过长时按语义边界截取，返回（片段，被舍去的前半段）。"""
 
     value = text.strip().strip("“”「」『』\"' ")
@@ -171,7 +201,7 @@ def _display_clean(text: str) -> tuple[str, str]:
     lead = ""
     # 旧版封面常用的短爆点只保留原题中紧邻该词的片段；这是截取，不是
     # 改写。起点落在语义边界，避免“居然”被切成“然”这类断词。
-    for marker, prefix_length in _COMPACT_MARKERS.items():
+    for marker, prefix_length in markers.compact:
         index = value.find(marker)
         if index >= 0 and len(value) > len(marker) + prefix_length:
             start = _phrase_start(value, max(0, index - prefix_length), index)
@@ -181,7 +211,7 @@ def _display_clean(text: str) -> tuple[str, str]:
     if len(value) > 18:
         matches = [
             (value.find(marker), marker)
-            for marker in _HIGH_VALUE_MARKERS
+            for marker in markers.high
             if marker in value
         ]
         if matches:
@@ -237,9 +267,9 @@ def _with_emphasis(text: str, title: str) -> str:
     return text + tail
 
 
-def _chunks(title: str) -> tuple[_Chunk, ...]:
+def _chunks(title: str, markers: _Markers = _GENERIC) -> tuple[_Chunk, ...]:
     cleaned = _clean_title(title)
-    quotes = [_display_clean(item)[0] for item in _QUOTE_RE.findall(cleaned)]
+    quotes = [_display_clean(item, markers)[0] for item in _QUOTE_RE.findall(cleaned)]
     text = _EMOJI_RE.sub("|", cleaned)
     # 中文之间的空格通常是分句，按分段处理（每段一个文本框）。
     text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "|", text)
@@ -249,7 +279,7 @@ def _chunks(title: str) -> tuple[_Chunk, ...]:
     result: list[_Chunk] = []
     seen: set[str] = set()
     for raw in text.split("|"):
-        value, lead = _display_clean(raw)
+        value, lead = _display_clean(raw, markers)
         if not value or value in seen:
             continue
         seen.add(value)
@@ -262,16 +292,16 @@ def _chunks(title: str) -> tuple[_Chunk, ...]:
     return tuple(result)
 
 
-def _headline_score(chunk: _Chunk, total: int) -> float:
+def _headline_score(chunk: _Chunk, total: int, markers: _Markers = _GENERIC) -> float:
     text = chunk.text
     score = 0.0
     if chunk.quoted:
         score += 3.2
     if chunk.relation:
         score += 2.4
-    if any(marker in text for marker in _STRONG_MARKERS):
+    if any(marker in text for marker in markers.strong):
         score += 2.0
-    if any(marker in text for marker in _HIGH_VALUE_MARKERS):
+    if any(marker in text for marker in markers.high):
         score += 1.8
     if re.search(r"\d|[百千万]", text):
         score += 1.5
@@ -291,9 +321,9 @@ def _headline_score(chunk: _Chunk, total: int) -> float:
     if any(item in text for item in _TAIL_COMMENTARY):
         score -= 4.0
     return score
-def _needs_context(chunk: _Chunk) -> bool:
+def _needs_context(chunk: _Chunk, markers: _Markers = _GENERIC) -> bool:
     text = chunk.text
-    if any(item in text for item in ("请勿外放", "虚假宣传", "销毁证据", "红色感叹号")):
+    if any(item in text for item in markers.standalone):
         return False
     if chunk.quoted and len(text) <= 16:
         return True
@@ -302,7 +332,7 @@ def _needs_context(chunk: _Chunk) -> bool:
     return text.startswith(_CONTEXT_STARTERS)
 
 
-def _should_pair_context(chunks: tuple[_Chunk, ...], headline: _Chunk) -> bool:
+def _should_pair_context(chunks: tuple[_Chunk, ...], headline: _Chunk, markers: _Markers = _GENERIC) -> bool:
     """只在标题确实由“前因 / 后续反应”组成时生成 A。
 
     早期实现把整条投稿标题交给一个 TextObject，斜杠分隔的对话也因此
@@ -315,9 +345,9 @@ def _should_pair_context(chunks: tuple[_Chunk, ...], headline: _Chunk) -> bool:
     if headline.subtitle or headline.index != 1 or len(title_chunks) != 2:
         return False
     chunks = tuple(title_chunks)
-    if _needs_context(headline):
+    if _needs_context(headline, markers):
         return True
-    if any(marker in headline.text for marker in _STRONG_MARKERS + _HIGH_VALUE_MARKERS):
+    if any(marker in headline.text for marker in markers.strong + markers.high):
         return False
     if headline.quoted or not 6 <= len(headline.text) <= 20:
         return False
@@ -325,8 +355,10 @@ def _should_pair_context(chunks: tuple[_Chunk, ...], headline: _Chunk) -> bool:
     return 6 <= len(context) <= 24 and context != headline.text
 
 
-def _context_for(chunks: tuple[_Chunk, ...], headline: _Chunk, names: tuple[str, ...] = ()) -> str:
-    if not _needs_context(headline):
+def _context_for(
+    chunks: tuple[_Chunk, ...], headline: _Chunk, names: tuple[str, ...] = (), markers: _Markers = _GENERIC,
+) -> str:
+    if not _needs_context(headline, markers):
         return ""
     candidates = [item for item in chunks if item.index < headline.index]
     ranked: list[tuple[float, _Chunk]] = []
@@ -357,7 +389,7 @@ def _context_for(chunks: tuple[_Chunk, ...], headline: _Chunk, names: tuple[str,
         elif headline.quoted and item.group != headline.group:
             # 另一句台词很少能单独说明 B 的来由。
             score -= 1.0
-        if any(marker in item.text for marker in _STRONG_MARKERS):
+        if any(marker in item.text for marker in markers.strong):
             score -= 0.5
         ranked.append((score, item))
     if not ranked:
@@ -379,15 +411,20 @@ def generate_basic_copy_variants(
     *,
     limit: int = 4,
     subtitle_context: str | None = None,
+    lexicon: CopyLexicon | None = None,
 ) -> tuple[BasicCoverCopy, ...]:
-    """生成 1~4 套本地基础文案候选；第一套为默认方案。"""
+    """生成 1~4 套本地基础文案候选；第一套为默认方案。
 
-    chunks = _chunks(title)
+    lexicon 不传时按标题识别主播，加载其档案里的强信息词。
+    """
+
+    markers = _markers(streamer_copy_lexicon(title) if lexicon is None else lexicon)
+    chunks = _chunks(title, markers)
     names = _title_names(title)
     # 字幕只作为当前片段的语义上下文；只把原文片段加入候选，不进行
     # 事实补写或营销式改写。标题已有明确爆点时，优先保留标题结果。
-    context_chunks = _chunks(subtitle_context or "")
-    if context_chunks and (not chunks or not any(any(marker in item.text for marker in _HIGH_VALUE_MARKERS) for item in chunks)):
+    context_chunks = _chunks(subtitle_context or "", markers)
+    if context_chunks and (not chunks or not any(any(marker in item.text for marker in markers.high) for item in chunks)):
         offset = len(chunks)
         chunks = chunks + tuple(
             _Chunk(item.text, offset + index, item.quoted, item.relation, -1, item.lead, True)
@@ -399,7 +436,7 @@ def generate_basic_copy_variants(
         return (BasicCoverCopy(headline=fallback[:28]),)
     ranked = sorted(
         chunks,
-        key=lambda item: (_headline_score(item, len(chunks)), item.index),
+        key=lambda item: (_headline_score(item, len(chunks), markers), item.index),
         reverse=True,
     )
     variants: list[BasicCoverCopy] = []
@@ -407,8 +444,8 @@ def generate_basic_copy_variants(
     for headline in ranked:
         if any(item in headline.text for item in _PACKAGING):
             continue
-        paired_context = _context_for(chunks, headline, names) if _needs_context(headline) else (
-            chunks[0].text if _should_pair_context(chunks, headline) else ""
+        paired_context = _context_for(chunks, headline, names, markers) if _needs_context(headline, markers) else (
+            chunks[0].text if _should_pair_context(chunks, headline, markers) else ""
         )
         if headline.subtitle and not paired_context:
             # 字幕作 B 时，上一句字幕作 A：两句字幕分成两个文本框。

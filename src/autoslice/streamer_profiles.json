@@ -92,6 +92,13 @@
             "palette_key": "night_purple",
             "reason": "命中晚安系列固定主题封面"
           }
+        ],
+        "emphasis_terms": [
+          {"term": "万楼", "compact": 4},
+          {"term": "销毁证据", "compact": 8, "standalone": true},
+          {"term": "红色感叹号", "compact": 8, "standalone": true},
+          {"term": "鸟叫", "compact": 6},
+          {"term": "总会有机会", "compact": 8}
         ]
       },
       "outro_clip": {

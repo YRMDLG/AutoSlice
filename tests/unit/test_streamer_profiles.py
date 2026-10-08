@@ -114,6 +114,12 @@ class StreamerProfileTests(unittest.TestCase):
             self.assertNotIn(special_case, titles_source)
         self.assertNotIn("泽音", style_source)
         self.assertNotIn("音音", style_source)
+        # 桌面封面文案同理：主播专属的梗和事件词只在档案里。
+        copy_source = (REPOSITORY_ROOT / "src/autoslice/desktop/cover_copy.py").read_text(encoding="utf-8")
+        zeyin = resolve_streamer_profile("zeyin")
+        self.assertTrue(zeyin.cover_rules.emphasis_terms)
+        for term in zeyin.cover_rules.emphasis_terms:
+            self.assertNotIn(f'"{term.term}"', copy_source)
 
     def test_extra_glossary_only_appends_without_replacing_defaults(self):
         zeyin = resolve_streamer_profile("zeyin")
@@ -285,6 +291,10 @@ class StreamerProfileTests(unittest.TestCase):
                 {"series_rules": [{**valid_rule, "keywords": ["系列"] * 21}]},
             ),
             ("未知字段", {"script_path": "C:/do-not-run.py"}),
+            ("emphasis_terms 必须是对象数组", {"emphasis_terms": "万楼"}),
+            ("emphasis_terms 包含未知字段", {"emphasis_terms": [{"term": "万楼", "weight": 9}]}),
+            ("compact 必须是 0~16 的整数", {"emphasis_terms": [{"term": "万楼", "compact": 40}]}),
+            ("standalone 必须是布尔值", {"emphasis_terms": [{"term": "万楼", "standalone": "是"}]}),
         )
         with TemporaryDirectory() as td:
             path = Path(td) / "profiles.json"

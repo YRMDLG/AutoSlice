@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from autoslice.desktop.cover_copy import generate_basic_copy_variants
+from autoslice.desktop.cover_copy import CopyLexicon, generate_basic_copy_variants
+from autoslice.streamer_profiles import CoverEmphasisTerm
 
 
 class BasicCopyContractTests(unittest.TestCase):
@@ -110,6 +111,23 @@ class GoldenSetTests(unittest.TestCase):
     def test_same_quote_first_half_is_preferred_context(self):
         best = self.best("〖泽音〗流氓音姐张口就是“想拍一下了🥵音悦生屁股这么翘，一定能顶瓶汽水吧🤭”")
         self.assertEqual((best.context, best.headline), ("音悦生屁股这么翘", "一定能顶瓶汽水吧"))
+
+
+class StreamerLexiconTests(unittest.TestCase):
+    """主播专属的梗和事件词来自主播档案，代码只保留通用规则。"""
+
+    def test_streamer_terms_are_loaded_from_profile_by_title(self):
+        title = "〖泽音〗泽音一个晚上居然被冲了万楼？！😱原因居然是这个？！👀"
+        self.assertEqual(generate_basic_copy_variants(title)[0].headline, "被冲了万楼？！")
+        # 不带泽音档案的词表时，“万楼”不再被当成短爆点截取。
+        self.assertNotEqual(generate_basic_copy_variants(title, lexicon=CopyLexicon())[0].headline, "被冲了万楼？！")
+
+    def test_new_streamer_term_only_needs_profile_data(self):
+        title = "〖小明〗小明今天直播的时候突然把整个键盘吃掉了？！大家都看傻了"
+        lexicon = CopyLexicon((CoverEmphasisTerm("键盘吃掉", compact=3),))
+        best = generate_basic_copy_variants(title, lexicon=lexicon)[0]
+        self.assertIn("键盘吃掉", best.headline)
+        self.assertIn(best.headline, title)
 
 
 if __name__ == "__main__":

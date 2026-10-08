@@ -68,11 +68,49 @@ class CoverSeriesRule:
 
 
 @dataclass(frozen=True)
+class CoverEmphasisTerm:
+    """主播专属的梗或事件词：封面基础文案命中即视为强信息。
+
+    compact 是截取短爆点时保留的前文字数（0 不截取）；standalone 表示能单独成句、不配 A。
+    """
+
+    term: str
+    compact: int = 0
+    standalone: bool = False
+
+
+@dataclass(frozen=True)
 class CoverRulesConfig:
-    """主播专属封面文案替换与系列推荐规则。"""
+    """主播专属封面文案替换、强信息词与系列推荐规则。"""
 
     copy_replacements: tuple[tuple[str, str], ...] = ()
     series_rules: tuple[CoverSeriesRule, ...] = ()
+    emphasis_terms: tuple[CoverEmphasisTerm, ...] = ()
+
+    @staticmethod
+    def _emphasis_terms(payload: dict[str, object]) -> tuple[CoverEmphasisTerm, ...]:
+        value = payload.get("emphasis_terms", [])
+        if not isinstance(value, list):
+            raise ValueError("主播配置 cover_rules.emphasis_terms 必须是对象数组")
+        if len(value) > 200:
+            raise ValueError("主播配置 cover_rules.emphasis_terms 最多包含 200 项")
+        terms: list[CoverEmphasisTerm] = []
+        for item in value:
+            if not isinstance(item, dict):
+                raise ValueError("主播配置 cover_rules.emphasis_terms 每项必须是对象")
+            unknown = set(item) - {"term", "compact", "standalone"}
+            if unknown:
+                raise ValueError(f"主播配置 cover_rules.emphasis_terms 包含未知字段: {', '.join(sorted(unknown))}")
+            term = _required_text(item, "term", maximum=16)
+            compact = item.get("compact", 0)
+            if isinstance(compact, bool) or not isinstance(compact, int) or not 0 <= compact <= 16:
+                raise ValueError("主播配置 cover_rules.emphasis_terms.compact 必须是 0~16 的整数")
+            standalone = item.get("standalone", False)
+            if not isinstance(standalone, bool):
+                raise ValueError("主播配置 cover_rules.emphasis_terms.standalone 必须是布尔值")
+            if all(existing.term != term for existing in terms):
+                terms.append(CoverEmphasisTerm(term=term, compact=compact, standalone=standalone))
+        return tuple(terms)
 
     @staticmethod
     def _copy_replacements(payload: dict[str, object]) -> tuple[tuple[str, str], ...]:
@@ -109,7 +147,7 @@ class CoverRulesConfig:
             return cls()
         if not isinstance(value, dict):
             raise ValueError("主播配置 cover_rules 必须是对象或 null")
-        unknown = set(value) - {"copy_replacements", "series_rules"}
+        unknown = set(value) - {"copy_replacements", "series_rules", "emphasis_terms"}
         if unknown:
             raise ValueError(f"主播配置 cover_rules 包含未知字段: {', '.join(sorted(unknown))}")
 
@@ -153,6 +191,7 @@ class CoverRulesConfig:
         return cls(
             copy_replacements=cls._copy_replacements(value),
             series_rules=tuple(series_rules),
+            emphasis_terms=cls._emphasis_terms(value),
         )
 
 
@@ -632,6 +671,11 @@ def load_streamer_profiles(
                 series_rules=tuple(dict.fromkeys((
                     *generic_profile.cover_rules.series_rules,
                     *profile.cover_rules.series_rules,
+                ))),
+                # 主播专属词在前：截取短爆点时更具体的词先匹配。
+                emphasis_terms=tuple(dict.fromkeys((
+                    *profile.cover_rules.emphasis_terms,
+                    *generic_profile.cover_rules.emphasis_terms,
                 ))),
             ),
         )
