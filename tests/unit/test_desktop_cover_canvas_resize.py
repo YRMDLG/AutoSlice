@@ -106,6 +106,37 @@ class CanvasResizeTests(unittest.TestCase):
             time.sleep(0.01)
         self._assert_matches_fresh_render()
 
+    def test_every_gesture_move_requests_a_repaint(self):
+        """拖背景、拖文字、缩放、改宽：每次鼠标移动都要请求重画，不能等松手才跟上。"""
+
+        from unittest.mock import Mock
+
+        rect = self.canvas._canvas_rect()
+        empty = QPointF(rect.left() + 12, rect.bottom() - 12)
+        for label, mode, where in (
+            ("背景", "background", lambda text: empty),
+            ("文字", "text", lambda text: self.canvas._display_rect(text).center()),
+            ("缩放", "scale", lambda text: self.canvas._handle_points(text)["scale"]),
+            ("改宽", "width-right", lambda text: self.canvas._handle_points(text)["width-right"]),
+        ):
+            with self.subTest(label):
+                text = self.canvas._find_text()
+                self.canvas.set_selected_object(text.id)
+                self.app.processEvents()
+                # 上一项可能挪过文字，手柄位置每次重新取。
+                start = where(self.canvas._find_text())
+                self._send(QMouseEvent.Type.MouseButtonPress, start)
+                self.assertEqual(self.canvas._mode, mode, label)
+                self.canvas.update = Mock(wraps=self.canvas.update)
+                try:
+                    for index in range(1, 4):
+                        self._send(QMouseEvent.Type.MouseMove, QPointF(start.x() + 6 * index, start.y() - 4 * index))
+                        self.assertGreaterEqual(self.canvas.update.call_count, index, label)
+                finally:
+                    del self.canvas.update
+                    self._send(QMouseEvent.Type.MouseButtonRelease, QPointF(start.x() + 18, start.y() - 12))
+                    self.app.processEvents()
+
     def test_rewrap_shift_only_when_lines_stay_the_same(self):
         text = self.canvas._find_text()
         wider = replace(text, rect=replace(text.rect, width=text.rect.width + 0.01),

@@ -46,6 +46,8 @@ class CanvasGestureMixin:
             self.object_preview_changed.emit(obj, self._profile_key)
         self.title_position_changed.emit(obj.transform.x, obj.transform.y)
         self._set_safe_area_warning(self._safe_area_warning_for(obj))
+        # 画布自己的手势自己请求重画，不依赖编辑器回调间接刷新。
+        self.update()
 
     def _emit_background(self, obj: BackgroundObject, *, commit: bool = True):
         if commit:
@@ -57,6 +59,8 @@ class CanvasGestureMixin:
         self.background_position_changed.emit(obj.pan_x, obj.pan_y)
         if commit:
             self.zoom_changed.emit(obj.scale)
+        # 拖动中也要重画：此前靠编辑器的旧回调间接刷新，回调删掉后背景要等松手才跟上。
+        self.update()
 
     def _emit_overlay(self, obj: RenderObject, *, commit: bool = True):
         if commit:
