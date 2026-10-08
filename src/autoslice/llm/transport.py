@@ -5,6 +5,7 @@
 边界，避免访问真实服务。
 """
 
+import base64
 import json
 import os
 import threading
@@ -540,6 +541,32 @@ def _raise_for_status(response: Any, *, protocol: str, model: str) -> None:
     raise safe_error
 
 
+def _user_content(request: LLMRequest) -> Any:
+    """用户消息内容：纯文字时就是字符串（与原请求一致）；带图片时按协议拼成多段。"""
+
+    if not request.images:
+        return request.prompt
+    encoded = [
+        (media_type, base64.b64encode(bytes(data)).decode("ascii"))
+        for media_type, data in request.images
+    ]
+    if request.protocol == "openai":
+        return [
+            {"type": "text", "text": request.prompt},
+            *(
+                {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}}
+                for media_type, data in encoded
+            ),
+        ]
+    return [
+        *(
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
+            for media_type, data in encoded
+        ),
+        {"type": "text", "text": request.prompt},
+    ]
+
+
 def call_compatible_api(
         prompt: str, *, max_tokens: int, json_mode: bool,
         model_override: Optional[str], request_timeout: Any,
@@ -548,7 +575,8 @@ def call_compatible_api(
         parse_openai: Optional[Callable] = None,
         parse_anthropic: Optional[Callable] = None,
         request_post: Optional[Callable] = None,
-        reasoning_stage: Any = None) -> str:
+        reasoning_stage: Any = None,
+        images: Any = ()) -> str:
     """发送一次兼容请求并用本模块的唯一解析器返回文本。"""
     config = load_config()
     base_url, token, configured_model = config
@@ -576,6 +604,7 @@ def call_compatible_api(
         timeout=normalise_timeout(request_timeout),
         json_mode=json_mode,
         reasoning_effort=reasoning_effort,
+        images=tuple(images or ()),
     )
     decode_response = decode_response or decode_response_json
     parse_openai = parse_openai or parse_openai_response
@@ -588,7 +617,7 @@ def call_compatible_api(
         if request.protocol == "openai":
             request_payload = {
                 "model": request.model,
-                "messages": [{"role": "user", "content": request.prompt}],
+                "messages": [{"role": "user", "content": _user_content(request)}],
                 "max_tokens": request.max_tokens,
                 "temperature": request.temperature,
             }
@@ -649,7 +678,7 @@ def call_compatible_api(
             },
             json={
                 "model": request.model,
-                "messages": [{"role": "user", "content": request.prompt}],
+                "messages": [{"role": "user", "content": _user_content(request)}],
                 "max_tokens": request.max_tokens,
                 "temperature": request.temperature,
             },
@@ -676,8 +705,9 @@ def call_llm(
         reasoning_stage: Any = None, *,
         request_timeout: Any = DEFAULT_REQUEST_TIMEOUT,
         load_config_func: Optional[Callable] = None,
-        request_post: Optional[Callable] = None) -> str:
-    """公开网关 seam；配置加载和 HTTP 均可由测试显式注入。"""
+        request_post: Optional[Callable] = None,
+        images: Any = ()) -> str:
+    """公开网关 seam；配置加载和 HTTP 均可由测试显式注入。images 为 (媒体类型, 字节) 列表。"""
     return call_compatible_api(
         prompt,
         max_tokens=max_tokens,
@@ -687,6 +717,7 @@ def call_llm(
         load_config=load_config_func or load_api_config,
         request_post=request_post,
         reasoning_stage=reasoning_stage,
+        images=images,
     )
 
 

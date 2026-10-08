@@ -327,6 +327,11 @@ class LLMApiConfig:
         return getattr(self, f"{selected_stage}_reasoning_effort")
 
 
+IMAGE_MEDIA_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+MAX_REQUEST_IMAGES = 8
+MAX_REQUEST_IMAGE_BYTES = 8 * 1024 * 1024
+
+
 @dataclass(frozen=True)
 class LLMRequest:
     """一次已经解析完端点配置的通用 LLM 请求。"""
@@ -339,8 +344,21 @@ class LLMRequest:
     json_mode: bool = False
     reasoning_effort: Optional[str] = None
     temperature: float = 0.3
+    # 附带的图片：(媒体类型, 字节)。看图模型用；纯文字请求保持为空。
+    images: tuple[tuple[str, bytes], ...] = ()
 
     def __post_init__(self) -> None:
+        images = tuple(self.images or ())
+        if len(images) > MAX_REQUEST_IMAGES:
+            raise ValueError(f"LLM 一次最多附带 {MAX_REQUEST_IMAGES} 张图片")
+        for media_type, data in images:
+            if media_type not in IMAGE_MEDIA_TYPES:
+                raise ValueError(f"不支持的图片类型：{media_type}")
+            if not isinstance(data, (bytes, bytearray)) or not data:
+                raise ValueError("LLM 图片内容不能为空")
+            if len(data) > MAX_REQUEST_IMAGE_BYTES:
+                raise ValueError("单张图片不能超过 8 MB")
+        object.__setattr__(self, "images", images)
         prompt = str(self.prompt)
         model = str(self.model or "").strip()
         if not prompt.strip():

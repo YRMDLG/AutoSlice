@@ -227,6 +227,51 @@ class LLMConfigTransportTests(unittest.TestCase):
                     )
 
 
+class VisionRequestTests(unittest.TestCase):
+    """看图请求：图片按协议附在用户消息里；不带图片时内容仍是原来的字符串。"""
+
+    @staticmethod
+    def _call(api_type, images):
+        config = LLMApiConfig("https://gateway.example/v1", "test-token", "gpt-5.6-terra", api_type)
+        body = (
+            {"choices": [{"finish_reason": "stop", "message": {"content": "完成"}}]}
+            if api_type == "openai"
+            else {"content": [{"type": "text", "text": "完成"}], "stop_reason": "end_turn"}
+        )
+        session = Mock()
+        session.post.return_value = make_response(body)
+        with patch.object(transport.requests, "Session", return_value=session):
+            transport.call_compatible_api(
+                "看这张图", max_tokens=100, json_mode=False, model_override=None,
+                request_timeout=(1, 2), load_config=lambda: config, images=images,
+            )
+        return session.post.call_args.kwargs["json"]["messages"][0]["content"]
+
+    def tearDown(self):
+        transport.reset_reasoning_effort_capability_cache()
+
+    def test_openai_attaches_data_url_after_text(self):
+        content = self._call("openai", (("image/jpeg", b"\xff\xd8jpeg"),))
+        self.assertEqual(content[0], {"type": "text", "text": "看这张图"})
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+
+    def test_anthropic_attaches_base64_block_before_text(self):
+        content = self._call("anthropic", (("image/png", b"png"),))
+        self.assertEqual(content[0]["source"], {"type": "base64", "media_type": "image/png", "data": "cG5n"})
+        self.assertEqual(content[-1], {"type": "text", "text": "看这张图"})
+
+    def test_text_only_request_is_unchanged(self):
+        self.assertEqual(self._call("openai", ()), "看这张图")
+        self.assertEqual(self._call("anthropic", ()), "看这张图")
+
+    def test_rejects_unsupported_or_empty_images(self):
+        with self.assertRaisesRegex(ValueError, "不支持的图片类型"):
+            self._call("openai", (("image/gif", b"gif"),))
+        with self.assertRaisesRegex(ValueError, "不能为空"):
+            self._call("openai", (("image/png", b""),))
+
+
 class ProxyModeTests(unittest.TestCase):
 
     @staticmethod

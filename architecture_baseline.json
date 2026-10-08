@@ -4494,7 +4494,7 @@
         "autoslice.llm.contracts.validate_llm_endpoint_security"
       ],
       "lines": [
-        17
+        18
       ],
       "to": "autoslice.llm.contracts"
     },
@@ -4504,7 +4504,7 @@
         "autoslice.paths.APPLICATION_DATA_ROOT"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.paths"
     },
@@ -10489,7 +10489,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 170,
+      "line_count": 171,
       "longest_function": {
         "end_line": 105,
         "kind": "function",
@@ -10499,7 +10499,7 @@
       },
       "module": "autoslice.desktop.cover_assets",
       "path": "src/autoslice/desktop/cover_assets.py",
-      "sha256": "cdb5110bf11e90e0d2839ba0dd0c13b39db47611db6e5900559fa0067b2bde83",
+      "sha256": "304c431379d868569676252b0038d19d0389f73dc8a8efe7e355b20c31e88ee6",
       "top_level_classes": [
         {
           "end_line": 41,
@@ -10508,7 +10508,7 @@
           "name": "CoverAsset"
         },
         {
-          "end_line": 169,
+          "end_line": 170,
           "kind": "class",
           "line": 44,
           "name": "CoverAssetLibrary"
@@ -12710,7 +12710,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 504,
+      "line_count": 522,
       "longest_function": {
         "end_line": 312,
         "kind": "function",
@@ -12720,7 +12720,7 @@
       },
       "module": "autoslice.llm.contracts",
       "path": "src/autoslice/llm/contracts.py",
-      "sha256": "74dc06a4d797fa63cf10ac9cdbdb99c1e904c0cbdbe0b53f038ddc7bc88ea52c",
+      "sha256": "0d38666ec79dfde4ef2c3ae435c44e9d7c333b5a11330e6ca62f6c4c96e8cb02",
       "top_level_classes": [
         {
           "end_line": 63,
@@ -12765,51 +12765,51 @@
           "name": "LLMApiConfig"
         },
         {
-          "end_line": 369,
+          "end_line": 387,
           "kind": "class",
-          "line": 331,
+          "line": 336,
           "name": "LLMRequest"
         },
         {
-          "end_line": 390,
+          "end_line": 408,
           "kind": "class",
-          "line": 373,
+          "line": 391,
           "name": "LLMResponse"
         },
         {
-          "end_line": 427,
+          "end_line": 445,
           "kind": "class",
-          "line": 393,
+          "line": 411,
           "name": "LLMGatewayError"
         },
         {
-          "end_line": 440,
+          "end_line": 458,
           "kind": "class",
-          "line": 430,
+          "line": 448,
           "name": "LLMTransportError"
         },
         {
-          "end_line": 447,
+          "end_line": 465,
           "kind": "class",
-          "line": 443,
+          "line": 461,
           "name": "LLMResponseFormatError"
         },
         {
-          "end_line": 454,
+          "end_line": 472,
           "kind": "class",
-          "line": 450,
+          "line": 468,
           "name": "LLMResponseTruncatedError"
         },
         {
-          "end_line": 461,
+          "end_line": 479,
           "kind": "class",
-          "line": 457,
+          "line": 475,
           "name": "LLMStructuredOutputError"
         },
         {
-          "end_line": 468,
+          "end_line": 486,
           "kind": "class",
-          "line": 464,
+          "line": 482,
           "name": "LLMProviderUnavailableError"
         }
       ],
@@ -12881,21 +12881,21 @@
           "name": "normalise_timeout"
         },
         {
-          "end_line": 483,
+          "end_line": 501,
           "kind": "function",
-          "line": 471,
+          "line": 489,
           "name": "http_retry_category"
         },
         {
-          "end_line": 499,
+          "end_line": 517,
           "kind": "function",
-          "line": 486,
+          "line": 504,
           "name": "classify_retry"
         },
         {
-          "end_line": 504,
+          "end_line": 522,
           "kind": "function",
-          "line": 502,
+          "line": 520,
           "name": "is_retryable_error"
         }
       ]
@@ -13010,198 +13010,204 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 963,
+      "line_count": 994,
       "longest_function": {
-        "end_line": 670,
+        "end_line": 699,
         "kind": "function",
-        "line": 543,
-        "line_count": 128,
+        "line": 570,
+        "line_count": 130,
         "qualname": "call_compatible_api"
       },
       "module": "autoslice.llm.transport",
       "path": "src/autoslice/llm/transport.py",
-      "sha256": "2b445fe65a390c73a8438dad4bd2c9dac7007534b58b5a05b1626bbf11320b2b",
+      "sha256": "26fec851c1f441673f06f9f08e1c5451329b65656c05a4dc606e6e0cdc7a8a28",
       "top_level_classes": [
         {
-          "end_line": 66,
+          "end_line": 67,
           "kind": "class",
-          "line": 62,
+          "line": 63,
           "name": "_RedactedHeaderValue"
         },
         {
-          "end_line": 811,
+          "end_line": 842,
           "kind": "class",
-          "line": 730,
+          "line": 761,
           "name": "LLMProviderRetryCoordinator"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 72,
+          "end_line": 73,
           "kind": "function",
-          "line": 69,
+          "line": 70,
           "name": "reset_reasoning_effort_capability_cache"
         },
         {
-          "end_line": 76,
+          "end_line": 77,
           "kind": "function",
-          "line": 75,
+          "line": 76,
           "name": "_reasoning_effort_capability_key"
         },
         {
-          "end_line": 81,
+          "end_line": 82,
           "kind": "function",
-          "line": 79,
+          "line": 80,
           "name": "_reasoning_effort_is_disabled"
         },
         {
-          "end_line": 86,
+          "end_line": 87,
           "kind": "function",
-          "line": 84,
+          "line": 85,
           "name": "_disable_reasoning_effort"
         },
         {
-          "end_line": 97,
+          "end_line": 98,
           "kind": "function",
-          "line": 89,
+          "line": 90,
           "name": "_response_rejects_reasoning_effort"
         },
         {
-          "end_line": 112,
+          "end_line": 113,
           "kind": "function",
-          "line": 100,
+          "line": 101,
           "name": "infer_api_type"
         },
         {
-          "end_line": 200,
+          "end_line": 201,
           "kind": "function",
-          "line": 115,
+          "line": 116,
           "name": "normalise_api_config"
         },
         {
-          "end_line": 210,
+          "end_line": 211,
           "kind": "function",
-          "line": 203,
+          "line": 204,
           "name": "read_json_config"
         },
         {
-          "end_line": 219,
+          "end_line": 220,
           "kind": "function",
-          "line": 213,
+          "line": 214,
           "name": "_apply_proxy_environment"
         },
         {
-          "end_line": 292,
+          "end_line": 293,
           "kind": "function",
-          "line": 222,
+          "line": 223,
           "name": "load_api_config"
         },
         {
-          "end_line": 309,
+          "end_line": 310,
           "kind": "function",
-          "line": 295,
+          "line": 296,
           "name": "resolve_configured_model_name"
         },
         {
-          "end_line": 337,
+          "end_line": 338,
           "kind": "function",
-          "line": 312,
+          "line": 313,
           "name": "extract_json_payload"
         },
         {
-          "end_line": 342,
+          "end_line": 343,
           "kind": "function",
-          "line": 340,
+          "line": 341,
           "name": "response_has_complete_json"
         },
         {
-          "end_line": 357,
+          "end_line": 358,
           "kind": "function",
-          "line": 345,
+          "line": 346,
           "name": "decode_response_json"
         },
         {
-          "end_line": 383,
+          "end_line": 384,
           "kind": "function",
-          "line": 360,
+          "line": 361,
           "name": "_openai_content_text"
         },
         {
-          "end_line": 413,
+          "end_line": 414,
           "kind": "function",
-          "line": 386,
+          "line": 387,
           "name": "parse_openai_response"
         },
         {
-          "end_line": 442,
+          "end_line": 443,
           "kind": "function",
-          "line": 416,
+          "line": 417,
           "name": "parse_anthropic_response"
         },
         {
-          "end_line": 478,
+          "end_line": 479,
           "kind": "function",
-          "line": 445,
+          "line": 446,
           "name": "_select_http_transport"
         },
         {
-          "end_line": 505,
+          "end_line": 506,
           "kind": "function",
-          "line": 481,
+          "line": 482,
           "name": "_safe_transport_error"
         },
         {
-          "end_line": 525,
+          "end_line": 526,
           "kind": "function",
-          "line": 508,
+          "line": 509,
           "name": "_post_http_request"
         },
         {
-          "end_line": 540,
+          "end_line": 541,
           "kind": "function",
-          "line": 528,
+          "line": 529,
           "name": "_raise_for_status"
         },
         {
-          "end_line": 670,
+          "end_line": 567,
           "kind": "function",
-          "line": 543,
+          "line": 544,
+          "name": "_user_content"
+        },
+        {
+          "end_line": 699,
+          "kind": "function",
+          "line": 570,
           "name": "call_compatible_api"
         },
         {
-          "end_line": 690,
+          "end_line": 721,
           "kind": "function",
-          "line": 673,
+          "line": 702,
           "name": "call_llm"
         },
         {
-          "end_line": 702,
+          "end_line": 733,
           "kind": "function",
-          "line": 693,
+          "line": 724,
           "name": "llm_http_status"
         },
         {
-          "end_line": 710,
+          "end_line": 741,
           "kind": "function",
-          "line": 705,
+          "line": 736,
           "name": "short_llm_error"
         },
         {
-          "end_line": 720,
+          "end_line": 751,
           "kind": "function",
-          "line": 713,
+          "line": 744,
           "name": "is_provider_service_unavailable"
         },
         {
-          "end_line": 727,
+          "end_line": 758,
           "kind": "function",
-          "line": 723,
+          "line": 754,
           "name": "is_retryable_llm_error"
         },
         {
-          "end_line": 925,
+          "end_line": 956,
           "kind": "function",
-          "line": 814,
+          "line": 845,
           "name": "call_llm_with_retry"
         }
       ]
@@ -20399,11 +20405,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 684,
-    "production_line_count": 62293,
+    "production_line_count": 62343,
     "production_module_count": 247,
     "test_private_patch_count": 17,
     "top_level_class_count": 223,
-    "top_level_function_count": 1212
+    "top_level_function_count": 1213
   },
   "test_private_patches": {
     "by_target_module": {
