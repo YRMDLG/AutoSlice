@@ -407,6 +407,29 @@ class SplitLayoutTests(unittest.TestCase):
             }
             self.assertLess(wide["A"].transform.y, 0.2)
             self.assertGreater(wide["B"].transform.y, 0.6)
+            # B 字多换两行后也不能比 A 小：A 只补背景，主次一眼可辨。
+            for profile in (texts, wide):
+                self.assertLessEqual(profile["A"].style.font_size, round(profile["B"].style.font_size * 0.75))
+
+    def test_side_slot_keeps_context_weaker_than_headline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / "side.png"
+            image = Image.new("RGB", (1920, 1080), (40, 60, 90))
+            ImageDraw.Draw(image).ellipse((1150, 250, 1650, 900), fill=(224, 172, 140))
+            image.save(frame)
+            document = replace(_document(), objects=tuple(
+                replace(item, asset=AssetRef(path=str(frame))) if isinstance(item, BackgroundObject)
+                else replace(item, text="懂姐小音告诉你韩娱特殊操作与内幕") if item.id == "copy-b"
+                else replace(item, text="选秀带手机") if item.id == "copy-a"
+                else item
+                for item in _document().objects
+            ))
+            document = CoverService(DesktopStorage(root / "data")).apply_auto_layout(document, frame, mode="slot")
+            for key in ("4x3", "16x9"):
+                a = object_for_profile(document, "copy-a", key)
+                b = object_for_profile(document, "copy-b", key)
+                self.assertLessEqual(a.style.font_size, round(b.style.font_size * 0.75), key)
 
 
 if __name__ == "__main__":

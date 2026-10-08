@@ -62,6 +62,18 @@ _SPLIT_FONT_A = 136
 
 _SPLIT_FONT_B = 150
 
+# 主次：自动排版时 A 的字号不超过 B 的这个比例，再小也不低于下限。
+_CONTEXT_RATIO = 0.75
+
+_CONTEXT_MIN_FONT = 40
+
+
+def _context_cap(headline_size: int) -> int:
+    """A 只补背景：字号压在 B 的四分之三以内，主次一眼可辨。"""
+
+    return max(_CONTEXT_MIN_FONT, round(headline_size * _CONTEXT_RATIO))
+
+
 # 槽位代价表里上下两条宽带的键；不参与单槽位选择。
 _SPLIT_TOP_KEY = "split-top"
 
@@ -285,16 +297,21 @@ class CoverLayoutService:
                 band_top = lone and bands is not None and bands[0] < bands[1]
                 height = _BAND_HEIGHT if lone else _SPLIT_HEIGHT
                 bottom_edge = 1.0 - _SPLIT_TOP if lone else _SPLIT_BOTTOM + _SPLIT_HEIGHT
-                for text, current in current_texts:
+                headline_size = None
+                for text, current in sorted(current_texts, key=lambda pair: pair[0].copy_role != "B"):
                     top = text.copy_role == "A"
                     if top and lone:
                         continue
                     y = _SPLIT_TOP if top or band_top else bottom_edge - height
+                    requested = max(current.style.font_size, _SPLIT_FONT_A if top else _SPLIT_FONT_B)
+                    if top and headline_size is not None:
+                        requested = min(requested, _context_cap(headline_size))
                     updated = place(
                         current, _SPLIT_X, y, _SPLIT_WIDTH, height,
-                        requested=max(current.style.font_size, _SPLIT_FONT_A if top else _SPLIT_FONT_B),
-                        max_lines=1 if top else 2, align="center",
+                        requested=requested, max_lines=1 if top else 2, align="center",
                     )
+                    if not top:
+                        headline_size = updated.style.font_size
                     if not (top or band_top):
                         # 下缘贴底：行数少时整体下移，不悬在画面中部。
                         settled = max(y, bottom_edge - text_height(updated))
@@ -305,13 +322,22 @@ class CoverLayoutService:
                 slot_width = next(width for _x, _y, width, name in _TEXT_SLOTS.get(key, _TEXT_SLOTS["4x3"]) if name == best[0])
                 # A/B 作为同一槽位的上下两块：A 在上，B 紧跟 A 的实际高度往下排。
                 cursor = max(0.04, text_y)
+                # A 排在 B 上面要先放；字号只取决于槽位宽高，先试排一次 B 拿到它的字号。
+                headline = next((current for text, current in current_texts if text.copy_role == "B"), None)
+                headline_size = (
+                    place(headline, text_x, cursor, slot_width, 0.30, requested=headline.style.font_size, max_lines=2).style.font_size
+                    if headline is not None and headline.text.strip() else None
+                )
                 for text, current in sorted(current_texts, key=lambda pair: pair[0].copy_role != "A"):
                     context = text.copy_role == "A"
                     if context and not (has_context and current.visible):
                         continue
+                    requested = current.style.font_size
+                    if context and headline_size is not None:
+                        requested = min(requested, _context_cap(headline_size))
                     updated = place(
                         current, text_x, cursor, slot_width, 0.14 if context else 0.30,
-                        requested=current.style.font_size, max_lines=1 if context else 2,
+                        requested=requested, max_lines=1 if context else 2,
                     )
                     overrides[text.id] = text_override_payload(updated)
                     cursor += text_height(updated) + (0.025 if context else 0.0)
