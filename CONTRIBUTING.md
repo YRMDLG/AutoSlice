@@ -13,7 +13,7 @@ cd AutoSlice
 py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -e ".[test]"
-.\.venv\Scripts\python.exe -m pip install -r requirements-qt-desktop.txt
+.\.venv\Scripts\python.exe -X utf8 -m pip install -r requirements-qt-desktop.txt
 ```
 
 Qt 入口是 `.\.venv\Scripts\python.exe Qt桌面端.py`。FFmpeg/ffprobe 和 libmpv

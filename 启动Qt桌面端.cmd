@@ -9,7 +9,7 @@ if not exist "%QT_ENV%\Scripts\python.exe" (
 )
 "%QT_ENV%\Scripts\python.exe" -c "import PySide6, requests" >nul 2>nul
 if errorlevel 1 (
-    "%QT_ENV%\Scripts\python.exe" -m pip install -r "%~dp0requirements-qt-desktop.txt"
+    "%QT_ENV%\Scripts\python.exe" -X utf8 -m pip install -r "%~dp0requirements-qt-desktop.txt"
     if errorlevel 1 exit /b 1
 )
 cd /d "%~dp0"
