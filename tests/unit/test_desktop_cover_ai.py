@@ -1,4 +1,4 @@
-"""封面 AI：文案只看封面能懂且出自原文；本地排候选、AI 看成品挑；编辑器里点一下就出方案。"""
+"""封面 AI：文案出自原文、带强调词；按标出的脸和界面取景；爆点前后挑表情帧；本地排候选、AI 看成品挑。"""
 
 from __future__ import annotations
 
@@ -15,12 +15,14 @@ from PIL import Image
 from autoslice.desktop.ai_settings import AISettings
 from autoslice.desktop.cover_ai import (
     AICopy,
+    AIFrameNotes,
     AISchemeIdea,
     CoverAI,
     CoverAIError,
     contact_sheet,
     from_source,
     jpeg_bytes,
+    same_layout,
 )
 from autoslice.desktop.cover_model import AssetRef, BackgroundObject, TextObject, object_for_profile
 from autoslice.desktop.foundation import DesktopStorage
@@ -49,16 +51,25 @@ class FakeModel:
         return self.replies.pop(0)
 
 
+# _person_frame(…, 960) 画的人：脸在中间，身体在下面。
+FACE = (0.41, 0.2, 0.59, 0.6)
+PERSON = (0.36, 0.18, 0.64, 1.0)
+
+
 class RoutingModel:
     """并发请求的模拟模型：按提示词内容应答，与调用顺序无关。"""
 
-    def __init__(self, analysis, choice, inspect=None):
+    def __init__(self, analysis, choice, inspect=None, pick=None):
         self.replies = {"analysis": analysis, "choice": choice,
-                        "inspect": inspect or json.dumps({"busy": [], "note": ""}, ensure_ascii=False)}
+                        "inspect": inspect or json.dumps({"face": None, "ui": [], "note": ""}, ensure_ascii=False),
+                        "pick": pick or json.dumps({"index": 1})}
         self.calls = []
 
     def __call__(self, prompt, *, max_tokens, model_override, images):
-        kind = "inspect" if "取景框" in prompt else "choice" if "候选封面" in prompt else "analysis"
+        kind = (
+            "pick" if "挑一张最适合" in prompt else "inspect" if "请标出" in prompt
+            else "choice" if "候选封面" in prompt else "analysis"
+        )
         self.calls.append((kind, model_override, len(images)))
         return self.replies[kind]
 
@@ -66,9 +77,13 @@ class RoutingModel:
 def _analysis_reply(**extra):
     payload = {
         "highlight": {"quote": "这个位置竞演可以场外干涉", "start": 12.5, "end": 15, "reason": "反差"},
+        "title_emphasis": ["改变选曲", "标题里没有的词"],
         "copies": [
-            {"context": "选秀", "headline": "居然会改变选曲", "angle": "原话", "clarity": 5, "reason": "反转"},
-            {"context": "", "headline": "竞演可以场外干涉", "angle": "结果", "clarity": 4, "reason": "结果"},
+            {"context": "选秀", "headline": "居然会改变选曲", "style": "讲事", "clarity": 5, "reason": "反转",
+             # 原文里有的片段才算；整句都标等于没标；超长的不要。
+             "emphasis": ["改变选曲", "全网", "居然会改变选曲", "居然会改变选曲选曲"]},
+            {"context": "", "headline": "竞演可以场外干涉", "style": "原话", "clarity": 4, "reason": "结果",
+             "emphasis": "场外干涉"},
             # 原文没有“震惊”“全网”：编造，必须丢掉。
             {"context": "震惊", "headline": "全网都在看", "angle": "悬念", "clarity": 5, "reason": "营销"},
             # 模型自己都觉得看不懂的碎片，也丢掉。
@@ -103,14 +118,25 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertFalse(from_source("震惊全网", TITLE))
         # 可以补“到、的”这类虚词让句子通顺，不算加内容。
         self.assertTrue(from_source("高兴到发出鸟叫", "高兴的发出了鸟叫"))
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+
         model = FakeModel(_analysis_reply())
-        analysis = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).analyze(TITLE, CUES)
+        analysis = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).analyze(
+            TITLE, CUES, title_copy=BasicCoverCopy("选秀带手机", "居然会改变选曲⁉"),
+        )
         self.assertEqual([item.headline for item in analysis.copies], ["居然会改变选曲", "竞演可以场外干涉"])
+        self.assertEqual([item.angle for item in analysis.copies], ["讲事", "原话"])
+        self.assertEqual([item.emphasis for item in analysis.copies], [("改变选曲",), ("场外干涉",)])
+        self.assertEqual(analysis.title_emphasis, ("改变选曲",))
+        self.assertEqual(analysis.copies[0].as_basic().emphasis_in("居然会改变选曲"), ("改变选曲",))
         self.assertEqual((analysis.highlight.start, analysis.highlight.quote), (12.5, "这个位置竞演可以场外干涉"))
         model_name, image_count, prompt = model.calls[0]
         self.assertEqual((model_name, image_count), ("gpt-5.6-terra", 0))
         self.assertIn("[12.5] 这个位置竞演可以场外干涉", prompt)
-        self.assertIn("只看封面", prompt)
+        # 两种写法都要；标题提炼的那句也让它标强调词。
+        self.assertIn("原话", prompt)
+        self.assertIn("讲事", prompt)
+        self.assertIn("A「选秀带手机」 B「居然会改变选曲⁉」", prompt)
 
     def test_same_request_is_answered_from_cache(self):
         model = FakeModel(_analysis_reply())
@@ -170,6 +196,47 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertEqual(model.calls[0][1], 2)
         self.assertIn("B「交手机」", model.calls[0][2])
 
+    def test_emphasize_fix_only_uses_words_already_on_the_cover(self):
+        reply = json.dumps({"fixes": [
+            {"issue": "没重点", "action": "emphasize", "words": ["手机", "选曲"]},
+        ]}, ensure_ascii=False)
+        fixes = CoverAI(self.storage, llm=FakeModel(reply), settings=lambda: CONFIGURED).suggest_fixes(
+            b"cover", texts=("选秀", "交手机"), title=TITLE, source=TITLE,
+        )
+        self.assertEqual([(fix.action, fix.words, fix.label) for fix in fixes], [("emphasize", ("手机",), "强调「手机」")])
+        empty = json.dumps({"fixes": [{"issue": "没重点", "action": "emphasize", "words": ["选曲"]}]}, ensure_ascii=False)
+        self.assertEqual(CoverAI(self.storage, llm=FakeModel(empty), settings=lambda: CONFIGURED).suggest_fixes(
+            b"cover2", texts=("选秀", "交手机"), title=TITLE, source=TITLE,
+        ), ())
+
+    def test_pick_frame_maps_numbers_and_skips_single_frame(self):
+        model = FakeModel(json.dumps({"index": 3, "expression": "惊讶张嘴", "reason": "反应最大"}, ensure_ascii=False),
+                          json.dumps({"index": 9}))
+        ai = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED)
+        picked = ai.pick_frame((_thumb("red"), _thumb("green"), _thumb("blue")), quote="选秀要交手机", title=TITLE)
+        self.assertEqual((picked.index, picked.expression), (2, "惊讶张嘴"))
+        model_name, image_count, prompt = model.calls[0]
+        self.assertEqual((model_name, image_count), ("gpt-5.6-luna", 3))
+        self.assertIn("表情要有戏", prompt)
+        # 编号越界按“用原来的帧”处理；只有一帧不用问。
+        self.assertEqual(ai.pick_frame((_thumb("red"), _thumb("white")), title=TITLE).index, 0)
+        self.assertEqual(ai.pick_frame((_thumb("black"),)).index, 0)
+        self.assertEqual(len(model.calls), 2)
+
+    def test_same_layout_tells_expression_change_from_scene_change(self):
+        base = Image.new("RGB", (320, 240), (40, 60, 90))
+        changed = base.copy()
+        changed.paste((224, 172, 140), (140, 60, 180, 100))
+        other = Image.new("RGB", (320, 240), (230, 230, 230))
+
+        def data(image):
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            return buffer.getvalue()
+
+        self.assertTrue(same_layout(data(base), data(changed)))
+        self.assertFalse(same_layout(data(base), data(other)))
+
     def test_jpeg_bytes_shrinks_long_side(self):
         path = Path(self.temp.name) / "big.png"
         Image.new("RGB", (3000, 1000), "red").save(path)
@@ -215,48 +282,57 @@ class CandidateTests(unittest.TestCase):
 
     def test_busy_regions_are_skipped(self):
         everything = self.service.ai_candidates(self.document, self.frame, COPIES)
-        without_top = self.service.ai_candidates(self.document, self.frame, COPIES, busy=frozenset({"top"}))
+        without_top = self.service.ai_candidates(
+            self.document, self.frame, COPIES, notes=AIFrameNotes(busy=frozenset({"top"}), note=""),
+        )
         def tops(candidates):
             return sum(self._headline(item.document).transform.y < 0.3 for item in candidates)
         self.assertGreater(tops(everything), 0)
         self.assertEqual(tops(without_top), 0)
         # 四周都乱、剩不到两种排法时不过滤，交给挑选环节把关。
         crowded = self.service.ai_candidates(
-            self.document, self.frame, COPIES, busy=frozenset({"top", "bottom", "left", "right"}),
+            self.document, self.frame, COPIES, notes=AIFrameNotes(busy=frozenset({"top", "bottom", "left", "right"}), note=""),
         )
         self.assertEqual(len(crowded), len(everything))
 
-    def test_inspect_reads_busy_regions(self):
-        reply = json.dumps({"busy": ["TOP", "middle", "right"], "note": "顶部有直播标题"}, ensure_ascii=False)
+    def test_inspect_reads_face_person_and_ui_boxes(self):
+        reply = json.dumps({
+            "face": [0.41, 0.2, 0.59, 0.6], "person": [0.36, 0.18, 0.64, 1.0],
+            # 界面框：顶部标题、右侧聊天栏；太小、越界、格式不对的丢掉。
+            "ui": [[0.0, 0.0, 0.5, 0.08], [0.8, 0.1, 1.0, 0.9], [0.5, 0.5, 0.505, 0.505], "坏数据", [0.1, 0.2]],
+            "note": "顶部有直播标题",
+        }, ensure_ascii=False)
         notes = CoverAI(self.service.storage, llm=FakeModel(reply), settings=lambda: CONFIGURED).inspect(_thumb("red"))
+        self.assertEqual((notes.face, notes.person), (FACE, PERSON))
+        self.assertEqual(notes.ui, ((0.0, 0.0, 0.5, 0.08), (0.8, 0.1, 1.0, 0.9)))
+        # 界面落在哪几侧由框算出来，没认出脸时粗略避开用。
         self.assertEqual(notes.busy, frozenset({"top", "right"}))
-        self.assertIsNone(notes.box)
-        framed = json.dumps({"box": [0.3, 0.16, 0.75, 0.76], "close": [0.4, 0.2, 0.42, 0.25], "text_zone": "BOTTOM"})
-        notes = CoverAI(self.service.storage, llm=FakeModel(framed), settings=lambda: CONFIGURED).inspect(_thumb("blue"))
-        # 太小的框不用；位置大小写不敏感。
-        self.assertEqual((notes.box, notes.close, notes.text_zone), ((0.3, 0.16, 0.75, 0.76), None, "bottom"))
+        empty = CoverAI(self.service.storage, llm=FakeModel(json.dumps({"face": None})), settings=lambda: CONFIGURED)
+        self.assertEqual(empty.inspect(_thumb("blue")), AIFrameNotes(busy=frozenset(), note=""))
 
-    def test_view_box_frames_the_person_and_text_goes_to_the_clean_zone(self):
-        view = (0.38, 0.15, 0.62, 0.62)
-        candidates = self.service.ai_candidates(self.document, self.frame, COPIES, views=(view, None), text_zone="bottom")
+    def test_face_framing_keeps_the_face_and_drops_text_on_ui(self):
+        from autoslice.desktop.cover_framing import text_hit
+
+        # 右侧有一整条聊天栏、顶上有一行直播标题。
+        notes = AIFrameNotes(busy=frozenset({"top", "right"}), note="", face=FACE, person=PERSON,
+                             ui=((0.0, 0.0, 0.6, 0.1), (0.72, 0.0, 1.0, 1.0)))
+        candidates = self.service.ai_candidates(self.document, self.frame, COPIES, notes=notes)
+        self.assertGreaterEqual(len(candidates), 4)
+        self.assertEqual([item.label for item in candidates], [str(index + 1) for index in range(len(candidates))])
         framed = [item for item in candidates if self._background(item.document).scale > 1.05]
-        self.assertGreaterEqual(len(framed), 6)
+        self.assertGreaterEqual(len(framed), 3)
         for item in framed:
-            # 字放在 AI 说干净的下方，人物靠上，留出字带。
-            self.assertGreater(self._headline(item.document).transform.y, 0.5)
-            context = next((obj for obj in item.document.objects if isinstance(obj, TextObject) and obj.copy_role == "A"), None)
-            context = object_for_profile(item.document, context.id, "4x3") if context is not None else None
-            if context is not None and context.visible and context.transform.y < 0.3:
-                continue  # 上下分置：上下都放字，人物居中
             background = self._background(item.document)
             drawn = background_box((1920, 1080), (1440, 1080), scale=background.scale,
                                    focus_x=background.pan_x, focus_y=background.pan_y)
-            person_top = (drawn.top + view[1] * drawn.height) / 1080
-            person_bottom = (drawn.top + view[3] * drawn.height) / 1080
-            self.assertLess(person_top, 0.12)
-            self.assertLess(person_bottom, 0.72)
-        # 原画面留两张兜底。
-        self.assertTrue(any(self._background(item.document).scale == 1.0 for item in candidates))
+            # 整张脸都在画面里。
+            self.assertGreaterEqual(drawn.left + FACE[0] * drawn.width, -1e-6)
+            self.assertLessEqual(drawn.left + FACE[2] * drawn.width, 1440 + 1e-6)
+            self.assertGreaterEqual(drawn.top + FACE[1] * drawn.height, -1e-6)
+            self.assertLessEqual(drawn.top + FACE[3] * drawn.height, 1080 + 1e-6)
+        # 交给 AI 挑的候选里，字基本不压界面、不压脸。
+        hits = sorted(text_hit(item.document, (1920, 1080), notes) for item in candidates)
+        self.assertLess(hits[3], 0.06)
 
     def test_layout_engine_follows_the_given_position(self):
         copy = AICopy("", "交个备用机", "反差", "")
@@ -300,6 +376,16 @@ class CoverAIEditorTests(unittest.TestCase):
         # 第 1 张候选用标题提炼的文案；第 2 张用 AI 第一组（带 A）；第 3 张是只留 B 的大字。
         self.model = RoutingModel(_analysis_reply(), _choice_reply(("稳妥", 1), ("换个构图", 2), ("大胆一点", 3)))
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=self.model, settings=lambda: CONFIGURED)
+        self.frame = frame
+        # 爆点前后的帧：用另一位置的人代替“表情更有戏”的那一帧。
+        self.nearby = []
+
+        def nearby_candidates(_video, center, offsets):
+            self.nearby_requests.append((center, offsets))
+            return tuple(self.nearby)
+
+        self.nearby_requests = []
+        self.widget.service.nearby_candidates = nearby_candidates
         self.widget.project, self.widget.video = self.project, video
         document = self.widget.service.load_document(self.project, video)[0]
         self.widget.document = replace(document, objects=tuple(
@@ -330,8 +416,9 @@ class CoverAIEditorTests(unittest.TestCase):
         self.widget._ai_schemes()
         self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
         self.assertEqual([label.text() for label in self.widget.scheme_labels], ["AI·稳妥", "AI·换个构图", "AI·大胆一点"])
-        # 先看原画面、写文案，再看候选总图（附原画面对照）挑选。
+        # 先看原画面、写文案，再看候选总图（附原画面对照）挑选；取不到爆点前后的帧时不选帧。
         self.assertEqual(sorted(call[0] for call in self.model.calls), ["analysis", "choice", "inspect"])
+        self.assertEqual(self.nearby_requests[0][0], 12.5)
         self.assertIn(("choice", "gpt-5.6-luna", 2), self.model.calls)
         self.assertIn("这个位置竞演可以场外干涉", self.widget.ai_hint.text())
         self.assertEqual(self.widget._copy_variants[0].headline, "居然会改变选曲")
@@ -395,6 +482,55 @@ class CoverAIEditorTests(unittest.TestCase):
             self.widget._undo()
         self.assertEqual(self._texts()["B"].text, start.text)
         self.assertEqual(self._texts()["B"].style.font_size, start.style.font_size)
+
+    def test_ai_scheme_switches_to_the_expressive_frame_and_undo_restores(self):
+        from autoslice.desktop.cover_frames import CoverFrame
+        from tests.unit.autoslice_cover.test_composition import _person_frame
+
+        root = Path(self.temp.name)
+        self.nearby = [CoverFrame(_person_frame(root / f"near-{index}.png", 940 + index * 10), 12.0 + index, 50.0)
+                       for index in range(3)]
+        # 第 3 张（爆点前后的第 2 帧）表情最有戏。
+        self.model.replies["pick"] = json.dumps({"index": 3, "expression": "惊讶张嘴", "reason": "反应大"}, ensure_ascii=False)
+        original = self.widget.draft.image_path
+        self.widget._ai_schemes()
+        self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
+        self.assertIn("pick", [call[0] for call in self.model.calls])
+        self.assertIn(("pick", "gpt-5.6-luna", 4), self.model.calls)
+        self.assertIn("13.0 秒", self.widget.ai_hint.text())
+        self.widget._apply_scheme(0)
+        self.assertEqual(self.widget.draft.image_path, str(self.nearby[1].path))
+        self.assertEqual(self.widget.document.source.selected_timestamp, 13.0)
+        # 套用的方案带着 AI 标的强调词。
+        texts = self._texts()
+        self.assertTrue(any(item.emphasis for item in texts.values()))
+        self.widget._undo()
+        self.assertEqual(self.widget.draft.image_path, original)
+
+    def test_locked_frame_is_never_switched(self):
+        from autoslice.desktop.cover_frames import CoverFrame
+        from tests.unit.autoslice_cover.test_composition import _person_frame
+
+        self.nearby = [CoverFrame(_person_frame(Path(self.temp.name) / "near.png", 900), 13.0, 50.0)]
+        self.model.replies["pick"] = json.dumps({"index": 2})
+        self.widget._toggle_frame_lock(True)
+        original = self.widget.draft.image_path
+        self.widget._ai_schemes()
+        self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
+        self.assertNotIn("pick", [call[0] for call in self.model.calls])
+        self.widget._apply_scheme(0)
+        self.assertEqual(self.widget.draft.image_path, original)
+
+    def test_emphasize_fix_marks_words_and_undo(self):
+        from autoslice.desktop.cover_ai import AIFix
+
+        start = self._texts()["B"]
+        word = start.text[:2]
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("没重点", "emphasize", words=(word, "没有的词"))))
+        self.assertEqual(self._texts()["B"].emphasis, (word,))
+        self.assertEqual(self._texts("16x9")["B"].emphasis, (word,))
+        self.widget._undo()
+        self.assertEqual(self._texts()["B"].emphasis, ())
 
     def test_ai_failure_shows_reason(self):
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=FakeModel(), settings=AISettings)

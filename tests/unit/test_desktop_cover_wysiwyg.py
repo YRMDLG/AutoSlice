@@ -65,7 +65,8 @@ def _document(frame: Path, sticker: Path) -> CoverDocument:
     title = TextObject(
         id="copy-b", text="被冲了万楼？！", copy_role="B", z_index=10,
         transform=Transform(x=0.18, y=0.12, rotation=-8.0), rect=Rect(width=0.66, height=0.26),
-        align="right", style=TextStyle(font_size=120, outer_stroke="#FFFFFF", outer_stroke_width=6),
+        align="right", style=TextStyle(font_size=120, outer_stroke="#FFFFFF", outer_stroke_width=6, accent="#00FFFF"),
+        emphasis=("万楼",),
     )
     context = TextObject(
         id="copy-a", text="一个晚上", copy_role="A", z_index=11,
@@ -108,7 +109,9 @@ class CoverWysiwygTests(unittest.TestCase):
         self.addCleanup(self.canvas.close)
         self.canvas.set_background_pixmap(QPixmap(str(self.frame)))
 
-    def _compare(self, profile_key: str) -> float:
+    def _renders(self, profile_key: str) -> tuple[Image.Image, Image.Image]:
+        """同一份文档的画布截图与导出图，都裁成导出尺寸。"""
+
         width, height = (1440, 1080) if profile_key == "4x3" else (1920, 1080)
         self.canvas.resize(width + 16, height + 16)
         self.canvas.set_document(replace(self.document, selected_object_id=None), profile_key)
@@ -119,8 +122,11 @@ class CoverWysiwygTests(unittest.TestCase):
         output = self.root / f"export-{profile_key}.jpg"
         service._render_document(self.document, video, output, canvas_key=profile_key)
         with Image.open(output) as exported:
-            exported = exported.convert("RGB")
-        small = (width // 8, height // 8)
+            return shown, exported.convert("RGB")
+
+    def _compare(self, profile_key: str) -> float:
+        shown, exported = self._renders(profile_key)
+        small = (shown.width // 8, shown.height // 8)
         difference = ImageChops.difference(shown.resize(small), exported.resize(small))
         return sum(ImageStat.Stat(difference).mean) / 3
 
@@ -128,6 +134,14 @@ class CoverWysiwygTests(unittest.TestCase):
         # 抗锯齿和 JPEG 压缩会带来轻微差异；方向、位置或层级错误会远超阈值。
         self.assertLess(self._compare("4x3"), 4.0)
         self.assertLess(self._compare("16x9"), 4.0)
+
+    def test_emphasis_is_painted_the_same_on_canvas_and_export(self):
+        def accent_pixels(image: Image.Image) -> int:
+            return sum(1 for r, g, b in image.getdata() if r < 60 and g > 200 and b > 200)
+
+        shown, exported = self._renders("4x3")
+        self.assertGreater(accent_pixels(exported), 3000)
+        self.assertAlmostEqual(accent_pixels(shown) / accent_pixels(exported), 1.0, delta=0.15)
 
     def test_background_drag_follows_pointer(self):
         self.canvas.resize(900, 700)

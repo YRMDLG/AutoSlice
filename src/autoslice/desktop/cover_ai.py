@@ -1,9 +1,11 @@
-"""封面 AI：读标题和字幕写 A/B 文案；看候选成品挑三张；看成品给能一键应用的修改。
+"""封面 AI：读标题和字幕写 A/B 文案并标强调词；在爆点前后挑表情最有戏的一帧；
+看候选成品挑三张；看成品给能一键应用的修改。
 
 AI 只在用户点击时运行。文案必须出自标题和字幕原文（逐字校验，允许删减、
-调序和补少量虚词，不许加实词）。方案不让 AI 给坐标：本地排版引擎先排出十几
-张候选（不同文案、排法位置、取景、配色）并渲染成缩略图总图，看图模型像审
-稿一样从成品里挑——压脸、压住画面原有的字、看不懂的都淘汰。
+调序和补少量虚词，不许加实词）。写法参考日更切片号：标题交代来龙去脉，封面放
+主播最冲的一句原话或浓缩的“讲事”两句，关键词换色。方案不让 AI 给坐标：本地
+排版引擎先排出十几张候选（不同文案、排法位置、取景、配色）并渲染成缩略图总图，
+看图模型像审稿一样从成品里挑——压脸、压住画面原有的字、看不懂的都淘汰。
 """
 
 from __future__ import annotations
@@ -34,8 +36,13 @@ _WORD_RE = re.compile(r"[一-鿿A-Za-z0-9]")
 _EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF☀-➿️‍]")
 # 压缩成封面文字时可以补的虚词：不带新信息，补了句子才通顺。
 _FUNCTION_WORDS = frozenset("的地得了着过在把被让给和与跟是也都就还又才吗呢吧啊呀哦嘛到时后前里上下中这那个们")
-# 只看封面能不能看懂（模型自评 1~5），低于这个分的文案不要。
+# 配合标题看抓不抓眼、看不看得懂（模型自评 1~5），低于这个分的文案不要。
 _MIN_CLARITY = 4
+# 每段文案最多几个强调词、每个最多几个字（超长的不截断，直接不要）。
+_MAX_EMPHASIS = 2
+_MAX_EMPHASIS_LENGTH = 8
+# 两帧缩成小灰度图后平均差在这以内，算同一个画面布局（取景框可以沿用）。
+_SAME_LAYOUT_DIFF = 20
 # 候选总图：每行几张、每张多宽。
 _SHEET_COLUMNS = 4
 _SHEET_THUMB_WIDTH = 320
@@ -57,22 +64,30 @@ class AIHighlight:
 class AICopy:
     context: str
     headline: str
+    # 写法：原话 / 讲事（旧缓存里可能是“结果、反差”等角度）。
     angle: str
     reason: str
+    emphasis: tuple[str, ...] = ()
 
     def as_basic(self) -> BasicCoverCopy:
-        return BasicCoverCopy(context=self.context, headline=self.headline)
+        return BasicCoverCopy(context=self.context, headline=self.headline, emphasis=self.emphasis)
 
 
 @dataclass(frozen=True, slots=True)
 class AIAnalysis:
     highlight: AIHighlight | None
     copies: tuple[AICopy, ...]
+    # 标题提炼那句文案的强调词。
+    title_emphasis: tuple[str, ...] = ()
+
+
+# 源图比例坐标的框 (x0, y0, x1, y1)。
+Frac = tuple[float, float, float, float]
 
 
 @dataclass(frozen=True, slots=True)
 class AISchemeIdea:
-    """一张候选封面怎么排：文案、排法、配色、文字位置、取景放大倍数。"""
+    """一张候选封面怎么排：文案、排法、配色、文字位置、取景。"""
 
     direction: str
     copy: AICopy
@@ -83,8 +98,8 @@ class AISchemeIdea:
     place: str = ""
     # 大于 1 时把画面放大到人物，裁掉两侧的弹幕栏和直播界面。
     zoom: float = 1.0
-    # 看图模型给的取景框（源图比例坐标）；给了就按框裁切，优先于 zoom。
-    view: tuple[float, float, float, float] | None = None
+    # 按看图标出的脸取景：loose 带上半身、tight 特写；空表示不按脸取景。优先于 zoom。
+    framing: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,20 +115,28 @@ class AIChoice:
     rejected: str
 
 
-# 画面四周的区域：上缘、下缘、左侧、右侧。
-REGIONS = ("top", "bottom", "left", "right")
-
-
 @dataclass(frozen=True, slots=True)
 class AIFrameNotes:
-    """看图模型看原画面（没加字）的结论：取景框、特写框、字放哪更干净、哪些区域有画面自带的字或界面。"""
+    """看图模型看原画面（没加字）标出的框：主播的脸、人物，画面自带的字和界面各在哪。
+
+    怎么裁、字放哪由本地按这些框算：整张脸留在画面里，字带避开界面和脸。
+    busy 是界面落在画面哪几侧（上下左右），没认出脸时粗略避开用。
+    """
 
     busy: frozenset[str]
     note: str
-    # 源图比例坐标 (x0, y0, x1, y1)；看不出来或不合理时为 None。
-    box: tuple[float, float, float, float] | None = None
-    close: tuple[float, float, float, float] | None = None
-    text_zone: str = ""
+    face: Frac | None = None
+    person: Frac | None = None
+    ui: tuple[Frac, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AIFramePick:
+    """在爆点前后几帧里挑的那张（0 是原来的画面）。"""
+
+    index: int
+    expression: str
+    reason: str
 
 
 # AI 修改建议只能从这些一键操作里选。
@@ -124,6 +147,7 @@ FIX_ACTIONS = {
     "zoom_out": "画面拉远一点（人物太大、没地方放字时）",
     "bigger": "主文案 B 放大",
     "smaller_context": "A 缩小，让 B 更突出",
+    "emphasize": "把关键词换成强调色",
     "rewrite": "换一句文案",
 }
 
@@ -134,11 +158,14 @@ class AIFix:
     action: str
     context: str = ""
     headline: str = ""
+    words: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
         if self.action == "rewrite":
             return f"换成 A「{self.context}」 B「{self.headline}」" if self.context else f"换成「{self.headline}」"
+        if self.action == "emphasize":
+            return "强调「" + "」「".join(self.words) + "」"
         return FIX_ACTIONS[self.action]
 
 
@@ -196,8 +223,8 @@ def contact_sheet(thumbnails: Sequence[bytes]) -> bytes:
     return buffer.getvalue()
 
 
-def _view(value: object) -> tuple[float, float, float, float] | None:
-    """模型给的框：四个 0~1 的数、左上在右下之前、宽高都不太小；不合理就不用。"""
+def _box(value: object, minimum: float) -> Frac | None:
+    """模型给的框：四个 0~1 的数、左上在右下之前、宽高都不小于 minimum；不合理就不用。"""
 
     if not isinstance(value, (list, tuple)) or len(value) != 4:
         return None
@@ -205,9 +232,78 @@ def _view(value: object) -> tuple[float, float, float, float] | None:
         x0, y0, x1, y1 = (min(1.0, max(0.0, float(item))) for item in value)
     except (TypeError, ValueError):
         return None
-    if x1 - x0 < 0.12 or y1 - y0 < 0.12:
+    if x1 - x0 < minimum or y1 - y0 < minimum:
         return None
     return x0, y0, x1, y1
+
+
+def _sides(boxes: Sequence[Frac]) -> frozenset[str]:
+    """界面框落在画面哪几侧：中心靠近哪条边就算哪侧。"""
+
+    sides = set()
+    for x0, y0, x1, y1 in boxes:
+        center_x, center_y = (x0 + x1) / 2, (y0 + y1) / 2
+        sides.update(name for name, hit in (
+            ("top", center_y < 0.25), ("bottom", center_y > 0.75), ("left", center_x < 0.25), ("right", center_x > 0.75),
+        ) if hit)
+    return frozenset(sides)
+
+
+def _emphasis(value: object, *parts: str) -> tuple[str, ...]:
+    """强调词：必须是文案里原样出现的片段（最多 8 字、两个）；整句都标等于没标，不要。"""
+
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return ()
+    words: list[str] = []
+    for item in value:
+        word = _clean(item, 40)
+        if 0 < len(word) <= _MAX_EMPHASIS_LENGTH and word not in words and any(
+            word in part and word != part.strip() for part in parts
+        ):
+            words.append(word)
+    return tuple(words[:_MAX_EMPHASIS])
+
+
+# 界面框最多几个、各种框的最小边长（画面比例）。
+_MAX_UI_BOXES = 10
+_MIN_FACE, _MIN_PERSON, _MIN_UI = 0.03, 0.08, 0.01
+
+
+def _frame_notes(payload: dict) -> AIFrameNotes:
+    ui = tuple(
+        box for box in (_box(item, _MIN_UI) for item in (payload.get("ui") or ())[:_MAX_UI_BOXES]) if box is not None
+    )
+    return AIFrameNotes(
+        busy=_sides(ui), note=_clean(payload.get("note"), 60),
+        face=_box(payload.get("face"), _MIN_FACE), person=_box(payload.get("person"), _MIN_PERSON), ui=ui,
+    )
+
+
+def same_layout(first: str | Path | bytes, second: str | Path | bytes) -> bool:
+    """两帧是不是同一个画面布局：直播界面和人物位置没大变，只是表情、嘴型不同。"""
+
+    def small(image):
+        if isinstance(image, (bytes, bytearray)):
+            image = io.BytesIO(bytes(image))
+        with Image.open(image) as picture:
+            return picture.convert("L").resize((32, 24), Image.Resampling.BILINEAR)
+
+    try:
+        a, b = small(first), small(second)
+    except OSError:
+        return False
+    difference = sum(abs(x - y) for x, y in zip(a.getdata(), b.getdata())) / (32 * 24)
+    return difference <= _SAME_LAYOUT_DIFF
+
+
+def _image_size(frame: bytes) -> str:
+    try:
+        with Image.open(io.BytesIO(frame)) as image:
+            return f"{image.size[0]}x{image.size[1]} 像素，"
+    except OSError:
+        return ""
 
 
 def _clean(value: object, limit: int) -> str:
@@ -285,39 +381,48 @@ class CoverAI:
         streamer: str = "",
         recent: Sequence[CoverWork] = (),
         round_index: int = 0,
+        title_copy: BasicCoverCopy | None = None,
     ) -> AIAnalysis:
-        """读标题和整份字幕：标出爆点句，给几组只看封面就能懂的 A/B 文案。"""
+        """读标题和整份字幕：标出爆点句，给“原话”和“讲事”两种写法的 A/B 文案，并标强调词。"""
 
         source = title + "\n" + "\n".join(text for _start, _end, text in cues)
+        title_line = (
+            f"\n标题提炼出的封面字是 A「{title_copy.context}」 B「{title_copy.headline}」，也给它标强调词（title_emphasis）。\n"
+            if title_copy is not None and title_copy.headline else ""
+        )
         prompt = f"""你是 B 站直播切片的封面文案编辑。根据投稿标题和这条切片的校对字幕，写封面上的字。
 
-最重要的标准：观众只看封面（再加上投稿标题）就能明白发生了什么、为什么有意思。
-1. 封面最多两块字。B 是爆点：一句完整、能独立看懂的话，有主语或明确的事件、结果、反差，6~16 个字。A 交代背景或主语，可以为空，不超过 10 个字，分量要比 B 轻。
-2. 优先用投稿标题里的爆点——标题是切片员自己写的总结；字幕用来确认爆点，或找到更有力的原话。
-3. 只能从标题和字幕里截取、删减、压缩，可以补“的、了、被、到”这类虚词让句子通顺；不许加原文没有的事实和词，不写营销话术。
-4. 不要只有看过视频才懂的碎片，比如「交个备用机」「4个emoji」「ins简介改了」：没头没尾，观众不知道在说谁、发生了什么。
-   也不要空泛的话，比如「这就是暗号」「粉丝就发现了」「原来是这样」：B 里要有这件事的关键名词（人物、东西、结果），让人一眼知道是什么事。
-5. “告诉你”“揭秘”“原因竟然是这个”这类预告语不能当 B。
+分工：投稿标题负责交代来龙去脉，封面字负责抓眼——观众先看到封面，再看标题。
+日更切片号做得好的封面有两种写法，两种都要给：
+- 原话：从字幕里挑主播（或对方）说的最冲、最有情绪的一句原话，删到 4~12 个字、一行放得下，比如「我靠，真给我开盒了」「你有病啊！？」「一共打了14个耳钉」。A 可以为空，或用 8 个字以内点明是谁、在干嘛。
+- 讲事：A + B 两句把事情浓缩出来，B 是结果或反差，比如 A「听到要用脚惩罚」 B「高兴的发出了鸟叫」。
 
-好的例子（这位切片员以前的标题 → 封面字）：
-- 「泽音一个晚上居然被冲了万楼？！原因居然是这个？！」→ A「一个晚上」 B「被冲了万楼？！」
-- 「逆天音姐听到公主说要用脚惩罚她时高兴的发出了鸟叫」→ A「听到要用脚惩罚」 B「高兴的发出了鸟叫」
-- 「刚上播不清醒的音音 嘴滑承认18岁是虚假宣传」→ A「刚上播不清醒」 B「18岁是虚假宣传？！」
+要求：
+1. 只能从标题和字幕里截取、删减、压缩，可以补“的、了、被、到”这类虚词；不许加原文没有的事实和词，不写营销话术。
+2. 配合投稿标题看，观众要能明白在说什么、为什么好笑或离谱。不要没头没尾、只有看过视频才懂的碎片（「交个备用机」「4个emoji」），也不要空泛的话（「这就是暗号」「原来是这样」）。
+3. “告诉你”“揭秘”“原因竟然是这个”这类预告语不能当 B。
+4. 每组标 1~2 个强调词 emphasis：封面上单独换颜色的词，必须是 A 或 B 里原样出现的片段，2~5 个字，挑最戳人的（数字、关键名词、骂人的词、反差词），比如「开盒」「14个耳钉」「万楼」；不要把整句都标上。
+
+这位切片员以前的标题 → 封面字（讲事写法）：
+- 「泽音一个晚上居然被冲了万楼？！原因居然是这个？！」→ A「一个晚上」 B「被冲了万楼？！」 强调「万楼」
+- 「逆天音姐听到公主说要用脚惩罚她时高兴的发出了鸟叫」→ A「听到要用脚惩罚」 B「高兴的发出了鸟叫」 强调「鸟叫」
+- 「刚上播不清醒的音音 嘴滑承认18岁是虚假宣传」→ A「刚上播不清醒」 B「18岁是虚假宣传？！」 强调「虚假宣传」
 
 这位切片员最近导出的封面文字（参考长短和口吻，不要照抄）：
 {_work_examples(recent)}
 
 主播：{streamer or "未知"}
 投稿标题：{title}
-
+{title_line}
 字幕（[秒数] 文本）：
 {_subtitle_lines(cues)}
 
-给 4 组，角度尽量不同（原话、结果、反差、悬念）；每组自评“只看封面能不能看懂”1~5 分，低于 4 分的不要给。
-第 {round_index + 1} 次生成{"，请给出和之前不同的角度" if round_index else ""}。
+给 5 组：至少 2 组原话、至少 2 组讲事，角度尽量不同；每组自评“配合标题看抓不抓眼、看不看得懂”1~5 分，低于 4 分的不要给。
+第 {round_index + 1} 次生成{"，请给出和之前不同的句子" if round_index else ""}。
 只输出 JSON，不要解释：
 {{"highlight": {{"quote": "爆点字幕原话", "start": 秒数, "end": 秒数, "reason": "为什么是爆点（20 字内）"}},
- "copies": [{{"context": "A，可为空", "headline": "B", "angle": "原话|结果|反差|悬念", "clarity": 1到5, "reason": "一句话说明（20 字内）"}}]}}"""
+ "title_emphasis": ["标题那句的强调词"],
+ "copies": [{{"style": "原话|讲事", "context": "A，可为空", "headline": "B", "emphasis": ["强调词"], "clarity": 1到5, "reason": "一句话说明（20 字内）"}}]}}"""
         payload = self._ask(prompt, vision=False)
         copies: list[AICopy] = []
         for item in payload.get("copies") or ():
@@ -327,11 +432,13 @@ class CoverAI:
                 clarity = float(item.get("clarity", _MIN_CLARITY))
             except (TypeError, ValueError):
                 clarity = _MIN_CLARITY
+            context = _clean(item.get("context"), _MAX_CONTEXT)
+            headline = _clean(item.get("headline"), _MAX_HEADLINE)
             copy = AICopy(
-                context=_clean(item.get("context"), _MAX_CONTEXT),
-                headline=_clean(item.get("headline"), _MAX_HEADLINE),
-                angle=_clean(item.get("angle"), 8),
+                context=context, headline=headline,
+                angle=_clean(item.get("style") or item.get("angle"), 8),
                 reason=_clean(item.get("reason"), 40),
+                emphasis=_emphasis(item.get("emphasis"), context, headline),
             )
             # 逐字校验：有原文里没有的实词就丢掉；模型自己都觉得看不懂的也不要。
             if not copy.headline or clarity < _MIN_CLARITY or not from_source(copy.context + copy.headline, source):
@@ -348,31 +455,44 @@ class CoverAI:
             )
         if not copies:
             raise CoverAIError("AI 给的文案都不合格（不是出自原文或看不懂），已全部丢弃；可以再试一次")
-        return AIAnalysis(highlight=highlight, copies=tuple(copies))
+        title_emphasis = (
+            _emphasis(payload.get("title_emphasis"), title_copy.context, title_copy.headline) if title_copy else ()
+        )
+        return AIAnalysis(highlight=highlight, copies=tuple(copies), title_emphasis=title_emphasis)
 
     def inspect(self, frame: bytes) -> AIFrameNotes:
-        """看没加字的原画面：给封面取景框和特写框、字放上方还是下方，以及哪里有画面自带的字或界面。"""
+        """看没加字的原画面：标出主播的脸、人物，以及画面自带的字和界面各在哪（取景由本地算）。"""
 
-        try:
-            with Image.open(io.BytesIO(frame)) as image:
-                size = f"{image.size[0]}x{image.size[1]} 像素，"
-        except OSError:
-            size = ""
-        prompt = f"""这是一帧直播切片画面（{size}还没加封面文字），要做成 B 站封面（4:3）。
-1. box：封面取景框。框住主播（立绘或真人）的脸和上半身，脸要够大、表情清楚；尽量不包含弹幕、聊天栏、直播界面、画面原有的文字和水印；框里脸的上方或下方要留出能放两行大字、不压脸的干净区域。
-2. close：更紧的特写框，脸和肩膀，脸占框的三分之一以上。
-3. text_zone：在 box 里，大字放上方（top）还是下方（bottom）更干净、不压脸也不压原有的字。
-4. busy：整张原画面的上缘、下缘、左侧、右侧，哪些区域有画面自带的文字、弹幕、直播界面、字幕条或水印。
-框的坐标用画面比例（左上角 0,0，右下角 1,1），格式 [x0, y0, x1, y1]，按像素算宽高比尽量接近 4:3。
+        prompt = f"""这是一帧直播切片画面（{_image_size(frame)}还没加封面文字），要拿来做 B 站封面。请标出：
+1. face：主播（立绘或真人）脸的框：上到眉毛、下到下巴、左右到两颊，不含头发、耳朵和脖子（动漫立绘的脸大约只占头部的一半）；画面里没有人物就给 null。
+2. person：主播从头顶（含头发）到画面里能看到的身体的框；没有就给 null。
+3. ui：画面自带的文字、弹幕、聊天栏、直播界面的面板和按钮、字幕条、水印、Logo、礼物栏，每一块各给一个框，最多 {_MAX_UI_BOXES} 个；没有就给空列表。
+框用画面比例坐标（左上角 0,0，右下角 1,1），格式 [x0, y0, x1, y1]，贴着内容画、不要留大边。
 只输出 JSON，不要解释：
-{{"box": [x0, y0, x1, y1], "close": [x0, y0, x1, y1], "text_zone": "top|bottom", "busy": ["top|bottom|left|right"], "note": "画面原有文字和界面在哪（30 字内）"}}"""
-        payload = self._ask(prompt, vision=True, images=(frame,), max_tokens=2000)
-        busy = frozenset(str(item).strip().lower() for item in payload.get("busy") or () if str(item).strip().lower() in REGIONS)
-        zone = str(payload.get("text_zone") or "").strip().lower()
-        return AIFrameNotes(
-            busy=busy, note=_clean(payload.get("note"), 60),
-            box=_view(payload.get("box")), close=_view(payload.get("close")),
-            text_zone=zone if zone in ("top", "bottom") else "",
+{{"face": [x0, y0, x1, y1], "person": [x0, y0, x1, y1], "ui": [[x0, y0, x1, y1]], "note": "画面原有文字和界面在哪（30 字内）"}}"""
+        return _frame_notes(self._ask(prompt, vision=True, images=(frame,), max_tokens=2000))
+
+    def pick_frame(self, frames: Sequence[bytes], *, quote: str = "", title: str = "") -> AIFramePick:
+        """在爆点前后几帧里挑表情最有戏的一张（第一张是原来的画面）；只挑，取景框另外单帧看。"""
+
+        if len(frames) < 2:
+            return AIFramePick(index=0, expression="", reason="")
+        prompt = f"""下面 {len(frames)} 张图是同一条直播切片里的画面，按发送顺序从 1 编号：第 1 张是现在封面用的画面，其余是爆点前后按时间排的几帧。
+投稿标题：{title or "未知"}{f"；爆点是「{quote}」" if quote else ""}
+要做成 B 站封面，挑一张最适合的：
+- 主播（立绘或真人）的表情要有戏：惊讶、大笑、崩溃、得意、嫌弃、生气这类明显的反应，比面无表情、闭眼、说到一半的嘴型好得多；
+- 脸清楚、没糊、没被遮挡，人物没有被大块弹窗或字幕条挡住；
+- 几张差不多时选第 1 张。
+只输出 JSON，不要解释：
+{{"index": 编号, "expression": "选中那张的表情（10 字内）", "reason": "为什么选它（20 字内）"}}"""
+        payload = self._ask(prompt, vision=True, images=tuple(frames), max_tokens=1000)
+        try:
+            index = int(payload.get("index")) - 1
+        except (TypeError, ValueError):
+            index = 0
+        return AIFramePick(
+            index=index if 0 <= index < len(frames) else 0,
+            expression=_clean(payload.get("expression"), 20), reason=_clean(payload.get("reason"), 40),
         )
 
     def choose(
@@ -403,8 +523,9 @@ class CoverAI:
 一票否决，出现任何一条都不能选：
 1. 封面文字压住人脸或主要人物；
 2. 封面文字（彩色描边的大字）和画面原有的文字、弹幕或直播界面叠在一起，哪怕只叠一部分；
-3. 文案只看封面看不懂，不知道在说谁、发生了什么；
+3. 文案配合投稿标题也看不懂，不知道在说谁、发生了什么；
 4. 在小图上字太小、读不清。
+都合格时，人物表情有戏、关键词换了颜色更醒目、一眼能抓住的优先。
 合格的不够三张就少选，全部不合格就返回空列表。第 {round_index + 1} 次挑选。
 只输出 JSON，不要解释：
 {{"picks": [{{"direction": "稳妥|换个构图|大胆一点", "index": 编号, "reason": "为什么选它（25 字内）"}}], "rejected": "其余候选被淘汰的主要原因（30 字内）"}}"""
@@ -446,10 +567,11 @@ class CoverAI:
 
 找出最影响效果的问题，最多 3 条。每条只能从下面这些修改里选一个——这个工具能一键做到的只有这些：
 {actions}
-rewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截取、删减、压缩，可以补“的、了、被、到”这类虚词；B 要只看封面就能懂。
+rewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截取、删减、压缩，可以补“的、了、被、到”这类虚词；配合标题要能看懂，优先主播最冲的一句原话。
+emphasize 时在 words 里给 1~2 个要换色的词，必须是封面上 A 或 B 里原样出现的片段（2~5 字）。
 没有明显问题就返回空列表，不要为了凑数提建议；不要提这些修改做不到的事。
 只输出 JSON，不要解释：
-{{"fixes": [{{"issue": "问题（20 字内）", "action": "上面的英文名之一", "context": "rewrite 时的新 A", "headline": "rewrite 时的新 B"}}]}}"""
+{{"fixes": [{{"issue": "问题（20 字内）", "action": "上面的英文名之一", "context": "rewrite 时的新 A", "headline": "rewrite 时的新 B", "words": ["emphasize 时的强调词"]}}]}}"""
         images = (cover, *((frame,) if frame is not None else ()))
         payload = self._ask(prompt, vision=True, images=images, max_tokens=3000)
         fixes: list[AIFix] = []
@@ -462,9 +584,12 @@ rewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截�
             fix = AIFix(
                 issue=_clean(item.get("issue"), 40), action=action,
                 context=_clean(item.get("context"), _MAX_CONTEXT), headline=_clean(item.get("headline"), _MAX_HEADLINE),
+                words=_emphasis(item.get("words"), context, headline) if action == "emphasize" else (),
             )
-            # 换文案同样逐字校验，不能编。
+            # 换文案同样逐字校验，不能编；强调词必须是封面上已有的字。
             if action == "rewrite" and (not fix.headline or not from_source(fix.context + fix.headline, source or title)):
+                continue
+            if action == "emphasize" and not fix.words:
                 continue
             fixes.append(fix)
         return tuple(fixes[:3])

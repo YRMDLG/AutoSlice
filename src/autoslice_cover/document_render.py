@@ -37,6 +37,8 @@ class TextPaint:
     outer_stroke: str | None = None
     outer_stroke_width: int = 0
     backdrop: str | None = None
+    # 强调词的填充色（排版里 accent 的片段）；描边、阴影与正文相同。
+    accent: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +146,7 @@ def _draw_glyphs(
     stroke_width: int,
     stroke_fill: tuple[int, int, int, int],
     emoji: bool,
+    accent: tuple[int, int, int, int] | None = None,
 ) -> None:
     for line in layout.lines:
         for run in line.runs:
@@ -155,7 +158,7 @@ def _draw_glyphs(
                     draw.text(position, run.text, font=font, embedded_color=True, anchor="ls")
                 continue
             draw.text(
-                position, run.text, font=font, fill=fill,
+                position, run.text, font=font, fill=accent if run.accent and accent else fill,
                 stroke_width=stroke_width, stroke_fill=stroke_fill, anchor="ls",
             )
 
@@ -194,10 +197,18 @@ def draw_text_layer(base: Image.Image, layer: TextLayer) -> None:
     if outer:
         outer_color = rgba(paint.outer_stroke)
         _draw_glyphs(draw, layout, dx, dy, fill=outer_color, stroke_width=stroke + outer, stroke_fill=outer_color, emoji=False)
-    _draw_glyphs(
-        draw, layout, dx, dy,
-        fill=rgba(paint.fill, "#FFE438"), stroke_width=stroke, stroke_fill=rgba(paint.stroke, "#111111"), emoji=True,
-    )
+    fill, stroke_fill = rgba(paint.fill, "#FFE438"), rgba(paint.stroke, "#111111")
+    if paint.accent and stroke and any(run.accent for line in layout.lines for run in line.runs):
+        # 有强调词时先整段描边再整段填色，避免后一段的描边压到前一段的字（与单次绘制逐像素一致）。
+        _draw_glyphs(draw, layout, dx, dy, fill=stroke_fill, stroke_width=stroke, stroke_fill=stroke_fill, emoji=False)
+        _draw_glyphs(
+            draw, layout, dx, dy, fill=fill, stroke_width=0, stroke_fill=stroke_fill, emoji=True, accent=rgba(paint.accent),
+        )
+    else:
+        _draw_glyphs(
+            draw, layout, dx, dy, fill=fill, stroke_width=stroke, stroke_fill=stroke_fill, emoji=True,
+            accent=rgba(paint.accent) if paint.accent else None,
+        )
     _rotate_and_composite(base, layer_image, region, layer.rotation)
 
 

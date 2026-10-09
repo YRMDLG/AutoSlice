@@ -142,6 +142,11 @@ class BasicCoverCopy:
 
     context: str = ""
     headline: str = ""
+    # 要换强调色的词（A/B 里的原样片段），落到哪个文本框按词在不在它的文字里定。
+    emphasis: tuple[str, ...] = ()
+
+    def emphasis_in(self, text: str) -> tuple[str, ...]:
+        return tuple(word for word in self.emphasis if word and word in text)
 
     @property
     def text(self) -> str:

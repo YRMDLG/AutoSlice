@@ -34,6 +34,8 @@ class CoverStyleMemory:
     # A 的颜色；为空时与 B 相同（黄青、黄红等双色风格靠它延续到下一个封面）。
     context_fill: str = ""
     context_stroke: str = ""
+    # 强调词颜色；为空时自动配色。
+    accent: str = ""
 
     def text_style(self, *, role: str = "B") -> TextStyle:
         size = self.headline_size if role == "B" else max(24, round(self.headline_size * self.context_size_ratio))
@@ -52,7 +54,34 @@ class CoverStyleMemory:
             outer_stroke=self.outer_stroke,
             outer_stroke_width=self.outer_stroke_width,
             backdrop=self.backdrop,
+            accent=self.accent,
         )
+
+
+def _rgb(color: str) -> tuple[int, int, int] | None:
+    value = str(color or "").strip().lstrip("#")
+    if len(value) == 3:
+        value = "".join(character * 2 for character in value)
+    try:
+        return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+    except (ValueError, IndexError):
+        return None
+
+
+def _luminance(color: str) -> float:
+    rgb = _rgb(color)
+    return (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 if rgb else 0.5
+
+
+def accent_for(fill: str, stroke: str) -> str:
+    """没指定强调色时按填充和描边挑一个对比色：黑边黄字配青、黑边白字配黄，白边彩字配黑。"""
+
+    if _luminance(stroke) > 0.6:
+        return "#111111" if _luminance(fill) > 0.25 else "#F44336"
+    rgb = _rgb(fill)
+    if rgb and rgb[0] > 200 and rgb[1] > 170 and rgb[2] < 130:
+        return "#16D8ED"
+    return "#FFE438"
 
 
 _TAG_RE = re.compile(r"^\s*[〖【\[](.{1,32}?)[〗】\]]")
@@ -93,6 +122,8 @@ class StylePreset:
             outer_stroke=self.outer_stroke,
             outer_stroke_width=stroke_for(style.font_size, self.outer_stroke_ratio) if self.outer_stroke else 0,
             backdrop=self.backdrop,
+            # 换配色时强调色回到自动，跟着新配色走。
+            accent="",
         )
 
 

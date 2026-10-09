@@ -300,6 +300,8 @@ class TextRun:
     font_path: str | None
     offset: float
     emoji: bool = False
+    # 强调词：换成强调色绘制，字形和位置不变。
+    accent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -757,6 +759,51 @@ def _relative_wrap(
         tuple(lines), size, weight, stroke_width,
         Box(0.0, 0.0, float(width), height), ink or Box(0.0, 0.0, 0.0, 0.0),
     )
+
+
+def _accent_mask(text: str, words: tuple[str, ...]) -> tuple[bool, ...]:
+    """text 里每个字是否落在某个强调词内（同一个词出现几次都标）。"""
+
+    mask = [False] * len(text)
+    for word in words:
+        if not word:
+            continue
+        start = text.find(word)
+        while start >= 0:
+            mask[start:start + len(word)] = [True] * len(word)
+            start = text.find(word, start + len(word))
+    return tuple(mask)
+
+
+@lru_cache(maxsize=256)
+def emphasize(layout: TextLayout, words: tuple[str, ...]) -> TextLayout:
+    """按强调词把每行的字体片段再切开并标 accent；词跨行也能标上。只改颜色，几何不变。"""
+
+    words = tuple(word.strip() for word in words if word and word.strip())
+    if not words or not layout.lines:
+        return layout
+    mask = _accent_mask("".join(line.text for line in layout.lines), words)
+    if not any(mask):
+        return layout
+    draw = _measure_draw()
+    lines: list[TextLine] = []
+    position = 0
+    for line in layout.lines:
+        runs: list[TextRun] = []
+        for run in line.runs:
+            flags = mask[position:position + len(run.text)]
+            position += len(run.text)
+            font = load_font(run.font_path, layout.font_size, layout.font_weight)
+            start = 0
+            while start < len(run.text):
+                end = start + 1
+                while end < len(run.text) and flags[end] == flags[start]:
+                    end += 1
+                offset = run.offset + (float(draw.textlength(run.text[:start], font=font)) if start else 0.0)
+                runs.append(replace(run, text=run.text[start:end], offset=offset, accent=bool(flags[start]) and not run.emoji))
+                start = end
+        lines.append(replace(line, runs=tuple(runs)))
+    return replace(layout, lines=tuple(lines))
 
 
 def wrap_text(

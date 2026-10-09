@@ -18,6 +18,7 @@ from autoslice_cover.document_layout import (
     Box,
     TextLayout,
     background_box,
+    emphasize,
     layout_text,
     overlay_box,
     shape_box,
@@ -46,6 +47,7 @@ from .cover_model import (
     TextObject,
     object_for_profile,
 )
+from .cover_style import accent_for
 
 
 def canvas_size(profile_key: str) -> tuple[int, int]:
@@ -122,7 +124,7 @@ def text_layout(item: TextObject, size: tuple[int, int]) -> TextLayout:
 
     style = item.style
     area = text_area(item, size)
-    return wrap_text(
+    layout = wrap_text(
         item.text,
         origin=(area.left, area.top),
         width=area.width,
@@ -133,6 +135,8 @@ def text_layout(item: TextObject, size: tuple[int, int]) -> TextLayout:
         font_paths=font_stack(style.font_family),
         weight=style.font_weight,
     )
+    # 强调词只换颜色：断行和字号与不强调时完全一样。
+    return emphasize(layout, item.emphasis) if item.emphasis else layout
 
 
 def fitted_font_size(item: TextObject, area: Box, *, requested: int | None = None, max_lines: int = 2) -> int:
@@ -164,6 +168,7 @@ def text_paint(item: TextObject) -> TextPaint:
         outer_stroke=style.outer_stroke or None,
         outer_stroke_width=int(style.outer_stroke_width),
         backdrop=style.backdrop or None,
+        accent=(style.accent or accent_for(style.fill_color, style.stroke_color)) if item.emphasis else None,
     )
 
 

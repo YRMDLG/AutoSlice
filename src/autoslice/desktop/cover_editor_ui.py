@@ -446,6 +446,22 @@ class CoverLayoutMixin:
         self.title_edit.textChanged.connect(self._draft_changed)
         layout.addWidget(self.title_edit)
 
+        # 强调词：只换颜色，字号和断行不变；参考切片封面里“开盒”单独标黄的做法。
+        emphasis_row = QHBoxLayout()
+        emphasis_row.setSpacing(4)
+        self.emphasis_edit = QLineEdit()
+        self.emphasis_edit.setPlaceholderText("强调词，空格分隔")
+        self.emphasis_edit.setToolTip("这些词换成强调色，比如「开盒」「14个」；强调色在“字体与效果”里改")
+        self.emphasis_edit.textChanged.connect(self._draft_changed)
+        emphasis_row.addWidget(self.emphasis_edit, 1)
+        self.emphasize_button = QPushButton("强调所选")
+        self.emphasize_button.setFixedHeight(26)
+        self.emphasize_button.setObjectName("quiet")
+        self.emphasize_button.setToolTip("在上面的文案框里选中几个字，点这里把它们设为强调（再点一次取消）")
+        self.emphasize_button.clicked.connect(self._emphasize_selection)
+        emphasis_row.addWidget(self.emphasize_button)
+        layout.addLayout(emphasis_row)
+
         # 当前文本框身份 + 换文案；选择文本框直接在画布上点。
         role_row = QHBoxLayout()
         role_row.setSpacing(4)
@@ -565,6 +581,10 @@ class CoverLayoutMixin:
         self.backdrop_button.setToolTip("文字底条，画面杂乱时提高可读性；可设透明度")
         self.backdrop_button.color_changed.connect(self._draft_changed)
         style_form.addRow("底条", self.backdrop_button)
+        self.accent_button = _ColorButton(allow_none=True, none_label="自动")
+        self.accent_button.setToolTip("强调词的颜色；“自动”按当前配色挑对比色")
+        self.accent_button.color_changed.connect(self._draft_changed)
+        style_form.addRow("强调色", self.accent_button)
         self.line_spacing_spin = QDoubleSpinBox()
         self.line_spacing_spin.setRange(0.5, 3.0)
         self.line_spacing_spin.setSingleStep(0.05)

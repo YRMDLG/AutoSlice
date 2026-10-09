@@ -1,4 +1,5 @@
-"""封面 AI：读字幕、看画面出三套方案；“AI 改一改”给能一键应用的修改。都由用户点击才运行，不阻塞手动编辑。
+"""封面 AI：读字幕写文案、在爆点前后挑表情帧、看成品出三套方案；“AI 改一改”给能一键应用的修改。
+都由用户点击才运行，不阻塞手动编辑。
 
 混入 CoverEditorWidget；只用 self 上的状态，不单独实例化。
 """
@@ -12,22 +13,42 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushBu
 
 from autoslice_cover.document_layout import clamp_background_scale
 
-from .cover_ai import AICopy, AIFrameNotes, CoverAIError, contact_sheet, jpeg_bytes
+from .cover_ai import (
+    AICopy,
+    AIFrameNotes,
+    AIHighlight,
+    CoverAIError,
+    contact_sheet,
+    jpeg_bytes,
+    same_layout,
+)
 from .cover_copy import BasicCoverCopy
 from .cover_model import (
     BackgroundObject,
     TextObject,
+    emphasis_words,
     object_for_profile,
     resize_text_style,
     set_profile_override,
     update_text_object,
 )
+from .cover_style import streamer_key
 
 # “AI 改一改”的一步幅度：拉近/拉远、主文案放大、A 缩小。
 _FIX_ZOOM = 1.25
 _FIX_GROW = 1.15
 _FIX_SHRINK = 0.85
-from .cover_style import streamer_key
+# 选帧：爆点前后取几帧、每帧给看图模型的长边（只看表情，不用太大）。
+_PICK_FRAME_COUNT = 6
+_PICK_FRAME_SIDE = 512
+
+
+def _highlight_offsets(highlight: AIHighlight) -> tuple[float, ...]:
+    """爆点句开始前一点到说完后一秒多，均匀取几帧（相对爆点开始）；反应常在话说完之后。"""
+
+    start, end = -0.6, max(highlight.end - highlight.start, 1.5) + 1.2
+    step = (end - start) / (_PICK_FRAME_COUNT - 1)
+    return tuple(round(start + index * step, 2) for index in range(_PICK_FRAME_COUNT))
 
 
 class CoverAIMixin:
@@ -44,31 +65,60 @@ class CoverAIMixin:
         streamer = streamer_key(project.title) or ""
         self.ai_scheme_button.setEnabled(False)
         self.ai_hint.setVisible(False)
-        self._set_notice("AI 正在读字幕、看画面出方案（通常十几秒到半分钟），这期间可以照常编辑…", "info")
+        self._set_notice("AI 正在读字幕写文案、在爆点前后挑表情、看成品出方案（大约一分钟到一分半），这期间可以照常编辑…", "info")
+
+        locked = bool(document.source.frame_locked)
+        current_timestamp = float(document.source.selected_timestamp)
+
+        def pick_frame(highlight: AIHighlight):
+            """在爆点前后挑表情最有戏的一帧；返回 (那一帧, 表情)，还用原来的帧或取帧、模型失败时返回 None。"""
+
+            try:
+                frames = service.nearby_candidates(video, highlight.start, _highlight_offsets(highlight))
+            except Exception:  # noqa: BLE001 - 取不到帧就只用当前帧
+                return None
+            images = (jpeg_bytes(image_path, max_side=_PICK_FRAME_SIDE),) + tuple(
+                jpeg_bytes(item.path, max_side=_PICK_FRAME_SIDE) for item in frames
+            )
+            try:
+                picked = service.ai.pick_frame(images, quote=highlight.quote, title=project.title)
+            except CoverAIError:
+                return None
+            return (frames[picked.index - 1], picked.expression) if picked.index > 0 else None
 
         def work():
             recent = service.works.recent(streamer=streamer, limit=6)
             thumbnails = service.works.thumbnail_bytes(recent[:3])
             frame = jpeg_bytes(image_path)
-            # 写文案（文字模型）和看原画面（看图模型）同时发出，不多等。
+            # 你的标题提炼出的那句固定放进候选（标题是切片员自己写的总结），AI 文案作补充。
+            basic = service.basic_copy_variants(project.title)[0]
+            # 写文案（文字模型）和看当前画面给取景框（看图模型）同时发出，不多等。
             with ThreadPoolExecutor(max_workers=2) as pool:
                 notes_future = pool.submit(service.ai.inspect, frame)
                 analysis = service.ai.analyze(
                     project.title, service.subtitle_cues(video), streamer=streamer, recent=recent,
-                    round_index=round_index,
+                    round_index=round_index, title_copy=basic,
                 )
                 try:
                     notes = notes_future.result()
                 except CoverAIError:
                     notes = AIFrameNotes(busy=frozenset(), note="")
-            # 你的标题提炼出的那句固定放进候选（标题是切片员自己写的总结），AI 文案作补充。
-            basic = service.basic_copy_variants(project.title)[0]
-            from_title = AICopy(basic.context, basic.headline, "标题", "")
+            path, timestamp, expression = image_path, current_timestamp, ""
+            # 没锁帧：到爆点前后挑表情最有戏的一帧。同一个画面布局（人物位置没变）沿用取景框，不然单独再看一次。
+            picked = pick_frame(analysis.highlight) if not locked and analysis.highlight is not None else None
+            if picked is not None:
+                chosen, expression = picked
+                path, timestamp, frame = str(chosen.path), chosen.timestamp, jpeg_bytes(chosen.path)
+                if not same_layout(image_path, chosen.path):
+                    try:
+                        notes = service.ai.inspect(frame)
+                    except CoverAIError:
+                        notes = AIFrameNotes(busy=frozenset(), note="")
+            working = service.with_frame(document, path, timestamp) if path != image_path else document
+            from_title = AICopy(basic.context, basic.headline, "标题", "", analysis.title_emphasis)
             copies = (from_title, *(item for item in analysis.copies if item.headline != from_title.headline))
-            # 本地按 AI 的取景框裁切、在它说干净的地方排字，渲染成总图，AI 看成品挑：压脸、压字、看不懂的一票否决。
-            candidates = service.ai_candidates(
-                document, image_path, copies, busy=notes.busy, views=(notes.box, notes.close), text_zone=notes.text_zone,
-            )
+            # 本地按看图标出的脸和界面裁切、排字，先筛掉字压界面压脸的，渲染成总图，AI 看成品挑：看不懂、读不清的一票否决。
+            candidates = service.ai_candidates(working, path, copies, notes=notes)
             sheet = contact_sheet(tuple(service.scheme_thumbnail(item.document, width=320) for item in candidates))
             choice = service.ai.choose(
                 sheet, len(candidates), title=project.title, frame=frame, recent_thumbnails=thumbnails,
@@ -78,7 +128,9 @@ class CoverAIMixin:
                 replace(candidates[pick.index], key=f"ai:{pick.direction}", label=f"AI·{pick.direction}", reason=pick.reason)
                 for pick in choice.picks
             )
-            return analysis, schemes, tuple(service.scheme_thumbnail(item.document, width=156) for item in schemes), choice
+            thumbs = tuple(service.scheme_thumbnail(item.document, width=156) for item in schemes)
+            moved = (timestamp, expression) if path != image_path else None
+            return analysis, schemes, thumbs, choice, moved
 
         self._run(work, lambda result, error: self._ai_schemes_ready(generation, result, error))
 
@@ -91,7 +143,7 @@ class CoverAIMixin:
             self._set_notice(message, "error")
             self.status_changed.emit(message)
             return
-        analysis, schemes, thumbnails, choice = result
+        analysis, schemes, thumbnails, choice, moved = result
         if not schemes:
             message = f"AI 觉得这批候选都不合格（{choice.rejected or '没说原因'}），可以再点一次换一批，或手动调整"
             self._set_notice(message, "warning")
@@ -105,10 +157,17 @@ class CoverAIMixin:
         ai_copies = tuple(item.as_basic() for item in analysis.copies)
         self._copy_variants = ai_copies + tuple(item for item in self._copy_variants if item not in ai_copies)
         self._copy_variant_index = -1
+        hints = []
         if analysis.highlight is not None:
             highlight = analysis.highlight
-            self.ai_hint.setText(f"爆点：「{highlight.quote}」（{highlight.start:.1f} 秒）{highlight.reason}")
-            self.ai_hint.setToolTip("AI 从字幕里找到的这条视频最有看点的一句")
+            hints.append(f"爆点：「{highlight.quote}」（{highlight.start:.1f} 秒）{highlight.reason}")
+        if moved is not None:
+            # 方案用的是 AI 在爆点前后挑的表情帧；套用时底图跟着换，Ctrl+Z 可回到原来的帧。
+            timestamp, expression = moved
+            hints.append(f"方案换用了 {timestamp:.1f} 秒的画面" + (f"（{expression}）" if expression else ""))
+        if hints:
+            self.ai_hint.setText("\n".join(hints))
+            self.ai_hint.setToolTip("AI 从字幕里找到的爆点，以及在爆点前后挑的表情更有戏的画面")
             self.ai_hint.setVisible(True)
         self._set_notice("")
         self.status_changed.emit("AI 方案已生成：点缩略图套用（Ctrl+Z 可撤销）；“换一版”也会轮换 AI 写的文案")
@@ -195,7 +254,7 @@ class CoverAIMixin:
             if fix.action in ("move_bottom", "move_top"):
                 # 只重排字，AI 或用户调好的取景不动。
                 self.document = self.service.apply_auto_layout(
-                    self.document, self.draft.image_path, mode="stack",
+                    self.document, self.draft.image_path, mode="lead",
                     position="bottom" if fix.action == "move_bottom" else "top", reframe=False,
                 )
             elif fix.action in ("zoom_in", "zoom_out"):
@@ -205,6 +264,16 @@ class CoverAIMixin:
                     factor = _FIX_ZOOM if fix.action == "zoom_in" else 1 / _FIX_ZOOM
                     scale = clamp_background_scale(max(1.0, current.scale * factor))
                     self.document = set_profile_override(self.document, key, replace(current, scale=scale))
+            elif fix.action == "emphasize":
+                # 强调词落到含有它的 A/B 上，和已有的强调词合并。
+                for object_id in self._primary_copy_ids().values():
+                    current = object_for_profile(self.document, object_id, key)
+                    words = tuple(word for word in fix.words if isinstance(current, TextObject) and word in current.text)
+                    if words:
+                        self.document = update_text_object(
+                            self.document, replace(current, emphasis=emphasis_words((*current.emphasis, *words))),
+                            profile_key=key,
+                        )
             elif fix.action in ("bigger", "smaller_context"):
                 role, factor = ("B", _FIX_GROW) if fix.action == "bigger" else ("A", _FIX_SHRINK)
                 object_id = self._primary_copy_ids().get(role)

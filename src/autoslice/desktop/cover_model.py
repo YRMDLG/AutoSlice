@@ -65,6 +65,21 @@ def _color(value: Any) -> str:
     return ""
 
 
+def emphasis_words(value: Any) -> tuple[str, ...]:
+    """强调词：去空白、去重，最多 4 个、每个最多 12 字；也接受空格或逗号分隔的字符串。"""
+
+    if isinstance(value, str):
+        value = value.replace("，", " ").replace(",", " ").split()
+    if not isinstance(value, (list, tuple)):
+        return ()
+    words: list[str] = []
+    for item in value:
+        word = str(item).strip()[:12] if isinstance(item, str) else ""
+        if word and word not in words:
+            words.append(word)
+    return tuple(words[:4])
+
+
 @dataclass(frozen=True)
 class Transform:
     """与画布无关的通用对象变换。x/y 使用归一化画布坐标。"""
@@ -211,6 +226,8 @@ class TextStyle:
     outer_stroke: str = ""
     outer_stroke_width: int = 0
     backdrop: str = ""
+    # 强调词颜色；空字符串表示按填充和描边自动挑一个对比色。
+    accent: str = ""
 
     @property
     def fill_color(self) -> str:
@@ -240,6 +257,7 @@ class TextStyle:
             "outer_stroke": self.outer_stroke,
             "outer_stroke_width": self.outer_stroke_width,
             "backdrop": self.backdrop,
+            "accent": self.accent,
         }
 
     @classmethod
@@ -263,6 +281,7 @@ class TextStyle:
             outer_stroke=_color(payload.get("outer_stroke")),
             outer_stroke_width=min(48, max(0, _integer(payload.get("outer_stroke_width"), 0))),
             backdrop=_color(payload.get("backdrop")),
+            accent=_color(payload.get("accent")),
         )
 
 
@@ -335,11 +354,14 @@ class TextObject(RenderObject):
     wrap: TextWrap = field(default_factory=TextWrap)
     align: str = "left"
     style: TextStyle = field(default_factory=TextStyle)
+    # 要换强调色的词（文案里的原样片段）；和文案一样两个比例共享。
+    emphasis: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, object]:
         value = self._base_payload()
         value.update({
             "text": self.text,
+            "emphasis": list(self.emphasis),
             "copy_role": self.copy_role if self.copy_role in {"A", "B"} else "B",
             "rect": self.rect.to_payload(),
             "wrap": self.wrap.to_payload(),
@@ -367,6 +389,7 @@ class TextObject(RenderObject):
             wrap=TextWrap.from_payload(payload.get("wrap")),
             align=align,
             style=TextStyle.from_payload(payload.get("style")),
+            emphasis=emphasis_words(payload.get("emphasis")),
         )
 
 
@@ -714,6 +737,7 @@ SHARED_TEXT_STYLE_FIELDS = (
     "outer_stroke",
     "outer_stroke_width",
     "backdrop",
+    "accent",
 )
 
 
@@ -765,7 +789,7 @@ def update_text_object(document: CoverDocument, updated: TextObject, *, profile_
     if not isinstance(base, TextObject):
         return document
     shared = {name: getattr(updated.style, name) for name in SHARED_TEXT_STYLE_FIELDS}
-    new_base = replace(base, text=updated.text, style=replace(base.style, **shared))
+    new_base = replace(base, text=updated.text, emphasis=updated.emphasis, style=replace(base.style, **shared))
     profiles: dict[str, LayoutProfile] = {}
     for key, profile in document.profiles.items():
         override = profile.overrides.get(updated.id)

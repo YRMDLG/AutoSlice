@@ -13,17 +13,20 @@ from autoslice_cover.composition import best_crop_focus, region_cost, saliency_m
 from autoslice_cover.document_layout import Box, background_box, clamp_background_scale
 from autoslice_cover.document_render import compose_document
 
-from .cover_ai import AICopy, AISchemeIdea
+from .cover_ai import AICopy, AIFrameNotes, AISchemeIdea, Frac
 from .cover_copy import BasicCoverCopy
 from .cover_draft import CoverDraft
+from .cover_framing import subject_crop, text_hit
 from .cover_layout import (
     canvas_size,
     document_layers,
     fitted_font_size,
+    image_size,
     overlay_geometry,
     text_layout,
 )
 from .cover_model import (
+    AssetRef,
     BackgroundObject,
     CoverDocument,
     ImageObject,
@@ -103,23 +106,25 @@ _SCHEME_PRESETS = ("duo", "yellow-red", "yellow-purple", "white", "classic")
 
 # AI 候选的排法和位置；前一轮用原画面，后一轮放大到人物、裁掉两侧杂物。
 _CANDIDATE_ARRANGEMENTS = (
-    ("split", ""), ("stack", "bottom"), ("headline", "bottom"), ("slot", "left"),
-    ("stack", "top"), ("slot", "right"), ("headline", "top"),
+    ("split", ""), ("lead", "bottom"), ("headline", "bottom"), ("slot", "left"),
+    ("lead", "top"), ("slot", "right"), ("headline", "top"),
 )
 # 每种排法会用到画面的哪些区域（上下分置的 A 在上缘、B 在下缘；侧边槽位在画面中上部，也算上缘）。
 _ARRANGEMENT_REGIONS = {
     ("split", ""): frozenset({"top", "bottom"}),
-    ("stack", "bottom"): frozenset({"bottom"}),
+    ("lead", "bottom"): frozenset({"bottom"}),
     ("headline", "bottom"): frozenset({"bottom"}),
     ("slot", "left"): frozenset({"left", "top"}),
-    ("stack", "top"): frozenset({"top"}),
+    ("lead", "top"): frozenset({"top"}),
     ("slot", "right"): frozenset({"right", "top"}),
     ("headline", "top"): frozenset({"top"}),
 }
 _CANDIDATE_ZOOM = 1.35
-# 按人物框取景时人物占画面高度的比例：其余留给字（只放一侧 / 上下都放）。
-_VIEW_SUBJECT_SHARE = 0.62
-_VIEW_SUBJECT_SHARE_SPLIT = 0.55
+# 候选成品的字被界面或脸盖住的比例不超过这个算合格；合格的不够这么多张时放宽，按压得少的补齐。
+_TEXT_HIT_OK = 0.06
+_MIN_CANDIDATES = 4
+# 字放上方比放下方多算的代价：差不多干净时优先放下方（切片封面最常见）。
+_TOP_ZONE_BIAS = 0.05
 # 拉近时画面上下方向的锚点：原取景高度的这个位置留在画面中线。
 _ZOOM_ANCHOR_Y = 0.42
 
@@ -270,51 +275,30 @@ class CoverLayoutService:
         return axis(center[0], canvas[0], drawn.width), axis(center[1], canvas[1], drawn.height)
 
     @classmethod
-    def _view_framing(
-        cls, source_size: tuple[int, int], canvas: tuple[int, int], view: tuple[float, float, float, float],
-        zone: str = "",
-    ) -> tuple[float, float, float]:
-        """人物框换算成底图放大倍数和 focus，并给字留位置。
+    def _crop_framing(cls, source_size: tuple[int, int], canvas: tuple[int, int], crop: Frac) -> tuple[float, float, float]:
+        """画布比例的裁切框（源图比例坐标）换算成底图放大倍数和 focus。"""
 
-        人物框只占画面高度的约六成：字放下方（zone="bottom"）时人物靠上、下方留出字带；放上方时
-        反过来；上下都要放字（上下分置）时人物居中、上下各留一条。人物框宽度不超过画面九成。
-        """
-
-        x0, y0, x1, y1 = view
-        box_width = max(1.0, (x1 - x0) * source_size[0])
-        box_height = max(1.0, (y1 - y0) * source_size[1])
-        aspect = canvas[0] / max(1, canvas[1])
-        share = _VIEW_SUBJECT_SHARE if zone in ("top", "bottom") else _VIEW_SUBJECT_SHARE_SPLIT
-        width = max(box_width / 0.9, box_height / share * aspect)
+        x0, y0, x1, y1 = crop
         base = max(canvas[0] / max(1, source_size[0]), canvas[1] / max(1, source_size[1]))
-        scale = clamp_background_scale(max(1.0, canvas[0] / (base * width)))
-        # 实际显示的窗口（源图像素）：放大倍数被夹住时以实际为准。
-        shown_height = canvas[1] / (base * scale)
-        margin = shown_height * 0.03
-        center_x = (x0 + x1) / 2 * source_size[0]
-        if zone == "bottom":
-            center_y = y0 * source_size[1] - margin + shown_height / 2
-        elif zone == "top":
-            center_y = y1 * source_size[1] + margin - shown_height / 2
-        else:
-            center_y = (y0 + y1) / 2 * source_size[1]
-        center = (center_x / max(1, source_size[0]), center_y / max(1, source_size[1]))
-        focus_x, focus_y = cls._centered_focus(source_size, canvas, scale, center)
+        scale = clamp_background_scale(canvas[0] / (base * max(1.0, (x1 - x0) * source_size[0])))
+        focus_x, focus_y = cls._centered_focus(source_size, canvas, scale, ((x0 + x1) / 2, (y0 + y1) / 2))
         return scale, focus_x, focus_y
 
     def apply_auto_layout(
         self, document: CoverDocument, image_path: str | Path, *, mode: str = "auto", position: str = "",
-        zoom: float = 1.0, view: tuple[float, float, float, float] | None = None, reframe: bool = True,
+        zoom: float = 1.0, notes: AIFrameNotes | None = None, framing: str = "", reframe: bool = True,
     ) -> CoverDocument:
         """新底图的默认构图：两个比例分别保住主体、给 A/B 找空区。
 
         mode="split" 强制上下分置（A 上缘、B 下缘；只有 B 时占代价更低的一条宽带），
-        mode="stack" 大标题在上、A 作小字紧跟其下，整组放在更空的上缘或下缘，
+        mode="stack" 大标题在上、A 作小字紧跟其下，整组放在更空的上缘或下缘；
+        mode="lead" 同样叠在一起，但 A 作小字引子在上、大标题在下（AI 文案 A 是交代、B 是结果，按读的顺序排），
         mode="slot" 强制放进最空的单侧槽位。
         只排 A/B 主文案；用户新建或复制的文本框不动。
         position 指定文字放在哪（top/bottom/left/right），给了就按它放。
         zoom > 1 时把画面放大到主体，裁掉两侧的弹幕栏和直播界面。
-        view 是看图模型给的取景框（源图比例坐标），给了就按框裁切，优先于 zoom。
+        notes 是看图标出的脸和界面框，framing（loose 带上半身 / tight 特写）给了就按脸裁切，字带避开界面，
+        优先于 zoom。
         reframe=False 时只重排 A/B，底图取景保持现状（用户或 AI 调好的放大、平移不动）。
         """
 
@@ -325,7 +309,7 @@ class CoverLayoutService:
         has_context = any(item.copy_role == "A" and item.visible and item.text.strip() for item in texts)
         profiles = dict(document.profiles)
         source_size = None
-        if view is not None or zoom > 1.0 and saliency is not None:
+        if notes is not None and framing or zoom > 1.0 and saliency is not None:
             try:
                 with Image.open(image_path) as source:
                     source_size = source.size
@@ -347,10 +331,13 @@ class CoverLayoutService:
                 if saliency is not None and current.fit_mode == "cover":
                     focus_x, focus_y = best_crop_focus(saliency, profile.width / max(1, profile.height))
                 scale = current.scale if saliency is None else 1.0
-                if view is not None and source_size is not None and current.fit_mode == "cover":
+                found = None
+                if framing and notes is not None and source_size is not None and current.fit_mode == "cover":
                     # 字放哪侧：上下分置（有 A）两侧都要；只有一块字时按指定位置。
                     zone = "" if mode == "split" and has_context else position
-                    scale, focus_x, focus_y = self._view_framing(source_size, (profile.width, profile.height), view, zone)
+                    found = subject_crop(source_size, (profile.width, profile.height), notes, zone, framing)
+                if found is not None:
+                    scale, focus_x, focus_y = self._crop_framing(source_size, (profile.width, profile.height), found[0])
                 elif source_size is not None and zoom > 1.0 and current.fit_mode == "cover":
                     # 在原取景上拉近：以原画面中心为准、略偏上（脸通常在上半部），不去猜人物在哪——
                     # 弹幕栏里的头像会把肤色重心拉偏。
@@ -408,7 +395,7 @@ class CoverLayoutService:
                 (text, current if isinstance(current := object_for_profile(document, text.id, key), TextObject) else text)
                 for text in texts
             ]
-            if mode == "stack":
+            if mode in ("stack", "lead"):
                 # 大标题 + 小字（参考账号“晚安小音音 + 一行小字”式封面），整组放在更空的一缘。
                 at_top = position == "top" if position in ("top", "bottom") else bands is None or bands[0] <= bands[1]
                 cursor = _SPLIT_TOP
@@ -427,6 +414,13 @@ class CoverLayoutService:
                         head_size = updated.style.font_size
                     placed.append((text, updated))
                     cursor += text_height(updated) + 0.015
+                if mode == "lead" and len(placed) > 1:
+                    # 字号先按“B 定、A 跟”算好，再按 A、B 的顺序从上往下重新叠。
+                    placed.reverse()
+                    cursor = _SPLIT_TOP
+                    for position_index, (text, updated) in enumerate(placed):
+                        placed[position_index] = (text, replace(updated, transform=replace(updated.transform, y=cursor)))
+                        cursor += text_height(updated) + 0.015
                 shift = 0.0 if at_top else (1.0 - _SPLIT_TOP) - (cursor - 0.015)
                 for text, updated in placed:
                     moved = replace(updated, transform=replace(updated.transform, y=updated.transform.y + shift))
@@ -549,7 +543,7 @@ class CoverLayoutService:
                 size = (_SCHEME_FONT_BIG if big else _SCHEME_FONT_B) if item.copy_role == "B" else _SCHEME_FONT_A
                 item = replace(
                     item, text=value, visible=bool(value), style=resize_text_style(style, size),
-                    transform=replace(item.transform, rotation=0.0, scale=1.0),
+                    transform=replace(item.transform, rotation=0.0, scale=1.0), emphasis=copy.emphasis_in(value),
                 )
             objects.append(item)
         profiles = {
@@ -621,7 +615,8 @@ class CoverLayoutService:
         )
 
     def schemes_from_ideas(
-        self, document: CoverDocument, image_path: str | Path, ideas: tuple[AISchemeIdea, ...],
+        self, document: CoverDocument, image_path: str | Path, ideas: tuple[AISchemeIdea, ...], *,
+        notes: AIFrameNotes | None = None,
     ) -> tuple[CoverScheme, ...]:
         """AI 选的“文案 + 排法 + 配色”交给本地排版引擎，生成可编辑的方案。"""
 
@@ -635,63 +630,89 @@ class CoverLayoutService:
             mode = "split" if big else idea.layout
             built = self.apply_auto_layout(
                 self._seed_copy(document, copy, presets[idea.preset], big=big), image_path, mode=mode, position=idea.place,
-                zoom=idea.zoom, view=idea.view,
+                zoom=idea.zoom, notes=notes, framing=idea.framing,
             )
             schemes.append(CoverScheme(f"ai:{idea.direction}", f"AI·{idea.direction}", idea.reason, built))
         return tuple(schemes)
 
     def ai_candidates(
         self, document: CoverDocument, image_path: str | Path, copies: tuple[AICopy, ...], *, limit: int = 12,
-        busy: frozenset[str] = frozenset(),
-        views: tuple[tuple[float, float, float, float] | None, ...] = (),
-        text_zone: str = "",
+        notes: AIFrameNotes | None = None,
     ) -> tuple[CoverScheme, ...]:
         """给看图模型挑的候选：文案 × 排法和位置 × 取景 × 配色，尽量各不相同。
 
-        views 是看图模型给的取景框（取景、特写），给了就以它们为主：按框裁切，字放在它说干净的
-        上方或下方；原画面只留两张兜底。没有框时退回“原画面 / 拉近”两轮。
-        busy 是画面自带文字或界面所在的区域，原画面的候选跳过这些位置（剩不到两种就不过滤）。
+        看图标出了脸：以按脸取景为主（带上半身 / 特写），字放在字带更干净的上方或下方，原画面只留两张兜底；
+        排好后量一量字压没压到界面或脸，压到的不给模型挑（合格的不够四张时按压得少的补齐）。
+        没标出脸时退回“原画面 / 拉近”两轮，跳过界面所在的那几侧（剩不到两种就不过滤）。
         """
 
         if not copies:
             return ()
+        busy = notes.busy if notes is not None else frozenset()
         arrangements = tuple(
             item for item in _CANDIDATE_ARRANGEMENTS if not (_ARRANGEMENT_REGIONS[item] & busy)
         )
         if len(arrangements) < 2:
             arrangements = _CANDIDATE_ARRANGEMENTS
-        framed = [view for view in views if view is not None]
-        if framed:
-            zone = text_zone if text_zone in ("top", "bottom") else "bottom"
+        source_size = image_size(str(image_path)) if notes is not None and notes.face is not None else None
+        if source_size is not None:
+            zone = min(("bottom", "top"), key=lambda side: self._zone_cost(source_size, notes, side))
             plans = [
-                (arrangement, 1.0, view)
-                for view in framed
-                for arrangement in (("stack", zone), ("headline", zone), ("split", zone))
-            ] + [(arrangement, 1.0, None) for arrangement in arrangements[:2]]
+                (arrangement, 1.0, framing)
+                for framing in ("loose", "tight")
+                for arrangement in (("lead", zone), ("headline", zone), ("split", zone))
+            ] + [(arrangement, 1.0, "") for arrangement in arrangements[:2]]
         else:
-            plans = [(arrangement, 1.0, None) for arrangement in arrangements] + [
-                (arrangement, _CANDIDATE_ZOOM, None) for arrangement in arrangements
+            plans = [(arrangement, 1.0, "") for arrangement in arrangements] + [
+                (arrangement, _CANDIDATE_ZOOM, "") for arrangement in arrangements
             ]
         ideas = []
         for index in range(limit):
             # 同一种排法每轮出现时换文案、换配色，避免和上一轮重复。
             plan, round_index = index % len(plans), index // len(plans)
-            (layout, position), zoom, view = plans[plan]
+            (layout, position), zoom, framing = plans[plan]
             ideas.append(AISchemeIdea(
                 direction="", copy=copies[(plan + round_index) % len(copies)], layout=layout,
                 preset=_SCHEME_PRESETS[(plan + 2 * round_index) % len(_SCHEME_PRESETS)], reason="", place=position,
-                zoom=zoom, view=view,
+                zoom=zoom, framing=framing,
             ))
         candidates: list[CoverScheme] = []
-        for scheme in self.schemes_from_ideas(document, image_path, tuple(ideas)):
+        for scheme in self.schemes_from_ideas(document, image_path, tuple(ideas), notes=notes):
             if all(item.document != scheme.document for item in candidates):
-                number = len(candidates) + 1
-                candidates.append(replace(scheme, key=f"candidate-{number}", label=str(number)))
-        return tuple(candidates)
+                candidates.append(scheme)
+        if source_size is not None and candidates:
+            hits = [text_hit(item.document, source_size, notes) for item in candidates]
+            allowed = max(_TEXT_HIT_OK, sorted(hits)[min(len(hits), _MIN_CANDIDATES) - 1])
+            candidates = [item for item, hit in zip(candidates, hits) if hit <= allowed]
+        return tuple(
+            replace(item, key=f"candidate-{number}", label=str(number)) for number, item in enumerate(candidates, 1)
+        )
+
+    @staticmethod
+    def _zone_cost(source_size: tuple[int, int], notes: AIFrameNotes, zone: str) -> float:
+        """字放这一侧时，按脸宽松取景的代价（字带压界面、压脸越多越大）；放不下脸就是无穷大。"""
+
+        found = subject_crop(source_size, canvas_size("4x3"), notes, zone, "loose")
+        return (found[1] if found is not None else float("inf")) + (_TOP_ZONE_BIAS if zone == "top" else 0.0)
+
+    @staticmethod
+    def with_frame(document: CoverDocument, path: str | Path, timestamp: float) -> CoverDocument:
+        """把底图换成视频里另一帧（AI 选的表情帧）；排版不动，交给后续自动排版。"""
+
+        objects = tuple(
+            replace(item, asset=replace(item.asset, path=str(path)) if item.asset else AssetRef(path=str(path)))
+            if isinstance(item, BackgroundObject) else item
+            for item in document.objects
+        )
+        source = replace(document.source, selected_timestamp=float(timestamp), image_asset_id=str(path))
+        return replace(document, objects=objects, source=source)
 
     @staticmethod
     def apply_scheme(document: CoverDocument, scheme: CoverScheme) -> CoverDocument:
-        """套用方案：只替换 A/B 主文案和底图取景；用户加的素材和文本框保持不动。"""
+        """套用方案：只替换 A/B 主文案和底图取景；用户加的素材和文本框保持不动。
+
+        方案换了底图帧（AI 选的表情帧）时一起换上；用户锁了帧就只用取景、不换帧。
+        """
 
         source = scheme.document
         locked = {item.id for item in document.objects if item.locked}
@@ -711,7 +732,15 @@ class CoverLayoutService:
             if theirs is not None:
                 overrides.update({k: v for k, v in theirs.overrides.items() if k in keys})
             profiles[key] = replace(profile, overrides=overrides)
-        return replace(document, objects=objects, profiles=profiles)
+        result = replace(document, objects=objects, profiles=profiles)
+        theirs = next((item for item in source.objects if isinstance(item, BackgroundObject)), None)
+        mine = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
+        if (
+            theirs is not None and mine is not None and theirs.asset is not None and theirs.asset != mine.asset
+            and not document.source.frame_locked
+        ):
+            result = CoverLayoutService.with_frame(result, theirs.asset.path, source.source.selected_timestamp)
+        return result
 
     @staticmethod
     def scheme_thumbnail(document: CoverDocument, *, canvas_key: str = "4x3", width: int = 240) -> bytes:

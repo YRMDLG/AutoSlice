@@ -56,17 +56,18 @@ class _ColorButton(QPushButton):
 
     color_changed = Signal()
 
-    def __init__(self, *, allow_none: bool = False, allow_alpha: bool = False, parent=None):
+    def __init__(self, *, allow_none: bool = False, allow_alpha: bool = False, none_label: str = "无", parent=None):
         super().__init__(parent)
         self._color = ""
         self._allow_none = allow_none
         self._allow_alpha = allow_alpha
+        self._none_label = none_label
         self.setFixedHeight(26)
         self.setIconSize(QSize(14, 14))
         if allow_none:
             menu = QMenu(self)
             menu.addAction("选择颜色…", self._pick)
-            menu.addAction("无", lambda: self._choose(""))
+            menu.addAction(none_label, lambda: self._choose(""))
             self.setMenu(menu)
         else:
             self.clicked.connect(self._pick)
@@ -95,7 +96,7 @@ class _ColorButton(QPushButton):
         self._choose(value)
 
     def _refresh(self) -> None:
-        self.setText(self._color or "无")
+        self.setText(self._color or self._none_label)
         pixmap = QPixmap(14, 14)
         pixmap.fill(QColor(*rgba(self._color)) if self._color else QColor(0, 0, 0, 0))
         if not self._color:

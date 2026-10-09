@@ -92,6 +92,11 @@ class CoverSchemesMixin:
             self._commit_document_change(before)
             self.canvas.set_document(self.document, self._canvas_key)
             self._sync_selected_text_controls()
+            if self.document.source.selected_timestamp != before.source.selected_timestamp:
+                # AI 方案换了帧：附近帧缩略条跟到新时刻。
+                timestamp = self.document.source.selected_timestamp
+                self._update_nearby_frame_selection(timestamp)
+                self._refresh_nearby_frame_strip(timestamp)
         self._applied_scheme, self._edits_after_scheme = scheme.key, 0
         self.status_changed.emit(f"已套用方案：{scheme.label}（Ctrl+Z 可撤销）")
 
@@ -126,7 +131,8 @@ class CoverSchemesMixin:
             current = object_for_profile(self.document, item.id, self._canvas_key)
             current = current if isinstance(current, TextObject) else item
             self.document = update_text_object(
-                self.document, replace(current, text=value), profile_key=self._canvas_key,
+                self.document, replace(current, text=value, emphasis=candidate.emphasis_in(value)),
+                profile_key=self._canvas_key,
             )
             self.document = set_object_visible(self.document, item.id, bool(value.strip()))
         if self.document != before:

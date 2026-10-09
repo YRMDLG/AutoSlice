@@ -19,6 +19,7 @@ from .cover_autolayout import primary_copy_ids
 from .cover_draft import CoverDraft
 from .cover_model import (
     TextObject,
+    emphasis_words,
     object_for_profile,
     set_object_visible,
     set_profile_override,
@@ -48,10 +49,12 @@ class CoverTextMixin:
             return
         self.title_edit.blockSignals(True)
         self.font_spin.blockSignals(True)
-        for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check):
+        for widget in self._text_style_widgets():
             widget.blockSignals(True)
         try:
             self.title_edit.setPlainText(text.text)
+            self.emphasis_edit.setText(" ".join(text.emphasis))
+            self.accent_button.set_color(text.style.accent)
             font_resolution = resolve_font_selection(text.style.font_family)
             selected_font_path = Path(text.style.font_family) if text.style.font_family else None
             self.font_path_edit.setText(
@@ -82,8 +85,25 @@ class CoverTextMixin:
         finally:
             self.title_edit.blockSignals(False)
             self.font_spin.blockSignals(False)
-            for widget in (self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check):
+            for widget in self._text_style_widgets():
                 widget.blockSignals(False)
+
+    def _text_style_widgets(self) -> tuple:
+        return (
+            self.font_path_edit, self.stroke_spin, self.outer_stroke_spin, self.line_spacing_spin, self.shadow_check,
+            self.emphasis_edit, self.accent_button,
+        )
+
+    def _emphasize_selection(self):
+        """文案框里选中的字加入强调词；已经是强调词就取消。"""
+
+        picked = self.title_edit.textCursor().selectedText().replace(" ", "").strip()
+        if not picked:
+            self.status_changed.emit("先在文案框里选中要强调的几个字")
+            return
+        words = list(emphasis_words(self.emphasis_edit.text()))
+        words = [word for word in words if word != picked] if picked in words else [*words, picked]
+        self.emphasis_edit.setText(" ".join(emphasis_words(words)))
 
     def _select_copy_role(self, role: str):
         if self.document is None or role not in {"A", "B"}:
@@ -210,6 +230,7 @@ class CoverTextMixin:
             current,
             text=typed_text,
             visible=bool(typed_text),
+            emphasis=emphasis_words(self.emphasis_edit.text()),
             style=replace(
                 current.style,
                 font_family=(
@@ -227,6 +248,7 @@ class CoverTextMixin:
                 outer_stroke=self.outer_stroke_button.color(),
                 outer_stroke_width=self.outer_stroke_spin.value(),
                 backdrop=self.backdrop_button.color(),
+                accent=self.accent_button.color(),
             ),
         )
         # 文案与样式写回对象本体并同步另一比例，位置和字号只写当前比例。

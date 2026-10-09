@@ -153,6 +153,7 @@ class CoverStoreService:
             backdrop=style.backdrop,
             context_fill=context_style.fill_color if context_style and context_style.fill_color != style.fill_color else "",
             context_stroke=context_style.stroke_color if context_style and context_style.stroke_color != style.stroke_color else "",
+            accent=style.accent,
         )
         self.style_memory.save(memory, streamer=streamer_key(project.title))
 

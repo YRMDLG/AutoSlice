@@ -234,8 +234,11 @@ class CanvasPaintMixin:
             )
         return font
 
-    def _glyph_path(self, layout: TextLayout) -> tuple[QPainterPath, tuple, tuple]:
-        """相对文字区域左上角构建字形路径；拖动只平移，路径可复用。"""
+    def _glyph_path(self, layout: TextLayout) -> tuple[QPainterPath, tuple, tuple, QPainterPath]:
+        """相对文字区域左上角构建字形路径；拖动只平移，路径可复用。
+
+        返回 (全部字形, 表情, 缓存键, 强调词字形)：描边和阴影用全部字形，强调词另填强调色。
+        """
 
         key = (
             layout.font_size,
@@ -247,8 +250,8 @@ class CanvasPaintMixin:
         )
         cached = self._glyph_path_cache.get(key)
         if cached is not None:
-            return cached[0], cached[1], key
-        path = QPainterPath()
+            return cached[0], cached[1], key, cached[2]
+        path, accent = QPainterPath(), QPainterPath()
         emoji = []
         for line in layout.lines:
             for run in line.runs:
@@ -257,11 +260,14 @@ class CanvasPaintMixin:
                 if run.emoji:
                     emoji.append((x, y, run.text, run.font_path))
                     continue
-                path.addText(QPointF(x, y), self._qt_font(run.font_path, layout.font_size, layout.font_weight), run.text)
+                font = self._qt_font(run.font_path, layout.font_size, layout.font_weight)
+                path.addText(QPointF(x, y), font, run.text)
+                if run.accent:
+                    accent.addText(QPointF(x, y), font, run.text)
         if len(self._glyph_path_cache) > 64:
             self._glyph_path_cache.clear()
-        self._glyph_path_cache[key] = (path, tuple(emoji))
-        return path, tuple(emoji), key
+        self._glyph_path_cache[key] = (path, tuple(emoji), accent)
+        return path, tuple(emoji), key, accent
 
     def _fill_shadow(self, painter: QPainter, path: QPainterPath, radius: float, offset: float):
         """半透明阴影 = 描边 ∪ 字形，整体按 SHADOW_ALPHA 合成，重叠处不加深。
@@ -312,7 +318,7 @@ class CanvasPaintMixin:
         primary = next((run.font_path for line in layout.lines for run in line.runs if not run.emoji), None)
         self._last_qt_font_family = self._qt_family(primary)
         self._last_qt_font_id = self._font_id_cache.get(primary or "", -1)
-        path, emoji, key = self._glyph_path(layout)
+        path, emoji, key, accent = self._glyph_path(layout)
         area = layout.area
         stroke = max(0, int(paint.stroke_width))
         outer = max(0, int(paint.outer_stroke_width)) if paint.outer_stroke else 0
@@ -332,6 +338,8 @@ class CanvasPaintMixin:
         if stroke:
             painter.strokePath(path, self._round_pen(_qcolor(paint.stroke, "#111111"), stroke))
         painter.fillPath(path, _qcolor(paint.fill, "#FFE438"))
+        if paint.accent and not accent.isEmpty():
+            painter.fillPath(accent, _qcolor(paint.accent))
         for x, y, value, font_path in emoji:
             painter.setFont(self._qt_font(font_path, layout.font_size, layout.font_weight))
             painter.setPen(QColor(0, 0, 0))
