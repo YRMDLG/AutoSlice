@@ -22,7 +22,6 @@ from autoslice.desktop.cover_ai import (
     contact_sheet,
     from_source,
     jpeg_bytes,
-    same_layout,
 )
 from autoslice.desktop.cover_model import AssetRef, BackgroundObject, TextObject, object_for_profile
 from autoslice.desktop.foundation import DesktopStorage
@@ -79,11 +78,14 @@ def _analysis_reply(**extra):
         "highlight": {"quote": "这个位置竞演可以场外干涉", "start": 12.5, "end": 15, "reason": "反差"},
         "title_emphasis": ["改变选曲", "标题里没有的词"],
         "copies": [
-            {"context": "选秀", "headline": "居然会改变选曲", "style": "讲事", "clarity": 5, "reason": "反转",
+            {"context": "选秀", "headline": "居然会改变选曲", "style": "标题", "clarity": 5, "reason": "反转",
              # 原文里有的片段才算；整句都标等于没标；超长的不要。
              "emphasis": ["改变选曲", "全网", "居然会改变选曲", "居然会改变选曲选曲"]},
             {"context": "", "headline": "竞演可以场外干涉", "style": "原话", "clarity": 4, "reason": "结果",
              "emphasis": "场外干涉"},
+            # 去掉标点等于整句：不算强调。
+            {"context": "", "headline": "场外干涉？！", "style": "原话", "clarity": 4, "reason": "短",
+             "emphasis": ["场外干涉"]},
             # 原文没有“震惊”“全网”：编造，必须丢掉。
             {"context": "震惊", "headline": "全网都在看", "angle": "悬念", "clarity": 5, "reason": "营销"},
             # 模型自己都觉得看不懂的碎片，也丢掉。
@@ -124,9 +126,9 @@ class CoverAIServiceTests(unittest.TestCase):
         analysis = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).analyze(
             TITLE, CUES, title_copy=BasicCoverCopy("选秀带手机", "居然会改变选曲⁉"),
         )
-        self.assertEqual([item.headline for item in analysis.copies], ["居然会改变选曲", "竞演可以场外干涉"])
-        self.assertEqual([item.angle for item in analysis.copies], ["讲事", "原话"])
-        self.assertEqual([item.emphasis for item in analysis.copies], [("改变选曲",), ("场外干涉",)])
+        self.assertEqual([item.headline for item in analysis.copies], ["居然会改变选曲", "竞演可以场外干涉", "场外干涉？！"])
+        self.assertEqual([item.angle for item in analysis.copies], ["标题", "原话", "原话"])
+        self.assertEqual([item.emphasis for item in analysis.copies], [("改变选曲",), ("场外干涉",), ()])
         self.assertEqual(analysis.title_emphasis, ("改变选曲",))
         self.assertEqual(analysis.copies[0].as_basic().emphasis_in("居然会改变选曲"), ("改变选曲",))
         self.assertEqual((analysis.highlight.start, analysis.highlight.quote), (12.5, "这个位置竞演可以场外干涉"))
@@ -135,7 +137,7 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertIn("[12.5] 这个位置竞演可以场外干涉", prompt)
         # 两种写法都要；标题提炼的那句也让它标强调词。
         self.assertIn("原话", prompt)
-        self.assertIn("讲事", prompt)
+        self.assertIn("标题浓缩", prompt)
         self.assertIn("A「选秀带手机」 B「居然会改变选曲⁉」", prompt)
 
     def test_same_request_is_answered_from_cache(self):
@@ -191,7 +193,7 @@ class CoverAIServiceTests(unittest.TestCase):
         fixes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).suggest_fixes(
             b"cover", texts=("", "交手机"), title=TITLE, source=TITLE, frame=b"frame",
         )
-        self.assertEqual([(fix.action, fix.headline) for fix in fixes], [("move_bottom", ""), ("rewrite", "居然会改变选曲")])
+        self.assertEqual([(fix.actions, fix.headline) for fix in fixes], [(("move_bottom",), ""), (("rewrite",), "居然会改变选曲")])
         self.assertEqual(fixes[1].label, "换成 A「选秀」 B「居然会改变选曲」")
         self.assertEqual(model.calls[0][1], 2)
         self.assertIn("B「交手机」", model.calls[0][2])
@@ -203,11 +205,28 @@ class CoverAIServiceTests(unittest.TestCase):
         fixes = CoverAI(self.storage, llm=FakeModel(reply), settings=lambda: CONFIGURED).suggest_fixes(
             b"cover", texts=("选秀", "交手机"), title=TITLE, source=TITLE,
         )
-        self.assertEqual([(fix.action, fix.words, fix.label) for fix in fixes], [("emphasize", ("手机",), "强调「手机」")])
+        self.assertEqual([(fix.actions, fix.words, fix.label) for fix in fixes], [(("emphasize",), ("手机",), "强调「手机」")])
         empty = json.dumps({"fixes": [{"issue": "没重点", "action": "emphasize", "words": ["选曲"]}]}, ensure_ascii=False)
         self.assertEqual(CoverAI(self.storage, llm=FakeModel(empty), settings=lambda: CONFIGURED).suggest_fixes(
             b"cover2", texts=("选秀", "交手机"), title=TITLE, source=TITLE,
         ), ())
+
+    def test_fix_bundles_drop_invalid_and_opposite_actions(self):
+        reply = json.dumps({"fixes": [
+            {"issue": "更抓眼", "actions": ["bigger", "tilt", "outline", "zoom_in"]},
+            {"issue": "来回", "actions": ["zoom_in", "zoom_out", "restyle"], "preset": "不存在"},
+            {"issue": "换色", "actions": ["restyle", "emphasize"], "preset": "duo", "words": ["没有"]},
+            {"issue": "重复", "actions": ["bigger", "tilt", "outline"]},
+        ]}, ensure_ascii=False)
+        model = FakeModel(reply)
+        fixes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).suggest_fixes(
+            b"cover3", texts=("选秀", "交手机"), title=TITLE, source=TITLE, state="强调词：无；字倾斜：无",
+        )
+        # 最多三个操作；互相抵消的只留前一个；参数不合格的操作去掉；同样的组合只留一条。
+        self.assertEqual([fix.actions for fix in fixes], [("bigger", "tilt", "outline"), ("zoom_in",), ("restyle",)])
+        self.assertEqual(fixes[0].label, "主文案放大 + 字倾斜 + 加外描边")
+        self.assertEqual(fixes[2].label, "换成「黄青」配色")
+        self.assertIn("封面现在：强调词：无；字倾斜：无", model.calls[0][2])
 
     def test_pick_frame_maps_numbers_and_skips_single_frame(self):
         model = FakeModel(json.dumps({"index": 3, "expression": "惊讶张嘴", "reason": "反应最大"}, ensure_ascii=False),
@@ -222,20 +241,6 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertEqual(ai.pick_frame((_thumb("red"), _thumb("white")), title=TITLE).index, 0)
         self.assertEqual(ai.pick_frame((_thumb("black"),)).index, 0)
         self.assertEqual(len(model.calls), 2)
-
-    def test_same_layout_tells_expression_change_from_scene_change(self):
-        base = Image.new("RGB", (320, 240), (40, 60, 90))
-        changed = base.copy()
-        changed.paste((224, 172, 140), (140, 60, 180, 100))
-        other = Image.new("RGB", (320, 240), (230, 230, 230))
-
-        def data(image):
-            buffer = io.BytesIO()
-            image.save(buffer, format="JPEG")
-            return buffer.getvalue()
-
-        self.assertTrue(same_layout(data(base), data(changed)))
-        self.assertFalse(same_layout(data(base), data(other)))
 
     def test_jpeg_bytes_shrinks_long_side(self):
         path = Path(self.temp.name) / "big.png"
@@ -464,18 +469,20 @@ class CoverAIEditorTests(unittest.TestCase):
             return object_for_profile(self.widget.document, item.id, "4x3")
 
         start = self._texts()["B"]
-        self.assertTrue(self.widget._apply_ai_fix(AIFix("字太小", "bigger")))
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("字太小", ("bigger",))))
         self.assertGreater(self._texts()["B"].style.font_size, start.style.font_size)
         scale = background().scale
-        self.assertTrue(self.widget._apply_ai_fix(AIFix("太远", "zoom_in")))
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("太远", ("zoom_in",))))
         self.assertAlmostEqual(background().scale, scale * 1.25, places=3)
         zoomed = background()
-        # 移字只重排文字，刚拉近的取景不动。
-        self.assertTrue(self.widget._apply_ai_fix(AIFix("压脸", "move_top")))
+        # 字本来就在上方：“移到上方”算没改；移到下方只重排文字，刚拉近的取景不动。
         self.assertLess(self._texts()["B"].transform.y, 0.3)
+        self.assertFalse(self.widget._apply_ai_fix(AIFix("压脸", ("move_top",))))
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("压脸", ("move_bottom",))))
+        self.assertGreater(self._texts()["B"].transform.y, 0.5)
         self.assertEqual((background().scale, background().pan_x, background().pan_y),
                          (zoomed.scale, zoomed.pan_x, zoomed.pan_y))
-        self.assertTrue(self.widget._apply_ai_fix(AIFix("文案空", "rewrite", "选秀", "居然会改变选曲")))
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("文案空", ("rewrite",), "选秀", "居然会改变选曲")))
         texts = self._texts()
         self.assertEqual((texts["A"].text, texts["B"].text), ("选秀", "居然会改变选曲"))
         for _ in range(4):
@@ -526,7 +533,9 @@ class CoverAIEditorTests(unittest.TestCase):
 
         start = self._texts()["B"]
         word = start.text[:2]
-        self.assertTrue(self.widget._apply_ai_fix(AIFix("没重点", "emphasize", words=(word, "没有的词"))))
+        self.assertTrue(self.widget._apply_ai_fix(AIFix("没重点", ("emphasize",), words=(word, "没有的词"))))
+        # 已经强调过的再强调一次：什么都不做，也不记撤销。
+        self.assertFalse(self.widget._apply_ai_fix(AIFix("没重点", ("emphasize",), words=(word,))))
         self.assertEqual(self._texts()["B"].emphasis, (word,))
         self.assertEqual(self._texts("16x9")["B"].emphasis, (word,))
         self.widget._undo()

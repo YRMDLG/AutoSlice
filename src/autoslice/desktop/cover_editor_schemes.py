@@ -5,20 +5,12 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from PySide6.QtGui import (
     QIcon,
     QPixmap,
 )
 
-from .cover_autolayout import ensure_context_text
-from .cover_model import (
-    TextObject,
-    object_for_profile,
-    set_object_visible,
-    update_text_object,
-)
+from .cover_autolayout import replace_copy
 from .cover_style import streamer_key
 
 
@@ -121,20 +113,7 @@ class CoverSchemesMixin:
         """只换 A/B 文字：位置、字号和行宽沿用当前排版；原封面只有 B 时先在 B 上方补一个 A 块。"""
 
         before = self.document
-        if candidate.context.strip():
-            self.document = ensure_context_text(self.document)
-        primary = set(self._primary_copy_ids().values())
-        for item in self.document.objects:
-            if not isinstance(item, TextObject) or item.id not in primary:
-                continue
-            value = candidate.context if item.copy_role == "A" else candidate.headline
-            current = object_for_profile(self.document, item.id, self._canvas_key)
-            current = current if isinstance(current, TextObject) else item
-            self.document = update_text_object(
-                self.document, replace(current, text=value, emphasis=candidate.emphasis_in(value)),
-                profile_key=self._canvas_key,
-            )
-            self.document = set_object_visible(self.document, item.id, bool(value.strip()))
+        self.document = replace_copy(self.document, candidate, self._canvas_key)
         if self.document != before:
             self._commit_document_change(before)
 

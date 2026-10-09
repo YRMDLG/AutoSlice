@@ -14,11 +14,19 @@ from .cover_model import BackgroundObject, CoverDocument, TextObject, object_for
 _SPAN = {"loose": 2.8, "tight": 1.7}
 # 取景后脸高占画面高度的目标。
 _FACE_SHARE = {"loose": 0.22, "tight": 0.36}
-# 脸框上方大约还有这么多脸高的头发。
+# 脸框上方大约还有这么多脸高的头发；最多剪到脸框上方这么多（留住刘海，不剪到眉毛）。
 _HAIR = 0.3
+_KEEP_ABOVE_FACE = 0.3
+# 脸高最多占画面高度的这么多：再近就只剩一张大脸，也没地方放字。
+_MAX_FACE_SHARE = 0.5
 # 人物（从头顶算）占画面高度的比例，其余留给字：字只放一侧 / 上下都放。
 SUBJECT_SHARE = 0.62
 SUBJECT_SHARE_SPLIT = 0.55
+# 字放在侧边时人物可以占满高度，只按这个比例留一点余量。
+SUBJECT_SHARE_SIDE = 0.8
+# 侧边字带：画面宽度的一半，高度从上缘稍下到中部偏下（对应排版的侧边槽位）。
+_SIDE_BAND_WIDTH, _SIDE_BAND_TOP, _SIDE_BAND_BOTTOM = 0.5, 0.08, 0.62
+SIDE_ZONES = ("left", "right")
 # 上下分置时上面那条（A，小字）占留白的比例。
 _SPLIT_TOP_PART = 0.4
 _MAX_ZOOM = 3.0
@@ -27,7 +35,7 @@ _TIGHTER = 0.82
 # 从原画面往里拉近的几档（相对能取的最大高度）。
 _ZOOM_STEPS = (1.0, 0.85, 0.72, 0.6, 0.5, 0.42)
 # 代价权重：字带里的界面、画面里的界面、字带压脸、脸偏离中线、脸大小偏离目标、剪掉头发。
-_W_BAND_UI, _W_CROP_UI, _W_BAND_FACE, _W_OFF_CENTER, _W_SIZE, _W_HAIR = 4.0, 1.2, 6.0, 0.4, 1.0, 0.3
+_W_BAND_UI, _W_CROP_UI, _W_BAND_FACE, _W_OFF_CENTER, _W_SIZE, _W_HAIR = 4.0, 1.2, 6.0, 0.4, 1.0, 0.6
 
 
 def area(box: Frac) -> float:
@@ -39,10 +47,14 @@ def overlap(first: Frac, second: Frac) -> float:
 
 
 def text_bands(crop: Frac, zone: str, share: float) -> tuple[Frac, ...]:
-    """裁切框里留给字的带：下方 / 上方 / 上下各一条（上下分置）。"""
+    """裁切框里留给字的带：下方 / 上方 / 左右一侧 / 上下各一条（上下分置）。"""
 
     left, top, right, bottom = crop
     height = bottom - top
+    if zone in SIDE_ZONES:
+        band_width = (right - left) * _SIDE_BAND_WIDTH
+        x0 = left if zone == "left" else right - band_width
+        return ((x0, top + height * _SIDE_BAND_TOP, x0 + band_width, top + height * _SIDE_BAND_BOTTOM),)
     spare = (1 - share) * height
     if zone == "bottom":
         return ((left, bottom - spare, right, bottom),)
@@ -63,7 +75,7 @@ def subject_crop(
 ) -> tuple[Frac, float] | None:
     """在源图上找画布比例的裁切：整张脸在里面、人物在 zone 的另一侧，字带尽量不压界面和脸。
 
-    zone 是字放哪：bottom / top / ""（上下各一条）；framing 是 loose（带上半身）或 tight（特写）。
+    zone 是字放哪：bottom / top / left / right / ""（上下各一条）；framing 是 loose（带上半身）或 tight（特写）。
     返回 (裁切框, 代价)；没标出脸或怎么裁都放不下整张脸时返回 None。
     """
 
@@ -75,12 +87,15 @@ def subject_crop(
     face = _pixels(notes.face, (width, height))
     face_width, face_height = face[2] - face[0], face[3] - face[1]
     ui = tuple(_pixels(item, (width, height)) for item in notes.ui)
-    share = SUBJECT_SHARE if zone in ("top", "bottom") else SUBJECT_SHARE_SPLIT
+    share = SUBJECT_SHARE if zone in ("top", "bottom") else SUBJECT_SHARE_SIDE if zone in SIDE_ZONES else SUBJECT_SHARE_SPLIT
+    side = zone in SIDE_ZONES
+    # 字在侧边时人物要让到另一侧，左右挪得更多，也不再要求脸居中。
+    shifts = (-0.36, -0.28, -0.2, -0.1, 0.0, 0.1, 0.2, 0.28, 0.36) if side else (-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3)
     head_top = face[1] - _HAIR * face_height
     if notes.person is not None and face[1] - face_height <= notes.person[1] * height <= face[1]:
         head_top = notes.person[1] * height
     largest = min(float(height), width / aspect)
-    smallest = max(largest / _MAX_ZOOM, face_height * 1.3)
+    smallest = min(largest, max(largest / _MAX_ZOOM, face_height / _MAX_FACE_SHARE))
     if framing == "tight":
         # 特写至少比宽松取景再近一档；脸很大时两者容易算成同一个框，候选就重复了。
         loose = subject_crop(source_size, canvas, notes, zone, "loose")
@@ -99,14 +114,15 @@ def subject_crop(
     for crop_height in heights:
         crop_width = crop_height * aspect
         spare = (1 - share) * crop_height
-        lead = {"bottom": 0.0, "top": 1.0}.get(zone, _SPLIT_TOP_PART) * spare
-        # 头顶留全，或者剪掉一点头发、让脸往字带的反方向挪，给字腾地方。
+        lead = (0.0 if zone == "bottom" or side else 1.0 if zone == "top" else _SPLIT_TOP_PART) * spare
+        # 头顶留全，或者剪掉一点头发、让脸往字带的反方向挪，给字腾地方；最多剪到刘海。
+        highest = face[1] - _KEEP_ABOVE_FACE * face_height
         tops = {
-            max(0.0, min(height - crop_height, value))
-            for value in (head_top - lead - 0.04 * crop_height, face[1] - lead - 0.12 * face_height, face[1] - lead)
+            max(0.0, min(height - crop_height, min(highest, value)))
+            for value in (head_top - lead - 0.04 * crop_height, (head_top + highest) / 2 - lead, highest - lead)
         }
         for top in tops:
-            for shift in (-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3):
+            for shift in shifts:
                 left = max(0.0, min(width - crop_width, center + shift * crop_width - crop_width / 2))
                 crop = (left, top, left + crop_width, top + crop_height)
                 # 整张脸（左右再留一点）必须在画面里。
@@ -118,7 +134,7 @@ def subject_crop(
                     _W_BAND_UI * sum(overlap(item, band) for item in ui for band in bands) / band_area
                     + _W_CROP_UI * sum(overlap(item, crop) for item in ui) / area(crop)
                     + _W_BAND_FACE * sum(overlap(face, band) for band in bands) / max(1.0, area(face))
-                    + _W_OFF_CENTER * abs(center - (left + crop_width / 2)) / crop_width
+                    + (0.0 if side else _W_OFF_CENTER) * abs(center - (left + crop_width / 2)) / crop_width
                     + _W_SIZE * abs(face_height / crop_height - _FACE_SHARE[framing])
                     + _W_HAIR * max(0.0, top - head_top) / max(1.0, face_height)
                 )

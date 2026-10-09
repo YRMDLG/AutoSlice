@@ -2534,10 +2534,20 @@
     {
       "from": "autoslice.desktop.cover_ai",
       "imports": [
-        "autoslice.desktop.cover_works.CoverWork"
+        "autoslice.desktop.cover_style.STYLE_PRESETS"
       ],
       "lines": [
         27
+      ],
+      "to": "autoslice.desktop.cover_style"
+    },
+    {
+      "from": "autoslice.desktop.cover_ai",
+      "imports": [
+        "autoslice.desktop.cover_works.CoverWork"
+      ],
+      "lines": [
+        28
       ],
       "to": "autoslice.desktop.cover_works"
     },
@@ -2547,7 +2557,7 @@
         "autoslice.desktop.foundation.DesktopStorage"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.desktop.foundation"
     },
@@ -2618,6 +2628,7 @@
     {
       "from": "autoslice.desktop.cover_autolayout",
       "imports": [
+        "autoslice.desktop.cover_framing.SIDE_ZONES",
         "autoslice.desktop.cover_framing.subject_crop",
         "autoslice.desktop.cover_framing.text_hit"
       ],
@@ -2655,8 +2666,10 @@
         "autoslice.desktop.cover_model.object_for_profile",
         "autoslice.desktop.cover_model.object_override_payload",
         "autoslice.desktop.cover_model.resize_text_style",
+        "autoslice.desktop.cover_model.set_object_visible",
         "autoslice.desktop.cover_model.set_profile_override",
-        "autoslice.desktop.cover_model.text_override_payload"
+        "autoslice.desktop.cover_model.text_override_payload",
+        "autoslice.desktop.cover_model.update_text_object"
       ],
       "lines": [
         28
@@ -2670,7 +2683,7 @@
         "autoslice.desktop.cover_style.StylePreset"
       ],
       "lines": [
-        43
+        45
       ],
       "to": "autoslice.desktop.cover_style"
     },
@@ -2682,7 +2695,7 @@
         "autoslice.desktop.cover_works.palette_signature"
       ],
       "lines": [
-        47
+        49
       ],
       "to": "autoslice.desktop.cover_works"
     },
@@ -2965,37 +2978,32 @@
         "autoslice.desktop.cover_ai.AIHighlight",
         "autoslice.desktop.cover_ai.CoverAIError",
         "autoslice.desktop.cover_ai.contact_sheet",
-        "autoslice.desktop.cover_ai.jpeg_bytes",
-        "autoslice.desktop.cover_ai.same_layout"
+        "autoslice.desktop.cover_ai.jpeg_bytes"
       ],
       "lines": [
-        16
+        15
       ],
       "to": "autoslice.desktop.cover_ai"
     },
     {
       "from": "autoslice.desktop.cover_editor_ai",
       "imports": [
-        "autoslice.desktop.cover_copy.BasicCoverCopy"
+        "autoslice.desktop.cover_fixes.apply_fix",
+        "autoslice.desktop.cover_fixes.describe_state"
       ],
       "lines": [
-        25
+        23
       ],
-      "to": "autoslice.desktop.cover_copy"
+      "to": "autoslice.desktop.cover_fixes"
     },
     {
       "from": "autoslice.desktop.cover_editor_ai",
       "imports": [
-        "autoslice.desktop.cover_model.BackgroundObject",
         "autoslice.desktop.cover_model.TextObject",
-        "autoslice.desktop.cover_model.emphasis_words",
-        "autoslice.desktop.cover_model.object_for_profile",
-        "autoslice.desktop.cover_model.resize_text_style",
-        "autoslice.desktop.cover_model.set_profile_override",
-        "autoslice.desktop.cover_model.update_text_object"
+        "autoslice.desktop.cover_model.object_for_profile"
       ],
       "lines": [
-        26
+        24
       ],
       "to": "autoslice.desktop.cover_model"
     },
@@ -3005,19 +3013,9 @@
         "autoslice.desktop.cover_style.streamer_key"
       ],
       "lines": [
-        35
+        25
       ],
       "to": "autoslice.desktop.cover_style"
-    },
-    {
-      "from": "autoslice.desktop.cover_editor_ai",
-      "imports": [
-        "autoslice_cover.document_layout.clamp_background_scale"
-      ],
-      "lines": [
-        14
-      ],
-      "to": "autoslice_cover.document_layout"
     },
     {
       "from": "autoslice.desktop.cover_editor_export",
@@ -3147,25 +3145,12 @@
     {
       "from": "autoslice.desktop.cover_editor_schemes",
       "imports": [
-        "autoslice.desktop.cover_autolayout.ensure_context_text"
+        "autoslice.desktop.cover_autolayout.replace_copy"
       ],
       "lines": [
-        15
+        13
       ],
       "to": "autoslice.desktop.cover_autolayout"
-    },
-    {
-      "from": "autoslice.desktop.cover_editor_schemes",
-      "imports": [
-        "autoslice.desktop.cover_model.TextObject",
-        "autoslice.desktop.cover_model.object_for_profile",
-        "autoslice.desktop.cover_model.set_object_visible",
-        "autoslice.desktop.cover_model.update_text_object"
-      ],
-      "lines": [
-        16
-      ],
-      "to": "autoslice.desktop.cover_model"
     },
     {
       "from": "autoslice.desktop.cover_editor_schemes",
@@ -3173,7 +3158,7 @@
         "autoslice.desktop.cover_style.streamer_key"
       ],
       "lines": [
-        22
+        14
       ],
       "to": "autoslice.desktop.cover_style"
     },
@@ -3371,6 +3356,87 @@
         13
       ],
       "to": "autoslice_cover.renderer"
+    },
+    {
+      "from": "autoslice.desktop.cover_fixes",
+      "imports": [
+        "autoslice.desktop.cover_ai.AIFix"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.desktop.cover_ai"
+    },
+    {
+      "from": "autoslice.desktop.cover_fixes",
+      "imports": [
+        "autoslice.desktop.cover_autolayout.primary_copy_ids",
+        "autoslice.desktop.cover_autolayout.replace_copy"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.desktop.cover_autolayout"
+    },
+    {
+      "from": "autoslice.desktop.cover_fixes",
+      "imports": [
+        "autoslice.desktop.cover_copy.BasicCoverCopy"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.desktop.cover_copy"
+    },
+    {
+      "from": "autoslice.desktop.cover_fixes",
+      "imports": [
+        "autoslice.desktop.cover_layout.canvas_size",
+        "autoslice.desktop.cover_layout.text_layout"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.desktop.cover_layout"
+    },
+    {
+      "from": "autoslice.desktop.cover_fixes",
+      "imports": [
+        "autoslice.desktop.cover_model.BackgroundObject",
+        "autoslice.desktop.cover_model.CoverDocument",
+        "autoslice.desktop.cover_model.TextObject",
+        "autoslice.desktop.cover_model.emphasis_words",
+        "autoslice.desktop.cover_model.object_for_profile",
+        "autoslice.desktop.cover_model.resize_text_style",
+        "autoslice.desktop.cover_model.set_profile_override",
+        "autoslice.desktop.cover_model.stroke_for",
+        "autoslice.desktop.cover_model.update_text_object"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.desktop.cover_model"
+    },
+    {
+      "from": "autoslice.desktop.cover_fixes",
+      "imports": [
+        "autoslice.desktop.cover_style.STYLE_PRESETS",
+        "autoslice.desktop.cover_style.luminance"
+      ],
+      "lines": [
+        30
+      ],
+      "to": "autoslice.desktop.cover_style"
+    },
+    {
+      "from": "autoslice.desktop.cover_fixes",
+      "imports": [
+        "autoslice_cover.document_layout.clamp_background_scale"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice_cover.document_layout"
     },
     {
       "from": "autoslice.desktop.cover_frames",
@@ -7719,9 +7785,9 @@
       "qualname": "retry_clip_review_from_artifacts_impl"
     },
     {
-      "end_line": 481,
+      "end_line": 504,
       "kind": "function",
-      "line": 287,
+      "line": 310,
       "line_count": 195,
       "module": "autoslice.desktop.cover_autolayout",
       "path": "src/autoslice/desktop/cover_autolayout.py",
@@ -10833,17 +10899,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 595,
+      "line_count": 625,
       "longest_function": {
-        "end_line": 461,
+        "end_line": 472,
         "kind": "function",
-        "line": 376,
-        "line_count": 86,
+        "line": 385,
+        "line_count": 88,
         "qualname": "CoverAI.analyze"
       },
       "module": "autoslice.desktop.cover_ai",
       "path": "src/autoslice/desktop/cover_ai.py",
-      "sha256": "ffec45ed6391d33184e42653e03108b9c335ea70ae669ad4a877b0ce68feff4c",
+      "sha256": "b26195e76bbbbaf3af2c974989ccbb9a61fafe22cd1c345afab9b19c4e3160df",
       "top_level_classes": [
         {
           "end_line": 52,
@@ -10900,95 +10966,89 @@
           "name": "AIFramePick"
         },
         {
-          "end_line": 169,
+          "end_line": 191,
           "kind": "class",
-          "line": 156,
+          "line": 169,
           "name": "AIFix"
         },
         {
-          "end_line": 595,
+          "end_line": 625,
           "kind": "class",
-          "line": 338,
+          "line": 347,
           "name": "CoverAI"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 176,
+          "end_line": 198,
           "kind": "function",
-          "line": 172,
+          "line": 194,
           "name": "from_source"
         },
         {
-          "end_line": 191,
+          "end_line": 213,
           "kind": "function",
-          "line": 179,
+          "line": 201,
           "name": "jpeg_bytes"
         },
         {
-          "end_line": 223,
+          "end_line": 245,
           "kind": "function",
-          "line": 194,
+          "line": 216,
           "name": "contact_sheet"
         },
         {
-          "end_line": 237,
+          "end_line": 259,
           "kind": "function",
-          "line": 226,
+          "line": 248,
           "name": "_box"
         },
         {
-          "end_line": 249,
+          "end_line": 271,
           "kind": "function",
-          "line": 240,
+          "line": 262,
           "name": "_sides"
         },
         {
-          "end_line": 266,
+          "end_line": 292,
           "kind": "function",
-          "line": 252,
+          "line": 274,
           "name": "_emphasis"
         },
         {
-          "end_line": 281,
+          "end_line": 307,
           "kind": "function",
-          "line": 274,
+          "line": 300,
           "name": "_frame_notes"
         },
         {
-          "end_line": 298,
+          "end_line": 315,
           "kind": "function",
-          "line": 284,
-          "name": "same_layout"
-        },
-        {
-          "end_line": 306,
-          "kind": "function",
-          "line": 301,
+          "line": 310,
           "name": "_image_size"
         },
         {
-          "end_line": 311,
+          "end_line": 320,
           "kind": "function",
-          "line": 309,
+          "line": 318,
           "name": "_clean"
         },
         {
-          "end_line": 318,
+          "end_line": 327,
           "kind": "function",
-          "line": 314,
+          "line": 323,
           "name": "_seconds"
         },
         {
-          "end_line": 330,
+          "end_line": 339,
           "kind": "function",
-          "line": 321,
+          "line": 330,
           "name": "_subtitle_lines"
         },
         {
-          "end_line": 335,
+          "end_line": 344,
           "kind": "function",
-          "line": 333,
+          "line": 342,
           "name": "_work_examples"
         }
       ]
@@ -11047,49 +11107,55 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 759,
+      "line_count": 792,
       "longest_function": {
-        "end_line": 481,
+        "end_line": 504,
         "kind": "function",
-        "line": 287,
+        "line": 310,
         "line_count": 195,
         "qualname": "CoverLayoutService.apply_auto_layout"
       },
       "module": "autoslice.desktop.cover_autolayout",
       "path": "src/autoslice/desktop/cover_autolayout.py",
-      "sha256": "89928c3b39a7417d305c4b4094be5f862b1a90b34bcc76883cb429cfac38bb52",
+      "sha256": "2741a3d6652e54f946958f696753dd841591a954814e6e6d93c8c71d192c7f52",
       "top_level_classes": [
         {
-          "end_line": 138,
+          "end_line": 142,
           "kind": "class",
-          "line": 132,
+          "line": 136,
           "name": "CoverScheme"
         },
         {
-          "end_line": 759,
+          "end_line": 792,
           "kind": "class",
-          "line": 182,
+          "line": 205,
           "name": "CoverLayoutService"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 81,
+          "end_line": 83,
           "kind": "function",
-          "line": 78,
+          "line": 80,
           "name": "_context_cap"
         },
         {
-          "end_line": 147,
+          "end_line": 151,
           "kind": "function",
-          "line": 140,
+          "line": 144,
           "name": "primary_copy_ids"
         },
         {
-          "end_line": 179,
+          "end_line": 183,
           "kind": "function",
-          "line": 150,
+          "line": 154,
           "name": "ensure_context_text"
+        },
+        {
+          "end_line": 202,
+          "kind": "function",
+          "line": 186,
+          "name": "replace_copy"
         }
       ]
     },
@@ -11355,30 +11421,30 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 297,
+      "line_count": 263,
       "longest_function": {
-        "end_line": 135,
+        "end_line": 122,
         "kind": "function",
-        "line": 55,
-        "line_count": 81,
+        "line": 43,
+        "line_count": 80,
         "qualname": "CoverAIMixin._ai_schemes"
       },
       "module": "autoslice.desktop.cover_editor_ai",
       "path": "src/autoslice/desktop/cover_editor_ai.py",
-      "sha256": "434a09c91488324af396f4ba3ba27d09117e748f896bce2d66c63c0a94f036b7",
+      "sha256": "074a92e55a7d6b8f3f233a570829a8046bb1b6fcd17ea19655da1fb5c8ab50df",
       "top_level_classes": [
         {
-          "end_line": 297,
+          "end_line": 263,
           "kind": "class",
-          "line": 54,
+          "line": 42,
           "name": "CoverAIMixin"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 51,
+          "end_line": 39,
           "kind": "function",
-          "line": 46,
+          "line": 34,
           "name": "_highlight_offsets"
         }
       ]
@@ -11454,22 +11520,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 150,
+      "line_count": 129,
       "longest_function": {
-        "end_line": 81,
+        "end_line": 73,
         "kind": "function",
-        "line": 60,
+        "line": 52,
         "line_count": 22,
         "qualname": "CoverSchemesMixin._schemes_ready"
       },
       "module": "autoslice.desktop.cover_editor_schemes",
       "path": "src/autoslice/desktop/cover_editor_schemes.py",
-      "sha256": "d944e687f4aa111b867c19e9f3ac17764b597cd04cba70081e9ac397db67f4e3",
+      "sha256": "3b91983c6f5445d0e28b051242239b68b8467be3885879934c20957248a0324b",
       "top_level_classes": [
         {
-          "end_line": 150,
+          "end_line": 129,
           "kind": "class",
-          "line": 25,
+          "line": 17,
           "name": "CoverSchemesMixin"
         }
       ],
@@ -11582,6 +11648,59 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 173,
+      "longest_function": {
+        "end_line": 173,
+        "kind": "function",
+        "line": 120,
+        "line_count": 54,
+        "qualname": "_apply_action"
+      },
+      "module": "autoslice.desktop.cover_fixes",
+      "path": "src/autoslice/desktop/cover_fixes.py",
+      "sha256": "c10405d5d65888af4508e84a3a6e91c7964fa3f1ede07ec550977d9ee90f33f6",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 55,
+          "kind": "function",
+          "line": 47,
+          "name": "_visible_texts"
+        },
+        {
+          "end_line": 65,
+          "kind": "function",
+          "line": 58,
+          "name": "_text_center"
+        },
+        {
+          "end_line": 88,
+          "kind": "function",
+          "line": 68,
+          "name": "describe_state"
+        },
+        {
+          "end_line": 96,
+          "kind": "function",
+          "line": 91,
+          "name": "apply_fix"
+        },
+        {
+          "end_line": 117,
+          "kind": "function",
+          "line": 99,
+          "name": "_keep_inside"
+        },
+        {
+          "end_line": 173,
+          "kind": "function",
+          "line": 120,
+          "name": "_apply_action"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 131,
       "longest_function": {
         "end_line": 97,
@@ -11624,53 +11743,53 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 157,
+      "line_count": 173,
       "longest_function": {
-        "end_line": 130,
+        "end_line": 146,
         "kind": "function",
-        "line": 61,
-        "line_count": 70,
+        "line": 73,
+        "line_count": 74,
         "qualname": "subject_crop"
       },
       "module": "autoslice.desktop.cover_framing",
       "path": "src/autoslice/desktop/cover_framing.py",
-      "sha256": "4abdaa93353f72c0c597930198114243725374b9efccb35934bce11c39ffe19e",
+      "sha256": "6b5a93107a60bb462c15ecaf6c374003a119bf5a86879eae02224782e95e3fe2",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 34,
+          "end_line": 42,
           "kind": "function",
-          "line": 33,
+          "line": 41,
           "name": "area"
         },
         {
-          "end_line": 38,
+          "end_line": 46,
           "kind": "function",
-          "line": 37,
+          "line": 45,
           "name": "overlap"
         },
         {
-          "end_line": 54,
+          "end_line": 66,
           "kind": "function",
-          "line": 41,
+          "line": 49,
           "name": "text_bands"
         },
         {
-          "end_line": 58,
+          "end_line": 70,
           "kind": "function",
-          "line": 57,
+          "line": 69,
           "name": "_pixels"
         },
         {
-          "end_line": 130,
+          "end_line": 146,
           "kind": "function",
-          "line": 61,
+          "line": 73,
           "name": "subject_crop"
         },
         {
-          "end_line": 157,
+          "end_line": 173,
           "kind": "function",
-          "line": 133,
+          "line": 149,
           "name": "text_hit"
         }
       ]
@@ -12234,7 +12353,7 @@
       },
       "module": "autoslice.desktop.cover_style",
       "path": "src/autoslice/desktop/cover_style.py",
-      "sha256": "527186393861a68d765902db8c0c4151fa849859e22b9f4a3e0d96a414db63ef",
+      "sha256": "dd6b524041d8f7c69e7f7b4d0a1c17d2195b779b3f0fc68a9711b4b01f67dc51",
       "top_level_classes": [
         {
           "end_line": 58,
@@ -12266,7 +12385,7 @@
           "end_line": 73,
           "kind": "function",
           "line": 71,
-          "name": "_luminance"
+          "name": "luminance"
         },
         {
           "end_line": 84,
@@ -20889,6 +21008,7 @@
       "src/autoslice/desktop/cover_editor_ui.py",
       "src/autoslice/desktop/cover_export_dialog.py",
       "src/autoslice/desktop/cover_exporting.py",
+      "src/autoslice/desktop/cover_fixes.py",
       "src/autoslice/desktop/cover_frames.py",
       "src/autoslice/desktop/cover_framing.py",
       "src/autoslice/desktop/cover_history.py",
@@ -21041,6 +21161,7 @@
       "tests/unit/test_desktop_cover_copy.py",
       "tests/unit/test_desktop_cover_editing.py",
       "tests/unit/test_desktop_cover_emphasis.py",
+      "tests/unit/test_desktop_cover_fixes.py",
       "tests/unit/test_desktop_cover_model.py",
       "tests/unit/test_desktop_cover_works.py",
       "tests/unit/test_desktop_cover_wysiwyg.py",
@@ -21109,12 +21230,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 709,
-    "production_line_count": 64413,
-    "production_module_count": 252,
+    "import_edge_count": 715,
+    "production_line_count": 64610,
+    "production_module_count": 253,
     "test_private_patch_count": 17,
     "top_level_class_count": 237,
-    "top_level_function_count": 1252
+    "top_level_function_count": 1258
   },
   "test_private_patches": {
     "by_target_module": {

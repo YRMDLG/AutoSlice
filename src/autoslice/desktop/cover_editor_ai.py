@@ -9,9 +9,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
-
-from autoslice_cover.document_layout import clamp_background_scale
 
 from .cover_ai import (
     AICopy,
@@ -20,24 +19,13 @@ from .cover_ai import (
     CoverAIError,
     contact_sheet,
     jpeg_bytes,
-    same_layout,
 )
-from .cover_copy import BasicCoverCopy
-from .cover_model import (
-    BackgroundObject,
-    TextObject,
-    emphasis_words,
-    object_for_profile,
-    resize_text_style,
-    set_profile_override,
-    update_text_object,
-)
+from .cover_fixes import apply_fix, describe_state
+from .cover_model import TextObject, object_for_profile
 from .cover_style import streamer_key
 
-# “AI 改一改”的一步幅度：拉近/拉远、主文案放大、A 缩小。
-_FIX_ZOOM = 1.25
-_FIX_GROW = 1.15
-_FIX_SHRINK = 0.85
+# “AI 改一改”弹窗里改前、改后缩略图的宽度。
+_PREVIEW_WIDTH = 200
 # 选帧：爆点前后取几帧、每帧给看图模型的长边（只看表情，不用太大）。
 _PICK_FRAME_COUNT = 6
 _PICK_FRAME_SIDE = 512
@@ -104,16 +92,15 @@ class CoverAIMixin:
                 except CoverAIError:
                     notes = AIFrameNotes(busy=frozenset(), note="")
             path, timestamp, expression = image_path, current_timestamp, ""
-            # 没锁帧：到爆点前后挑表情最有戏的一帧。同一个画面布局（人物位置没变）沿用取景框，不然单独再看一次。
+            # 没锁帧：到爆点前后挑表情最有戏的一帧，并对这一帧重新标框——飘过的弹幕、弹窗每帧都不一样。
             picked = pick_frame(analysis.highlight) if not locked and analysis.highlight is not None else None
             if picked is not None:
                 chosen, expression = picked
                 path, timestamp, frame = str(chosen.path), chosen.timestamp, jpeg_bytes(chosen.path)
-                if not same_layout(image_path, chosen.path):
-                    try:
-                        notes = service.ai.inspect(frame)
-                    except CoverAIError:
-                        notes = AIFrameNotes(busy=frozenset(), note="")
+                try:
+                    notes = service.ai.inspect(frame)
+                except CoverAIError:
+                    pass  # 看不了新帧就沿用原来那帧的结论
             working = service.with_frame(document, path, timestamp) if path != image_path else document
             from_title = AICopy(basic.context, basic.headline, "标题", "", analysis.title_emphasis)
             copies = (from_title, *(item for item in analysis.copies if item.headline != from_title.headline))
@@ -173,7 +160,7 @@ class CoverAIMixin:
         self.status_changed.emit("AI 方案已生成：点缩略图套用（Ctrl+Z 可撤销）；“换一版”也会轮换 AI 写的文案")
 
     def _ai_critique(self):
-        """AI 改一改：看当前封面挑最影响效果的问题，每条给一个能一键应用的修改。"""
+        """AI 改一改：看当前封面给最能让它更抓眼的修改，每条先算出改后的样子，没变化的不显示。"""
 
         if self.document is None or not self.draft.image_path or self.project is None or self.video is None:
             return
@@ -192,11 +179,19 @@ class CoverAIMixin:
         self._set_notice("AI 正在看这张封面…", "info")
 
         def work():
-            cover = jpeg_bytes(service.scheme_thumbnail(document, canvas_key=canvas_key, width=480), max_side=480)
+            before = service.scheme_thumbnail(document, canvas_key=canvas_key, width=_PREVIEW_WIDTH)
             source = project.title + "\n" + "\n".join(text for _start, _end, text in service.subtitle_cues(video))
-            return service.ai.suggest_fixes(
-                cover, texts=texts, title=project.title, source=source, frame=jpeg_bytes(image_path),
+            fixes = service.ai.suggest_fixes(
+                jpeg_bytes(service.scheme_thumbnail(document, canvas_key=canvas_key, width=480), max_side=480),
+                texts=texts, title=project.title, source=source, frame=jpeg_bytes(image_path),
+                state=describe_state(document, canvas_key),
             )
+            previews = []
+            for fix in fixes:
+                after = apply_fix(service, document, image_path, fix, canvas_key)
+                if after != document:
+                    previews.append((fix, service.scheme_thumbnail(after, canvas_key=canvas_key, width=_PREVIEW_WIDTH)))
+            return before, tuple(previews)
 
         self._run(work, lambda result, error: self._ai_critique_ready(generation, result, error))
 
@@ -209,17 +204,30 @@ class CoverAIMixin:
             message = str(error) if isinstance(error, CoverAIError) else f"AI 改一改失败：{error}"
             self._set_notice(message, "error")
             return
-        if not result:
-            self.status_changed.emit("AI 没发现明显问题，可以直接导出")
-            QMessageBox.information(self, "AI 改一改", "没发现明显问题，可以直接导出。")
+        before, previews = result
+        if not previews:
+            self.status_changed.emit("AI 没找到能让这张封面更好的修改，可以直接导出")
+            QMessageBox.information(self, "AI 改一改", "没找到能让这张封面更好的修改，可以直接导出。")
             return
+
+        def picture(data: bytes) -> QLabel:
+            label = QLabel()
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            label.setPixmap(pixmap)
+            return label
+
         dialog = QDialog(self)
         dialog.setWindowTitle("AI 改一改")
         dialog.setModal(False)
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("点“应用”直接改，Ctrl+Z 可撤销："))
-        for fix in result:
+        head = QHBoxLayout()
+        head.addWidget(picture(before))
+        head.addWidget(QLabel("现在的样子\n\n下面每条都是改完的效果，\n点“应用”直接改，Ctrl+Z 可撤销"), 1)
+        layout.addLayout(head)
+        for fix, thumbnail in previews:
             row = QHBoxLayout()
+            row.addWidget(picture(thumbnail))
             text = QLabel(f"{fix.issue}\n→ {fix.label}")
             text.setWordWrap(True)
             row.addWidget(text, 1)
@@ -230,7 +238,7 @@ class CoverAIMixin:
         close = QPushButton("关闭")
         close.clicked.connect(dialog.close)
         layout.addWidget(close)
-        dialog.resize(420, dialog.sizeHint().height())
+        dialog.resize(560, dialog.sizeHint().height())
         dialog.show()
         self._critique_box = dialog
 
@@ -240,58 +248,16 @@ class CoverAIMixin:
             button.setText("已应用")
 
     def _apply_ai_fix(self, fix) -> bool:
-        """把一条 AI 修改落到文档上（可撤销）。"""
+        """把一条 AI 修改落到当前文档上（可撤销）；已经是这样就什么都不做。"""
 
         if self.document is None or not self.draft.image_path:
             return False
-        key = self._canvas_key
-        if fix.action == "rewrite":
-            before = self.document
-            self._replace_copy(BasicCoverCopy(context=fix.context, headline=fix.headline))
-            changed = self.document != before
-        else:
-            before = self.document
-            if fix.action in ("move_bottom", "move_top"):
-                # 只重排字，AI 或用户调好的取景不动。
-                self.document = self.service.apply_auto_layout(
-                    self.document, self.draft.image_path, mode="lead",
-                    position="bottom" if fix.action == "move_bottom" else "top", reframe=False,
-                )
-            elif fix.action in ("zoom_in", "zoom_out"):
-                background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None)
-                current = object_for_profile(self.document, background.id, key) if background else None
-                if isinstance(current, BackgroundObject):
-                    factor = _FIX_ZOOM if fix.action == "zoom_in" else 1 / _FIX_ZOOM
-                    scale = clamp_background_scale(max(1.0, current.scale * factor))
-                    self.document = set_profile_override(self.document, key, replace(current, scale=scale))
-            elif fix.action == "emphasize":
-                # 强调词落到含有它的 A/B 上，和已有的强调词合并。
-                for object_id in self._primary_copy_ids().values():
-                    current = object_for_profile(self.document, object_id, key)
-                    words = tuple(word for word in fix.words if isinstance(current, TextObject) and word in current.text)
-                    if words:
-                        self.document = update_text_object(
-                            self.document, replace(current, emphasis=emphasis_words((*current.emphasis, *words))),
-                            profile_key=key,
-                        )
-            elif fix.action in ("bigger", "smaller_context"):
-                role, factor = ("B", _FIX_GROW) if fix.action == "bigger" else ("A", _FIX_SHRINK)
-                object_id = self._primary_copy_ids().get(role)
-                current = object_for_profile(self.document, object_id, key) if object_id else None
-                if isinstance(current, TextObject) and current.visible:
-                    size = max(24, round(current.style.font_size * factor))
-                    ratio = size / max(1, current.style.font_size)
-                    self.document = update_text_object(self.document, replace(
-                        current, style=resize_text_style(current.style, size),
-                        rect=replace(current.rect, width=min(3.0, current.rect.width * ratio),
-                                     height=min(3.0, current.rect.height * ratio)),
-                        wrap=replace(current.wrap, max_width=min(1.0, current.wrap.max_width * ratio)),
-                    ), profile_key=key)
-            changed = self.document != before
-            if changed:
-                self._commit_document_change(before)
-        if changed:
-            self.canvas.set_document(self.document, key)
-            self._sync_selected_text_controls()
-            self.status_changed.emit(f"已应用：{fix.label}（Ctrl+Z 可撤销）")
-        return changed
+        before = self.document
+        self.document = apply_fix(self.service, self.document, self.draft.image_path, fix, self._canvas_key)
+        if self.document == before:
+            return False
+        self._commit_document_change(before)
+        self.canvas.set_document(self.document, self._canvas_key)
+        self._sync_selected_text_controls()
+        self.status_changed.emit(f"已应用：{fix.label}（Ctrl+Z 可撤销）")
+        return True

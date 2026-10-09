@@ -161,9 +161,14 @@ class FramingTests(unittest.TestCase):
                 self.assertLess(overlap(band, self.notes.ui[1]) / area(band), 0.05, zone)
 
     def test_tight_is_closer_than_loose_and_no_face_means_no_crop(self):
-        loose, _ = subject_crop((1920, 1080), (1440, 1080), self.notes, "bottom", "loose")
-        tight, _ = subject_crop((1920, 1080), (1440, 1080), self.notes, "bottom", "tight")
+        small = replace(self.notes, face=(0.45, 0.3, 0.55, 0.5), person=None)
+        loose, _ = subject_crop((1920, 1080), (1440, 1080), small, "bottom", "loose")
+        tight, _ = subject_crop((1920, 1080), (1440, 1080), small, "bottom", "tight")
         self.assertLess(tight[3] - tight[1], (loose[3] - loose[1]) * 0.83)
+        # 脸已经很大（占四成高）时，特写再近脸就超过画面一半：退回宽松取景。
+        big_loose, _ = subject_crop((1920, 1080), (1440, 1080), self.notes, "bottom", "loose")
+        big_tight, _ = subject_crop((1920, 1080), (1440, 1080), self.notes, "bottom", "tight")
+        self.assertEqual(big_tight, big_loose)
         self.assertIsNone(subject_crop((1920, 1080), (1440, 1080), replace(self.notes, face=None), "bottom", "loose"))
 
     def test_text_hit_measures_text_over_ui_or_face(self):

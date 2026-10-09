@@ -3,7 +3,7 @@
 
 AI 只在用户点击时运行。文案必须出自标题和字幕原文（逐字校验，允许删减、
 调序和补少量虚词，不许加实词）。写法参考日更切片号：标题交代来龙去脉，封面放
-主播最冲的一句原话或浓缩的“讲事”两句，关键词换色。方案不让 AI 给坐标：本地
+标题爆点浓缩成的一两句，或主播自带情绪的一句原话，关键词换色。方案不让 AI 给坐标：本地
 排版引擎先排出十几张候选（不同文案、排法位置、取景、配色）并渲染成缩略图总图，
 看图模型像审稿一样从成品里挑——压脸、压住画面原有的字、看不懂的都淘汰。
 """
@@ -24,6 +24,7 @@ from autoslice.llm.transport import call_llm, extract_json_payload
 
 from .ai_settings import AISettings, read_ai_settings
 from .cover_copy import BasicCoverCopy
+from .cover_style import STYLE_PRESETS
 from .cover_works import CoverWork
 from .foundation import DesktopStorage
 
@@ -41,8 +42,7 @@ _MIN_CLARITY = 4
 # 每段文案最多几个强调词、每个最多几个字（超长的不截断，直接不要）。
 _MAX_EMPHASIS = 2
 _MAX_EMPHASIS_LENGTH = 8
-# 两帧缩成小灰度图后平均差在这以内，算同一个画面布局（取景框可以沿用）。
-_SAME_LAYOUT_DIFF = 20
+_PRESET_LABELS = {preset.key: preset.label for preset in STYLE_PRESETS}
 # 候选总图：每行几张、每张多宽。
 _SHEET_COLUMNS = 4
 _SHEET_THUMB_WIDTH = 320
@@ -64,7 +64,7 @@ class AIHighlight:
 class AICopy:
     context: str
     headline: str
-    # 写法：原话 / 讲事（旧缓存里可能是“结果、反差”等角度）。
+    # 写法：标题（浓缩标题爆点）/ 原话（旧缓存里可能是“讲事、结果、反差”等）。
     angle: str
     reason: str
     emphasis: tuple[str, ...] = ()
@@ -148,25 +148,47 @@ FIX_ACTIONS = {
     "bigger": "主文案 B 放大",
     "smaller_context": "A 缩小，让 B 更突出",
     "emphasize": "把关键词换成强调色",
+    "tilt": "字整体略微倾斜，更有动感",
+    "outline": "字外面再加一圈描边，从背景里跳出来",
+    "restyle": "换一套配色",
     "rewrite": "换一句文案",
 }
 
 
+# 弹窗里显示的操作名（比给 AI 看的说明短）。
+_ACTION_NAMES = {
+    "move_bottom": "字移到下方", "move_top": "字移到上方", "zoom_in": "画面拉近", "zoom_out": "画面拉远",
+    "bigger": "主文案放大", "smaller_context": "A 缩小", "tilt": "字倾斜", "outline": "加外描边",
+}
+# 一条建议最多组合几个操作；互相抵消的操作只留前一个。
+_MAX_FIX_ACTIONS = 3
+_OPPOSITE = {"move_bottom": "move_top", "move_top": "move_bottom", "zoom_in": "zoom_out", "zoom_out": "zoom_in"}
+
+
 @dataclass(frozen=True, slots=True)
 class AIFix:
+    """一条修改建议：1~3 个一键操作组合在一起（按顺序做），附带各操作要的参数。"""
+
     issue: str
-    action: str
+    actions: tuple[str, ...]
     context: str = ""
     headline: str = ""
     words: tuple[str, ...] = ()
+    # restyle 时换成哪套配色（STYLE_PRESETS 的 key）。
+    preset: str = ""
+
+    def _name(self, action: str) -> str:
+        if action == "rewrite":
+            return f"换成 A「{self.context}」 B「{self.headline}」" if self.context else f"换成「{self.headline}」"
+        if action == "emphasize":
+            return "强调「" + "」「".join(self.words) + "」"
+        if action == "restyle":
+            return f"换成「{_PRESET_LABELS.get(self.preset, self.preset)}」配色"
+        return _ACTION_NAMES.get(action, FIX_ACTIONS.get(action, action))
 
     @property
     def label(self) -> str:
-        if self.action == "rewrite":
-            return f"换成 A「{self.context}」 B「{self.headline}」" if self.context else f"换成「{self.headline}」"
-        if self.action == "emphasize":
-            return "强调「" + "」「".join(self.words) + "」"
-        return FIX_ACTIONS[self.action]
+        return " + ".join(self._name(action) for action in self.actions)
 
 
 def from_source(text: str, source: str) -> bool:
@@ -256,11 +278,15 @@ def _emphasis(value: object, *parts: str) -> tuple[str, ...]:
         value = [value]
     if not isinstance(value, (list, tuple)):
         return ()
+    def core(text: str) -> str:
+        return "".join(character for character in text if _WORD_RE.match(character))
+
     words: list[str] = []
     for item in value:
         word = _clean(item, 40)
+        # 去掉标点后等于整句（「改变选曲」对「改变选曲？！」）也算整句都标了。
         if 0 < len(word) <= _MAX_EMPHASIS_LENGTH and word not in words and any(
-            word in part and word != part.strip() for part in parts
+            word in part and core(word) != core(part) for part in parts
         ):
             words.append(word)
     return tuple(words[:_MAX_EMPHASIS])
@@ -279,23 +305,6 @@ def _frame_notes(payload: dict) -> AIFrameNotes:
         busy=_sides(ui), note=_clean(payload.get("note"), 60),
         face=_box(payload.get("face"), _MIN_FACE), person=_box(payload.get("person"), _MIN_PERSON), ui=ui,
     )
-
-
-def same_layout(first: str | Path | bytes, second: str | Path | bytes) -> bool:
-    """两帧是不是同一个画面布局：直播界面和人物位置没大变，只是表情、嘴型不同。"""
-
-    def small(image):
-        if isinstance(image, (bytes, bytearray)):
-            image = io.BytesIO(bytes(image))
-        with Image.open(image) as picture:
-            return picture.convert("L").resize((32, 24), Image.Resampling.BILINEAR)
-
-    try:
-        a, b = small(first), small(second)
-    except OSError:
-        return False
-    difference = sum(abs(x - y) for x, y in zip(a.getdata(), b.getdata())) / (32 * 24)
-    return difference <= _SAME_LAYOUT_DIFF
 
 
 def _image_size(frame: bytes) -> str:
@@ -383,7 +392,7 @@ class CoverAI:
         round_index: int = 0,
         title_copy: BasicCoverCopy | None = None,
     ) -> AIAnalysis:
-        """读标题和整份字幕：标出爆点句，给“原话”和“讲事”两种写法的 A/B 文案，并标强调词。"""
+        """读标题和整份字幕：标出爆点句，给“标题浓缩”和“原话”两种写法的 A/B 文案，并标强调词。"""
 
         source = title + "\n" + "\n".join(text for _start, _end, text in cues)
         title_line = (
@@ -392,18 +401,20 @@ class CoverAI:
         )
         prompt = f"""你是 B 站直播切片的封面文案编辑。根据投稿标题和这条切片的校对字幕，写封面上的字。
 
-分工：投稿标题负责交代来龙去脉，封面字负责抓眼——观众先看到封面，再看标题。
-日更切片号做得好的封面有两种写法，两种都要给：
-- 原话：从字幕里挑主播（或对方）说的最冲、最有情绪的一句原话，删到 4~12 个字、一行放得下，比如「我靠，真给我开盒了」「你有病啊！？」「一共打了14个耳钉」。A 可以为空，或用 8 个字以内点明是谁、在干嘛。
-- 讲事：A + B 两句把事情浓缩出来，B 是结果或反差，比如 A「听到要用脚惩罚」 B「高兴的发出了鸟叫」。
+分工：投稿标题负责交代来龙去脉，封面字负责抓眼——观众先在首页看到封面，再看标题。
+封面字和标题说的必须是同一个爆点（可以换个说法、更短更冲），不能拿视频里的细节当 B：
+比如标题是「打排位被队友气到摔耳机」，「第三局那个辅助」「他买了两双鞋」「然后就开大了」都是只有看完视频才懂的细节，没看过的人不知道在说什么，不能用。
+封面字有两种写法：
+- 标题浓缩（每次给 2~4 组）：把投稿标题的爆点浓缩成 A + B 两句（A 交代、B 是结果或反差）或只有 B 一句，几组之间换说法、换语序、加反问，比如标题「逆天音姐听到公主说要用脚惩罚她时高兴的发出了鸟叫」→ A「听到要用脚惩罚」 B「高兴的发出了鸟叫」。字幕只用来找更有力的原词，不要换成视频里别的事。
+- 原话（0~2 组）：主播（或对方）的原话本身就有情绪、不用上下文也懂（骂人、惊叫、反问、离谱发言）时，删到 4~12 个字直接当 B，比如「我靠，真给我开盒了」「你有病啊！？」。这条视频没有这种话就不要给原话写法，别硬凑。
 
 要求：
 1. 只能从标题和字幕里截取、删减、压缩，可以补“的、了、被、到”这类虚词；不许加原文没有的事实和词，不写营销话术。
-2. 配合投稿标题看，观众要能明白在说什么、为什么好笑或离谱。不要没头没尾、只有看过视频才懂的碎片（「交个备用机」「4个emoji」），也不要空泛的话（「这就是暗号」「原来是这样」）。
+2. 没看过视频的人只看封面和标题，要能明白在说什么事、为什么好笑或离谱。不要空泛的话（「这就是暗号」「原来是这样」）。
 3. “告诉你”“揭秘”“原因竟然是这个”这类预告语不能当 B。
 4. 每组标 1~2 个强调词 emphasis：封面上单独换颜色的词，必须是 A 或 B 里原样出现的片段，2~5 个字，挑最戳人的（数字、关键名词、骂人的词、反差词），比如「开盒」「14个耳钉」「万楼」；不要把整句都标上。
 
-这位切片员以前的标题 → 封面字（讲事写法）：
+这位切片员以前的标题 → 封面字（标题浓缩）：
 - 「泽音一个晚上居然被冲了万楼？！原因居然是这个？！」→ A「一个晚上」 B「被冲了万楼？！」 强调「万楼」
 - 「逆天音姐听到公主说要用脚惩罚她时高兴的发出了鸟叫」→ A「听到要用脚惩罚」 B「高兴的发出了鸟叫」 强调「鸟叫」
 - 「刚上播不清醒的音音 嘴滑承认18岁是虚假宣传」→ A「刚上播不清醒」 B「18岁是虚假宣传？！」 强调「虚假宣传」
@@ -417,12 +428,12 @@ class CoverAI:
 字幕（[秒数] 文本）：
 {_subtitle_lines(cues)}
 
-给 5 组：至少 2 组原话、至少 2 组讲事，角度尽量不同；每组自评“配合标题看抓不抓眼、看不看得懂”1~5 分，低于 4 分的不要给。
+给 3~5 组，按好坏排序、最好的放最前面，角度尽量不同；每组自评“没看过视频的人配合标题能不能一眼看懂、抓不抓眼”1~5 分，低于 4 分的不要给。
 第 {round_index + 1} 次生成{"，请给出和之前不同的句子" if round_index else ""}。
 只输出 JSON，不要解释：
 {{"highlight": {{"quote": "爆点字幕原话", "start": 秒数, "end": 秒数, "reason": "为什么是爆点（20 字内）"}},
  "title_emphasis": ["标题那句的强调词"],
- "copies": [{{"style": "原话|讲事", "context": "A，可为空", "headline": "B", "emphasis": ["强调词"], "clarity": 1到5, "reason": "一句话说明（20 字内）"}}]}}"""
+ "copies": [{{"style": "标题|原话", "context": "A，可为空", "headline": "B", "emphasis": ["强调词"], "clarity": 1到5, "reason": "一句话说明（20 字内）"}}]}}"""
         payload = self._ask(prompt, vision=False)
         copies: list[AICopy] = []
         for item in payload.get("copies") or ():
@@ -523,7 +534,7 @@ class CoverAI:
 一票否决，出现任何一条都不能选：
 1. 封面文字压住人脸或主要人物；
 2. 封面文字（彩色描边的大字）和画面原有的文字、弹幕或直播界面叠在一起，哪怕只叠一部分；
-3. 文案配合投稿标题也看不懂，不知道在说谁、发生了什么；
+3. 文案是只有看过视频才懂的细节（不知道指什么的数字、东西、半句话），或者和投稿标题说的不是同一个爆点；
 4. 在小图上字太小、读不清。
 都合格时，人物表情有戏、关键词换了颜色更醒目、一眼能抓住的优先。
 合格的不够三张就少选，全部不合格就返回空列表。第 {round_index + 1} 次挑选。
@@ -556,40 +567,59 @@ class CoverAI:
         title: str = "",
         source: str = "",
         frame: bytes | None = None,
+        state: str = "",
     ) -> tuple[AIFix, ...]:
-        """看成品挑最影响效果的问题，每条只给工具能一键做到的修改；没问题就返回空。"""
+        """看成品挑最影响效果的问题，每条只给工具能一键做到的修改；没问题就返回空。
+
+        state 是封面现在的样子（已强调的词、倾斜、外描边、配色、放大倍数），让 AI 别提已经做过的。
+        """
 
         context, headline = texts
         actions = "\n".join(f"- {key}：{text}" for key, text in FIX_ACTIONS.items())
+        presets = "、".join(f"{preset.key}（{preset.label}）" for preset in STYLE_PRESETS)
         prompt = f"""你是 B 站直播切片的封面审稿人。第一张图是准备导出的封面（按首页小图尺寸看）{"；第二张是没加字的原画面" if frame is not None else ""}。
 封面上加的字只有：A「{context}」（可能为空）、B「{headline}」。画面原有的直播界面、弹幕、视频自带文字不是封面文字，不要评价它们本身。
 投稿标题：{title or "未知"}
-
-找出最影响效果的问题，最多 3 条。每条只能从下面这些修改里选一个——这个工具能一键做到的只有这些：
+{f"封面现在：{state}。已经做到的不要再提（比如已经强调过的词、已经倾斜过）。" if state else ""}
+对照日更切片号的好封面（关键词换色、字大、表情有戏、字不压脸不压界面、有点动感），给最多 3 个修改方案，按效果从大到小排。
+每个方案组合 1~3 个下面的操作（比如“主文案放大 + 字倾斜 + 加外描边”），改完要在首页小图上一眼看得出变化；几个方案之间要明显不同。这个工具能一键做到的只有这些操作：
 {actions}
+restyle 时在 preset 里给配色名，只能是：{presets}。
 rewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截取、删减、压缩，可以补“的、了、被、到”这类虚词；配合标题要能看懂，优先主播最冲的一句原话。
 emphasize 时在 words 里给 1~2 个要换色的词，必须是封面上 A 或 B 里原样出现的片段（2~5 字）。
-没有明显问题就返回空列表，不要为了凑数提建议；不要提这些修改做不到的事。
+已经很好、改了也不会更好就返回空列表，不要为了凑数提建议；不要提这些操作做不到的事。
 只输出 JSON，不要解释：
-{{"fixes": [{{"issue": "问题（20 字内）", "action": "上面的英文名之一", "context": "rewrite 时的新 A", "headline": "rewrite 时的新 B", "words": ["emphasize 时的强调词"]}}]}}"""
+{{"fixes": [{{"issue": "这个方案解决什么（20 字内）", "actions": ["上面的英文名，1~3 个"], "context": "rewrite 时的新 A", "headline": "rewrite 时的新 B", "words": ["emphasize 时的强调词"], "preset": "restyle 时的配色名"}}]}}"""
         images = (cover, *((frame,) if frame is not None else ()))
         payload = self._ask(prompt, vision=True, images=images, max_tokens=3000)
         fixes: list[AIFix] = []
         for item in payload.get("fixes") or ():
             if not isinstance(item, dict):
                 continue
-            action = str(item.get("action") or "").strip().lower()
-            if action not in FIX_ACTIONS or any(fix.action == action for fix in fixes):
+            raw = item.get("actions") or item.get("action") or ()
+            raw = [raw] if isinstance(raw, str) else raw if isinstance(raw, (list, tuple)) else ()
+            new_context = _clean(item.get("context"), _MAX_CONTEXT)
+            new_headline = _clean(item.get("headline"), _MAX_HEADLINE)
+            words = _emphasis(item.get("words"), context, headline)
+            preset = str(item.get("preset") or "").strip()
+            actions: list[str] = []
+            for value in raw:
+                action = str(value).strip().lower()
+                if action not in FIX_ACTIONS or action in actions or _OPPOSITE.get(action) in actions:
+                    continue
+                # 换文案同样逐字校验，不能编；强调词必须是封面上已有的字；配色只能是预设里的。
+                if action == "rewrite" and (not new_headline or not from_source(new_context + new_headline, source or title)):
+                    continue
+                if action == "emphasize" and not words or action == "restyle" and preset not in _PRESET_LABELS:
+                    continue
+                actions.append(action)
+            if not actions:
                 continue
             fix = AIFix(
-                issue=_clean(item.get("issue"), 40), action=action,
-                context=_clean(item.get("context"), _MAX_CONTEXT), headline=_clean(item.get("headline"), _MAX_HEADLINE),
-                words=_emphasis(item.get("words"), context, headline) if action == "emphasize" else (),
+                issue=_clean(item.get("issue"), 40), actions=tuple(actions[:_MAX_FIX_ACTIONS]),
+                context=new_context if "rewrite" in actions else "", headline=new_headline if "rewrite" in actions else "",
+                words=words if "emphasize" in actions else (), preset=preset if "restyle" in actions else "",
             )
-            # 换文案同样逐字校验，不能编；强调词必须是封面上已有的字。
-            if action == "rewrite" and (not fix.headline or not from_source(fix.context + fix.headline, source or title)):
-                continue
-            if action == "emphasize" and not fix.words:
-                continue
-            fixes.append(fix)
+            if fix.actions not in [existing.actions for existing in fixes]:
+                fixes.append(fix)
         return tuple(fixes[:3])

@@ -16,7 +16,7 @@ from autoslice_cover.document_render import compose_document
 from .cover_ai import AICopy, AIFrameNotes, AISchemeIdea, Frac
 from .cover_copy import BasicCoverCopy
 from .cover_draft import CoverDraft
-from .cover_framing import subject_crop, text_hit
+from .cover_framing import SIDE_ZONES, subject_crop, text_hit
 from .cover_layout import (
     canvas_size,
     document_layers,
@@ -37,8 +37,10 @@ from .cover_model import (
     object_for_profile,
     object_override_payload,
     resize_text_style,
+    set_object_visible,
     set_profile_override,
     text_override_payload,
+    update_text_object,
 )
 from .cover_style import (
     STYLE_PRESETS,
@@ -123,6 +125,8 @@ _CANDIDATE_ZOOM = 1.35
 # 候选成品的字被界面或脸盖住的比例不超过这个算合格；合格的不够这么多张时放宽，按压得少的补齐。
 _TEXT_HIT_OK = 0.06
 _MIN_CANDIDATES = 4
+# 第一轮候选只用最好的几句文案（标题那句 + AI 排在前面的），换着配到不同构图上。
+_TOP_COPIES = 3
 # 字放上方比放下方多算的代价：差不多干净时优先放下方（切片封面最常见）。
 _TOP_ZONE_BIAS = 0.05
 # 拉近时画面上下方向的锚点：原取景高度的这个位置留在画面中线。
@@ -176,6 +180,25 @@ def ensure_context_text(document: CoverDocument) -> CoverDocument:
         current = object_for_profile(document, headline.id, key)
         if isinstance(current, TextObject):
             document = set_profile_override(document, key, replace(above(current), z_index=z_index))
+    return document
+
+
+def replace_copy(document: CoverDocument, copy: BasicCoverCopy, profile_key: str) -> CoverDocument:
+    """只换 A/B 文字（连同强调词）：位置、字号和行宽沿用当前排版；原封面只有 B 时先在 B 上方补一个 A 块。"""
+
+    if copy.context.strip():
+        document = ensure_context_text(document)
+    primary = set(primary_copy_ids(document).values())
+    for item in document.objects:
+        if not isinstance(item, TextObject) or item.id not in primary:
+            continue
+        value = copy.context if item.copy_role == "A" else copy.headline
+        current = object_for_profile(document, item.id, profile_key)
+        current = current if isinstance(current, TextObject) else item
+        document = update_text_object(
+            document, replace(current, text=value, emphasis=copy.emphasis_in(value)), profile_key=profile_key,
+        )
+        document = set_object_visible(document, item.id, bool(value.strip()))
     return document
 
 
@@ -641,8 +664,9 @@ class CoverLayoutService:
     ) -> tuple[CoverScheme, ...]:
         """给看图模型挑的候选：文案 × 排法和位置 × 取景 × 配色，尽量各不相同。
 
-        看图标出了脸：以按脸取景为主（带上半身 / 特写），字放在字带更干净的上方或下方，原画面只留两张兜底；
-        排好后量一量字压没压到界面或脸，压到的不给模型挑（合格的不够四张时按压得少的补齐）。
+        看图标出了脸：以按脸取景为主（带上半身 / 特写），字放在字带更干净的上方或下方，另有一种人在一侧、
+        字在另一侧的构图，原画面只留一张兜底；排好后量一量字压没压到界面或脸，压到的不给模型挑（合格的
+        不够四张时按压得少的补齐）。copies 要按好坏排好：前几句先配满各种构图，其余的再补。
         没标出脸时退回“原画面 / 拉近”两轮，跳过界面所在的那几侧（剩不到两种就不过滤）。
         """
 
@@ -656,23 +680,32 @@ class CoverLayoutService:
             arrangements = _CANDIDATE_ARRANGEMENTS
         source_size = image_size(str(image_path)) if notes is not None and notes.face is not None else None
         if source_size is not None:
-            zone = min(("bottom", "top"), key=lambda side: self._zone_cost(source_size, notes, side))
+            zone = min(("bottom", "top"), key=lambda value: self._zone_cost(source_size, notes, value))
+            side = min(SIDE_ZONES, key=lambda value: self._zone_cost(source_size, notes, value))
             plans = [
-                (arrangement, 1.0, framing)
-                for framing in ("loose", "tight")
-                for arrangement in (("lead", zone), ("headline", zone), ("split", zone))
-            ] + [(arrangement, 1.0, "") for arrangement in arrangements[:2]]
+                (("lead", zone), 1.0, "loose"), (("slot", side), 1.0, "loose"), (("headline", zone), 1.0, "tight"),
+                (("split", zone), 1.0, "loose"), (("lead", zone), 1.0, "tight"), (("headline", zone), 1.0, "loose"),
+                (("split", zone), 1.0, "tight"),
+            ] + [(arrangement, 1.0, "") for arrangement in arrangements[:1]]
         else:
             plans = [(arrangement, 1.0, "") for arrangement in arrangements] + [
                 (arrangement, _CANDIDATE_ZOOM, "") for arrangement in arrangements
             ]
+        best = min(len(copies), _TOP_COPIES)
+
+        def copy_for(plan: int, round_index: int) -> AICopy:
+            if round_index == 0 or len(copies) <= best:
+                return copies[(plan + round_index) % best]
+            rest = copies[best:]
+            return rest[(plan + (round_index - 1) * len(plans)) % len(rest)]
+
         ideas = []
         for index in range(limit):
             # 同一种排法每轮出现时换文案、换配色，避免和上一轮重复。
             plan, round_index = index % len(plans), index // len(plans)
             (layout, position), zoom, framing = plans[plan]
             ideas.append(AISchemeIdea(
-                direction="", copy=copies[(plan + round_index) % len(copies)], layout=layout,
+                direction="", copy=copy_for(plan, round_index), layout=layout,
                 preset=_SCHEME_PRESETS[(plan + 2 * round_index) % len(_SCHEME_PRESETS)], reason="", place=position,
                 zoom=zoom, framing=framing,
             ))

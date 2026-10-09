@@ -68,7 +68,7 @@ def _rgb(color: str) -> tuple[int, int, int] | None:
         return None
 
 
-def _luminance(color: str) -> float:
+def luminance(color: str) -> float:
     rgb = _rgb(color)
     return (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 if rgb else 0.5
 
@@ -76,8 +76,8 @@ def _luminance(color: str) -> float:
 def accent_for(fill: str, stroke: str) -> str:
     """没指定强调色时按填充和描边挑一个对比色：黑边黄字配青、黑边白字配黄，白边彩字配黑。"""
 
-    if _luminance(stroke) > 0.6:
-        return "#111111" if _luminance(fill) > 0.25 else "#F44336"
+    if luminance(stroke) > 0.6:
+        return "#111111" if luminance(fill) > 0.25 else "#F44336"
     rgb = _rgb(fill)
     if rgb and rgb[0] > 200 and rgb[1] > 170 and rgb[2] < 130:
         return "#16D8ED"
