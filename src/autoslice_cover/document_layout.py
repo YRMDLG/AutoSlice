@@ -7,6 +7,7 @@ Qt 画布和 Pillow 导出都从这里取“画在哪、断成几行、多大字
 
 from __future__ import annotations
 
+import math
 import threading
 import unicodedata
 from dataclasses import dataclass, replace
@@ -26,7 +27,14 @@ OVERLAY_BASE_WIDTH = 0.24
 OVERLAY_MAX_WIDTH = 0.96
 OVERLAY_MAX_HEIGHT = 0.92
 SHAPE_MIN_SIZE = 0.02
-SHAPE_MAX_SIZE = 0.98
+SHAPE_MAX_SIZE = 1.0
+# 形状种类：圆圈、箭头、矩形框、爆炸贴、集中线。
+SHAPE_TYPES = ("circle", "arrow", "rect", "burst", "focus")
+# 爆炸贴：尖角数、凹点半径；集中线：根数、中心留空椭圆的半径（都相对外框半宽高）。
+BURST_SPIKES = 14
+BURST_INNER = 0.68
+FOCUS_LINES = 44
+FOCUS_INNER = 0.62
 CONTEXT_MIN_FONT_SIZE = 36
 EMPHASIS_MIN_FONT_SIZE = 42
 MAX_FONT_SIZE = 320
@@ -167,6 +175,47 @@ def shape_box(
 
 def arrow_head_size(box: Box) -> float:
     return max(8.0, min(box.width, box.height) * 0.25)
+
+
+def burst_points(box: Box) -> tuple[tuple[float, float], ...]:
+    """爆炸贴的外轮廓：长短交错的尖角，像漫画里的“砰”。"""
+
+    rx, ry = box.width / 2, box.height / 2
+    points = []
+    for index in range(BURST_SPIKES * 2):
+        angle = -math.pi / 2 + index * math.pi / BURST_SPIKES
+        radius = (1.0 if index % 4 == 0 else 0.84) if index % 2 == 0 else BURST_INNER
+        points.append((box.center_x + rx * radius * math.cos(angle), box.center_y + ry * radius * math.sin(angle)))
+    return tuple(points)
+
+
+def _edge_point(box: Box, angle: float) -> tuple[float, float]:
+    """从框中心沿椭圆参数角 angle 的方向射出，与外框边的交点。"""
+
+    dx, dy = math.cos(angle), math.sin(angle)
+    reach = min(1 / abs(dx) if abs(dx) > 1e-9 else math.inf, 1 / abs(dy) if abs(dy) > 1e-9 else math.inf)
+    return box.center_x + box.width / 2 * dx * reach, box.center_y + box.height / 2 * dy * reach
+
+
+def focus_wedges(box: Box) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """集中线：从外框边缘指向中心的细长三角，中心留一块椭圆空地给人物；粗细、长短按序号错开，不呆板。"""
+
+    rx, ry = box.width / 2, box.height / 2
+    wedges = []
+    for index in range(FOCUS_LINES):
+        angle = 2 * math.pi * (index + 0.5 * ((index * 37) % 17) / 17) / FOCUS_LINES
+        half = 0.012 + 0.018 * ((index * 53) % 13) / 13
+        inner = FOCUS_INNER + 0.18 * ((index * 29) % 11) / 11
+        tip = (box.center_x + rx * inner * math.cos(angle), box.center_y + ry * inner * math.sin(angle))
+        wedges.append((_edge_point(box, angle - half), _edge_point(box, angle + half), tip))
+    return tuple(wedges)
+
+
+def in_focus_hole(box: Box, x: float, y: float) -> bool:
+    """点落在集中线中间的空地里（点这里应当点到下面的画面，而不是集中线）。"""
+
+    rx, ry = max(1.0, box.width / 2), max(1.0, box.height / 2)
+    return ((x - box.center_x) / rx) ** 2 + ((y - box.center_y) / ry) ** 2 < FOCUS_INNER**2
 
 
 def shadow_offset(font_size: int) -> int:
@@ -657,7 +706,15 @@ def _wrap_paragraph(
     stroke_width: int,
     font_paths: tuple[str | None, ...],
     weight: int,
+    keep: tuple[str, ...] = (),
 ) -> list[str]:
+    # 强调词内部不断行（「改变」不拆成「改 / 变」）；实在放不下才在强制模式里断开。
+    protected: set[int] = set()
+    for word in keep:
+        start = value.find(word) if word else -1
+        while start >= 0:
+            protected.update(range(start + 1, start + len(word)))
+            start = value.find(word, start + len(word))
     advances = _advances(value, size, font_paths, weight)
     prefix = [0.0]
     for advance in advances:
@@ -673,7 +730,7 @@ def _wrap_paragraph(
         best[0] = (0, 0.0, -1)
         for end in range(1, total + 1):
             if end < total:
-                penalty = break_penalty(value, end)
+                penalty = None if end in protected else break_penalty(value, end)
                 if penalty is None:
                     if not force:
                         continue
@@ -722,6 +779,7 @@ def _relative_wrap(
     align: str,
     font_paths: tuple[str | None, ...],
     weight: int,
+    keep: tuple[str, ...] = (),
 ) -> TextLayout:
     width = max(8, width)
     paragraphs = [part.strip() for part in text.replace("\r\n", "\n").split("\n") if part.strip()]
@@ -729,7 +787,7 @@ def _relative_wrap(
     for paragraph in paragraphs:
         effective = float(width)
         for _attempt in range(3):
-            pieces = _wrap_paragraph(paragraph, effective, size, stroke_width, font_paths, weight)
+            pieces = _wrap_paragraph(paragraph, effective, size, stroke_width, font_paths, weight, keep)
             # 逐字宽度是近似值，实测超出时收窄重排。
             overflow = max(
                 measure_line(piece, size, stroke_width, font_paths, weight).width for piece in pieces
@@ -817,8 +875,9 @@ def wrap_text(
     align: str,
     font_paths: tuple[str | None, ...],
     weight: int = 900,
+    keep_together: Sequence[str] = (),
 ) -> TextLayout:
-    """固定字号、按宽度换行；area 高度即文字总高，ink 为贴合文字的框。"""
+    """固定字号、按宽度换行；area 高度即文字总高，ink 为贴合文字的框。keep_together 里的词尽量不断开。"""
 
     relative = _relative_wrap(
         str(text),
@@ -829,5 +888,6 @@ def wrap_text(
         align if align in {"left", "center", "right"} else "left",
         tuple(font_paths),
         int(weight),
+        tuple(word for word in keep_together if word and len(word) > 1),
     )
     return relative.translated(origin[0], origin[1])

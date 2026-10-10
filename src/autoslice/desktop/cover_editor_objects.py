@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from .cover_asset_dialog import CoverAssetDialog
 from .cover_draft import CoverDraft
+from .cover_effects import add_burst
 from .cover_model import (
     AssetRef,
     BackgroundObject,
@@ -42,6 +43,14 @@ from .cover_model import (
     update_text_object,
 )
 from .cover_style import streamer_key
+
+# 形状菜单：名称和默认样子（爆炸贴红底黑边；集中线铺满整个画面，中间留空给人物）。
+_SHAPE_LABELS = {"circle": "圆圈", "arrow": "箭头", "rect": "矩形框", "burst": "爆炸贴", "focus": "集中线"}
+_SHAPE_DEFAULTS = {
+    "burst": {"fill": "#FF3B30", "stroke": "#111111", "stroke_width": 6, "width": 0.3, "height": 0.26,
+              "transform": Transform(x=0.6, y=0.1)},
+    "focus": {"stroke": "#111111", "width": 1.0, "height": 1.0, "transform": Transform(x=0.0, y=0.0)},
+}
 
 
 class CoverObjectsMixin:
@@ -114,19 +123,37 @@ class CoverObjectsMixin:
 
     def _shape_menu(self, parent) -> QMenu:
         menu = QMenu(parent)
-        for shape_type, label in (("circle", "圆圈"), ("arrow", "箭头"), ("rect", "矩形框")):
+        for shape_type, label in _SHAPE_LABELS.items():
             menu.addAction(label, lambda value=shape_type: self._add_shape(value))
+        menu.addSeparator()
+        menu.addAction("给选中文字垫爆炸贴", self._add_burst_behind_text)
         return menu
 
     def _add_shape(self, shape_type: str = "circle"):
-        if self.document is None or shape_type not in {"circle", "arrow", "rect"}:
+        if self.document is None or shape_type not in _SHAPE_LABELS:
             return
-        self._insert_overlay(ShapeObject(
-            id=self._new_object_id("shape"), shape_type=shape_type,
-            transform=Transform(x=0.58, y=0.44, scale=1.0),
-        ))
-        label = {"circle": "圆圈", "arrow": "箭头", "rect": "矩形框"}[shape_type]
-        self.status_changed.emit(f"已添加{label}，可直接在画布上拖动")
+        self._insert_overlay(ShapeObject(id=self._new_object_id("shape"), shape_type=shape_type, **_SHAPE_DEFAULTS.get(
+            shape_type, {"transform": Transform(x=0.58, y=0.44, scale=1.0)},
+        )))
+        tip = "中间空着的地方照样能拖底图" if shape_type == "focus" else "可直接在画布上拖动"
+        self.status_changed.emit(f"已添加{_SHAPE_LABELS[shape_type]}，{tip}")
+
+    def _add_burst_behind_text(self):
+        """给选中的文字（没选就是主文案 B）的强调词垫爆炸贴；没有强调词就垫在整段字后面。"""
+
+        if self.document is None:
+            return
+        text = self._selected_text()
+        if text is None:
+            return
+        before = self.document
+        self.document = add_burst(self.document, text.id, self._canvas_key)
+        if self.document == before:
+            self.status_changed.emit("这段字已经垫过爆炸贴了")
+            return
+        self._commit_document_change(before)
+        self.canvas.set_document(self.document, self._canvas_key)
+        self.status_changed.emit("已垫爆炸贴：在两个比例里各自对准这段字，颜色和大小可以在右侧改（Ctrl+Z 可撤销）")
 
     def _add_text(self):
         """新建文本框：沿用主文案样式放在画面中部，选中后直接输入文字。"""
@@ -209,13 +236,20 @@ class CoverObjectsMixin:
             for widget in (self.overlay_scale_spin, self.overlay_rotation_spin):
                 widget.blockSignals(False)
         image = isinstance(selected, (ImageObject, StickerObject))
+        picture = isinstance(selected, ImageObject)
         shape = isinstance(selected, ShapeObject)
-        style_widgets = (self.overlay_opacity_spin, self.shape_stroke_button, self.shape_stroke_spin, self.shape_fill_button)
+        style_widgets = (
+            self.overlay_opacity_spin, self.shape_stroke_button, self.shape_stroke_spin, self.shape_fill_button,
+            self.picture_border_button, self.picture_border_spin,
+        )
         for widget in style_widgets:
             widget.blockSignals(True)
         try:
             if image:
                 self.overlay_opacity_spin.setValue(round(float(selected.opacity) * 100))
+            if picture:
+                self.picture_border_button.set_color(selected.border)
+                self.picture_border_spin.setValue(int(selected.border_width))
             if shape:
                 self.shape_stroke_button.set_color(selected.stroke)
                 self.shape_stroke_spin.setValue(int(selected.stroke_width))
@@ -227,6 +261,8 @@ class CoverObjectsMixin:
         # 第 3 行是“线条”（颜色 + 线宽的组合行，只能按行号控制）。
         self._overlay_form.setRowVisible(3, shape)
         self._overlay_form.setRowVisible(self.shape_fill_button, shape)
+        # 第 5 行是“边框”（颜色 + 宽度的组合行）。
+        self._overlay_form.setRowVisible(5, picture)
         self.lock_asset_button.setChecked(bool(enabled and selected.locked))
         self.hide_asset_button.setEnabled(enabled)
         self.lock_asset_button.setEnabled(enabled)
@@ -265,7 +301,13 @@ class CoverObjectsMixin:
         if self.document is None:
             return
         selected = self._selected_render_object()
-        if isinstance(selected, (ImageObject, StickerObject)):
+        if isinstance(selected, ImageObject):
+            fields = {
+                "opacity": self.overlay_opacity_spin.value() / 100,
+                "border": self.picture_border_button.color(),
+                "border_width": self.picture_border_spin.value(),
+            }
+        elif isinstance(selected, StickerObject):
             fields = {"opacity": self.overlay_opacity_spin.value() / 100}
         elif isinstance(selected, ShapeObject):
             fields = {
@@ -328,7 +370,7 @@ class CoverObjectsMixin:
             else:
                 label = names.get(type(item), "对象")
                 if isinstance(item, ShapeObject):
-                    label += {"circle": "：圆圈", "arrow": "：箭头", "rect": "：矩形"}.get(item.shape_type, "")
+                    label += "：" + _SHAPE_LABELS.get(item.shape_type, "形状")
             self.hidden_menu.addAction(label, lambda value=item.id: self._restore_object(value))
         if self.hidden_menu.isEmpty():
             self.hidden_menu.addAction("没有隐藏的对象").setEnabled(False)

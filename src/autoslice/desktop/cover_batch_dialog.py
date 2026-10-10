@@ -7,6 +7,7 @@ from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -17,6 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+
+from .cover_templates import CoverTemplate
 
 
 @dataclass(frozen=True)
@@ -51,8 +54,8 @@ class CoverBatchDialog(QDialog):
 
     finished_batch = Signal(int, int)
 
-    def __init__(self, targets: tuple[BatchTarget, ...], action: Callable[[SubmissionProject, ProjectVideo], object],
-                 run: Runner, parent=None):
+    def __init__(self, targets: tuple[BatchTarget, ...], action: Callable[..., object],
+                 run: Runner, parent=None, *, templates: tuple[CoverTemplate, ...] = ()):
         super().__init__(parent)
         self.setWindowTitle("批量出封面")
         self.resize(620, 520)
@@ -96,6 +99,17 @@ class CoverBatchDialog(QDialog):
             picks.addWidget(button)
         picks.addStretch(1)
         layout.addLayout(picks)
+        # 日更版式统一：新封面排完再套一个模板（已有草稿的按草稿，不套）。
+        template_row = QHBoxLayout()
+        template_row.addWidget(QLabel("新封面套用模板"))
+        self.template_combo = QComboBox()
+        self.template_combo.addItem("不套用（自动排版）", None)
+        for template in templates:
+            self.template_combo.addItem(template.name, template)
+        self.template_combo.setEnabled(bool(templates))
+        self.template_combo.setToolTip("在封面页“模板”里把排好的封面存为模板，这里就能选" if not templates else "")
+        template_row.addWidget(self.template_combo, 1)
+        layout.addLayout(template_row)
         self.progress = QLabel("")
         self.progress.setObjectName("subtle")
         layout.addWidget(self.progress)
@@ -141,7 +155,7 @@ class CoverBatchDialog(QDialog):
         self._stopping = False
         self._done = self._failed = 0
         self.start_button.setText("停止")
-        for widget in (self.list, self.all_button, self.new_button, self.none_button, self.close_button):
+        for widget in (self.list, self.all_button, self.new_button, self.none_button, self.close_button, self.template_combo):
             widget.setEnabled(False)
         self._next()
 
@@ -155,8 +169,9 @@ class CoverBatchDialog(QDialog):
         self.progress.setText(f"{self._done + self._failed + 1}/{total} 正在处理：{target.label}")
         self.list.item(index).setText(f"{target.label}    —  处理中…")
         self.list.scrollToItem(self.list.item(index))
+        template = self.template_combo.currentData()
         self._run(
-            lambda: self._action(target.project, target.video),
+            lambda: self._action(target.project, target.video, template=template),
             lambda result, error, value=index: self._item_done(value, result, error),
         )
 

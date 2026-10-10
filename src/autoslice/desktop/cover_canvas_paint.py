@@ -30,6 +30,8 @@ from autoslice_cover.document_layout import (
     arrow_head_size,
     backdrop_box,
     backdrop_radius,
+    burst_points,
+    focus_wedges,
     load_font,
     shadow_offset,
 )
@@ -173,6 +175,14 @@ class CanvasPaintMixin:
             painter.setOpacity(max(0.0, min(1.0, item.opacity)))
             self._rotate_about(painter, box.center_x, box.center_y, item.transform.rotation)
             painter.drawPixmap(target, pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()))
+            border = int(getattr(item, "border_width", 0))
+            if getattr(item, "border", "") and border > 0:
+                # 和导出一样画在图片边缘以内：画笔以线为中心，往里收半个线宽。
+                pen = QPen(_qcolor(item.border), border)
+                pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(target.adjusted(border / 2, border / 2, -border / 2, -border / 2))
             painter.restore()
             return
         if isinstance(item, ShapeObject):
@@ -195,6 +205,15 @@ class CanvasPaintMixin:
                     QPointF(target.right() - head, target.top()),
                     QPointF(target.right(), target.top() + head),
                 )))
+            elif item.shape_type == "burst":
+                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                painter.setPen(pen)
+                painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in burst_points(box)]))
+            elif item.shape_type == "focus":
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(stroke)
+                for wedge in focus_wedges(box):
+                    painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in wedge]))
             else:
                 painter.drawRect(target)
             painter.restore()

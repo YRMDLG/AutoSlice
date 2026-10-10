@@ -415,7 +415,9 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         )
         calls = []
 
-        def action(project, _video):
+        def action(project, _video, *, template=None):
+            # 没有模板时下拉框是“不套用”。
+            self.assertIsNone(template)
             calls.append(project.id)
             if project.id == "project-2":
                 raise ValueError("坏了")
@@ -919,6 +921,37 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         second = service.auto_cover(project, video)
         self.assertTrue(all(path.exists() for path in first + second))
         self.assertEqual(len(set(first + second)), 4)
+
+    def test_auto_cover_puts_template_on_new_covers(self):
+        from autoslice.desktop.cover_model import (
+            AssetRef,
+            BackgroundObject,
+            StickerObject,
+            TextObject,
+            Transform,
+            insert_overlay,
+        )
+        from autoslice.desktop.cover_templates import TEMPLATE_PREFIX, make_template
+
+        service = self.widget.service
+        project, video = self.project, self.project.videos[0]
+        logo = Path(self.temp.name) / "logo.png"
+        Image.new("RGBA", (60, 60), (255, 0, 0, 255)).save(logo)
+        model = service.load_document(project, video)[0]
+        headline = next(item for item in model.objects if isinstance(item, TextObject) and item.copy_role == "B")
+        model = replace(model, objects=tuple(
+            replace(item, style=replace(item.style, fill="#00FF00"), transform=Transform(x=0.3, y=0.7))
+            if item.id == headline.id else item for item in model.objects
+        ))
+        model = insert_overlay(model, StickerObject(id="sticker-1", asset=AssetRef(path=str(logo))))
+        template = make_template(model, "日更", frames_dir=service.storage.thumbnails / "cover-frames")
+        service.auto_cover(project, video, template=template)
+        saved = service.load_document(project, video)[0]
+        headline = next(item for item in saved.objects if isinstance(item, TextObject) and item.copy_role == "B")
+        self.assertEqual(headline.style.fill, "#00FF00")
+        self.assertIn(TEMPLATE_PREFIX + "sticker-1", {item.id for item in saved.objects})
+        background = next(item for item in saved.objects if isinstance(item, BackgroundObject))
+        self.assertTrue(background.asset is not None and Path(background.asset.path).is_file())
 
     def test_reexported_video_keeps_layout_and_retakes_frame_at_same_time(self):
         from autoslice.desktop.cover import CoverEditorWidget

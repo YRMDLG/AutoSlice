@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QLabel
 from autoslice_cover.document_layout import (
     Box,
     TextLayout,
+    in_focus_hole,
 )
 from autoslice_cover.fonts import FontResolution
 
@@ -402,9 +403,18 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         """按 z 从上到下命中第一个可见对象；旋转对象按旋转后的框命中。"""
 
         for item in reversed(self._layered_objects()):
-            if item.visible and self._frame_contains(item, point):
+            if item.visible and self._frame_contains(item, point) and not self._in_focus_hole(item, point):
                 return item
         return None
+
+    def _in_focus_hole(self, obj: RenderObject, point: QPointF) -> bool:
+        """集中线铺满画面：点在中间空地上时让给下面的画面（还能拖底图），只有点到线圈才算点中它。"""
+
+        if not (isinstance(obj, ShapeObject) and obj.shape_type == "focus"):
+            return False
+        rect, center, angle = self._frame(obj)
+        local = self._rotate(point, center, -angle)
+        return in_focus_hole(Box(rect.left(), rect.top(), rect.width(), rect.height()), local.x(), local.y())
 
     def _safe_area_warning_for(self, obj: TextObject | None) -> bool:
         if obj is None:

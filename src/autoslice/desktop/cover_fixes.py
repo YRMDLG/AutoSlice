@@ -15,6 +15,7 @@ from autoslice_cover.document_layout import clamp_background_scale
 from .cover_ai import AIFix
 from .cover_autolayout import primary_copy_ids, replace_copy
 from .cover_copy import BasicCoverCopy
+from .cover_effects import add_burst, burst_id
 from .cover_layout import canvas_size, text_layout
 from .cover_model import (
     BackgroundObject,
@@ -74,6 +75,8 @@ def describe_state(document: CoverDocument, profile_key: str) -> str:
     parts = ["强调词：" + ("「" + "」「".join(words) + "」" if words else "无")]
     parts.append(f"字倾斜：{'有' if any(abs(item.transform.rotation) >= _TILTED for item in texts.values()) else '无'}")
     parts.append(f"外描边：{'有' if any(item.style.outer_stroke for item in texts.values()) else '无'}")
+    bursts = {burst_id(item.id) for item in texts.values()}
+    parts.append(f"爆炸贴：{'有' if any(item.id in bursts and item.visible for item in document.objects) else '无'}")
     if headline is not None:
         preset = next(
             (item for item in STYLE_PRESETS
@@ -122,6 +125,10 @@ def _apply_action(
 ) -> CoverDocument:
     key = profile_key
     texts = _visible_texts(document, key)
+    if action == "burst":
+        # 垫在主文案（没有就 A）的强调词后面；已经垫过就不变。
+        target = texts.get("B") or texts.get("A")
+        return add_burst(document, target.id, key) if target is not None else document
     if action == "rewrite":
         return replace_copy(document, BasicCoverCopy(context=fix.context, headline=fix.headline), key)
     if action in ("move_bottom", "move_top"):

@@ -149,6 +149,7 @@ FIX_ACTIONS = {
     "smaller_context": "A 缩小，让 B 更突出",
     "emphasize": "把关键词换成强调色",
     "tilt": "字整体略微倾斜，更有动感",
+    "burst": "给强调词（没有就整段主文案）垫一个漫画爆炸贴",
     "outline": "字外面再加一圈描边，从背景里跳出来",
     "restyle": "换一套配色",
     "rewrite": "换一句文案",
@@ -159,6 +160,7 @@ FIX_ACTIONS = {
 _ACTION_NAMES = {
     "move_bottom": "字移到下方", "move_top": "字移到上方", "zoom_in": "画面拉近", "zoom_out": "画面拉远",
     "bigger": "主文案放大", "smaller_context": "A 缩小", "tilt": "字倾斜", "outline": "加外描边",
+    "burst": "垫爆炸贴",
 }
 # 一条建议最多组合几个操作；互相抵消的操作只留前一个。
 _MAX_FIX_ACTIONS = 3

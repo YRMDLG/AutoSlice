@@ -26,6 +26,7 @@ from .cover_model import (
     StickerObject,
 )
 from .cover_style import streamer_key
+from .cover_templates import CoverTemplate, apply_template
 
 
 class CoverExportService:
@@ -70,8 +71,13 @@ class CoverExportService:
         pattern = str(Path(glob.escape(project.directory)) / f"AutoCover-{glob.escape(stem)}*.jpg")
         return tuple(sorted(Path(item) for item in glob.glob(pattern)))
 
-    def auto_cover(self, project: SubmissionProject, video: ProjectVideo) -> tuple[Path, Path]:
-        """批量出图：有草稿按草稿导出；没有就全片选帧、自动排版后导出，并存成草稿方便回头再改。"""
+    def auto_cover(
+        self, project: SubmissionProject, video: ProjectVideo, *, template: CoverTemplate | None = None,
+    ) -> tuple[Path, Path]:
+        """批量出图：有草稿按草稿导出；没有就全片选帧、自动排版后导出，并存成草稿方便回头再改。
+
+        给了模板时，新封面在自动取景排版后再套模板（字的位置和样式、贴纸都按模板）；已有草稿的不动。
+        """
 
         document, read = self.load_document(project, video)
         background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
@@ -97,6 +103,8 @@ class CoverExportService:
             )
             if not keep_layout:
                 document = self.apply_auto_layout(document, best.path)
+                if template is not None:
+                    document = apply_template(document, template)
             self.save_document(project, video, document)
         return self.export_both(project, video, document, work={"scheme": "batch"})
 

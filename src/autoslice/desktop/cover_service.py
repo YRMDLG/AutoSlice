@@ -18,6 +18,7 @@ from .cover_store import CoverStoreService
 from .cover_style import (
     CoverStyleMemoryStore,
 )
+from .cover_templates import CoverTemplateStore
 from .cover_works import CoverWorks
 
 
@@ -35,6 +36,7 @@ class CoverService(
         self.previews = storage.thumbnails / "cover-previews"
         self.asset_library = CoverAssetLibrary(storage.root)
         self.style_memory = CoverStyleMemoryStore(storage.root)
+        self.templates = CoverTemplateStore(storage.root)
         self.works = CoverWorks(storage)
         self.ai = CoverAI(storage)
         self.export_history_path = storage.root / "cover-export-history.json"

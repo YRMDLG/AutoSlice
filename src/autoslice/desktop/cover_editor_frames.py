@@ -15,6 +15,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QFileDialog,
+    QMenu,
     QMessageBox,
     QPushButton,
 )
@@ -26,9 +27,14 @@ from .cover_frames import CoverFrame, best_overview_frame, recommended_frame
 from .cover_model import (
     AssetRef,
     BackgroundObject,
+    ImageObject,
+    Transform,
     object_for_profile,
     set_profile_override,
 )
+
+# 拼进来的小图：放在右上、占画面约四成宽、稍微歪一点，白边宽度（导出像素）。
+_PICTURE_X, _PICTURE_Y, _PICTURE_SCALE, _PICTURE_TILT, _PICTURE_BORDER = 0.56, 0.06, 1.6, 3.0, 10
 
 
 class CoverFramesMixin:
@@ -183,6 +189,7 @@ class CoverFramesMixin:
         """缩略图、时间和画质说明；推荐只做标记，不替用户换帧。"""
 
         button.setProperty("timestamp", frame.timestamp)
+        button.setProperty("path", str(frame.path))
         button.setText(f"{'★ ' if recommended else ''}{frame.timestamp:.2f}s")
         pixmap = QPixmap(str(frame.path))
         if not pixmap.isNull():
@@ -195,10 +202,45 @@ class CoverFramesMixin:
                 lines.append("画面中下部可能有字幕或文字条")
         if recommended:
             lines.append("推荐：附近画面中画质明显更好；点击后才会换帧")
+        lines.append("右键：作为小图拼进封面")
         button.setToolTip("\n".join(lines))
         button.setProperty("recommended", recommended)
         button.style().unpolish(button)
         button.style().polish(button)
+
+    def _frame_button_menu(self, button: QPushButton, position):
+        """帧缩略图右键：换成底图，或作为小图拼进封面（反应 + 证据）。"""
+
+        timestamp = float(button.property("timestamp") or 0.0)
+        menu = QMenu(button)
+        menu.addAction("设为底图", lambda: self._choose_nearby_frame(timestamp))
+        menu.addAction("作为小图拼进封面", lambda: self._insert_frame_picture(timestamp))
+        menu.exec(button.mapToGlobal(position))
+
+    def _insert_frame_picture(self, timestamp: float):
+        """把视频里另一帧当带白边的小图放进封面右上，稍微歪一点；底图不变。"""
+
+        if self.video is None or self.document is None or not Path(self.video.path).is_file():
+            return
+        video, service = self.video, self.service
+        self.status_changed.emit(f"正在取 {timestamp:.2f} 秒的画面…")
+        self._run(
+            lambda: service.extract_frame(video, timestamp),
+            lambda result, error: self._frame_picture_ready(result, error),
+        )
+
+    def _frame_picture_ready(self, result, error):
+        if error is not None or self.document is None:
+            if error is not None:
+                self._set_notice(f"取帧失败：{error}", "error")
+            return
+        path, timestamp = result
+        self._insert_overlay(ImageObject(
+            id=self._new_object_id("image"), asset=AssetRef(path=str(path)),
+            transform=Transform(x=_PICTURE_X, y=_PICTURE_Y, scale=_PICTURE_SCALE, rotation=_PICTURE_TILT),
+            border="#FFFFFF", border_width=_PICTURE_BORDER,
+        ))
+        self.status_changed.emit(f"已把 {timestamp:.2f} 秒的画面拼进封面：拖动摆位置，右侧可调大小和白边")
 
     def _choose_nearby_frame(self, timestamp: float):
         if self.video is None:

@@ -134,8 +134,9 @@ def text_layout(item: TextObject, size: tuple[int, int]) -> TextLayout:
         align=item.align,
         font_paths=font_stack(style.font_family),
         weight=style.font_weight,
+        keep_together=item.emphasis,
     )
-    # 强调词只换颜色：断行和字号与不强调时完全一样。
+    # 强调词换颜色，字号不变；换行时强调词尽量不拆到两行。
     return emphasize(layout, item.emphasis) if item.emphasis else layout
 
 
@@ -243,7 +244,10 @@ def document_layers(
             box = overlay_geometry(item, size)
             path = asset_path(item)
             if box is not None and path:
-                layers.append(ImageLayer(path, box, item.transform.rotation, item.opacity))
+                layers.append(ImageLayer(
+                    path, box, item.transform.rotation, item.opacity,
+                    getattr(item, "border", "") or None, int(getattr(item, "border_width", 0)),
+                ))
         elif isinstance(item, ShapeObject):
             layers.append(ShapeLayer(
                 item.shape_type, shape_geometry(item, size), item.stroke,

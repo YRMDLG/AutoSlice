@@ -21,6 +21,8 @@ from .document_layout import (
     arrow_head_size,
     backdrop_box,
     backdrop_radius,
+    burst_points,
+    focus_wedges,
     load_font,
     shadow_offset,
 )
@@ -60,6 +62,9 @@ class ImageLayer:
     box: Box
     rotation: float = 0.0
     opacity: float = 1.0
+    # 边框画在图片边缘以内，宽度为画布像素。
+    border: str | None = None
+    border_width: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +225,10 @@ def draw_image_layer(base: Image.Image, layer: ImageLayer) -> None:
             (max(1, round(layer.box.width)), max(1, round(layer.box.height))),
             Image.Resampling.LANCZOS,
         )
+    if layer.border and layer.border_width > 0:
+        ImageDraw.Draw(image).rectangle(
+            (0, 0, image.width - 1, image.height - 1), outline=rgba(layer.border), width=int(layer.border_width),
+        )
     opacity = max(0.0, min(1.0, float(layer.opacity)))
     if opacity < 1.0:
         image.putalpha(image.getchannel("A").point(lambda value: round(value * opacity)))
@@ -254,6 +263,15 @@ def draw_shape_layer(base: Image.Image, layer: ShapeLayer) -> None:
         draw.line((start, end), fill=stroke, width=width)
         head = arrow_head_size(box)
         draw.polygon((end, (end[0] - head, end[1]), (end[0], end[1] + head)), fill=stroke)
+    elif layer.shape_type == "burst":
+        points = [(x + dx, y + dy) for x, y in burst_points(box)]
+        if fill:
+            draw.polygon(points, fill=fill)
+        # 用折线画描边：线宽以轮廓为中心、圆角相接，与 Qt 画笔一致。
+        draw.line([*points, points[0], points[1]], fill=stroke, width=width, joint="curve")
+    elif layer.shape_type == "focus":
+        for wedge in focus_wedges(box):
+            draw.polygon([(x + dx, y + dy) for x, y in wedge], fill=stroke)
     else:
         if fill:
             draw.rectangle(inner, fill=fill)

@@ -110,7 +110,7 @@ class CoverExportMixin:
         if not targets:
             self.status_changed.emit("投稿目录里没有可出图的视频")
             return
-        dialog = CoverBatchDialog(targets, self.service.auto_cover, self._run, self)
+        dialog = CoverBatchDialog(targets, self.service.auto_cover, self._run, self, templates=self.service.templates.list())
         dialog.finished_batch.connect(
             lambda done, failed: self.status_changed.emit(f"批量出图完成：成功 {done} 个，失败 {failed} 个")
         )

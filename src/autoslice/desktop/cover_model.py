@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
+from autoslice_cover.document_layout import SHAPE_TYPES
 from autoslice_cover.text_layout import (
     DEFAULT_TEXT_STYLE,
     TEXT_STYLE_REVISION,
@@ -399,6 +400,9 @@ class ImageObject(RenderObject):
     asset: AssetRef | None = None
     opacity: float = 1.0
     crop: Rect | None = None
+    # 边框（拼图小图的白边）：颜色为空表示没有；宽度是导出像素，画在图片边缘以内。
+    border: str = ""
+    border_width: int = 0
 
     def to_payload(self) -> dict[str, object]:
         value = self._base_payload()
@@ -406,6 +410,8 @@ class ImageObject(RenderObject):
             "asset": self.asset.to_payload() if self.asset else None,
             "opacity": self.opacity,
             "crop": self.crop.to_payload() if self.crop else None,
+            "border": self.border,
+            "border_width": self.border_width,
         })
         return value
 
@@ -420,6 +426,8 @@ class ImageObject(RenderObject):
             asset=AssetRef.from_payload(payload.get("asset")),
             opacity=bounded_number(payload.get("opacity"), 1.0, 0.0, 1.0),
             crop=Rect.from_payload(payload["crop"]) if isinstance(payload.get("crop"), Mapping) else None,
+            border=_color(payload.get("border")),
+            border_width=min(64, max(0, _integer(payload.get("border_width"), 0))),
         )
 
 
@@ -477,7 +485,7 @@ class ShapeObject(RenderObject):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ShapeObject":
-        shape_type = payload.get("shape_type") if payload.get("shape_type") in {"circle", "arrow", "rect"} else "rect"
+        shape_type = payload.get("shape_type") if payload.get("shape_type") in SHAPE_TYPES else "rect"
         try:
             stroke_width = int(payload.get("stroke_width", 8))
         except (TypeError, ValueError):
@@ -492,8 +500,8 @@ class ShapeObject(RenderObject):
             fill=payload.get("fill") if isinstance(payload.get("fill"), str) else None,
             stroke=_text(payload.get("stroke"), "#FFDB4D"),
             stroke_width=min(64, max(0, stroke_width)),
-            width=bounded_number(payload.get("width"), 0.22, 0.02, 0.95),
-            height=bounded_number(payload.get("height"), 0.16, 0.02, 0.95),
+            width=bounded_number(payload.get("width"), 0.22, 0.02, 1.0),
+            height=bounded_number(payload.get("height"), 0.16, 0.02, 1.0),
         )
 
 
@@ -679,7 +687,7 @@ def object_for_profile(document: CoverDocument, object_id: str, profile_key: str
         if "opacity" in override:
             changes["opacity"] = bounded_number(override.get("opacity"), item.opacity, 0.0, 1.0)
     if isinstance(item, ShapeObject):
-        if override.get("shape_type") in {"circle", "arrow", "rect"}:
+        if override.get("shape_type") in SHAPE_TYPES:
             changes["shape_type"] = override["shape_type"]
         if isinstance(override.get("fill"), str) or override.get("fill") is None:
             changes["fill"] = override.get("fill")
@@ -688,9 +696,9 @@ def object_for_profile(document: CoverDocument, object_id: str, profile_key: str
         if "stroke_width" in override:
             changes["stroke_width"] = min(64, max(0, _integer(override.get("stroke_width"), item.stroke_width)))
         if "width" in override:
-            changes["width"] = bounded_number(override.get("width"), item.width, 0.02, 0.95)
+            changes["width"] = bounded_number(override.get("width"), item.width, 0.02, 1.0)
         if "height" in override:
-            changes["height"] = bounded_number(override.get("height"), item.height, 0.02, 0.95)
+            changes["height"] = bounded_number(override.get("height"), item.height, 0.02, 1.0)
     if not changes:
         return item
     from dataclasses import replace

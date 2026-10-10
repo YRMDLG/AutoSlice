@@ -1,4 +1,4 @@
-"""快速方案、换一版文案与同步到另一比例。
+"""快速方案、换一版文案、模板（存为模板、套用、删除）与同步到另一比例。
 
 混入 CoverEditorWidget；只用 self 上的状态，不单独实例化。
 """
@@ -9,9 +9,11 @@ from PySide6.QtGui import (
     QIcon,
     QPixmap,
 )
+from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from .cover_autolayout import replace_copy
 from .cover_style import streamer_key
+from .cover_templates import apply_template, make_template
 
 
 class CoverSchemesMixin:
@@ -116,6 +118,57 @@ class CoverSchemesMixin:
         self.document = replace_copy(self.document, candidate, self._canvas_key)
         if self.document != before:
             self._commit_document_change(before)
+
+    def _fill_template_menu(self):
+        """模板菜单：存为模板；最近用过的模板在前，点一下套用；删除放子菜单。"""
+
+        menu = self.template_menu
+        menu.clear()
+        ready = self.document is not None
+        menu.addAction("把这张存为模板…", self._save_template).setEnabled(ready)
+        templates = self.service.templates.list()
+        if templates:
+            menu.addSeparator()
+            for template in templates:
+                menu.addAction(f"套用：{template.name}", lambda value=template: self._apply_template(value)).setEnabled(ready)
+            delete = menu.addMenu("删除模板")
+            for template in templates:
+                delete.addAction(template.name, lambda value=template: self._delete_template(value))
+        else:
+            menu.addAction("还没有模板：排好一张后存为模板").setEnabled(False)
+
+    def _save_template(self):
+        if self.document is None:
+            return
+        streamer = streamer_key(self.project.title) if self.project is not None else None
+        name, ok = QInputDialog.getText(
+            self, "存为模板", "模板名（记下字的样式和位置、贴纸，不记底图和文案）：",
+            text=f"{streamer}日更" if streamer else "我的模板",
+        )
+        if not ok or not name.strip():
+            return
+        template = make_template(self.document, name, frames_dir=self.service.storage.thumbnails / "cover-frames")
+        self.service.templates.save(template)
+        self.service.templates.mark_used(template.template_id)
+        self.status_changed.emit(f"已存为模板「{template.name}」：换个视频点“模板”就能套用，批量出图也能选")
+
+    def _apply_template(self, template):
+        if self.document is None:
+            return
+        before = self.document
+        self.document = apply_template(self.document, template, self._canvas_key)
+        self.service.templates.mark_used(template.template_id)
+        if self.document != before:
+            self._commit_document_change(before)
+            self.canvas.set_document(self.document, self._canvas_key)
+            self._sync_selected_text_controls()
+        self.status_changed.emit(f"已套用模板「{template.name}」（Ctrl+Z 可撤销）")
+
+    def _delete_template(self, template):
+        answer = QMessageBox.question(self, "删除模板", f"删除模板「{template.name}」？已经做好的封面不受影响。")
+        if answer == QMessageBox.StandardButton.Yes:
+            self.service.templates.delete(template.template_id)
+            self.status_changed.emit(f"已删除模板「{template.name}」")
 
     def _sync_other_ratio(self):
         if self.document is None:
