@@ -53,6 +53,9 @@ from .window_subtitles import SubtitleListMixin
 from .window_timeline import TimelineMixin
 from .window_widgets import _StatusLabel
 
+# 时间轴默认高度（像素）：记住过高度的按记住的来。
+TIMELINE_DEFAULT_HEIGHT = 150
+
 
 class DesktopWindow(
     ProjectsMixin,
@@ -359,9 +362,14 @@ class DesktopWindow(
 
     def _balance_vertical_splitter(self):
         super()._balance_vertical_splitter()
-        saved = self._session.get("timeline_height")
-        if not isinstance(saved, (int, float)) or not hasattr(self, "vertical_splitter"):
+        if not hasattr(self, "vertical_splitter"):
             return
+        saved = self._session.get("timeline_height")
+        if not isinstance(saved, (int, float)):
+            # 没拖过时间轴：默认就给足高度，波形和字幕块不用先拖大才看得清；窄屏紧凑布局不动。
+            if getattr(self, "_compact_layout", False):
+                return
+            saved = TIMELINE_DEFAULT_HEIGHT
         sizes = self.vertical_splitter.sizes()
         if len(sizes) != 3:
             return

@@ -138,13 +138,20 @@ class CanvasPaintMixin:
             painter.fillRect(QRectF(0, 0, width, height), QColor(COLORS.raised))
             return
         painter.fillRect(QRectF(0, 0, width, height), _qcolor(BACKGROUND_FILL))
-        box = self._background_box(self._find_background())
+        background = self._find_background()
+        box = self._background_box(background)
         if box is not None:
-            painter.drawPixmap(
-                QRectF(box.left, box.top, box.width, box.height),
-                pixmap,
-                QRectF(0, 0, pixmap.width(), pixmap.height()),
-            )
+            target = QRectF(box.left, box.top, box.width, box.height)
+            painter.drawPixmap(target, pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()))
+            if background is not None and background.cutout_active:
+                # 抠图：人物以外压暗，再把人物（带白色外发光）按同一个位置盖回去。
+                if background.dim > 0:
+                    painter.fillRect(
+                        target.intersected(QRectF(0, 0, width, height)), QColor(0, 0, 0, round(min(0.8, background.dim) * 255)),
+                    )
+                person = self._overlay_pixmap(background.cutout)
+                if not person.isNull():
+                    painter.drawPixmap(target, person, QRectF(0, 0, person.width(), person.height()))
 
     @staticmethod
     def _rotate_about(painter: QPainter, center_x: float, center_y: float, rotation: float):

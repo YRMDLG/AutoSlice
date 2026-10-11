@@ -228,6 +228,28 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertEqual(fixes[2].label, "换成「黄青」配色")
         self.assertIn("封面现在：强调词：无；字倾斜：无", model.calls[0][2])
 
+    def test_submission_copy_learns_past_titles_and_cleans_output(self):
+        reply = json.dumps({
+            "titles": ["【泽音】选秀带手机居然能改选曲？！", "【泽音】选秀带手机居然能改选曲？！", "【泽音】" + "长" * 100],
+            "description": "音音聊起选秀收手机的规则。",
+            "tags": ["#泽音", "泽音", "韩娱", "虚拟主播"] + [f"标签{index}" for index in range(12)],
+        }, ensure_ascii=False)
+        model = FakeModel(reply)
+        copy = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).submission_copy(
+            TITLE, CUES, streamer="泽音", past_titles=("【泽音】泽音一个晚上居然被冲了万楼？！",),
+        )
+        # 重复的去掉、超长的截到 80 字；标签去掉 #、去重、最多 10 个。
+        self.assertEqual(len(copy.titles), 2)
+        self.assertEqual(len(copy.titles[1]), 80)
+        self.assertEqual(copy.tags[:3], ("泽音", "韩娱", "虚拟主播"))
+        self.assertEqual(len(copy.tags), 10)
+        self.assertEqual(copy.description, "音音聊起选秀收手机的规则。")
+        prompt = model.calls[0][2]
+        self.assertIn("- 【泽音】泽音一个晚上居然被冲了万楼？！", prompt)
+        self.assertIn("[12.5] 这个位置竞演可以场外干涉", prompt)
+        with self.assertRaisesRegex(CoverAIError, "投稿文案"):
+            CoverAI(self.storage, llm=FakeModel("{}"), settings=lambda: CONFIGURED).submission_copy(TITLE, CUES, round_index=1)
+
     def test_pick_frame_maps_numbers_and_skips_single_frame(self):
         model = FakeModel(json.dumps({"index": 3, "expression": "惊讶张嘴", "reason": "反应最大"}, ensure_ascii=False),
                           json.dumps({"index": 9}))
@@ -540,6 +562,26 @@ class CoverAIEditorTests(unittest.TestCase):
         self.assertEqual(self._texts("16x9")["B"].emphasis, (word,))
         self.widget._undo()
         self.assertEqual(self._texts()["B"].emphasis, ())
+
+    def test_submission_copy_dialog_copies_to_clipboard(self):
+        from PySide6.QtGui import QGuiApplication
+        from PySide6.QtWidgets import QLineEdit, QPushButton
+
+        self.model.replies["analysis"] = json.dumps({
+            "titles": ["【泽音】选秀带手机居然能改选曲？！"], "description": "简介", "tags": ["泽音", "韩娱"],
+        }, ensure_ascii=False)
+        # 测试里直接塞的项目，没走切换项目的流程：手动打开编辑状态。
+        self.widget._set_editing_enabled(True)
+        self.assertTrue(self.widget.submission_button.isEnabled())
+        self.widget._submission_copy()
+        self.wait_for(lambda: getattr(self.widget, "_submission_box", None) is not None)
+        dialog = self.widget._submission_box
+        self.addCleanup(dialog.close)
+        edits = dialog.findChildren(QLineEdit)
+        self.assertEqual([edit.text() for edit in edits], ["【泽音】选秀带手机居然能改选曲？！", "泽音，韩娱"])
+        copy_buttons = [button for button in dialog.findChildren(QPushButton) if button.text() == "复制"]
+        copy_buttons[0].click()
+        self.assertEqual(QGuiApplication.clipboard().text(), "【泽音】选秀带手机居然能改选曲？！")
 
     def test_ai_failure_shows_reason(self):
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=FakeModel(), settings=AISettings)

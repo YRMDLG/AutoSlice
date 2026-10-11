@@ -47,6 +47,9 @@ class TextPaint:
 class BackgroundLayer:
     path: str
     box: Box
+    # 人物抠图（和底图同尺寸的透明 PNG）与人物以外压暗的程度。
+    cutout: str | None = None
+    dim: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +141,13 @@ def paste_background(base: Image.Image, layer: BackgroundLayer) -> None:
         )
         size = (max(1, round(visible.width)), max(1, round(visible.height)))
         region = source.resize(size, Image.Resampling.LANCZOS, box=crop)
+    if layer.dim > 0 and layer.cutout:
+        region = Image.blend(region, Image.new("RGB", region.size, (0, 0, 0)), min(0.8, float(layer.dim)))
     base.paste(region, (round(visible.left), round(visible.top)))
+    if layer.cutout and Path(layer.cutout).is_file():
+        with Image.open(layer.cutout) as cutout:
+            person = cutout.convert("RGBA").resize(size, Image.Resampling.LANCZOS, box=crop)
+        base.alpha_composite(person, (round(visible.left), round(visible.top)))
 
 
 def _draw_glyphs(

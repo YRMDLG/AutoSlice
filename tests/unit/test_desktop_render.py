@@ -136,6 +136,20 @@ class SubtitleRenderQtTests(unittest.TestCase):
         with patch.object(QMessageBox, "exec", new=choose):
             return self.window._resolve_unsaved()
 
+    def test_timeline_gets_readable_default_height_unless_remembered(self):
+        from autoslice.desktop.qt_app.window import TIMELINE_DEFAULT_HEIGHT
+
+        self.window.resize(1600, 1000)
+        self.app.processEvents()
+        self.window._session.pop("timeline_height", None)
+        self.window._balance_vertical_splitter()
+        # 没拖过：默认就够看清波形，不用先拖大。
+        self.assertGreaterEqual(self.window.vertical_splitter.sizes()[1], TIMELINE_DEFAULT_HEIGHT - 2)
+        # 记住过的高度照旧。
+        self.window._session["timeline_height"] = 124
+        self.window._balance_vertical_splitter()
+        self.assertAlmostEqual(self.window.vertical_splitter.sizes()[1], 124, delta=2)
+
     def test_resolve_unsaved_without_changes_keeps_direct_exit_behavior(self):
         self.wait_for(lambda: self.window._waveform_generation > 0 and not self.window._jobs)
         with patch.object(QMessageBox, "exec", side_effect=AssertionError("不应弹出确认框")):

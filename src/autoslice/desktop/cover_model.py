@@ -315,6 +315,15 @@ class BackgroundObject(RenderObject):
     pan_x: float = 0.5
     pan_y: float = 0.5
     crop: Rect | None = None
+    # 人物抠图：和底图同尺寸的透明 PNG（人物 + 白色外发光），cutout_for 记它是从哪张底图抠的；
+    # 换了底图就自动失效。dim 是抠图时人物以外压暗的程度（0~0.8）。两个比例共享。
+    cutout: str = ""
+    cutout_for: str = ""
+    dim: float = 0.0
+
+    @property
+    def cutout_active(self) -> bool:
+        return bool(self.cutout and self.asset is not None and self.cutout_for == self.asset.path)
 
     def to_payload(self) -> dict[str, object]:
         value = self._base_payload()
@@ -325,6 +334,9 @@ class BackgroundObject(RenderObject):
             "pan_x": self.pan_x,
             "pan_y": self.pan_y,
             "crop": self.crop.to_payload() if self.crop else None,
+            "cutout": self.cutout,
+            "cutout_for": self.cutout_for,
+            "dim": self.dim,
         })
         return value
 
@@ -342,6 +354,9 @@ class BackgroundObject(RenderObject):
             pan_x=bounded_number(payload.get("pan_x"), 0.5, 0.0, 1.0),
             pan_y=bounded_number(payload.get("pan_y"), 0.5, 0.0, 1.0),
             crop=Rect.from_payload(payload["crop"]) if isinstance(payload.get("crop"), Mapping) else None,
+            cutout=_text(payload.get("cutout")),
+            cutout_for=_text(payload.get("cutout_for")),
+            dim=bounded_number(payload.get("dim"), 0.0, 0.0, 0.8),
         )
 
 

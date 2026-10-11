@@ -22,7 +22,9 @@ from PySide6.QtWidgets import (
 
 from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCALE_MIN
 
+from .cover_ai import CoverAIError, jpeg_bytes
 from .cover_draft import CoverDraft
+from .cover_effects import CUTOUT_DIM, cutout_available, make_cutout
 from .cover_frames import CoverFrame, best_overview_frame, recommended_frame
 from .cover_model import (
     AssetRef,
@@ -31,6 +33,7 @@ from .cover_model import (
     Transform,
     object_for_profile,
     set_profile_override,
+    update_shared_fields,
 )
 
 # 拼进来的小图：放在右上、占画面约四成宽、稍微歪一点，白边宽度（导出像素）。
@@ -471,6 +474,71 @@ class CoverFramesMixin:
         self._show_new_frame()
         self._queue_nearby_thumbnails(timestamp)
         self._refresh_schemes()
+
+    def _cutout_person(self):
+        """抠出人物 / 取消抠图：抠图在后台跑（有 AI 就用它标的人物框和界面框，更准），完成后可撤销。"""
+
+        background = self._current_background()
+        if self.document is None or background is None or not self.draft.image_path:
+            return
+        if background.cutout_active:
+            self._set_background_effect(cutout="", cutout_for="", dim=0.0)
+            self.status_changed.emit("已取消抠图")
+            return
+        if not cutout_available():
+            self._set_notice("抠图需要本机装有 OpenCV（opencv-python）", "warning")
+            return
+        image_path, service = self.draft.image_path, self.service
+        self.cutout_button.setEnabled(False)
+        self._set_notice("正在抠人物…", "info")
+
+        def work():
+            try:
+                notes = service.ai.inspect(jpeg_bytes(image_path))
+            except CoverAIError:
+                notes = None  # 没配 AI 也能抠，只是人物框按画面中间估
+            return image_path, make_cutout(image_path, notes, service.storage.thumbnails / "cover-cutouts")
+
+        self._run(work, self._cutout_ready)
+
+    def _cutout_ready(self, result, error):
+        self.cutout_button.setEnabled(self.document is not None)
+        self._set_notice("")
+        if error is not None:
+            self._set_notice(f"抠图失败：{error}", "error")
+            return
+        image_path, cutout = result
+        if image_path != self.draft.image_path:
+            return  # 抠的时候换过底图，结果作废
+        self._set_background_effect(cutout=str(cutout), cutout_for=image_path, dim=CUTOUT_DIM)
+        self.status_changed.emit("已抠出人物：加了白色外发光、其余压暗；右侧可调压暗程度，再点一次取消（Ctrl+Z 可撤销）")
+
+    def _dim_changed(self, value: int):
+        background = self._current_background()
+        if background is not None and background.cutout_active and abs(background.dim - value / 100) > 1e-6:
+            self._set_background_effect(dim=value / 100)
+
+    def _set_background_effect(self, **fields):
+        """抠图和压暗是底图本体的属性，两个比例共享。"""
+
+        background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None)
+        if background is None:
+            return
+        before = self.document
+        self.document = update_shared_fields(self.document, background.id, **fields)
+        if self.document != before:
+            self._commit_document_change(before)
+            self.canvas.set_document(self.document, self._canvas_key)
+        self._sync_cutout_controls()
+
+    def _sync_cutout_controls(self):
+        background = self._current_background()
+        active = background is not None and background.cutout_active
+        self.cutout_button.setText("取消抠图" if active else "抠出人物")
+        self.dim_spin.blockSignals(True)
+        self.dim_spin.setValue(round((background.dim if active else 0.0) * 100))
+        self.dim_spin.blockSignals(False)
+        self.dim_spin.setEnabled(active)
 
     def _store_background_controls(self):
         if self.document is None:

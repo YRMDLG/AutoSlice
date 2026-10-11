@@ -103,6 +103,7 @@ class CoverEditorWidget(
         # AI 请求的代际（切项目即作废迟到结果）与“再点一次换一批”的轮次。
         self._ai_generation = 0
         self._ai_round = 0
+        self._submission_round = 0
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
@@ -298,11 +299,12 @@ class CoverEditorWidget(
         self._nearby_request_generation += 1
         self._ai_generation += 1
         self._ai_round = 0
+        self._submission_round = 0
 
     def _set_editing_enabled(self, enabled: bool):
         for button in (
             self.asset_menu_button, self.shape_menu_button, self.add_text_button,
-            self.next_button, self.sync_ratio_button,
+            self.next_button, self.sync_ratio_button, self.submission_button,
         ):
             button.setEnabled(enabled)
         self.sync_ratio_button.setText("同步到 16:9")
@@ -452,6 +454,7 @@ class CoverEditorWidget(
         self._show_background(self.draft.image_path or None)
         self.canvas.set_document(self.document, self._canvas_key)
         self._refresh_hidden_button()
+        self._sync_cutout_controls()
         if self.document is not None:
             selected = next(
                 (item for item in self.document.objects if item.id == self.document.selected_object_id),

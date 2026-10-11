@@ -233,7 +233,10 @@ def document_layers(
             path = asset_path(item)
             source = image_size(path)
             if background is None and path and source is not None:
-                background = BackgroundLayer(path, background_geometry(item, size, source))
+                background = BackgroundLayer(
+                    path, background_geometry(item, size, source),
+                    item.cutout if item.cutout_active else None, item.dim if item.cutout_active else 0.0,
+                )
             continue
         if not item.visible:
             continue

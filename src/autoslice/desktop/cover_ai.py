@@ -103,6 +103,22 @@ class AISchemeIdea:
 
 
 @dataclass(frozen=True, slots=True)
+class SubmissionCopy:
+    """投稿用的文字：备选标题、简介、标签。"""
+
+    titles: tuple[str, ...]
+    description: str
+    tags: tuple[str, ...]
+
+
+# B 站投稿标题最多 80 字；标签最多 10 个、每个最多 20 字；简介最多给这么多字。
+_MAX_TITLE = 80
+_MAX_TAGS = 10
+_MAX_TAG = 20
+_MAX_DESCRIPTION = 400
+
+
+@dataclass(frozen=True, slots=True)
 class AIPick:
     direction: str
     index: int
@@ -560,6 +576,49 @@ class CoverAI:
                 index=index, reason=_clean(item.get("reason"), 50),
             ))
         return AIChoice(picks=tuple(picks[:3]), rejected=_clean(payload.get("rejected"), 60))
+
+    def submission_copy(
+        self,
+        title: str,
+        cues: Sequence[tuple[float, float, str]],
+        *,
+        streamer: str = "",
+        past_titles: Sequence[str] = (),
+        round_index: int = 0,
+    ) -> SubmissionCopy:
+        """按这位切片员以前的标题口吻写投稿标题（3 个备选）、简介和标签；只用字幕里有的事。"""
+
+        examples = "\n".join(f"- {item}" for item in list(dict.fromkeys(past_titles))[:12]) or "（还没有）"
+        prompt = f"""你是 B 站直播切片的投稿编辑。根据这条切片现在的标题和校对字幕，写投稿用的标题、简介和标签。
+
+1. 标题：给 3 个备选，学这位切片员以前标题的口吻和格式（比如开头的【主播名】、标点和语气），{_MAX_TITLE} 字以内；
+   要有这条视频真正的爆点或反差，只写字幕里有的事，不编造、不写“震惊”“全网”这类营销话术；三个之间换角度或说法。
+2. 简介：2~3 句，交代背景和看点，可以引用一句主播原话；不要写“点赞投币关注”。
+3. 标签：6~{_MAX_TAGS} 个，每个 {_MAX_TAG} 字以内：主播名和常用称呼、这件事的关键词，再加“虚拟主播”“直播切片”这类通用标签。
+
+这位切片员以前的标题：
+{examples}
+
+主播：{streamer or "未知"}
+现在的标题：{title}
+
+字幕（[秒数] 文本）：
+{_subtitle_lines(cues)}
+
+第 {round_index + 1} 次生成{"，请给出和之前不同的标题" if round_index else ""}。
+只输出 JSON，不要解释：
+{{"titles": ["标题1", "标题2", "标题3"], "description": "简介", "tags": ["标签"]}}"""
+        payload = self._ask(prompt, vision=False, max_tokens=3000)
+        titles = tuple(dict.fromkeys(
+            text for text in (_clean(item, _MAX_TITLE) for item in payload.get("titles") or () if isinstance(item, str)) if text
+        ))[:3]
+        tags = tuple(dict.fromkeys(
+            text.lstrip("#") for text in (_clean(item, _MAX_TAG) for item in payload.get("tags") or () if isinstance(item, str)) if text
+        ))[:_MAX_TAGS]
+        description = str(payload.get("description") or "").strip()[:_MAX_DESCRIPTION]
+        if not titles and not description:
+            raise CoverAIError("AI 没给出投稿文案，可以再试一次")
+        return SubmissionCopy(titles=titles, description=description, tags=tags)
 
     def suggest_fixes(
         self,

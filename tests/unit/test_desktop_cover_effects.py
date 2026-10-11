@@ -13,7 +13,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from autoslice.desktop.cover_effects import add_burst, burst_id
+from autoslice.desktop.cover_ai import AIFrameNotes
+from autoslice.desktop.cover_effects import add_burst, burst_id, cutout_available, make_cutout
 from autoslice.desktop.cover_layout import canvas_size, document_layers, text_layout
 from autoslice.desktop.cover_model import (
     AssetRef,
@@ -28,6 +29,7 @@ from autoslice.desktop.cover_model import (
     default_profiles,
     insert_overlay,
     object_for_profile,
+    update_shared_fields,
     update_text_object,
 )
 from autoslice.desktop.cover_templates import (
@@ -44,6 +46,13 @@ try:
     from PySide6.QtWidgets import QApplication
 except ImportError:  # pragma: no cover - CI 无 Qt 时跳过
     QApplication = None
+
+
+def _unconfigured():
+    from autoslice.desktop.ai_settings import AISettings
+
+    return AISettings()
+
 
 
 def _frame(path: Path) -> Path:
@@ -226,13 +235,56 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual([item.name for item in store.list()], ["二"])
 
 
+@unittest.skipUnless(cutout_available(), "本机没有 OpenCV")
+class CutoutTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.frame = _frame(self.root / "frame.png")
+        # _frame 画的人：脸是中间那个椭圆；右上角有一块“聊天栏”。
+        self.notes = AIFrameNotes(busy=frozenset(), note="", face=(0.43, 0.2, 0.57, 0.55), person=(0.38, 0.15, 0.62, 0.62),
+                                  ui=((0.8, 0.0, 1.0, 0.5),))
+
+    def test_cutout_keeps_person_adds_white_glow_and_is_reused(self):
+        path = make_cutout(self.frame, self.notes, self.root / "cutouts")
+        with Image.open(path) as image:
+            cutout = image.convert("RGBA")
+        self.assertEqual(cutout.size, (1920, 1080))
+        self.assertEqual(cutout.getpixel((960, 400))[3], 255)
+        self.assertEqual(cutout.getpixel((200, 900))[3], 0)
+        # 人物边缘外面一圈是白色外发光。
+        glow = cutout.getpixel((960, 200 - 6))
+        self.assertGreater(glow[3], 100)
+        self.assertGreater(min(glow[:3]), 200)
+        self.assertEqual(make_cutout(self.frame, self.notes, self.root / "cutouts"), path)
+
+    def test_cutout_renders_person_over_darkened_frame_and_expires_with_the_frame(self):
+        path = make_cutout(self.frame, self.notes, self.root / "cutouts")
+        document = update_shared_fields(_document(self.frame), "background-main", cutout=str(path), cutout_for=str(self.frame), dim=0.5)
+        background = next(item for item in document.objects if isinstance(item, BackgroundObject))
+        self.assertTrue(background.cutout_active)
+        self.assertEqual(BackgroundObject.from_payload(background.to_payload()), background)
+        plain, cut = _render(_document(self.frame)), _render(document)
+        # 画面按 4:3 裁掉左右各 240 像素：人物不变，人物以外压暗一半。
+        self.assertEqual(cut.getpixel((720, 330)), plain.getpixel((720, 330)))
+        self.assertLess(sum(cut.getpixel((60, 300))), sum(plain.getpixel((60, 300))) * 0.6)
+        # 换了底图，抠图自动失效。
+        other = _frame(self.root / "other.png")
+        moved = replace(document, objects=tuple(
+            replace(item, asset=AssetRef(path=str(other))) if isinstance(item, BackgroundObject) else item for item in document.objects
+        ))
+        self.assertFalse(next(item for item in moved.objects if isinstance(item, BackgroundObject)).cutout_active)
+        self.assertEqual(_render(moved).getpixel((60, 300)), plain.getpixel((60, 300)))
+
+
 @unittest.skipIf(QApplication is None, "PySide6 不可用")
 class CanvasMatchesExportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_burst_focus_and_border_look_the_same_on_canvas(self):
+    def test_burst_focus_border_and_cutout_look_the_same_on_canvas(self):
         from autoslice.desktop.cover_canvas import CoverCanvas
 
         temp = tempfile.TemporaryDirectory()
@@ -249,6 +301,10 @@ class CanvasMatchesExportTests(unittest.TestCase):
             id="image-1", asset=AssetRef(path=str(evidence)), transform=Transform(x=0.55, y=0.06, scale=1.6, rotation=3.0),
             border="#FFFFFF", border_width=10,
         ))
+        if cutout_available():
+            notes = AIFrameNotes(busy=frozenset(), note="", face=(0.43, 0.2, 0.57, 0.55), person=(0.38, 0.15, 0.62, 0.62))
+            cutout = make_cutout(frame, notes, root / "cutouts")
+            document = update_shared_fields(document, "background-main", cutout=str(cutout), cutout_for=str(frame), dim=0.45)
         canvas = CoverCanvas()
         self.addCleanup(canvas.close)
         canvas.resize(1440 + 16, 1080 + 16)
@@ -324,6 +380,28 @@ class EditorEffectsTests(unittest.TestCase):
         self.assertEqual(self.widget.picture_border_button.color(), "#FFFFFF")
         self.widget.picture_border_spin.setValue(20)
         self.assertEqual(object_for_profile(self.widget.document, picture.id, "4x3").border_width, 20)
+
+    @unittest.skipUnless(cutout_available(), "本机没有 OpenCV")
+    def test_cutout_button_toggles_and_dim_is_adjustable(self):
+        from autoslice.desktop.cover_ai import CoverAI
+
+        # 没配 AI：人物框按画面中间估，照样能抠。
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=lambda *a, **k: "", settings=_unconfigured)
+        self.widget._cutout_person()
+        deadline = __import__("time").monotonic() + 30
+        while self.widget.cutout_button.text() != "取消抠图" and __import__("time").monotonic() < deadline:
+            self.app.processEvents()
+        background = self.widget._current_background()
+        self.assertTrue(background.cutout_active)
+        self.assertEqual(self.widget.dim_spin.value(), 45)
+        self.widget.dim_spin.setValue(60)
+        self.assertAlmostEqual(self.widget._current_background().dim, 0.6)
+        self.widget.cutout_button.click()
+        self.assertFalse(self.widget._current_background().cutout_active)
+        self.assertEqual(self.widget.cutout_button.text(), "抠出人物")
+        self.widget._undo()
+        self.assertTrue(self.widget._current_background().cutout_active)
+        self.assertEqual(self.widget.cutout_button.text(), "取消抠图")
 
     def test_save_and_apply_template_from_the_menu(self):
         from unittest import mock

@@ -9,8 +9,17 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
+from PySide6.QtGui import QGuiApplication, QPixmap
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from .cover_ai import (
     AICopy,
@@ -158,6 +167,70 @@ class CoverAIMixin:
             self.ai_hint.setVisible(True)
         self._set_notice("")
         self.status_changed.emit("AI 方案已生成：点缩略图套用（Ctrl+Z 可撤销）；“换一版”也会轮换 AI 写的文案")
+
+    def _submission_copy(self):
+        """投稿文案：AI 按以前的标题口吻写备选标题、简介和标签，弹窗里一键复制；再点一次换一批。"""
+
+        if self.project is None or self.video is None:
+            return
+        project, video, service = self.project, self.video, self.service
+        streamer = streamer_key(project.title) or ""
+        past = tuple(item.title for item in getattr(self, "_batch_projects", ()) if item.id != project.id)
+        round_index = self._submission_round
+        self._submission_round += 1
+        self.submission_button.setEnabled(False)
+        self._set_notice("AI 正在写投稿标题、简介和标签…", "info")
+        self._run(
+            lambda: service.ai.submission_copy(
+                project.title, service.subtitle_cues(video), streamer=streamer, past_titles=past, round_index=round_index,
+            ),
+            self._submission_copy_ready,
+        )
+
+    def _submission_copy_ready(self, result, error):
+        self.submission_button.setEnabled(self.project is not None)
+        self._set_notice("")
+        if error is not None:
+            self._set_notice(str(error) if isinstance(error, CoverAIError) else f"投稿文案失败：{error}", "error")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("投稿文案")
+        dialog.setModal(False)
+        layout = QVBoxLayout(dialog)
+
+        def copy_row(widget, text_of) -> QHBoxLayout:
+            row = QHBoxLayout()
+            row.addWidget(widget, 1)
+            button = QPushButton("复制")
+            button.clicked.connect(lambda _checked=False: (
+                QGuiApplication.clipboard().setText(text_of()), self.status_changed.emit("已复制到剪贴板"),
+            ))
+            row.addWidget(button)
+            return row
+
+        layout.addWidget(QLabel("标题（可以先改再复制）"))
+        for title in result.titles:
+            edit = QLineEdit(title)
+            layout.addLayout(copy_row(edit, edit.text))
+        layout.addWidget(QLabel("简介"))
+        description = QPlainTextEdit(result.description)
+        description.setMaximumHeight(110)
+        layout.addLayout(copy_row(description, description.toPlainText))
+        layout.addWidget(QLabel("标签（逗号分隔，B 站里一个一个加）"))
+        tags = QLineEdit("，".join(result.tags))
+        layout.addLayout(copy_row(tags, tags.text))
+        again = QPushButton("换一批")
+        again.clicked.connect(lambda _checked=False: (dialog.close(), self._submission_copy()))
+        close = QPushButton("关闭")
+        close.clicked.connect(dialog.close)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(again)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        dialog.resize(560, dialog.sizeHint().height())
+        dialog.show()
+        self._submission_box = dialog
 
     def _ai_critique(self):
         """AI 改一改：看当前封面给最能让它更抓眼的修改，每条先算出改后的样子，没变化的不显示。"""

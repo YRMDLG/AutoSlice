@@ -173,6 +173,10 @@ class CoverLayoutMixin:
         self.history_button = self._button(
             icon_name="history", tip="导出记录：回看最近导出的封面", slot=self._open_export_history, square=True,
         )
+        self.submission_button = self._button(
+            "投稿文案", icon_name="sparkles", tip="让 AI 按你以前的标题口吻写 3 个备选标题、简介和标签，一键复制",
+            slot=self._submission_copy, enabled=False,
+        )
         self.export_summary = QLabel("")
         self.export_summary.setObjectName("subtle")
         self.export_summary.setWordWrap(False)
@@ -193,7 +197,7 @@ class CoverLayoutMixin:
             icon_name="chevron_right", tip="收起/展开属性面板", square=True, checkable=True,
         )
         for widget in (
-            self.batch_button, self.history_button, self.export_summary, self.export_button,
+            self.batch_button, self.submission_button, self.history_button, self.export_summary, self.export_button,
             self.export_both_button, self.next_button, self.panel_toggle,
         ):
             row.addWidget(widget)
@@ -769,6 +773,24 @@ class CoverLayoutMixin:
         self.fit_button.clicked.connect(self._fit_canvas)
         fit_row.addWidget(self.fit_button)
         layout.addLayout(fit_row)
+
+        # 人物抠图：白色外发光 + 人物以外压暗（参考高播放切片封面的精修）。
+        cutout_row = QHBoxLayout()
+        cutout_row.setSpacing(4)
+        self.cutout_button = QPushButton("抠出人物")
+        self.cutout_button.setFixedHeight(26)
+        self.cutout_button.setToolTip("把主播抠出来加白色外发光，其余画面压暗；用本机 OpenCV，一两秒")
+        self.cutout_button.clicked.connect(self._cutout_person)
+        cutout_row.addWidget(self.cutout_button, 1)
+        self.dim_spin = QSpinBox()
+        self.dim_spin.setRange(0, 80)
+        self.dim_spin.setSingleStep(5)
+        self.dim_spin.setSuffix(" % 压暗")
+        self.dim_spin.setFixedHeight(26)
+        self.dim_spin.setToolTip("抠图后人物以外压暗多少")
+        self.dim_spin.valueChanged.connect(self._dim_changed)
+        cutout_row.addWidget(self.dim_spin)
+        layout.addLayout(cutout_row)
 
         # 取帧操作
         layout.addSpacing(4)
