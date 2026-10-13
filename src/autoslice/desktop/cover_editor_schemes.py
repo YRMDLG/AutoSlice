@@ -147,7 +147,8 @@ class CoverSchemesMixin:
         )
         if not ok or not name.strip():
             return
-        template = make_template(self.document, name, frames_dir=self.service.storage.thumbnails / "cover-frames")
+        thumbnails = self.service.storage.thumbnails
+        template = make_template(self.document, name, video_dirs=(thumbnails / "cover-frames", thumbnails / "cover-cutouts"))
         self.service.templates.save(template)
         self.service.templates.mark_used(template.template_id)
         self.status_changed.emit(f"已存为模板「{template.name}」：换个视频点“模板”就能套用，批量出图也能选")

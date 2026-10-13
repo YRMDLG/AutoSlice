@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Sequence
 
-from PIL import Image, ImageColor, ImageDraw
+from PIL import Image, ImageColor, ImageDraw, ImageFilter
 
 from .document_layout import (
     BACKGROUND_FILL,
@@ -47,8 +48,8 @@ class TextPaint:
 class BackgroundLayer:
     path: str
     box: Box
-    # 人物抠图（和底图同尺寸的透明 PNG）与人物以外压暗的程度。
-    cutout: str | None = None
+    # 虚化半径（源图像素）与压暗程度；画布和导出都按这两个值画。
+    blur_radius: float = 0.0
     dim: float = 0.0
 
 
@@ -126,28 +127,38 @@ def _rotate_and_composite(base: Image.Image, layer: Image.Image, region: Box, ro
     _composite(base, layer, round(region.left), round(region.top))
 
 
+@lru_cache(maxsize=4)
+def _blurred(path: str, _mtime: int, radius: float) -> Image.Image:
+    with Image.open(path) as source:
+        return source.convert("RGB").filter(ImageFilter.GaussianBlur(radius))
+
+
+def background_source(path: str, blur_radius: float = 0.0) -> Image.Image:
+    """底图（要虚化就先在源图上按源图像素半径糊好；画布和导出用同一张，拖动底图不用重算）。"""
+
+    if blur_radius >= 0.5:
+        return _blurred(path, Path(path).stat().st_mtime_ns, round(float(blur_radius), 1))
+    with Image.open(path) as source:
+        return source.convert("RGB")
+
+
 def paste_background(base: Image.Image, layer: BackgroundLayer) -> None:
     visible = layer.box.intersection(Box(0, 0, base.width, base.height))
     if visible is None:
         return
-    with Image.open(layer.path) as source:
-        source = source.convert("RGB")
-        factor = layer.box.width / max(1, source.width)
-        crop = (
-            (visible.left - layer.box.left) / factor,
-            (visible.top - layer.box.top) / factor,
-            (visible.right - layer.box.left) / factor,
-            (visible.bottom - layer.box.top) / factor,
-        )
-        size = (max(1, round(visible.width)), max(1, round(visible.height)))
-        region = source.resize(size, Image.Resampling.LANCZOS, box=crop)
-    if layer.dim > 0 and layer.cutout:
+    source = background_source(layer.path, layer.blur_radius)
+    factor = layer.box.width / max(1, source.width)
+    crop = (
+        (visible.left - layer.box.left) / factor,
+        (visible.top - layer.box.top) / factor,
+        (visible.right - layer.box.left) / factor,
+        (visible.bottom - layer.box.top) / factor,
+    )
+    size = (max(1, round(visible.width)), max(1, round(visible.height)))
+    region = source.resize(size, Image.Resampling.LANCZOS, box=crop)
+    if layer.dim > 0:
         region = Image.blend(region, Image.new("RGB", region.size, (0, 0, 0)), min(0.8, float(layer.dim)))
     base.paste(region, (round(visible.left), round(visible.top)))
-    if layer.cutout and Path(layer.cutout).is_file():
-        with Image.open(layer.cutout) as cutout:
-            person = cutout.convert("RGBA").resize(size, Image.Resampling.LANCZOS, box=crop)
-        base.alpha_composite(person, (round(visible.left), round(visible.top)))
 
 
 def _draw_glyphs(

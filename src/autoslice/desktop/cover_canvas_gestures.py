@@ -13,9 +13,11 @@ from PySide6.QtCore import QPointF, Qt
 from autoslice_cover.document_layout import (
     BACKGROUND_SCALE_MAX,
     BACKGROUND_SCALE_MIN,
+    OVERLAY_SCALE_MAX,
     focus_after_drag,
 )
 
+from .cover_layout import settle_overlay
 from .cover_model import (
     BackgroundObject,
     ImageObject,
@@ -63,6 +65,7 @@ class CanvasGestureMixin:
         self.update()
 
     def _emit_overlay(self, obj: RenderObject, *, commit: bool = True):
+        obj = settle_overlay(obj, self._export_size())
         if commit:
             self._set_local_effective(obj)
             self._gesture_objects.pop(obj.id, None)
@@ -139,7 +142,7 @@ class CanvasGestureMixin:
         if isinstance(obj, TextObject):
             self._emit_text(self._scaled_text(obj, round(obj.style.font_size * ratio)), commit=False)
         else:
-            scale = self._clamp(obj.transform.scale * ratio, 0.05, 4.0)
+            scale = self._clamp(obj.transform.scale * ratio, 0.05, OVERLAY_SCALE_MAX)
             self._emit_overlay(replace(obj, transform=replace(obj.transform, scale=scale)), commit=False)
         self.update()
 

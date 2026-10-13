@@ -26,7 +26,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCALE_MIN
+from autoslice_cover.document_layout import (
+    BACKGROUND_SCALE_MAX,
+    BACKGROUND_SCALE_MIN,
+    OVERLAY_SCALE_MAX,
+)
 
 from .cover_canvas import CoverCanvas
 from .cover_style import STYLE_PRESETS
@@ -673,7 +677,7 @@ class CoverLayoutMixin:
         transform_form = QFormLayout()
         transform_form.setSpacing(4)
         self.overlay_scale_spin = QDoubleSpinBox()
-        self.overlay_scale_spin.setRange(0.05, 4.0)
+        self.overlay_scale_spin.setRange(0.05, OVERLAY_SCALE_MAX)
         self.overlay_scale_spin.setSingleStep(0.05)
         self.overlay_scale_spin.setDecimals(2)
         self.overlay_scale_spin.setSuffix("×")
@@ -719,6 +723,18 @@ class CoverLayoutMixin:
         border_row.addWidget(self.picture_border_button, 1)
         border_row.addWidget(self.picture_border_spin)
         transform_form.addRow("边框", border_row)
+        self.person_outline_check = QCheckBox("人物白边")
+        self.person_outline_check.setToolTip("抠出来的人物描一圈白边")
+        self.person_outline_check.toggled.connect(self._toggle_person_outline)
+        self.person_pin_check = QCheckBox("贴住底边")
+        self.person_pin_check.setToolTip("人物下沿是画面切口：缩小、挪动时下沿始终贴着封面底边")
+        self.person_pin_check.toggled.connect(self._toggle_person_pin)
+        person_row = QHBoxLayout()
+        person_row.setSpacing(8)
+        person_row.addWidget(self.person_outline_check)
+        person_row.addWidget(self.person_pin_check)
+        person_row.addStretch(1)
+        transform_form.addRow("人物", person_row)
         self._overlay_form = transform_form
         layout.addLayout(transform_form)
 
@@ -774,23 +790,32 @@ class CoverLayoutMixin:
         fit_row.addWidget(self.fit_button)
         layout.addLayout(fit_row)
 
-        # 人物抠图：白色外发光 + 人物以外压暗（参考高播放切片封面的精修）。
-        cutout_row = QHBoxLayout()
-        cutout_row.setSpacing(4)
+        # 人物抠图：抠出来的人物是单独的图层，能拖动、缩放（参考切片封面：人物清楚、背景虚化，或人物放到内容画面的角落）。
         self.cutout_button = QPushButton("抠出人物")
         self.cutout_button.setFixedHeight(26)
-        self.cutout_button.setToolTip("把主播抠出来加白色外发光，其余画面压暗；用本机 OpenCV，一两秒")
         self.cutout_button.clicked.connect(self._cutout_person)
-        cutout_row.addWidget(self.cutout_button, 1)
+        layout.addWidget(self.cutout_button)
+        effect_row = QHBoxLayout()
+        effect_row.setSpacing(4)
+        self.blur_spin = QSpinBox()
+        self.blur_spin.setRange(0, 100)
+        self.blur_spin.setSingleStep(10)
+        self.blur_spin.setPrefix("虚化 ")
+        self.blur_spin.setSuffix(" %")
+        self.blur_spin.setFixedHeight(26)
+        self.blur_spin.setToolTip("把底图糊掉，人物图层和字更突出")
+        self.blur_spin.valueChanged.connect(self._background_effect_changed)
+        effect_row.addWidget(self.blur_spin, 1)
         self.dim_spin = QSpinBox()
         self.dim_spin.setRange(0, 80)
         self.dim_spin.setSingleStep(5)
-        self.dim_spin.setSuffix(" % 压暗")
+        self.dim_spin.setPrefix("压暗 ")
+        self.dim_spin.setSuffix(" %")
         self.dim_spin.setFixedHeight(26)
-        self.dim_spin.setToolTip("抠图后人物以外压暗多少")
-        self.dim_spin.valueChanged.connect(self._dim_changed)
-        cutout_row.addWidget(self.dim_spin)
-        layout.addLayout(cutout_row)
+        self.dim_spin.setToolTip("把底图压暗")
+        self.dim_spin.valueChanged.connect(self._background_effect_changed)
+        effect_row.addWidget(self.dim_spin, 1)
+        layout.addLayout(effect_row)
 
         # 取帧操作
         layout.addSpacing(4)

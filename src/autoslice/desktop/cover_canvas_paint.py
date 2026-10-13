@@ -35,10 +35,11 @@ from autoslice_cover.document_layout import (
     load_font,
     shadow_offset,
 )
-from autoslice_cover.document_render import rgba
+from autoslice_cover.document_render import background_source, rgba
 
 from .cover_layout import (
     asset_path,
+    background_blur_radius,
     background_geometry,
     font_config,
     resolved_font,
@@ -142,16 +143,29 @@ class CanvasPaintMixin:
         box = self._background_box(background)
         if box is not None:
             target = QRectF(box.left, box.top, box.width, box.height)
+            source_size = (pixmap.width(), pixmap.height())
+            radius = background_blur_radius(background, (width, height), source_size, box) if background is not None else 0.0
+            if radius >= 0.5 and background.asset is not None and background.asset.path:
+                # 虚化：和导出用同一张在源图上糊好的图，拖动底图不用重算。
+                pixmap = self._blurred_pixmap(background.asset.path, radius)
             painter.drawPixmap(target, pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()))
-            if background is not None and background.cutout_active:
-                # 抠图：人物以外压暗，再把人物（带白色外发光）按同一个位置盖回去。
-                if background.dim > 0:
-                    painter.fillRect(
-                        target.intersected(QRectF(0, 0, width, height)), QColor(0, 0, 0, round(min(0.8, background.dim) * 255)),
-                    )
-                person = self._overlay_pixmap(background.cutout)
-                if not person.isNull():
-                    painter.drawPixmap(target, person, QRectF(0, 0, person.width(), person.height()))
+            if background is not None and background.dim > 0:
+                painter.fillRect(
+                    target.intersected(QRectF(0, 0, width, height)), QColor(0, 0, 0, round(min(0.8, background.dim) * 255)),
+                )
+
+    def _blurred_pixmap(self, path: str, radius: float) -> QPixmap:
+        key = (path, round(float(radius), 1))
+        cache = self.__dict__.setdefault("_blurred_cache", {})
+        pixmap = cache.get(key)
+        if pixmap is None:
+            image = background_source(path, radius)
+            data = image.tobytes("raw", "RGB")
+            pixmap = QPixmap.fromImage(QImage(data, image.width, image.height, image.width * 3, QImage.Format.Format_RGB888).copy())
+            if len(cache) > 3:
+                cache.clear()
+            cache[key] = pixmap
+        return pixmap
 
     @staticmethod
     def _rotate_about(painter: QPainter, center_x: float, center_y: float, rotation: float):

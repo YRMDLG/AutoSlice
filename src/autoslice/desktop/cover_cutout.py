@@ -1,4 +1,4 @@
-"""人物抠图：返回和底图同尺寸的透明 PNG（人物 + 白色外发光），底图按同一位置把它盖回去。
+"""人物抠图：抠出来的人物存成裁到人物范围的透明 PNG，作为能单独拖动、缩放的人物图层放进封面。
 
 两条路，按精细程度从高到低：
 1. 本机有 BiRefNet（ONNX，放在数据目录 models/birefnet_lite.onnx）：用模型在人物区域里抠，发丝级边缘。
@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,11 +33,12 @@ _GRABCUT_ITERATIONS = 5
 _GUIDE_SUBSAMPLE = 4
 _GUIDE_RADIUS = 0.006
 _GUIDE_EPS = 1e-4
-# 外发光宽度占画面高度的比例；没标出人物时的默认人物框。
+# 白边宽度占画面高度的比例；没标出人物时的默认人物框；带白边那张图的文件名后缀。
 _GLOW_RATIO = 0.012
 _DEFAULT_PERSON = (0.22, 0.06, 0.78, 1.0)
-# 抠完默认把人物以外压暗这么多。
-CUTOUT_DIM = 0.45
+_OUTLINE_SUFFIX = "-outline"
+# 抠完人物默认把底图虚化这么多（参考切片封面：人物清楚、背景糊掉）。
+PERSON_BLUR = 0.5
 _SESSION_LOCK = threading.Lock()
 
 
@@ -206,8 +209,36 @@ def _grabcut_alpha(crop, notes: AIFrameNotes | None, area: tuple[int, int, int, 
     return np.clip((alpha - 0.08) / 0.84, 0, 1)
 
 
-def make_cutout(image_path: str | Path, notes: AIFrameNotes | None, out_dir: Path, *, model: Path | None = None) -> Path:
-    """把人物抠出来，返回透明 PNG；有模型用模型，没有用 GrabCut。同一张图、同样的框、同一条路直接复用。"""
+@dataclass(frozen=True)
+class PersonCutout:
+    """抠出来的人物：裁到人物范围的透明 PNG（plain 不带边、outline 带白边），以及它在原图里的位置。"""
+
+    plain: Path
+    outline: Path
+    # 这张 PNG 在原图里的范围（像素）与原图尺寸。
+    box: tuple[int, int, int, int]
+    source_size: tuple[int, int]
+
+
+def outline_variant(path: str | Path) -> Path | None:
+    """人物图的另一种样子：不带边的找带白边的，带白边的找不带边的；不是人物图返回 None。"""
+
+    path = Path(path)
+    base = path.stem[: -len(_OUTLINE_SUFFIX)] if is_outlined(path) else path.stem
+    other = path.with_name(base + path.suffix if is_outlined(path) else base + _OUTLINE_SUFFIX + path.suffix)
+    # 两张图和位置信息都在，才是一张抠出来的人物图。
+    return other if other.is_file() and path.with_name(base + ".json").is_file() else None
+
+
+def is_outlined(path: str | Path) -> bool:
+    return Path(path).stem.endswith(_OUTLINE_SUFFIX)
+
+
+def make_person(image_path: str | Path, notes: AIFrameNotes | None, out_dir: Path, *, model: Path | None = None) -> PersonCutout:
+    """把人物抠出来，存成两张裁到人物范围的透明 PNG（不带边 / 带白边）；有模型用模型，没有用 GrabCut。
+
+    同一张图、同样的框、同一条路直接复用。
+    """
 
     import cv2
     import numpy as np
@@ -218,10 +249,11 @@ def make_cutout(image_path: str | Path, notes: AIFrameNotes | None, out_dir: Pat
     key = hashlib.sha1(repr((
         str(source.resolve()), stat.st_size, stat.st_mtime_ns,
         (notes.person, notes.face, notes.ui) if notes is not None else None, "model" if use_model else "grabcut-v2",
-    )).encode("utf-8"))
-    output = out_dir / f"{key.hexdigest()[:20]}.png"
-    if output.is_file():
-        return output
+    )).encode("utf-8")).hexdigest()[:20]
+    plain, outline, meta = out_dir / f"{key}.png", out_dir / f"{key}{_OUTLINE_SUFFIX}.png", out_dir / f"{key}.json"
+    if plain.is_file() and outline.is_file() and meta.is_file():
+        info = json.loads(meta.read_text(encoding="utf-8"))
+        return PersonCutout(plain, outline, tuple(info["box"]), tuple(info["size"]))
     image = cv2.imdecode(np.fromfile(str(source), dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError(f"底图读不出来：{source}")
@@ -233,21 +265,30 @@ def make_cutout(image_path: str | Path, notes: AIFrameNotes | None, out_dir: Pat
     full = np.zeros((height, width), np.float32)
     full[area[1]:area[3], area[0]:area[2]] = alpha
     alpha_bytes = (full * 255).astype(np.uint8)
-    edge = Image.fromarray(alpha_bytes)
+    ys, xs = np.nonzero(alpha_bytes > 8)
+    if not len(xs):
+        raise ValueError("没找到人物，可以换一帧或手动导入人物图")
+    glow_size = max(3, round(height * _GLOW_RATIO))
+    # PNG 裁到人物范围，四周留出白边的位置。
+    box = (
+        max(0, int(xs.min()) - glow_size * 2), max(0, int(ys.min()) - glow_size * 2),
+        min(width, int(xs.max()) + 1 + glow_size * 2), min(height, int(ys.max()) + 1 + glow_size * 2),
+    )
     with Image.open(source) as opened:
         picture = opened.convert("RGB")
-    glow_size = max(3, round(height * _GLOW_RATIO))
-    # 外发光按“够实”的部分外扩，发丝的半透明不把光圈撑得毛糙。
+    person_layer = picture.convert("RGBA")
+    person_layer.putalpha(Image.fromarray(alpha_bytes))
+    # 白边按“够实”的部分外扩，发丝的半透明不把边撑得毛糙。
     solid = np.where(alpha_bytes > 128, 255, 0).astype(np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (glow_size * 2 + 1,) * 2)
     glow = cv2.GaussianBlur(cv2.dilate(solid, kernel), (0, 0), glow_size / 4)
-    result = Image.new("RGBA", picture.size, (255, 255, 255, 0))
-    result.putalpha(Image.fromarray(glow))
-    person_layer = picture.convert("RGBA")
-    person_layer.putalpha(edge)
-    result.alpha_composite(person_layer)
+    outlined = Image.new("RGBA", picture.size, (255, 255, 255, 0))
+    outlined.putalpha(Image.fromarray(glow))
+    outlined.alpha_composite(person_layer)
     out_dir.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_suffix(".tmp.png")
-    result.save(temporary)
-    temporary.replace(output)
-    return output
+    for image_out, path in ((person_layer, plain), (outlined, outline)):
+        temporary = path.with_suffix(".tmp.png")
+        image_out.crop(box).save(temporary)
+        temporary.replace(path)
+    meta.write_text(json.dumps({"box": list(box), "size": [width, height]}), encoding="utf-8")
+    return PersonCutout(plain, outline, box, (width, height))

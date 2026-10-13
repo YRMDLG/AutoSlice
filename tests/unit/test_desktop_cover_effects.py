@@ -14,8 +14,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageStat
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from autoslice.desktop.cover_ai import AIFrameNotes
-from autoslice.desktop.cover_cutout import cutout_available, make_cutout
-from autoslice.desktop.cover_effects import add_burst, burst_id
+from autoslice.desktop.cover_cutout import cutout_available, make_person, outline_variant
+from autoslice.desktop.cover_effects import add_burst, add_person, burst_id
 from autoslice.desktop.cover_layout import canvas_size, document_layers, text_layout
 from autoslice.desktop.cover_model import (
     AssetRef,
@@ -30,6 +30,7 @@ from autoslice.desktop.cover_model import (
     default_profiles,
     insert_overlay,
     object_for_profile,
+    set_profile_override,
     update_shared_fields,
     update_text_object,
 )
@@ -184,7 +185,7 @@ class TemplateTests(unittest.TestCase):
         self.source = add_burst(document, "copy-b", "4x3")
 
     def test_template_keeps_layout_and_overlays_but_not_content(self):
-        template = make_template(self.source, "泽音日更", frames_dir=self.frames)
+        template = make_template(self.source, "泽音日更", video_dirs=(self.frames,))
         ids = {item.id for item in template.document.objects}
         self.assertEqual(ids, {"background-main", "copy-b", "copy-a", "sticker-1"})
         self.assertEqual(template.bursts, ("B",))
@@ -194,7 +195,7 @@ class TemplateTests(unittest.TestCase):
         self.assertIsNone(background.asset)
 
     def test_apply_keeps_copy_takes_style_and_position_and_does_not_pile_up(self):
-        template = make_template(self.source, "泽音日更", frames_dir=self.frames)
+        template = make_template(self.source, "泽音日更", video_dirs=(self.frames,))
         other_frame = _frame(Path(self.temp.name) / "other.png")
         target = CoverDocument(
             objects=(
@@ -224,8 +225,8 @@ class TemplateTests(unittest.TestCase):
 
     def test_store_lists_recently_used_first_and_deletes(self):
         store = CoverTemplateStore(Path(self.temp.name) / "data")
-        first = make_template(self.source, "一", frames_dir=self.frames)
-        second = make_template(self.source, "二", frames_dir=self.frames)
+        first = make_template(self.source, "一", video_dirs=(self.frames,))
+        second = make_template(self.source, "二", video_dirs=(self.frames,))
         store.save(first)
         store.save(second)
         store.mark_used(first.template_id)
@@ -247,18 +248,50 @@ class CutoutTests(unittest.TestCase):
         self.notes = AIFrameNotes(busy=frozenset(), note="", face=(0.43, 0.2, 0.57, 0.55), person=(0.38, 0.15, 0.62, 0.62),
                                   ui=((0.8, 0.0, 1.0, 0.5),))
 
-    def test_cutout_keeps_person_adds_white_glow_and_is_reused(self):
-        path = make_cutout(self.frame, self.notes, self.root / "cutouts")
-        with Image.open(path) as image:
-            cutout = image.convert("RGBA")
-        self.assertEqual(cutout.size, (1920, 1080))
-        self.assertEqual(cutout.getpixel((960, 400))[3], 255)
-        self.assertEqual(cutout.getpixel((200, 900))[3], 0)
-        # 人物边缘外面一圈是白色外发光。
-        glow = cutout.getpixel((960, 200 - 6))
+    def test_person_is_cropped_with_plain_and_outlined_variants_and_reused(self):
+        person = make_person(self.frame, self.notes, self.root / "cutouts")
+        self.assertEqual(person.source_size, (1920, 1080))
+        x0, y0, x1, y1 = person.box
+        # 只裁人物那一块（_frame 的脸在 800~1120、200~620）。
+        self.assertTrue(x0 < 800 and x1 > 1120 and y0 < 200 and y1 >= 620)
+        self.assertLess(x1 - x0, 1000)
+        with Image.open(person.plain) as image:
+            plain = image.convert("RGBA")
+        with Image.open(person.outline) as image:
+            outlined = image.convert("RGBA")
+        self.assertEqual(plain.size, (x1 - x0, y1 - y0))
+        self.assertEqual(plain.getpixel((960 - x0, 400 - y0))[3], 255)
+        # 不带边那张，人物外面透明；带白边那张，人物外面一圈是白的。
+        self.assertLess(plain.getpixel((960 - x0, 200 - 6 - y0))[3], 60)
+        glow = outlined.getpixel((960 - x0, 200 - 6 - y0))
         self.assertGreater(glow[3], 100)
         self.assertGreater(min(glow[:3]), 200)
-        self.assertEqual(make_cutout(self.frame, self.notes, self.root / "cutouts"), path)
+        self.assertEqual(outline_variant(person.plain), person.outline)
+        self.assertEqual(outline_variant(person.outline), person.plain)
+        self.assertIsNone(outline_variant(self.frame))
+        self.assertEqual(make_person(self.frame, self.notes, self.root / "cutouts"), person)
+
+    def test_person_layer_lines_up_with_the_frame_in_both_ratios(self):
+        from autoslice.desktop.cover_layout import background_geometry, overlay_geometry
+
+        person = make_person(self.frame, self.notes, self.root / "cutouts")
+        document = _document(self.frame)
+        background = next(item for item in document.objects if isinstance(item, BackgroundObject))
+        document = set_profile_override(document, "16x9", replace(background, scale=1.4, pan_x=0.3, pan_y=0.2))
+        document = add_person(document, person, object_id="person-1")
+        layer = next(item for item in document.objects if item.id == "person-1")
+        # 在其他素材和字下面。
+        self.assertLess(layer.z_index, min(item.z_index for item in document.objects if isinstance(item, TextObject)))
+        for key in ("4x3", "16x9"):
+            size = canvas_size(key)
+            drawn = background_geometry(object_for_profile(document, "background-main", key), size, (1920, 1080))
+            factor = drawn.width / 1920
+            box = overlay_geometry(object_for_profile(document, "person-1", key), size)
+            self.assertAlmostEqual(box.left, drawn.left + person.box[0] * factor, delta=1)
+            self.assertAlmostEqual(box.top, drawn.top + person.box[1] * factor, delta=1)
+            self.assertAlmostEqual(box.width, (person.box[2] - person.box[0]) * factor, delta=1)
+        # 原样放上去看起来和没抠一样（人物那块像素不变）。
+        self.assertLess(sum(ImageStat.Stat(ImageChops.difference(_render(document), _render(_document(self.frame)))).mean) / 3, 1.0)
 
     def test_model_is_used_when_its_file_is_present(self):
         from unittest import mock
@@ -290,34 +323,47 @@ class CutoutTests(unittest.TestCase):
         session = mock.patch.object(cutout_module, "model_session", lambda *_args: FakeSession())
         no_grabcut = mock.patch("cv2.grabCut", side_effect=AssertionError("有模型时不该用 GrabCut"))
         with session, no_grabcut:
-            path = make_cutout(self.frame, self.notes, self.root / "cutouts", model=model)
+            person = make_person(self.frame, self.notes, self.root / "cutouts", model=model)
         self.assertEqual(seen["shape"], (1, 3, 1024, 1024))
-        with Image.open(path) as image:
+        with Image.open(person.plain) as image:
             cutout = image.convert("RGBA")
-        # 脸（亮）抠出来，旁边的背景（暗）透明；工作区外一律透明。
-        self.assertGreater(cutout.getpixel((960, 400))[3], 240)
-        self.assertLess(cutout.getpixel((700, 900))[3], 10)
-        self.assertEqual(cutout.getpixel((60, 60))[3], 0)
+        x0, y0 = person.box[:2]
+        # 脸（亮）抠出来，旁边的背景（暗）透明。
+        self.assertGreater(cutout.getpixel((960 - x0, 400 - y0))[3], 240)
+        self.assertLess(cutout.getpixel((0, cutout.height - 1))[3], 10)
         # 没模型时走 GrabCut，结果另存，不混用。
-        self.assertNotEqual(make_cutout(self.frame, self.notes, self.root / "cutouts"), path)
+        self.assertNotEqual(make_person(self.frame, self.notes, self.root / "cutouts").plain, person.plain)
 
-    def test_cutout_renders_person_over_darkened_frame_and_expires_with_the_frame(self):
-        path = make_cutout(self.frame, self.notes, self.root / "cutouts")
-        document = update_shared_fields(_document(self.frame), "background-main", cutout=str(path), cutout_for=str(self.frame), dim=0.5)
+    def test_pinned_person_never_lifts_off_the_bottom_edge(self):
+        from autoslice.desktop.cover_layout import overlay_geometry, settle_overlay
+
+        person = make_person(self.frame, self.notes, self.root / "cutouts")
+        size = canvas_size("4x3")
+        layer = ImageObject(id="person-1", asset=AssetRef(path=str(person.plain)), pin_bottom=True,
+                            transform=Transform(x=0.6, y=0.05, scale=1.0))
+        self.assertEqual(ImageObject.from_payload(layer.to_payload()), layer)
+        box = overlay_geometry(layer, size)
+        # 往上挪：下沿被拉回底边；往下压：可以压到底边以下。
+        self.assertAlmostEqual(box.top + box.height, size[1], delta=0.5)
+        lower = overlay_geometry(replace(layer, transform=replace(layer.transform, y=0.9)), size)
+        self.assertAlmostEqual(lower.top, 0.9 * size[1], delta=0.5)
+        self.assertAlmostEqual(overlay_geometry(replace(layer, pin_bottom=False), size).top, 0.05 * size[1], delta=0.5)
+        # 记下的位置改成实际位置，往回拖没有死区。
+        settled = settle_overlay(layer, size)
+        self.assertAlmostEqual(settled.transform.y * size[1], box.top, delta=0.5)
+        self.assertIs(settle_overlay(settled, size), settled)
+
+    def test_background_blur_and_dim_apply_to_any_frame(self):
+        document = update_shared_fields(_document(self.frame), "background-main", blur=0.8, dim=0.5)
         background = next(item for item in document.objects if isinstance(item, BackgroundObject))
-        self.assertTrue(background.cutout_active)
+        self.assertEqual((background.blur, background.dim), (0.8, 0.5))
         self.assertEqual(BackgroundObject.from_payload(background.to_payload()), background)
-        plain, cut = _render(_document(self.frame)), _render(document)
-        # 画面按 4:3 裁掉左右各 240 像素：人物不变，人物以外压暗一半。
-        self.assertEqual(cut.getpixel((720, 330)), plain.getpixel((720, 330)))
-        self.assertLess(sum(cut.getpixel((60, 300))), sum(plain.getpixel((60, 300))) * 0.6)
-        # 换了底图，抠图自动失效。
-        other = _frame(self.root / "other.png")
-        moved = replace(document, objects=tuple(
-            replace(item, asset=AssetRef(path=str(other))) if isinstance(item, BackgroundObject) else item for item in document.objects
-        ))
-        self.assertFalse(next(item for item in moved.objects if isinstance(item, BackgroundObject)).cutout_active)
-        self.assertEqual(_render(moved).getpixel((60, 300)), plain.getpixel((60, 300)))
+        plain, blurred = _render(_document(self.frame)), _render(document)
+        # 压暗一半；脸的边缘被糊开（原本一刀切的边界两侧颜色变得接近）。
+        self.assertLess(sum(blurred.getpixel((60, 900))), sum(plain.getpixel((60, 900))) * 0.6)
+        edge_plain = abs(sum(plain.getpixel((560 - 12, 410))) - sum(plain.getpixel((560 + 12, 410))))
+        edge_blurred = abs(sum(blurred.getpixel((560 - 12, 410))) - sum(blurred.getpixel((560 + 12, 410)))) / 0.5
+        self.assertLess(edge_blurred, edge_plain * 0.8)
 
 
 @unittest.skipIf(QApplication is None, "PySide6 不可用")
@@ -326,7 +372,7 @@ class CanvasMatchesExportTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_burst_focus_border_and_cutout_look_the_same_on_canvas(self):
+    def test_burst_focus_border_blur_and_person_look_the_same_on_canvas(self):
         from autoslice.desktop.cover_canvas import CoverCanvas
 
         temp = tempfile.TemporaryDirectory()
@@ -343,10 +389,10 @@ class CanvasMatchesExportTests(unittest.TestCase):
             id="image-1", asset=AssetRef(path=str(evidence)), transform=Transform(x=0.55, y=0.06, scale=1.6, rotation=3.0),
             border="#FFFFFF", border_width=10,
         ))
+        document = update_shared_fields(document, "background-main", blur=0.6, dim=0.3)
         if cutout_available():
             notes = AIFrameNotes(busy=frozenset(), note="", face=(0.43, 0.2, 0.57, 0.55), person=(0.38, 0.15, 0.62, 0.62))
-            cutout = make_cutout(frame, notes, root / "cutouts")
-            document = update_shared_fields(document, "background-main", cutout=str(cutout), cutout_for=str(frame), dim=0.45)
+            document = add_person(document, make_person(frame, notes, root / "cutouts"), object_id="person-1")
         canvas = CoverCanvas()
         self.addCleanup(canvas.close)
         canvas.resize(1440 + 16, 1080 + 16)
@@ -424,26 +470,49 @@ class EditorEffectsTests(unittest.TestCase):
         self.assertEqual(object_for_profile(self.widget.document, picture.id, "4x3").border_width, 20)
 
     @unittest.skipUnless(cutout_available(), "本机没有 OpenCV")
-    def test_cutout_button_toggles_and_dim_is_adjustable(self):
+    def test_cutout_adds_movable_person_layer_blurs_background_and_toggles_outline(self):
+        import time
+
         from autoslice.desktop.cover_ai import CoverAI
 
         # 没配 AI：人物框按画面中间估，照样能抠。
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=lambda *a, **k: "", settings=_unconfigured)
         self.widget._cutout_person()
-        deadline = __import__("time").monotonic() + 30
-        while self.widget.cutout_button.text() != "取消抠图" and __import__("time").monotonic() < deadline:
+        deadline = time.monotonic() + 30
+        while not any(item.id.startswith("person") for item in self.widget.document.objects) and time.monotonic() < deadline:
             self.app.processEvents()
-        background = self.widget._current_background()
-        self.assertTrue(background.cutout_active)
-        self.assertEqual(self.widget.dim_spin.value(), 45)
-        self.widget.dim_spin.setValue(60)
-        self.assertAlmostEqual(self.widget._current_background().dim, 0.6)
-        self.widget.cutout_button.click()
-        self.assertFalse(self.widget._current_background().cutout_active)
-        self.assertEqual(self.widget.cutout_button.text(), "抠出人物")
-        self.widget._undo()
-        self.assertTrue(self.widget._current_background().cutout_active)
-        self.assertEqual(self.widget.cutout_button.text(), "取消抠图")
+        layer = next(item for item in self.widget.document.objects if item.id.startswith("person"))
+        self.assertEqual(self.widget.document.selected_object_id, layer.id)
+        # 底图默认虚化，面板跟着显示。
+        self.assertAlmostEqual(self.widget._current_background().blur, 0.5)
+        self.assertEqual(self.widget.blur_spin.value(), 50)
+        self.widget.dim_spin.setValue(30)
+        self.assertAlmostEqual(self.widget._current_background().dim, 0.3)
+        # 人物白边：选中人物图层时出现，勾上换成带白边那张，取消换回来。
+        self.assertFalse(self.widget.person_outline_check.isChecked())
+        self.widget.person_outline_check.setChecked(True)
+        current = next(item for item in self.widget.document.objects if item.id == layer.id)
+        self.assertTrue(current.asset.path.endswith("-outline.png"))
+        self.widget.person_outline_check.setChecked(False)
+        current = next(item for item in self.widget.document.objects if item.id == layer.id)
+        self.assertEqual(current.asset.path, layer.asset.path)
+        # 贴住底边后缩小：下沿还在封面底边。
+        from autoslice.desktop.cover_layout import overlay_geometry
+
+        self.widget.person_pin_check.setChecked(True)
+        self.widget.overlay_scale_spin.setValue(layer.transform.scale * 0.5)
+        shrunk = object_for_profile(self.widget.document, layer.id, "4x3")
+        self.assertTrue(shrunk.pin_bottom)
+        box = overlay_geometry(shrunk, canvas_size("4x3"))
+        self.assertAlmostEqual(box.top + box.height, canvas_size("4x3")[1], delta=0.5)
+        self.assertAlmostEqual(shrunk.transform.y * canvas_size("4x3")[1], box.top, delta=0.5)
+        # 整次抠图能撤销掉。
+        for _ in range(10):
+            if not any(item.id.startswith("person") for item in self.widget.document.objects):
+                break
+            self.widget._undo()
+        self.assertFalse(any(item.id.startswith("person") for item in self.widget.document.objects))
+        self.assertEqual(self.widget._current_background().blur, 0.0)
 
     def test_save_and_apply_template_from_the_menu(self):
         from unittest import mock

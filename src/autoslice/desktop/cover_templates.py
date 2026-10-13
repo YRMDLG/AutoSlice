@@ -12,7 +12,7 @@ import time
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .cover_autolayout import ensure_context_text, primary_copy_ids
 from .cover_effects import add_burst, burst_id
@@ -60,8 +60,8 @@ def _inside(path: str | None, folder: Path) -> bool:
         return False
 
 
-def make_template(document: CoverDocument, name: str, *, frames_dir: Path) -> CoverTemplate:
-    """当前封面存成模板。frames_dir 是视频截帧的缓存目录：从那里来的图片是拼图小图，不进模板。"""
+def make_template(document: CoverDocument, name: str, *, video_dirs: Sequence[Path]) -> CoverTemplate:
+    """当前封面存成模板。video_dirs 是视频截帧、抠图的缓存目录：从那里来的拼图小图和人物图层每期不同，不进模板。"""
 
     primary = primary_copy_ids(document)
     bursts = tuple(
@@ -74,7 +74,7 @@ def make_template(document: CoverDocument, name: str, *, frames_dir: Path) -> Co
             kept.append(replace(item, asset=None))
         elif not item.visible or item.id.startswith("burst-"):
             continue
-        elif isinstance(item, ImageObject) and item.asset is not None and _inside(item.asset.path, frames_dir):
+        elif isinstance(item, ImageObject) and item.asset is not None and any(_inside(item.asset.path, folder) for folder in video_dirs):
             continue
         elif isinstance(item, TextObject) and item.id in primary.values():
             kept.append(replace(item, text="", emphasis=()))

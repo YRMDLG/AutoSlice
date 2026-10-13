@@ -24,8 +24,12 @@ BACKGROUND_SCALE_MIN = 1.0
 BACKGROUND_SCALE_MAX = 3.0
 BACKGROUND_FILL = "#080B0E"
 OVERLAY_BASE_WIDTH = 0.24
-OVERLAY_MAX_WIDTH = 0.96
-OVERLAY_MAX_HEIGHT = 0.92
+# 抠出来的人物图层常常比画面还大（对准底图里的人物），上限放到画面的三倍。
+OVERLAY_MAX_WIDTH = 3.0
+OVERLAY_MAX_HEIGHT = 3.0
+OVERLAY_SCALE_MAX = 12.0
+# 底图虚化的最大半径（占画布高度）。
+BACKGROUND_BLUR_MAX = 0.025
 SHAPE_MIN_SIZE = 0.02
 SHAPE_MAX_SIZE = 1.0
 # 形状种类：圆圈、箭头、矩形框、爆炸贴、集中线。
@@ -141,17 +145,22 @@ def overlay_box(
     x: float,
     y: float,
     scale: float,
+    pin_bottom: bool = False,
 ) -> Box:
-    """图片/贴纸以画布宽度比例定宽、按原图比例定高，左上角为 (x, y)。"""
+    """图片/贴纸以画布宽度比例定宽、按原图比例定高，左上角为 (x, y)。
+
+    pin_bottom：下沿不离开画布底边（只能压到底边以下），用于下沿是画面切口的人物图层。
+    """
 
     image_width, image_height = max(1, image_size[0]), max(1, image_size[1])
     canvas_width, canvas_height = canvas_size
-    width = canvas_width * min(OVERLAY_MAX_WIDTH, OVERLAY_BASE_WIDTH * _clamp(scale, 0.05, 4.0))
+    width = canvas_width * min(OVERLAY_MAX_WIDTH, OVERLAY_BASE_WIDTH * _clamp(scale, 0.05, OVERLAY_SCALE_MAX))
     height = width * image_height / image_width
     if height > canvas_height * OVERLAY_MAX_HEIGHT:
         height = canvas_height * OVERLAY_MAX_HEIGHT
         width = height * image_width / image_height
-    return Box(x * canvas_width, y * canvas_height, width, height)
+    top = max(y * canvas_height, canvas_height - height) if pin_bottom else y * canvas_height
+    return Box(x * canvas_width, top, width, height)
 
 
 def shape_box(

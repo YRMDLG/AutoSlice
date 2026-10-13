@@ -454,7 +454,7 @@ class CoverEditorWidget(
         self._show_background(self.draft.image_path or None)
         self.canvas.set_document(self.document, self._canvas_key)
         self._refresh_hidden_button()
-        self._sync_cutout_controls()
+        self._sync_background_effects()
         if self.document is not None:
             selected = next(
                 (item for item in self.document.objects if item.id == self.document.selected_object_id),

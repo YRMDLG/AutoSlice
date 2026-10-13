@@ -315,15 +315,9 @@ class BackgroundObject(RenderObject):
     pan_x: float = 0.5
     pan_y: float = 0.5
     crop: Rect | None = None
-    # 人物抠图：和底图同尺寸的透明 PNG（人物 + 白色外发光），cutout_for 记它是从哪张底图抠的；
-    # 换了底图就自动失效。dim 是抠图时人物以外压暗的程度（0~0.8）。两个比例共享。
-    cutout: str = ""
-    cutout_for: str = ""
+    # 底图效果：虚化程度（0~1）与压暗程度（0~0.8），两个比例共享。
+    blur: float = 0.0
     dim: float = 0.0
-
-    @property
-    def cutout_active(self) -> bool:
-        return bool(self.cutout and self.asset is not None and self.cutout_for == self.asset.path)
 
     def to_payload(self) -> dict[str, object]:
         value = self._base_payload()
@@ -334,8 +328,7 @@ class BackgroundObject(RenderObject):
             "pan_x": self.pan_x,
             "pan_y": self.pan_y,
             "crop": self.crop.to_payload() if self.crop else None,
-            "cutout": self.cutout,
-            "cutout_for": self.cutout_for,
+            "blur": self.blur,
             "dim": self.dim,
         })
         return value
@@ -354,8 +347,7 @@ class BackgroundObject(RenderObject):
             pan_x=bounded_number(payload.get("pan_x"), 0.5, 0.0, 1.0),
             pan_y=bounded_number(payload.get("pan_y"), 0.5, 0.0, 1.0),
             crop=Rect.from_payload(payload["crop"]) if isinstance(payload.get("crop"), Mapping) else None,
-            cutout=_text(payload.get("cutout")),
-            cutout_for=_text(payload.get("cutout_for")),
+            blur=bounded_number(payload.get("blur"), 0.0, 0.0, 1.0),
             dim=bounded_number(payload.get("dim"), 0.0, 0.0, 0.8),
         )
 
@@ -418,6 +410,8 @@ class ImageObject(RenderObject):
     # 边框（拼图小图的白边）：颜色为空表示没有；宽度是导出像素，画在图片边缘以内。
     border: str = ""
     border_width: int = 0
+    # 下沿不离开封面底边（抠出的人物下沿是画面切口）。
+    pin_bottom: bool = False
 
     def to_payload(self) -> dict[str, object]:
         value = self._base_payload()
@@ -427,6 +421,7 @@ class ImageObject(RenderObject):
             "crop": self.crop.to_payload() if self.crop else None,
             "border": self.border,
             "border_width": self.border_width,
+            "pin_bottom": self.pin_bottom,
         })
         return value
 
@@ -443,6 +438,7 @@ class ImageObject(RenderObject):
             crop=Rect.from_payload(payload["crop"]) if isinstance(payload.get("crop"), Mapping) else None,
             border=_color(payload.get("border")),
             border_width=min(64, max(0, _integer(payload.get("border_width"), 0))),
+            pin_bottom=bool(payload.get("pin_bottom", False)),
         )
 
 

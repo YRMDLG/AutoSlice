@@ -944,7 +944,7 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
             if item.id == headline.id else item for item in model.objects
         ))
         model = insert_overlay(model, StickerObject(id="sticker-1", asset=AssetRef(path=str(logo))))
-        template = make_template(model, "日更", frames_dir=service.storage.thumbnails / "cover-frames")
+        template = make_template(model, "日更", video_dirs=(service.storage.thumbnails / "cover-frames",))
         service.auto_cover(project, video, template=template)
         saved = service.load_document(project, video)[0]
         headline = next(item for item in saved.objects if isinstance(item, TextObject) and item.copy_role == "B")

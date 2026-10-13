@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image
 
 from autoslice_cover.document_layout import (
+    BACKGROUND_BLUR_MAX,
     CONTEXT_MIN_FONT_SIZE,
     EMPHASIS_MIN_FONT_SIZE,
     Box,
@@ -201,7 +203,21 @@ def overlay_geometry(item: ImageObject | StickerObject, size: tuple[int, int]) -
     source = image_size(asset_path(item))
     if source is None:
         return None
-    return overlay_box(source, size, x=item.transform.x, y=item.transform.y, scale=item.transform.scale)
+    return overlay_box(
+        source, size, x=item.transform.x, y=item.transform.y, scale=item.transform.scale,
+        pin_bottom=bool(getattr(item, "pin_bottom", False)),
+    )
+
+
+def settle_overlay(item: RenderableObject, size: tuple[int, int]) -> RenderableObject:
+    """贴住底边的图层：把记下的位置改成实际画出来的位置，免得往回拖时有一段拖不动。"""
+
+    if not isinstance(item, ImageObject) or not item.pin_bottom:
+        return item
+    box = overlay_geometry(item, size)
+    if box is None or abs(box.top / size[1] - item.transform.y) < 1e-6:
+        return item
+    return replace(item, transform=replace(item.transform, y=box.top / size[1]))
 
 
 def shape_geometry(item: ShapeObject, size: tuple[int, int]) -> Box:
@@ -220,6 +236,15 @@ def background_geometry(
     )
 
 
+def background_blur_radius(item: BackgroundObject, size: tuple[int, int], source_size: tuple[int, int], box: Box) -> float:
+    """虚化半径换成源图像素：在画布上看是“画布高度 × 比例”，放大缩小底图时观感不变。"""
+
+    if item.blur <= 0:
+        return 0.0
+    factor = box.width / max(1, source_size[0])
+    return item.blur * BACKGROUND_BLUR_MAX * size[1] / max(1e-6, factor)
+
+
 def document_layers(
     document: CoverDocument, profile_key: str,
 ) -> tuple[BackgroundLayer | None, tuple[Layer, ...]]:
@@ -233,10 +258,8 @@ def document_layers(
             path = asset_path(item)
             source = image_size(path)
             if background is None and path and source is not None:
-                background = BackgroundLayer(
-                    path, background_geometry(item, size, source),
-                    item.cutout if item.cutout_active else None, item.dim if item.cutout_active else 0.0,
-                )
+                box = background_geometry(item, size, source)
+                background = BackgroundLayer(path, box, background_blur_radius(item, size, source, box), item.dim)
             continue
         if not item.visible:
             continue

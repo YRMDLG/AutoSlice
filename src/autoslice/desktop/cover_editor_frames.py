@@ -23,9 +23,19 @@ from PySide6.QtWidgets import (
 from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCALE_MIN
 
 from .cover_ai import CoverAIError, jpeg_bytes
-from .cover_cutout import CUTOUT_DIM, MODEL_FILE, cutout_available, make_cutout, model_ready
+from .cover_cutout import (
+    MODEL_FILE,
+    PERSON_BLUR,
+    cutout_available,
+    is_outlined,
+    make_person,
+    model_ready,
+    outline_variant,
+)
 from .cover_draft import CoverDraft
+from .cover_effects import add_person
 from .cover_frames import CoverFrame, best_overview_frame, recommended_frame
+from .cover_layout import canvas_size, settle_overlay
 from .cover_model import (
     AssetRef,
     BackgroundObject,
@@ -476,14 +486,9 @@ class CoverFramesMixin:
         self._refresh_schemes()
 
     def _cutout_person(self):
-        """抠出人物 / 取消抠图：抠图在后台跑（有 AI 就用它标的人物框和界面框，更准），完成后可撤销。"""
+        """抠出人物：在后台抠（有 AI 就用它标的人物框和界面框，更准），抠完作为能单独拖动缩放的人物图层放进封面。"""
 
-        background = self._current_background()
-        if self.document is None or background is None or not self.draft.image_path:
-            return
-        if background.cutout_active:
-            self._set_background_effect(cutout="", cutout_for="", dim=0.0)
-            self.status_changed.emit("已取消抠图")
+        if self.document is None or self._current_background() is None or not self.draft.image_path:
             return
         if not cutout_available():
             self._set_notice("抠图需要本机装有 OpenCV（opencv-python）", "warning")
@@ -502,7 +507,7 @@ class CoverFramesMixin:
             except CoverAIError:
                 notes = None  # 没配 AI 也能抠，只是人物框按画面中间估
             model = service.storage.root / "models" / MODEL_FILE
-            return image_path, make_cutout(image_path, notes, service.storage.thumbnails / "cover-cutouts", model=model)
+            return image_path, make_person(image_path, notes, service.storage.thumbnails / "cover-cutouts", model=model)
 
         self._run(work, self._cutout_ready)
 
@@ -512,44 +517,80 @@ class CoverFramesMixin:
         if error is not None:
             self._set_notice(f"抠图失败：{error}", "error")
             return
-        image_path, cutout = result
-        if image_path != self.draft.image_path:
+        image_path, person = result
+        if image_path != self.draft.image_path or self.document is None:
             return  # 抠的时候换过底图，结果作废
-        self._set_background_effect(cutout=str(cutout), cutout_for=image_path, dim=CUTOUT_DIM)
-        self.status_changed.emit("已抠出人物：加了白色外发光、其余压暗；右侧可调压暗程度，再点一次取消（Ctrl+Z 可撤销）")
-
-    def _dim_changed(self, value: int):
-        background = self._current_background()
-        if background is not None and background.cutout_active and abs(background.dim - value / 100) > 1e-6:
-            self._set_background_effect(dim=value / 100)
-
-    def _set_background_effect(self, **fields):
-        """抠图和压暗是底图本体的属性，两个比例共享。"""
-
+        before = self.document
+        object_id = self._new_object_id("person")
+        self.document = add_person(self.document, person, object_id=object_id)
         background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None)
+        if background is not None and background.blur == 0 and background.dim == 0:
+            # 参考切片封面：人物清楚、背景糊掉。
+            self.document = update_shared_fields(self.document, background.id, blur=PERSON_BLUR)
+        self._commit_document_change(before)
+        self.canvas.set_document(self.document, self._canvas_key)
+        self._canvas_object_selected(object_id)
+        self.status_changed.emit(
+            "已抠出人物：是单独的图层，可以拖动、缩放、加白边；底图已虚化（底图面板可调虚化和压暗）。"
+            "想做“人物 + 内容”：把底图放大拖到她在看的东西上，人物挪到角落（Ctrl+Z 可撤销）"
+        )
+
+    def _background_effect_changed(self, _value: int = 0):
+        background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None) if self.document else None
         if background is None:
+            return
+        fields = {"blur": self.blur_spin.value() / 100, "dim": self.dim_spin.value() / 100}
+        if abs(background.blur - fields["blur"]) < 1e-6 and abs(background.dim - fields["dim"]) < 1e-6:
             return
         before = self.document
         self.document = update_shared_fields(self.document, background.id, **fields)
-        if self.document != before:
-            self._commit_document_change(before)
-            self.canvas.set_document(self.document, self._canvas_key)
-        self._sync_cutout_controls()
+        self._commit_document_change(before)
+        self.canvas.set_document(self.document, self._canvas_key)
 
-    def _sync_cutout_controls(self):
+    def _sync_background_effects(self):
         background = self._current_background()
-        active = background is not None and background.cutout_active
-        self.cutout_button.setText("取消抠图" if active else "抠出人物")
+        for spin, value in ((self.blur_spin, background.blur if background else 0.0), (self.dim_spin, background.dim if background else 0.0)):
+            spin.blockSignals(True)
+            spin.setValue(round(value * 100))
+            spin.blockSignals(False)
+            spin.setEnabled(background is not None)
         model = self.service.storage.root / "models" / MODEL_FILE
         self.cutout_button.setToolTip(
-            "把主播抠出来加白色外发光，其余画面压暗。"
+            "把主播抠出来，作为能单独拖动、缩放的人物图层，底图自动虚化。"
             + ("精细模式：用本机的 BiRefNet 模型，发丝级边缘。" if model_ready(model)
                else f"普通模式（OpenCV）；把 BiRefNet 模型放到 {model} 可以抠到发丝。")
         )
-        self.dim_spin.blockSignals(True)
-        self.dim_spin.setValue(round((background.dim if active else 0.0) * 100))
-        self.dim_spin.blockSignals(False)
-        self.dim_spin.setEnabled(active)
+
+    def _toggle_person_pin(self, checked: bool):
+        """人物下沿贴住封面底边：两个比例都按实际画出来的位置记下。"""
+
+        selected = self._selected_render_object()
+        if not isinstance(selected, ImageObject) or selected.pin_bottom == checked:
+            return
+        before = self.document
+        document = update_shared_fields(self.document, selected.id, pin_bottom=checked)
+        for key in document.profiles:
+            current = object_for_profile(document, selected.id, key)
+            settled = settle_overlay(current, canvas_size(key))
+            if settled is not current:
+                document = set_profile_override(document, key, settled)
+        self.document = document
+        self._commit_document_change(before)
+        self.canvas.set_document(self.document, self._canvas_key)
+
+    def _toggle_person_outline(self, checked: bool):
+        """人物图层加白边 / 去白边：换成同一次抠图的另一张图。"""
+
+        selected = self._selected_render_object()
+        if not isinstance(selected, ImageObject) or selected.asset is None:
+            return
+        other = outline_variant(selected.asset.path)
+        if other is None or is_outlined(other) != checked:
+            return
+        before = self.document
+        self.document = update_shared_fields(self.document, selected.id, asset=replace(selected.asset, path=str(other)))
+        self._commit_document_change(before)
+        self.canvas.set_document(self.document, self._canvas_key)
 
     def _store_background_controls(self):
         if self.document is None:

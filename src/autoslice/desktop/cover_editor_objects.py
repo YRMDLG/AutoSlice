@@ -19,8 +19,10 @@ from PySide6.QtWidgets import (
 )
 
 from .cover_asset_dialog import CoverAssetDialog
+from .cover_cutout import is_outlined, outline_variant
 from .cover_draft import CoverDraft
 from .cover_effects import add_burst
+from .cover_layout import canvas_size, settle_overlay
 from .cover_model import (
     AssetRef,
     BackgroundObject,
@@ -263,6 +265,16 @@ class CoverObjectsMixin:
         self._overlay_form.setRowVisible(self.shape_fill_button, shape)
         # 第 5 行是“边框”（颜色 + 宽度的组合行）。
         self._overlay_form.setRowVisible(5, picture)
+        # 第 6 行是“人物白边 / 贴住底边”：只有抠出来的人物图层才有。
+        person = picture and selected.asset is not None and outline_variant(selected.asset.path) is not None
+        for check, value in (
+            (self.person_outline_check, bool(person and is_outlined(selected.asset.path))),
+            (self.person_pin_check, bool(person and selected.pin_bottom)),
+        ):
+            check.blockSignals(True)
+            check.setChecked(value)
+            check.blockSignals(False)
+        self._overlay_form.setRowVisible(6, bool(person))
         self.lock_asset_button.setChecked(bool(enabled and selected.locked))
         self.hide_asset_button.setEnabled(enabled)
         self.lock_asset_button.setEnabled(enabled)
@@ -287,6 +299,7 @@ class CoverObjectsMixin:
                 rotation=self.overlay_rotation_spin.value(),
             ),
         )
+        updated = settle_overlay(updated, canvas_size(self._canvas_key))
         if updated == current:
             return
         self.document = replace(set_profile_override(self.document, self._canvas_key, updated), active_profile=self._canvas_key)

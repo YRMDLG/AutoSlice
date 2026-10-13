@@ -1,15 +1,19 @@
-"""一键精修效果：给关键词垫爆炸贴。纯函数，编辑器按钮和“AI 改一改”共用（人物抠图在 cover_cutout）。"""
+"""一键精修效果：给关键词垫爆炸贴；把抠出来的人物作为图层放进封面。纯函数，编辑器按钮和“AI 改一改”共用。"""
 
 from __future__ import annotations
 
 import math
 from dataclasses import replace
 
-from autoslice_cover.document_layout import Box, TextLayout, load_font
+from autoslice_cover.document_layout import OVERLAY_BASE_WIDTH, Box, TextLayout, load_font
 
-from .cover_layout import canvas_size, text_area, text_layout
+from .cover_cutout import PersonCutout
+from .cover_layout import background_geometry, canvas_size, text_area, text_layout
 from .cover_model import (
+    AssetRef,
+    BackgroundObject,
     CoverDocument,
+    ImageObject,
     ShapeObject,
     TextObject,
     Transform,
@@ -24,6 +28,40 @@ _BURST_PAD_X = 1.45
 _BURST_PAD_Y = 2.1
 _BURST_MIN_ASPECT = 0.55
 _BURST_RED, _BURST_YELLOW, _BURST_INK = "#FF3B30", "#FFE438", "#111111"
+
+
+def add_person(document: CoverDocument, person: PersonCutout, *, object_id: str) -> CoverDocument:
+    """把抠出来的人物作为图层放进封面：两个比例都先对准底图里那个人（看起来没动），之后能单独拖动缩放。
+
+    放在其他素材和字下面；底图怎么虚化、压暗都不影响它。人物被画面下沿切开时默认贴住底边。
+    """
+
+    background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
+    if background is None:
+        return document
+    others = [item for item in document.objects if not isinstance(item, BackgroundObject)]
+    layer = ImageObject(
+        id=object_id, asset=AssetRef(path=str(person.plain)),
+        z_index=min((item.z_index for item in others), default=2) - 1,
+        # 人物被画面下沿切开时，下沿要一直贴着封面底边，否则缩小、挪动后露出切口。
+        pin_bottom=person.box[3] >= person.source_size[1] - 2,
+    )
+
+    def placed(key: str) -> ImageObject:
+        size = canvas_size(key)
+        current = object_for_profile(document, background.id, key)
+        drawn = background_geometry(current if isinstance(current, BackgroundObject) else background, size, person.source_size)
+        factor = drawn.width / max(1, person.source_size[0])
+        x0, y0, x1, _y1 = person.box
+        return replace(layer, transform=Transform(
+            x=(drawn.left + x0 * factor) / size[0], y=(drawn.top + y0 * factor) / size[1],
+            scale=(x1 - x0) * factor / size[0] / OVERLAY_BASE_WIDTH,
+        ))
+
+    document = replace(document, objects=(*document.objects, placed(document.active_profile)), selected_object_id=object_id)
+    for key in document.profiles:
+        document = set_profile_override(document, key, placed(key))
+    return document
 
 
 def burst_id(text_id: str) -> str:
