@@ -1,21 +1,12 @@
-"""一键精修效果：给关键词垫爆炸贴；把人物抠出来加白色外发光、背景压暗。
-
-爆炸贴是纯函数，编辑器按钮和“AI 改一改”共用。抠图用本机 OpenCV 的 GrabCut（不下载模型），
-以看图标出的人物框、脸框为种子、界面框为背景；没装 OpenCV 时这个功能不可用。
-"""
+"""一键精修效果：给关键词垫爆炸贴。纯函数，编辑器按钮和“AI 改一改”共用（人物抠图在 cover_cutout）。"""
 
 from __future__ import annotations
 
-import hashlib
 import math
 from dataclasses import replace
-from pathlib import Path
-
-from PIL import Image, ImageFilter
 
 from autoslice_cover.document_layout import Box, TextLayout, load_font
 
-from .cover_ai import AIFrameNotes
 from .cover_layout import canvas_size, text_area, text_layout
 from .cover_model import (
     CoverDocument,
@@ -33,88 +24,6 @@ _BURST_PAD_X = 1.45
 _BURST_PAD_Y = 2.1
 _BURST_MIN_ASPECT = 0.55
 _BURST_RED, _BURST_YELLOW, _BURST_INK = "#FF3B30", "#FFE438", "#111111"
-
-
-# 抠图：GrabCut 在半分辨率上跑（够准、一秒多），外发光宽度占画面高度的比例，没标出人物时的默认人物框。
-_CUTOUT_SCALE = 0.5
-_CUTOUT_ITERATIONS = 6
-_GLOW_RATIO = 0.012
-_DEFAULT_PERSON = (0.22, 0.06, 0.78, 1.0)
-# 抠完默认把人物以外压暗这么多。
-CUTOUT_DIM = 0.45
-
-
-def cutout_available() -> bool:
-    """本机有没有 OpenCV（抠图靠它）。"""
-
-    try:
-        import cv2  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
-def make_cutout(image_path: str | Path, notes: AIFrameNotes | None, out_dir: Path) -> Path:
-    """把人物抠出来：返回和底图同尺寸的透明 PNG（人物 + 白色外发光）；同一张图、同样的框直接复用。"""
-
-    import cv2
-    import numpy as np
-
-    source = Path(image_path)
-    person = notes.person if notes is not None and notes.person is not None else _DEFAULT_PERSON
-    face = notes.face if notes is not None else None
-    ui = notes.ui if notes is not None else ()
-    stat = source.stat()
-    key = hashlib.sha1(repr((str(source.resolve()), stat.st_size, stat.st_mtime_ns, person, face, ui)).encode("utf-8"))
-    output = out_dir / f"{key.hexdigest()[:20]}.png"
-    if output.is_file():
-        return output
-    image = cv2.imdecode(np.fromfile(str(source), dtype=np.uint8), cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError(f"底图读不出来：{source}")
-    height, width = image.shape[:2]
-    small = cv2.resize(image, (max(1, int(width * _CUTOUT_SCALE)), max(1, int(height * _CUTOUT_SCALE))), interpolation=cv2.INTER_AREA)
-    small_height, small_width = small.shape[:2]
-
-    def pixels(box):
-        return (int(box[0] * small_width), int(box[1] * small_height), int(box[2] * small_width), int(box[3] * small_height))
-
-    mask = np.full((small_height, small_width), cv2.GC_BGD, np.uint8)
-    x0, y0, x1, y1 = pixels(person)
-    mask[y0:y1, x0:x1] = cv2.GC_PR_FGD
-    for box in ui:
-        # 直播界面肯定不是人。
-        ux0, uy0, ux1, uy1 = pixels(box)
-        mask[uy0:uy1, ux0:ux1] = cv2.GC_BGD
-    if face is not None:
-        # 脸框往里收一圈，肯定是人。
-        fx0, fy0, fx1, fy1 = pixels(face)
-        dx, dy = (fx1 - fx0) // 6, (fy1 - fy0) // 6
-        mask[fy0 + dy:fy1 - dy, fx0 + dx:fx1 - dx] = cv2.GC_FGD
-    background_model, foreground_model = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
-    cv2.grabCut(small, mask, None, background_model, foreground_model, _CUTOUT_ITERATIONS, cv2.GC_INIT_WITH_MASK)
-    alpha = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
-    # 只留最大的一块（人），补上小洞。
-    count, labels, stats, _centroids = cv2.connectedComponentsWithStats(alpha)
-    if count > 1:
-        alpha = np.where(labels == 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])), 255, 0).astype(np.uint8)
-    alpha = cv2.morphologyEx(alpha, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-    alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
-    with Image.open(source) as opened:
-        picture = opened.convert("RGB")
-    edge = Image.fromarray(alpha).filter(ImageFilter.GaussianBlur(1.5))
-    glow_size = max(3, round(height * _GLOW_RATIO)) | 1
-    glow = edge.filter(ImageFilter.MaxFilter(glow_size * 2 + 1)).filter(ImageFilter.GaussianBlur(glow_size / 4))
-    result = Image.new("RGBA", picture.size, (255, 255, 255, 0))
-    result.putalpha(glow)
-    person_layer = picture.convert("RGBA")
-    person_layer.putalpha(edge)
-    result.alpha_composite(person_layer)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_suffix(".tmp.png")
-    result.save(temporary)
-    temporary.replace(output)
-    return output
 
 
 def burst_id(text_id: str) -> str:

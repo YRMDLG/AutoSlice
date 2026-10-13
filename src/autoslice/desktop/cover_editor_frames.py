@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
 from autoslice_cover.document_layout import BACKGROUND_SCALE_MAX, BACKGROUND_SCALE_MIN
 
 from .cover_ai import CoverAIError, jpeg_bytes
+from .cover_cutout import CUTOUT_DIM, MODEL_FILE, cutout_available, make_cutout, model_ready
 from .cover_draft import CoverDraft
-from .cover_effects import CUTOUT_DIM, cutout_available, make_cutout
 from .cover_frames import CoverFrame, best_overview_frame, recommended_frame
 from .cover_model import (
     AssetRef,
@@ -497,7 +497,8 @@ class CoverFramesMixin:
                 notes = service.ai.inspect(jpeg_bytes(image_path))
             except CoverAIError:
                 notes = None  # 没配 AI 也能抠，只是人物框按画面中间估
-            return image_path, make_cutout(image_path, notes, service.storage.thumbnails / "cover-cutouts")
+            model = service.storage.root / "models" / MODEL_FILE
+            return image_path, make_cutout(image_path, notes, service.storage.thumbnails / "cover-cutouts", model=model)
 
         self._run(work, self._cutout_ready)
 
@@ -535,6 +536,12 @@ class CoverFramesMixin:
         background = self._current_background()
         active = background is not None and background.cutout_active
         self.cutout_button.setText("取消抠图" if active else "抠出人物")
+        model = self.service.storage.root / "models" / MODEL_FILE
+        self.cutout_button.setToolTip(
+            "把主播抠出来加白色外发光，其余画面压暗。"
+            + ("精细模式：用本机的 BiRefNet 模型，发丝级边缘。" if model_ready(model)
+               else f"普通模式（OpenCV）；把 BiRefNet 模型放到 {model} 可以抠到发丝。")
+        )
         self.dim_spin.blockSignals(True)
         self.dim_spin.setValue(round((background.dim if active else 0.0) * 100))
         self.dim_spin.blockSignals(False)

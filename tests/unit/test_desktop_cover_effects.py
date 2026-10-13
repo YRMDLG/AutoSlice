@@ -14,7 +14,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageStat
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from autoslice.desktop.cover_ai import AIFrameNotes
-from autoslice.desktop.cover_effects import add_burst, burst_id, cutout_available, make_cutout
+from autoslice.desktop.cover_cutout import cutout_available, make_cutout
+from autoslice.desktop.cover_effects import add_burst, burst_id
 from autoslice.desktop.cover_layout import canvas_size, document_layers, text_layout
 from autoslice.desktop.cover_model import (
     AssetRef,
@@ -258,6 +259,47 @@ class CutoutTests(unittest.TestCase):
         self.assertGreater(glow[3], 100)
         self.assertGreater(min(glow[:3]), 200)
         self.assertEqual(make_cutout(self.frame, self.notes, self.root / "cutouts"), path)
+
+    def test_model_is_used_when_its_file_is_present(self):
+        from unittest import mock
+
+        import numpy as np
+
+        import autoslice.desktop.cover_cutout as cutout_module
+
+        self.assertFalse(cutout_module.model_ready(self.root / "missing.onnx"))
+        try:
+            import onnxruntime  # noqa: F401
+        except ImportError:
+            self.skipTest("本机没有 onnxruntime")
+        model = self.root / "models" / "birefnet_lite.onnx"
+        model.parent.mkdir()
+        model.write_bytes(b"fake")
+        seen = {}
+
+        class FakeSession:
+            def get_inputs(self):
+                return [type("Input", (), {"name": "input_image"})()]
+
+            def run(self, _outputs, feeds):
+                tensor = feeds["input_image"]
+                seen["shape"] = tensor.shape
+                # 亮的地方是人：输出 logits（要过 sigmoid）。
+                return [(tensor.mean(axis=1, keepdims=True) * 6 + 2).astype(np.float32)]
+
+        session = mock.patch.object(cutout_module, "model_session", lambda *_args: FakeSession())
+        no_grabcut = mock.patch("cv2.grabCut", side_effect=AssertionError("有模型时不该用 GrabCut"))
+        with session, no_grabcut:
+            path = make_cutout(self.frame, self.notes, self.root / "cutouts", model=model)
+        self.assertEqual(seen["shape"], (1, 3, 1024, 1024))
+        with Image.open(path) as image:
+            cutout = image.convert("RGBA")
+        # 脸（亮）抠出来，旁边的背景（暗）透明；工作区外一律透明。
+        self.assertGreater(cutout.getpixel((960, 400))[3], 240)
+        self.assertLess(cutout.getpixel((700, 900))[3], 10)
+        self.assertEqual(cutout.getpixel((60, 60))[3], 0)
+        # 没模型时走 GrabCut，结果另存，不混用。
+        self.assertNotEqual(make_cutout(self.frame, self.notes, self.root / "cutouts"), path)
 
     def test_cutout_renders_person_over_darkened_frame_and_expires_with_the_frame(self):
         path = make_cutout(self.frame, self.notes, self.root / "cutouts")
