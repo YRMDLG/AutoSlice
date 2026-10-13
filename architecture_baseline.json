@@ -11605,71 +11605,71 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 246,
+      "line_count": 253,
       "longest_function": {
-        "end_line": 199,
+        "end_line": 206,
         "kind": "function",
-        "line": 154,
+        "line": 161,
         "line_count": 46,
         "qualname": "_grabcut_alpha"
       },
       "module": "autoslice.desktop.cover_cutout",
       "path": "src/autoslice/desktop/cover_cutout.py",
-      "sha256": "99dd399178ffe2f677e1e728b01e09a9c374bc6f998db31b0c6b6db33f878e2b",
+      "sha256": "3a6b41fe463387113ce608ac7d0e81987ae9a27ac294d3fc0aa5193cfaf728d6",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 48,
+          "end_line": 49,
           "kind": "function",
-          "line": 41,
+          "line": 42,
           "name": "cutout_available"
         },
         {
-          "end_line": 60,
+          "end_line": 61,
           "kind": "function",
-          "line": 51,
+          "line": 52,
           "name": "model_ready"
         },
         {
-          "end_line": 69,
+          "end_line": 76,
           "kind": "function",
-          "line": 64,
+          "line": 65,
           "name": "model_session"
         },
         {
-          "end_line": 78,
+          "end_line": 85,
           "kind": "function",
-          "line": 72,
+          "line": 79,
           "name": "_work_area"
         },
         {
-          "end_line": 111,
+          "end_line": 118,
           "kind": "function",
-          "line": 81,
+          "line": 88,
           "name": "_guided_filter"
         },
         {
-          "end_line": 132,
+          "end_line": 139,
           "kind": "function",
-          "line": 114,
+          "line": 121,
           "name": "_keep_person"
         },
         {
-          "end_line": 151,
+          "end_line": 158,
           "kind": "function",
-          "line": 135,
+          "line": 142,
           "name": "_model_alpha"
         },
         {
-          "end_line": 199,
+          "end_line": 206,
           "kind": "function",
-          "line": 154,
+          "line": 161,
           "name": "_grabcut_alpha"
         },
         {
-          "end_line": 246,
+          "end_line": 253,
           "kind": "function",
-          "line": 202,
+          "line": 209,
           "name": "make_cutout"
         }
       ]
@@ -11752,7 +11752,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 599,
+      "line_count": 603,
       "longest_function": {
         "end_line": 476,
         "kind": "function",
@@ -11762,10 +11762,10 @@
       },
       "module": "autoslice.desktop.cover_editor_frames",
       "path": "src/autoslice/desktop/cover_editor_frames.py",
-      "sha256": "f444d16a3723fb34d697925e97ed2b5f27cc3d7ecf553fd65ee4c36d60257381",
+      "sha256": "49d2e1e9c02c895fe3458668028db942d598d8953fcdfb419f699cb54230b24f",
       "top_level_classes": [
         {
-          "end_line": 599,
+          "end_line": 603,
           "kind": "class",
           "line": 43,
           "name": "CoverFramesMixin"
@@ -21626,7 +21626,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 732,
-    "production_line_count": 65746,
+    "production_line_count": 65757,
     "production_module_count": 256,
     "test_private_patch_count": 17,
     "top_level_class_count": 240,

@@ -490,7 +490,11 @@ class CoverFramesMixin:
             return
         image_path, service = self.draft.image_path, self.service
         self.cutout_button.setEnabled(False)
-        self._set_notice("正在抠人物…", "info")
+        fine = model_ready(service.storage.root / "models" / MODEL_FILE)
+        self._set_notice(
+            "正在用模型精细抠人物（大约 15 秒，这期间可以照常编辑）…" if fine else "正在抠人物（大约 10 秒，这期间可以照常编辑）…",
+            "info",
+        )
 
         def work():
             try:

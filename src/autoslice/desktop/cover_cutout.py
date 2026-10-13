@@ -21,6 +21,7 @@ from .cover_ai import AIFrameNotes
 MODEL_FILE = "birefnet_lite.onnx"
 _MODEL_SIDE = 1024
 _MEAN, _STD = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+_MODEL_THREADS = 16
 # 人物框往外扩多少当工作区（框外是背景样本，也给飘出去的头发留地方）。
 _MARGIN_X, _MARGIN_Y = 0.22, 0.10
 # GrabCut 工作区长边上限（只定大轮廓，细边交给导向滤波按原分辨率贴；再大很慢）、迭代次数；
@@ -64,9 +65,15 @@ def model_ready(model: Path | None) -> bool:
 def model_session(path: str, _mtime: int):
     """加载（并缓存）模型；测试可以换掉它。"""
 
+    import os
+
     import onnxruntime
 
-    return onnxruntime.InferenceSession(path, providers=["CPUExecutionProvider"])
+    # 关掉内存池、线程数别开满：笔记本上连续跑时不会越跑越慢（实测 11~14 秒一张，开满反而 25~37 秒）。
+    options = onnxruntime.SessionOptions()
+    options.enable_cpu_mem_arena = False
+    options.intra_op_num_threads = max(1, min(_MODEL_THREADS, os.cpu_count() or 1))
+    return onnxruntime.InferenceSession(path, options, providers=["CPUExecutionProvider"])
 
 
 def _work_area(notes: AIFrameNotes | None, width: int, height: int) -> tuple[int, int, int, int]:
