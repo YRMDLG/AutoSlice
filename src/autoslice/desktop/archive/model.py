@@ -80,6 +80,8 @@ class ScanOptions:
     force: bool = False
     # 扫完整个根目录后，把已经不存在的文件夹从库里清掉。
     cleanup_missing: bool = True
+    # 进度回调至少隔这么多秒才发一次（界面不需要比这更勤）。
+    progress_interval: float = 0.25
 
 
 @dataclass(slots=True)

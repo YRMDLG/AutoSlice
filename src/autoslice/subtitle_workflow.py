@@ -2122,19 +2122,6 @@ def _split_subtitle_text_for_ass(text, max_chars):
     return parts
 
 
-def _wrap_subtitle_text_for_ass(text, max_chars):
-    """只做视觉换行，不改变 cue 的时间范围；显式换行也必须保留。"""
-    source = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
-    wrapped_lines = []
-    for source_line in source.split("\n"):
-        parts = _split_subtitle_text_for_ass(source_line, max_chars)
-        if parts:
-            wrapped_lines.extend(parts)
-        elif source_line == "":
-            wrapped_lines.append("")
-    return "\n".join(wrapped_lines).strip("\n")
-
-
 def _split_cue_for_ass(cue, max_chars):
     """把一条 SRT cue 拆成连续事件；仅供显式 SRT 重排使用。"""
     parts = _split_subtitle_text_for_ass(cue.text, max_chars)
@@ -2190,7 +2177,7 @@ def build_ass_document(cues, width, height, style=None):
 ScriptType: v4.00+
 PlayResX: {int(width)}
 PlayResY: {int(height)}
-WrapStyle: 0
+WrapStyle: 2
 ScaledBorderAndShadow: yes
 YCbCr Matrix: TV.709
 
@@ -2203,17 +2190,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     position = rf"{{\an5\pos({geometry['x']},{geometry['y']})}}"
     events = []
-    max_chars = _subtitle_display_char_limit(width, geometry)
     for cue in cues:
-        text = _wrap_subtitle_text_for_ass(cue.text, max_chars)
-        if not text:
-            continue
-        start = cue.start_seconds
-        end = max(cue.end_seconds, start + 0.01)
+        # 预览与压制保留用户字幕的正文、分条和时间轴，不自动重排。
         events.append(
             "Dialogue: 0,"
-            f"{_ass_timestamp(start)},{_ass_timestamp(end)},"
-            f"Default,,0,0,0,,{position}{_escape_ass_text(text)}"
+            f"{_ass_timestamp(cue.start_seconds)},{_ass_timestamp(cue.end_seconds)},"
+            f"Default,,0,0,0,,{position}{_escape_ass_text(cue.text)}"
         )
     return header + "\n".join(events) + "\n"
 

@@ -31,9 +31,8 @@ from .model import (
 from .store import ArchiveStore
 
 ProgressCallback = Callable[[ScanProgress], None]
-# 每处理这么多个变化的文件夹提交一次；进度回调至少隔这么久才发一次。
+# 每处理这么多个变化的文件夹提交一次。
 _COMMIT_EVERY = 100
-_PROGRESS_INTERVAL = 0.25
 
 
 def open_store(path: str | Path, extractors: Sequence[Extractor] = DEFAULT_EXTRACTORS) -> ArchiveStore:
@@ -120,7 +119,7 @@ def scan_roots(
     def report(force: bool = False) -> None:
         nonlocal last_report
         now = time.monotonic()
-        if progress is not None and (force or now - last_report >= _PROGRESS_INTERVAL):
+        if progress is not None and (force or now - last_report >= options.progress_interval):
             last_report = now
             progress(state)
 

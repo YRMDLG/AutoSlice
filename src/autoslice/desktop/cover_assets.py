@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from autoslice import runtime_config
 from autoslice_cover.paths import DEFAULT_STICKER_ROOT
 
 SUPPORTED_ASSET_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".bmp"})
@@ -47,7 +48,11 @@ class CoverAssetLibrary:
     def __init__(self, storage_root: Path | str, *, legacy_root: Path | str | None = None) -> None:
         self.root = Path(storage_root).expanduser().resolve() / "cover-assets"
         self.import_root = self.root / "imports"
-        configured = os.environ.get("AUTOSLICE_STICKER_ROOT", "").strip()
+        configured = (
+            os.environ.get("AUTOSLICE_STICKER_ROOT", "").strip()
+            or os.environ.get("AUTOCOVER_STICKER_DIR", "").strip()
+            or runtime_config.LOCAL_ENVIRONMENT.get("AUTOCOVER_STICKER_DIR", "")
+        )
         self.legacy_root = Path(legacy_root or configured or DEFAULT_STICKER_ROOT).expanduser().resolve()
         self.index_path = self.root / "index.json"
         self._assets: dict[str, CoverAsset] = {}

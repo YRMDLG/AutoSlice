@@ -242,8 +242,9 @@ class ScanTests(ArchiveTestCase):
             if state.changed >= 4:
                 cancel.set()
 
-        with patch("autoslice.desktop.archive.scanner._PROGRESS_INTERVAL", 0):
-            cut = self.service.scan([str(self.archive)], progress=stop_after_a_few, cancel=cancel)
+        cut = self.service.scan(
+            [str(self.archive)], ScanOptions(progress_interval=0), progress=stop_after_a_few, cancel=cancel,
+        )
         self.assertTrue(cut.cancelled)
         self.assertTrue(0 < cut.changed < 13)
         # 被取消的那次不清理“已经不存在的文件夹”，已写入的保留
