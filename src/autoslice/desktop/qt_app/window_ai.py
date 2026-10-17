@@ -11,6 +11,7 @@ import html
 import threading
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -23,8 +24,9 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.ai_review import document_hash
+from autoslice.desktop.qt_preview import motion
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.window import label, line
+from autoslice.desktop.qt_preview.window import label, line, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 from .window_widgets import _ElidedQueueButton
@@ -37,9 +39,16 @@ class AiReviewMixin:
         panel.setMinimumWidth(SIZES.ai_collapsed_width)
         column = QVBoxLayout(panel)
         column.setContentsMargins(0, 0, 0, 0)
-        header = QHBoxLayout()
-        self.ai_toggle = QPushButton("‹")
+        column.setSpacing(0)
+        # 与投稿项目、工作区工具栏同高
+        header_bar = QWidget()
+        header_bar.setFixedHeight(58)
+        header = QHBoxLayout(header_bar)
+        header.setContentsMargins(8, 0, 12, 0)
+        header.setSpacing(8)
+        self.ai_toggle = QPushButton()
         self.ai_toggle.setObjectName("quiet")
+        tool_icon(self.ai_toggle, "chevron_left")
         self.ai_toggle.setFixedSize(32, 32)
         self.ai_toggle.clicked.connect(lambda: self._set_ai_open(not self._ai_open))
         header.addWidget(self.ai_toggle)
@@ -52,7 +61,7 @@ class AiReviewMixin:
         self.ai_run.setToolTip("重新检查会再次调用 AI 并消耗额度")
         self.ai_run.clicked.connect(self._start_ai_check)
         header.addWidget(self.ai_run)
-        column.addLayout(header)
+        column.addWidget(header_bar)
         column.addWidget(line())
         self.ai_content = QScrollArea()
         self.ai_content.setWidgetResizable(True)
@@ -150,17 +159,31 @@ class AiReviewMixin:
         content.addStretch(1)
         self.ai_content.setWidget(ai_body)
         column.addWidget(self.ai_content, 1)
+        self.ai_collapsed_holder = QWidget()
+        holder = QVBoxLayout(self.ai_collapsed_holder)
+        holder.setContentsMargins(0, 12, 0, 0)
         self.ai_collapsed_label = label("AI", "badge")
-        column.addWidget(self.ai_collapsed_label, alignment=Qt.AlignmentFlag.AlignTop)
+        holder.addWidget(self.ai_collapsed_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        holder.addStretch()
+        column.addWidget(self.ai_collapsed_holder, 1)
+        # 过渡中内容隐藏时由占位吸收高度，标题行保持在顶部
+        column.addStretch()
         return panel
 
-    def _set_ai_open(self, open_):
-        super()._set_ai_open(open_)
-        self.ai_run.setVisible(open_)
+    def _ai_chrome(self, open_):
+        super()._ai_chrome(open_)
+        if hasattr(self, "ai_collapsed_holder"):
+            self.ai_collapsed_holder.setVisible(open_ is False)
+        if hasattr(self, "ai_run"):
+            self.ai_run.setVisible(bool(open_))
+
+    def _ai_fade_targets(self, open_):
+        return [self.ai_content, self.ai_header, self.ai_run] if open_ else [self.ai_collapsed_holder]
 
     def _set_filter(self, pending):
         self._commit_editor()
         self._pending_filter = pending
+        (self.filter_pending if pending else self.filter_all).setChecked(True)
         ids = {item.cue_id for item in self.ai_session.pending} if pending and self.ai_session else set()
         self.model.set_pending_filter(ids if pending else None)
         self._select_cue(self.selected_index)
@@ -176,11 +199,15 @@ class AiReviewMixin:
         if hasattr(self, "nav_badge"):
             self.nav_badge.setText(str(badge_count))
             self.nav_badge.adjustSize()
-            self.nav_badge.setVisible(badge_count > 0)
+            motion.reveal(self.nav_badge, badge_count > 0)
         self.ai_collapsed_label.setText(f"AI {count}" if count else "AI")
         self.ai_run.setEnabled(bool(self.document))
         self.ai_run.setText("取消检查" if self._ai_running else
                             "重新检查" if self.ai_session else "AI 检查")
+        if self._ai_running:
+            self.ai_run.setIcon(QIcon())
+        else:
+            tool_icon(self.ai_run, "refresh" if self.ai_session else "sparkle")
         pending_ids = {item.suggestion_id for item in pending}
         if self._ai_selected not in pending_ids:
             self._ai_selected = pending[0].suggestion_id if pending else None
@@ -206,6 +233,7 @@ class AiReviewMixin:
             button.setFixedHeight(30)
             button.clicked.connect(lambda _checked=False, sid=item.suggestion_id: self._select_ai(sid))
             self.ai_queue_layout.insertWidget(self.ai_queue_layout.count() - 1, button)
+        motion.install_tree(self.ai_queue_widget)
         self.ai_header.setText(f"AI 建议  {selected_position} / {count}" if self.ai_session else "AI 建议")
         self.ai_queue_header.setText(f"待处理 {count}")
         self.ai_queue_header.setVisible(count > 0)
@@ -237,7 +265,7 @@ class AiReviewMixin:
                 if old:
                     pieces.append(f'<span style="color:{COLORS.ai_removed};text-decoration:line-through">{old}</span>')
                 if new:
-                    pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:600">{new}</span>')
+                    pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:500">{new}</span>')
         return "".join(pieces).replace("\n", "<br>")
 
     def _show_ai_detail(self):
@@ -252,6 +280,9 @@ class AiReviewMixin:
             self.ai_accept.hide()
             self.ai_skip.hide()
             return
+        if getattr(self, "_ai_shown", None) != item.suggestion_id:
+            self._ai_shown = item.suggestion_id
+            motion.fade_in(self.ai_content.widget(), motion.FADE, start=0.25)
         entry = next((entry for entry in self.document.entries if entry.index == item.cue_id), None) if self.document else None
         conflict = entry is None or entry.text != item.original_text
         self.ai_card.show()
@@ -355,7 +386,7 @@ class AiReviewMixin:
             self._set_ai_open(True)
             self._select_ai(self.ai_session.pending[0].suggestion_id)
         self._ai_return_count = 0
-        self.ai_return.hide()
+        motion.reveal(self.ai_return, False)
         self._render_ai()
 
     def _start_ai_check(self):
@@ -427,7 +458,7 @@ class AiReviewMixin:
                         self._ai_return_video_path = snapshot.video.path
                         self._ai_return_count = len(result.pending)
                         self.ai_return.setText(f"查看 {project.title} 的 {len(result.pending)} 条建议")
-                        self.ai_return.show()
+                        motion.reveal(self.ai_return)
             elif self.document and self.document.video.path == snapshot.video.path:
                 self.app_status.setText(f"{project.title} · 字幕已变化，建议未应用")
                 self.ai_note.setText("检查期间字幕已变化，请主动重新检查。")
@@ -436,5 +467,5 @@ class AiReviewMixin:
                 self._ai_return_video_path = snapshot.video.path
                 self._ai_return_count = len(result.pending)
                 self.ai_return.setText(f"查看 {project.title} 的 {len(result.pending)} 条建议")
-                self.ai_return.show()
+                motion.reveal(self.ai_return)
         self._render_ai()

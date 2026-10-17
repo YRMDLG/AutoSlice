@@ -15,7 +15,6 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -33,6 +32,7 @@ from autoslice.desktop.cover import CoverEditorWidget
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.jobs import BackgroundJob
 from autoslice.desktop.projects import SubmissionProject, SubmissionProjectService
+from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import PreviewWindow, label, line
@@ -201,6 +201,7 @@ class DesktopWindow(
             widget.installEventFilter(self)
         self._restore_window()
         self._select_page(int(self._session.get("page", 0)) if self._session.get("page") in (0, 1, 2) else 0)
+        motion.install_tree(self)
         QTimer.singleShot(0, self.refresh)
 
     def _cover_page(self):
@@ -248,11 +249,11 @@ class DesktopWindow(
         self.render_location.setIcon(desktop_icon("folder", COLORS.muted))
         self.render_location.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
         self.render_location.clicked.connect(self._locate_render_output)
-        self.render_location.hide()
+        motion.reveal(self.render_location, False)
         row.addWidget(self.render_location)
         self.ai_return = QPushButton("查看待确认")
         self.ai_return.clicked.connect(self._return_to_ai)
-        self.ai_return.hide()
+        motion.reveal(self.ai_return, False)
         row.addWidget(self.ai_return)
         return bar
 
@@ -266,24 +267,24 @@ class DesktopWindow(
         heading.setObjectName("workToolbar")
         heading.setFixedHeight(58)
         row = QHBoxLayout(heading)
-        row.setContentsMargins(24, 0, 24, 0)
+        row.setContentsMargins(20, 0, 20, 0)
         row.addWidget(label("视频", "subtle"))
         self.video_name = label("选择视频", "videoFile")
         self.video_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.video_name.setMinimumWidth(0)
         row.addWidget(self.video_name, 1)
-        self.video_choice = QComboBox()
+        self.video_choice = popups.ComboBox()
         self.video_choice.setMinimumWidth(160)
         self.video_choice.currentIndexChanged.connect(self._video_changed)
         row.addWidget(self.video_choice, 1)
         actions = QWidget()
         actions.setObjectName("workflowActions")
         action_row = QHBoxLayout(actions)
-        action_row.setContentsMargins(2, 2, 2, 2)
-        action_row.setSpacing(2)
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
         self.save_button = QPushButton("保存字幕")
         self.save_button.setObjectName("primary")
-        self.save_button.setIcon(desktop_icon("save", COLORS.canvas))
+        self.save_button.setIcon(desktop_icon("save", COLORS.on_accent))
         self.save_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
         self.save_button.clicked.connect(self.save)
         self.save_button.setEnabled(False)

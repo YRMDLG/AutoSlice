@@ -8,6 +8,7 @@ import sys
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from autoslice.desktop.qt_preview import fonts, motion
 from autoslice.desktop.qt_preview.theme import stylesheet
 
 from .window import DesktopWindow
@@ -17,7 +18,9 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("AutoSlice")
     app.setStyle("Fusion")
+    fonts.load()
     app.setStyleSheet(stylesheet())
+    motion.install_app(app)
 
     identity = (os.environ.get("LOCALAPPDATA", "") + os.environ.get("USERNAME", "")).casefold()
     name = "autoslice-vnext-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]

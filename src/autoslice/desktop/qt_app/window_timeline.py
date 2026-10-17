@@ -16,8 +16,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from autoslice.desktop.qt_preview import popups
 from autoslice.desktop.qt_preview.theme import SIZES
-from autoslice.desktop.qt_preview.window import label
+from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 from .timeline import SubtitleTimeline
@@ -27,31 +28,41 @@ class TimelineMixin:
     def _timeline(self):
         panel = QWidget()
         panel.setObjectName("timeline")
-        panel.setMinimumHeight(110)
+        # 最小高度由标题行与时间轴画布推算，避免波形被裁
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(24, 5, 24, 4)
-        layout.setSpacing(1)
+        layout.setContentsMargins(20, 6, 20, 4)
+        layout.setSpacing(2)
         heading = QHBoxLayout()
+        heading.setSpacing(4)
         heading.addWidget(label("字幕时间轴", "sectionTitle"))
         heading.addSpacing(SIZES.space_2)
         heading.addWidget(label("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放", "subtle"))
         heading.addStretch()
         self.snap_button = QPushButton("磁吸")
+        self.snap_button.setObjectName("tool")
         self.snap_button.setCheckable(True)
+        tool_icon(self.snap_button, "magnet", checkable=True)
         self.snap_button.setChecked(True)
         self.snap_button.setToolTip("自动吸附字幕边界；拖动时按住 Alt 可临时关闭")
         self.snap_button.clicked.connect(self._toggle_snapping)
         heading.addWidget(self.snap_button)
         self.waveform_button = QPushButton("波形")
+        self.waveform_button.setObjectName("tool")
         self.waveform_button.setCheckable(True)
+        tool_icon(self.waveform_button, "waveform", checkable=True)
         self.waveform_button.setChecked(True)
         self.waveform_button.setToolTip("显示轻量音频波形")
         self.waveform_button.clicked.connect(self._toggle_waveform)
         heading.addWidget(self.waveform_button)
+        heading.addSpacing(SIZES.space_2)
         self.fit_button = QPushButton("适合全部")
+        self.fit_button.setObjectName("tool")
+        tool_icon(self.fit_button, "fit")
         self.fit_button.clicked.connect(self._fit_timeline)
         heading.addWidget(self.fit_button)
-        self.more_button = QPushButton("…")
+        self.more_button = QPushButton()
+        self.more_button.setObjectName("tool")
+        tool_icon(self.more_button, "more")
         self.more_button.setToolTip("字幕编辑操作")
         self.more_button.clicked.connect(lambda: self._show_edit_menu(
             self.more_button.mapToGlobal(self.more_button.rect().bottomLeft()), global_position=True))
@@ -122,12 +133,9 @@ class TimelineMixin:
 
     def _fit_timeline(self):
         if self.document:
-            self.timeline.center = (self.timeline.duration or
-                                    srt_timestamp_seconds(self.document.entries[-1].end)) / 2
-            self.timeline.span = max(4.0, self.timeline.duration or self.timeline.span)
+            duration = self.timeline.duration or srt_timestamp_seconds(self.document.entries[-1].end)
             self.timeline._manual_pan = False
-            self.timeline.update()
-            self.timeline._emit_view_changed()
+            self.timeline.glide_to(duration / 2, max(4.0, self.timeline.duration or self.timeline.span))
 
     def _trim_start(self):
         self._trim_active("start")
@@ -182,6 +190,7 @@ class TimelineMixin:
 
     def _show_edit_menu(self, position, *, global_position=False):
         menu = QMenu(self)
+        effects = popups.MenuFx(menu)
         menu.addAction("左裁到定位线 Q", self._trim_start)
         menu.addAction("右裁到定位线 W", self._trim_end)
         menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
@@ -200,7 +209,7 @@ class TimelineMixin:
         anchor = position if global_position else (
             self.timeline.mapToGlobal(position) if position is not None else self.cursor().pos()
         )
-        menu.exec(anchor)
+        effects.popup(anchor)
 
     def _can_merge_selected(self):
         if not self.document or len(self.selection.selected) < 2:

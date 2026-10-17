@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from autoslice.desktop.foundation import DesktopStorage
+from autoslice.desktop.qt_preview.theme import COLORS
 from autoslice.desktop.subtitle_render import SubtitleRenderService
 from autoslice.desktop.subtitles import SubtitleEntry
 
@@ -145,10 +146,11 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.window._balance_vertical_splitter()
         # 没拖过：默认就够看清波形，不用先拖大。
         self.assertGreaterEqual(self.window.vertical_splitter.sizes()[1], TIMELINE_DEFAULT_HEIGHT - 2)
-        # 记住过的高度照旧。
-        self.window._session["timeline_height"] = 124
+        # 记住过的高度照旧（高于由内容推算出的最小高度时）。
+        remembered = self.window.vertical_splitter.widget(1).minimumSizeHint().height() + 40
+        self.window._session["timeline_height"] = remembered
         self.window._balance_vertical_splitter()
-        self.assertAlmostEqual(self.window.vertical_splitter.sizes()[1], 124, delta=2)
+        self.assertAlmostEqual(self.window.vertical_splitter.sizes()[1], remembered, delta=2)
 
     def test_resolve_unsaved_without_changes_keeps_direct_exit_behavior(self):
         self.wait_for(lambda: self.window._waveform_generation > 0 and not self.window._jobs)
@@ -276,7 +278,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
                        if item.isVisible()), None)
         self.assertIsNotNone(editor)
         self.assertEqual(self.window.table.rowHeight(0), row_height)
-        self.assertIn("background: #20383D", editor.styleSheet())
+        self.assertIn(f"background: {COLORS.row_selected}", editor.styleSheet())
         self.assertIn("border: none", editor.styleSheet())
 
         cursor = editor.textCursor()
@@ -367,6 +369,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
                 self.seeks.append((position, pause))
 
             def close(self):
+                # 收尾关窗时 closeEvent 会调用 player.close()
                 pass
 
         self.window.player = FakePlayer()

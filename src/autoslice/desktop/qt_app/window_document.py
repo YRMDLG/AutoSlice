@@ -15,6 +15,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from autoslice.desktop.ai_review import document_hash
+from autoslice.desktop.qt_preview import motion
 from autoslice.streamer_profiles import resolve_streamer_profile
 
 
@@ -231,7 +232,7 @@ class SubtitleDocumentMixin:
         self._render_jobs[key] = {"title": project.title, "cancel": cancellation,
                                   "percent": 0, "percent_enabled": True}
         self._render_result = None
-        self.render_location.hide()
+        motion.reveal(self.render_location, False)
         self.app_status.setText(f"{project.title} · 正在压制…")
         self.app_status.setToolTip("")
         self._update_status()
@@ -287,7 +288,7 @@ class SubtitleDocumentMixin:
             self.render_location.setToolTip(str(self._render_result))
             name = self._render_result.name
             self.render_location.setText(f"定位：{name[:16]}{'…' if len(name) > 16 else ''}")
-            self.render_location.show()
+            motion.reveal(self.render_location)
         if self._render_jobs:
             active = next(iter(self._render_jobs.values()))
             self.app_status.setText(f"{active['title']} · 正在压制…")

@@ -6,10 +6,11 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QEvent,
     QModelIndex,
+    QRectF,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QTextCursor
 from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
@@ -19,7 +20,8 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
 )
 
-from autoslice.desktop.qt_preview.theme import COLORS, SIZES
+from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES
 from autoslice.desktop.subtitles import SubtitleDocument
 
 
@@ -27,8 +29,13 @@ class _StatusLabel(QLabel):
     """空闲时从工作栏收起；后台任务或反馈出现时才占用空间。"""
 
     def setText(self, text: str) -> None:
+        if not text and self.text():
+            motion.fade_out_snapshot(self)
+        appearing = bool(text) and not self.isVisible()
         super().setText(text)
         self.setVisible(bool(text))
+        if appearing:
+            motion.fade_in(self)
 
 
 class _ElidedQueueButton(QPushButton):
@@ -211,6 +218,58 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._table = parent
         self._editing = None
+        self._hover_row = -1
+        self._rows = motion.KeyedAnimator(self, lambda: self._table.viewport().update())
+        # 记下视口对象；过滤器里只比身份，避免销毁阶段访问已删除的表格
+        self._viewport = parent.viewport()
+        self._viewport.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj is self._viewport:
+            # 视口：只跟踪悬停行供行动画使用，不拦截事件
+            kind = event.type()
+            if kind in (QEvent.Type.MouseMove, QEvent.Type.Leave):
+                row = self._table.rowAt(int(event.position().y())) if kind == QEvent.Type.MouseMove else -1
+                if row != self._hover_row:
+                    self._hover_row = row
+                    self._table.viewport().update()
+            return False
+        if isinstance(obj, QPlainTextEdit) and event.type() == QEvent.Type.FocusOut:
+            # 不让 QStyledItemDelegate 因短暂 focus out 自动关闭 editor。
+            # 是否结束字幕编辑由 DesktopWindow 的“点击编辑器外部”规则统一决定。
+            return False
+        return super().eventFilter(obj, event)
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # 行背景统一在 paint 中绘制并过渡
+        option.backgroundBrush = QBrush()
+
+    def _paint_row(self, painter, option, index):
+        model = index.model()
+        try:
+            entry = model.entry_at(index.row())
+        except (AttributeError, IndexError):
+            return
+        hovered = index.row() == self._hover_row
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        playing = entry.index == getattr(model, "playing_index", None)
+        key = entry.index
+        h = self._rows.value((key, "hover"), 1.0 if hovered else 0.0,
+                             motion.HOVER_IN if hovered else motion.HOVER_OUT)
+        s = self._rows.value((key, "select"), 1.0 if selected else 0.0, motion.SELECT)
+        p = self._rows.value((key, "play"), 1.0 if playing else 0.0, motion.SELECT)
+        rect = option.rect
+        if p > 0.01:
+            painter.fillRect(rect, motion.faded(COLORS.playback, p))
+        if h * (1 - s) > 0.01:
+            painter.fillRect(rect, motion.faded(COLORS.hover, h * (1 - s)))
+        if s > 0.01:
+            painter.fillRect(rect, motion.faded(COLORS.row_selected, s))
+            if index.column() == 0:
+                length = rect.height() * motion.ease(s)
+                painter.fillRect(QRectF(rect.left(), rect.center().y() - length / 2, 2, length),
+                                 motion.faded(COLORS.accent, min(1.0, s * 1.4)))
 
     @staticmethod
     def _key(index):
@@ -240,17 +299,18 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         except RuntimeError:
             pass
 
-    def eventFilter(self, editor, event):
-        if isinstance(editor, QPlainTextEdit) and event.type() == QEvent.Type.FocusOut:
-            # 不让 QStyledItemDelegate 因短暂 focus out 自动关闭 editor。
-            # 是否结束字幕编辑由 DesktopWindow 的“点击编辑器外部”规则统一决定。
-            return False
-        return super().eventFilter(editor, event)
-
     def paint(self, painter, option, index):
         option = QStyleOptionViewItem(option)
+        painter.save()
+        self._paint_row(painter, option, index)
+        painter.restore()
         if index.column() < 2:
             option.font.setPixelSize(SIZES.text_small)
+            if index.column() == 0:
+                option.displayAlignment = Qt.AlignmentFlag.AlignCenter
+            else:
+                # 等宽数字，时间码逐行竖向对齐
+                option.font.setFamilies(list(MONO_FAMILIES))
             option.palette.setColor(option.palette.ColorRole.Text, QColor(COLORS.subtle if index.column() == 0 else COLORS.muted))
             option.palette.setColor(option.palette.ColorRole.HighlightedText, QColor(COLORS.muted))
         if self._editing == self._key(index):
@@ -261,8 +321,6 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         else:
             super().paint(painter, option, index)
         painter.save()
-        if index.column() == 0 and option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect.left(), option.rect.top(), 2, option.rect.height(), QColor(COLORS.accent_pressed))
         painter.setPen(QColor(COLORS.divider))
         painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
         painter.restore()

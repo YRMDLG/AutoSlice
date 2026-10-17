@@ -15,6 +15,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QHBoxLayout,
     QPlainTextEdit,
     QPushButton,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from autoslice.desktop.qt_preview import motion
 from autoslice.desktop.qt_preview.theme import SIZES
 from autoslice.desktop.qt_preview.window import label
 from autoslice.transcription.contracts import srt_timestamp_seconds
@@ -43,13 +45,27 @@ class SubtitleListMixin:
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 12, 20, 10)
         heading = QHBoxLayout()
+        heading.setSpacing(12)
         heading.addWidget(label("字幕列表", "sectionTitle"))
+        # 筛选做成分段控件，当前筛选一目了然
+        segmented = QWidget()
+        segmented.setObjectName("segmented")
+        segment_row = QHBoxLayout(segmented)
+        segment_row.setContentsMargins(2, 2, 2, 2)
+        segment_row.setSpacing(2)
+        self.filter_group = QButtonGroup(self)
+        self.filter_group.setExclusive(True)
         self.filter_all = QPushButton("全部")
-        self.filter_all.clicked.connect(lambda: self._set_filter(False))
-        heading.addWidget(self.filter_all)
         self.filter_pending = QPushButton("待确认 0")
-        self.filter_pending.clicked.connect(lambda: self._set_filter(True))
-        heading.addWidget(self.filter_pending)
+        for button, pending in ((self.filter_all, False), (self.filter_pending, True)):
+            button.setObjectName("segment")
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked=False, value=pending: self._set_filter(value))
+            self.filter_group.addButton(button)
+            segment_row.addWidget(button)
+        self.filter_all.setChecked(True)
+        motion.SegmentedFx(segmented, (self.filter_all, self.filter_pending))
+        heading.addWidget(segmented)
         heading.addStretch()
         self.subtitle_status = label("请选择项目", "subtle")
         heading.addWidget(self.subtitle_status)
@@ -59,6 +75,8 @@ class SubtitleListMixin:
         self.table.setModel(self.model)
         self.subtitle_delegate = SubtitleTextDelegate(self.table)
         self.table.setItemDelegate(self.subtitle_delegate)
+        self.table.setVerticalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
+        self.table.setMouseTracking(True)
         self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         # MultiSelection 会让普通单击不断累积选中行，看起来像“莫名多选”。
         # ExtendedSelection 才符合桌面编辑器习惯：普通点击单选，Ctrl 增减，Shift 连选。
@@ -329,14 +347,8 @@ class SubtitleListMixin:
         row = next((i for i, entry in enumerate(self.model.visible_entries())
                     if entry.index == cue_index), None)
         if row is not None:
-            self._syncing_selection = True
-            self.table.clearSelection()
-            selected = self.selection.selected
-            for item_row, item in enumerate(self.model.visible_entries()):
-                if item.index in selected:
-                    self.table.selectRow(item_row)
-            self._syncing_selection = False
-            self.table.scrollTo(self.model.index(row, 0))
+            self._sync_table_selection()
+            motion.smooth_scroll(self.table, lambda: self.table.scrollTo(self.model.index(row, 0)))
             self.timeline.set_selection(cue_index, self.selection.selected or {cue_index},
                                          center=center_timeline)
             if self._loop_enabled:

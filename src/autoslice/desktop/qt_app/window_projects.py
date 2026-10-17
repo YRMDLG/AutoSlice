@@ -22,7 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.projects import ProjectSnapshot
-from autoslice.desktop.qt_preview.window import ProjectItem, label, line
+from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview.window import ProjectItem, label, line, tool_icon
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
@@ -34,17 +35,28 @@ class ProjectsMixin:
     def _project_rail(self):
         rail = QWidget()
         rail.setObjectName("projectRail")
-        column = QVBoxLayout(rail)
-        column.setContentsMargins(12, 20, 12, 12)
-        column.setSpacing(8)
-        heading = QHBoxLayout()
+        outer = QVBoxLayout(rail)
+        outer.setContentsMargins(0, 0, 0, 12)
+        outer.setSpacing(0)
+        # 标题行与工作区工具栏同高，分割线横向连成一条
+        header = QWidget()
+        header.setFixedHeight(58)
+        heading = QHBoxLayout(header)
+        heading.setContentsMargins(20, 0, 12, 0)
         heading.addWidget(label("投稿项目", "sectionTitle"))
         heading.addStretch()
-        refresh = QPushButton("刷新")
+        refresh = QPushButton()
+        refresh.setObjectName("tool")
+        refresh.setToolTip("刷新项目列表")
+        tool_icon(refresh, "refresh")
         refresh.clicked.connect(self.refresh)
         heading.addWidget(refresh)
-        column.addLayout(heading)
-        column.addWidget(line())
+        outer.addWidget(header)
+        outer.addWidget(line())
+        column = QVBoxLayout()
+        column.setContentsMargins(8, 8, 8, 0)
+        column.setSpacing(8)
+        outer.addLayout(column, 1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -60,6 +72,7 @@ class ProjectsMixin:
         self.project_buttons = {}
         self.scan_status = label(str(self.service.root), "subtle")
         self.scan_status.setWordWrap(True)
+        self.scan_status.setContentsMargins(12, 0, 12, 0)
         column.addWidget(self.scan_status)
         return rail
 
@@ -186,6 +199,8 @@ class ProjectsMixin:
             button.clicked.connect(lambda _checked=False, p=project: self._select_real_project(p))
             self.projects_layout.insertWidget(self.projects_layout.count() - 1, button)
             self.project_buttons[project.id] = button
+        motion.install_tree(self.project_rail)
+        motion.stagger_in(list(self.project_buttons.values()))
         project_id = self.project.id if self.project else self._session.get("project_id")
         selected = next((p for p in snapshot.projects if p.id == project_id), None)
         if selected:
@@ -217,6 +232,7 @@ class ProjectsMixin:
         self.ai_session = None
         self._ai_selected = None
         self._pending_filter = False
+        self.filter_all.setChecked(True)
         self._render_ai()
         self.selected_index = None
         self.document = None
@@ -304,6 +320,7 @@ class ProjectsMixin:
         self.ai_session = None
         self._ai_selected = None
         self._pending_filter = False
+        self.filter_all.setChecked(True)
         self._render_ai()
         self._media_ready = False
         self._preview_attached = False
@@ -369,6 +386,8 @@ class ProjectsMixin:
         self.model.set_document(document)
         self.timeline.set_document(document)
         self.timeline.set_waveform(None, self._player_duration or None)
+        motion.fade_in(self.table, motion.FADE + 60)
+        motion.fade_in(self.timeline, motion.FADE + 60)
         self._start_waveform(video.path)
         self.ai_session, ai_status = self.ai_service.load(document, project.title)
         if ai_status == "missing":

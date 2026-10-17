@@ -12,7 +12,6 @@ from PySide6.QtCore import (
     Qt,
 )
 from PySide6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QPushButton,
     QSlider,
@@ -21,9 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from autoslice.desktop.qt_preview import popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.window import label
+from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 
@@ -46,16 +46,20 @@ class PlayerMixin:
         controls_bar = QWidget()
         controls_bar.setObjectName("playerControls")
         controls = QHBoxLayout(controls_bar)
-        controls.setContentsMargins(8, 6, 8, 6)
+        # 无框按钮按图标对齐左边线
+        controls.setContentsMargins(0, 6, 8, 6)
         controls.setSpacing(SIZES.space_3)
         self.play_button = QPushButton("播放")
-        self.play_button.setIcon(desktop_icon("play", COLORS.text))
-        self.play_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
+        self.play_button.setObjectName("tool")
+        self.play_button.setIcon(desktop_icon("play", COLORS.text, SIZES.tool_icon_size))
+        self.play_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
         self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self._toggle_play)
         controls.addWidget(self.play_button)
         self.preview_toggle = QPushButton("字幕预览")
+        self.preview_toggle.setObjectName("tool")
         self.preview_toggle.setCheckable(True)
+        tool_icon(self.preview_toggle, "eye", checkable=True)
         self.preview_toggle.setChecked(True)
         self.preview_toggle.setToolTip("显示接近最终压制样式的实时字幕预览")
         self.preview_toggle.clicked.connect(self._toggle_subtitle_preview)
@@ -64,7 +68,8 @@ class PlayerMixin:
         controls.addWidget(self.time_label)
         controls.addStretch()
         volume_icon = label("")
-        volume_icon.setPixmap(desktop_icon("volume").pixmap(SIZES.icon_size, SIZES.icon_size))
+        volume_icon.setPixmap(desktop_icon("volume", size=SIZES.tool_icon_size).pixmap(
+            SIZES.tool_icon_size, SIZES.tool_icon_size))
         volume_icon.setToolTip("音量")
         controls.addWidget(volume_icon)
         self.volume = QSlider(Qt.Orientation.Horizontal)
@@ -73,7 +78,7 @@ class PlayerMixin:
         self.volume.setFixedWidth(90)
         self.volume.valueChanged.connect(self._volume_changed)
         controls.addWidget(self.volume)
-        self.speed = QComboBox()
+        self.speed = popups.ComboBox()
         for value in (0.75, 1.0, 1.25, 1.5, 2.0):
             self.speed.addItem(f"{value:g}×", value)
         self.speed.setCurrentIndex(1)
@@ -193,7 +198,7 @@ class PlayerMixin:
 
     def _set_play_button(self, paused):
         self.play_button.setText("播放" if paused else "暂停")
-        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.text))
+        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.text, SIZES.tool_icon_size))
 
     def _volume_changed(self, value):
         if getattr(self, "player", None):
