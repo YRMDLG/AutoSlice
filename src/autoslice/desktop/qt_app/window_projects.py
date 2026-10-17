@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from autoslice.desktop.archive import ArchiveService
 from autoslice.desktop.projects import ProjectSnapshot
 from autoslice.desktop.qt_preview import motion
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
@@ -30,6 +31,7 @@ from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
 from .ai_settings_panel import AISettingsPanel
+from .archive_panel import ArchivePanel
 from .learning_panel import LearningPanel
 
 
@@ -131,6 +133,10 @@ class ProjectsMixin:
         # ── 成长记录（字幕纠错记忆 + 封面作品库两块） ──
         self.learning_panel = LearningPanel(self.correction_memory, self.cover_editor.service.works)
         layout.addWidget(self.learning_panel)
+
+        # ── 学习旧切片（扫描本机旧投稿文件夹；学到的东西要确认才生效） ──
+        self.archive_panel = ArchivePanel(ArchiveService(self.storage), self._run, self.forget_habit_cache)
+        layout.addWidget(self.archive_panel)
 
         # ── AI ──
         self.ai_settings_panel = AISettingsPanel(self._run)

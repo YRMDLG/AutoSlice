@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .archive.knowledge import Knowledge, profile_id_for
 from .cover_ai import (
     AICopy,
     AIFrameNotes,
@@ -181,12 +182,17 @@ class CoverAIMixin:
         self._submission_round += 1
         self.submission_button.setEnabled(False)
         self._set_notice("AI 正在写投稿标题、简介和标签…", "info")
-        self._run(
-            lambda: service.ai.submission_copy(
-                project.title, service.subtitle_cues(video), streamer=streamer, past_titles=past, round_index=round_index,
-            ),
-            self._submission_copy_ready,
-        )
+
+        def work():
+            cues = service.subtitle_cues(video)
+            # 学过旧切片的话，先放和这条最像的旧标题，再放当前目录里的
+            query = project.title + " " + " ".join(text for _start, _end, text in cues[:60])
+            learned = Knowledge(service.storage).title_examples(profile_id_for(video.path, project.title), query)
+            return service.ai.submission_copy(
+                project.title, cues, streamer=streamer, past_titles=(*learned, *past), round_index=round_index,
+            )
+
+        self._run(work, self._submission_copy_ready)
 
     def _submission_copy_ready(self, result, error):
         self.submission_button.setEnabled(self.project is not None)

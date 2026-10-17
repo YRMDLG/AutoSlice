@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 
 from autoslice.subtitle_workflow import _probe_video_info, build_ass_document
 from autoslice.transcription.contracts import SubtitleCue
+
+_WORD = re.compile(r"\w", re.UNICODE)
 
 
 class SubtitlePreviewService:
@@ -70,10 +73,22 @@ class SubtitlePreviewService:
         return output
 
     @staticmethod
-    def quality_flags(entries) -> dict[int, tuple[str, ...]]:
+    def quality_flags(entries, limits: dict | None = None) -> dict[int, tuple[str, ...]]:
+        """limits 是从旧切片学到的个人阈值（cps_limit 读速、chars_limit 一条字数、line_limit 单行字数）；没学过就只查通用问题。"""
+
+        limits = limits or {}
+        cps_limit = float(limits.get("cps_limit") or 0)
+        chars_limit = int(limits.get("chars_limit") or 0)
+        line_limit = int(limits.get("line_limit") or 0)
         flags = {}
         for entry in entries:
             issues = []
+            if chars_limit or line_limit:
+                lines = [len(_WORD.findall(line)) for line in entry.text.split("\n")]
+                if chars_limit and sum(lines) > chars_limit:
+                    issues.append(f"比你平时的字幕长（{sum(lines)} 字）")
+                if line_limit and max(lines, default=0) > line_limit:
+                    issues.append(f"单行比你平时的长（{max(lines)} 字）")
             if entry.text.count("\n") >= 2:
                 issues.append("超过 2 行")
             if len(entry.text.replace("\n", "")) > 34:
@@ -83,6 +98,10 @@ class SubtitlePreviewService:
                 end = _seconds(entry.end)
                 if end - start < .65:
                     issues.append("显示时间过短")
+                if cps_limit and end > start:
+                    speed = len(_WORD.findall(entry.text)) / (end - start)
+                    if speed > cps_limit:
+                        issues.append(f"读速偏快（{speed:.1f} 字/秒，你平时不超过 {cps_limit:g}）")
             except ValueError:
                 pass
             if issues:

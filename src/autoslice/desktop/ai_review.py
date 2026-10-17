@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from autoslice.desktop.archive.knowledge import Knowledge
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.subtitles import SubtitleDocument, SubtitleEntry
 from autoslice.llm.transport import load_api_config
@@ -140,9 +141,14 @@ class AIReviewService:
         snapshot = "\n\n".join(blocks) + "\n"
         if not input_path.exists() or input_path.read_text(encoding="utf-8") != snapshot:
             input_path.write_text(snapshot, encoding="utf-8", newline="\n")
+        # 学到的术语表只挑和这份字幕有关的几十个，不整份塞给模型；没学过就一个额外参数都不加。
+        learned = Knowledge(self.storage).relevant_glossary(
+            profile.id, "\n".join(entry.text for entry in document.entries),
+        )
+        extra = {"glossary": learned} if learned else {}
         result = self.checker(input_path, context_title=project_title,
                               streamer_profile=profile, use_cache=not force,
-                              progress_callback=progress_callback)
+                              progress_callback=progress_callback, **extra)
         if hashlib.sha256(document.source_path.read_bytes()).hexdigest() != document.source_fingerprint:
             raise ValueError("源字幕在检查期间已变化，请重新加载")
         by_index = {entry.index: entry for entry in document.entries}

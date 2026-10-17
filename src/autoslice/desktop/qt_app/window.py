@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.ai_review import AIReviewService
+from autoslice.desktop.archive.knowledge import Knowledge, profile_id_for
 from autoslice.desktop.commands import CommandDispatcher
 from autoslice.desktop.correction_memory import CorrectionMemory
 from autoslice.desktop.cover import CoverEditorWidget
@@ -342,7 +343,7 @@ class DesktopWindow(
             self.timeline_overlap.setText("")
             return
         suffix = " · 未保存" if self.document.dirty else " · 已保存"
-        quality = self.preview_service.quality_flags(self.document.entries)
+        quality = self.preview_service.quality_flags(self.document.entries, self._habit_limits())
         quality_text = f" · ⚠ {len(quality)} 条待检查" if quality else ""
         self.subtitle_status.setText(f"全部 {len(self.document.entries)} 条{suffix}{quality_text}")
         self.subtitle_status.setToolTip("\n".join(
@@ -355,6 +356,22 @@ class DesktopWindow(
         self.render_button.setIcon(desktop_icon("render", COLORS.subtle if running else COLORS.text))
         self.timeline_overlap.setText("存在重叠" if self.timeline.overlap_count() else "")
 
+    def _habit_limits(self) -> dict:
+        """从旧切片学到的个人字幕阈值；没学过是空字典。按视频缓存，学到新东西后 _forget_habit_cache 清掉。"""
+
+        video = self.document.video.path if self.document else ""
+        cached = getattr(self, "_habit_cache", None)
+        if cached is None or cached[0] != video:
+            profile_id = profile_id_for(video, self.project.title if self.project else "") if video else ""
+            cached = (video, Knowledge(self.storage).subtitle_limits(profile_id) if profile_id else {})
+            self._habit_cache = cached
+        return cached[1]
+
+    def forget_habit_cache(self) -> None:
+        self._habit_cache = None
+        if getattr(self, "document", None) is not None:
+            self._update_status()
+
     def _show_transient_status(self, text: str, timeout: int = 3600) -> None:
         """显示短反馈；下一次真实后台状态会自然覆盖它。"""
         self.app_status.setText(text)
@@ -366,6 +383,8 @@ class DesktopWindow(
         self._sync_shortcuts(QApplication.instance().focusWidget())
         if index == 2 and hasattr(self, "learning_panel"):
             self.learning_panel.refresh()
+        if index == 2 and hasattr(self, "archive_panel"):
+            self.archive_panel.refresh()
         if index == 1 and hasattr(self, "cover_editor"):
             # 只读取字幕页当前播放位置，切页不 seek、不暂停、不修改字幕状态。
             self.cover_editor.set_current_playhead(getattr(self, "_player_position", 0.0))
@@ -452,6 +471,8 @@ class DesktopWindow(
             return
         if hasattr(self, "cover_editor"):
             self.cover_editor.flush_draft()
+        if hasattr(self, "archive_panel"):
+            self.archive_panel.stop()
         self._save_session()
         super().closeEvent(event)
         if event.isAccepted() and self.player:
