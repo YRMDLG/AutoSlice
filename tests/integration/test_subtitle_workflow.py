@@ -1370,9 +1370,10 @@ class SubtitleRenderingTests(unittest.TestCase):
         self.assertIn(",5.33,0.0,5,", document)
         self.assertIn(r"{\an5\pos(960,966)}", document)
         self.assertIn(r"测试\{样式\}\\路径\N第二行", document)
+        self.assertIn("WrapStyle: 2", document)
 
-    def test_ass_wraps_oversized_cue_without_retiming(self):
-        source_text = "超长字幕必须拆分避免越过画面边缘" * 4
+    def test_ass_preserves_oversized_cue_without_wrapping_or_retiming(self):
+        source_text = "超长字幕保持原文   长度由用户自行调整" * 4
         cue = parse_srt_document_from_text(
             f"1\n00:00:00,000 --> 00:00:12,000\n{source_text}\n"
         )[0]
@@ -1383,34 +1384,23 @@ class SubtitleRenderingTests(unittest.TestCase):
             if line.startswith("Dialogue:")
         ]
         self.assertEqual(len(events), 1)
-        self.assertIn("Dialogue: 0,0:00:00.00,0:00:12.00,", events[0])
-        rendered_text = events[0].rsplit("}", 1)[-1]
-        visual_lines = rendered_text.split("\\N")
-        self.assertEqual("".join(visual_lines), source_text)
-
-        geometry = subtitle_workflow._style_geometry(
-            normalise_subtitle_style(DEFAULT_SUBTITLE_STYLE),
-            1920,
-            1080,
-        )
-        ass_safe_limit = subtitle_workflow._subtitle_display_char_limit(1920, geometry)
-        self.assertTrue(all(
-            subtitle_workflow._subtitle_display_text_size(line) <= ass_safe_limit
-            for line in visual_lines
-        ))
+        self.assertEqual(events[0].split(",")[1:3], ["0:00:00.00", "0:00:12.00"])
+        self.assertEqual(events[0].rsplit("}", 1)[-1], source_text)
+        self.assertNotIn(r"\N", document)
+        self.assertIn("WrapStyle: 2", document)
         self.assertIn(r"{\an5\pos(960,966)}", events[0])
 
         document_4x3 = build_ass_document([cue], 1440, 1080)
-        event_4x3 = next(
+        events_4x3 = [
             line for line in document_4x3.splitlines()
             if line.startswith("Dialogue:")
-        )
-        lines_4x3 = event_4x3.rsplit("}", 1)[-1].split("\\N")
-        self.assertEqual("".join(lines_4x3), source_text)
-        self.assertGreater(len(lines_4x3), len(visual_lines))
+        ]
+        self.assertEqual(len(events_4x3), 1)
+        self.assertEqual(events_4x3[0].rsplit("}", 1)[-1], source_text)
+        self.assertNotIn(r"\N", document_4x3)
 
-    def test_ass_wrap_limit_accounts_for_font_outline_and_width(self):
-        source_text = "压制前必须按画布字号描边和安全边距再次限制字幕" * 3
+    def test_ass_preserves_cue_across_font_outline_and_width_changes(self):
+        source_text = "画布字号描边变化都不能自动拆分或重排字幕" * 3
         cue = parse_srt_document_from_text(
             f"1\n00:00:00,000 --> 00:00:12,000\n{source_text}\n"
         )[0]
@@ -1437,13 +1427,25 @@ class SubtitleRenderingTests(unittest.TestCase):
         narrow_texts = dialogue_texts(narrow)
 
         for texts in (compact_texts, large_texts, narrow_texts):
-            self.assertEqual(len(texts), 1)
-            self.assertEqual(texts[0].replace("\\N", ""), source_text)
-        compact_lines = compact_texts[0].split("\\N")
-        large_lines = large_texts[0].split("\\N")
-        narrow_lines = narrow_texts[0].split("\\N")
-        self.assertGreater(len(large_lines), len(compact_lines))
-        self.assertGreater(len(narrow_lines), len(large_lines))
+            self.assertEqual(texts, [source_text])
+            self.assertFalse(any(r"\N" in text for text in texts))
+
+    def test_ass_preserves_explicit_line_breaks_and_cue_timing(self):
+        for newline in ("\n", "\r\n", "\r"):
+            with self.subTest(newline=repr(newline)):
+                cue = transcription_contracts.SubtitleCue(
+                    1, "00:00:02,000", "00:00:05,000", "",
+                    f"第一行{newline}第二行",
+                )
+
+                document = build_ass_document([cue], 1920, 1080)
+
+                events = [line for line in document.splitlines()
+                          if line.startswith("Dialogue:")]
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].split(",")[1:3],
+                                 ["0:00:02.00", "0:00:05.00"])
+                self.assertTrue(events[0].endswith(r"第一行\N第二行"))
 
     def test_ass_split_keeps_very_short_valid_cue_inside_original_interval(self):
         source_text = "极短时间内也要依次显示完整字幕" * 5
@@ -1506,16 +1508,30 @@ class SubtitleRenderingTests(unittest.TestCase):
             root = Path(td)
             video = root / "clip.mp4"
             srt = root / "clip_校对.srt"
-            self._make_video(video)
             srt.write_text(SAMPLE_SRT, encoding="utf-8")
             original = srt.read_bytes()
 
-            result = write_ass_from_srt(srt, video)
+            probe_payload = {
+                "streams": [
+                    {"codec_type": "video", "width": 640, "height": 360},
+                    {"codec_type": "audio"},
+                ],
+                "format": {"duration": "7.0"},
+            }
+            with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=json.dumps(probe_payload), stderr="",
+            )):
+                result = write_ass_from_srt(srt, video)
 
             self.assertEqual(srt.read_bytes(), original)
             self.assertTrue(Path(result["ass_path"]).is_file())
             self.assertTrue(Path(result["style_path"]).is_file())
-            self.assertIn(EXACT_SUBTITLE_FONT, Path(result["ass_path"]).read_text(encoding="utf-8"))
+            document = Path(result["ass_path"]).read_text(encoding="utf-8")
+            self.assertIn(EXACT_SUBTITLE_FONT, document)
+            self.assertIn("WrapStyle: 2", document)
+            self.assertIn(r"我看到一个瓦衣\N是兔女郎的瓦衣", document)
+            self.assertEqual(sum(line.startswith("Dialogue:")
+                                 for line in document.splitlines()), 3)
             style = json.loads(Path(result["style_path"]).read_text(encoding="utf-8"))
             self.assertEqual(style, DEFAULT_SUBTITLE_STYLE)
 
