@@ -18,6 +18,7 @@ from pathlib import Path
 from PIL import Image
 
 from .cover_ai import AIFrameNotes
+from .cover_model import CUTOUT_CLEAN_SUFFIX, CUTOUT_OUTLINE_SUFFIX
 
 # 模型文件名（放在数据目录 models/ 下）与输入边长、归一化参数（BiRefNet 用 ImageNet 均值方差）。
 MODEL_FILE = "birefnet_lite.onnx"
@@ -33,10 +34,13 @@ _GRABCUT_ITERATIONS = 5
 _GUIDE_SUBSAMPLE = 4
 _GUIDE_RADIUS = 0.006
 _GUIDE_EPS = 1e-4
-# 白边宽度占画面高度的比例；没标出人物时的默认人物框；带白边那张图的文件名后缀。
+# 白边宽度占画面高度的比例；没标出人物时的默认人物框。
 _GLOW_RATIO = 0.012
 _DEFAULT_PERSON = (0.22, 0.06, 0.78, 1.0)
-_OUTLINE_SUFFIX = "-outline"
+_OUTLINE_SUFFIX = CUTOUT_OUTLINE_SUFFIX
+# 去人背景：人物范围往外多扩画面高度的这么多（连边缘光晕、飘出去的发丝一起抹掉），在这个长边上填补。
+_CLEAN_GROW = 0.035
+_CLEAN_SIDE = 640
 # 抠完人物默认把底图虚化这么多（参考切片封面：人物清楚、背景糊掉）。
 PERSON_BLUR = 0.5
 _SESSION_LOCK = threading.Lock()
@@ -119,6 +123,51 @@ def _guided_filter(guide, source, radius: int, eps: float):
     a = cv2.resize(box(a), (width, height), interpolation=cv2.INTER_LINEAR)
     b = cv2.resize(box(b), (width, height), interpolation=cv2.INTER_LINEAR)
     return (a * guide).sum(axis=2) + b
+
+
+def _fill_holes(image, valid):
+    """多尺度“推拉”填补：把 valid 为 0 的地方用周围有效像素的颜色平滑地填上（image 为 float32 的 HxWx3）。"""
+
+    import cv2
+    import numpy as np
+
+    colors, weights = [image * valid[..., None]], [valid.astype(np.float32)]
+    while min(colors[-1].shape[:2]) > 4:
+        colors.append(cv2.pyrDown(colors[-1]))
+        weights.append(cv2.pyrDown(weights[-1]))
+    result = colors[-1] / np.maximum(weights[-1][..., None], 1e-6)
+    for level in range(len(colors) - 2, -1, -1):
+        height, width = colors[level].shape[:2]
+        coarse = cv2.resize(result, (width, height), interpolation=cv2.INTER_LINEAR)
+        own = colors[level] / np.maximum(weights[level][..., None], 1e-6)
+        mix = np.clip(weights[level] * 4, 0, 1)[..., None]  # 本层周围有足够多的有效像素就用本层的颜色
+        result = own * mix + coarse * (1 - mix)
+    return result
+
+
+def _clean_background(image, alpha):
+    """把人从原图里抹掉：人物范围（连同往外一圈）用周围的颜色平滑补上，边缘羽化；返回同尺寸的 BGR 图。
+
+    底图之后要虚化，不需要细节，所以在小图上填补再放大。虚化的是这张“没有人”的图，
+    人物周围就不会留下自己的光晕和头发的鬼影，人物挪走后原位置也不残留。人物占满画面时返回 None。
+    """
+
+    import cv2
+    import numpy as np
+
+    height, width = image.shape[:2]
+    grow = max(3, round(height * _CLEAN_GROW))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (grow * 2 + 1,) * 2)
+    hole = cv2.dilate((alpha > 0.03).astype(np.uint8), kernel).astype(np.float32)
+    scale = _CLEAN_SIDE / max(width, height)
+    size = (max(8, round(width * scale)), max(8, round(height * scale)))
+    valid = (cv2.resize(1.0 - hole, size, interpolation=cv2.INTER_AREA) > 0.98).astype(np.float32)
+    if valid.mean() < 0.03:
+        return None
+    small = cv2.resize(image, size, interpolation=cv2.INTER_AREA).astype(np.float32)
+    filled = cv2.resize(_fill_holes(small, valid), (width, height), interpolation=cv2.INTER_CUBIC)
+    soft = cv2.GaussianBlur(hole, (0, 0), max(1.0, grow / 3))[..., None]
+    return np.clip(image.astype(np.float32) * (1 - soft) + filled * soft, 0, 255).astype(np.uint8)
 
 
 def _keep_person(alpha, notes: AIFrameNotes | None, area: tuple[int, int, int, int], size: tuple[int, int]):
@@ -218,6 +267,8 @@ class PersonCutout:
     # 这张 PNG 在原图里的范围（像素）与原图尺寸。
     box: tuple[int, int, int, int]
     source_size: tuple[int, int]
+    # 把人抹掉、用周围颜色补上的底图（与原图同尺寸，虚化用它）；没做出来为 None。
+    clean: Path | None = None
 
 
 def outline_variant(path: str | Path) -> Path | None:
@@ -248,12 +299,14 @@ def make_person(image_path: str | Path, notes: AIFrameNotes | None, out_dir: Pat
     stat = source.stat()
     key = hashlib.sha1(repr((
         str(source.resolve()), stat.st_size, stat.st_mtime_ns,
-        (notes.person, notes.face, notes.ui) if notes is not None else None, "model" if use_model else "grabcut-v2",
+        (notes.person, notes.face, notes.ui) if notes is not None else None,
+        "model-clean1" if use_model else "grabcut-clean1",
     )).encode("utf-8")).hexdigest()[:20]
     plain, outline, meta = out_dir / f"{key}.png", out_dir / f"{key}{_OUTLINE_SUFFIX}.png", out_dir / f"{key}.json"
+    cleaned = out_dir / f"{key}{CUTOUT_CLEAN_SUFFIX}.jpg"
     if plain.is_file() and outline.is_file() and meta.is_file():
         info = json.loads(meta.read_text(encoding="utf-8"))
-        return PersonCutout(plain, outline, tuple(info["box"]), tuple(info["size"]))
+        return PersonCutout(plain, outline, tuple(info["box"]), tuple(info["size"]), cleaned if cleaned.is_file() else None)
     image = cv2.imdecode(np.fromfile(str(source), dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError(f"底图读不出来：{source}")
@@ -290,5 +343,11 @@ def make_person(image_path: str | Path, notes: AIFrameNotes | None, out_dir: Pat
         temporary = path.with_suffix(".tmp.png")
         image_out.crop(box).save(temporary)
         temporary.replace(path)
+    background = _clean_background(image, full)
+    if background is not None:
+        temporary = cleaned.with_suffix(".tmp.jpg")
+        Image.fromarray(cv2.cvtColor(background, cv2.COLOR_BGR2RGB)).save(temporary, quality=92)
+        temporary.replace(cleaned)
+    # 位置信息最后写：它在，就说明这一组文件是写完整的。
     meta.write_text(json.dumps({"box": list(box), "size": [width, height]}), encoding="utf-8")
-    return PersonCutout(plain, outline, box, (width, height))
+    return PersonCutout(plain, outline, box, (width, height), cleaned if background is not None else None)

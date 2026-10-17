@@ -71,7 +71,7 @@ def make_template(document: CoverDocument, name: str, *, video_dirs: Sequence[Pa
     kept = []
     for item in document.objects:
         if isinstance(item, BackgroundObject):
-            kept.append(replace(item, asset=None))
+            kept.append(replace(item, asset=None, clean="", clean_for=""))
         elif not item.visible or item.id.startswith("burst-"):
             continue
         elif isinstance(item, ImageObject) and item.asset is not None and any(_inside(item.asset.path, folder) for folder in video_dirs):

@@ -353,6 +353,60 @@ class CutoutTests(unittest.TestCase):
         self.assertAlmostEqual(settled.transform.y * size[1], box.top, delta=0.5)
         self.assertIs(settle_overlay(settled, size), settled)
 
+    def test_person_comes_with_a_background_that_has_the_person_removed(self):
+        person = make_person(self.frame, self.notes, self.root / "cutouts")
+        self.assertIsNotNone(person.clean)
+        with Image.open(person.clean) as image:
+            clean = image.convert("RGB")
+        self.assertEqual(clean.size, (1920, 1080))
+        # 脸的位置被周围的背景色补上，远处的背景原样保留。
+        for channel, expected in zip(clean.getpixel((960, 400)), (60, 90, 140)):
+            self.assertLess(abs(channel - expected), 40)
+        self.assertEqual(clean.getpixel((60, 60)), (60, 90, 140))
+        # 同一张图再抠直接复用。
+        self.assertEqual(make_person(self.frame, self.notes, self.root / "cutouts").clean, person.clean)
+
+    def test_background_uses_clean_image_only_while_the_person_layer_is_there(self):
+        from autoslice.desktop.cover_model import background_render_path, set_object_visible
+
+        person = make_person(self.frame, self.notes, self.root / "cutouts")
+        document = add_person(_document(self.frame), person, object_id="person-1")
+        background = next(item for item in document.objects if isinstance(item, BackgroundObject))
+        self.assertEqual((background.clean, background.clean_for), (str(person.clean), str(self.frame)))
+        self.assertEqual(BackgroundObject.from_payload(background.to_payload()), background)
+        self.assertEqual(background_render_path(document, background), str(person.clean))
+        # 人物图层藏起来、删掉，或换了底图：回到原底图，不会留下一块“抹掉人”的空洞。
+        hidden = set_object_visible(document, "person-1", False)
+        self.assertEqual(background_render_path(hidden, background), str(self.frame))
+        removed = replace(document, objects=tuple(item for item in document.objects if item.id != "person-1"))
+        self.assertEqual(background_render_path(removed, background), str(self.frame))
+        other = self.root / "other.png"
+        _frame(other)
+        changed = replace(background, asset=AssetRef(path=str(other)))
+        self.assertEqual(background_render_path(document, changed), str(other))
+        # 模板不带去人背景。
+        from autoslice.desktop.cover_templates import make_template
+
+        template = make_template(document, "t", video_dirs=(self.root / "cutouts",))
+        template_background = next(item for item in template.document.objects if isinstance(item, BackgroundObject))
+        self.assertEqual((template_background.clean, template_background.clean_for), ("", ""))
+
+    def test_moving_the_person_away_leaves_no_ghost_behind(self):
+        person = make_person(self.frame, self.notes, self.root / "cutouts")
+        document = add_person(_document(self.frame), person, object_id="person-1")
+        layer = object_for_profile(document, "person-1", "4x3")
+        # 人物缩小挪到左上角：原来脸的位置（4:3 画布上约 720,410）应当是背景，而不是残留的脸。
+        moved = set_profile_override(document, "4x3", replace(
+            layer, pin_bottom=False, transform=replace(layer.transform, x=0.0, y=0.0, scale=layer.transform.scale * 0.25),
+        ))
+        image = _render(moved)
+        self.assertEqual(_count(image, (230, 180, 150), (640, 330, 800, 490), tolerance=30), 0)
+        # 不用去人背景（人物层被藏起来）就会看到原来的脸。
+        from autoslice.desktop.cover_model import set_object_visible
+
+        ghost = _render(set_object_visible(moved, "person-1", False))
+        self.assertGreater(_count(ghost, (230, 180, 150), (640, 330, 800, 490), tolerance=30), 1000)
+
     def test_background_blur_and_dim_apply_to_any_frame(self):
         document = update_shared_fields(_document(self.frame), "background-main", blur=0.8, dim=0.5)
         background = next(item for item in document.objects if isinstance(item, BackgroundObject))
@@ -414,6 +468,36 @@ class CanvasMatchesExportTests(unittest.TestCase):
         self.assertFalse(isinstance(hit_center, ShapeObject) and hit_center.shape_type == "focus")
         hit_edge = canvas._hit_object(edge)
         self.assertTrue(isinstance(hit_edge, ShapeObject) and hit_edge.shape_type == "focus")
+
+    @unittest.skipUnless(cutout_available(), "本机没有 OpenCV")
+    def test_canvas_and_export_both_show_the_clean_background_when_the_person_moves(self):
+        from autoslice.desktop.cover_canvas import CoverCanvas
+
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        frame = _frame(root / "frame.png")
+        notes = AIFrameNotes(busy=frozenset(), note="", face=(0.43, 0.2, 0.57, 0.55), person=(0.38, 0.15, 0.62, 0.62))
+        document = add_person(_document(frame), make_person(frame, notes, root / "cutouts"), object_id="person-1")
+        layer = object_for_profile(document, "person-1", "4x3")
+        # 不虚化、人物挪走：画布和导出都要显示去人背景。
+        document = set_profile_override(document, "4x3", replace(
+            layer, pin_bottom=False, transform=replace(layer.transform, x=0.0, y=0.0, scale=layer.transform.scale * 0.25),
+        ))
+        canvas = CoverCanvas()
+        self.addCleanup(canvas.close)
+        canvas.resize(1440 + 16, 1080 + 16)
+        canvas.set_background_pixmap(QPixmap(str(frame)))
+        canvas.set_document(replace(document, selected_object_id=None), "4x3")
+        canvas._selected_object = "none"
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        canvas.grab().save(buffer, "PNG")
+        shown = Image.open(io.BytesIO(bytes(buffer.data()))).convert("RGB").crop((8, 8, 1448, 1088))
+        exported = _render(document)
+        difference = ImageChops.difference(shown.resize((180, 135)), exported.resize((180, 135)))
+        self.assertLess(sum(ImageStat.Stat(difference).mean) / 3, 4.0)
+        self.assertEqual(_count(shown, (230, 180, 150), (640, 330, 800, 490), tolerance=30), 0)
 
 
 @unittest.skipIf(QApplication is None, "PySide6 不可用")

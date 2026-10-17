@@ -20,6 +20,7 @@ from .cover_model import (
     insert_overlay,
     object_for_profile,
     set_profile_override,
+    update_shared_fields,
 )
 from .cover_style import luminance
 
@@ -61,6 +62,9 @@ def add_person(document: CoverDocument, person: PersonCutout, *, object_id: str)
     document = replace(document, objects=(*document.objects, placed(document.active_profile)), selected_object_id=object_id)
     for key in document.profiles:
         document = set_profile_override(document, key, placed(key))
+    if person.clean is not None and background.asset is not None:
+        # 背景改用“人已抹掉”的那张：虚化、压暗之后人物周围没有自己的光晕和鬼影
+        document = update_shared_fields(document, background.id, clean=str(person.clean), clean_for=background.asset.path)
     return document
 
 

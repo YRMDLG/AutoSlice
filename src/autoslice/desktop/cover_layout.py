@@ -47,6 +47,7 @@ from .cover_model import (
     ShapeObject,
     StickerObject,
     TextObject,
+    background_render_path,
     object_for_profile,
 )
 from .cover_style import accent_for
@@ -255,7 +256,7 @@ def document_layers(
     layers: list[Layer] = []
     for item in effective_objects(document, profile_key):
         if isinstance(item, BackgroundObject):
-            path = asset_path(item)
+            path = background_render_path(document, item)
             source = image_size(path)
             if background is None and path and source is not None:
                 box = background_geometry(item, size, source)

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, Mapping
 
 from autoslice_cover.document_layout import SHAPE_TYPES
@@ -306,6 +307,11 @@ class RenderObject:
         }
 
 
+# 抠出来的人物图（带边/不带边）和“人已抹掉的背景图”共用同一个编号，文件名只差后缀。
+CUTOUT_OUTLINE_SUFFIX = "-outline"
+CUTOUT_CLEAN_SUFFIX = "-clean"
+
+
 @dataclass(frozen=True)
 class BackgroundObject(RenderObject):
     kind: str = field(default="background", init=False)
@@ -318,11 +324,16 @@ class BackgroundObject(RenderObject):
     # 底图效果：虚化程度（0~1）与压暗程度（0~0.8），两个比例共享。
     blur: float = 0.0
     dim: float = 0.0
+    # 抠人物时生成的“人已抹掉”的背景图（与底图同尺寸），以及它对应的底图路径；换了底图就自动不再使用。
+    clean: str = ""
+    clean_for: str = ""
 
     def to_payload(self) -> dict[str, object]:
         value = self._base_payload()
         value.update({
             "asset": self.asset.to_payload() if self.asset else None,
+            "clean": self.clean,
+            "clean_for": self.clean_for,
             "fit_mode": self.fit_mode,
             "scale": self.scale,
             "pan_x": self.pan_x,
@@ -349,6 +360,8 @@ class BackgroundObject(RenderObject):
             crop=Rect.from_payload(payload["crop"]) if isinstance(payload.get("crop"), Mapping) else None,
             blur=bounded_number(payload.get("blur"), 0.0, 0.0, 1.0),
             dim=bounded_number(payload.get("dim"), 0.0, 0.0, 0.8),
+            clean=_text(payload.get("clean"), ""),
+            clean_for=_text(payload.get("clean_for"), ""),
         )
 
 
@@ -872,6 +885,25 @@ def update_shared_fields(document: CoverDocument, object_id: str, **fields: Any)
         objects=tuple(replace(item, **fields) if item.id == object_id else item for item in document.objects),
         profiles=profiles,
     )
+
+
+def background_render_path(document: CoverDocument, item: BackgroundObject) -> str | None:
+    """背景实际用哪张图：抠出了人物就用“人已抹掉”的那张，虚化后人物周围没有自己的光晕和鬼影。
+
+    换了底图、文件没了、对应的人物图层被删或隐藏时，回到原底图。
+    """
+
+    path = item.asset.path if item.asset is not None and item.asset.path else None
+    if path is None or not item.clean or item.clean_for != path or not Path(item.clean).is_file():
+        return path
+    key = Path(item.clean).stem.removesuffix(CUTOUT_CLEAN_SUFFIX)
+    for other in document.objects:
+        if (
+            isinstance(other, ImageObject) and other.visible and other.asset is not None
+            and Path(other.asset.path).stem.removesuffix(CUTOUT_OUTLINE_SUFFIX) == key
+        ):
+            return item.clean
+    return path
 
 
 def restack_object(document: CoverDocument, object_id: str, step: int) -> CoverDocument:

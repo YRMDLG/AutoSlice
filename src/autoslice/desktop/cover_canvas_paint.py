@@ -53,6 +53,7 @@ from .cover_model import (
     ShapeObject,
     StickerObject,
     TextObject,
+    background_render_path,
 )
 from .qt_preview.theme import COLORS
 
@@ -145,14 +146,30 @@ class CanvasPaintMixin:
             target = QRectF(box.left, box.top, box.width, box.height)
             source_size = (pixmap.width(), pixmap.height())
             radius = background_blur_radius(background, (width, height), source_size, box) if background is not None else 0.0
-            if radius >= 0.5 and background.asset is not None and background.asset.path:
+            source_path = background_render_path(self._document, background) if background is not None and self._document is not None else None
+            own_path = background.asset.path if background is not None and background.asset is not None else None
+            if source_path and radius >= 0.5:
                 # 虚化：和导出用同一张在源图上糊好的图，拖动底图不用重算。
-                pixmap = self._blurred_pixmap(background.asset.path, radius)
+                pixmap = self._blurred_pixmap(source_path, radius)
+            elif source_path and source_path != own_path:
+                pixmap = self._plain_pixmap(source_path)
             painter.drawPixmap(target, pixmap, QRectF(0, 0, pixmap.width(), pixmap.height()))
             if background is not None and background.dim > 0:
                 painter.fillRect(
                     target.intersected(QRectF(0, 0, width, height)), QColor(0, 0, 0, round(min(0.8, background.dim) * 255)),
                 )
+
+    def _plain_pixmap(self, path: str) -> QPixmap:
+        """不虚化时用“人已抹掉”的背景图。"""
+
+        cache = self.__dict__.setdefault("_plain_cache", {})
+        pixmap = cache.get(path)
+        if pixmap is None:
+            pixmap = QPixmap(path)
+            if len(cache) > 3:
+                cache.clear()
+            cache[path] = pixmap
+        return pixmap
 
     def _blurred_pixmap(self, path: str, radius: float) -> QPixmap:
         key = (path, round(float(radius), 1))

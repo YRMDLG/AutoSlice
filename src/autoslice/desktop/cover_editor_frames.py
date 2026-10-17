@@ -572,8 +572,8 @@ class CoverFramesMixin:
         self.canvas.set_document(self.document, self._canvas_key)
         self._canvas_object_selected(object_id)
         self.status_changed.emit(
-            "已抠出人物：是单独的图层，可以拖动、缩放、加白边；底图已虚化（底图面板可调虚化和压暗）。"
-            "想做“人物 + 内容”：把底图放大拖到她在看的东西上，人物挪到角落（Ctrl+Z 可撤销）"
+            "已抠出人物：是单独的图层，可以拖动、缩放、加白边；底图里的人已抹掉并虚化，不会有重影"
+            "（底图面板可调虚化和压暗）。想做“人物 + 内容”：把底图放大拖到她在看的东西上，人物挪到角落（Ctrl+Z 可撤销）"
         )
 
     def _background_effect_changed(self, _value: int = 0):
