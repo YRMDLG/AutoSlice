@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 from PySide6.QtCore import (
     QModelIndex,
@@ -57,6 +58,15 @@ from .window_widgets import _StatusLabel
 TIMELINE_DEFAULT_HEIGHT = 150
 
 
+def _saved_submission_root(storage: DesktopStorage) -> Path | None:
+    """会话里记着的投稿目录，仍然存在才用。"""
+
+    value = (storage.read_session() or {}).get("submission_root")
+    if isinstance(value, str) and value and Path(value).is_dir():
+        return Path(value)
+    return None
+
+
 class DesktopWindow(
     ProjectsMixin,
     AiReviewMixin,
@@ -73,8 +83,9 @@ class DesktopWindow(
 
     def __init__(self, service: SubmissionProjectService | None = None,
                  storage: DesktopStorage | None = None):
-        self.service = service or SubmissionProjectService()
         self.storage = storage or DesktopStorage()
+        # 上次在设置里选过的投稿目录优先；目录没了就回到默认配置
+        self.service = service or SubmissionProjectService(_saved_submission_root(self.storage))
         self.ai_service = AIReviewService(self.storage)
         self.render_service = SubtitleRenderService(self.storage)
         self.preview_service = SubtitlePreviewService(self.storage)
@@ -386,6 +397,7 @@ class DesktopWindow(
         try:
             self.storage.save_session({
                 "page": self.pages.currentIndex(),
+                "submission_root": str(self.service.root),
                 "project_id": self.project.id if self.project else None,
                 "video_path": self.document.video.path if self.document else self.video_choice.currentData().path
                 if self.video_choice.currentData() else None,

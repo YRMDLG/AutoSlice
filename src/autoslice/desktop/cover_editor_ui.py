@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -35,12 +36,17 @@ from autoslice_cover.document_layout import (
 from .cover_canvas import CoverCanvas
 from .cover_style import STYLE_PRESETS
 from .cover_widgets import (
+    FitToolbar,
+    ToolbarButton,
     _ColorButton,
     _InlineTextEdit,
     _preset_icon,
     _TitleEdit,
 )
+from .qt_preview import motion, popups
 from .qt_preview.icons import icon
+from .qt_preview.theme import COLORS
+from .qt_preview.widgets import ElidedLabel
 
 
 class CoverLayoutMixin:
@@ -54,20 +60,22 @@ class CoverLayoutMixin:
         slot=None,
         height: int = 28,
         square: bool = False,
-        object_name: str | None = "quiet",
+        object_name: str | None = "tool",
         enabled: bool = True,
         checkable: bool = False,
-    ) -> QPushButton:
-        """工具栏和帧条按钮的统一外观：图标、尺寸、提示、点击和初始可用状态。"""
+    ) -> ToolbarButton:
+        """工具栏、面板和帧条按钮的统一外观：图标、尺寸、提示、点击和初始可用状态。"""
 
-        button = QPushButton(text)
+        button = ToolbarButton(text)
         if icon_name:
-            button.setIcon(icon(icon_name))
+            color = COLORS.on_accent if object_name == "primary" else COLORS.muted
+            button.setIcon(icon(icon_name, color, icon_size, COLORS.accent_text if checkable else None))
             button.setIconSize(QSize(icon_size, icon_size))
         if object_name:
             button.setObjectName(object_name)
         if square:
             button.setFixedSize(height, height)
+            button.setProperty("square", True)
         else:
             button.setFixedHeight(height)
         if tip:
@@ -77,6 +85,14 @@ class CoverLayoutMixin:
             button.clicked.connect(slot)
         button.setEnabled(enabled)
         return button
+
+    @staticmethod
+    def _set_menu(button: QPushButton, menu: QMenu) -> None:
+        """按钮挂菜单：加弹层动效，并给下拉箭头留出位置。"""
+
+        popups.MenuFx(menu)
+        button.setProperty("hasMenu", True)
+        button.setMenu(menu)
 
     def _build(self):
         root = QVBoxLayout(self)
@@ -108,28 +124,39 @@ class CoverLayoutMixin:
         self._update_canvas_hint()
 
     def _build_toolbar(self) -> QWidget:
-        """单行工具栏：比例与同步 · 撤销/重做 · 插入 · 状态 · 批量/记录/导出/下一个。"""
+        """单行工具栏：比例与同步 · 撤销/重做 · 插入 · 状态 · 批量/记录/导出/下一个；放不下时按钮收成只显示图标。"""
 
-        toolbar = QWidget()
+        toolbar = FitToolbar()
         toolbar.setObjectName("coverToolbar")
         toolbar.setFixedHeight(44)
         row = QHBoxLayout(toolbar)
         row.setContentsMargins(12, 0, 12, 0)
         row.setSpacing(6)
 
+        # 比例：分段控件，和字幕页的“全部 / 待确认”同一套外观
+        segmented = QWidget()
+        segmented.setObjectName("segmented")
+        segment_row = QHBoxLayout(segmented)
+        segment_row.setContentsMargins(2, 2, 2, 2)
+        segment_row.setSpacing(2)
         self.canvas_ratio_group = QButtonGroup(self)
         self.canvas_ratio_group.setExclusive(True)
         self.canvas_ratio_buttons: dict[str, QPushButton] = {}
         for key, text in (("4x3", "4:3"), ("16x9", "16:9")):
-            button = self._button(text, tip=f"切换 {text} 主画布", object_name=None, checkable=True)
+            button = self._button(
+                text, tip=f"切换 {text} 主画布", object_name="segment", checkable=True, height=24,
+            )
             button.setMinimumWidth(48)
             button.clicked.connect(lambda _checked=False, value=key: self._set_canvas_key(value))
             self.canvas_ratio_group.addButton(button)
             self.canvas_ratio_buttons[key] = button
-            row.addWidget(button)
+            segment_row.addWidget(button)
         self.canvas_ratio_buttons["4x3"].setChecked(True)
+        motion.SegmentedFx(segmented, tuple(self.canvas_ratio_buttons.values()))
+        row.addWidget(segmented)
         self.sync_ratio_button = self._button(
-            "同步到 16:9", tip="把当前比例里调好的文字和素材位置套到另一个比例；底图取景各自保留",
+            "同步到 16:9", icon_name="refresh",
+            tip="把当前比例里调好的文字和素材位置套到另一个比例；底图取景各自保留",
             slot=self._sync_other_ratio, enabled=False,
         )
         row.addWidget(self.sync_ratio_button)
@@ -151,9 +178,9 @@ class CoverLayoutMixin:
         self.asset_menu = QMenu(self.asset_menu_button)
         self.asset_menu.aboutToShow.connect(self._fill_asset_menu)
         self._fill_asset_menu()
-        self.asset_menu_button.setMenu(self.asset_menu)
+        self._set_menu(self.asset_menu_button, self.asset_menu)
         self.shape_menu_button = self._button("形状", icon_name="shapes", tip="添加圆圈、箭头或矩形强调框", enabled=False)
-        self.shape_menu_button.setMenu(self._shape_menu(self.shape_menu_button))
+        self._set_menu(self.shape_menu_button, self._shape_menu(self.shape_menu_button))
         self.hidden_button = self._button("已隐藏", icon_name="eye", tip="被删除或隐藏的文字和素材，点一下恢复")
         self.ai_critique_button = self._button(
             "AI 改一改", icon_name="sparkles", tip="让 AI 看这张封面，给出能一键应用的修改（移字、拉近、放大、换文案），可撤销",
@@ -161,7 +188,7 @@ class CoverLayoutMixin:
         )
         self.hidden_menu = QMenu(self.hidden_button)
         self.hidden_menu.aboutToShow.connect(self._fill_hidden_menu)
-        self.hidden_button.setMenu(self.hidden_menu)
+        self._set_menu(self.hidden_button, self.hidden_menu)
         self.hidden_button.setVisible(False)
         for button in (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button, self.ai_critique_button):
             row.addWidget(button)
@@ -181,10 +208,9 @@ class CoverLayoutMixin:
             "投稿文案", icon_name="sparkles", tip="让 AI 按你以前的标题口吻写 3 个备选标题、简介和标签，一键复制",
             slot=self._submission_copy, enabled=False,
         )
-        self.export_summary = QLabel("")
+        # 输出摘要放在画布下方的提示行里（见 _build_canvas_area），工具栏只留动作。
+        self.export_summary = ElidedLabel("")
         self.export_summary.setObjectName("subtle")
-        self.export_summary.setWordWrap(False)
-        self.export_summary.setMaximumWidth(420)
         self.export_button = self._button(
             "导出", tip="导出当前画布比例", slot=self._export, object_name=None, enabled=False,
         )
@@ -193,6 +219,8 @@ class CoverLayoutMixin:
             "导出 4:3 + 16:9", icon_name="download", object_name="primary", slot=self._export_both, enabled=False,
             tip="分别导出 4:3（1440×1080）与 16:9（1920×1080），不覆盖已有文件",
         )
+        # 主按钮的文字永远完整显示
+        self.export_both_button.setMinimumWidth(self.export_both_button.sizeHint().width())
         self.next_button = self._button(
             "下一个", icon_name="chevron_right", icon_size=14, tip="保存当前封面，切到投稿列表里的下一个视频",
             slot=self._request_next_video, enabled=False,
@@ -201,10 +229,16 @@ class CoverLayoutMixin:
             icon_name="chevron_right", tip="收起/展开属性面板", square=True, checkable=True,
         )
         for widget in (
-            self.batch_button, self.submission_button, self.history_button, self.export_summary, self.export_button,
+            self.batch_button, self.submission_button, self.history_button, self.export_button,
             self.export_both_button, self.next_button, self.panel_toggle,
         ):
             row.addWidget(widget)
+        # 先收低频的（同步、批量、投稿文案、下一个），还放不下再收文字/素材/形状/AI
+        toolbar.set_collapsible(
+            (self.sync_ratio_button, self.batch_button, self.submission_button, self.next_button),
+            (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button,
+             self.ai_critique_button),
+        )
         return toolbar
 
     def _build_canvas_area(self) -> QWidget:
@@ -240,11 +274,15 @@ class CoverLayoutMixin:
         self.inline_edit.textChanged.connect(self._inline_text_changed)
         self.inline_edit.finished.connect(self._finish_inline_edit)
         layout.addWidget(self.canvas, 1)
-        self.canvas_hint = QLabel("")
+        # 提示行：左边操作提示，右边本次导出的文件名与比例；放不下时各自右侧省略
+        info_row = QHBoxLayout()
+        info_row.setSpacing(12)
+        self.canvas_hint = ElidedLabel("")
         self.canvas_hint.setObjectName("subtle")
-        self.canvas_hint.setWordWrap(False)
-        self.canvas_hint.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        layout.addWidget(self.canvas_hint)
+        info_row.addWidget(self.canvas_hint, 3)
+        self.export_summary.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        info_row.addWidget(self.export_summary, 2)
+        layout.addLayout(info_row)
         return center
 
     def _build_right_panel(self) -> QWidget:
@@ -306,25 +344,30 @@ class CoverLayoutMixin:
         column.addLayout(row)
         self.frame_center_label = QLabel("0.00s")
         self.frame_center_label.setObjectName("subtle")
-        self.frame_center_label.setMinimumWidth(62)
+        self.frame_center_label.setMinimumWidth(92)
         row.addWidget(self.frame_center_label)
         self.current_frame_button = self._button(
-            "当前帧", tip="读取字幕页播放位置", slot=self._use_current_frame, height=24,
+            "当前帧", tip="读取字幕页播放位置", slot=self._use_current_frame, height=24, object_name="quiet",
         )
         self.frame_lock_button = self._button(
             "锁帧", tip="锁定后换方案、换文案都不换帧", slot=self._toggle_frame_lock, height=24, checkable=True,
+            object_name="quiet",
         )
-        self.more_frames_button = self._button("更多", tip="扩大取帧范围", slot=self._find_more_frames, height=24)
+        self.more_frames_button = self._button(
+            "更多", tip="扩大取帧范围", slot=self._find_more_frames, height=24, object_name="quiet",
+        )
         self.overview_button = self._button(
-            "全片", tip="从整个视频按画质挑 7 张", slot=self._find_overview_frames, height=24,
+            "全片", tip="从整个视频按画质挑 7 张", slot=self._find_overview_frames, height=24, object_name="quiet",
         )
         for button in (self.current_frame_button, self.frame_lock_button, self.more_frames_button, self.overview_button):
             row.addWidget(button)
         row.addSpacing(8)
         self.nearby_frame_buttons = []
         for _ in range(7):
-            button = QPushButton("--")
+            button = ToolbarButton("--")
             button.setObjectName("frameThumb")
+            # 时间戳叠在缩略图上，按钮只画图；text() 仍是完整时间，供读取与提示
+            button.set_compact(True, force=True)
             button.setCheckable(True)
             button.setMinimumWidth(86)
             button.setMaximumHeight(58)
@@ -352,31 +395,24 @@ class CoverLayoutMixin:
         self.scheme_title.setObjectName("sectionTitle")
         scheme_head.addWidget(self.scheme_title)
         scheme_head.addStretch(1)
-        self.ai_scheme_button = QPushButton("AI 方案")
-        self.ai_scheme_button.setIcon(icon("sparkles"))
-        self.ai_scheme_button.setIconSize(QSize(15, 15))
-        self.ai_scheme_button.setFixedHeight(26)
-        self.ai_scheme_button.setObjectName("quiet")
-        self.ai_scheme_button.setToolTip("让 AI 读字幕找爆点、看画面，出“稳妥 / 换个构图 / 大胆一点”三套方案；再点一次换一批")
-        self.ai_scheme_button.clicked.connect(self._ai_schemes)
-        self.ai_scheme_button.setEnabled(False)
+        self.ai_scheme_button = self._button(
+            "AI 方案", icon_name="sparkles",
+            tip="让 AI 读字幕找爆点、看画面，出“稳妥 / 换个构图 / 大胆一点”三套方案；再点一次换一批",
+            slot=self._ai_schemes, enabled=False,
+        )
         scheme_head.addWidget(self.ai_scheme_button)
-        self.template_button = QPushButton("模板")
-        self.template_button.setFixedHeight(26)
-        self.template_button.setObjectName("quiet")
-        self.template_button.setToolTip("把排好的封面存为模板，换个视频一键套上（字的位置样式、贴纸都跟着）；批量出图也能选")
+        self.template_button = self._button(
+            "模板", icon_name="template",
+            tip="把排好的封面存为模板，换个视频一键套上（字的位置样式、贴纸都跟着）；批量出图也能选",
+        )
         self.template_menu = QMenu(self.template_button)
         self.template_menu.aboutToShow.connect(self._fill_template_menu)
-        self.template_button.setMenu(self.template_menu)
+        self._set_menu(self.template_button, self.template_menu)
         scheme_head.addWidget(self.template_button)
-        self.scheme_refresh_button = QPushButton("")
-        self.scheme_refresh_button.setIcon(icon("refresh"))
-        self.scheme_refresh_button.setIconSize(QSize(15, 15))
-        self.scheme_refresh_button.setFixedSize(26, 26)
-        self.scheme_refresh_button.setObjectName("quiet")
-        self.scheme_refresh_button.setToolTip("换一批：轮换文案和配色（本地生成，不调用 AI）")
-        self.scheme_refresh_button.clicked.connect(self._next_scheme_batch)
-        self.scheme_refresh_button.setEnabled(False)
+        self.scheme_refresh_button = self._button(
+            icon_name="refresh", tip="换一批：轮换文案和配色（本地生成，不调用 AI）",
+            slot=self._next_scheme_batch, square=True, enabled=False,
+        )
         scheme_head.addWidget(self.scheme_refresh_button)
         section.addLayout(scheme_head)
         scheme_row = QHBoxLayout()
@@ -467,26 +503,24 @@ class CoverLayoutMixin:
         layout.addWidget(self.title_edit)
 
         # 强调词：只换颜色，字号和断行不变；参考切片封面里“开盒”单独标黄的做法。
-        emphasis_row = QHBoxLayout()
-        emphasis_row.setSpacing(4)
         self.emphasis_edit = QLineEdit()
         self.emphasis_edit.setPlaceholderText("强调词，空格分隔")
         self.emphasis_edit.setToolTip("这些词换成强调色，比如「开盒」「14个」；强调色在“字体与效果”里改")
         self.emphasis_edit.textChanged.connect(self._draft_changed)
-        emphasis_row.addWidget(self.emphasis_edit, 1)
-        self.emphasize_button = QPushButton("强调所选")
-        self.emphasize_button.setFixedHeight(26)
-        self.emphasize_button.setObjectName("quiet")
-        self.emphasize_button.setToolTip("在上面的文案框里选中几个字，点这里把它们设为强调（再点一次取消）")
-        self.emphasize_button.clicked.connect(self._emphasize_selection)
-        emphasis_row.addWidget(self.emphasize_button)
-        self.burst_button = QPushButton("垫爆炸贴")
-        self.burst_button.setFixedHeight(26)
-        self.burst_button.setObjectName("quiet")
-        self.burst_button.setToolTip("在这段字的强调词后面垫一个漫画爆炸贴；没有强调词就垫在整段字后面")
-        self.burst_button.clicked.connect(self._add_burst_behind_text)
-        emphasis_row.addWidget(self.burst_button)
-        layout.addLayout(emphasis_row)
+        layout.addWidget(self.emphasis_edit)
+        emphasis_actions = QHBoxLayout()
+        emphasis_actions.setSpacing(4)
+        self.emphasize_button = self._button(
+            "强调所选", icon_name="highlight",
+            tip="在上面的文案框里选中几个字，点这里把它们设为强调（再点一次取消）", slot=self._emphasize_selection,
+        )
+        self.burst_button = self._button(
+            "垫爆炸贴", icon_name="burst",
+            tip="在这段字的强调词后面垫一个漫画爆炸贴；没有强调词就垫在整段字后面", slot=self._add_burst_behind_text,
+        )
+        emphasis_actions.addWidget(self.emphasize_button, 1)
+        emphasis_actions.addWidget(self.burst_button, 1)
+        layout.addLayout(emphasis_actions)
 
         # 当前文本框身份 + 换文案；选择文本框直接在画布上点。
         role_row = QHBoxLayout()
@@ -494,18 +528,14 @@ class CoverLayoutMixin:
         self.copy_role_label = QLabel("")
         self.copy_role_label.setObjectName("subtle")
         role_row.addWidget(self.copy_role_label, 1)
-        self.lock_text_button = QPushButton("锁定")
-        self.lock_text_button.setCheckable(True)
-        self.lock_text_button.setFixedHeight(26)
-        self.lock_text_button.setObjectName("quiet")
-        self.lock_text_button.setToolTip("锁定位置：不能拖动，快速方案和比例同步也不会挪它")
-        self.lock_text_button.clicked.connect(self._toggle_lock)
+        self.lock_text_button = self._button(
+            icon_name="lock", tip="锁定位置：不能拖动，快速方案和比例同步也不会挪它",
+            slot=self._toggle_lock, square=True, checkable=True,
+        )
         role_row.addWidget(self.lock_text_button)
-        self.copy_button = QPushButton("换一版文案")
-        self.copy_button.setFixedHeight(26)
-        self.copy_button.setObjectName("quiet")
-        self.copy_button.setToolTip("只换 A/B 主文案的文字，位置和字号不变")
-        self.copy_button.clicked.connect(self._cycle_copy)
+        self.copy_button = self._button(
+            "换一版文案", icon_name="refresh", tip="只换 A/B 主文案的文字，位置和字号不变", slot=self._cycle_copy,
+        )
         role_row.addWidget(self.copy_button)
         layout.addLayout(role_row)
 
@@ -516,22 +546,27 @@ class CoverLayoutMixin:
         self.font_spin = QSpinBox()
         self.font_spin.setRange(24, 320)
         self.font_spin.setSuffix(" px")
-        self.font_spin.setFixedHeight(26)
+        self.font_spin.setFixedHeight(28)
         self.font_spin.valueChanged.connect(self._draft_changed)
         size_align.addWidget(self.font_spin, 1)
         self.align_buttons: dict[str, QPushButton] = {}
         self.align_group = QButtonGroup(self)
         self.align_group.setExclusive(True)
+        align_segmented = QWidget()
+        align_segmented.setObjectName("segmented")
+        align_row = QHBoxLayout(align_segmented)
+        align_row.setContentsMargins(2, 2, 2, 2)
+        align_row.setSpacing(2)
         for key, text in (("left", "左"), ("center", "中"), ("right", "右")):
-            btn = QPushButton(text)
-            btn.setCheckable(True)
-            btn.setFixedHeight(26)
-            btn.setMinimumWidth(28)
+            btn = self._button(text, object_name="segment", checkable=True, height=24)
+            btn.setMinimumWidth(30)
             self.align_group.addButton(btn)
             self.align_buttons[key] = btn
-            size_align.addWidget(btn)
+            align_row.addWidget(btn)
             btn.clicked.connect(lambda _c=False, k=key: self._set_text_align(k))
         self.align_buttons["left"].setChecked(True)
+        motion.SegmentedFx(align_segmented, tuple(self.align_buttons.values()))
+        size_align.addWidget(align_segmented)
         layout.addLayout(size_align)
 
         # 配色预设常驻：最常用的一步，不藏在折叠里。
@@ -637,41 +672,35 @@ class CoverLayoutMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        # 对象操作
-        ops_row = QHBoxLayout()
-        ops_row.setSpacing(4)
-        self.duplicate_asset_button = QPushButton("复制")
-        self.duplicate_asset_button.setFixedHeight(26)
-        self.duplicate_asset_button.clicked.connect(self._duplicate_selected_object)
-        ops_row.addWidget(self.duplicate_asset_button)
-        self.delete_asset_button = QPushButton("删除")
-        self.delete_asset_button.setFixedHeight(26)
-        self.delete_asset_button.clicked.connect(self._delete_selected_object)
-        ops_row.addWidget(self.delete_asset_button)
-        self.raise_asset_button = QPushButton("前移")
-        self.raise_asset_button.setFixedHeight(26)
-        self.raise_asset_button.clicked.connect(lambda: self._move_selected_layer(1))
-        ops_row.addWidget(self.raise_asset_button)
-        self.lower_asset_button = QPushButton("后移")
-        self.lower_asset_button.setFixedHeight(26)
-        self.lower_asset_button.clicked.connect(lambda: self._move_selected_layer(-1))
-        ops_row.addWidget(self.lower_asset_button)
-        layout.addLayout(ops_row)
-        state_row = QHBoxLayout()
-        state_row.setSpacing(4)
-        self.hide_asset_button = QPushButton("隐藏")
-        self.hide_asset_button.setFixedHeight(26)
-        self.hide_asset_button.setToolTip("先藏起来，之后从工具栏“已隐藏”恢复")
-        self.hide_asset_button.clicked.connect(self._hide_selected_object)
-        state_row.addWidget(self.hide_asset_button)
-        self.lock_asset_button = QPushButton("锁定")
-        self.lock_asset_button.setCheckable(True)
-        self.lock_asset_button.setFixedHeight(26)
-        self.lock_asset_button.setToolTip("锁定位置：不能拖动，比例同步也不会挪它")
-        self.lock_asset_button.clicked.connect(self._toggle_lock)
-        state_row.addWidget(self.lock_asset_button)
-        state_row.addStretch(1)
-        layout.addLayout(state_row)
+        # 对象操作：两列六个按钮
+        ops = QGridLayout()
+        ops.setHorizontalSpacing(4)
+        ops.setVerticalSpacing(4)
+        self.duplicate_asset_button = self._button(
+            "复制", icon_name="copy", slot=self._duplicate_selected_object, tip="复制一份，稍微错开放置",
+        )
+        self.delete_asset_button = self._button(
+            "删除", icon_name="trash", slot=self._delete_selected_object, tip="删除所选（可撤销）",
+        )
+        self.raise_asset_button = self._button(
+            "前移", icon_name="arrow_up", slot=lambda: self._move_selected_layer(1), tip="往上一层",
+        )
+        self.lower_asset_button = self._button(
+            "后移", icon_name="arrow_down", slot=lambda: self._move_selected_layer(-1), tip="往下一层",
+        )
+        self.hide_asset_button = self._button(
+            "隐藏", icon_name="eye_off", slot=self._hide_selected_object, tip="先藏起来，之后从工具栏“已隐藏”恢复",
+        )
+        self.lock_asset_button = self._button(
+            "锁定", icon_name="lock", slot=self._toggle_lock, checkable=True,
+            tip="锁定位置：不能拖动，比例同步也不会挪它",
+        )
+        for position, button in enumerate((
+            self.duplicate_asset_button, self.delete_asset_button, self.raise_asset_button,
+            self.lower_asset_button, self.hide_asset_button, self.lock_asset_button,
+        )):
+            ops.addWidget(button, position // 2, position % 2)
+        layout.addLayout(ops)
 
         # 变换
         transform_form = QFormLayout()
@@ -742,17 +771,14 @@ class CoverLayoutMixin:
         layout.addSpacing(4)
         add_row = QHBoxLayout()
         add_row.setSpacing(4)
-        self.import_asset_button2 = QPushButton("导入")
-        self.import_asset_button2.setFixedHeight(26)
-        self.import_asset_button2.setObjectName("quiet")
-        self.import_asset_button2.setToolTip("导入图片素材")
-        self.import_asset_button2.clicked.connect(self._import_asset)
+        self.import_asset_button2 = self._button(
+            "导入", icon_name="upload", tip="导入图片素材", slot=self._import_asset,
+        )
         add_row.addWidget(self.import_asset_button2)
-        self.add_shape_button2 = QPushButton("形状")
-        self.add_shape_button2.setFixedHeight(26)
-        self.add_shape_button2.setObjectName("quiet")
-        self.add_shape_button2.setToolTip("添加圆圈、箭头、矩形框、爆炸贴、集中线")
-        self.add_shape_button2.setMenu(self._shape_menu(self.add_shape_button2))
+        self.add_shape_button2 = self._button(
+            "形状", icon_name="shapes", tip="添加圆圈、箭头、矩形框、爆炸贴、集中线",
+        )
+        self._set_menu(self.add_shape_button2, self._shape_menu(self.add_shape_button2))
         add_row.addWidget(self.add_shape_button2)
         layout.addLayout(add_row)
 
@@ -780,20 +806,16 @@ class CoverLayoutMixin:
 
         fit_row = QHBoxLayout()
         fit_row.setSpacing(4)
-        self.fill_button = QPushButton("充满")
-        self.fill_button.setFixedHeight(26)
-        self.fill_button.clicked.connect(self._fill_canvas)
-        fit_row.addWidget(self.fill_button)
-        self.fit_button = QPushButton("适应")
-        self.fit_button.setFixedHeight(26)
-        self.fit_button.clicked.connect(self._fit_canvas)
-        fit_row.addWidget(self.fit_button)
+        self.fill_button = self._button("充满", icon_name="expand", slot=self._fill_canvas, tip="底图铺满画布")
+        fit_row.addWidget(self.fill_button, 1)
+        self.fit_button = self._button("适应", icon_name="contain", slot=self._fit_canvas, tip="底图完整放进画布")
+        fit_row.addWidget(self.fit_button, 1)
         layout.addLayout(fit_row)
 
         # 人物抠图：抠出来的人物是单独的图层，能拖动、缩放（参考切片封面：人物清楚、背景虚化，或人物放到内容画面的角落）。
-        self.cutout_button = QPushButton("抠出人物")
-        self.cutout_button.setFixedHeight(26)
-        self.cutout_button.clicked.connect(self._cutout_person)
+        self.cutout_button = self._button(
+            "抠出人物", icon_name="person", object_name="secondary", slot=self._cutout_person,
+        )
         layout.addWidget(self.cutout_button)
         effect_row = QHBoxLayout()
         effect_row.setSpacing(4)
@@ -802,7 +824,7 @@ class CoverLayoutMixin:
         self.blur_spin.setSingleStep(10)
         self.blur_spin.setPrefix("虚化 ")
         self.blur_spin.setSuffix(" %")
-        self.blur_spin.setFixedHeight(26)
+        self.blur_spin.setFixedHeight(28)
         self.blur_spin.setToolTip("把底图糊掉，人物图层和字更突出")
         self.blur_spin.valueChanged.connect(self._background_effect_changed)
         effect_row.addWidget(self.blur_spin, 1)
@@ -811,7 +833,7 @@ class CoverLayoutMixin:
         self.dim_spin.setSingleStep(5)
         self.dim_spin.setPrefix("压暗 ")
         self.dim_spin.setSuffix(" %")
-        self.dim_spin.setFixedHeight(26)
+        self.dim_spin.setFixedHeight(28)
         self.dim_spin.setToolTip("把底图压暗")
         self.dim_spin.valueChanged.connect(self._background_effect_changed)
         effect_row.addWidget(self.dim_spin, 1)
@@ -821,17 +843,12 @@ class CoverLayoutMixin:
         layout.addSpacing(4)
         extract_row = QHBoxLayout()
         extract_row.setSpacing(4)
-        self.extract_button = QPushButton("取帧")
-        self.extract_button.setFixedHeight(26)
-        self.extract_button.setObjectName("quiet")
-        self.extract_button.setToolTip("从当前视频指定时间取帧")
-        self.extract_button.clicked.connect(self._extract_frame)
-        extract_row.addWidget(self.extract_button)
-        self.import_bg_button = QPushButton("导入底图")
-        self.import_bg_button.setFixedHeight(26)
-        self.import_bg_button.setObjectName("quiet")
-        self.import_bg_button.clicked.connect(self._import_image)
-        extract_row.addWidget(self.import_bg_button)
+        self.extract_button = self._button(
+            "取帧", icon_name="camera", tip="从当前视频指定时间取帧", slot=self._extract_frame,
+        )
+        extract_row.addWidget(self.extract_button, 1)
+        self.import_bg_button = self._button("导入底图", icon_name="image", slot=self._import_image, tip="用本机图片当底图")
+        extract_row.addWidget(self.import_bg_button, 1)
         layout.addLayout(extract_row)
 
         # 精确时间

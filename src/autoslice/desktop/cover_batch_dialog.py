@@ -7,7 +7,6 @@ from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
 
 from .cover_templates import CoverTemplate
+from .qt_preview import motion, popups
 
 
 @dataclass(frozen=True)
@@ -102,7 +102,7 @@ class CoverBatchDialog(QDialog):
         # 日更版式统一：新封面排完再套一个模板（已有草稿的按草稿，不套）。
         template_row = QHBoxLayout()
         template_row.addWidget(QLabel("新封面套用模板"))
-        self.template_combo = QComboBox()
+        self.template_combo = popups.ComboBox()
         self.template_combo.addItem("不套用（自动排版）", None)
         for template in templates:
             self.template_combo.addItem(template.name, template)
@@ -125,6 +125,7 @@ class CoverBatchDialog(QDialog):
         actions.addWidget(self.close_button)
         layout.addLayout(actions)
         self._update_summary()
+        motion.install_tree(self)
 
     def _check(self, predicate: Callable[[BatchTarget], bool]):
         for index, target in enumerate(self._targets):

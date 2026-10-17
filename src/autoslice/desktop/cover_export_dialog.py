@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .qt_preview import motion
+
 _THUMB = QSize(96, 72)
 
 
@@ -79,6 +81,7 @@ class CoverExportDialog(QDialog):
         actions.addWidget(self.reveal_button)
         actions.addWidget(close)
         layout.addLayout(actions)
+        motion.install_tree(self)
 
     def selected_path(self) -> Path | None:
         item = self.list.currentItem()

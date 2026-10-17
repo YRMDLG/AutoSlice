@@ -32,6 +32,7 @@ from .cover_ai import (
 from .cover_fixes import apply_fix, describe_state
 from .cover_model import TextObject, object_for_profile
 from .cover_style import streamer_key
+from .qt_preview import motion
 
 # “AI 改一改”弹窗里改前、改后缩略图的宽度。
 _PREVIEW_WIDTH = 200
@@ -229,6 +230,7 @@ class CoverAIMixin:
         buttons.addWidget(close)
         layout.addLayout(buttons)
         dialog.resize(560, dialog.sizeHint().height())
+        motion.install_tree(dialog)
         dialog.show()
         self._submission_box = dialog
 
@@ -312,6 +314,7 @@ class CoverAIMixin:
         close.clicked.connect(dialog.close)
         layout.addWidget(close)
         dialog.resize(560, dialog.sizeHint().height())
+        motion.install_tree(dialog)
         dialog.show()
         self._critique_box = dialog
 

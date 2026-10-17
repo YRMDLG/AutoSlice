@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from .cover_assets import CoverAsset
+from .qt_preview import motion
 
 _THUMB = 96
 _MAX_ITEMS = 120
@@ -65,6 +66,7 @@ class CoverAssetDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        motion.install_tree(self)
 
     def _filter(self, text: str) -> None:
         needle = text.strip().casefold()

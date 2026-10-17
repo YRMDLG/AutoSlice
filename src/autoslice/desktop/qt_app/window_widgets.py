@@ -354,7 +354,7 @@ def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:
     editor.viewport().setAutoFillBackground(True)
     editor.setStyleSheet(
         f"QPlainTextEdit {{ background: {COLORS.row_selected}; color: {COLORS.text}; "
-        f"border: none; padding: 10px 6px 0 6px; "
+        f"border: none; border-radius: 0; padding: 10px 6px 0 6px; "
         f"selection-background-color: {COLORS.accent_pressed}; }}"
         "QPlainTextEdit:focus { border: none; }"
     )

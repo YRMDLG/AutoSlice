@@ -349,8 +349,13 @@ class ButtonFx(QObject):
             return
         if c > 0.01:
             painter.fillPath(path, faded(mix(COLORS.accent_subtle, "#1A2130", h), c))
-            painter.setPen(QPen(faded(COLORS.accent_tint, c), 1))
-            painter.drawPath(path)
+            if self.kind in ("frameThumb", "schemeThumb"):
+                # 选中的缩略图要一眼看出来：2px 强调边框
+                painter.setPen(QPen(faded(COLORS.accent, c), 2))
+                painter.drawPath(_rounded(rect.adjusted(1, 1, -1, -1), radius))
+            else:
+                painter.setPen(QPen(faded(COLORS.accent_tint, c), 1))
+                painter.drawPath(path)
         if h * (1 - c) > 0.01:
             painter.fillPath(path, faded(COLORS.hover, h * (1 - c)))
         if p > 0.01:

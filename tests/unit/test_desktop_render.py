@@ -152,6 +152,27 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.window._balance_vertical_splitter()
         self.assertAlmostEqual(self.window.vertical_splitter.sizes()[1], remembered, delta=2)
 
+    def test_changing_submission_root_updates_settings_and_is_remembered(self):
+        from PySide6.QtWidgets import QFileDialog
+
+        from autoslice.desktop.qt_app.window import DesktopWindow
+
+        chosen = Path(self.temp.name) / "另一个投稿目录"
+        chosen.mkdir()
+        with patch.object(QFileDialog, "getExistingDirectory", return_value=str(chosen)):
+            self.window._browse_submission_root()
+        # 设置页显示的路径跟着变，会话里记下来
+        self.assertEqual(self.window.settings_directory.text(), str(chosen))
+        self.assertEqual(self.window.storage.read_session()["submission_root"], str(chosen))
+        # 下次启动（不显式传 service）沿用；目录没了就回到默认
+        reopened = DesktopWindow(storage=self.window.storage)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.service.root, chosen)
+        chosen.rmdir()
+        fallback = DesktopWindow(storage=self.window.storage)
+        self.addCleanup(fallback.close)
+        self.assertNotEqual(fallback.service.root, chosen)
+
     def test_resolve_unsaved_without_changes_keeps_direct_exit_behavior(self):
         self.wait_for(lambda: self.window._waveform_generation > 0 and not self.window._jobs)
         with patch.object(QMessageBox, "exec", side_effect=AssertionError("不应弹出确认框")):

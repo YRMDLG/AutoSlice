@@ -98,7 +98,7 @@ class Metrics:
 COLORS = Palette()
 SIZES = Metrics()
 # 随程序分发的源流黑体（思源黑体圆角版）为主，依次回退思源黑体、雅黑；时间码等宽
-UI_FAMILIES = ("Resource Han Rounded CN", "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI")
+UI_FAMILIES = ("Resource Han Rounded CN", "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI", "Segoe UI Emoji")
 MONO_FAMILIES = ("Cascadia Mono", "Consolas")
 
 
@@ -110,6 +110,7 @@ def stylesheet() -> str:
     ui_font = ", ".join(f"'{name}'" for name in UI_FAMILIES)
     mono_font = ", ".join(f"'{name}'" for name in MONO_FAMILIES)
     arrow = icon_file("chevron_down", c.muted)
+    arrow_up = icon_file("chevron_up", c.muted)
     # 凸起控件：自上而下微渐变 + 顶边高光，模拟顶光
     lift = f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {c.raised_top}, stop:1 {c.raised})"
     lift_hover = f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2B2B28, stop:1 {c.button_hover})"
@@ -171,6 +172,7 @@ def stylesheet() -> str:
         QPushButton#secondary {{ font-weight: 500; }}
         QPushButton#secondary:disabled, QPushButton#secondary:disabled:hover {{ color: {c.disabled}; background: {c.panel}; border-color: {c.divider}; }}
         QPushButton#quiet, QPushButton#navButton, QPushButton#projectItem, QPushButton#projectItemCompact {{ background: transparent; border: none; }}
+        QPushButton#quiet {{ min-height: 26px; }}
         QPushButton#quiet:hover {{ background: {c.hover}; }}
         QPushButton#quiet:pressed {{ background: {c.button_pressed}; }}
         QPushButton#tool {{ background: transparent; border: 1px solid transparent; border-radius: {m.control_radius}px; min-height: 28px; padding: 0 10px; color: {c.muted}; }}
@@ -179,6 +181,12 @@ def stylesheet() -> str:
         QPushButton#tool:checked {{ color: {c.accent_text}; background: {c.accent_subtle}; border-color: {c.accent_tint}; }}
         QPushButton#tool:checked:hover {{ background: #1A2130; }}
         QPushButton#tool:disabled {{ color: {c.disabled}; background: transparent; border-color: transparent; }}
+        QPushButton#tool[square="true"] {{ padding: 0; }}
+        QPushButton[hasMenu="true"] {{ padding-right: 22px; }}
+        QPushButton::menu-indicator {{ image: url("{arrow}"); width: 10px; height: 10px; subcontrol-origin: padding; subcontrol-position: center right; right: 7px; }}
+        QWidget#settingsCard {{ background: {c.panel}; border: 1px solid {c.divider}; border-radius: {m.radius}px; }}
+        QLabel#cardTitle {{ font-size: 14px; font-weight: 500; }}
+        QLabel#formLabel {{ color: {c.muted}; }}
         QWidget#segmented {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: 7px; }}
         QPushButton#segment {{ background: transparent; border: 1px solid transparent; border-radius: 5px; min-height: 24px; padding: 0 12px; color: {c.muted}; }}
         QPushButton#segment:hover {{ color: {c.text}; }}
@@ -207,6 +215,14 @@ def stylesheet() -> str:
         QPushButton#projectItemCompact {{ min-height: {m.project_compact_height}px; max-height: {m.project_compact_height}px; }}
         QPushButton#projectItem:hover, QPushButton#projectItemCompact:hover {{ background: {c.project_hover}; }}
         QPushButton#projectItem:checked, QPushButton#projectItemCompact:checked {{ background: {c.project_selected}; }}
+        QPlainTextEdit {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: {m.control_radius}px; padding: 5px 8px; selection-background-color: {c.accent_pressed}; }}
+        QSpinBox, QDoubleSpinBox {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: {m.control_radius}px; padding: 0 22px 0 8px; selection-background-color: {c.accent_pressed}; }}
+        QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {c.button_hover_border}; border-top-color: {c.border}; }}
+        QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-origin: border; subcontrol-position: top right; width: 18px; border: none; border-top-right-radius: {m.control_radius}px; background: transparent; }}
+        QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-origin: border; subcontrol-position: bottom right; width: 18px; border: none; border-bottom-right-radius: {m.control_radius}px; background: transparent; }}
+        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{ background: {c.hover}; }}
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{arrow_up}"); width: 9px; height: 9px; }}
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{arrow}"); width: 9px; height: 9px; }}
         QLineEdit, QTextEdit, QComboBox {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: {m.control_radius}px; padding: 7px 10px; selection-background-color: {c.accent_pressed}; }}
         QComboBox:hover {{ border-color: {c.button_hover_border}; border-top-color: {c.border}; }}
         QComboBox::drop-down {{ border: none; width: 22px; }}
@@ -222,7 +238,7 @@ def stylesheet() -> str:
         QTableView::item:selected {{ background: transparent; color: {c.text}; }}
         QTableView::item:selected:hover {{ background: transparent; color: {c.text}; }}
         QHeaderView::section {{ background: {c.panel}; color: {c.subtle}; border: none; border-bottom: 1px solid {c.divider}; padding: 4px 3px; font-size: {m.text_small}px; font-weight: 500; }}
-        QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus {{ border-color: {c.focus_ring}; }}
+        QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QPushButton:focus {{ border-color: {c.focus_ring}; }}
         QLineEdit:disabled, QTextEdit:disabled {{ color: {c.disabled}; background: {c.panel}; }}
         QMenu {{ background: {c.overlay}; border: 1px solid {c.border}; border-top-color: {c.highlight}; padding: 4px; }}
         QMenu::item {{ padding: 6px 24px 6px 12px; border-radius: 4px; background: transparent; }}

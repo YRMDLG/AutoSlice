@@ -18,6 +18,17 @@ def _gear() -> str:
     return f'<path d="M{" L".join(points)}Z"/><circle cx="10" cy="10" r="2.25"/>'
 
 
+def _burst() -> str:
+    """八角爆炸星：尖角与凹角交替，圆角连接后不扎手。"""
+
+    points = []
+    for step in range(16):
+        radius = 7.4 if step % 2 == 0 else 4.4
+        angle = math.radians(step * 22.5 - 90)
+        points.append(f"{10 + radius * math.cos(angle):.2f} {10 + radius * math.sin(angle):.2f}")
+    return f'<path d="M{" L".join(points)}Z"/>'
+
+
 # {c} 为填充色占位；描边色由外层 svg 统一给出
 _PATHS = {
     "subtitles": ('<rect x="2.75" y="4.25" width="14.5" height="11.5" rx="2.5"/>'
@@ -41,6 +52,7 @@ _PATHS = {
     "chevron_left": '<path d="M12 5 7 10l5 5"/>',
     "chevron_right": '<path d="m8 5 5 5-5 5"/>',
     "chevron_down": '<path d="m5 7.5 5 5 5-5"/>',
+    "chevron_up": '<path d="m5 12.5 5-5 5 5"/>',
     "more": ('<circle cx="4.75" cy="10" r="1.25" fill="{c}" stroke="none"/>'
              '<circle cx="10" cy="10" r="1.25" fill="{c}" stroke="none"/>'
              '<circle cx="15.25" cy="10" r="1.25" fill="{c}" stroke="none"/>'),
@@ -67,6 +79,22 @@ _PATHS = {
     "layers": ('<path d="m10 3.75 6.75 3.5-6.75 3.5-6.75-3.5z"/>'
                '<path d="m3.25 10.25 6.75 3.5 6.75-3.5"/><path d="m3.25 13.25 6.75 3.5 6.75-3.5"/>'),
     "download": '<path d="M10 3.75v8.5M6.5 8.75l3.5 3.5 3.5-3.5M4 16.25h12"/>',
+    "lock": '<rect x="4.75" y="9" width="10.5" height="7.5" rx="2"/><path d="M7 9V6.75a3 3 0 0 1 6 0V9"/><circle cx="10" cy="12.75" r="0.9" fill="{c}" stroke="none"/>',
+    "burst": _burst(),
+    "highlight": '<path d="m11.75 3.75 4.5 4.5-6.25 6.25H5.5V10z"/><path d="M4 17h12"/>',
+    "template": '<rect x="3.25" y="3.75" width="13.5" height="12.5" rx="2"/><path d="M3.25 8h13.5M8 8v8.25"/>',
+    "copy": '<rect x="7.25" y="7.25" width="9" height="9" rx="2"/><path d="M12.75 7.25V5.5A1.75 1.75 0 0 0 11 3.75H5.5A1.75 1.75 0 0 0 3.75 5.5V11A1.75 1.75 0 0 0 5.5 12.75h1.75"/>',
+    "trash": '<path d="M4 6h12M8 6V4.5a1.25 1.25 0 0 1 1.25-1.25h1.5A1.25 1.25 0 0 1 12 4.5V6"/><path d="m5.5 6 .6 9.1a1.75 1.75 0 0 0 1.75 1.65h4.3a1.75 1.75 0 0 0 1.75-1.65L14.5 6M8.5 9v4.5M11.5 9v4.5"/>',
+    "arrow_up": '<path d="M10 16.25V4.25M5.25 9 10 4.25 14.75 9"/>',
+    "arrow_down": '<path d="M10 3.75v12M5.25 11 10 15.75 14.75 11"/>',
+    "eye_off": '<path d="M8.1 5.1A8 8 0 0 1 10 4.75c5.1 0 7.75 5.25 7.75 5.25a13 13 0 0 1-2.3 3M12.1 12.1A2.25 2.25 0 0 1 7.9 7.9"/><path d="M5.1 6.6A13 13 0 0 0 2.25 10S4.9 15.25 10 15.25a8 8 0 0 0 3.4-.75M3.5 3.5l13 13"/>',
+    "person": '<circle cx="10" cy="6.75" r="3"/><path d="M4.25 16.5a5.75 5.75 0 0 1 11.5 0"/>',
+    "camera": '<path d="M3 7.5a2 2 0 0 1 2-2h1.25l1-1.5h5.5l1 1.5H15a2 2 0 0 1 2 2v6.75a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="10" cy="10.75" r="2.75"/>',
+    "upload": '<path d="M10 13.25V3.75M6.5 7.25 10 3.75l3.5 3.5M4 16.25h12"/>',
+    "expand": '<path d="M3.75 7V5.25a1.5 1.5 0 0 1 1.5-1.5H7M13 3.75h1.75a1.5 1.5 0 0 1 1.5 1.5V7M16.25 13v1.75a1.5 1.5 0 0 1-1.5 1.5H13M7 16.25H5.25a1.5 1.5 0 0 1-1.5-1.5V13"/>',
+    "contain": '<rect x="3.75" y="3.75" width="12.5" height="12.5" rx="2"/><rect x="6.75" y="7.25" width="6.5" height="5.5" rx="1"/>',
+    "close": '<path d="m5.5 5.5 9 9M14.5 5.5l-9 9"/>',
+    "bolt": '<path d="m11.25 3.25-5.75 8h4l-.75 5.5 5.75-8h-4z"/>',
 }
 # 旧代码里用的是复数写法
 _PATHS["sparkles"] = _PATHS["sparkle"]

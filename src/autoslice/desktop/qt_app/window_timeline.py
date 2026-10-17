@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.qt_preview import popups
 from autoslice.desktop.qt_preview.theme import SIZES
+from autoslice.desktop.qt_preview.widgets import ElidedLabel
 from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
@@ -36,7 +37,10 @@ class TimelineMixin:
         heading.setSpacing(4)
         heading.addWidget(label("字幕时间轴", "sectionTitle"))
         heading.addSpacing(SIZES.space_2)
-        heading.addWidget(label("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放", "subtle"))
+        hint = ElidedLabel("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
+        hint.setObjectName("subtle")
+        hint.setToolTip("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
+        heading.addWidget(hint, 1)
         heading.addStretch()
         self.snap_button = QPushButton("磁吸")
         self.snap_button.setObjectName("tool")

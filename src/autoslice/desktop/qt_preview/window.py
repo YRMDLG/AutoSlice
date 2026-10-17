@@ -42,6 +42,23 @@ def line() -> QFrame:
     return result
 
 
+def card(title: str, description: str = "", parent: QWidget | None = None) -> tuple[QWidget, QVBoxLayout]:
+    """设置页的一块：标题 + 说明 + 内容；返回卡片和它的内容列。"""
+
+    result = QWidget(parent)
+    result.setObjectName("settingsCard")
+    result.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    column = QVBoxLayout(result)
+    column.setContentsMargins(20, 16, 20, 18)
+    column.setSpacing(10)
+    column.addWidget(label(title, "cardTitle"))
+    if description:
+        text = label(description, "muted")
+        text.setWordWrap(True)
+        column.addWidget(text)
+    return result, column
+
+
 def tool_icon(button: QPushButton, name: str, checkable: bool = False) -> None:
     """工具按钮统一 16px 图标；可勾选按钮开启时图标随文字变蓝。"""
 

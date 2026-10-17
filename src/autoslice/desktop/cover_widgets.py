@@ -17,11 +17,16 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QStyle,
+    QStyleOptionButton,
+    QStylePainter,
+    QWidget,
 )
 
 from autoslice_cover.document_render import rgba
 
 from .cover_style import StylePreset
+from .qt_preview import popups
 
 
 class _TitleEdit(QPlainTextEdit):
@@ -51,6 +56,98 @@ class _InlineTextEdit(_TitleEdit):
             self.finished.emit(True)
 
 
+class ToolbarButton(QPushButton):
+    """工具栏按钮：窄窗口下只画图标；text() 不变，完整说明仍在提示里。"""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self._compact = False
+
+    @property
+    def compact(self) -> bool:
+        return self._compact
+
+    def set_compact(self, compact: bool, *, force: bool = False) -> None:
+        """force：图标稍后才设置的按钮（帧缩略图）也先进入只画图标状态。"""
+
+        compact = bool(compact) and (force or not self.icon().isNull())
+        if compact != self._compact:
+            self._compact = compact
+            self.updateGeometry()
+            self.update()
+
+    def full_width(self) -> int:
+        """不收起时需要的宽度。"""
+
+        return QPushButton.sizeHint(self).width()
+
+    def compact_width(self) -> int:
+        """只显示图标时需要的宽度。"""
+
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.text = ""
+        return self.style().sizeFromContents(QStyle.ContentsType.CT_PushButton, option, self.iconSize(), self).width()
+
+    def _option(self) -> QStyleOptionButton:
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        if self._compact:
+            option.text = ""
+        return option
+
+    def sizeHint(self) -> QSize:
+        if not self._compact:
+            return super().sizeHint()
+        return self.style().sizeFromContents(QStyle.ContentsType.CT_PushButton, self._option(), self.iconSize(), self)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def paintEvent(self, _event) -> None:
+        painter = QStylePainter(self)
+        painter.drawControl(QStyle.ControlElement.CE_PushButton, self._option())
+
+
+class FitToolbar(QWidget):
+    """一行工具栏：放不下时，把带图标的按钮收成只显示图标；宽了再展开。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._groups: list[tuple[ToolbarButton, ...]] = []
+
+    def set_collapsible(self, *groups) -> None:
+        """按收起的先后顺序传入若干组按钮：先收第一组，还放不下再收第二组。"""
+
+        self._groups = [tuple(group) for group in groups]
+
+    def fit(self) -> None:
+        layout = self.layout()
+        if layout is None or not self._groups:
+            return
+        # 先按“全部展开”估算需要的宽度（不用来回切换状态试探），再逐组收起直到放得下
+        need = layout.sizeHint().width()
+        for group in self._groups:
+            need += sum(b.full_width() - b.sizeHint().width() for b in group if b.compact and b.isVisibleTo(self))
+        level = 0
+        for group in self._groups:
+            if need <= self.width():
+                break
+            need -= sum(b.full_width() - b.compact_width() for b in group if b.isVisibleTo(self))
+            level += 1
+        for index, group in enumerate(self._groups):
+            for button in group:
+                button.set_compact(index < level)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.fit()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.fit()
+
+
 class _ColorButton(QPushButton):
     """带色块的颜色按钮；可选“无”与透明度，替代手填十六进制。"""
 
@@ -66,8 +163,10 @@ class _ColorButton(QPushButton):
         self.setIconSize(QSize(14, 14))
         if allow_none:
             menu = QMenu(self)
+            popups.MenuFx(menu)
             menu.addAction("选择颜色…", self._pick)
             menu.addAction(none_label, lambda: self._choose(""))
+            self.setProperty("hasMenu", True)
             self.setMenu(menu)
         else:
             self.clicked.connect(self._pick)

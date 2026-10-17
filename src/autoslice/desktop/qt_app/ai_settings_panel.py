@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -21,6 +22,9 @@ from autoslice.desktop.ai_settings import (
     save_ai_settings,
     split_endpoint,
 )
+from autoslice.desktop.qt_preview import popups
+from autoslice.desktop.qt_preview.icons import icon as desktop_icon
+from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label
 
 _API_TYPES = (
@@ -30,8 +34,9 @@ _API_TYPES = (
 )
 
 
-def _model_box() -> QComboBox:
-    box = QComboBox()
+def _model_box() -> popups.ComboBox:
+    box = popups.ComboBox()
+    box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     box.setEditable(True)
     box.addItems(SUGGESTED_MODELS)
     box.setMinimumWidth(220)
@@ -44,10 +49,12 @@ class AISettingsPanel(QWidget):
 
         super().__init__(parent)
         self._run = run
+        self.setObjectName("settingsCard")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(label("AI 接口", "sectionTitle"))
+        layout.setContentsMargins(20, 16, 20, 18)
+        layout.setSpacing(10)
+        layout.addWidget(label("AI 接口", "cardTitle"))
         help_text = label(
             "字幕 AI 检查和封面 AI 共用这里的配置；AI 只在你手动点击时运行。"
             "接口地址可以直接粘贴完整地址（如 …/v1/responses），会自动识别接口类型。", "muted",
@@ -55,24 +62,35 @@ class AISettingsPanel(QWidget):
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
         form = QFormLayout()
-        form.setSpacing(8)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        def add_row(text: str, widget) -> None:
+            caption = label(text, "formLabel")
+            caption.setMinimumWidth(64)
+            caption.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            form.addRow(caption, widget)
+
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("https://你的中转/v1 或完整的 …/v1/responses")
         self.url_edit.editingFinished.connect(self._url_changed)
         self.url_edit.textChanged.connect(self._update_http_warning)
-        form.addRow("接口地址", self.url_edit)
-        self.type_box = QComboBox()
+        add_row("接口地址", self.url_edit)
+        self.type_box = popups.ComboBox()
+        self.type_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for key, text in _API_TYPES:
             self.type_box.addItem(text, key)
-        form.addRow("接口类型", self.type_box)
+        add_row("接口类型", self.type_box)
         self.token_edit = QLineEdit()
         self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        form.addRow("密钥", self.token_edit)
+        add_row("密钥", self.token_edit)
         self.text_model_box = _model_box()
-        form.addRow("文字模型", self.text_model_box)
+        add_row("文字模型", self.text_model_box)
         self.vision_model_box = _model_box()
         self.vision_model_box.setToolTip("封面选帧、出方案和点评要看图，需支持图片输入的模型")
-        form.addRow("看图模型", self.vision_model_box)
+        add_row("看图模型", self.vision_model_box)
         layout.addLayout(form)
         self.http_check = QCheckBox("允许 HTTP 明文连接")
         self.http_warning = label("这是非本机的 http 地址：密钥和内容不加密传输，只在信任的网络里使用。", "muted")
@@ -80,18 +98,19 @@ class AISettingsPanel(QWidget):
         layout.addWidget(self.http_check)
         layout.addWidget(self.http_warning)
         row = QHBoxLayout()
+        row.setSpacing(8)
         self.status = label("", "muted")
         self.status.setWordWrap(True)
         row.addWidget(self.status, 1)
-        self.save_button = QPushButton("保存")
-        self.save_button.setFixedHeight(28)
-        self.save_button.clicked.connect(self._save)
-        row.addWidget(self.save_button)
         self.test_button = QPushButton("测试连接")
-        self.test_button.setObjectName("quiet")
-        self.test_button.setFixedHeight(28)
+        self.test_button.setIcon(desktop_icon("bolt", COLORS.muted, SIZES.tool_icon_size))
         self.test_button.clicked.connect(self._test)
         row.addWidget(self.test_button)
+        self.save_button = QPushButton("保存")
+        self.save_button.setObjectName("primary")
+        self.save_button.setIcon(desktop_icon("save", COLORS.on_accent, SIZES.tool_icon_size))
+        self.save_button.clicked.connect(self._save)
+        row.addWidget(self.save_button)
         layout.addLayout(row)
         self.refresh()
 

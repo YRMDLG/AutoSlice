@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.correction_memory import CorrectionMemory
 from autoslice.desktop.cover_works import CoverWorks, describe_composition, describe_scheme
-from autoslice.desktop.qt_preview.window import label
+from autoslice.desktop.qt_preview.icons import icon as desktop_icon
+from autoslice.desktop.qt_preview.theme import COLORS, SIZES
+from autoslice.desktop.qt_preview.window import card, label
 from autoslice.streamer_profiles import resolve_streamer_profile
 
 
@@ -30,41 +32,41 @@ class LearningPanel(QWidget):
         super().__init__(parent)
         self.memory = memory
         self.works = works
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(label("字幕纠错记忆", "sectionTitle"))
-        help_text = label(
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(14)
+
+        memory_card, layout = card(
+            "字幕纠错记忆",
             "保存校对字幕时自动学习：同一个错词在两个视频里都被你改过，就记住它。"
-            "之后 AI 检查会把它列成建议，仍由你决定是否采纳。只存在本机。", "muted",
+            "之后 AI 检查会把它列成建议，仍由你决定是否采纳。只存在本机。",
         )
-        help_text.setWordWrap(True)
-        layout.addWidget(help_text)
         self.summary = label("", "muted")
         layout.addWidget(self.summary)
         self.list = QListWidget()
         self.list.itemSelectionChanged.connect(self._selection_changed)
         layout.addWidget(self.list)
-        row = QHBoxLayout()
+        self.forget_row = QWidget()
+        row = QHBoxLayout(self.forget_row)
+        row.setContentsMargins(0, 0, 0, 0)
         row.addStretch()
         self.forget_button = QPushButton("忽略所选")
-        self.forget_button.setObjectName("quiet")
-        self.forget_button.setFixedHeight(28)
+        self.forget_button.setIcon(desktop_icon("trash", COLORS.muted, SIZES.tool_icon_size))
         self.forget_button.setToolTip("从词库删除，以后同样的改动也不再自动记住")
         self.forget_button.setEnabled(False)
         self.forget_button.clicked.connect(self._forget)
         row.addWidget(self.forget_button)
-        layout.addLayout(row)
-        layout.addSpacing(6)
-        layout.addWidget(label("封面作品库", "sectionTitle"))
-        works_help = label(
-            "每次导出记下构图、配色、文案和用了哪个方案；快速方案会优先给最近没用过的构图和配色。", "muted",
+        layout.addWidget(self.forget_row)
+        outer.addWidget(memory_card)
+
+        works_card, works_layout = card(
+            "封面作品库",
+            "每次导出记下构图、配色、文案和用了哪个方案；快速方案会优先给最近没用过的构图和配色。",
         )
-        works_help.setWordWrap(True)
-        layout.addWidget(works_help)
         self.works_summary = label("", "muted")
         self.works_summary.setWordWrap(True)
-        layout.addWidget(self.works_summary)
+        works_layout.addWidget(self.works_summary)
+        outer.addWidget(works_card)
         self.refresh()
 
     def refresh(self) -> None:
@@ -81,6 +83,7 @@ class LearningPanel(QWidget):
             f"已记住 {remembered} 条，观察中 {len(rows) - remembered} 条" if rows else "还没有学到错词：保存几次校对字幕后会出现在这里。"
         )
         self.list.setVisible(bool(rows))
+        self.forget_row.setVisible(bool(rows))
         # 按行数定高，最多约 8 行，超出滚动。
         row_height = self.list.sizeHintForRow(0) if rows else 0
         self.list.setFixedHeight(min(220, row_height * len(rows) + 14))

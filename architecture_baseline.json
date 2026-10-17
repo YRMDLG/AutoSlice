@@ -2583,6 +2583,16 @@
       "to": "autoslice.desktop.cover_assets"
     },
     {
+      "from": "autoslice.desktop.cover_asset_dialog",
+      "imports": [
+        "autoslice.desktop.qt_preview.motion"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
       "from": "autoslice.desktop.cover_assets",
       "imports": [
         "autoslice_cover.paths.DEFAULT_STICKER_ROOT"
@@ -2739,7 +2749,7 @@
         "autoslice.desktop.cover_templates.CoverTemplate"
       ],
       "lines": [
-        22
+        21
       ],
       "to": "autoslice.desktop.cover_templates"
     },
@@ -2750,9 +2760,29 @@
         "autoslice.desktop.projects.SubmissionProject"
       ],
       "lines": [
-        20
+        19
       ],
       "to": "autoslice.desktop.projects"
+    },
+    {
+      "from": "autoslice.desktop.cover_batch_dialog",
+      "imports": [
+        "autoslice.desktop.qt_preview.motion"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
+      "from": "autoslice.desktop.cover_batch_dialog",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
     },
     {
       "from": "autoslice.desktop.cover_canvas",
@@ -3054,6 +3084,16 @@
       "to": "autoslice.desktop.cover_style"
     },
     {
+      "from": "autoslice.desktop.cover_editor_ai",
+      "imports": [
+        "autoslice.desktop.qt_preview.motion"
+      ],
+      "lines": [
+        35
+      ],
+      "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
       "from": "autoslice.desktop.cover_editor_export",
       "imports": [
         "autoslice.desktop.cover_batch_dialog.BatchTarget",
@@ -3081,7 +3121,7 @@
         "autoslice.desktop.cover_ai.jpeg_bytes"
       ],
       "lines": [
-        25
+        28
       ],
       "to": "autoslice.desktop.cover_ai"
     },
@@ -3097,7 +3137,7 @@
         "autoslice.desktop.cover_cutout.outline_variant"
       ],
       "lines": [
-        26
+        29
       ],
       "to": "autoslice.desktop.cover_cutout"
     },
@@ -3107,7 +3147,7 @@
         "autoslice.desktop.cover_draft.CoverDraft"
       ],
       "lines": [
-        35
+        38
       ],
       "to": "autoslice.desktop.cover_draft"
     },
@@ -3117,7 +3157,7 @@
         "autoslice.desktop.cover_effects.add_person"
       ],
       "lines": [
-        36
+        39
       ],
       "to": "autoslice.desktop.cover_effects"
     },
@@ -3129,7 +3169,7 @@
         "autoslice.desktop.cover_frames.recommended_frame"
       ],
       "lines": [
-        37
+        40
       ],
       "to": "autoslice.desktop.cover_frames"
     },
@@ -3140,7 +3180,7 @@
         "autoslice.desktop.cover_layout.settle_overlay"
       ],
       "lines": [
-        38
+        41
       ],
       "to": "autoslice.desktop.cover_layout"
     },
@@ -3156,9 +3196,19 @@
         "autoslice.desktop.cover_model.update_shared_fields"
       ],
       "lines": [
-        39
+        42
       ],
       "to": "autoslice.desktop.cover_model"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_frames",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups"
+      ],
+      "lines": [
+        51
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
     },
     {
       "from": "autoslice.desktop.cover_editor_frames",
@@ -3167,7 +3217,7 @@
         "autoslice_cover.document_layout.BACKGROUND_SCALE_MIN"
       ],
       "lines": [
-        23
+        26
       ],
       "to": "autoslice_cover.document_layout"
     },
@@ -3353,7 +3403,7 @@
         "autoslice.desktop.cover_canvas.CoverCanvas"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice.desktop.cover_canvas"
     },
@@ -3363,20 +3413,22 @@
         "autoslice.desktop.cover_style.STYLE_PRESETS"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice.desktop.cover_style"
     },
     {
       "from": "autoslice.desktop.cover_editor_ui",
       "imports": [
+        "autoslice.desktop.cover_widgets.FitToolbar",
+        "autoslice.desktop.cover_widgets.ToolbarButton",
         "autoslice.desktop.cover_widgets._ColorButton",
         "autoslice.desktop.cover_widgets._InlineTextEdit",
         "autoslice.desktop.cover_widgets._TitleEdit",
         "autoslice.desktop.cover_widgets._preset_icon"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.desktop.cover_widgets"
     },
@@ -3386,9 +3438,49 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        43
+        47
       ],
       "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_ui",
+      "imports": [
+        "autoslice.desktop.qt_preview.motion"
+      ],
+      "lines": [
+        46
+      ],
+      "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_ui",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups"
+      ],
+      "lines": [
+        46
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_ui",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS"
+      ],
+      "lines": [
+        48
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_ui",
+      "imports": [
+        "autoslice.desktop.qt_preview.widgets.ElidedLabel"
+      ],
+      "lines": [
+        49
+      ],
+      "to": "autoslice.desktop.qt_preview.widgets"
     },
     {
       "from": "autoslice.desktop.cover_editor_ui",
@@ -3398,7 +3490,7 @@
         "autoslice_cover.document_layout.OVERLAY_SCALE_MAX"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice_cover.document_layout"
     },
@@ -3466,6 +3558,16 @@
         8
       ],
       "to": "autoslice_cover.document_layout"
+    },
+    {
+      "from": "autoslice.desktop.cover_export_dialog",
+      "imports": [
+        "autoslice.desktop.qt_preview.motion"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.desktop.qt_preview.motion"
     },
     {
       "from": "autoslice.desktop.cover_exporting",
@@ -4175,9 +4277,19 @@
         "autoslice.desktop.cover_style.StylePreset"
       ],
       "lines": [
-        24
+        28
       ],
       "to": "autoslice.desktop.cover_style"
+    },
+    {
+      "from": "autoslice.desktop.cover_widgets",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
     },
     {
       "from": "autoslice.desktop.cover_widgets",
@@ -4185,7 +4297,7 @@
         "autoslice_cover.document_render.rgba"
       ],
       "lines": [
-        22
+        26
       ],
       "to": "autoslice_cover.document_render"
     },
@@ -4293,9 +4405,40 @@
         "autoslice.desktop.ai_settings.split_endpoint"
       ],
       "lines": [
-        16
+        17
       ],
       "to": "autoslice.desktop.ai_settings"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.ai_settings_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.icons.icon"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.ai_settings_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.ai_settings_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
     },
     {
       "from": "autoslice.desktop.qt_app.ai_settings_panel",
@@ -4303,7 +4446,7 @@
         "autoslice.desktop.qt_preview.window.label"
       ],
       "lines": [
-        24
+        28
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -4332,10 +4475,32 @@
     {
       "from": "autoslice.desktop.qt_app.learning_panel",
       "imports": [
-        "autoslice.desktop.qt_preview.window.label"
+        "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
         17
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.learning_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.learning_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.card",
+        "autoslice.desktop.qt_preview.window.label"
+      ],
+      "lines": [
+        19
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -4345,7 +4510,7 @@
         "autoslice.streamer_profiles.resolve_streamer_profile"
       ],
       "lines": [
-        18
+        20
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -4409,7 +4574,7 @@
         "autoslice.desktop.ai_review.AIReviewService"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.desktop.ai_review"
     },
@@ -4419,7 +4584,7 @@
         "autoslice.desktop.commands.CommandDispatcher"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.desktop.commands"
     },
@@ -4429,7 +4594,7 @@
         "autoslice.desktop.correction_memory.CorrectionMemory"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.desktop.correction_memory"
     },
@@ -4439,7 +4604,7 @@
         "autoslice.desktop.cover.CoverEditorWidget"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice.desktop.cover"
     },
@@ -4449,7 +4614,7 @@
         "autoslice.desktop.foundation.DesktopStorage"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.desktop.foundation"
     },
@@ -4459,7 +4624,7 @@
         "autoslice.desktop.jobs.BackgroundJob"
       ],
       "lines": [
-        33
+        34
       ],
       "to": "autoslice.desktop.jobs"
     },
@@ -4470,7 +4635,7 @@
         "autoslice.desktop.projects.SubmissionProjectService"
       ],
       "lines": [
-        34
+        35
       ],
       "to": "autoslice.desktop.projects"
     },
@@ -4480,7 +4645,7 @@
         "autoslice.desktop.qt_app.player.MpvAdapter"
       ],
       "lines": [
-        45
+        46
       ],
       "to": "autoslice.desktop.qt_app.player"
     },
@@ -4490,7 +4655,7 @@
         "autoslice.desktop.qt_app.timeline.TimelineSidePanController"
       ],
       "lines": [
-        46
+        47
       ],
       "to": "autoslice.desktop.qt_app.timeline"
     },
@@ -4500,7 +4665,7 @@
         "autoslice.desktop.qt_app.window_ai.AiReviewMixin"
       ],
       "lines": [
-        47
+        48
       ],
       "to": "autoslice.desktop.qt_app.window_ai"
     },
@@ -4510,7 +4675,7 @@
         "autoslice.desktop.qt_app.window_document.SubtitleDocumentMixin"
       ],
       "lines": [
-        48
+        49
       ],
       "to": "autoslice.desktop.qt_app.window_document"
     },
@@ -4520,7 +4685,7 @@
         "autoslice.desktop.qt_app.window_input.InputRoutingMixin"
       ],
       "lines": [
-        49
+        50
       ],
       "to": "autoslice.desktop.qt_app.window_input"
     },
@@ -4530,7 +4695,7 @@
         "autoslice.desktop.qt_app.window_player.PlayerMixin"
       ],
       "lines": [
-        50
+        51
       ],
       "to": "autoslice.desktop.qt_app.window_player"
     },
@@ -4540,7 +4705,7 @@
         "autoslice.desktop.qt_app.window_projects.ProjectsMixin"
       ],
       "lines": [
-        51
+        52
       ],
       "to": "autoslice.desktop.qt_app.window_projects"
     },
@@ -4550,7 +4715,7 @@
         "autoslice.desktop.qt_app.window_subtitles.SubtitleListMixin"
       ],
       "lines": [
-        52
+        53
       ],
       "to": "autoslice.desktop.qt_app.window_subtitles"
     },
@@ -4560,7 +4725,7 @@
         "autoslice.desktop.qt_app.window_timeline.TimelineMixin"
       ],
       "lines": [
-        53
+        54
       ],
       "to": "autoslice.desktop.qt_app.window_timeline"
     },
@@ -4570,7 +4735,7 @@
         "autoslice.desktop.qt_app.window_widgets._StatusLabel"
       ],
       "lines": [
-        54
+        55
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
     },
@@ -4580,7 +4745,7 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        36
+        37
       ],
       "to": "autoslice.desktop.qt_preview.icons"
     },
@@ -4590,7 +4755,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -4600,7 +4765,7 @@
         "autoslice.desktop.qt_preview.popups"
       ],
       "lines": [
-        35
+        36
       ],
       "to": "autoslice.desktop.qt_preview.popups"
     },
@@ -4611,7 +4776,7 @@
         "autoslice.desktop.qt_preview.theme.SIZES"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -4623,7 +4788,7 @@
         "autoslice.desktop.qt_preview.window.line"
       ],
       "lines": [
-        38
+        39
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -4633,7 +4798,7 @@
         "autoslice.desktop.selection.CueSelection"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.desktop.selection"
     },
@@ -4643,7 +4808,7 @@
         "autoslice.desktop.subtitle_preview.SubtitlePreviewService"
       ],
       "lines": [
-        40
+        41
       ],
       "to": "autoslice.desktop.subtitle_preview"
     },
@@ -4653,7 +4818,7 @@
         "autoslice.desktop.subtitle_render.SubtitleRenderService"
       ],
       "lines": [
-        41
+        42
       ],
       "to": "autoslice.desktop.subtitle_render"
     },
@@ -4663,7 +4828,7 @@
         "autoslice.desktop.subtitles.SubtitleDocument"
       ],
       "lines": [
-        42
+        43
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -4673,7 +4838,7 @@
         "autoslice.desktop.waveform.WaveformCache"
       ],
       "lines": [
-        43
+        44
       ],
       "to": "autoslice.desktop.waveform"
     },
@@ -4838,7 +5003,7 @@
         "autoslice.desktop.qt_app.ai_settings_panel.AISettingsPanel"
       ],
       "lines": [
-        30
+        32
       ],
       "to": "autoslice.desktop.qt_app.ai_settings_panel"
     },
@@ -4848,9 +5013,19 @@
         "autoslice.desktop.qt_app.learning_panel.LearningPanel"
       ],
       "lines": [
-        31
+        33
       ],
       "to": "autoslice.desktop.qt_app.learning_panel"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_projects",
+      "imports": [
+        "autoslice.desktop.qt_preview.icons.icon"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
     },
     {
       "from": "autoslice.desktop.qt_app.window_projects",
@@ -4865,13 +5040,25 @@
     {
       "from": "autoslice.desktop.qt_app.window_projects",
       "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_projects",
+      "imports": [
         "autoslice.desktop.qt_preview.window.ProjectItem",
+        "autoslice.desktop.qt_preview.window.card",
         "autoslice.desktop.qt_preview.window.label",
         "autoslice.desktop.qt_preview.window.line",
         "autoslice.desktop.qt_preview.window.tool_icon"
       ],
       "lines": [
-        26
+        28
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -4881,7 +5068,7 @@
         "autoslice.desktop.subtitles.SubtitleDocument"
       ],
       "lines": [
-        27
+        29
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -4891,7 +5078,7 @@
         "autoslice.subtitle_workflow.DEFAULT_SUBTITLE_STYLE"
       ],
       "lines": [
-        28
+        30
       ],
       "to": "autoslice.subtitle_workflow"
     },
@@ -4954,7 +5141,7 @@
         "autoslice.desktop.qt_app.timeline.SubtitleTimeline"
       ],
       "lines": [
-        24
+        25
       ],
       "to": "autoslice.desktop.qt_app.timeline"
     },
@@ -4981,11 +5168,21 @@
     {
       "from": "autoslice.desktop.qt_app.window_timeline",
       "imports": [
+        "autoslice.desktop.qt_preview.widgets.ElidedLabel"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.desktop.qt_preview.widgets"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_timeline",
+      "imports": [
         "autoslice.desktop.qt_preview.window.label",
         "autoslice.desktop.qt_preview.window.tool_icon"
       ],
       "lines": [
-        21
+        22
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -4995,7 +5192,7 @@
         "autoslice.transcription.contracts.srt_timestamp_seconds"
       ],
       "lines": [
-        22
+        23
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -8324,10 +8521,10 @@
       "qualname": "_find_relevant_topic_context_end"
     },
     {
-      "end_line": 631,
+      "end_line": 666,
       "kind": "function",
-      "line": 456,
-      "line_count": 176,
+      "line": 492,
+      "line_count": 175,
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
       "qualname": "CoverLayoutMixin._build_text_panel"
@@ -8349,6 +8546,15 @@
       "module": "autoslice_cover.copy_recommendations",
       "path": "src/autoslice_cover/copy_recommendations.py",
       "qualname": "generate_copy_recommendations"
+    },
+    {
+      "end_line": 268,
+      "kind": "function",
+      "line": 105,
+      "line_count": 164,
+      "module": "autoslice.desktop.qt_preview.theme",
+      "path": "src/autoslice/desktop/qt_preview/theme.py",
+      "qualname": "stylesheet"
     },
     {
       "end_line": 360,
@@ -8385,15 +8591,6 @@
       "module": "autoslice.analysis.review.decisions",
       "path": "src/autoslice/analysis/review/decisions.py",
       "qualname": "apply_danmaku_slice_decisions"
-    },
-    {
-      "end_line": 252,
-      "kind": "function",
-      "line": 105,
-      "line_count": 148,
-      "module": "autoslice.desktop.qt_preview.theme",
-      "path": "src/autoslice/desktop/qt_preview/theme.py",
-      "qualname": "stylesheet"
     },
     {
       "end_line": 1157,
@@ -11555,22 +11752,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 80,
+      "line_count": 82,
       "longest_function": {
-        "end_line": 67,
+        "end_line": 69,
         "kind": "function",
-        "line": 26,
-        "line_count": 42,
+        "line": 27,
+        "line_count": 43,
         "qualname": "CoverAssetDialog.__init__"
       },
       "module": "autoslice.desktop.cover_asset_dialog",
       "path": "src/autoslice/desktop/cover_asset_dialog.py",
-      "sha256": "2a0b18279cfd3b4404eb420e464f280540811260c0c461db30ec72590b1428a7",
+      "sha256": "c6808f7ee68f7a24cc5e23f485fd0a2ea3a9cd02fb0d1d435617d1c9bb6346c0",
       "top_level_classes": [
         {
-          "end_line": 80,
+          "end_line": 82,
           "kind": "class",
-          "line": 23,
+          "line": 24,
           "name": "CoverAssetDialog"
         }
       ],
@@ -11661,17 +11858,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 205,
+      "line_count": 206,
       "longest_function": {
-        "end_line": 127,
+        "end_line": 128,
         "kind": "function",
         "line": 57,
-        "line_count": 71,
+        "line_count": 72,
         "qualname": "CoverBatchDialog.__init__"
       },
       "module": "autoslice.desktop.cover_batch_dialog",
       "path": "src/autoslice/desktop/cover_batch_dialog.py",
-      "sha256": "0d6e67b002ce9cc297b9a00dc5331ffc63df923dc44d8a6bbca22cf63fe9b97c",
+      "sha256": "dae539366306ab8841abeeb8a1a787616d5a3a4465b274b9a54212200f0f56db",
       "top_level_classes": [
         {
           "end_line": 45,
@@ -11680,7 +11877,7 @@
           "name": "BatchTarget"
         },
         {
-          "end_line": 205,
+          "end_line": 206,
           "kind": "class",
           "line": 52,
           "name": "CoverBatchDialog"
@@ -12011,30 +12208,30 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 336,
+      "line_count": 339,
       "longest_function": {
-        "end_line": 131,
+        "end_line": 132,
         "kind": "function",
-        "line": 52,
+        "line": 53,
         "line_count": 80,
         "qualname": "CoverAIMixin._ai_schemes"
       },
       "module": "autoslice.desktop.cover_editor_ai",
       "path": "src/autoslice/desktop/cover_editor_ai.py",
-      "sha256": "106c75a6be497cfc832be9ef4cefb7c06595973165af81edd5eaec4f236a5145",
+      "sha256": "7e8f6e2b04925e5c6aa109f79aa5c69f96a22a4c05f0345435487825004dbc64",
       "top_level_classes": [
         {
-          "end_line": 336,
+          "end_line": 339,
           "kind": "class",
-          "line": 51,
+          "line": 52,
           "name": "CoverAIMixin"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 48,
+          "end_line": 49,
           "kind": "function",
-          "line": 43,
+          "line": 44,
           "name": "_highlight_offsets"
         }
       ]
@@ -12064,26 +12261,33 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 644,
+      "line_count": 685,
       "longest_function": {
-        "end_line": 486,
+        "end_line": 527,
         "kind": "function",
-        "line": 444,
+        "line": 485,
         "line_count": 43,
         "qualname": "CoverFramesMixin._frame_ready"
       },
       "module": "autoslice.desktop.cover_editor_frames",
       "path": "src/autoslice/desktop/cover_editor_frames.py",
-      "sha256": "0febd142413bf826c84e19472dd8f61255c8eb7ee1210410c3b05784595df6b7",
+      "sha256": "5f2dbbcc7f95d85ab85dd5a7375f86026ff570bbed16c23ba19d98821904fed7",
       "top_level_classes": [
         {
-          "end_line": 644,
+          "end_line": 685,
           "kind": "class",
-          "line": 53,
+          "line": 92,
           "name": "CoverFramesMixin"
         }
       ],
-      "top_level_functions": []
+      "top_level_functions": [
+        {
+          "end_line": 89,
+          "kind": "function",
+          "line": 57,
+          "name": "_captioned"
+        }
+      ]
     },
     {
       "duplicate_top_level_definitions": [],
@@ -12156,22 +12360,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 896,
+      "line_count": 913,
       "longest_function": {
-        "end_line": 631,
+        "end_line": 666,
         "kind": "function",
-        "line": 456,
-        "line_count": 176,
+        "line": 492,
+        "line_count": 175,
         "qualname": "CoverLayoutMixin._build_text_panel"
       },
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
-      "sha256": "7c88842c5e40f72ff4eaf9fdf9115e633e0c0d89f2d782b21288487fef71541e",
+      "sha256": "771f67b6e647f5246ffad6c27cc954c7afe831b50c546b4cbdc75bd260b3d121",
       "top_level_classes": [
         {
-          "end_line": 896,
+          "end_line": 913,
           "kind": "class",
-          "line": 46,
+          "line": 52,
           "name": "CoverLayoutMixin"
         }
       ],
@@ -12226,36 +12430,36 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 91,
+      "line_count": 94,
       "longest_function": {
-        "end_line": 81,
+        "end_line": 84,
         "kind": "function",
-        "line": 44,
-        "line_count": 38,
+        "line": 46,
+        "line_count": 39,
         "qualname": "CoverExportDialog.__init__"
       },
       "module": "autoslice.desktop.cover_export_dialog",
       "path": "src/autoslice/desktop/cover_export_dialog.py",
-      "sha256": "050c282d02908fc3fc5da3a1c6d093a5e47c6eb573d161556fc6f4e6c91ac343",
+      "sha256": "7e530034658d039e7dd677ded7f10c5bf51ef8577a5e174875299ff4725e5485",
       "top_level_classes": [
         {
-          "end_line": 91,
+          "end_line": 94,
           "kind": "class",
-          "line": 41,
+          "line": 43,
           "name": "CoverExportDialog"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 29,
+          "end_line": 31,
           "kind": "function",
-          "line": 25,
+          "line": 27,
           "name": "_when"
         },
         {
-          "end_line": 38,
+          "end_line": 40,
           "kind": "function",
-          "line": 32,
+          "line": 34,
           "name": "reveal_in_folder"
         }
       ]
@@ -13100,42 +13304,54 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 141,
+      "line_count": 240,
       "longest_function": {
-        "end_line": 141,
+        "end_line": 240,
         "kind": "function",
-        "line": 110,
+        "line": 209,
         "line_count": 32,
         "qualname": "_preset_icon"
       },
       "module": "autoslice.desktop.cover_widgets",
       "path": "src/autoslice/desktop/cover_widgets.py",
-      "sha256": "4cfe37b69a61dbbc5457894f84a3f7c877f17c50d8c4136a7cfd62ed08a88492",
+      "sha256": "9b3a00c2672f860f270f30ce3744fd9c96b33bbc89eecb78d46efa3bd2e6ea80",
       "top_level_classes": [
         {
-          "end_line": 31,
+          "end_line": 36,
           "kind": "class",
-          "line": 27,
+          "line": 32,
           "name": "_TitleEdit"
         },
         {
-          "end_line": 51,
+          "end_line": 56,
           "kind": "class",
-          "line": 34,
+          "line": 39,
           "name": "_InlineTextEdit"
         },
         {
-          "end_line": 107,
+          "end_line": 109,
           "kind": "class",
-          "line": 54,
+          "line": 59,
+          "name": "ToolbarButton"
+        },
+        {
+          "end_line": 148,
+          "kind": "class",
+          "line": 112,
+          "name": "FitToolbar"
+        },
+        {
+          "end_line": 206,
+          "kind": "class",
+          "line": 151,
           "name": "_ColorButton"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 141,
+          "end_line": 240,
           "kind": "function",
-          "line": 110,
+          "line": 209,
           "name": "_preset_icon"
         }
       ]
@@ -13341,60 +13557,60 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 167,
+      "line_count": 186,
       "longest_function": {
-        "end_line": 96,
+        "end_line": 115,
         "kind": "function",
-        "line": 42,
-        "line_count": 55,
+        "line": 47,
+        "line_count": 69,
         "qualname": "AISettingsPanel.__init__"
       },
       "module": "autoslice.desktop.qt_app.ai_settings_panel",
       "path": "src/autoslice/desktop/qt_app/ai_settings_panel.py",
-      "sha256": "db3db3794ae8dc6ddd487a7f48a1eb8136e381bb50deaa0fed4e5581ce3c1f8b",
+      "sha256": "480de30e22f567fed851720ef52aedf3a16447eed0dd2cf940100e28daa5f49d",
       "top_level_classes": [
         {
-          "end_line": 167,
+          "end_line": 186,
           "kind": "class",
-          "line": 41,
+          "line": 46,
           "name": "AISettingsPanel"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 38,
+          "end_line": 43,
           "kind": "function",
-          "line": 33,
+          "line": 37,
           "name": "_model_box"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 113,
+      "line_count": 116,
       "longest_function": {
-        "end_line": 68,
+        "end_line": 70,
         "kind": "function",
-        "line": 29,
+        "line": 31,
         "line_count": 40,
         "qualname": "LearningPanel.__init__"
       },
       "module": "autoslice.desktop.qt_app.learning_panel",
       "path": "src/autoslice/desktop/qt_app/learning_panel.py",
-      "sha256": "191b8e0d10b491af6dc41e060a3bc786d617a367e49b4af069997316eed4fc1b",
+      "sha256": "489c657781f96fc00376c435ac48217ca57ce2f6747d7257dd1273a9f6fce585",
       "top_level_classes": [
         {
-          "end_line": 113,
+          "end_line": 116,
           "kind": "class",
-          "line": 28,
+          "line": 30,
           "name": "LearningPanel"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 25,
+          "end_line": 27,
           "kind": "function",
-          "line": 21,
+          "line": 23,
           "name": "_profile_label"
         }
       ]
@@ -13460,26 +13676,33 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 448,
+      "line_count": 460,
       "longest_function": {
-        "end_line": 205,
+        "end_line": 216,
         "kind": "function",
-        "line": 74,
-        "line_count": 132,
+        "line": 84,
+        "line_count": 133,
         "qualname": "DesktopWindow.__init__"
       },
       "module": "autoslice.desktop.qt_app.window",
       "path": "src/autoslice/desktop/qt_app/window.py",
-      "sha256": "e6c470249dd85b7eaf226dca2bb0e0d516da98f364cc7e427440860d7f377b73",
+      "sha256": "6285ffb6aa7ae822d1d44089131ba8f354f05277e0bda214c410919072637fa1",
       "top_level_classes": [
         {
-          "end_line": 446,
+          "end_line": 458,
           "kind": "class",
-          "line": 60,
+          "line": 70,
           "name": "DesktopWindow"
         }
       ],
-      "top_level_functions": []
+      "top_level_functions": [
+        {
+          "end_line": 67,
+          "kind": "function",
+          "line": 61,
+          "name": "_saved_submission_root"
+        }
+      ]
     },
     {
       "duplicate_top_level_definitions": [],
@@ -13575,22 +13798,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 435,
+      "line_count": 427,
       "longest_function": {
-        "end_line": 161,
+        "end_line": 151,
         "kind": "function",
-        "line": 79,
-        "line_count": 83,
+        "line": 81,
+        "line_count": 71,
         "qualname": "ProjectsMixin._settings_page"
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "088624d82fbc07c119eb246e7813e85cfea24a8bd51ead54d412c452d14132fa",
+      "sha256": "5517f3a9ec6915d3d7120a7b945df0795d6584119b57a9f4b33393f3b3ac0744",
       "top_level_classes": [
         {
-          "end_line": 435,
+          "end_line": 427,
           "kind": "class",
-          "line": 34,
+          "line": 36,
           "name": "ProjectsMixin"
         }
       ],
@@ -13621,22 +13844,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 299,
+      "line_count": 303,
       "longest_function": {
-        "end_line": 95,
+        "end_line": 99,
         "kind": "function",
-        "line": 28,
-        "line_count": 68,
+        "line": 29,
+        "line_count": 71,
         "qualname": "TimelineMixin._timeline"
       },
       "module": "autoslice.desktop.qt_app.window_timeline",
       "path": "src/autoslice/desktop/qt_app/window_timeline.py",
-      "sha256": "89a464e339222667ec85bd4683c959671dd22ca4ad142a0771c66aab09e250c1",
+      "sha256": "8f3190efe388bb1b86e5c45ee887b1b3f233877ab3fff7d1d658b3729eff9f88",
       "top_level_classes": [
         {
-          "end_line": 299,
+          "end_line": 303,
           "kind": "class",
-          "line": 27,
+          "line": 28,
           "name": "TimelineMixin"
         }
       ],
@@ -13654,7 +13877,7 @@
       },
       "module": "autoslice.desktop.qt_app.window_widgets",
       "path": "src/autoslice/desktop/qt_app/window_widgets.py",
-      "sha256": "901e273390af2a125f88fcbdce22a0fbcb61f5ebe96454489464a50601db7183",
+      "sha256": "3686341dacc22ea0cd3b59167161ed784e49ba6487f711668fcc49fa53cb1b4f",
       "top_level_classes": [
         {
           "end_line": 38,
@@ -13754,7 +13977,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 89,
+      "line_count": 117,
       "longest_function": {
         "end_line": 18,
         "kind": "function",
@@ -13764,7 +13987,7 @@
       },
       "module": "autoslice.desktop.qt_preview.glyphs",
       "path": "src/autoslice/desktop/qt_preview/glyphs.py",
-      "sha256": "2378f06d448e0eb2a862bde923a904a1725ce1c5f01b8f98831037af36bc26f1",
+      "sha256": "13c7d1c25fcc9e1a5e97a5ef818f90627c39230bb2fd876cbd537948f6a83b64",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -13774,15 +13997,21 @@
           "name": "_gear"
         },
         {
-          "end_line": 78,
+          "end_line": 29,
           "kind": "function",
-          "line": 75,
+          "line": 21,
+          "name": "_burst"
+        },
+        {
+          "end_line": 106,
+          "kind": "function",
+          "line": 103,
           "name": "svg_markup"
         },
         {
-          "end_line": 89,
+          "end_line": 117,
           "kind": "function",
-          "line": 82,
+          "line": 110,
           "name": "icon_file"
         }
       ]
@@ -13824,7 +14053,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 810,
+      "line_count": 815,
       "longest_function": {
         "end_line": 344,
         "kind": "function",
@@ -13834,7 +14063,7 @@
       },
       "module": "autoslice.desktop.qt_preview.motion",
       "path": "src/autoslice/desktop/qt_preview/motion.py",
-      "sha256": "2dce067caebc2f425708f2da3817a081073c035ae26288cae396debc18717332",
+      "sha256": "642c23db9f34af8b3cd4edd6b231c6cde07a0cbe745226a2701512eb63054f4c",
       "top_level_classes": [
         {
           "end_line": 174,
@@ -13849,57 +14078,57 @@
           "name": "KeyedAnimator"
         },
         {
-          "end_line": 373,
+          "end_line": 378,
           "kind": "class",
           "line": 244,
           "name": "ButtonFx"
         },
         {
-          "end_line": 431,
+          "end_line": 436,
           "kind": "class",
-          "line": 376,
+          "line": 381,
           "name": "SegmentedFx"
         },
         {
-          "end_line": 471,
+          "end_line": 476,
           "kind": "class",
-          "line": 434,
+          "line": 439,
           "name": "SplitterFx"
         },
         {
-          "end_line": 523,
+          "end_line": 528,
           "kind": "class",
-          "line": 474,
+          "line": 479,
           "name": "SliderFx"
         },
         {
-          "end_line": 540,
+          "end_line": 545,
           "kind": "class",
-          "line": 526,
+          "line": 531,
           "name": "_Ring"
         },
         {
-          "end_line": 572,
+          "end_line": 577,
           "kind": "class",
-          "line": 543,
+          "line": 548,
           "name": "InputFx"
         },
         {
-          "end_line": 614,
+          "end_line": 619,
           "kind": "class",
-          "line": 575,
+          "line": 580,
           "name": "ScrollFx"
         },
         {
-          "end_line": 658,
+          "end_line": 663,
           "kind": "class",
-          "line": 631,
+          "line": 636,
           "name": "_Fade"
         },
         {
-          "end_line": 773,
+          "end_line": 778,
           "kind": "class",
-          "line": 732,
+          "line": 737,
           "name": "ValueGlide"
         }
       ],
@@ -13965,62 +14194,62 @@
           "name": "_edge_pen"
         },
         {
-          "end_line": 628,
+          "end_line": 633,
           "kind": "function",
-          "line": 617,
+          "line": 622,
           "name": "smooth_scroll"
         },
         {
-          "end_line": 675,
+          "end_line": 680,
           "kind": "function",
-          "line": 661,
+          "line": 666,
           "name": "crossfade"
         },
         {
-          "end_line": 684,
+          "end_line": 689,
           "kind": "function",
-          "line": 678,
+          "line": 683,
           "name": "fade_out_snapshot"
         },
         {
-          "end_line": 710,
+          "end_line": 715,
           "kind": "function",
-          "line": 687,
+          "line": 692,
           "name": "fade_in"
-        },
-        {
-          "end_line": 724,
-          "kind": "function",
-          "line": 713,
-          "name": "reveal"
         },
         {
           "end_line": 729,
           "kind": "function",
-          "line": 727,
+          "line": 718,
+          "name": "reveal"
+        },
+        {
+          "end_line": 734,
+          "kind": "function",
+          "line": 732,
           "name": "stagger_in"
         },
         {
-          "end_line": 803,
+          "end_line": 808,
           "kind": "function",
-          "line": 776,
+          "line": 781,
           "name": "install_tree"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 321,
+      "line_count": 332,
       "longest_function": {
-        "end_line": 321,
+        "end_line": 332,
         "kind": "function",
-        "line": 280,
-        "line_count": 42,
+        "line": 287,
+        "line_count": 46,
         "qualname": "MenuFx.eventFilter"
       },
       "module": "autoslice.desktop.qt_preview.popups",
       "path": "src/autoslice/desktop/qt_preview/popups.py",
-      "sha256": "d0791334f23f0b6885e7e8b44a4f584adc6a536f15a2d35f5f926d7171828057",
+      "sha256": "e39b0b2a09163fef9b7a0ece6b1f3bd5d70f44f3a1dd89eb26e5a148bb0a0f04",
       "top_level_classes": [
         {
           "end_line": 82,
@@ -14041,7 +14270,7 @@
           "name": "ComboBox"
         },
         {
-          "end_line": 321,
+          "end_line": 332,
           "kind": "class",
           "line": 244,
           "name": "MenuFx"
@@ -14076,17 +14305,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 252,
+      "line_count": 268,
       "longest_function": {
-        "end_line": 252,
+        "end_line": 268,
         "kind": "function",
         "line": 105,
-        "line_count": 148,
+        "line_count": 164,
         "qualname": "stylesheet"
       },
       "module": "autoslice.desktop.qt_preview.theme",
       "path": "src/autoslice/desktop/qt_preview/theme.py",
-      "sha256": "ad875cf0eddb2bb5b12cb9c2429d8f0540db3d0c416e2280447344969422ab40",
+      "sha256": "b898e2f6a37a4543e4c39244e538c41a73a92ad4f13a179f4231757b3304f4d2",
       "top_level_classes": [
         {
           "end_line": 57,
@@ -14103,7 +14332,7 @@
       ],
       "top_level_functions": [
         {
-          "end_line": 252,
+          "end_line": 268,
           "kind": "function",
           "line": 105,
           "name": "stylesheet"
@@ -14112,46 +14341,69 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 644,
+      "line_count": 24,
       "longest_function": {
-        "end_line": 435,
+        "end_line": 24,
         "kind": "function",
-        "line": 391,
+        "line": 18,
+        "line_count": 7,
+        "qualname": "ElidedLabel.paintEvent"
+      },
+      "module": "autoslice.desktop.qt_preview.widgets",
+      "path": "src/autoslice/desktop/qt_preview/widgets.py",
+      "sha256": "fc2e1735276e8dc456c2c9fe9b6332c1803d1e5b840f685e581b15426367b10c",
+      "top_level_classes": [
+        {
+          "end_line": 24,
+          "kind": "class",
+          "line": 8,
+          "name": "ElidedLabel"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 661,
+      "longest_function": {
+        "end_line": 452,
+        "kind": "function",
+        "line": 408,
         "line_count": 45,
         "qualname": "PreviewWindow._subtitle_list"
       },
       "module": "autoslice.desktop.qt_preview.window",
       "path": "src/autoslice/desktop/qt_preview/window.py",
-      "sha256": "71cd85942e7f89714d1c9a16661be51e0640743824e1e4b8e60981eaec91c6e7",
+      "sha256": "00360b9d7af5e022e19b2cd0c7a54696572d716b45f8076b1bd5070e63f40823",
       "top_level_classes": [
         {
-          "end_line": 91,
+          "end_line": 108,
           "kind": "class",
-          "line": 53,
+          "line": 70,
           "name": "TwoLineTitle"
         },
         {
-          "end_line": 111,
+          "end_line": 128,
           "kind": "class",
-          "line": 94,
+          "line": 111,
           "name": "ProjectItem"
         },
         {
-          "end_line": 140,
+          "end_line": 157,
           "kind": "class",
-          "line": 114,
+          "line": 131,
           "name": "NavigationButton"
         },
         {
-          "end_line": 172,
+          "end_line": 189,
           "kind": "class",
-          "line": 143,
+          "line": 160,
           "name": "TimelineTrack"
         },
         {
-          "end_line": 644,
+          "end_line": 661,
           "kind": "class",
-          "line": 175,
+          "line": 192,
           "name": "PreviewWindow"
         }
       ],
@@ -14169,9 +14421,15 @@
           "name": "line"
         },
         {
-          "end_line": 50,
+          "end_line": 59,
           "kind": "function",
           "line": 45,
+          "name": "card"
+        },
+        {
+          "end_line": 67,
+          "kind": "function",
+          "line": 62,
           "name": "tool_icon"
         }
       ]
@@ -22116,6 +22374,7 @@
       "src/autoslice/desktop/qt_preview/motion.py",
       "src/autoslice/desktop/qt_preview/popups.py",
       "src/autoslice/desktop/qt_preview/theme.py",
+      "src/autoslice/desktop/qt_preview/widgets.py",
       "src/autoslice/desktop/qt_preview/window.py",
       "src/autoslice/llm/__init__.py",
       "src/autoslice/llm/contracts.py",
@@ -22299,12 +22558,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 759,
-    "production_line_count": 67569,
-    "production_module_count": 260,
+    "import_edge_count": 778,
+    "production_line_count": 67866,
+    "production_module_count": 261,
     "test_private_patch_count": 17,
-    "top_level_class_count": 256,
-    "top_level_function_count": 1313
+    "top_level_class_count": 259,
+    "top_level_function_count": 1317
   },
   "test_private_patches": {
     "by_target_module": {

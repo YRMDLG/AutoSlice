@@ -259,14 +259,21 @@ class MenuFx(QObject):
         )
         self._rows = motion.KeyedAnimator(self, menu.update)
         self._open = motion.Channel(self, self._step)
+        # popup() 已自行让出投影留白；按钮 setMenu 弹出时由 Show 事件补上
+        self._manual = False
         menu.aboutToShow.connect(self._showing)
-        menu.aboutToHide.connect(lambda: ghost(menu))
+        menu.aboutToHide.connect(self._hidden)
         menu.installEventFilter(self)
 
     def popup(self, position: QPoint) -> None:
         """exec 对齐可见面板而不是投影留白。"""
 
+        self._manual = True
         self.menu.exec(position - QPoint(SHADOW[0], SHADOW[1]))
+
+    def _hidden(self) -> None:
+        self._manual = False
+        ghost(self.menu)
 
     def _showing(self) -> None:
         self._open.snap(0.0)
@@ -278,6 +285,10 @@ class MenuFx(QObject):
         self.menu.update()
 
     def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Show and not self._manual:
+            # 可见面板对齐按钮左缘，与按钮留 4px 间隙
+            self.menu.move(self.menu.pos() - QPoint(SHADOW[0], SHADOW[1] - 4))
+            return False
         if event.type() != QEvent.Type.Paint:
             return False
         menu = self.menu

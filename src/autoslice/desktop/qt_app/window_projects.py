@@ -23,7 +23,9 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.projects import ProjectSnapshot
 from autoslice.desktop.qt_preview import motion
-from autoslice.desktop.qt_preview.window import ProjectItem, label, line, tool_icon
+from autoslice.desktop.qt_preview.icons import icon as desktop_icon
+from autoslice.desktop.qt_preview.theme import COLORS, SIZES
+from autoslice.desktop.qt_preview.window import ProjectItem, card, label, line, tool_icon
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
@@ -83,77 +85,65 @@ class ProjectsMixin:
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         body = QWidget()
-        layout = QVBoxLayout(body)
-        layout.setContentsMargins(32, 26, 32, 26)
-        layout.setSpacing(16)
+        outer = QVBoxLayout(body)
+        outer.setContentsMargins(32, 26, 32, 26)
+        # 限宽、靠左的内容列：大窗口里输入框也不会拉成一条线（靠 maximumWidth，不用对齐标志）
+        content = QWidget()
+        content.setMaximumWidth(880)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        outer.addWidget(content)
+        outer.addStretch(1)
         layout.addWidget(label("设置", "pageTitle"))
-        layout.addWidget(line())
+        layout.addSpacing(2)
 
         # ── 投稿目录 ──
-        layout.addWidget(label("投稿目录", "sectionTitle"))
+        directory_card, directory_column = card("投稿目录")
         dir_row = QHBoxLayout()
-        dir_row.setSpacing(8)
+        dir_row.setSpacing(12)
         directory = label(str(self.service.root), "muted")
         directory.setWordWrap(True)
+        directory.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.settings_directory = directory
         dir_row.addWidget(directory, 1)
         browse_dir = QPushButton("更改")
-        browse_dir.setObjectName("quiet")
-        browse_dir.setFixedHeight(28)
+        browse_dir.setIcon(desktop_icon("folder", COLORS.muted, SIZES.tool_icon_size))
         browse_dir.setToolTip("选择投稿项目根目录")
         browse_dir.clicked.connect(self._browse_submission_root)
         dir_row.addWidget(browse_dir)
-        layout.addLayout(dir_row)
-
-        layout.addSpacing(8)
-        layout.addWidget(line())
-        layout.addSpacing(8)
+        directory_column.addLayout(dir_row)
+        layout.addWidget(directory_card)
 
         # ── 字幕压制 ──
-        layout.addWidget(label("字幕压制", "sectionTitle"))
-        layout.addWidget(label(
-            f"默认样式：{DEFAULT_SUBTITLE_STYLE['font_name']} · "
-            f"#{DEFAULT_SUBTITLE_STYLE['outline_color']} 描边", "muted"
-        ))
-        layout.addWidget(label("压制使用既有 FFmpeg 工作流，NVENC 可用时自动优先。", "muted"))
-
-        layout.addSpacing(8)
-        layout.addWidget(line())
-        layout.addSpacing(8)
+        render_card, render_column = card(
+            "字幕压制",
+            f"默认样式：{DEFAULT_SUBTITLE_STYLE['font_name']} · #{DEFAULT_SUBTITLE_STYLE['outline_color']} 描边",
+        )
+        render_column.addWidget(label("压制使用既有 FFmpeg 工作流，NVENC 可用时自动优先。", "muted"))
+        layout.addWidget(render_card)
 
         # ── 封面 ──
-        layout.addWidget(label("封面", "sectionTitle"))
-        layout.addWidget(label("封面字体、默认样式和素材库在封面编辑器中直接管理。", "muted"))
-        layout.addWidget(label("桌面草稿保存在用户应用数据目录，重启后可恢复。", "muted"))
+        cover_card, cover_column = card("封面", "封面字体、默认样式和素材库在封面编辑器中直接管理。")
+        cover_column.addWidget(label("桌面草稿保存在用户应用数据目录，重启后可恢复。", "muted"))
+        layout.addWidget(cover_card)
 
-        layout.addSpacing(8)
-        layout.addWidget(line())
-        layout.addSpacing(8)
-
-        # ── 成长记录 ──
+        # ── 成长记录（字幕纠错记忆 + 封面作品库两块） ──
         self.learning_panel = LearningPanel(self.correction_memory, self.cover_editor.service.works)
         layout.addWidget(self.learning_panel)
-
-        layout.addSpacing(8)
-        layout.addWidget(line())
-        layout.addSpacing(8)
 
         # ── AI ──
         self.ai_settings_panel = AISettingsPanel(self._run)
         layout.addWidget(self.ai_settings_panel)
 
-        layout.addSpacing(8)
-        layout.addWidget(line())
-        layout.addSpacing(8)
-
         # ── 播放器 ──
-        layout.addWidget(label("播放器", "sectionTitle"))
+        player_card, player_column = card("播放器")
         player_status = "libmpv 已连接" if getattr(self, "player", None) is not None else "libmpv 未连接（仅预览模式）"
-        layout.addWidget(label(player_status, "muted"))
+        player_column.addWidget(label(player_status, "muted"))
         hwdec = getattr(self, "_hwdec", None)
         if hwdec:
-            layout.addWidget(label(f"硬件解码：{hwdec}", "muted"))
-
-        layout.addStretch()
+            player_column.addWidget(label(f"硬件解码：{hwdec}", "muted"))
+        layout.addWidget(player_card)
         scroll.setWidget(body)
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
@@ -166,6 +156,8 @@ class ProjectsMixin:
         path = QFileDialog.getExistingDirectory(self, "选择投稿目录", str(self.service.root))
         if path:
             self.service.root = Path(path)
+            self.settings_directory.setText(str(self.service.root))
+            self._save_session()
             self._show_transient_status(f"投稿目录已更新：{path}")
             self.refresh()
 

@@ -8,9 +8,12 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
+    QColor,
+    QFont,
     QIcon,
+    QPainter,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -45,9 +48,45 @@ from .cover_model import (
     set_profile_override,
     update_shared_fields,
 )
+from .qt_preview import popups
 
 # 拼进来的小图：放在右上、占画面约四成宽、稍微歪一点，白边宽度（导出像素）。
 _PICTURE_X, _PICTURE_Y, _PICTURE_SCALE, _PICTURE_TILT, _PICTURE_BORDER = 0.56, 0.06, 1.6, 3.0, 10
+
+
+def _captioned(pixmap: QPixmap, size: QSize, caption: str, recommended: bool) -> QPixmap:
+    """缩略图右下角叠时间戳（推荐帧左上角叠星标）；文字不占按钮横向空间，窄窗口也读得全。"""
+
+    scale = 2
+    scaled = pixmap.scaled(
+        size.width() * scale, size.height() * scale,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation,
+    )
+    result = QPixmap(size.width() * scale, size.height() * scale)
+    result.fill(Qt.GlobalColor.black)
+    painter = QPainter(result)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.drawPixmap((result.width() - scaled.width()) // 2, (result.height() - scaled.height()) // 2, scaled)
+    font = QFont("Resource Han Rounded CN")
+    font.setPixelSize(10 * scale)
+    painter.setFont(font)
+    width = painter.fontMetrics().horizontalAdvance(caption) + 8 * scale
+    height = painter.fontMetrics().height() + 2 * scale
+    box = QRectF(result.width() - width - 2 * scale, result.height() - height - 2 * scale, width, height)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(0, 0, 0, 170))
+    painter.drawRoundedRect(box, 3 * scale, 3 * scale)
+    painter.setPen(QColor("#FFFFFF"))
+    painter.drawText(box, Qt.AlignmentFlag.AlignCenter, caption)
+    if recommended:
+        painter.setPen(QColor("#FFD84D"))
+        star = QFont(font)
+        star.setPixelSize(13 * scale)
+        painter.setFont(star)
+        painter.drawText(QRectF(3 * scale, 1 * scale, 16 * scale, 16 * scale), Qt.AlignmentFlag.AlignCenter, "★")
+    painter.end()
+    result.setDevicePixelRatio(scale)
+    return result
 
 
 class CoverFramesMixin:
@@ -203,10 +242,11 @@ class CoverFramesMixin:
 
         button.setProperty("timestamp", frame.timestamp)
         button.setProperty("path", str(frame.path))
-        button.setText(f"{'★ ' if recommended else ''}{frame.timestamp:.2f}s")
+        caption = f"{frame.timestamp:.2f}s"
+        button.setText(f"{'★ ' if recommended else ''}{caption}")
         pixmap = QPixmap(str(frame.path))
         if not pixmap.isNull():
-            button.setIcon(QIcon(pixmap))
+            button.setIcon(QIcon(_captioned(pixmap, button.iconSize(), caption, recommended)))
         metrics = frame.metrics
         lines = [f"{frame.timestamp:.2f} 秒"]
         if metrics is not None:
@@ -226,9 +266,10 @@ class CoverFramesMixin:
 
         timestamp = float(button.property("timestamp") or 0.0)
         menu = QMenu(button)
+        effects = popups.MenuFx(menu)
         menu.addAction("设为底图", lambda: self._choose_nearby_frame(timestamp))
         menu.addAction("作为小图拼进封面", lambda: self._insert_frame_picture(timestamp))
-        menu.exec(button.mapToGlobal(position))
+        effects.popup(button.mapToGlobal(position))
 
     def _insert_frame_picture(self, timestamp: float):
         """把视频里另一帧当带白边的小图放进封面右上，稍微歪一点；底图不变。"""
