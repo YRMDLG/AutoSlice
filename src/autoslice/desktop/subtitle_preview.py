@@ -106,7 +106,29 @@ class SubtitlePreviewService:
                 pass
             if issues:
                 flags[entry.index] = tuple(issues)
+        _flag_boundary_duplicates(entries, flags)
         return flags
+
+
+def _flag_boundary_duplicates(entries, flags: dict[int, tuple[str, ...]]) -> None:
+    """上一条末尾的字和下一条开头一样、两条几乎连着：多半是识别断句时多出来的字（比如“101系选 | 选秀…”）。
+
+    两条各至少 6 个字才查（短的“对对 | 对对对”多半是说话人在重复），间隔不超过 0.3 秒。
+    """
+
+    for current, following in zip(entries, entries[1:]):
+        try:
+            if _seconds(following.start) - _seconds(current.end) > 0.3:
+                continue
+        except ValueError:
+            continue
+        before, after = current.text.replace("\n", ""), following.text.replace("\n", "")
+        for size in (2, 1):
+            tail = before[-size:]
+            repeated_run = size == 1 and before[-2:-1] == tail  # “…对对 | 对…”是说话人在重复，不是漏出来的字
+            if len(before) >= 6 and len(after) >= 6 and tail == after[:size] and _WORD.search(tail) and not repeated_run:
+                flags[current.index] = (*flags.get(current.index, ()), f"末尾“{tail}”和下一条开头重复，疑似多出的字")
+                break
 
 
 def _seconds(value: str) -> float:

@@ -80,7 +80,7 @@ def _overview(store: ArchiveStore, matcher: StreamerMatcher) -> dict:
 def _corrections(store: ArchiveStore, matcher: StreamerMatcher, known: Mapping[str, set], limit: int = 300) -> list[dict]:
     rows = store.query(
         "SELECT e.streamer AS streamer, c.wrong AS wrong, c.right AS right, COUNT(DISTINCT c.entry_id) AS videos,"
-        " SUM(c.n) AS n, MIN(c.context) AS context, MAX(e.date) AS last"
+        " SUM(c.n) AS n, SUM(c.kept) AS kept, MIN(c.context) AS context, MAX(e.date) AS last"
         " FROM corrections c JOIN entries e ON e.id = c.entry_id GROUP BY e.streamer, c.wrong, c.right"
         " ORDER BY videos DESC, n DESC LIMIT 30000"
     )
@@ -93,7 +93,9 @@ def _corrections(store: ArchiveStore, matcher: StreamerMatcher, known: Mapping[s
             continue
         items.append({
             "streamer": row["streamer"], "label": matcher.label(row["streamer"]),
-            "wrong": row["wrong"], "right": row["right"], "videos": row["videos"], "n": row["n"],
+            "wrong": row["wrong"], "right": row["right"], "videos": row["videos"], "n": row["n"], "kept": row["kept"],
+            # 精度：改过的次数 /（改过的次数 + 在别处被原样保留的次数）；低了说明这个词多数时候是对的
+            "precision": round(row["n"] / max(1, row["n"] + row["kept"]), 2),
             "dominance": round(row["videos"] / totals[(row["streamer"], row["wrong"])], 2),
             "context": row["context"], "last": row["last"],
             "known": (row["wrong"], row["right"]) in known.get(row["streamer"], ()),
@@ -318,7 +320,8 @@ def render_markdown(report: dict) -> str:
     if report["corrections"]:
         lines += ["", "## 反复出现的错词（至少两个视频）", ""]
         for item in report["corrections"][:40]:
-            lines.append(f"- 「{item['wrong']}」→「{item['right']}」 {item['videos']} 个视频 · {item['label']}{' · 已在词库' if item['known'] else ''}")
+            warn = f" · 别处还有 {item['kept']} 处原样保留（精度 {item['precision']:.0%}，不适合当固定纠错）" if item["precision"] < 0.8 else ""
+            lines.append(f"- 「{item['wrong']}」→「{item['right']}」 {item['videos']} 个视频 · {item['label']}{' · 已在词库' if item['known'] else ''}{warn}")
     for label, items in report["terms"].items():
         shown = [item for item in items if not item["known"]][:40]
         if shown:
@@ -370,7 +373,7 @@ def build_digest(report: dict, max_bytes: int = MAX_DIGEST_BYTES) -> dict:
         "quality": report["quality"],
         "edits": report["edits"],
         "corrections": [
-            {key: item[key] for key in ("label", "wrong", "right", "videos", "n", "dominance", "context", "known")}
+            {key: item[key] for key in ("label", "wrong", "right", "videos", "n", "kept", "precision", "dominance", "context", "known")}
             for item in report["corrections"][:120]
         ],
         "terms": {label: [{"term": i["term"], "df": i["df"], "spread": i["spread"], "known": i["known"]} for i in items[:200]]

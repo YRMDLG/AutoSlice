@@ -47,6 +47,8 @@ RAW = [
     (4.5, 7.0, "这个选秀好离谱呃"),
     (7.0, 9.0, "我妈就看AI短剧"),
     (9.0, 11.0, "对对对就是这样，"),
+    (11.0, 13.0, "我的意思是这样"),       # “意思”大多数时候是对的词，原样保留
+    (13.0, 15.0, "在这个意思上面改"),     # 只有这一处被改成了 ins
 ]
 
 
@@ -54,6 +56,7 @@ def corrected_rows(fix_term: bool) -> list:
     rows = [list(item) for item in RAW]
     if fix_term:
         rows[1][2] = rows[1][2].replace(WRONG, RIGHT)
+        rows[6][2] = "在这个ins上面改"
     rows[2][2] = "这个选秀好离谱"   # 删口癖
     rows[4][2] = "对对对就是这样"   # 只改标点
     return [tuple(item) for item in rows]
@@ -313,8 +316,11 @@ class ReportAndProposalTests(ArchiveTestCase):
             report = build_report(store)
         self.assertEqual(report["overview"]["entries"], 13)
         self.assertEqual(report["overview"]["with_both"], 12)
-        top = report["corrections"][0]
-        self.assertEqual((top["wrong"], top["right"], top["videos"], top["dominance"]), (WRONG, RIGHT, 8, 1.0))
+        top = next(item for item in report["corrections"] if item["wrong"] == WRONG)
+        self.assertEqual((top["right"], top["videos"], top["dominance"], top["precision"], top["kept"]), (RIGHT, 8, 1.0, 1.0, 0))
+        # “意思→ins”：每个视频里还有一处“意思”被原样保留，精度只有一半
+        ins = next(item for item in report["corrections"] if item["wrong"] == "意思")
+        self.assertEqual((ins["right"], ins["videos"], ins["kept"], ins["precision"]), ("ins", 8, 8, 0.5))
         self.assertEqual(report["edits"]["kinds"]["delete_filler"], 12)
         self.assertEqual(report["edits"]["kinds"]["punctuation"], 12)
         titles = report["titles"]
@@ -345,9 +351,10 @@ class ReportAndProposalTests(ArchiveTestCase):
         proposals = self.service.proposals()
         kinds = {item.kind for item in proposals}
         self.assertTrue({"replacement", "glossary", "titles"} <= kinds)
-        replacement = next(item for item in proposals if item.kind == "replacement")
-        self.assertEqual((replacement.streamer, replacement.payload), ("zeyin", {"wrong": WRONG, "right": RIGHT}))
-        self.assertIn("8 个视频", replacement.evidence)
+        replacements = [item for item in proposals if item.kind == "replacement"]
+        # 精度不够的“意思→ins”不会被提成固定纠错，否则每个“意思”都会被改坏
+        self.assertEqual([(item.streamer, item.payload) for item in replacements], [("zeyin", {"wrong": WRONG, "right": RIGHT})])
+        self.assertIn("8 个视频", replacements[0].evidence)
         # 别的主播（没有档案）的东西不会生成需要写进档案的建议
         self.assertFalse(any(item.streamer.startswith("ext:") for item in proposals))
 
@@ -442,6 +449,31 @@ class RuntimeHookTests(ArchiveTestCase):
             Knowledge(self.storage).add_glossary("zeyin", ["子语庭", "完全没提到的词"])
             service.check(document, project.title, force=True)
         self.assertEqual(calls[1]["glossary"][0], "子语庭")
+
+    def test_boundary_duplicate_flag_catches_a_leaked_character_without_false_alarms(self):
+        from types import SimpleNamespace
+
+        from autoslice.desktop.subtitle_preview import SubtitlePreviewService
+
+        def entry(index, start, end, text):
+            return SimpleNamespace(index=index, start=f"00:00:{start:06.3f}".replace(".", ","),
+                                   end=f"00:00:{end:06.3f}".replace(".", ","), text=text)
+
+        flagged = SubtitlePreviewService.quality_flags([
+            entry(1, 1.0, 3.0, "他们那个那种101系选"), entry(2, 3.0, 5.5, "选秀都是要交手机的"),
+        ])
+        self.assertIn("疑似多出的字", "".join(flagged[1]))
+        self.assertNotIn(2, flagged)
+        # 间隔很大、条目太短（说话人重复）、正常接续，都不报
+        self.assertEqual(SubtitlePreviewService.quality_flags([
+            entry(1, 1.0, 3.0, "他们那个那种101系选"), entry(2, 6.0, 8.0, "选秀都是要交手机的"),
+        ]), {})
+        self.assertEqual(SubtitlePreviewService.quality_flags([
+            entry(1, 1.0, 3.0, "对对对对"), entry(2, 3.0, 5.0, "对对对对对对"),
+        ]), {})
+        self.assertEqual(SubtitlePreviewService.quality_flags([
+            entry(1, 1.0, 3.0, "他们那个那种101系"), entry(2, 3.0, 5.0, "选秀都是要交手机的"),
+        ]), {})
 
     def test_quality_flags_use_personal_limits_only_when_given(self):
         from types import SimpleNamespace

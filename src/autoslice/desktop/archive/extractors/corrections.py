@@ -88,17 +88,19 @@ class CorrectionExtractor(Extractor):
     name = "corrections"
     schema = """
 CREATE TABLE IF NOT EXISTS corrections (
-    entry_id INTEGER NOT NULL, wrong TEXT NOT NULL, right TEXT NOT NULL, n INTEGER NOT NULL, context TEXT NOT NULL DEFAULT ''
+    entry_id INTEGER NOT NULL, wrong TEXT NOT NULL, right TEXT NOT NULL, n INTEGER NOT NULL,
+    kept INTEGER NOT NULL DEFAULT 0, context TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS corrections_entry ON corrections(entry_id);
 CREATE INDEX IF NOT EXISTS corrections_pair ON corrections(wrong, right);
 CREATE TABLE IF NOT EXISTS edits (entry_id INTEGER NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS edits_entry ON edits(entry_id);
 """
-    tables = {"corrections": ("wrong", "right", "n", "context"), "edits": ("kind", "n")}
+    tables = {"corrections": ("wrong", "right", "n", "kept", "context"), "edits": ("kind", "n")}
 
     def extract(self, entry: ArchiveEntry, context: ExtractContext) -> Mapping[str, Sequence[Sequence]]:
         hits: Counter[tuple[str, str]] = Counter()
+        kept: Counter[tuple[str, str]] = Counter()
         contexts: dict[tuple[str, str], str] = {}
         kinds: Counter[str] = Counter()
         for video in entry.videos:
@@ -110,13 +112,20 @@ CREATE INDEX IF NOT EXISTS edits_entry ON edits(entry_id);
             pairs, splits, merges = align_cues(raw, corrected)
             kinds["split"] += splits
             kinds["merge"] += merges
+            found: set[tuple[str, str]] = set()
             for before, after in pairs:
                 kind, learned = classify_edit(before.text, after.text)
                 kinds[kind] += 1
                 for pair in learned:
                     hits[pair] += 1
+                    found.add(pair)
                     contexts.setdefault(pair, before.text.replace("\n", " ")[:80])
+            # 错词在校对稿的其他地方还原样留着几处：留得多说明它多半是对的词，不能当固定纠错。
+            for wrong, right in found:
+                kept[(wrong, right)] += sum(cue.text.count(wrong) for cue in corrected)
         return {
-            "corrections": [(wrong, right, n, contexts.get((wrong, right), "")) for (wrong, right), n in hits.items()],
+            "corrections": [
+                (wrong, right, n, kept[(wrong, right)], contexts.get((wrong, right), "")) for (wrong, right), n in hits.items()
+            ],
             "edits": [(kind, n) for kind, n in kinds.items() if n],
         }

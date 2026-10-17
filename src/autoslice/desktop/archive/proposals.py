@@ -25,6 +25,8 @@ from .store import ArchiveStore
 PENDING, ACCEPTED, REJECTED = "pending", "accepted", "rejected"
 MIN_VIDEOS = 3
 MIN_DOMINANCE = 0.8
+# 改过的次数占“改过 + 别处原样保留”的比例至少这么高，才当固定纠错（防止把“意思→ins”这种多数时候是对的词改坏）。
+MIN_PRECISION = 0.8
 MIN_TERM_DF = 5
 MAX_SPREAD = 2
 HABIT_MIN_VIDEOS = 20
@@ -58,7 +60,7 @@ def build_proposals(store: ArchiveStore, matcher: StreamerMatcher | None = None)
     for item in corrections_table(store, matcher, replacements, limit=100000):
         if (
             item["known"] or item["videos"] < MIN_VIDEOS or item["dominance"] < MIN_DOMINANCE
-            or not _is_profile(item["streamer"])
+            or item["precision"] < MIN_PRECISION or not _is_profile(item["streamer"])
         ):
             continue
         proposals.append(Proposal(
@@ -66,7 +68,7 @@ def build_proposals(store: ArchiveStore, matcher: StreamerMatcher | None = None)
             streamer=item["streamer"], label=item["label"],
             title=f"固定纠错：「{item['wrong']}」→「{item['right']}」",
             payload={"wrong": item["wrong"], "right": item["right"]},
-            evidence=f"{item['videos']} 个视频里都改过（共 {item['n']} 处），例：{item['context']}",
+            evidence=f"{item['videos']} 个视频里都改过（共 {item['n']} 处，别处原样保留 {item['kept']} 处），例：{item['context']}",
             score=item["videos"] + item["n"] * 0.01,
         ))
     for streamer, items in candidate_terms(store, glossary, min_df=MIN_TERM_DF).items():
