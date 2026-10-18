@@ -32,6 +32,9 @@ class ModuleProcess(QObject):
         self._tree: ProcessTree | None = None
         self._tail: list[str] = []
         self._cancelled = False
+        # 进程树收尾失败的原因；退出码和取消状态保持真实值，由调用方决定怎么对用户说。
+        self.cleanup_error = ""
+        self.start_failed = False
         self._ended.connect(self._finish)
 
     @property
@@ -42,11 +45,13 @@ class ModuleProcess(QObject):
         if self._process is not None:
             raise RuntimeError("已有任务在运行")
         self._tail, self._cancelled = [], False
+        self.cleanup_error, self.start_failed = "", False
         try:
             self._tree = ProcessTree(program, arguments, environment)
             process = self._tree.process
         except OSError as exc:
             self._tail = [f"没法启动 {program}：{exc}（检查设置里“识别用的 Python”）"]
+            self.start_failed = True
             self._process = None
             QTimer.singleShot(0, lambda: self.finished.emit(-1, "\n".join(self._tail), False))
             return
@@ -79,10 +84,9 @@ class ModuleProcess(QObject):
         finally:
             process.stdout.close()
             code = self._tree.wait()
-            if self._tree.cleanup_error:
-                self._tail.append(self._tree.cleanup_error)
-                self._cancelled = False
-                code = -1
+            self.cleanup_error = self._tree.cleanup_error
+            if self.cleanup_error:
+                self._tail.append(self.cleanup_error)
             try:
                 self._ended.emit(code)
             except RuntimeError:
@@ -135,12 +139,21 @@ class RecognizeJob(QObject):
             self._result = event
 
     def _on_finished(self, code: int, tail: str, cancelled: bool) -> None:
-        if cancelled:
+        runner = self._runner
+        done = self._result is not None and self._result["type"] == "done"
+        if runner.start_failed:
+            self.finished.emit("error", {"message": tail})
+        elif runner.cleanup_error and not (done and not cancelled):
+            # 后代没清干净、又没有一次成功的完成结论：按失败报，免得残留进程占着显卡还显示“已取消”
+            self.finished.emit("error", {"message": tail or runner.cleanup_error})
+        elif cancelled:
             self.finished.emit("cancelled", {})
-        elif code == -1:
-            self.finished.emit("error", {"message": tail or "识别进程未能正常清理"})
-        elif self._result is not None and self._result["type"] == "done":
-            self.finished.emit("done", self._result)
+        elif done:
+            result = self._result
+            if runner.cleanup_error:
+                # 字幕已经写好，只是后台清理没赶上：提醒用户，不当成识别失败
+                result = {**result, "warnings": [runner.cleanup_error, *(result.get("warnings") or [])]}
+            self.finished.emit("done", result)
         elif self._result is not None and self._result["type"] == "error":
             self.finished.emit("error", {**self._result, "message": str(self._result.get("message", "识别失败"))})
         elif self._result is not None:

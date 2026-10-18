@@ -230,5 +230,58 @@ class AsrQtTests(unittest.TestCase):
         self.assertIn("自检失败", panel.status.text())
 
 
+@unittest.skipIf(QApplication is None, "PySide6 不可用")
+class RecognizeJobOutcomeTests(unittest.TestCase):
+    """进程结束后怎么对用户说：后台清理没赶上，不能把已经写好的字幕说成失败。"""
+
+    DONE = ("done", {"srt_path": "x.srt", "cue_count": 3, "seconds": 1.0, "warnings": ["对一下轴"]})
+
+    def setUp(self):
+        self.app = QApplication.instance() or QApplication([])
+
+    def outcome(self, events, *, cancelled=False, cleanup="", code=0, tail="", start_failed=False):
+        from autoslice.desktop.asr.jobs import format_event
+        from autoslice.desktop.qt_app.asr_process import RecognizeJob
+
+        job = RecognizeJob()
+        self.addCleanup(job.deleteLater)
+        results = []
+        job.finished.connect(lambda state, payload: results.append((state, payload)))
+        runner = job._runner
+        for kind, payload in events:
+            runner.line.emit(format_event(kind, **payload))
+        runner.cleanup_error, runner.start_failed = cleanup, start_failed
+        runner.finished.emit(code, tail, cancelled)
+        self.app.processEvents()
+        self.assertEqual(len(results), 1)
+        return results[0]
+
+    def test_cleanup_timeout_after_a_finished_recognition_is_a_warning_not_a_failure(self):
+        state, payload = self.outcome([self.DONE], cleanup="识别子进程清理失败：5 秒内没退出")
+        self.assertEqual(state, "done")
+        self.assertEqual(payload["cue_count"], 3)
+        self.assertEqual(payload["warnings"], ["识别子进程清理失败：5 秒内没退出", "对一下轴"])
+
+    def test_clean_finish_keeps_the_original_warnings(self):
+        state, payload = self.outcome([self.DONE])
+        self.assertEqual((state, payload["warnings"]), ("done", ["对一下轴"]))
+
+    def test_cleanup_failure_without_a_finished_result_is_still_an_error(self):
+        cases = (([], False), ([("error", {"message": "失败"})], False), ([], True), ([self.DONE], True))
+        for events, cancelled in cases:
+            with self.subTest(events=events, cancelled=cancelled):
+                state, payload = self.outcome(events, cancelled=cancelled, cleanup="识别子进程清理失败", tail="末尾输出")
+                self.assertEqual(state, "error")
+                self.assertIn("末尾输出", payload["message"])
+
+    def test_a_real_exit_code_of_minus_one_is_not_mistaken_for_a_cleanup_failure(self):
+        state, _payload = self.outcome([self.DONE], code=-1)
+        self.assertEqual(state, "done")
+
+    def test_start_failure_reports_the_launch_message(self):
+        state, payload = self.outcome([], code=-1, tail="没法启动 python", start_failed=True)
+        self.assertEqual((state, payload["message"]), ("error", "没法启动 python"))
+
+
 if __name__ == "__main__":
     unittest.main()

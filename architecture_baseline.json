@@ -17771,28 +17771,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 151,
+      "line_count": 164,
       "longest_function": {
-        "end_line": 89,
+        "end_line": 164,
         "kind": "function",
-        "line": 66,
+        "line": 141,
         "line_count": 24,
-        "qualname": "ModuleProcess._pump"
+        "qualname": "RecognizeJob._on_finished"
       },
       "module": "autoslice.desktop.qt_app.asr_process",
       "path": "src/autoslice/desktop/qt_app/asr_process.py",
-      "sha256": "764b3090b39925e288fe48b2081fe536338ebc287728dcaedd47821d3d861e81",
+      "sha256": "03290c7b140b69d6b1320397a28341f60c66a8b0a219b7955929515bcee9931f",
       "top_level_classes": [
         {
-          "end_line": 94,
+          "end_line": 98,
           "kind": "class",
           "line": 21,
           "name": "ModuleProcess"
         },
         {
-          "end_line": 151,
+          "end_line": 164,
           "kind": "class",
-          "line": 97,
+          "line": 101,
           "name": "RecognizeJob"
         }
       ],
@@ -26883,7 +26883,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 978,
-    "production_line_count": 74696,
+    "production_line_count": 74709,
     "production_module_count": 311,
     "test_private_patch_count": 17,
     "top_level_class_count": 318,
