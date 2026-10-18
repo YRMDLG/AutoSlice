@@ -16073,7 +16073,7 @@
       },
       "module": "autoslice.desktop.cover_editor_ai",
       "path": "src/autoslice/desktop/cover_editor_ai.py",
-      "sha256": "798bd27c9592fa91ecbcd12b6af56395618652e5303b80e366f7599e32ad58ed",
+      "sha256": "27abe82f4116a75cc4ebb681aede72d88afc2f566776a55bd5e2728924554495",
       "top_level_classes": [
         {
           "end_line": 421,
@@ -16169,20 +16169,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 202,
+      "line_count": 203,
       "longest_function": {
-        "end_line": 114,
+        "end_line": 115,
         "kind": "function",
         "line": 84,
-        "line_count": 31,
+        "line_count": 32,
         "qualname": "CoverSchemesMixin._apply_scheme"
       },
       "module": "autoslice.desktop.cover_editor_schemes",
       "path": "src/autoslice/desktop/cover_editor_schemes.py",
-      "sha256": "cad7fa685e38cff414e77fd00b60f549e0e259d4c0b2412aacdab3b9b006ce50",
+      "sha256": "34f4cc0981f54bb2b85707ada90772164564dbd48d7a0a10745b3f08f8972275",
       "top_level_classes": [
         {
-          "end_line": 202,
+          "end_line": 203,
           "kind": "class",
           "line": 20,
           "name": "CoverSchemesMixin"
@@ -26855,7 +26855,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 977,
-    "production_line_count": 74652,
+    "production_line_count": 74653,
     "production_module_count": 311,
     "test_private_patch_count": 17,
     "top_level_class_count": 318,
