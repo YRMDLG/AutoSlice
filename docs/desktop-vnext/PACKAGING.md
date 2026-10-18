@@ -4,6 +4,8 @@
 
 ## 前提（都在你的主力机上，都是你自己装）
 
+2026-10-18 修复：构建脚本与 spec 在收集前设置源码搜索路径，spec 会检查必需的窗口/识别/封面模块、两款界面字体、封面字体和主播配置。缺失会在 Analysis 前明确失败。已提供离线 spec 契约测试验证收集顺序与失败分支；完整 PyInstaller / Inno Setup 构建仍需独立执行，不能用源码自检或模拟测试替代。
+
 - `py -3.10` 可用（和你现在跑桌面端用的版本一致）。
 - `libmpv-2.dll`：已经在 `AUTOSLICE_LIBMPV_PATH` 或 `%LOCALAPPDATA%\AutoSlice\bin\` 的话脚本会自动复制；否则放进 `packaging\bin\`。
 - `ffmpeg.exe`、`ffprobe.exe`：在 PATH 里的话脚本会自动复制；否则放进 `packaging\bin\`。

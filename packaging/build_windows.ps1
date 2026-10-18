@@ -21,6 +21,7 @@ Set-Location $Root
 $Venv = Join-Path $Root "build\venv"
 $VenvPython = Join-Path $Venv "Scripts\python.exe"
 $Bin = Join-Path $Root "packaging\bin"
+$env:PYTHONPATH = Join-Path $Root "src"
 
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
 
@@ -39,7 +40,14 @@ if (-not $SkipInstall) {
 
 Step "2/6 整理识别子进程用的纯源码（build\worker_src）"
 $Worker = Join-Path $Root "build\worker_src"
-if (Test-Path $Worker) { Remove-Item -Recurse -Force $Worker }
+if (Test-Path -LiteralPath $Worker) {
+    $ResolvedWorker = (Resolve-Path -LiteralPath $Worker).Path
+    $ExpectedWorker = [IO.Path]::GetFullPath((Join-Path $Root "build\worker_src"))
+    if ($ResolvedWorker -ne $ExpectedWorker -or ((Get-Item -LiteralPath $Worker).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "拒绝清理非预期的识别源码目录：$ResolvedWorker"
+    }
+    Remove-Item -LiteralPath $ResolvedWorker -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path (Join-Path $Worker "autoslice") | Out-Null
 # 只要 .py 和 .json：识别子进程在另一个 Python 里跑，要能 import autoslice，但不需要界面资源
 & robocopy (Join-Path $Root "src\autoslice") (Join-Path $Worker "autoslice") *.py *.json /S /XD __pycache__ resources web /NFL /NDL /NJH /NJS | Out-Null
@@ -70,7 +78,7 @@ Copy-Item (Join-Path $Bin "*") $Dist -Force
 Step "5/6 打包后自检"
 $Smoke = Join-Path $Root "build\smoke.txt"
 if (Test-Path $Smoke) { Remove-Item $Smoke }
-$process = Start-Process -FilePath (Join-Path $Dist "AutoSlice.exe") -ArgumentList ("--smoke " + [char]34 + $Smoke + [char]34) -Wait -PassThru
+$process = Start-Process -FilePath (Join-Path $Dist "AutoSlice.exe") -ArgumentList ("--smoke " + [char]34 + $Smoke + [char]34) -WindowStyle Hidden -Wait -PassThru
 if (Test-Path $Smoke) { Get-Content $Smoke -Encoding UTF8 | ForEach-Object { Write-Host "  $_" } }
 if ($process.ExitCode -ne 0) { throw "打包后自检没过，见上面标 FAIL 的行" }
 
