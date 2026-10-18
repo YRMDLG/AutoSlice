@@ -24,7 +24,7 @@ from autoslice.llm.transport import call_llm, extract_json_payload
 
 from .ai_settings import AISettings, read_ai_settings
 from .cover_copy import BasicCoverCopy
-from .cover_fix_schema import AIObjectEdit, edit_steps, object_changes
+from .cover_fix_schema import AIObjectEdit, becomes_invisible, edit_steps, object_changes
 from .cover_style import STYLE_PRESETS
 from .cover_works import CoverWork
 from .foundation import DesktopStorage
@@ -231,8 +231,8 @@ class AIFix:
         ))
 
 
-def _outline_changes(raw, allowed: set[str]) -> tuple[AIOutline, ...]:
-    """只接收已知文字 ID 和六位十六进制颜色，不接收任意样式字段。"""
+def _outline_changes(raw, layers: dict[str, dict[str, object]]) -> tuple[AIOutline, ...]:
+    """只接收已知文字块的 ID 和六位十六进制颜色，不接收任意样式字段；配色看不出来的整条丢弃。"""
 
     if not isinstance(raw, list):
         return ()
@@ -245,9 +245,16 @@ def _outline_changes(raw, allowed: set[str]) -> tuple[AIOutline, ...]:
         stroke = str(item.get("stroke") or "").strip().upper()
         outer = item.get("outer_stroke")
         outer = outer.strip().upper() if isinstance(outer, str) else outer
-        if object_id not in allowed or object_id in seen or not re.fullmatch(r"#[0-9A-F]{6}", stroke):
+        layer = layers.get(object_id)
+        if layer is None or object_id in seen or not re.fullmatch(r"#[0-9A-F]{6}", stroke):
             continue
         if outer is not None and (not isinstance(outer, str) or outer and not re.fullmatch(r"#[0-9A-F]{6}", outer)):
+            continue
+        # 描边和填色几乎同色、外描边和描边几乎同色且比原来更糟：这条没意义，不进方案
+        old_stroke = layer.get("stroke")
+        if becomes_invisible((layer.get("fill"), stroke), (layer.get("fill"), old_stroke)):
+            continue
+        if outer and becomes_invisible((outer, stroke), (layer.get("outer_stroke"), old_stroke)):
             continue
         changes.append(AIOutline(object_id, stroke, outer))
         seen.add(object_id)
@@ -803,7 +810,7 @@ outline_colors 时在 outlines 里按 id 指定修改。结合填色、背景明
         payload = self._ask(prompt, vision=True, images=images, max_tokens=3000)
         fixes: list[AIFix] = []
         signatures = set()
-        allowed_layers = {item["id"] for item in text_layers if isinstance(item.get("id"), str)}
+        allowed_layers = {item["id"]: item for item in text_layers if isinstance(item.get("id"), str)}
         for item in payload.get("fixes") or ():
             if not isinstance(item, dict):
                 continue

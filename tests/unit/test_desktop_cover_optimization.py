@@ -15,7 +15,7 @@ from autoslice.desktop.ai_settings import AISettings
 from autoslice.desktop.cover_ai import AIFix, CoverAI, CoverAIError, contact_sheet
 from autoslice.desktop.cover_effects import add_burst, burst_id
 from autoslice.desktop.cover_fix_quality import describe_scene, safe_candidate, visually_distinct
-from autoslice.desktop.cover_fix_schema import AIObjectEdit, object_changes
+from autoslice.desktop.cover_fix_schema import AIObjectEdit, contrast_ratio, object_changes
 from autoslice.desktop.cover_fixes import apply_fix, describe_text_layers
 from autoslice.desktop.cover_model import (
     AssetRef,
@@ -71,6 +71,47 @@ class CoverOptimizationTests(unittest.TestCase):
             {"id": "text", "dx": 0.2},
         ], scene)
         self.assertEqual(changes, (AIObjectEdit("text", scale=1.15, fill="#AABBCC", words=("很好",), name="今天真的很好看"),))
+
+    def test_contrast_ratio_matches_known_values(self):
+        self.assertAlmostEqual(contrast_ratio("#000000", "#FFFFFF"), 21.0, places=1)
+        self.assertEqual(contrast_ratio("#FFE438", "#ffe438"), 1.0)
+        self.assertGreater(contrast_ratio("#FFE438", "#111111"), 10)
+        self.assertIsNone(contrast_ratio("#FFE438", "url(file:///bad)"))
+        self.assertIsNone(contrast_ratio("#FFE438", None))
+
+    def test_strokes_that_vanish_are_dropped_but_other_changes_stay(self):
+        scene = [{"id": "t", "kind": "text", "text": "标题", "fill": "#FFE438", "stroke": "#111111", "outer_stroke": ""}]
+        self.assertEqual(
+            object_changes([{"id": "t", "scale": 1.1, "stroke": "#FFE43A"}], scene),
+            (AIObjectEdit("t", scale=1.1, name="标题"),),
+        )
+        for bad in ({"stroke": "#FFE43A"}, {"fill": "#121212"}, {"outer_stroke": "#111111"}):
+            with self.subTest(bad=bad):
+                self.assertEqual(object_changes([{"id": "t", **bad}], scene), ())
+        good = object_changes([{"id": "t", "stroke": "#3A1F00", "outer_stroke": "#FFFFFF"}], scene)
+        self.assertEqual((good[0].stroke, good[0].outer_stroke), ("#3A1F00", "#FFFFFF"))
+        self.assertEqual(object_changes([{"id": "t", "outer_stroke": ""}], scene)[0].outer_stroke, "")
+
+    def test_low_contrast_is_only_blocked_when_it_gets_worse(self):
+        scene = [{"id": "t", "kind": "text", "text": "标题", "fill": "#FFE438", "stroke": "#FFE000"}]
+        better = object_changes([{"id": "t", "stroke": "#FFC800"}], scene)  # 原来就几乎同色，改后对比更高
+        self.assertEqual(better[0].stroke, "#FFC800")
+        scene = [{"id": "t", "kind": "text", "text": "标题", "fill": "#FFE438", "stroke": "#FFC800"}]
+        self.assertEqual(object_changes([{"id": "t", "stroke": "#FFE000"}], scene), ())
+
+    def test_outline_colors_that_vanish_never_reach_a_plan(self):
+        document = self.document(1)
+        layers = describe_text_layers(document, "4x3")
+        fill = layers[0]["fill"]
+        reply = {"fixes": [
+            {"issue": "同色描边", "actions": ["outline_colors"], "outlines": [{"id": "custom-0", "stroke": fill}]},
+            {"issue": "外描边同色", "actions": ["outline_colors"],
+             "outlines": [{"id": "custom-0", "stroke": "#3A1F00", "outer_stroke": "#3A1F00"}]},
+            {"issue": "协调配色", "actions": ["outline_colors"],
+             "outlines": [{"id": "custom-0", "stroke": "#3A1F00", "outer_stroke": "#FFFFFF"}]},
+        ]}
+        fixes = self.ai(reply).suggest_fixes(b"cover", text_layers=layers, scene=describe_scene(document, "4x3"))
+        self.assertEqual([fix.issue for fix in fixes], ["协调配色"])
 
     def test_prompt_and_parser_support_all_scene_objects_without_replacing_copy(self):
         document = self.document()

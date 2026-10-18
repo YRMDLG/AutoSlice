@@ -3976,6 +3976,7 @@
       "from": "autoslice.desktop.cover_ai",
       "imports": [
         "autoslice.desktop.cover_fix_schema.AIObjectEdit",
+        "autoslice.desktop.cover_fix_schema.becomes_invisible",
         "autoslice.desktop.cover_fix_schema.edit_steps",
         "autoslice.desktop.cover_fix_schema.object_changes"
       ],
@@ -15402,17 +15403,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 873,
+      "line_count": 880,
       "longest_function": {
-        "end_line": 846,
+        "end_line": 853,
         "kind": "function",
-        "line": 747,
+        "line": 754,
         "line_count": 100,
         "qualname": "CoverAI.suggest_fixes"
       },
       "module": "autoslice.desktop.cover_ai",
       "path": "src/autoslice/desktop/cover_ai.py",
-      "sha256": "83820a07691435497eab5af6c6dfdfc0e80f86b43ee3a3ada8cc576b40766ea7",
+      "sha256": "4f5e20fbb2b3b21170bf8fb8eb75262b87d54e2c438c0ac994d0b89ae99068f3",
       "top_level_classes": [
         {
           "end_line": 53,
@@ -15487,95 +15488,95 @@
           "name": "AIFix"
         },
         {
-          "end_line": 873,
+          "end_line": 880,
           "kind": "class",
-          "line": 418,
+          "line": 425,
           "name": "CoverAI"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 254,
+          "end_line": 261,
           "kind": "function",
           "line": 234,
           "name": "_outline_changes"
         },
         {
-          "end_line": 261,
-          "kind": "function",
-          "line": 257,
-          "name": "from_source"
-        },
-        {
           "end_line": 268,
           "kind": "function",
           "line": 264,
+          "name": "from_source"
+        },
+        {
+          "end_line": 275,
+          "kind": "function",
+          "line": 271,
           "name": "_has_evidence"
         },
         {
-          "end_line": 283,
+          "end_line": 290,
           "kind": "function",
-          "line": 271,
+          "line": 278,
           "name": "jpeg_bytes"
         },
         {
-          "end_line": 316,
+          "end_line": 323,
           "kind": "function",
-          "line": 286,
+          "line": 293,
           "name": "contact_sheet"
         },
         {
-          "end_line": 330,
+          "end_line": 337,
           "kind": "function",
-          "line": 319,
+          "line": 326,
           "name": "_box"
         },
         {
-          "end_line": 342,
+          "end_line": 349,
           "kind": "function",
-          "line": 333,
+          "line": 340,
           "name": "_sides"
         },
         {
-          "end_line": 363,
+          "end_line": 370,
           "kind": "function",
-          "line": 345,
+          "line": 352,
           "name": "_emphasis"
         },
         {
-          "end_line": 378,
+          "end_line": 385,
           "kind": "function",
-          "line": 371,
+          "line": 378,
           "name": "_frame_notes"
         },
         {
-          "end_line": 386,
+          "end_line": 393,
           "kind": "function",
-          "line": 381,
+          "line": 388,
           "name": "_image_size"
-        },
-        {
-          "end_line": 391,
-          "kind": "function",
-          "line": 389,
-          "name": "_clean"
         },
         {
           "end_line": 398,
           "kind": "function",
-          "line": 394,
+          "line": 396,
+          "name": "_clean"
+        },
+        {
+          "end_line": 405,
+          "kind": "function",
+          "line": 401,
           "name": "_seconds"
         },
         {
-          "end_line": 410,
+          "end_line": 417,
           "kind": "function",
-          "line": 401,
+          "line": 408,
           "name": "_subtitle_lines"
         },
         {
-          "end_line": 415,
+          "end_line": 422,
           "kind": "function",
-          "line": 413,
+          "line": 420,
           "name": "_work_examples"
         }
       ]
@@ -16460,17 +16461,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 106,
+      "line_count": 154,
       "longest_function": {
-        "end_line": 82,
+        "end_line": 130,
         "kind": "function",
-        "line": 45,
-        "line_count": 38,
+        "line": 92,
+        "line_count": 39,
         "qualname": "object_changes"
       },
       "module": "autoslice.desktop.cover_fix_schema",
       "path": "src/autoslice/desktop/cover_fix_schema.py",
-      "sha256": "7cbbf131e5455e8f4e59e1d1ae5d334f40189f36e2bf85cb5a9d939fdff88bb3",
+      "sha256": "30e7a03f02a33494a77f2cb29c50396718b0fa4d75484ee34c2dee10ae20c8f9",
       "top_level_classes": [
         {
           "end_line": 27,
@@ -16481,27 +16482,51 @@
       ],
       "top_level_functions": [
         {
-          "end_line": 34,
+          "end_line": 38,
           "kind": "function",
-          "line": 30,
+          "line": 36,
+          "name": "_linear"
+        },
+        {
+          "end_line": 51,
+          "kind": "function",
+          "line": 41,
+          "name": "contrast_ratio"
+        },
+        {
+          "end_line": 61,
+          "kind": "function",
+          "line": 54,
+          "name": "becomes_invisible"
+        },
+        {
+          "end_line": 74,
+          "kind": "function",
+          "line": 64,
+          "name": "_drop_invisible_strokes"
+        },
+        {
+          "end_line": 81,
+          "kind": "function",
+          "line": 77,
           "name": "_number"
         },
         {
-          "end_line": 42,
+          "end_line": 89,
           "kind": "function",
-          "line": 37,
+          "line": 84,
           "name": "_color"
         },
         {
-          "end_line": 82,
+          "end_line": 130,
           "kind": "function",
-          "line": 45,
+          "line": 92,
           "name": "object_changes"
         },
         {
-          "end_line": 106,
+          "end_line": 154,
           "kind": "function",
-          "line": 85,
+          "line": 133,
           "name": "edit_steps"
         }
       ]
@@ -26883,11 +26908,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 978,
-    "production_line_count": 74719,
+    "production_line_count": 74774,
     "production_module_count": 311,
     "test_private_patch_count": 17,
     "top_level_class_count": 318,
-    "top_level_function_count": 1471
+    "top_level_function_count": 1475
   },
   "test_private_patches": {
     "by_target_module": {
