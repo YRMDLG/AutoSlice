@@ -85,6 +85,8 @@ class CoverEditorWidget(
         self._frame_locked = False
         self._selected_frame_timestamp: float | None = None
         self._wider_frames: tuple[tuple[Path, float], ...] = ()
+        # 帧条里放的是“全片/更多”挑出来的候选：点其中一张只换大图，别的候选留着，方便逐张对比
+        self._strip_pinned = False
         self._nearby_pending: set[float] = set()
         self._nearby_results: list[CoverFrame] = []
         self._nearby_error = None

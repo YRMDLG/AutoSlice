@@ -889,6 +889,47 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         self.assertEqual(self.widget.document.profiles, before.profiles)
         self.widget.close()
 
+    def test_clicking_a_whole_video_candidate_keeps_the_other_candidates_for_comparison(self):
+        from autoslice.desktop.cover_frames import CoverFrame
+
+        picked = Path(self.temp.name) / "candidate.png"
+        Image.new("RGB", (640, 360), "#335577").save(picked)
+        stamps = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1.0]
+        self.widget.service.overview_candidates = lambda video, count=12: tuple(
+            CoverFrame(picked, stamp, 50.0 + index) for index, stamp in enumerate(stamps)
+        )
+        self.widget.show()
+        self.widget.set_current_playhead(0.5)
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and not self.widget._frame_extract_pending))
+        self.widget.overview_button.click()
+        self.assertTrue(self._wait(lambda: self.widget._strip_pinned))
+
+        def strip():
+            return [round(float(button.property("timestamp")), 2) for button in self.widget.nearby_frame_buttons]
+
+        self.assertEqual(strip(), stamps)
+        for index in (5, 1, 3):
+            self.widget.nearby_frame_buttons[index].click()
+            self.assertTrue(self._wait(
+                lambda: abs((self.widget.draft.selected_timestamp or 0) - stamps[index]) < 0.06
+                and not self.widget._frame_extract_pending
+            ))
+            self.assertEqual(strip(), stamps, "点一张只换大图，其它候选要留着")
+            self.assertEqual([button.isChecked() for button in self.widget.nearby_frame_buttons],
+                             [i == index for i in range(7)])
+            self.assertTrue(all(button.isEnabled() for button in self.widget.nearby_frame_buttons))
+        # 页面切走再回来也不该把候选缩略图换掉
+        self.widget.hide()
+        self.widget.show()
+        self.app.processEvents()
+        self.assertEqual(strip(), stamps)
+        # 点“当前帧”才回到以当前位置为中心的附近帧
+        self.widget.current_frame_button.click()
+        self.assertTrue(self._wait(lambda: not self.widget._strip_pinned and not self.widget._frame_extract_pending))
+        self.assertNotEqual(strip(), stamps)
+        self.widget.close()
+
     def test_add_text_creates_selected_box_ready_for_typing(self):
         self.widget.set_context(self.project, self.project.videos[0])
         self.assertTrue(self.widget.add_text_button.isEnabled())

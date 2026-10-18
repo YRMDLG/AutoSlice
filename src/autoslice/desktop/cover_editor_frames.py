@@ -159,7 +159,27 @@ class CoverFramesMixin:
         before = min(3, int(max(0.0, float(center or 0.0)) / 0.4 + 1e-6))
         return tuple(round((index - before) * 0.4, 2) for index in range(7))
 
+    def _strip_holds(self, timestamp: float) -> bool:
+        """帧条正放着“全片/更多”挑出的候选，且这个时刻就是其中一张：取帧后不要把帧条重排成附近帧。"""
+
+        return self._strip_pinned and any(
+            abs(float(button.property("timestamp") or 0.0) - timestamp) <= 0.12
+            for button in self.nearby_frame_buttons
+        )
+
+    def _select_strip_frame(self, timestamp: float) -> None:
+        """候选帧条里只勾最接近的那一张。"""
+
+        stamps = [abs(float(button.property("timestamp") or 0.0) - timestamp) for button in self.nearby_frame_buttons]
+        nearest = stamps.index(min(stamps)) if stamps else -1
+        for index, button in enumerate(self.nearby_frame_buttons):
+            button.setChecked(index == nearest)
+        self._selected_frame_timestamp = max(0.0, float(timestamp))
+        self.frame_center_label.setText(f"当前 {timestamp:.2f} 秒")
+        self._sync_frame_slider(timestamp)
+
     def _refresh_nearby_frame_strip(self, center: float):
+        self._strip_pinned = False
         center = max(0.0, float(center or 0.0))
         self.frame_center_label.setText(f"当前 {center:.2f} 秒")
         self._sync_frame_slider(center)
@@ -179,7 +199,8 @@ class CoverFramesMixin:
 
     def _queue_nearby_thumbnails(self, center: float):
         # 页面未显示时不启动 FFmpeg；进入封面页后由 showEvent 补排队。
-        if not self.isVisible() or self.video is None or not Path(self.video.path).is_file():
+        # 帧条放着“全片/更多”挑出的候选时不重排，否则切个页面回来就把候选缩略图换没了。
+        if self._strip_pinned or not self.isVisible() or self.video is None or not Path(self.video.path).is_file():
             return
         center = max(0.0, float(center or 0.0))
         offsets = self._nearby_offsets(center)
@@ -357,7 +378,9 @@ class CoverFramesMixin:
         for button, frame in zip(self.nearby_frame_buttons, picked):
             self._show_frame_on_button(button, frame, recommended=frame is best)
         self._update_nearby_frame_selection()
-        message = f"已从 {len(frames)} 张{scope}画面中挑出画质较好的 {len(picked)} 张"
+        self._strip_pinned = True
+        message = (f"已从 {len(frames)} 张{scope}画面中挑出画质较好的 {len(picked)} 张："
+                   "点哪张就大图看哪张，其它候选会留着；点“当前帧”回到附近帧")
         self.status_changed.emit(message)
 
     def set_current_playhead(self, seconds: float):
@@ -488,7 +511,12 @@ class CoverFramesMixin:
         self._frame_extract_pending = False
         self.extract_button.setEnabled(self.video is not None and Path(self.video.path).is_file())
         self.current_frame_button.setEnabled(self.extract_button.isEnabled())
-        self._refresh_nearby_frame_strip(self.timestamp_edit.value())
+        keep_strip = self._strip_holds(self.timestamp_edit.value())
+        if keep_strip:
+            for button in self.nearby_frame_buttons:
+                button.setEnabled(True)
+        else:
+            self._refresh_nearby_frame_strip(self.timestamp_edit.value())
         if error:
             message = f"取帧失败：{error}"
             self._set_notice(message, "error")
@@ -514,7 +542,10 @@ class CoverFramesMixin:
         if self.document is not None and before_document != self.document:
             self._record_history()
         self.timestamp_edit.setValue(timestamp)
-        self._refresh_nearby_frame_strip(timestamp)
+        if keep_strip:
+            self._select_strip_frame(timestamp)
+        else:
+            self._refresh_nearby_frame_strip(timestamp)
         if first_background:
             # 自动排版改了字号和对齐，右侧控件跟着刷新。
             self.canvas.set_document(self.document, self._canvas_key)
@@ -523,7 +554,8 @@ class CoverFramesMixin:
         self._set_notice("")
         self.status_changed.emit("已加载当前视频画面")
         self._show_new_frame()
-        self._queue_nearby_thumbnails(timestamp)
+        if not keep_strip:
+            self._queue_nearby_thumbnails(timestamp)
         self._refresh_schemes()
 
     def _cutout_person(self):

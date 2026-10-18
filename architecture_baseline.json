@@ -6038,7 +6038,7 @@
         "autoslice.desktop.asr.jobs.worker_command"
       ],
       "lines": [
-        9
+        17
       ],
       "to": "autoslice.desktop.asr.jobs"
     },
@@ -14827,20 +14827,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 563,
+      "line_count": 565,
       "longest_function": {
-        "end_line": 416,
+        "end_line": 418,
         "kind": "function",
-        "line": 350,
+        "line": 352,
         "line_count": 67,
         "qualname": "CoverEditorWidget._enter_context"
       },
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
-      "sha256": "4e2771e1caf681698e823c330d309cc46b062e8ac4a191ba5cddad35f7f1b98a",
+      "sha256": "22a24119f8e4f12475632db9b71c23f82d3358d8c35d23297ba6483e8463a0dd",
       "top_level_classes": [
         {
-          "end_line": 560,
+          "end_line": 562,
           "kind": "class",
           "line": 50,
           "name": "CoverEditorWidget"
@@ -15533,20 +15533,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 685,
+      "line_count": 717,
       "longest_function": {
-        "end_line": 527,
+        "end_line": 559,
         "kind": "function",
-        "line": 485,
-        "line_count": 43,
+        "line": 508,
+        "line_count": 52,
         "qualname": "CoverFramesMixin._frame_ready"
       },
       "module": "autoslice.desktop.cover_editor_frames",
       "path": "src/autoslice/desktop/cover_editor_frames.py",
-      "sha256": "7b5e3618635426f25dba7c735563ff20b81491b83ad4a0ab4367209f62c1117e",
+      "sha256": "96d7e820f566c990a141128a1d2608af8ea1abf03c3d839b030655055a2b55d4",
       "top_level_classes": [
         {
-          "end_line": 685,
+          "end_line": 717,
           "kind": "class",
           "line": 92,
           "name": "CoverFramesMixin"
@@ -16929,28 +16929,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 134,
+      "line_count": 141,
       "longest_function": {
-        "end_line": 44,
+        "end_line": 87,
         "kind": "function",
-        "line": 31,
-        "line_count": 14,
-        "qualname": "ModuleProcess.start"
+        "line": 69,
+        "line_count": 19,
+        "qualname": "ModuleProcess._pump"
       },
       "module": "autoslice.desktop.qt_app.asr_process",
       "path": "src/autoslice/desktop/qt_app/asr_process.py",
-      "sha256": "73ca1d71da09056f91fba0c2204c524d92b127cc470aa876c89475e52c5d40fb",
+      "sha256": "dac3a0210f95b4c24851b48ef121fc2fa53d07ff1e97f661a627bb2654921163",
       "top_level_classes": [
         {
-          "end_line": 84,
+          "end_line": 91,
           "kind": "class",
-          "line": 14,
+          "line": 23,
           "name": "ModuleProcess"
         },
         {
-          "end_line": 134,
+          "end_line": 141,
           "kind": "class",
-          "line": 87,
+          "line": 94,
           "name": "RecognizeJob"
         }
       ],
@@ -25997,7 +25997,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 939,
-    "production_line_count": 72862,
+    "production_line_count": 72903,
     "production_module_count": 302,
     "test_private_patch_count": 17,
     "top_level_class_count": 303,
