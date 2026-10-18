@@ -4032,7 +4032,7 @@
         "autoslice.desktop.cover_assets.CoverAsset"
       ],
       "lines": [
-        20
+        21
       ],
       "to": "autoslice.desktop.cover_assets"
     },
@@ -4042,7 +4042,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        21
+        22
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -15583,32 +15583,45 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 146,
+      "line_count": 222,
       "longest_function": {
-        "end_line": 129,
+        "end_line": 201,
         "kind": "function",
-        "line": 74,
-        "line_count": 56,
+        "line": 142,
+        "line_count": 60,
         "qualname": "CoverAssetDialog.__init__"
       },
       "module": "autoslice.desktop.cover_asset_dialog",
       "path": "src/autoslice/desktop/cover_asset_dialog.py",
-      "sha256": "af8d249ecabab0a5a292c1d520cedf82d16e969cec952e7c3b78014b4b6dda64",
+      "sha256": "73660b6e4e00491f2dcaf99b081d379dea97de73199c3e02dd5f9c94339a47c2",
       "top_level_classes": [
         {
-          "end_line": 65,
+          "end_line": 101,
           "kind": "class",
-          "line": 28,
+          "line": 46,
           "name": "CoverAssetModel"
         },
         {
-          "end_line": 146,
+          "end_line": 133,
           "kind": "class",
-          "line": 68,
+          "line": 104,
+          "name": "AssetFilterModel"
+        },
+        {
+          "end_line": 222,
+          "kind": "class",
+          "line": 136,
           "name": "CoverAssetDialog"
         }
       ],
-      "top_level_functions": []
+      "top_level_functions": [
+        {
+          "end_line": 43,
+          "kind": "function",
+          "line": 31,
+          "name": "pinyin_text"
+        }
+      ]
     },
     {
       "duplicate_top_level_definitions": [],
@@ -26908,11 +26921,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 978,
-    "production_line_count": 74819,
+    "production_line_count": 74895,
     "production_module_count": 311,
     "test_private_patch_count": 17,
-    "top_level_class_count": 318,
-    "top_level_function_count": 1475
+    "top_level_class_count": 319,
+    "top_level_function_count": 1476
   },
   "test_private_patches": {
     "by_target_module": {

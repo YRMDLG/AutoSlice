@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 from collections import OrderedDict
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QSize, QSortFilterProxyModel, Qt
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QSize, QSortFilterProxyModel, Qt, QTimer
 from PySide6.QtGui import QIcon, QImageReader, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -22,7 +23,24 @@ from .qt_preview import motion
 
 _THUMB = 96
 _SEARCH_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+_PINYIN_ROLE = int(Qt.ItemDataRole.UserRole) + 2
 _ICON_CACHE_SIZE = 192
+_HAS_PINYIN = importlib.util.find_spec("pypinyin") is not None
+
+
+def pinyin_text(text: str) -> str:
+    """名称和分组的拼音全拼与首字母（小写，名称和分组之间留空格）；纯英文或没装 pypinyin 返回空串。"""
+
+    if text.isascii():
+        return ""
+    try:
+        from pypinyin import Style, lazy_pinyin
+    except ImportError:
+        return ""
+    # errors=list：非汉字（英文、数字、斜杠、空格）逐字符原样保留
+    full = "".join(lazy_pinyin(text, errors=list))
+    initials = "".join(lazy_pinyin(text, style=Style.FIRST_LETTER, errors=list))
+    return f"{full} {initials}".casefold()
 
 
 class CoverAssetModel(QAbstractListModel):
@@ -32,9 +50,23 @@ class CoverAssetModel(QAbstractListModel):
         super().__init__(parent)
         self.assets = assets
         self._icons: OrderedDict[str, QIcon] = OrderedDict()
+        self._pinyin: dict[str, str] = {}  # 只有输入了英文关键词才会用到；对话框打开后在后台分批预热
+        self._warm_cursor = 0
 
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.assets)
+
+    def warm_pinyin(self, count: int = 100) -> bool:
+        """分批算好拼音缓存，免得第一次输入英文关键词时卡住界面；返回是否还有没算的。"""
+
+        if not _HAS_PINYIN:
+            return False
+        end = min(len(self.assets), self._warm_cursor + count)
+        for asset in self.assets[self._warm_cursor:end]:
+            if asset.asset_id not in self._pinyin:
+                self._pinyin[asset.asset_id] = pinyin_text(f"{asset.name} {asset.group}")
+        self._warm_cursor = end
+        return end < len(self.assets)
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or not 0 <= index.row() < len(self.assets):
@@ -48,6 +80,10 @@ class CoverAssetModel(QAbstractListModel):
             return asset.asset_id
         if role == _SEARCH_ROLE:
             return f"{asset.name} {asset.group}"
+        if role == _PINYIN_ROLE:
+            if asset.asset_id not in self._pinyin:
+                self._pinyin[asset.asset_id] = pinyin_text(f"{asset.name} {asset.group}")
+            return self._pinyin[asset.asset_id]
         if role != Qt.ItemDataRole.DecorationRole:
             return None
         icon = self._icons.get(asset.asset_id)
@@ -63,6 +99,38 @@ class CoverAssetModel(QAbstractListModel):
         else:
             self._icons.move_to_end(asset.asset_id)
         return icon
+
+
+class AssetFilterModel(QSortFilterProxyModel):
+    """空格隔开的多个关键词要同时命中；匹配名称和分组，英文关键词还能匹配拼音全拼和首字母。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._terms: tuple[str, ...] = ()
+
+    def set_query(self, text: str) -> None:
+        terms = tuple(text.casefold().split())  # split() 同时处理全角空格和多余空白
+        if hasattr(self, "beginFilterChange"):  # Qt 6.10+：invalidateFilter 已弃用，改用成对的 begin/end
+            self.beginFilterChange()
+            self._terms = terms
+            self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
+        else:
+            self._terms = terms
+            self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        if not self._terms:
+            return True
+        index = self.sourceModel().index(source_row, 0, source_parent)
+        text = str(index.data(_SEARCH_ROLE) or "").casefold()
+        for term in self._terms:
+            if term in text:
+                continue
+            # 中文关键词不碰拼音；英文关键词没在名称里命中时才去查（结果会缓存）
+            if term.isascii() and term in str(index.data(_PINYIN_ROLE) or ""):
+                continue
+            return False
+        return True
 
 
 class CoverAssetDialog(QDialog):
@@ -94,13 +162,12 @@ class CoverAssetDialog(QDialog):
         self.folder_label.setVisible(bool(source_directory))
         self.change_folder.setVisible(bool(source_directory))
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索全部素材名或分组…")
+        self.search.setPlaceholderText(
+            "搜索素材名或分组，多个词用空格隔开" + ("；也可输入拼音（如 zeyin、zy）" if _HAS_PINYIN else "") + "…")
         layout.addWidget(self.search)
         self.asset_model = CoverAssetModel(assets, self)
-        self.filtered_model = QSortFilterProxyModel(self)
+        self.filtered_model = AssetFilterModel(self)
         self.filtered_model.setSourceModel(self.asset_model)
-        self.filtered_model.setFilterRole(_SEARCH_ROLE)
-        self.filtered_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.grid = QListView()
         self.grid.setModel(self.filtered_model)
         self.grid.setViewMode(QListView.ViewMode.IconMode)
@@ -126,13 +193,18 @@ class CoverAssetDialog(QDialog):
         self.search.textChanged.connect(self._filter)
         self.grid.selectionModel().currentChanged.connect(self._selection_changed)
         self._filter("")
+        # 事件循环空闲时一小批一小批地算拼音（5000 个素材一次算完要 1 秒多），界面不卡。
+        self.warm_timer = QTimer(self)
+        self.warm_timer.timeout.connect(self._warm_pinyin)
+        if assets and _HAS_PINYIN:
+            self.warm_timer.start(0)
         motion.install_tree(self)
 
     def _selection_changed(self, *_args) -> None:
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(self.selected_asset() is not None)
 
     def _filter(self, text: str) -> None:
-        self.filtered_model.setFilterFixedString(text.strip())
+        self.filtered_model.set_query(text)
         count = self.filtered_model.rowCount()
         self.grid.setCurrentIndex(self.filtered_model.index(0, 0) if count else QModelIndex())
         if not self.asset_model.assets:
@@ -140,6 +212,10 @@ class CoverAssetDialog(QDialog):
         else:
             self.count_label.setText(f"共 {len(self.asset_model.assets)} 张素材 · 当前显示 {count} 张")
         self._selection_changed()
+
+    def _warm_pinyin(self) -> None:
+        if not self.asset_model.warm_pinyin():
+            self.warm_timer.stop()
 
     def selected_asset(self) -> CoverAsset | None:
         source = self.filtered_model.mapToSource(self.grid.currentIndex())

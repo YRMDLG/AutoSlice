@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -157,6 +159,70 @@ class AssetDialogTests(unittest.TestCase):
         self.addCleanup(dialog.close)
         self.assertIn("更换文件夹", dialog.count_label.text())
         self.assertFalse(dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled())
+
+    def make_dialog(self, *rows):
+        from autoslice.desktop.cover_asset_dialog import CoverAssetDialog
+
+        image = Path(self.temp.name) / "thumbnail.png"
+        assets = tuple(CoverAsset(str(index), name, str(image), group=group) for index, (name, group) in enumerate(rows))
+        dialog = CoverAssetDialog(assets)
+        self.addCleanup(dialog.close)
+        return dialog
+
+    def matched(self, dialog, text):
+        dialog.search.setText(text)
+        model = dialog.filtered_model
+        return sorted(model.mapToSource(model.index(row, 0)).row() for row in range(model.rowCount()))
+
+    def test_several_keywords_must_all_match_and_blank_runs_are_ignored(self):
+        dialog = self.make_dialog(("可爱", "素材/泽音/表情"), ("震惊", "素材/泽音/表情"), ("可爱", "素材/别人/表情"))
+        for text, expected in (
+            ("可爱 泽音", [0]), ("可爱　泽音", [0]), ("  泽音   表情  ", [0, 1]), ("可爱 没有", []), ("", [0, 1, 2]),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.matched(dialog, text), expected)
+
+    @unittest.skipUnless(importlib.util.find_spec("pypinyin"), "没装 pypinyin")
+    def test_pinyin_and_initials_find_chinese_names_and_combine_with_other_keywords(self):
+        dialog = self.make_dialog(("可爱", "素材/泽音/表情"), ("震惊", "素材/泽音/表情"), ("Kira", "素材/英文"))
+        for text, expected in (
+            ("keai", [0]), ("KEAI", [0]), ("zeyin", [0, 1]), ("zy", [0, 1]), ("keai zeyin", [0]),
+            ("keai 震惊", []), ("keai wrong", []), ("kira", [2]),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.matched(dialog, text), expected)
+
+    def test_pinyin_is_only_computed_for_ascii_keywords_and_then_cached(self):
+        from autoslice.desktop import cover_asset_dialog
+
+        dialog = self.make_dialog(("可爱", "素材/泽音"), ("震惊", "素材/泽音"))
+        with patch.object(cover_asset_dialog, "pinyin_text", wraps=cover_asset_dialog.pinyin_text) as spy:
+            self.matched(dialog, "泽音")
+            self.assertEqual(spy.call_count, 0)
+            self.matched(dialog, "zzz")
+            computed = spy.call_count
+            self.assertEqual(computed, 2)
+            self.matched(dialog, "zzzz")
+            self.assertEqual(spy.call_count, computed)
+
+    @unittest.skipUnless(importlib.util.find_spec("pypinyin"), "没装 pypinyin")
+    def test_pinyin_cache_warms_in_small_batches_before_the_first_ascii_search(self):
+        from autoslice.desktop import cover_asset_dialog
+
+        dialog = self.make_dialog(*((f"可爱{index}", "素材/泽音") for index in range(250)))
+        dialog.warm_timer.stop()
+        with patch.object(cover_asset_dialog, "pinyin_text", wraps=cover_asset_dialog.pinyin_text) as spy:
+            self.assertEqual([dialog.asset_model.warm_pinyin(100) for _ in range(3)], [True, True, False])
+            self.assertEqual(spy.call_count, 250)
+            self.assertEqual(self.matched(dialog, "zeyin"), list(range(250)))
+            self.assertEqual(spy.call_count, 250)  # 搜索直接用预热好的缓存
+
+    def test_idle_timer_finishes_warming_and_stops(self):
+        dialog = self.make_dialog(*((f"可爱{index}", "素材/泽音") for index in range(250)))
+        deadline = time.monotonic() + 5
+        while dialog.warm_timer.isActive() and time.monotonic() < deadline:
+            self.app.processEvents()
+        self.assertFalse(dialog.warm_timer.isActive())
 
 
 @unittest.skipIf(QApplication is None, "PySide6 不可用")
