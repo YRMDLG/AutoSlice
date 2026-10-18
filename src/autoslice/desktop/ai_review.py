@@ -8,7 +8,9 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from autoslice.desktop.archive.knowledge import Knowledge
+from autoslice.desktop.asr.hotwords import build_hotwords
 from autoslice.desktop.foundation import DesktopStorage
+from autoslice.desktop.homophone import HomophoneIndex, apply_hits, describe
 from autoslice.desktop.subtitles import SubtitleDocument, SubtitleEntry
 from autoslice.llm.transport import load_api_config
 from autoslice.streamer_profiles import resolve_streamer_profile
@@ -40,10 +42,12 @@ class Suggestion:
 
 
 class AIReviewSession:
-    def __init__(self, suggestions: list[Suggestion], cache_key: str, content_hash: str):
+    def __init__(self, suggestions: list[Suggestion], cache_key: str, content_hash: str, local_only: bool = False):
         self.suggestions = suggestions
         self.cache_key = cache_key
         self.content_hash = content_hash
+        # 只有本地同音检查的结果（没调用过 AI）：重新做 AI 检查时不用提醒“会消耗额度”
+        self.local_only = local_only
 
     @property
     def pending(self) -> list[Suggestion]:
@@ -62,10 +66,35 @@ class AIReviewSession:
 
 class AIReviewService:
     def __init__(self, storage: DesktopStorage, checker=suggest_subtitle_corrections,
-                 config_loader=load_api_config):
+                 config_loader=load_api_config, terms_provider=None):
         self.storage = storage
         self.checker = checker
         self.config_loader = config_loader
+        self.terms_provider = terms_provider or self._review_terms
+
+    def _review_terms(self, document: SubtitleDocument, project_title: str) -> list[str]:
+        """同音检查用的术语：固定词、主播配置、你确认过的学到术语（比识别热词多放，不受 60 个限制）。"""
+
+        return build_hotwords(document.video.path, storage=self.storage, title=project_title, limit=2000)
+
+    def local_suggestions(self, document: SubtitleDocument, project_title: str) -> list[Suggestion]:
+        """本地同音检测：不调用 AI、不花额度；没装 pypinyin 返回空。"""
+
+        index = HomophoneIndex(self.terms_provider(document, project_title))
+        if not index.ready:
+            return []
+        content = document_hash(document.entries)
+        suggestions = []
+        for entry in document.entries:
+            hits = index.find(entry.text)
+            if not hits:
+                continue
+            corrected = apply_hits(entry.text, hits)
+            suggestions.append(Suggestion(
+                _digest((content, entry.index, entry.text, corrected))[:20], entry.index, entry.text, corrected,
+                describe(hits), None, source="homophone",
+            ))
+        return suggestions
 
     def _identity(self, document: SubtitleDocument, project_title: str):
         config = self.config_loader()
@@ -164,4 +193,7 @@ class AIReviewService:
                 item.get("reason", ""), item.get("confidence"),
                 source=item.get("source", "ai"), model=config.model,
             ))
+        # 本地同音建议顺带并进来；AI 已经给过建议的那几条以 AI 为准
+        covered = {item.cue_id for item in suggestions}
+        suggestions += [item for item in self.local_suggestions(document, project_title) if item.cue_id not in covered]
         return AIReviewSession(suggestions, key, document_hash(document.entries))

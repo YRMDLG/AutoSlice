@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from autoslice.desktop.asr import AsrSettings, load_settings, save_settings
+from autoslice.desktop.asr.jobs import worker_command as real_worker_command
 from autoslice.desktop.foundation import DesktopStorage
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -195,6 +196,19 @@ class AsrQtTests(unittest.TestCase):
         self.assertIn("✗ torch：没装", panel.output.toPlainText())
         self.assertIn("pip install torch", panel.output.toPlainText())
         self.assertIn("1 项需要处理", panel.status.text())
+
+    def test_installed_build_without_a_configured_python_explains_what_to_do(self):
+        panel = self.window.asr_settings_panel
+        self.use_model("ok")
+        self.select("没字幕")
+        with patch.object(sys, "frozen", True, create=True), \
+                patch("autoslice.desktop.qt_app.asr_process.worker_command", side_effect=real_worker_command):
+            self.window.asr_banner.start_button.click()
+            self.wait_for(lambda: not self.window._asr_running() and "识别用的 Python" in self.window.asr_banner.detail.text())
+            panel.python_edit.setText("")
+            panel.check_button.click()
+        self.assertIn("识别用的 Python", panel.status.text())
+        self.assertTrue(panel.check_button.isEnabled())
 
     def test_doctor_button_reports_a_child_that_cannot_start(self):
         panel = self.window.asr_settings_panel

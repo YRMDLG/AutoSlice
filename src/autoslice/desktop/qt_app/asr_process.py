@@ -110,8 +110,13 @@ class RecognizeJob(QObject):
 
     def start(self, spec: JobSpec, spec_path: Path, python: str = "") -> None:
         spec.write(spec_path)
-        program, arguments, environment = worker_command(spec_path, python)
         self._result = None
+        try:
+            program, arguments, environment = worker_command(spec_path, python)
+        except ValueError as exc:
+            message = str(exc)  # except 块结束后 exc 会被删掉，延迟执行的闭包要用副本
+            QTimer.singleShot(0, lambda: self.finished.emit("error", {"message": message}))
+            return
         self._runner.start(program, arguments, environment)
 
     def cancel(self) -> None:

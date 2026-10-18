@@ -188,7 +188,14 @@ class AsrSettingsPanel(QWidget):
         self.output.show()
         self._lines = []
         arguments = ["doctor", "--json", *(["--probe"] if probe else [])]
-        program, args, environment = python_command("autoslice.desktop.asr", arguments, self.python_edit.text())
+        try:
+            program, args, environment = python_command("autoslice.desktop.asr", arguments, self.python_edit.text())
+        except ValueError as exc:
+            for button in (self.check_button, self.probe_button):
+                button.setEnabled(True)
+            self.status.setText(str(exc))
+            self.output.hide()
+            return
         self._runner.start(program, args, environment)
 
     def _collect(self, text: str) -> None:

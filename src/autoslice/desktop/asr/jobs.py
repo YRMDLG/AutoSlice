@@ -58,17 +58,40 @@ def parse_event(line: str) -> dict | None:
     return event if isinstance(event, dict) and "type" in event else None
 
 
-def python_command(module: str, arguments: list[str], python: str = "") -> tuple[str, list[str], dict[str, str]]:
-    """(程序, 参数, 额外环境变量)。子进程用的 Python 可能不是当前这个，所以把本项目源码目录放进它的 PYTHONPATH。"""
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
 
+
+def source_root(*, frozen: bool | None = None, bundle_dir: str | None = None) -> str:
+    """识别子进程能 import 到 autoslice 的目录：源码运行是 src/，安装版是打包时放进去的 worker_src/。"""
+
+    if is_frozen() if frozen is None else frozen:
+        base = bundle_dir or getattr(sys, "_MEIPASS", None) or str(Path(sys.executable).parent)
+        return str(Path(base) / "worker_src")
     import autoslice
 
-    source_root = str(Path(autoslice.__file__).resolve().parent.parent)
-    program = python.strip() or sys.executable
+    return str(Path(autoslice.__file__).resolve().parent.parent)
+
+
+def python_command(module: str, arguments: list[str], python: str = "", *, frozen: bool | None = None,
+                   bundle_dir: str | None = None) -> tuple[str, list[str], dict[str, str]]:
+    """(程序, 参数, 额外环境变量)。子进程用的 Python 可能不是当前这个，所以把本项目源码目录放进它的 PYTHONPATH。
+
+    安装版自己不带 Python（带了也没有 torch），必须在设置里指定“识别用的 Python”。
+    """
+
+    program = python.strip()
+    if frozen is None:
+        frozen = is_frozen()
+    if not program:
+        if frozen:
+            raise ValueError("安装版没有自带 Python：请先在设置里填“识别用的 Python”（装了 torch 和识别库的那个）")
+        program = sys.executable
     return program, ["-u", "-m", module, *arguments], {
-        "PYTHONPATH": source_root, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1",
+        "PYTHONPATH": source_root(frozen=frozen, bundle_dir=bundle_dir), "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1",
     }
 
 
-def worker_command(spec_path: Path, python: str = "") -> tuple[str, list[str], dict[str, str]]:
-    return python_command("autoslice.desktop.asr.worker", [str(spec_path)], python)
+def worker_command(spec_path: Path, python: str = "", *, frozen: bool | None = None,
+                   bundle_dir: str | None = None) -> tuple[str, list[str], dict[str, str]]:
+    return python_command("autoslice.desktop.asr.worker", [str(spec_path)], python, frozen=frozen, bundle_dir=bundle_dir)

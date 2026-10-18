@@ -369,6 +369,15 @@ class JobProtocolTests(unittest.TestCase):
         self.assertTrue((Path(environment["PYTHONPATH"]) / "autoslice").is_dir())
         self.assertEqual(jobs.worker_command(Path("j"), "D:/py/python.exe")[0], "D:/py/python.exe")
 
+    def test_frozen_build_has_no_python_of_its_own_and_points_the_child_at_worker_src(self):
+        with self.assertRaises(ValueError) as caught:
+            jobs.worker_command(Path("job.json"), "", frozen=True, bundle_dir="C:/app/_internal")
+        self.assertIn("识别用的 Python", str(caught.exception))
+        program, _arguments, environment = jobs.worker_command(
+            Path("job.json"), "D:/py/python.exe", frozen=True, bundle_dir="C:/app/_internal")
+        self.assertEqual(program, "D:/py/python.exe")
+        self.assertEqual(Path(environment["PYTHONPATH"]), Path("C:/app/_internal") / "worker_src")
+
 
 class WorkerTests(NeedsFfmpeg):
     def setUp(self):

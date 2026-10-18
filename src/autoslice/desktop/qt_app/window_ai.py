@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from autoslice.desktop.ai_review import document_hash
+from autoslice.desktop.ai_review import AIReviewSession, document_hash
+from autoslice.desktop.homophone import available as homophone_available
 from autoslice.desktop.qt_preview import motion
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label, line, tool_icon
@@ -55,6 +56,13 @@ class AiReviewMixin:
         self.ai_header = label("AI 建议", "sectionTitle")
         header.addWidget(self.ai_header)
         header.addStretch()
+        self.ai_local = QPushButton()
+        self.ai_local.setObjectName("quiet")
+        self.ai_local.setFixedSize(28, 28)
+        tool_icon(self.ai_local, "bolt")
+        self.ai_local.setToolTip("同音检查（本地、免费）：找发音和你的术语表相同、写法不同的字，比如“紫雨亭”→“子语庭”")
+        self.ai_local.clicked.connect(self._start_local_check)
+        header.addWidget(self.ai_local)
         self.ai_run = QPushButton("AI 检查")
         self.ai_run.setObjectName("quiet")
         self.ai_run.setFixedHeight(28)
@@ -202,12 +210,14 @@ class AiReviewMixin:
             motion.reveal(self.nav_badge, badge_count > 0)
         self.ai_collapsed_label.setText(f"AI {count}" if count else "AI")
         self.ai_run.setEnabled(bool(self.document))
+        self.ai_local.setEnabled(bool(self.document) and not self._ai_running)
+        rechecking = bool(self.ai_session) and not self.ai_session.local_only
         self.ai_run.setText("取消检查" if self._ai_running else
-                            "重新检查" if self.ai_session else "AI 检查")
+                            "重新检查" if rechecking else "AI 检查")
         if self._ai_running:
             self.ai_run.setIcon(QIcon())
         else:
-            tool_icon(self.ai_run, "refresh" if self.ai_session else "sparkle")
+            tool_icon(self.ai_run, "refresh" if rechecking else "sparkle")
         pending_ids = {item.suggestion_id for item in pending}
         if self._ai_selected not in pending_ids:
             self._ai_selected = pending[0].suggestion_id if pending else None
@@ -389,6 +399,39 @@ class AiReviewMixin:
         motion.reveal(self.ai_return, False)
         self._render_ai()
 
+    def _start_local_check(self):
+        """同音检查：纯本地、立刻出结果，建议并进同一个待确认队列，不需要配置 AI。"""
+
+        if not self.document or not self.project or self._ai_running:
+            return
+        self._commit_editor()
+        if not homophone_available():
+            self.ai_note.setText("同音检查需要 pypinyin：在运行 AutoSlice 的 Python 里执行 pip install pypinyin")
+            self.ai_note.show()
+            return
+        found = self.ai_service.local_suggestions(self.document, self.project.title)
+        session = self.ai_session
+        known = {(item.cue_id, item.suggested_text) for item in session.suggestions} if session else set()
+        fresh = [item for item in found if (item.cue_id, item.suggested_text) not in known]
+        if fresh:
+            content = document_hash(self.document.entries)
+            if session is None:
+                session = AIReviewSession(fresh, content[:20], content, local_only=True)
+            else:
+                session.suggestions = [*session.suggestions, *fresh]
+                session.content_hash = content
+            self.ai_session = session
+            self._ai_selected = None
+            if not session.local_only:
+                self._save_ai_session()
+        self._render_ai()
+        if fresh:
+            self._set_ai_open(True)
+            self.ai_note.setText(f"同音检查：找到 {len(fresh)} 处疑似听错，逐条确认即可。")
+        else:
+            self.ai_note.setText("同音检查：没有发现发音和术语相同、写法不同的地方。")
+        self.ai_note.show()
+
     def _start_ai_check(self):
         if self._ai_running:
             self._ai_cancel.set()
@@ -397,7 +440,8 @@ class AiReviewMixin:
         if not self.document or not self.project:
             return
         self._commit_editor()
-        if self.ai_session:
+        rechecking = self.ai_session is not None and not self.ai_session.local_only
+        if rechecking:
             choice = QMessageBox.question(self, "重新检查字幕",
                                           "重新检查会再次调用 AI 并消耗额度，确定继续吗？")
             if choice != QMessageBox.StandardButton.Yes:
@@ -405,7 +449,7 @@ class AiReviewMixin:
         snapshot = copy.copy(self.document)
         snapshot.entries = list(self.document.entries)
         project = self.project
-        force = self.ai_session is not None
+        force = rechecking
         self._ai_running = True
         self._ai_cancel = threading.Event()
         cancellation = self._ai_cancel

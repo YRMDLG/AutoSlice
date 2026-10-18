@@ -2246,12 +2246,34 @@
     {
       "from": "autoslice.desktop.ai_review",
       "imports": [
-        "autoslice.desktop.foundation.DesktopStorage"
+        "autoslice.desktop.asr.hotwords.build_hotwords"
       ],
       "lines": [
         11
       ],
+      "to": "autoslice.desktop.asr.hotwords"
+    },
+    {
+      "from": "autoslice.desktop.ai_review",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        12
+      ],
       "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.ai_review",
+      "imports": [
+        "autoslice.desktop.homophone.HomophoneIndex",
+        "autoslice.desktop.homophone.apply_hits",
+        "autoslice.desktop.homophone.describe"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.desktop.homophone"
     },
     {
       "from": "autoslice.desktop.ai_review",
@@ -2260,7 +2282,7 @@
         "autoslice.desktop.subtitles.SubtitleEntry"
       ],
       "lines": [
-        12
+        14
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -2270,7 +2292,7 @@
         "autoslice.llm.transport.load_api_config"
       ],
       "lines": [
-        13
+        15
       ],
       "to": "autoslice.llm.transport"
     },
@@ -2280,7 +2302,7 @@
         "autoslice.streamer_profiles.resolve_streamer_profile"
       ],
       "lines": [
-        14
+        16
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -2291,7 +2313,7 @@
         "autoslice.subtitle_workflow.suggest_subtitle_corrections"
       ],
       "lines": [
-        15
+        17
       ],
       "to": "autoslice.subtitle_workflow"
     },
@@ -3513,7 +3535,7 @@
         "autoslice"
       ],
       "lines": [
-        64
+        71
       ],
       "to": "autoslice"
     },
@@ -6458,6 +6480,7 @@
     {
       "from": "autoslice.desktop.qt_app.window_ai",
       "imports": [
+        "autoslice.desktop.ai_review.AIReviewSession",
         "autoslice.desktop.ai_review.document_hash"
       ],
       "lines": [
@@ -6468,10 +6491,20 @@
     {
       "from": "autoslice.desktop.qt_app.window_ai",
       "imports": [
+        "autoslice.desktop.homophone.available"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.desktop.homophone"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_ai",
+      "imports": [
         "autoslice.desktop.qt_app.window_widgets._ElidedQueueButton"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
     },
@@ -6481,7 +6514,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -6492,7 +6525,7 @@
         "autoslice.desktop.qt_preview.theme.SIZES"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -6504,7 +6537,7 @@
         "autoslice.desktop.qt_preview.window.tool_icon"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -6514,7 +6547,7 @@
         "autoslice.transcription.contracts.srt_timestamp_seconds"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -9883,6 +9916,36 @@
       "to": "_autoslice_compat"
     },
     {
+      "from": "scripts.desktop_entry",
+      "imports": [
+        "autoslice"
+      ],
+      "lines": [
+        31
+      ],
+      "to": "autoslice"
+    },
+    {
+      "from": "scripts.desktop_entry",
+      "imports": [
+        "autoslice.desktop.asr.jobs.source_root"
+      ],
+      "lines": [
+        47
+      ],
+      "to": "autoslice.desktop.asr.jobs"
+    },
+    {
+      "from": "scripts.desktop_entry",
+      "imports": [
+        "autoslice.desktop.qt_app.__main__.main"
+      ],
+      "lines": [
+        64
+      ],
+      "to": "autoslice.desktop.qt_app.__main__"
+    },
+    {
       "from": "scripts.manual.run_real_pipeline_smoke",
       "imports": [
         "autoslice.pipeline.run_pipeline"
@@ -10315,6 +10378,15 @@
       "qualname": "draw_cover_text"
     },
     {
+      "end_line": 179,
+      "kind": "function",
+      "line": 37,
+      "line_count": 143,
+      "module": "autoslice.desktop.qt_app.window_ai",
+      "path": "src/autoslice/desktop/qt_app/window_ai.py",
+      "qualname": "AiReviewMixin._ai_panel"
+    },
+    {
       "end_line": 864,
       "kind": "function",
       "line": 726,
@@ -10322,15 +10394,6 @@
       "module": "autoslice_cover.video",
       "path": "src/autoslice_cover/video.py",
       "qualname": "extract_candidate_frames"
-    },
-    {
-      "end_line": 171,
-      "kind": "function",
-      "line": 36,
-      "line_count": 136,
-      "module": "autoslice.desktop.qt_app.window_ai",
-      "path": "src/autoslice/desktop/qt_app/window_ai.py",
-      "qualname": "AiReviewMixin._ai_panel"
     },
     {
       "end_line": 338,
@@ -13053,48 +13116,48 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 167,
+      "line_count": 199,
       "longest_function": {
-        "end_line": 167,
+        "end_line": 199,
         "kind": "function",
-        "line": 130,
-        "line_count": 38,
+        "line": 159,
+        "line_count": 41,
         "qualname": "AIReviewService.check"
       },
       "module": "autoslice.desktop.ai_review",
       "path": "src/autoslice/desktop/ai_review.py",
-      "sha256": "fff0521b0c4e51cd96762db1201fd7da629ffca7ed18293381da933a13aee37f",
+      "sha256": "510920e75754c24ffceb23b0db87f7aa8a5077e3beda16cb7c80c9fdb0492e73",
       "top_level_classes": [
         {
-          "end_line": 39,
+          "end_line": 41,
           "kind": "class",
-          "line": 29,
+          "line": 31,
           "name": "Suggestion"
         },
         {
-          "end_line": 60,
+          "end_line": 64,
           "kind": "class",
-          "line": 42,
+          "line": 44,
           "name": "AIReviewSession"
         },
         {
-          "end_line": 167,
+          "end_line": 199,
           "kind": "class",
-          "line": 63,
+          "line": 67,
           "name": "AIReviewService"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 21,
+          "end_line": 23,
           "kind": "function",
-          "line": 20,
+          "line": 22,
           "name": "_digest"
         },
         {
-          "end_line": 25,
+          "end_line": 27,
           "kind": "function",
-          "line": 24,
+          "line": 26,
           "name": "document_hash"
         }
       ]
@@ -14449,17 +14512,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 74,
+      "line_count": 97,
       "longest_function": {
-        "end_line": 58,
+        "end_line": 92,
         "kind": "function",
-        "line": 48,
-        "line_count": 11,
-        "qualname": "parse_event"
+        "line": 76,
+        "line_count": 17,
+        "qualname": "python_command"
       },
       "module": "autoslice.desktop.asr.jobs",
       "path": "src/autoslice/desktop/asr/jobs.py",
-      "sha256": "fccbd4de4739c0089cadc43d484a695890feb2fa1d485982f1ff53836d90a7a2",
+      "sha256": "d3f70d92eac8c5ba669b6f6c114ebbc9e0cf23c4294d8c8d0c5f2e39692182ba",
       "top_level_classes": [
         {
           "end_line": 41,
@@ -14482,15 +14545,27 @@
           "name": "parse_event"
         },
         {
-          "end_line": 70,
+          "end_line": 62,
           "kind": "function",
           "line": 61,
+          "name": "is_frozen"
+        },
+        {
+          "end_line": 73,
+          "kind": "function",
+          "line": 65,
+          "name": "source_root"
+        },
+        {
+          "end_line": 92,
+          "kind": "function",
+          "line": 76,
           "name": "python_command"
         },
         {
-          "end_line": 74,
+          "end_line": 97,
           "kind": "function",
-          "line": 73,
+          "line": 95,
           "name": "worker_command"
         }
       ]
@@ -16725,6 +16800,60 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 95,
+      "longest_function": {
+        "end_line": 83,
+        "kind": "function",
+        "line": 62,
+        "line_count": 22,
+        "qualname": "HomophoneIndex.find"
+      },
+      "module": "autoslice.desktop.homophone",
+      "path": "src/autoslice/desktop/homophone.py",
+      "sha256": "d16d9ea1374db21e197754444dbfe2d98cf21d7f829c4f8edeeadab9311c09ee",
+      "top_level_classes": [
+        {
+          "end_line": 22,
+          "kind": "class",
+          "line": 18,
+          "name": "Hit"
+        },
+        {
+          "end_line": 83,
+          "kind": "class",
+          "line": 37,
+          "name": "HomophoneIndex"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 30,
+          "kind": "function",
+          "line": 25,
+          "name": "_load"
+        },
+        {
+          "end_line": 34,
+          "kind": "function",
+          "line": 33,
+          "name": "available"
+        },
+        {
+          "end_line": 91,
+          "kind": "function",
+          "line": 86,
+          "name": "apply_hits"
+        },
+        {
+          "end_line": 95,
+          "kind": "function",
+          "line": 94,
+          "name": "describe"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 29,
       "longest_function": {
         "end_line": 29,
@@ -16812,21 +16941,21 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 84,
+      "line_count": 87,
       "longest_function": {
-        "end_line": 80,
+        "end_line": 83,
         "kind": "function",
         "line": 17,
-        "line_count": 64,
+        "line_count": 67,
         "qualname": "main"
       },
       "module": "autoslice.desktop.qt_app.__main__",
       "path": "src/autoslice/desktop/qt_app/__main__.py",
-      "sha256": "e927dba73510e88b7305a1fdfb7f3b8ae9637a38f619d7c6221dd202d1964b1d",
+      "sha256": "294b0653f1c215def9e45caae8d0aa3b5d83f70c2bee4c8027386495b531dfce",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 80,
+          "end_line": 83,
           "kind": "function",
           "line": 17,
           "name": "main"
@@ -16900,7 +17029,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 278,
+      "line_count": 285,
       "longest_function": {
         "end_line": 135,
         "kind": "function",
@@ -16910,18 +17039,18 @@
       },
       "module": "autoslice.desktop.qt_app.asr_panel",
       "path": "src/autoslice/desktop/qt_app/asr_panel.py",
-      "sha256": "2c824f0352715d2e8470e1cd56eeb1525e64fedda53a3eeea582c79cfbbb4c66",
+      "sha256": "421adba6770764c27e848c5cb71b9052ba703293170d7835818872421e127de5",
       "top_level_classes": [
         {
-          "end_line": 215,
+          "end_line": 222,
           "kind": "class",
           "line": 38,
           "name": "AsrSettingsPanel"
         },
         {
-          "end_line": 278,
+          "end_line": 285,
           "kind": "class",
-          "line": 218,
+          "line": 225,
           "name": "AsrBanner"
         }
       ],
@@ -16929,7 +17058,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 141,
+      "line_count": 146,
       "longest_function": {
         "end_line": 87,
         "kind": "function",
@@ -16939,7 +17068,7 @@
       },
       "module": "autoslice.desktop.qt_app.asr_process",
       "path": "src/autoslice/desktop/qt_app/asr_process.py",
-      "sha256": "dac3a0210f95b4c24851b48ef121fc2fa53d07ff1e97f661a627bb2654921163",
+      "sha256": "8d2e4638c7c3f8efbe8ac266bbeecaff2fc20e8a3d3eba558bf455ba6aacc3de",
       "top_level_classes": [
         {
           "end_line": 91,
@@ -16948,7 +17077,7 @@
           "name": "ModuleProcess"
         },
         {
-          "end_line": 141,
+          "end_line": 146,
           "kind": "class",
           "line": 94,
           "name": "RecognizeJob"
@@ -17077,22 +17206,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 471,
+      "line_count": 515,
       "longest_function": {
-        "end_line": 171,
+        "end_line": 179,
         "kind": "function",
-        "line": 36,
-        "line_count": 136,
+        "line": 37,
+        "line_count": 143,
         "qualname": "AiReviewMixin._ai_panel"
       },
       "module": "autoslice.desktop.qt_app.window_ai",
       "path": "src/autoslice/desktop/qt_app/window_ai.py",
-      "sha256": "778a47fc4f59ea14e4606f81cc06390d6fdeb695132551b0d839ae7c5e9145f1",
+      "sha256": "9966f390f0cfaf2dd59b6ba7605e7146b9b732bd1c73c48a953e7a5237b7130e",
       "top_level_classes": [
         {
-          "end_line": 471,
+          "end_line": 515,
           "kind": "class",
-          "line": 35,
+          "line": 36,
           "name": "AiReviewMixin"
         }
       ],
@@ -24851,6 +24980,35 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 70,
+      "longest_function": {
+        "end_line": 57,
+        "kind": "function",
+        "line": 18,
+        "line_count": 40,
+        "qualname": "smoke"
+      },
+      "module": "scripts.desktop_entry",
+      "path": "scripts/desktop_entry.py",
+      "sha256": "ea7c1e21f9bcdfeba5e246c0d8053c94dd272845aa499408ec5a3ebf8e27b2fa",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 57,
+          "kind": "function",
+          "line": 18,
+          "name": "smoke"
+        },
+        {
+          "end_line": 66,
+          "kind": "function",
+          "line": 60,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 1,
       "longest_function": null,
       "module": "scripts.manual",
@@ -25582,6 +25740,7 @@
       "autocover_tool/autocover/workspace.py",
       "scripts/architecture_snapshot.py",
       "scripts/compile_public.py",
+      "scripts/desktop_entry.py",
       "scripts/run_hermetic_tests.py",
       "scripts/run_linux_logic_tests.py",
       "scripts/scan_public_release.py",
@@ -25737,6 +25896,7 @@
       "src/autoslice/desktop/cover_widgets.py",
       "src/autoslice/desktop/cover_works.py",
       "src/autoslice/desktop/foundation.py",
+      "src/autoslice/desktop/homophone.py",
       "src/autoslice/desktop/jobs.py",
       "src/autoslice/desktop/projects.py",
       "src/autoslice/desktop/selection.py",
@@ -25932,6 +26092,7 @@
       "tests/unit/test_desktop_cover_works.py",
       "tests/unit/test_desktop_cover_wysiwyg.py",
       "tests/unit/test_desktop_foundation.py",
+      "tests/unit/test_desktop_homophone.py",
       "tests/unit/test_desktop_interaction.py",
       "tests/unit/test_desktop_jobs.py",
       "tests/unit/test_desktop_page_shortcuts.py",
@@ -25996,12 +26157,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 939,
-    "production_line_count": 72903,
-    "production_module_count": 302,
+    "import_edge_count": 945,
+    "production_line_count": 73182,
+    "production_module_count": 304,
     "test_private_patch_count": 17,
-    "top_level_class_count": 303,
-    "top_level_function_count": 1438
+    "top_level_class_count": 305,
+    "top_level_function_count": 1446
   },
   "test_private_patches": {
     "by_target_module": {

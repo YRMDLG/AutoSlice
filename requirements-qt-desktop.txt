@@ -1,3 +1,4 @@
-# Qt 开发入口的最小运行依赖；字幕工作流导入需要 requests。
+# Qt 开发入口的最小运行依赖；字幕工作流导入需要 requests；同音检查需要 pypinyin（没装则该功能关闭）。
 PySide6-Essentials==6.11.2
 requests>=2.31,<3.0
+pypinyin>=0.53,<1.0

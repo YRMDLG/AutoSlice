@@ -15,6 +15,9 @@ from .window import DesktopWindow
 
 
 def main() -> int:
+    if getattr(sys, "frozen", False):
+        # 安装版：和程序放在一起的 ffmpeg/ffprobe 要能被子进程找到
+        os.environ["PATH"] = os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", "")
     app = QApplication(sys.argv)
     app.setApplicationName("AutoSlice")
     app.setStyle("Fusion")
