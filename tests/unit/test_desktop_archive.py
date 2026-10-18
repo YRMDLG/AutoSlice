@@ -20,7 +20,7 @@ from autoslice.desktop.archive.__main__ import main as archive_main
 from autoslice.desktop.archive.extractors import DEFAULT_EXTRACTORS, Extractor
 from autoslice.desktop.archive.extractors.corrections import align_cues, classify_edit
 from autoslice.desktop.archive.extractors.terms import grams
-from autoslice.desktop.archive.layout import infer_date
+from autoslice.desktop.archive.layout import StreamerMatcher, infer_date
 from autoslice.desktop.archive.report import build_digest, build_report, render_markdown
 from autoslice.desktop.archive.scanner import open_store, scan_roots, walk_folders
 from autoslice.desktop.archive.srt import Cue, parse_srt
@@ -702,6 +702,37 @@ class CorpusPrecisionTests(ArchiveTestCase):
             self.assertEqual(store.scalar("SELECT COUNT(*) FROM entries WHERE version = 0"), 0)
         self.service.scan()
         self.assertTrue(self.correction(WRONG)["evidence_complete"])
+
+
+class StreamerAttributionTests(ArchiveTestCase):
+    def test_columns_and_collaborations_belong_to_the_known_streamer(self):
+        matcher = StreamerMatcher.from_profiles()
+        for title in ("【泽音歌】晚安", "【泽音 阿梓】联动", "【泽音&沐霂】一起", "【泽音精剪】x", "【沐霂&泽音】反过来"):
+            with self.subTest(title=title):
+                self.assertEqual(matcher.infer("D:/x", title), "zeyin")
+        # 名字不是以主播名开头的，仍然是别人
+        for title, expected in (("【梨安】舞蹈", "ext:梨安"), ("【音柚瞳纸】x", "ext:音柚瞳纸"), ("【糖&牛】x", "ext:糖&牛")):
+            with self.subTest(title=title):
+                self.assertEqual(matcher.infer("D:/x", title), expected)
+
+    def test_default_streamer_only_fills_titles_with_no_name_at_all(self):
+        matcher = StreamerMatcher.from_profiles()
+        self.assertEqual(matcher.infer("D:/x", "1月26日(1)"), "")
+        self.assertEqual(matcher.infer("D:/x", "1月26日(1)", default="zeyin"), "zeyin")
+        self.assertEqual(matcher.infer("D:/x", "【梨安】舞蹈", default="zeyin"), "ext:梨安")  # 写明是别人，不套默认
+        self.assertEqual(matcher.infer("D:/x", "【泽音】x", default="ext:别人"), "zeyin")
+
+    def test_changed_rules_reassign_unchanged_folders_without_reextracting(self):
+        folder = self.archive / "【泽音歌】唱歌"
+        folder.mkdir()
+        (folder / "视频.srt").write_text(srt_text([(0, 2, "今天天气不错")]), encoding="utf-8")
+        with self.service._store() as store:
+            scan_roots(store, [str(self.archive)], matcher=StreamerMatcher())  # 不认识任何主播
+            self.assertEqual(store.scalar("SELECT streamer FROM entries"), "ext:泽音歌")
+            second = scan_roots(store, [str(self.archive)], matcher=StreamerMatcher.from_profiles())
+            self.assertEqual((second.changed, second.skipped, second.reassigned), (0, 1, 1))
+            self.assertEqual(store.scalar("SELECT streamer FROM entries"), "zeyin")
+            self.assertEqual(scan_roots(store, [str(self.archive)], matcher=StreamerMatcher.from_profiles()).reassigned, 0)
 
 
 class CliTests(ArchiveTestCase):

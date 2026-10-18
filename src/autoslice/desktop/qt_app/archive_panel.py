@@ -270,8 +270,11 @@ class ArchivePanel(QWidget):
             self.status.setText(f"扫描失败：{error}")
         elif result.cancelled:
             self.status.setText(f"已停止（已学 {result.entries} 个文件夹，下次接着扫）。" + self.status.text())
-        elif result.errors:
-            self.status.setText(self.status.text() + f" 有 {len(result.errors)} 个文件夹读取出错，已跳过。")
+        else:
+            if result.reassigned:
+                self.status.setText(self.status.text() + f" 另有 {result.reassigned} 个文件夹按新的归属规则改了主播。")
+            if result.errors:
+                self.status.setText(self.status.text() + f" 有 {len(result.errors)} 个文件夹读取出错，已跳过。")
         self._on_applied()
 
     def stop(self) -> None:

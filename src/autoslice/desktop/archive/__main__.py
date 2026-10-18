@@ -100,7 +100,7 @@ def _cmd_scan(args) -> int:
         return 130
     print(file=sys.stderr)
     print(f"完成：{result.entries} 个条目，新抽取 {result.changed}，跳过 {result.skipped}，清理 {result.removed}，"
-          f"用时 {result.seconds} 秒{'（被中断）' if result.cancelled else ''}")
+          f"重新归属 {result.reassigned}，用时 {result.seconds} 秒{'（被中断）' if result.cancelled else ''}")
     for error in result.errors[:5]:
         print(f"  ! {error}")
     paths = service.report()

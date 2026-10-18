@@ -114,9 +114,16 @@ class ArchiveStore:
         self._db.commit()
 
     # ── 条目 ──
-    def entry_state(self, folder: str) -> tuple[int, str, int] | None:
-        row = self._db.execute("SELECT id, signature, version FROM entries WHERE folder = ?", (folder,)).fetchone()
-        return (row["id"], row["signature"], row["version"]) if row else None
+    def entry_state(self, folder: str) -> tuple[int, str, int, str] | None:
+        """(条目 id, 指纹, 抽取版本, 主播)；没有这个文件夹返回 None。"""
+
+        row = self._db.execute(
+            "SELECT id, signature, version, streamer FROM entries WHERE folder = ?", (folder,),
+        ).fetchone()
+        return (row["id"], row["signature"], row["version"], row["streamer"]) if row else None
+
+    def set_streamer(self, entry_id: int, streamer: str) -> None:
+        self._db.execute("UPDATE entries SET streamer = ? WHERE id = ?", (streamer, entry_id))
 
     def upsert_entry(self, root: str, entry: ArchiveEntry, streamer: str, version: int, error: str = "") -> int:
         year = int(entry.date[:4]) if entry.date[:4].isdigit() else 0

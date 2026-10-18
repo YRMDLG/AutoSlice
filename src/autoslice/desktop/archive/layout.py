@@ -30,6 +30,10 @@ _DUPLICATE = re.compile(r" \(\d+\)$")
 _DATE_FULL = re.compile(r"(20\d{2})[-_.年/ ]?(0?[1-9]|1[0-2])[-_.月/ ]?(0?[1-9]|[12]\d|3[01])")
 _DATE_MONTH_DAY = re.compile(r"(0?[1-9]|1[0-2])月(0?[1-9]|[12]\d|3[01])日")
 _BRACKET_LABEL = re.compile(r"^\s*[【\[]([^】\]]{1,20})[】\]]")
+# 【泽音&沐霂】【泽音 阿梓】这类联动标签拆成片段；前缀“【泽音】”里去掉括号、冒号和空格就是主播名。
+_LABEL_PARTS = re.compile(r"[&＆/／、+＋,，\s]+")
+_PREFIX_NOISE = str.maketrans("", "", "【】[]（）()：: ")
+_MIN_NAME_ROOT = 2
 _MAX_COVERS = 3
 _MAX_NOTES = 3
 
@@ -178,6 +182,14 @@ class StreamerMatcher:
     def __init__(self, profiles: Iterable[tuple[str, str, str, Sequence[str], Sequence[str]]] = ()) -> None:
         # (id, 名称, 标题前缀, 标题里出现就算的称呼, 路径关键词)
         self._profiles = [item for item in profiles if item[0] != "generic"]
+        # 主播名（前缀“【泽音】”里的“泽音”），长的在前；太短的名字会把别人误并进来，不用。
+        self._name_roots = sorted(
+            (
+                (root, profile_id) for profile_id, _label, prefix, _names, _keywords in self._profiles
+                if len(root := prefix.translate(_PREFIX_NOISE)) >= _MIN_NAME_ROOT
+            ),
+            key=lambda item: -len(item[0]),
+        )
 
     @classmethod
     def from_profiles(cls) -> "StreamerMatcher":
@@ -196,8 +208,20 @@ class StreamerMatcher:
             for profile in profiles.values()
         )
 
-    def infer(self, folder: str, title: str) -> str:
-        """返回主播 id；认不出返回空串。"""
+    def _by_label(self, label: str) -> str:
+        """【泽音歌】【泽音&沐霂】【泽音 阿梓】：有一段以主播名开头，就是这位主播的栏目或联动。"""
+
+        for part in filter(None, _LABEL_PARTS.split(label)):
+            for root, profile_id in self._name_roots:
+                if part.startswith(root):
+                    return profile_id
+        return ""
+
+    def infer(self, folder: str, title: str, default: str = "") -> str:
+        """返回主播 id；认不出返回 default（扫描根目录设的默认主播），没有默认就是空串。
+
+        标题里明确写了别的名字（【梨安】）就是别人，不套默认。
+        """
 
         for profile_id, _label, prefix, _names, _keywords in self._profiles:
             if prefix and title.startswith(prefix):
@@ -214,7 +238,10 @@ class StreamerMatcher:
         if best[0]:
             return best[0]
         match = _BRACKET_LABEL.match(title)
-        return f"ext:{match.group(1).strip()}" if match else ""
+        if match:
+            label = match.group(1).strip()
+            return self._by_label(label) or f"ext:{label}"
+        return default
 
     def label(self, streamer: str) -> str:
         for profile_id, label, *_rest in self._profiles:

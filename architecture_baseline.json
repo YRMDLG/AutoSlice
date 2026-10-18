@@ -2755,7 +2755,7 @@
         "autoslice.streamer_profiles.load_streamer_profiles"
       ],
       "lines": [
-        185
+        197
       ],
       "to": "autoslice.streamer_profiles"
     },
@@ -13658,7 +13658,7 @@
       },
       "module": "autoslice.desktop.archive.__main__",
       "path": "src/autoslice/desktop/archive/__main__.py",
-      "sha256": "0c55f5fb89503cb940d7b291da2f4214fec6709dcb0b788c0c62c50aaaefb456",
+      "sha256": "df1e157bb85f735359b088938c15616cee2466b462a6f61ced2b2fc2537c1a15",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -13980,79 +13980,79 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 223,
+      "line_count": 250,
       "longest_function": {
-        "end_line": 172,
+        "end_line": 176,
         "kind": "function",
-        "line": 108,
+        "line": 112,
         "line_count": 65,
         "qualname": "classify_folder"
       },
       "module": "autoslice.desktop.archive.layout",
       "path": "src/autoslice/desktop/archive/layout.py",
-      "sha256": "cfbb2365969a7731cf8c6b8a4c46ac3bc52715b2b8171115d972fae879e05833",
+      "sha256": "684f919193f58b793b1d9254b5b261d421996687d7e381a1e5a1906bd116effd",
       "top_level_classes": [
         {
-          "end_line": 223,
+          "end_line": 250,
           "kind": "class",
-          "line": 175,
+          "line": 179,
           "name": "StreamerMatcher"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 39,
+          "end_line": 43,
           "kind": "function",
-          "line": 37,
+          "line": 41,
           "name": "_split"
         },
         {
-          "end_line": 45,
+          "end_line": 49,
           "kind": "function",
-          "line": 42,
+          "line": 46,
           "name": "_base"
         },
         {
-          "end_line": 50,
+          "end_line": 54,
           "kind": "function",
-          "line": 48,
+          "line": 52,
           "name": "_ends_with"
         },
         {
-          "end_line": 56,
+          "end_line": 60,
           "kind": "function",
-          "line": 53,
+          "line": 57,
           "name": "is_generated"
         },
         {
-          "end_line": 70,
+          "end_line": 74,
           "kind": "function",
-          "line": 59,
+          "line": 63,
           "name": "strip_markers"
         },
         {
-          "end_line": 99,
+          "end_line": 103,
           "kind": "function",
-          "line": 73,
+          "line": 77,
           "name": "infer_date"
         },
         {
-          "end_line": 105,
+          "end_line": 109,
           "kind": "function",
-          "line": 102,
+          "line": 106,
           "name": "_cover_rank"
         },
         {
-          "end_line": 172,
+          "end_line": 176,
           "kind": "function",
-          "line": 108,
+          "line": 112,
           "name": "classify_folder"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 110,
+      "line_count": 112,
       "longest_function": {
         "end_line": 65,
         "kind": "function",
@@ -14062,7 +14062,7 @@
       },
       "module": "autoslice.desktop.archive.model",
       "path": "src/autoslice/desktop/archive/model.py",
-      "sha256": "8c264abb272f6067a6440c4be4a00840dce3a77ec1d030856a9529037255825a",
+      "sha256": "9c532ea663af2e5a6b10ec4d39c173a6d95da74041b5d07e47743d2b809abd0e",
       "top_level_classes": [
         {
           "end_line": 44,
@@ -14089,7 +14089,7 @@
           "name": "ScanProgress"
         },
         {
-          "end_line": 110,
+          "end_line": 112,
           "kind": "class",
           "line": 103,
           "name": "ScanResult"
@@ -14302,17 +14302,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 188,
+      "line_count": 193,
       "longest_function": {
-        "end_line": 188,
+        "end_line": 193,
         "kind": "function",
         "line": 98,
-        "line_count": 91,
+        "line_count": 96,
         "qualname": "scan_roots"
       },
       "module": "autoslice.desktop.archive.scanner",
       "path": "src/autoslice/desktop/archive/scanner.py",
-      "sha256": "ae7cf9daab9617a7b40c02207869d4c01bfdfc15b7495df1dde7b5896434de3e",
+      "sha256": "4e33992556f317db3aff463224481cbf9f07ba0c3c5047d0bd8bb937696e20c7",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -14334,7 +14334,7 @@
           "name": "analyze_entry"
         },
         {
-          "end_line": 188,
+          "end_line": 193,
           "kind": "function",
           "line": 98,
           "name": "scan_roots"
@@ -14437,7 +14437,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 175,
+      "line_count": 182,
       "longest_function": {
         "end_line": 73,
         "kind": "function",
@@ -14447,10 +14447,10 @@
       },
       "module": "autoslice.desktop.archive.store",
       "path": "src/autoslice/desktop/archive/store.py",
-      "sha256": "373201d42555e2fa22e0baf325ad564957c67aef4064aadd7a62ae5a860452a6",
+      "sha256": "1e15264967e29c53413603ca4cfec8ec7bcb1e44eebc94d10bff742557486a34",
       "top_level_classes": [
         {
-          "end_line": 175,
+          "end_line": 182,
           "kind": "class",
           "line": 49,
           "name": "ArchiveStore"
@@ -17745,7 +17745,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 315,
+      "line_count": 318,
       "longest_function": {
         "end_line": 191,
         "kind": "function",
@@ -17755,7 +17755,7 @@
       },
       "module": "autoslice.desktop.qt_app.archive_panel",
       "path": "src/autoslice/desktop/qt_app/archive_panel.py",
-      "sha256": "1f22f6edb3fec0e9f7e5d5eece87089b4dd12bb1278506b6dc63713a4969b981",
+      "sha256": "9c54219b1b34bb8161a31303ea36578870cd3c0fd9154c0f6215a1a1e358e6e6",
       "top_level_classes": [
         {
           "end_line": 40,
@@ -17770,7 +17770,7 @@
           "name": "ProposalsDialog"
         },
         {
-          "end_line": 315,
+          "end_line": 318,
           "kind": "class",
           "line": 122,
           "name": "ArchivePanel"
@@ -26921,7 +26921,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 978,
-    "production_line_count": 74895,
+    "production_line_count": 74939,
     "production_module_count": 311,
     "test_private_patch_count": 17,
     "top_level_class_count": 319,

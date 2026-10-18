@@ -105,6 +105,8 @@ class ScanResult:
     changed: int = 0
     skipped: int = 0
     removed: int = 0
+    # 没变的文件夹里，只因归属规则或默认主播变了而改了主播的个数（不重新抽取）。
+    reassigned: int = 0
     errors: list[str] = field(default_factory=list)
     cancelled: bool = False
     seconds: float = 0.0

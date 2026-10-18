@@ -149,13 +149,18 @@ def scan_roots(
             state.entries += 1
             seen_folders.add(folder)
             known = store.entry_state(folder)
+            streamer = matcher.infer(folder, name)
             if known is not None and not options.force and known[1] == entry.signature and known[2] == EXTRACT_VERSION:
+                if streamer != known[3]:
+                    # 归属只取决于文件夹名和路径：规则变了不用重新抽取，直接改
+                    store.set_streamer(known[0], streamer)
+                    result.reassigned += 1
                 state.skipped += 1
                 result.skipped += 1
                 report()
                 continue
             try:
-                analyze_entry(store, root, entry, matcher.infer(folder, name), options, extractors)
+                analyze_entry(store, root, entry, streamer, options, extractors)
             except Exception as exc:
                 state.errors += 1
                 result.errors.append(f"{folder}: {exc}"[:300])
