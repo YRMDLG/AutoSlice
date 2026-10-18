@@ -13,7 +13,7 @@ from PIL import Image
 from autoslice.desktop.cover_assets import CoverAsset, CoverAssetLibrary
 
 try:
-    from PySide6.QtWidgets import QApplication, QDialogButtonBox
+    from PySide6.QtWidgets import QApplication, QDialogButtonBox, QFileDialog
 except ImportError:  # pragma: no cover
     QApplication = None
 
@@ -136,6 +136,96 @@ class AssetDialogTests(unittest.TestCase):
         self.dialog.search.clear()
         self.assertEqual(self.dialog.filtered_model.rowCount(), 150)
         self.assertTrue(button.isEnabled())
+
+    def test_folder_row_shows_the_source_and_change_button_returns_a_distinct_code(self):
+        from autoslice.desktop.cover_asset_dialog import CoverAssetDialog
+
+        self.assertTrue(self.dialog.folder_label.isHidden())  # 没给素材文件夹就不显示这一行
+        dialog = CoverAssetDialog(self.assets, source_directory="D:/素材/泽音")
+        self.addCleanup(dialog.close)
+        dialog.show()
+        self.assertIn("D:/素材/泽音", dialog.folder_label.text())
+        self.assertTrue(dialog.folder_label.isVisible() and dialog.change_folder.isVisible())
+        dialog.change_folder.click()
+        self.assertEqual(dialog.result(), CoverAssetDialog.CHANGE_FOLDER)
+        self.assertNotIn(CoverAssetDialog.CHANGE_FOLDER, (0, 1))  # 不能和取消、插入撞码
+
+    def test_empty_library_says_what_to_do_next(self):
+        from autoslice.desktop.cover_asset_dialog import CoverAssetDialog
+
+        dialog = CoverAssetDialog((), source_directory="D:/空")
+        self.addCleanup(dialog.close)
+        self.assertIn("更换文件夹", dialog.count_label.text())
+        self.assertFalse(dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled())
+
+
+@unittest.skipIf(QApplication is None, "PySide6 不可用")
+class AssetBrowseFlowTests(unittest.TestCase):
+    """素材库入口：为空也打开对话框，能在里面换素材文件夹，设置页跟着同步。"""
+
+    def setUp(self):
+        from autoslice.desktop.cover import CoverEditorWidget
+        from autoslice.desktop.cover_model import CoverDocument
+        from autoslice.desktop.foundation import DesktopStorage
+
+        self.app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.empty = self.root / "空素材"
+        self.empty.mkdir()
+        self.widget = CoverEditorWidget(DesktopStorage(self.root / "data"))
+        self.addCleanup(self.widget.deleteLater)
+        self.widget.service.asset_library = CoverAssetLibrary(self.root / "library", legacy_root=self.empty)
+        self.widget.document = CoverDocument(objects=())
+        self.changed = []
+        self.widget.material_directory_changed.connect(self.changed.append)
+
+    def browse(self, results, chosen=()):
+        opened = []
+        scripted = list(results)
+
+        class ScriptedDialog:
+            CHANGE_FOLDER = 2
+
+            def __init__(self, assets, parent=None, *, source_directory=""):
+                opened.append((assets, source_directory))
+
+            def exec(self):
+                return scripted.pop(0)
+
+            def selected_asset(self):
+                return None
+
+        with patch("autoslice.desktop.cover_editor_objects.CoverAssetDialog", ScriptedDialog), \
+                patch.object(QFileDialog, "getExistingDirectory", side_effect=list(chosen)):
+            self.widget._browse_assets()
+        return opened
+
+    def test_an_empty_library_still_opens_the_dialog_showing_the_current_folder(self):
+        opened = self.browse([0])
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(opened[0][0], ())
+        self.assertEqual(opened[0][1], str(self.empty.resolve()))
+
+    def test_changing_the_folder_reopens_the_library_with_new_assets_and_syncs_settings(self):
+        chosen = self.root / "表情包"
+        chosen.mkdir()
+        Image.new("RGB", (8, 8), "red").save(chosen / "可爱.png")
+        opened = self.browse([2, 0], [str(chosen)])
+        self.assertEqual(len(opened), 2)
+        self.assertEqual(opened[1][1], str(chosen.resolve()))
+        self.assertEqual([item.name for item in opened[1][0]], ["可爱"])
+        self.assertEqual(self.changed, [str(chosen.resolve())])
+        self.assertEqual(self.widget.service.asset_library.legacy_root, chosen.resolve())
+
+    def test_cancelled_or_invalid_choice_keeps_the_old_folder_and_returns_to_the_library(self):
+        for chosen in ("", str(self.root / "不存在")):
+            with self.subTest(chosen=chosen):
+                opened = self.browse([2, 0], [chosen])
+                self.assertEqual([item[1] for item in opened], [str(self.empty.resolve())] * 2)
+                self.assertEqual(self.changed, [])
+                self.assertEqual(self.widget.service.asset_library.legacy_root, self.empty.resolve())
 
 
 if __name__ == "__main__":

@@ -9,9 +9,11 @@ from PySide6.QtGui import QIcon, QImageReader, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListView,
+    QPushButton,
     QVBoxLayout,
 )
 
@@ -66,7 +68,10 @@ class CoverAssetModel(QAbstractListModel):
 class CoverAssetDialog(QDialog):
     """选中一张素材后作为可编辑对象加入画布；双击直接插入。"""
 
-    def __init__(self, assets: tuple[CoverAsset, ...], parent=None):
+    # exec() 的返回值：用户点了“更换文件夹…”，由调用方选目录后重新打开本对话框（0 取消、1 插入）。
+    CHANGE_FOLDER = 2
+
+    def __init__(self, assets: tuple[CoverAsset, ...], parent=None, *, source_directory: str = ""):
         super().__init__(parent)
         self.setWindowTitle("插入素材")
         self.resize(760, 560)
@@ -75,6 +80,19 @@ class CoverAssetDialog(QDialog):
         hint.setObjectName("subtle")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+        # 素材范围由所选文件夹决定：把它摆在这里，缺素材时一眼看得出是不是选错了文件夹。
+        self.folder_label = QLabel(f"素材文件夹：{source_directory}")
+        self.folder_label.setObjectName("subtle")
+        self.folder_label.setWordWrap(True)
+        self.folder_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.change_folder = QPushButton("更换文件夹…")
+        self.change_folder.clicked.connect(lambda: self.done(self.CHANGE_FOLDER))
+        folder_row = QHBoxLayout()
+        folder_row.addWidget(self.folder_label, 1)
+        folder_row.addWidget(self.change_folder)
+        layout.addLayout(folder_row)
+        self.folder_label.setVisible(bool(source_directory))
+        self.change_folder.setVisible(bool(source_directory))
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜索全部素材名或分组…")
         layout.addWidget(self.search)
@@ -117,7 +135,10 @@ class CoverAssetDialog(QDialog):
         self.filtered_model.setFilterFixedString(text.strip())
         count = self.filtered_model.rowCount()
         self.grid.setCurrentIndex(self.filtered_model.index(0, 0) if count else QModelIndex())
-        self.count_label.setText(f"共 {len(self.asset_model.assets)} 张素材 · 当前显示 {count} 张")
+        if not self.asset_model.assets:
+            self.count_label.setText("这个文件夹（含子文件夹）里没有找到 png / jpg / webp / bmp 素材；点“更换文件夹…”选择素材所在位置")
+        else:
+            self.count_label.setText(f"共 {len(self.asset_model.assets)} 张素材 · 当前显示 {count} 张")
         self._selection_changed()
 
     def selected_asset(self) -> CoverAsset | None:

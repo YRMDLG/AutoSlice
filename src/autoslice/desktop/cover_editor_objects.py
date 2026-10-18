@@ -75,23 +75,44 @@ class CoverObjectsMixin:
     def _browse_assets(self):
         if self.document is None:
             return
+        library = self.service.asset_library
+        while True:
+            try:
+                preferred = (streamer_key(self.project.title) or self.project.title) if self.project else None
+                library.scan()
+                assets = library.list_assets(preferred_group=preferred)
+            except (OSError, ValueError) as exc:
+                message = f"素材库暂不可用：{exc}"
+                self._set_notice(message, "error")
+                self.status_changed.emit(message)
+                return
+            # 素材库为空也打开对话框：里面写着当前扫的是哪个文件夹，并能直接换，不用先去设置页。
+            dialog = CoverAssetDialog(assets, self, source_directory=str(library.legacy_root))
+            result = dialog.exec()
+            if result == CoverAssetDialog.CHANGE_FOLDER:
+                self._choose_material_directory()  # 选了或取消，都回到素材库
+                continue
+            if result and (asset := dialog.selected_asset()) is not None:
+                self._insert_asset_object(asset)
+            return
+
+    def _choose_material_directory(self) -> bool:
+        """选择素材文件夹；成功时通知设置页同步显示。取消或失败返回 False。"""
+
+        library = self.service.asset_library
+        path = QFileDialog.getExistingDirectory(self, "选择封面素材文件夹", str(library.legacy_root))
+        if not path:
+            return False
         try:
-            preferred = (streamer_key(self.project.title) or self.project.title) if self.project else None
-            self.service.asset_library.scan()
-            assets = self.service.asset_library.list_assets(preferred_group=preferred)
+            directory = library.set_source_directory(path)
         except (OSError, ValueError) as exc:
-            message = f"素材库暂不可用：{exc}"
+            message = f"素材文件夹设置失败：{exc}"
             self._set_notice(message, "error")
             self.status_changed.emit(message)
-            return
-        if not assets:
-            message = "素材库为空；可以先导入一张自定义图片"
-            self._set_notice(message, "warning")
-            self.status_changed.emit(message)
-            return
-        dialog = CoverAssetDialog(assets, self)
-        if dialog.exec() and (asset := dialog.selected_asset()) is not None:
-            self._insert_asset_object(asset)
+            return False
+        self.material_directory_changed.emit(str(directory))
+        self.status_changed.emit(f"素材文件夹已更新：{directory}")
+        return True
 
     def _new_object_id(self, prefix: str) -> str:
         existing = {item.id for item in self.document.objects} if self.document else set()

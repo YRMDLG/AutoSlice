@@ -4032,7 +4032,7 @@
         "autoslice.desktop.cover_assets.CoverAsset"
       ],
       "lines": [
-        18
+        20
       ],
       "to": "autoslice.desktop.cover_assets"
     },
@@ -4042,7 +4042,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        19
+        21
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -10762,6 +10762,15 @@
       "qualname": "extract_candidate_frames"
     },
     {
+      "end_line": 222,
+      "kind": "function",
+      "line": 87,
+      "line_count": 136,
+      "module": "autoslice.desktop.qt_app.window",
+      "path": "src/autoslice/desktop/qt_app/window.py",
+      "qualname": "DesktopWindow.__init__"
+    },
+    {
       "end_line": 338,
       "kind": "function",
       "line": 204,
@@ -10769,15 +10778,6 @@
       "module": "autoslice.analysis.review.workflow",
       "path": "src/autoslice/analysis/review/workflow.py",
       "qualname": "review_peak_selected_topics"
-    },
-    {
-      "end_line": 221,
-      "kind": "function",
-      "line": 87,
-      "line_count": 135,
-      "module": "autoslice.desktop.qt_app.window",
-      "path": "src/autoslice/desktop/qt_app/window.py",
-      "qualname": "DesktopWindow.__init__"
     },
     {
       "end_line": 207,
@@ -15380,20 +15380,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 562,
+      "line_count": 564,
       "longest_function": {
-        "end_line": 418,
+        "end_line": 420,
         "kind": "function",
-        "line": 352,
+        "line": 354,
         "line_count": 67,
         "qualname": "CoverEditorWidget._enter_context"
       },
       "module": "autoslice.desktop.cover",
       "path": "src/autoslice/desktop/cover.py",
-      "sha256": "24831be371845ac2f665c06b088a722e70dbd10a1c40a3d5d34a3568ec4b02a5",
+      "sha256": "a2b5671d13d1c8eb8301be2a57771096da674231fdba973bbff2d9291b43d1cd",
       "top_level_classes": [
         {
-          "end_line": 562,
+          "end_line": 564,
           "kind": "class",
           "line": 50,
           "name": "CoverEditorWidget"
@@ -15583,28 +15583,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 125,
+      "line_count": 146,
       "longest_function": {
-        "end_line": 111,
+        "end_line": 129,
         "kind": "function",
-        "line": 69,
-        "line_count": 43,
+        "line": 74,
+        "line_count": 56,
         "qualname": "CoverAssetDialog.__init__"
       },
       "module": "autoslice.desktop.cover_asset_dialog",
       "path": "src/autoslice/desktop/cover_asset_dialog.py",
-      "sha256": "3b6e38ee3cf3dab0a941a7b747b7213807b4a6ff03807c9ca3cd570db16b9e0a",
+      "sha256": "af8d249ecabab0a5a292c1d520cedf82d16e969cec952e7c3b78014b4b6dda64",
       "top_level_classes": [
         {
-          "end_line": 63,
+          "end_line": 65,
           "kind": "class",
-          "line": 26,
+          "line": 28,
           "name": "CoverAssetModel"
         },
         {
-          "end_line": 125,
+          "end_line": 146,
           "kind": "class",
-          "line": 66,
+          "line": 68,
           "name": "CoverAssetDialog"
         }
       ],
@@ -16175,20 +16175,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 515,
+      "line_count": 536,
       "longest_function": {
-        "end_line": 281,
+        "end_line": 302,
         "kind": "function",
-        "line": 219,
+        "line": 240,
         "line_count": 63,
         "qualname": "CoverObjectsMixin._sync_overlay_controls"
       },
       "module": "autoslice.desktop.cover_editor_objects",
       "path": "src/autoslice/desktop/cover_editor_objects.py",
-      "sha256": "77ca4d0eb9ac1499c2b17c4d2cae15123e46468cb325d3e4d723fb5ddfd96048",
+      "sha256": "ebc23e4891791886b79d6c3fe005b1c3bed5b4d53d30dcff2c0cf0794246ea6e",
       "top_level_classes": [
         {
-          "end_line": 515,
+          "end_line": 536,
           "kind": "class",
           "line": 58,
           "name": "CoverObjectsMixin"
@@ -17914,20 +17914,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 487,
+      "line_count": 488,
       "longest_function": {
-        "end_line": 221,
+        "end_line": 222,
         "kind": "function",
         "line": 87,
-        "line_count": 135,
+        "line_count": 136,
         "qualname": "DesktopWindow.__init__"
       },
       "module": "autoslice.desktop.qt_app.window",
       "path": "src/autoslice/desktop/qt_app/window.py",
-      "sha256": "86a5bf1661b0c560fc7c6ed07c593c413ae974b43371e899cdd3cdb878a52fb0",
+      "sha256": "b9483c831e1676be47be3464aabd5d489fd6e1b2c9072db455cacbffed963ab6",
       "top_level_classes": [
         {
-          "end_line": 487,
+          "end_line": 488,
           "kind": "class",
           "line": 72,
           "name": "DesktopWindow"
@@ -26908,7 +26908,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 978,
-    "production_line_count": 74774,
+    "production_line_count": 74819,
     "production_module_count": 311,
     "test_private_patch_count": 17,
     "top_level_class_count": 318,

@@ -62,6 +62,8 @@ class CoverEditorWidget(
     status_changed = Signal(str)
     # 封面页“下一个”：由主窗口切到下一个视频/项目。
     next_video_requested = Signal()
+    # 在素材库里换了素材文件夹：设置页显示的路径要跟着变。
+    material_directory_changed = Signal(str)
 
     def __init__(self, storage: DesktopStorage, parent=None):
         super().__init__(parent)

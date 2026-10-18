@@ -131,6 +131,7 @@ class DesktopWindow(
         self._table_pointer_selecting = False
         super().__init__()
         self.cover_editor.status_changed.connect(self._show_transient_status)
+        self.cover_editor.material_directory_changed.connect(self.settings_material_directory.setText)
         self.cover_editor.next_video_requested.connect(self._next_cover_video)
         self._timeline_side_pan = TimelineSidePanController(self.timeline, self)
         self.ai_progress.connect(self._show_ai_progress)
