@@ -77,6 +77,7 @@ class CoverObjectsMixin:
             return
         try:
             preferred = (streamer_key(self.project.title) or self.project.title) if self.project else None
+            self.service.asset_library.scan()
             assets = self.service.asset_library.list_assets(preferred_group=preferred)
         except (OSError, ValueError) as exc:
             message = f"素材库暂不可用：{exc}"

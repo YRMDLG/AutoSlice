@@ -560,6 +560,3 @@ class CoverEditorWidget(
 
         if self.document is not None:
             self.canvas.set_document(self.document, self._canvas_key)
-
-
-

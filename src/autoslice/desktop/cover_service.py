@@ -43,5 +43,3 @@ class CoverService(
         # 同一视频只探测一次时长与尺寸；取帧任务会并发调用。
         self._metadata: dict[tuple[str, int, int], VideoMetadata] = {}
         self._metadata_lock = threading.Lock()
-
-

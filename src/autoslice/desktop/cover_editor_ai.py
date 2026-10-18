@@ -9,7 +9,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
-from PySide6.QtGui import QGuiApplication, QPixmap
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -30,13 +30,18 @@ from .cover_ai import (
     contact_sheet,
     jpeg_bytes,
 )
-from .cover_fixes import apply_fix, describe_state
+from .cover_autolayout import primary_copy_ids
+from .cover_copy import BasicCoverCopy
+from .cover_critique_dialog import CoverCritiqueDialog, CoverFixPreview
+from .cover_effects import burst_id
+from .cover_fix_quality import describe_scene, safe_candidate, visually_distinct
+from .cover_fixes import apply_fix, describe_state, describe_text_layers
 from .cover_model import TextObject, object_for_profile
 from .cover_style import streamer_key
 from .qt_preview import motion
 
 # “AI 改一改”弹窗里改前、改后缩略图的宽度。
-_PREVIEW_WIDTH = 200
+_PREVIEW_WIDTH = 560
 # 选帧：爆点前后取几帧、每帧给看图模型的长边（只看表情，不用太大）。
 _PICK_FRAME_COUNT = 6
 _PICK_FRAME_SIDE = 512
@@ -60,11 +65,13 @@ class CoverAIMixin:
         generation, round_index = self._ai_generation, self._ai_round
         self._ai_round += 1
         document, image_path = self.document, self.draft.image_path
+        rewrite = self.ai_rewrite_check.isChecked()
+        profile_key = self._canvas_key
         project, video, service = self.project, self.video, self.service
         streamer = streamer_key(project.title) or ""
         self.ai_scheme_button.setEnabled(False)
         self.ai_hint.setVisible(False)
-        self._set_notice("AI 正在读字幕写文案、在爆点前后挑表情、看成品出方案（大约一分钟到一分半），这期间可以照常编辑…", "info")
+        self._set_notice("AI 正在保留你的文字、检查画面并优化排版…" if not rewrite else "AI 正在比较当前文案和标题，复核新文案并优化排版…", "info")
 
         locked = bool(document.source.frame_locked)
         current_timestamp = float(document.source.selected_timestamp)
@@ -89,14 +96,29 @@ class CoverAIMixin:
             recent = service.works.recent(streamer=streamer, limit=6)
             thumbnails = service.works.thumbnail_bytes(recent[:3])
             frame = jpeg_bytes(image_path)
-            # 你的标题提炼出的那句固定放进候选（标题是切片员自己写的总结），AI 文案作补充。
-            basic = service.basic_copy_variants(project.title)[0]
+            # 以画布当前文案为基准，不从标题重新初始化，更不能把自建文字当成主文案。
+            primary = primary_copy_ids(document)
+            texts = {role: object_for_profile(document, object_id, profile_key)
+                     for role, object_id in primary.items()}
+            basic = BasicCoverCopy(
+                context=texts["A"].text if "A" in texts and texts["A"].visible else "",
+                headline=texts["B"].text if "B" in texts and texts["B"].visible else "",
+                emphasis=tuple(dict.fromkeys(word for text in texts.values() for word in text.emphasis)),
+            )
+            if not basic.headline:
+                raise CoverAIError("当前没有可调整的主文案，请先显示主文案；自建文字块会原样保留")
+            cues = service.subtitle_cues(video)
+            fixed_texts = tuple(
+                item.text for base in document.objects
+                if isinstance(item := object_for_profile(document, base.id, profile_key), TextObject)
+                and item.id not in primary.values() and item.visible and item.text.strip()
+            )
             # 写文案（文字模型）和看当前画面给取景框（看图模型）同时发出，不多等。
             with ThreadPoolExecutor(max_workers=2) as pool:
                 notes_future = pool.submit(service.ai.inspect, frame)
                 analysis = service.ai.analyze(
-                    project.title, service.subtitle_cues(video), streamer=streamer, recent=recent,
-                    round_index=round_index, title_copy=basic,
+                    project.title, cues, streamer=streamer, recent=recent,
+                    round_index=round_index, title_copy=basic, rewrite=rewrite,
                 )
                 try:
                     notes = notes_future.result()
@@ -113,14 +135,45 @@ class CoverAIMixin:
                 except CoverAIError:
                     pass  # 看不了新帧就沿用原来那帧的结论
             working = service.with_frame(document, path, timestamp) if path != image_path else document
-            from_title = AICopy(basic.context, basic.headline, "标题", "", analysis.title_emphasis)
-            copies = (from_title, *(item for item in analysis.copies if item.headline != from_title.headline))
+            approved = ()
+            review_failed = False
+            if rewrite:
+                try:
+                    approved = service.ai.review_copies(
+                        project.title, cues, analysis.copies, current=basic, fixed_texts=fixed_texts,
+                    )
+                except CoverAIError:
+                    review_failed = True
+            analysis = replace(analysis, copies=approved)
+            has_burst = any(item.id in {burst_id(text.id) for text in texts.values()} for item in document.objects)
+            current_copy = AICopy(
+                basic.context, basic.headline, "当前文案", "保留当前文案",
+                basic.emphasis if has_burst else basic.emphasis or analysis.title_emphasis,
+            )
+            copies = (current_copy, *(item for item in approved if item.as_basic() != basic))
             # 本地按看图标出的脸和界面裁切、排字，先筛掉字压界面压脸的，渲染成总图，AI 看成品挑：看不懂、读不清的一票否决。
-            candidates = service.ai_candidates(working, path, copies, notes=notes)
-            sheet = contact_sheet(tuple(service.scheme_thumbnail(item.document, width=320) for item in candidates))
+            candidates = service.ai_candidates(working, path, copies, notes=notes, preserve_copy=not approved)
+            distinct, rendered = [], []
+            for candidate in candidates:
+                thumbnail = service.scheme_thumbnail(candidate.document, canvas_key=profile_key, width=320)
+                if all(visually_distinct(thumbnail, previous) for previous in rendered):
+                    distinct.append(candidate)
+                    rendered.append(thumbnail)
+            candidates = tuple(distinct)
+            if not candidates:
+                raise CoverAIError("这批排版会挤到已有文字或素材，已全部过滤；当前封面保持原样")
+            sheet = contact_sheet(tuple(rendered))
+            candidate_texts = []
+            for candidate in candidates:
+                ids = primary_copy_ids(candidate.document)
+                candidate_texts.append({
+                    role: text.text if isinstance(text := object_for_profile(candidate.document, object_id, profile_key), TextObject) and text.visible else ""
+                    for role, object_id in ids.items()
+                })
             choice = service.ai.choose(
                 sheet, len(candidates), title=project.title, frame=frame, recent_thumbnails=thumbnails,
-                round_index=round_index,
+                round_index=round_index, candidate_texts=candidate_texts, fixed_texts=fixed_texts,
+                current_cover=service.scheme_thumbnail(document, canvas_key=profile_key, width=320),
             )
             schemes = tuple(
                 replace(candidates[pick.index], key=f"ai:{pick.direction}", label=f"AI·{pick.direction}", reason=pick.reason)
@@ -128,20 +181,26 @@ class CoverAIMixin:
             )
             thumbs = tuple(service.scheme_thumbnail(item.document, width=156) for item in schemes)
             moved = (timestamp, expression) if path != image_path else None
-            return analysis, schemes, thumbs, choice, moved
+            return analysis, schemes, thumbs, choice, moved, rewrite, review_failed
 
-        self._run(work, lambda result, error: self._ai_schemes_ready(generation, result, error))
+        self._run(work, lambda result, error: self._ai_schemes_ready(generation, result, error, document))
 
-    def _ai_schemes_ready(self, generation: int, result, error):
+    def _ai_schemes_ready(self, generation: int, result, error, original=None):
         if generation != self._ai_generation:
             return
         self.ai_scheme_button.setEnabled(self.document is not None)
+        if original is not None and self.document is not None and (
+            original.objects != self.document.objects or original.profiles != self.document.profiles
+            or original.source != self.document.source
+        ):
+            self._set_notice("生成期间封面已有修改，这批方案已作废；再次点击可按最新封面生成", "warning")
+            return
         if error is not None:
             message = str(error) if isinstance(error, CoverAIError) else f"AI 方案失败：{error}"
             self._set_notice(message, "error")
             self.status_changed.emit(message)
             return
-        analysis, schemes, thumbnails, choice, moved = result
+        analysis, schemes, thumbnails, choice, moved, rewrite, review_failed = result
         if not schemes:
             message = f"AI 觉得这批候选都不合格（{choice.rejected or '没说原因'}），可以再点一次换一批，或手动调整"
             self._set_notice(message, "warning")
@@ -150,12 +209,19 @@ class CoverAIMixin:
         # 本地方案若还在生成，结果作废；先清空卡片（AI 可能少于三张），再换成 AI 挑中的。
         self._clear_schemes()
         self._schemes_ready(self._scheme_generation, (schemes, thumbnails), None)
+        self._ai_scheme_states = (original,) if original is not None else ()
         self.scheme_title.setText("AI 方案")
-        # AI 写的文案并入“换一版”的轮换，排在本地文案前面。
+        # 只有用户明确允许、且独立复核通过的文案才进入轮换。
         ai_copies = tuple(item.as_basic() for item in analysis.copies)
-        self._copy_variants = ai_copies + tuple(item for item in self._copy_variants if item not in ai_copies)
-        self._copy_variant_index = -1
-        hints = []
+        if ai_copies:
+            self._copy_variants = tuple(self._copy_variants) + tuple(item for item in ai_copies if item not in self._copy_variants)
+        hints = ["保留自建文字块；文字爆炸贴跟随排版。"]
+        if not rewrite:
+            hints.append("本次保留当前文案，只优化排版与取景。")
+        elif not ai_copies:
+            hints.append("新文案复核未完成，已保留当前文案。" if review_failed else "没有明确优于当前文字和标题的新文案，已保留当前文案。")
+        else:
+            hints.append(f"有 {len(ai_copies)} 组新文案通过比较；当前文案也保留在候选中。")
         if analysis.highlight is not None:
             highlight = analysis.highlight
             hints.append(f"爆点：「{highlight.quote}」（{highlight.start:.1f} 秒）{highlight.reason}")
@@ -168,7 +234,7 @@ class CoverAIMixin:
             self.ai_hint.setToolTip("AI 从字幕里找到的爆点，以及在爆点前后挑的表情更有戏的画面")
             self.ai_hint.setVisible(True)
         self._set_notice("")
-        self.status_changed.emit("AI 方案已生成：点缩略图套用（Ctrl+Z 可撤销）；“换一版”也会轮换 AI 写的文案")
+        self.status_changed.emit("AI 方案已生成：点缩略图套用，Ctrl+Z 可撤销")
 
     def _submission_copy(self):
         """投稿文案：AI 按以前的标题口吻写备选标题、简介和标签，弹窗里一键复制；再点一次换一批。"""
@@ -257,7 +323,7 @@ class CoverAIMixin:
 
         texts = (text_of("A"), text_of("B"))
         self.ai_critique_button.setEnabled(False)
-        self._set_notice("AI 正在看这张封面…", "info")
+        self._set_notice("AI 正在调整封面并筛选效果…", "info")
 
         def work():
             before = service.scheme_thumbnail(document, canvas_key=canvas_key, width=_PREVIEW_WIDTH)
@@ -266,13 +332,31 @@ class CoverAIMixin:
                 jpeg_bytes(service.scheme_thumbnail(document, canvas_key=canvas_key, width=480), max_side=480),
                 texts=texts, title=project.title, source=source, frame=jpeg_bytes(image_path),
                 state=describe_state(document, canvas_key),
+                text_layers=describe_text_layers(document, canvas_key),
+                scene=describe_scene(document, canvas_key),
             )
             previews = []
             for fix in fixes:
                 after = apply_fix(service, document, image_path, fix, canvas_key)
-                if after != document:
-                    previews.append((fix, service.scheme_thumbnail(after, canvas_key=canvas_key, width=_PREVIEW_WIDTH)))
-            return before, tuple(previews)
+                if after != document and safe_candidate(document, after, canvas_key):
+                    thumbnail = service.scheme_thumbnail(after, canvas_key=canvas_key, width=_PREVIEW_WIDTH)
+                    if not visually_distinct(before, thumbnail) or any(
+                        not visually_distinct(item.thumbnail, thumbnail) for item in previews
+                    ):
+                        continue
+                    previews.append(CoverFixPreview(
+                        fix, thumbnail, after,
+                    ))
+            rejected = "这轮没有生成合适的修改，可以重试或继续手动调整。"
+            if previews:
+                choice = service.ai.review_fixes(
+                    contact_sheet((before, *(item.thumbnail for item in previews)), labels_outside=True), len(previews),
+                    title=project.title, state=describe_state(document, canvas_key),
+                )
+                previews = [replace(previews[pick.index], fix=replace(previews[pick.index].fix, issue=pick.reason))
+                            for pick in choice.picks]
+                rejected = choice.rejected or "这轮候选没有比原图更合适的效果，已保留原图。"
+            return document, canvas_key, before, tuple(previews), rejected
 
         self._run(work, lambda result, error: self._ai_critique_ready(generation, result, error))
 
@@ -285,49 +369,41 @@ class CoverAIMixin:
             message = str(error) if isinstance(error, CoverAIError) else f"AI 改一改失败：{error}"
             self._set_notice(message, "error")
             return
-        before, previews = result
+        original, canvas_key, before, previews, rejected = result
+        project, video = self.project, self.video
+        if self.document is None or self._canvas_key != canvas_key or (
+            original.objects != self.document.objects or original.profiles != self.document.profiles
+            or original.source != self.document.source
+        ):
+            self._set_notice("分析期间封面已有修改，请再次点击“AI 改一改”按最新封面生成。", "warning")
+            return
         if not previews:
-            self.status_changed.emit("AI 没找到能让这张封面更好的修改，可以直接导出")
-            QMessageBox.information(self, "AI 改一改", "没找到能让这张封面更好的修改，可以直接导出。")
+            self.status_changed.emit(rejected)
+            QMessageBox.information(self, "AI 改一改", rejected)
             return
 
-        def picture(data: bytes) -> QLabel:
-            label = QLabel()
-            pixmap = QPixmap()
-            pixmap.loadFromData(data)
-            label.setPixmap(pixmap)
-            return label
+        def apply_preview(preview: CoverFixPreview) -> bool:
+            # 建议都基于同一份封面。允许在这些候选之间切换；手动编辑或换比例后不覆盖新改动。
+            if (
+                generation != self._ai_generation or self.project != project or self.video != video
+                or self._canvas_key != canvas_key or self.document not in (original, *(item.document for item in previews))
+            ):
+                return False
+            if self.document != preview.document:
+                previous = self.document
+                self.document = preview.document
+                self._commit_document_change(previous)
+                self.canvas.set_document(self.document, self._canvas_key)
+                self._sync_selected_text_controls()
+                self.status_changed.emit(f"已应用：{preview.fix.label}（Ctrl+Z 可撤销）")
+            return True
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("AI 改一改")
-        dialog.setModal(False)
-        layout = QVBoxLayout(dialog)
-        head = QHBoxLayout()
-        head.addWidget(picture(before))
-        head.addWidget(QLabel("现在的样子\n\n下面每条都是改完的效果，\n点“应用”直接改，Ctrl+Z 可撤销"), 1)
-        layout.addLayout(head)
-        for fix, thumbnail in previews:
-            row = QHBoxLayout()
-            row.addWidget(picture(thumbnail))
-            text = QLabel(f"{fix.issue}\n→ {fix.label}")
-            text.setWordWrap(True)
-            row.addWidget(text, 1)
-            button = QPushButton("应用")
-            button.clicked.connect(lambda _checked=False, item=fix, sender=button: self._apply_fix_from(sender, item))
-            row.addWidget(button)
-            layout.addLayout(row)
-        close = QPushButton("关闭")
-        close.clicked.connect(dialog.close)
-        layout.addWidget(close)
-        dialog.resize(560, dialog.sizeHint().height())
-        motion.install_tree(dialog)
+        if getattr(self, "_critique_box", None) is not None:
+            self._critique_box.close()
+            self._critique_box.deleteLater()
+        dialog = CoverCritiqueDialog(before, previews, apply_preview, undo=self._undo, redo=self._redo, parent=self)
         dialog.show()
         self._critique_box = dialog
-
-    def _apply_fix_from(self, button, fix):
-        if self._apply_ai_fix(fix):
-            button.setEnabled(False)
-            button.setText("已应用")
 
     def _apply_ai_fix(self, fix) -> bool:
         """把一条 AI 修改落到当前文档上（可撤销）；已经是这样就什么都不做。"""

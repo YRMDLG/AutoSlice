@@ -109,8 +109,9 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
         self.assertGreater(resized.style.font_size, 72)
         ratio = resized.style.font_size / 72
         self.assertAlmostEqual(resized.rect.width, 0.4 * ratio, delta=0.02)
-        # 左上角是锚点，缩放不移动位置。
-        self.assertAlmostEqual(resized.transform.x, text.transform.x, places=6)
+        # 不在画布中间的文字沿用旧缩放方式，不套用中心锚点。
+        self.assertFalse(self.canvas._text_is_centered(text))
+        self.assertEqual(resized.transform, text.transform)
         self.assertEqual(self.canvas._selected_object, text.id)
 
     def test_width_handle_rewraps_without_changing_font_size(self):
@@ -125,6 +126,69 @@ class CoverCanvasPhase2QtTests(unittest.TestCase):
         self.assertGreater(widened.rect.width, 0.4)
         self.assertAlmostEqual(widened.wrap.max_width, widened.rect.width, places=6)
         self.assertLessEqual(len(self.canvas._text_layout_for(widened).lines), before_lines)
+
+    def test_center_stays_fixed_during_scaling_for_both_ratios_and_rotations(self):
+        for profile in ("4x3", "16x9"):
+            for rotation in (0.0, -12.0, 25.0):
+                with self.subTest(profile=profile, rotation=rotation):
+                    text = replace(
+                        self.document.objects[1], text="居中缩放\n保持原位", align="center",
+                        transform=Transform(x=0.25, y=0.3, rotation=rotation),
+                        rect=Rect(width=0.5, height=0.25),
+                    )
+                    self.canvas.set_document(replace(self.document, objects=(self.document.objects[0], text)), profile)
+                    rect, pivot, angle = self.canvas._frame(text)
+                    actual_center = self.canvas._rotate(rect.center(), pivot, angle)
+                    canvas = self.canvas._canvas_rect()
+                    text = replace(text, transform=replace(
+                        text.transform, x=text.transform.x + (canvas.center().x()-actual_center.x())/canvas.width(),
+                    ))
+                    self.canvas.set_document(replace(self.document, objects=(self.document.objects[0], text)), profile)
+                    self.canvas.set_selected_object(text.id)
+                    self.assertTrue(self.canvas._text_is_centered(text))
+                    frame = self.canvas._frame(text)
+                    center = self.canvas._rotate(frame[0].center(), frame[1], frame[2])
+                    handle = self.canvas._handle_points(text)["scale"]
+                    QTest.mousePress(self.canvas, Qt.MouseButton.LeftButton, pos=handle.toPoint())
+                    # 同一次手势先放大再缩小，每个中间帧也必须保持中心。
+                    for ratio in (1.1, 1.25, 1.4, 1.2, 1.0, 0.8):
+                        point = center + (handle - center) * ratio
+                        QTest.mouseMove(self.canvas, point.toPoint())
+                        live = self.canvas._find_text()
+                        rect, pivot, angle = self.canvas._frame(live)
+                        actual = self.canvas._rotate(rect.center(), pivot, angle)
+                        self.assertAlmostEqual(actual.x(), center.x(), places=5)
+                        self.assertAlmostEqual(actual.y(), center.y(), places=5)
+                        self.assertAlmostEqual(live.rect.width / text.rect.width, live.rect.height / text.rect.height)
+                    QTest.mouseRelease(self.canvas, Qt.MouseButton.LeftButton, pos=point.toPoint())
+                    self.assertLess(self.canvas._find_text().style.font_size, text.style.font_size)
+
+    def test_keyboard_scaling_keeps_the_same_visible_center(self):
+        text = self._select_text()
+        canvas = self.canvas._canvas_rect()
+        text = replace(text, transform=replace(
+            text.transform, x=text.transform.x + (canvas.center().x()-self.canvas._display_rect(text).center().x())/canvas.width(),
+        ))
+        self.canvas.set_document(replace(self.document, objects=(self.document.objects[0], text)), "4x3")
+        self.canvas.set_selected_object(text.id)
+        center = self.canvas._display_rect(text).center()
+        for key in (Qt.Key.Key_Plus, Qt.Key.Key_Minus):
+            QTest.keyClick(self.canvas, key)
+            current = self.canvas._display_rect(self.canvas._find_text()).center()
+            self.assertAlmostEqual(current.x(), center.x(), places=5)
+            self.assertAlmostEqual(current.y(), center.y(), places=5)
+
+    def test_uncentered_text_uses_original_anchor_even_with_center_paragraph_alignment(self):
+        for x in (0.08, 0.6):
+            text = replace(self.document.objects[1], text="偏向一边", align="center", transform=Transform(x=x, y=0.3))
+            self.canvas.set_document(replace(self.document, objects=(self.document.objects[0], text)), "4x3")
+            self.canvas.set_selected_object(text.id)
+            self.assertFalse(self.canvas._text_is_centered(text))
+            handle = self.canvas._handle_points(text)["scale"]
+            self._drag(handle, QPoint(round(handle.x())+40, round(handle.y())+25))
+            resized = self.canvas._find_text()
+            self.assertGreater(resized.style.font_size, text.style.font_size)
+            self.assertEqual(resized.transform, text.transform)
 
     def test_left_width_handle_keeps_right_edge(self):
         changes = []

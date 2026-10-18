@@ -118,24 +118,41 @@ class CanvasGestureMixin:
     def _screen_to_export(self) -> float:
         return self._export_size()[0] / max(1.0, self._canvas_rect().width())
 
+    def _text_is_centered(self, obj: TextObject) -> bool:
+        rect, pivot, angle = self._frame(obj)
+        center = self._rotate(rect.center(), pivot, angle)
+        return abs(center.x() - self._canvas_rect().center().x()) <= self._CENTER_SNAP_THRESHOLD_PX
+
     def _scaled_text(self, obj: TextObject, font_size: int) -> TextObject:
-        """按新字号等比缩放文字：描边、行宽一起跟随，左上角不动。"""
+        """字号、描边和行宽同比缩放；已居中的文字保持中心，其余保留原锚点。"""
 
         size = int(self._clamp(font_size, self._MIN_FONT_SIZE, self._MAX_FONT_SIZE))
         actual = size / max(1, obj.style.font_size)
         width = self._clamp(obj.rect.width * actual, 0.02, 3.0)
-        return replace(
+        updated = replace(
             obj,
             style=resize_text_style(obj.style, size),
             rect=replace(obj.rect, width=width, height=self._clamp(obj.rect.height * actual, 0.02, 3.0)),
             wrap=replace(obj.wrap, max_width=min(1.0, width)),
         )
+        if not self._text_is_centered(obj):
+            return updated
+        before, after = self._frame(obj), self._frame(updated)
+        old_center = self._rotate(before[0].center(), before[1], before[2])
+        new_center = self._rotate(after[0].center(), after[1], after[2])
+        canvas = self._canvas_rect()
+        return replace(updated, transform=replace(
+            updated.transform,
+            x=updated.transform.x + (old_center.x() - new_center.x()) / max(1.0, canvas.width()),
+            y=updated.transform.y + (old_center.y() - new_center.y()) / max(1.0, canvas.height()),
+        ))
 
     def _scale_gesture(self, point: QPointF):
-        """右下角：以左上角为锚点等比缩放；文字改字号和行宽，素材改缩放。"""
+        """右下角：居中文字向四周缩放，未居中文字与素材保留左上角锚点。"""
 
         obj, (rect, center, angle) = self._start_object, self._start_frame
-        anchor = self._rotate(rect.topLeft(), center, angle)
+        centered = isinstance(obj, TextObject) and self._text_is_centered(obj)
+        anchor = self._rotate(rect.center() if centered else rect.topLeft(), center, angle)
         start = math.hypot(self._press.x() - anchor.x(), self._press.y() - anchor.y())
         now = math.hypot(point.x() - anchor.x(), point.y() - anchor.y())
         ratio = self._clamp(now / max(8.0, start), 0.15, 6.0)

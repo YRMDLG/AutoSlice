@@ -16,6 +16,8 @@ from .cover_ai import AIFix
 from .cover_autolayout import primary_copy_ids, replace_copy
 from .cover_copy import BasicCoverCopy
 from .cover_effects import add_burst, burst_id
+from .cover_fix_edits import apply_object_edits
+from .cover_fix_quality import describe_scene, object_bounds
 from .cover_layout import canvas_size, text_layout
 from .cover_model import (
     BackgroundObject,
@@ -51,7 +53,7 @@ def _visible_texts(document: CoverDocument, profile_key: str) -> dict[str, TextO
     texts = {}
     for role, object_id in primary_copy_ids(document).items():
         current = object_for_profile(document, object_id, profile_key)
-        if isinstance(current, TextObject) and current.visible and current.text.strip():
+        if isinstance(current, TextObject) and current.visible and not current.locked and current.text.strip():
             texts[role] = current
     return texts
 
@@ -69,9 +71,11 @@ def _text_center(document: CoverDocument, profile_key: str) -> float:
 def describe_state(document: CoverDocument, profile_key: str) -> str:
     """封面现在的样子，一句话给 AI：已强调的词、倾斜、外描边、配色、底图放大倍数。"""
 
-    texts = _visible_texts(document, profile_key)
+    texts = {item.id: item for base in document.objects
+             if isinstance(item := object_for_profile(document, base.id, profile_key), TextObject)
+             and item.visible and item.text.strip()}
     words = [word for item in texts.values() for word in item.emphasis if word in item.text]
-    headline = texts.get("B")
+    headline = next(iter(texts.values()), None)
     parts = ["强调词：" + ("「" + "」「".join(words) + "」" if words else "无")]
     parts.append(f"字倾斜：{'有' if any(abs(item.transform.rotation) >= _TILTED for item in texts.values()) else '无'}")
     parts.append(f"外描边：{'有' if any(item.style.outer_stroke for item in texts.values()) else '无'}")
@@ -91,21 +95,43 @@ def describe_state(document: CoverDocument, profile_key: str) -> str:
     return "；".join(parts)
 
 
+def describe_text_layers(document: CoverDocument, profile_key: str) -> tuple[dict[str, object], ...]:
+    """给配色建议列出当前可编辑的所有文字，包含用户自行添加的文字块。"""
+
+    return tuple(item for item in describe_scene(document, profile_key)
+                 if item["kind"] == "text" and item["visible"] and not item["locked"] and str(item["text"]).strip())
+
+
 def apply_fix(service: Any, document: CoverDocument, image_path: str | Path, fix: AIFix, profile_key: str) -> CoverDocument:
     """一条建议（几个操作按顺序做）作用到文档上的结果；做不到或已经是这样时原样返回。service 只用来重排文字。"""
 
+    original = document
     for action in fix.actions:
         document = _apply_action(service, document, image_path, fix, action, profile_key)
-    return _keep_inside(document, profile_key)
+    if all(action in {"outline_colors", "edit_objects"} for action in fix.actions):
+        return document
+    return _keep_inside(document, profile_key, original)
 
 
-def _keep_inside(document: CoverDocument, profile_key: str) -> CoverDocument:
+def _keep_inside(document: CoverDocument, profile_key: str, original: CoverDocument) -> CoverDocument:
     """字放大、倾斜、加描边后可能出画：A/B 整组上下挪回画面里（保持上下关系），各自左右挪回。"""
 
     width, height = canvas_size(profile_key)
     margin_x, margin_y = width * _EDGE, height * _EDGE
-    texts = _visible_texts(document, profile_key)
-    inks = {role: text_layout(item, (width, height)).ink for role, item in texts.items()}
+    texts = {}
+    for role, item in _visible_texts(document, profile_key).items():
+        old = object_for_profile(original, item.id, profile_key)
+        old_box = object_bounds(old, profile_key)
+        if old_box is None:
+            texts[role] = item
+            continue
+        if object_bounds(item, profile_key) == old_box:
+            continue
+        # 原来就有意出画的文字保留其裁切；新增的越界再由成品检查拦下。
+        if old_box.left < 0 or old_box.top < 0 or old_box.right > width or old_box.bottom > height:
+            continue
+        texts[role] = item
+    inks = {role: object_bounds(item, profile_key) for role, item in texts.items()}
     if not inks:
         return document
     top = min(ink.top for ink in inks.values())
@@ -125,26 +151,57 @@ def _apply_action(
 ) -> CoverDocument:
     key = profile_key
     texts = _visible_texts(document, key)
+    if action == "edit_objects":
+        return apply_object_edits(document, fix.edits, key)
+    if action == "outline_colors":
+        for colors in fix.outlines:
+            current = object_for_profile(document, colors.object_id, key)
+            if not isinstance(current, TextObject) or not current.visible or current.locked:
+                continue
+            style = current.style
+            outer = style.outer_stroke if colors.outer_stroke is None else colors.outer_stroke
+            outer_width = style.outer_stroke_width
+            if colors.outer_stroke is not None:
+                outer_width = (outer_width or stroke_for(style.font_size, 0.03)) if outer else 0
+            updated = replace(current, style=replace(
+                style, stroke=colors.stroke, outer_stroke=outer, outer_stroke_width=outer_width,
+            ))
+            if updated != current:
+                document = update_text_object(document, updated, profile_key=key)
+        return document
     if action == "burst":
         # 垫在主文案（没有就 A）的强调词后面；已经垫过就不变。
         target = texts.get("B") or texts.get("A")
         return add_burst(document, target.id, key) if target is not None else document
     if action == "rewrite":
+        if any(isinstance(item := object_for_profile(document, object_id, key), TextObject) and item.locked
+               for object_id in primary_copy_ids(document).values()):
+            return document
         return replace_copy(document, BasicCoverCopy(context=fix.context, headline=fix.headline), key)
     if action in ("move_bottom", "move_top"):
         # 只重排字（引子在上），调好的取景不动；本来就在那一边就不动。
+        before_center = _text_center(document, key)
         moved = service.apply_auto_layout(
             document, image_path, mode="lead", position="bottom" if action == "move_bottom" else "top", reframe=False,
         )
-        return moved if abs(_text_center(moved, key) - _text_center(document, key)) >= _MIN_MOVE else document
+        # 自动排版只把未锁定的主文案几何带回当前比例，保护其它对象与另一比例。
+        candidate = document
+        for item in texts.values():
+            updated = object_for_profile(moved, item.id, key)
+            candidate = set_profile_override(candidate, key, updated)
+        return candidate if abs(_text_center(candidate, key) - before_center) >= _MIN_MOVE else document
     if action in ("zoom_in", "zoom_out"):
         background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
         current = object_for_profile(document, background.id, key) if background is not None else None
-        if not isinstance(current, BackgroundObject):
+        if not isinstance(current, BackgroundObject) or current.locked:
             return document
         factor = FIX_ZOOM if action == "zoom_in" else 1 / FIX_ZOOM
         scale = clamp_background_scale(max(1.0, current.scale * factor))
         return set_profile_override(document, key, replace(current, scale=scale)) if scale != current.scale else document
+    if action in {"emphasize", "tilt", "outline", "restyle"}:
+        texts = {item.id: item for base in document.objects
+                 if isinstance(item := object_for_profile(document, base.id, key), TextObject)
+                 and item.visible and not item.locked and item.text.strip()}
     for role, current in texts.items():
         updated = current
         if action == "emphasize":
@@ -174,7 +231,7 @@ def _apply_action(
         elif action == "restyle":
             preset = next((item for item in STYLE_PRESETS if item.key == fix.preset), None)
             if preset is not None:
-                updated = replace(current, style=preset.apply(current.style, role))
+                updated = replace(current, style=preset.apply(current.style, current.copy_role))
         if updated != current:
             document = update_text_object(document, updated, profile_key=key)
     return document

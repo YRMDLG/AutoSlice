@@ -24,6 +24,7 @@ from autoslice.llm.transport import call_llm, extract_json_payload
 
 from .ai_settings import AISettings, read_ai_settings
 from .cover_copy import BasicCoverCopy
+from .cover_fix_schema import AIObjectEdit, edit_steps, object_changes
 from .cover_style import STYLE_PRESETS
 from .cover_works import CoverWork
 from .foundation import DesktopStorage
@@ -157,6 +158,7 @@ class AIFramePick:
 
 # AI 修改建议只能从这些一键操作里选。
 FIX_ACTIONS = {
+    "edit_objects": "按 ID 分别调整文字、图片、贴纸或形状，保留正文和已有风格",
     "move_bottom": "封面文字整体移到画面下方",
     "move_top": "封面文字整体移到画面上方",
     "zoom_in": "画面拉近人物，裁掉四周的界面和弹幕",
@@ -167,6 +169,7 @@ FIX_ACTIONS = {
     "tilt": "字整体略微倾斜，更有动感",
     "burst": "给强调词（没有就整段主文案）垫一个漫画爆炸贴",
     "outline": "字外面再加一圈描边，从背景里跳出来",
+    "outline_colors": "按文字填色和画面调整各文字块的描边、外描边配色，不改填色、字号和位置",
     "restyle": "换一套配色",
     "rewrite": "换一句文案",
 }
@@ -174,13 +177,24 @@ FIX_ACTIONS = {
 
 # 弹窗里显示的操作名（比给 AI 看的说明短）。
 _ACTION_NAMES = {
+    "edit_objects": "调整文字与构图",
     "move_bottom": "字移到下方", "move_top": "字移到上方", "zoom_in": "画面拉近", "zoom_out": "画面拉远",
     "bigger": "主文案放大", "smaller_context": "A 缩小", "tilt": "字倾斜", "outline": "加外描边",
     "burst": "垫爆炸贴",
+    "outline_colors": "优化描边配色",
 }
 # 一条建议最多组合几个操作；互相抵消的操作只留前一个。
 _MAX_FIX_ACTIONS = 3
 _OPPOSITE = {"move_bottom": "move_top", "move_top": "move_bottom", "zoom_in": "zoom_out", "zoom_out": "zoom_in"}
+
+
+@dataclass(frozen=True, slots=True)
+class AIOutline:
+    """一个已知文字块的描边配色；外描边 None 表示保留，空串表示去掉。"""
+
+    object_id: str
+    stroke: str
+    outer_stroke: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +208,8 @@ class AIFix:
     words: tuple[str, ...] = ()
     # restyle 时换成哪套配色（STYLE_PRESETS 的 key）。
     preset: str = ""
+    outlines: tuple[AIOutline, ...] = ()
+    edits: tuple[AIObjectEdit, ...] = ()
 
     def _name(self, action: str) -> str:
         if action == "rewrite":
@@ -206,7 +222,36 @@ class AIFix:
 
     @property
     def label(self) -> str:
-        return " + ".join(self._name(action) for action in self.actions)
+        return " + ".join(self.steps)
+
+    @property
+    def steps(self) -> tuple[str, ...]:
+        return tuple(step for action in self.actions for step in (
+            edit_steps(self.edits) if action == "edit_objects" else (self._name(action),)
+        ))
+
+
+def _outline_changes(raw, allowed: set[str]) -> tuple[AIOutline, ...]:
+    """只接收已知文字 ID 和六位十六进制颜色，不接收任意样式字段。"""
+
+    if not isinstance(raw, list):
+        return ()
+    changes = []
+    seen = set()
+    for item in raw[:32]:
+        if not isinstance(item, dict):
+            continue
+        object_id = str(item.get("id") or "").strip()
+        stroke = str(item.get("stroke") or "").strip().upper()
+        outer = item.get("outer_stroke")
+        outer = outer.strip().upper() if isinstance(outer, str) else outer
+        if object_id not in allowed or object_id in seen or not re.fullmatch(r"#[0-9A-F]{6}", stroke):
+            continue
+        if outer is not None and (not isinstance(outer, str) or outer and not re.fullmatch(r"#[0-9A-F]{6}", outer)):
+            continue
+        changes.append(AIOutline(object_id, stroke, outer))
+        seen.add(object_id)
+    return tuple(changes)
 
 
 def from_source(text: str, source: str) -> bool:
@@ -214,6 +259,13 @@ def from_source(text: str, source: str) -> bool:
 
     allowed = set(source) | _FUNCTION_WORDS
     return all(character in allowed for character in text if _WORD_RE.match(character))
+
+
+def _has_evidence(quote: str, sources: Sequence[str]) -> bool:
+    """证据必须是某一段真实原文，不能把散落在各处的字拼成一句话。"""
+
+    words = "".join(_WORD_RE.findall(quote))
+    return len(words) >= 2 and any(words in "".join(_WORD_RE.findall(source)) for source in sources)
 
 
 def jpeg_bytes(image: str | Path | Image.Image | bytes, *, max_side: int = 1280, quality: int = 85) -> bytes:
@@ -231,7 +283,7 @@ def jpeg_bytes(image: str | Path | Image.Image | bytes, *, max_side: int = 1280,
         return buffer.getvalue()
 
 
-def contact_sheet(thumbnails: Sequence[bytes]) -> bytes:
+def contact_sheet(thumbnails: Sequence[bytes], *, labels_outside: bool = False) -> bytes:
     """把候选缩略图拼成一张带编号（从 1 开始）的总图，按首页小图的大小给模型看。"""
 
     pictures = []
@@ -243,8 +295,9 @@ def contact_sheet(thumbnails: Sequence[bytes]) -> bytes:
     if not pictures:
         raise ValueError("没有候选可拼图")
     gap = 10
+    label_height = 42 if labels_outside else 0
     cell_width = max(item.width for item in pictures)
-    cell_height = max(item.height for item in pictures)
+    cell_height = max(item.height for item in pictures) + label_height
     rows = (len(pictures) + _SHEET_COLUMNS - 1) // _SHEET_COLUMNS
     columns = min(_SHEET_COLUMNS, len(pictures))
     sheet = Image.new("RGB", (columns * (cell_width + gap) + gap, rows * (cell_height + gap) + gap), (24, 24, 24))
@@ -253,7 +306,7 @@ def contact_sheet(thumbnails: Sequence[bytes]) -> bytes:
     for index, picture in enumerate(pictures):
         x = gap + (index % _SHEET_COLUMNS) * (cell_width + gap)
         y = gap + (index // _SHEET_COLUMNS) * (cell_height + gap)
-        sheet.paste(picture, (x, y))
+        sheet.paste(picture, (x, y + label_height))
         label = str(index + 1)
         box = draw.textbbox((0, 0), label, font=font)
         draw.rectangle((x, y, x + box[2] + 14, y + box[3] + 10), fill=(220, 30, 30))
@@ -409,12 +462,13 @@ class CoverAI:
         recent: Sequence[CoverWork] = (),
         round_index: int = 0,
         title_copy: BasicCoverCopy | None = None,
+        rewrite: bool = True,
     ) -> AIAnalysis:
         """读标题和整份字幕：标出爆点句，给“标题浓缩”和“原话”两种写法的 A/B 文案，并标强调词。"""
 
         source = title + "\n" + "\n".join(text for _start, _end, text in cues)
         title_line = (
-            f"\n标题提炼出的封面字是 A「{title_copy.context}」 B「{title_copy.headline}」，也给它标强调词（title_emphasis）。\n"
+            f"\n当前封面字是 A「{title_copy.context}」 B「{title_copy.headline}」，这是用户的基准，也给它标强调词（title_emphasis）。\n"
             if title_copy is not None and title_copy.headline else ""
         )
         prompt = f"""你是 B 站直播切片的封面文案编辑。根据投稿标题和这条切片的校对字幕，写封面上的字。
@@ -448,21 +502,25 @@ class CoverAI:
 
 给 3~5 组，按好坏排序、最好的放最前面，角度尽量不同；每组自评“没看过视频的人配合标题能不能一眼看懂、抓不抓眼”1~5 分，低于 4 分的不要给。
 第 {round_index + 1} 次生成{"，请给出和之前不同的句子" if round_index else ""}。
+{"本次保留当前文案，只找与投稿标题同一事件的爆点原话和真实时间，copies 返回空列表。选帧附近的字幕只能帮助挑表情，不是必须用作封面字。" if not rewrite else "新文案必须比当前封面和标题更清楚、更有记忆点；没有更好的就让 copies 为空，不必凑数。不能为了引用选帧附近的字幕而丢失标题里的诱因、结果与反差。"}
 只输出 JSON，不要解释：
 {{"highlight": {{"quote": "爆点字幕原话", "start": 秒数, "end": 秒数, "reason": "为什么是爆点（20 字内）"}},
  "title_emphasis": ["标题那句的强调词"],
  "copies": [{{"style": "标题|原话", "context": "A，可为空", "headline": "B", "emphasis": ["强调词"], "clarity": 1到5, "reason": "一句话说明（20 字内）"}}]}}"""
         payload = self._ask(prompt, vision=False)
         copies: list[AICopy] = []
-        for item in payload.get("copies") or ():
+        for item in (payload.get("copies") or ()) if rewrite else ():
             if not isinstance(item, dict):
                 continue
             try:
                 clarity = float(item.get("clarity", _MIN_CLARITY))
             except (TypeError, ValueError):
                 clarity = _MIN_CLARITY
-            context = _clean(item.get("context"), _MAX_CONTEXT)
-            headline = _clean(item.get("headline"), _MAX_HEADLINE)
+            # 超长句直接丢弃，截断会把有意义的句子变成半句话。
+            context = _clean(item.get("context"), _MAX_CONTEXT + 1)
+            headline = _clean(item.get("headline"), _MAX_HEADLINE + 1)
+            if len(context) > _MAX_CONTEXT or len(headline) > _MAX_HEADLINE:
+                continue
             copy = AICopy(
                 context=context, headline=headline,
                 angle=_clean(item.get("style") or item.get("angle"), 8),
@@ -470,24 +528,81 @@ class CoverAI:
                 emphasis=_emphasis(item.get("emphasis"), context, headline),
             )
             # 逐字校验：有原文里没有的实词就丢掉；模型自己都觉得看不懂的也不要。
-            if not copy.headline or clarity < _MIN_CLARITY or not from_source(copy.context + copy.headline, source):
+            if not copy.headline or not _MIN_CLARITY <= clarity <= 5 or not from_source(copy.context + copy.headline, source):
                 continue
             if all(existing.headline != copy.headline for existing in copies):
                 copies.append(copy)
         raw = payload.get("highlight")
         highlight = None
         if isinstance(raw, dict) and str(raw.get("quote") or "").strip():
-            start = _seconds(raw.get("start"))
+            quote = _clean(raw.get("quote"), 60)
+            claimed = _seconds(raw.get("start"))
+            matched = [cue for cue in cues if _has_evidence(quote, (cue[2],))]
+            cue = min(matched, key=lambda cue: abs(cue[0] - claimed)) if matched else None
+        else:
+            cue = None
+        if cue is not None:
             highlight = AIHighlight(
-                quote=_clean(raw.get("quote"), 60), start=start,
-                end=max(start, _seconds(raw.get("end"))), reason=_clean(raw.get("reason"), 40),
+                quote=quote, start=cue[0], end=cue[1], reason=_clean(raw.get("reason"), 40),
             )
-        if not copies:
+        if not copies and (title_copy is None or not title_copy.headline):
             raise CoverAIError("AI 给的文案都不合格（不是出自原文或看不懂），已全部丢弃；可以再试一次")
         title_emphasis = (
             _emphasis(payload.get("title_emphasis"), title_copy.context, title_copy.headline) if title_copy else ()
         )
         return AIAnalysis(highlight=highlight, copies=tuple(copies), title_emphasis=title_emphasis)
+
+    def review_copies(
+        self, title: str, cues: Sequence[tuple[float, float, str]], copies: Sequence[AICopy], *,
+        current: BasicCoverCopy, fixed_texts: Sequence[str] = (),
+    ) -> tuple[AICopy, ...]:
+        """单独复核新文案：必须优于当前文案及标题，并能提供一段连续的原文证据。"""
+
+        if not copies:
+            return ()
+        rows = [{"index": index, "context": copy.context, "headline": copy.headline}
+                for index, copy in enumerate(copies, 1)]
+        prompt = f"""你是独立的封面文案复核编辑，下面是另一位编辑给出的候选，不能沿用它的自评分。
+投稿标题：{title}
+当前封面字：A「{current.context}」 B「{current.headline}」
+画布上还会保留的用户文字：{json.dumps(list(fixed_texts), ensure_ascii=False)}
+候选文案：{json.dumps(rows, ensure_ascii=False)}
+字幕：[秒数] 文本
+{_subtitle_lines(cues)}
+
+逐组与当前封面字、投稿标题比较，只有同时满足以下条件才通过：
+- 同一个核心事件，保留标题最有价值的诱因、后果、反差，不能把附近的随口一句当爆点；
+- 没看过视频的人能读懂指代、关系和笑点，口语自然，不是半句话或空泛感叹；
+- 配合保留的用户文字不重复、不矛盾；在清楚程度或记忆点上明确优于当前文字与标题浓缩。
+普通改写、换语序、效果相当、无法判断都淘汰。没有更好的就返回空列表。
+evidence 必须逐字引用标题或某一条字幕里连续的一段，能支撑这个核心事件，不能拼字。
+只输出 JSON：{{"reviews": [{{"index": 1, "same_event": true, "standalone": true,
+"better_than_current": true, "better_than_title": true, "evidence": "真实原文", "reason": "具体好在哪里"}}]}}"""
+        payload = self._ask(prompt, vision=False, max_tokens=2500)
+        accepted = []
+        seen: set[int] = set()
+        sources = (title, *(text for _start, _end, text in cues))
+        for row in payload.get("reviews") or ():
+            if not isinstance(row, dict):
+                continue
+            index = row.get("index")
+            if type(index) is not int or not 1 <= index <= len(copies) or index in seen:
+                continue
+            if not all(row.get(key) is True for key in (
+                "same_event", "standalone", "better_than_current", "better_than_title",
+            )) or not _has_evidence(str(row.get("evidence") or ""), sources):
+                continue
+            copy = copies[index - 1]
+            if (
+                "".join(_WORD_RE.findall(copy.context + copy.headline))
+                == "".join(_WORD_RE.findall(current.context + current.headline))
+            ):
+                continue
+            if not from_source(copy.context + copy.headline, "\n".join(sources)):
+                continue
+            seen.add(index)
+            accepted.append(copy)
+        return tuple(accepted)
 
     def inspect(self, frame: bytes) -> AIFrameNotes:
         """看没加字的原画面：标出主播的脸、人物，以及画面自带的字和界面各在哪（取景由本地算）。"""
@@ -533,16 +648,24 @@ class CoverAI:
         frame: bytes | None = None,
         recent_thumbnails: Sequence[bytes] = (),
         round_index: int = 0,
+        current_cover: bytes | None = None,
+        candidate_texts: Sequence[dict[str, str]] = (),
+        fixed_texts: Sequence[str] = (),
     ) -> AIChoice:
         """看候选总图（编号从 1 开始）挑三张：稳妥、换个构图、大胆一点；不合格的一票否决。"""
 
         extra = []
         if frame is not None:
             extra.append("第二张是没加字的原画面，用来分辨哪些字是画面原有的、哪些是封面加的")
+        if current_cover is not None:
+            extra.append("原画面后是用户当前封面，用来对照已有文字、素材和有意叠放")
         if recent_thumbnails:
             extra.append("再后面几张是这位切片员最近导出的封面")
         prompt = f"""你是 B 站直播切片的资深封面编辑。第一张图里是同一条切片的 {count} 个候选封面，左上角红底白字是编号，都按首页小图的大小排着{"；" + "；".join(extra) if extra else ""}。
 投稿标题：{title or "未知"}
+各候选的主文案（按编号）：{json.dumps(list(candidate_texts), ensure_ascii=False)}
+所有候选中保留的自建文字：{json.dumps(list(fixed_texts), ensure_ascii=False)}
+主文案和自建文字要一起读，不能互相重复、打架。当前封面文案是基准，不要求换成字幕摘句。
 
 请挑出三张：
 - 稳妥：最好用、最不会出错的一张；
@@ -551,14 +674,15 @@ class CoverAI:
 
 一票否决，出现任何一条都不能选：
 1. 封面文字压住人脸或主要人物；
-2. 封面文字（彩色描边的大字）和画面原有的文字、弹幕或直播界面叠在一起，哪怕只叠一部分；
+2. 排版新增了文字之间的挤压，或主文案盖住固定素材、弹幕或直播界面；原封面已有的有意叠放和文字背后的爆炸贴不算错误；
 3. 文案是只有看过视频才懂的细节（不知道指什么的数字、东西、半句话），或者和投稿标题说的不是同一个爆点；
 4. 在小图上字太小、读不清。
 都合格时，人物表情有戏、关键词换了颜色更醒目、一眼能抓住的优先。
 合格的不够三张就少选，全部不合格就返回空列表。第 {round_index + 1} 次挑选。
 只输出 JSON，不要解释：
 {{"picks": [{{"direction": "稳妥|换个构图|大胆一点", "index": 编号, "reason": "为什么选它（25 字内）"}}], "rejected": "其余候选被淘汰的主要原因（30 字内）"}}"""
-        images = (sheet, *((frame,) if frame is not None else ()), *recent_thumbnails[:2])
+        images = (sheet, *((frame,) if frame is not None else ()),
+                  *((current_cover,) if current_cover is not None else ()), *recent_thumbnails[:2])
         payload = self._ask(prompt, vision=True, images=images)
         picks: list[AIPick] = []
         for item in payload.get("picks") or ():
@@ -629,6 +753,8 @@ class CoverAI:
         source: str = "",
         frame: bytes | None = None,
         state: str = "",
+        text_layers: Sequence[dict[str, object]] = (),
+        scene: Sequence[dict[str, object]] = (),
     ) -> tuple[AIFix, ...]:
         """看成品挑最影响效果的问题，每条只给工具能一键做到的修改；没问题就返回空。
 
@@ -638,22 +764,39 @@ class CoverAI:
         context, headline = texts
         actions = "\n".join(f"- {key}：{text}" for key, text in FIX_ACTIONS.items())
         presets = "、".join(f"{preset.key}（{preset.label}）" for preset in STYLE_PRESETS)
+        layer_data = json.dumps(list(text_layers), ensure_ascii=False)
+        scene_data = json.dumps(list(scene), ensure_ascii=False)
         prompt = f"""你是 B 站直播切片的封面审稿人。第一张图是准备导出的封面（按首页小图尺寸看）{"；第二张是没加字的原画面" if frame is not None else ""}。
-封面上加的字只有：A「{context}」（可能为空）、B「{headline}」。画面原有的直播界面、弹幕、视频自带文字不是封面文字，不要评价它们本身。
+封面主文案是：A「{context}」（可能为空）、B「{headline}」；其它可编辑文字见后面的文字块清单。清单之外画面原有的直播界面、弹幕、视频自带文字不是封面文字，不要评价它们本身。
 投稿标题：{title or "未知"}
 {f"封面现在：{state}。已经做到的不要再提（比如已经强调过的词、已经倾斜过）。" if state else ""}
-对照日更切片号的好封面（关键词换色、字大、表情有戏、字不压脸不压界面、有点动感），给最多 3 个修改方案，按效果从大到小排。
+根据这张封面的实际内容与风格，给最多 6 个有实际改善的候选方案，按效果从大到小排，稍后会渲染成品复核。
+适用于一句标题、多段文字、对话、多人、无人、游戏、物品、抠图和拼图；不要假定一定有人脸、三行字或固定主次。
+保留用户写好的正文、手动换行与原有风格。不要使用 rewrite；画面已经清楚时不要机械放大、加描边、换高饱和配色或增加装饰。
+有意的文字叠放、贴边、倾斜和装饰穿插可以保留；优先解决实际的难读、主次混乱或无意遮挡。
 每个方案组合 1~3 个下面的操作（比如“主文案放大 + 字倾斜 + 加外描边”），改完要在首页小图上一眼看得出变化；几个方案之间要明显不同。这个工具能一键做到的只有这些操作：
 {actions}
 restyle 时在 preset 里给配色名，只能是：{presets}。
 rewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截取、删减、压缩，可以补“的、了、被、到”这类虚词；配合标题要能看懂，优先主播最冲的一句原话。
 emphasize 时在 words 里给 1~2 个要换色的词，必须是封面上 A 或 B 里原样出现的片段（2~5 字）。
+可调整描边的全部文字块（id、正文及当前颜色）：{layer_data}。
+完整对象清单（位置和 bounds 为画布比例，font_size 为导出像素，locked 的对象只能作为避让约束）：{scene_data}。
+优先使用 edit_objects，在 edits 中按清单里的 id 精确调整任意文字，包括新建与复制的文字，不依赖 A/B 或创建顺序。
+每个 edits 元素可以包含：id；scale（当前大小的 0.65~1.5 倍）；dx/dy（相对当前位置的画布比例，-0.35~0.35）；rotation（目标角度 -30~30）。
+文字还可使用 width_scale（行宽额外乘 0.65~1.6）、line_spacing（0.8~1.8）、fill/stroke/outer_stroke/accent（#RRGGBB）、words（正文中原样出现的强调词列表，空列表取消强调）。
+outer_stroke 空串可取消外描边；未给出的字段必须保持。只给真正需要改变的参数，不移动锁定对象、不显示隐藏对象、不新增或删除文字。
+已有文字关联的 burst-文字ID 装饰会跟随文字几何调整，无须重复调整；若装饰锁定则保留原位。其它图片、贴纸、形状可单独移动缩放旋转。
+背景取景默认保留；确有必要且背景未锁定时才使用 zoom_in/zoom_out。多块自定义文字请用 edits 分别排放，避免整体移到上下方造成拥挤。
+outline_colors 时在 outlines 里按 id 指定修改。结合填色、背景明暗和整体色调挑描边色：可以用深蓝、深紫、暖棕、米白等协调颜色，避免所有文字一律套纯黑边，同时保证小图清晰、强调词也读得清。
+已有描边或外描边仍可优化配色。stroke 必须是 #RRGGBB；outer_stroke 为 #RRGGBB 表示该外描边色，为空串表示去掉外描边，为 null 或省略表示保留现状。只改给定文字块的描边，不改填色、字号、位置、文案。
 已经很好、改了也不会更好就返回空列表，不要为了凑数提建议；不要提这些操作做不到的事。
 只输出 JSON，不要解释：
-{{"fixes": [{{"issue": "这个方案解决什么（20 字内）", "actions": ["上面的英文名，1~3 个"], "context": "rewrite 时的新 A", "headline": "rewrite 时的新 B", "words": ["emphasize 时的强调词"], "preset": "restyle 时的配色名"}}]}}"""
+{{"fixes": [{{"issue": "这个方案具体改善什么（20 字内）", "actions": ["edit_objects"], "edits": [{{"id": "清单中的对象ID", "scale": 1.1, "dy": -0.03}}], "outlines": []}}]}}"""
         images = (cover, *((frame,) if frame is not None else ()))
         payload = self._ask(prompt, vision=True, images=images, max_tokens=3000)
         fixes: list[AIFix] = []
+        signatures = set()
+        allowed_layers = {item["id"] for item in text_layers if isinstance(item.get("id"), str)}
         for item in payload.get("fixes") or ():
             if not isinstance(item, dict):
                 continue
@@ -663,6 +806,8 @@ emphasize 时在 words 里给 1~2 个要换色的词，必须是封面上 A 或 
             new_headline = _clean(item.get("headline"), _MAX_HEADLINE)
             words = _emphasis(item.get("words"), context, headline)
             preset = str(item.get("preset") or "").strip()
+            outlines = _outline_changes(item.get("outlines"), allowed_layers)
+            edits = object_changes(item.get("edits"), scene or text_layers)
             actions: list[str] = []
             for value in raw:
                 action = str(value).strip().lower()
@@ -673,6 +818,10 @@ emphasize 时在 words 里给 1~2 个要换色的词，必须是封面上 A 或 
                     continue
                 if action == "emphasize" and not words or action == "restyle" and preset not in _PRESET_LABELS:
                     continue
+                if action == "outline_colors" and not outlines:
+                    continue
+                if action == "edit_objects" and not edits:
+                    continue
                 actions.append(action)
             if not actions:
                 continue
@@ -680,7 +829,38 @@ emphasize 时在 words 里给 1~2 个要换色的词，必须是封面上 A 或 
                 issue=_clean(item.get("issue"), 40), actions=tuple(actions[:_MAX_FIX_ACTIONS]),
                 context=new_context if "rewrite" in actions else "", headline=new_headline if "rewrite" in actions else "",
                 words=words if "emphasize" in actions else (), preset=preset if "restyle" in actions else "",
+                outlines=outlines if "outline_colors" in actions else (),
+                edits=edits if "edit_objects" in actions else (),
             )
-            if fix.actions not in [existing.actions for existing in fixes]:
+            signature = (fix.actions, fix.context, fix.headline, fix.words, fix.preset, fix.outlines, fix.edits)
+            if signature not in signatures:
+                signatures.add(signature)
                 fixes.append(fix)
-        return tuple(fixes[:3])
+        return tuple(fixes[:6])
+
+    def review_fixes(self, sheet: bytes, count: int, *, title: str = "", state: str = "") -> AIChoice:
+        """原图和候选一起审阅；只保留确有改善且彼此不同的成品。"""
+
+        prompt = f"""封面修改成品复核：总图中编号 1 是用户原图，编号 2~{count + 1} 是修改后的候选。
+投稿标题：{title}。对象与原有状态：{state}。
+只挑出比原图更好读、层级更清楚或构图更协调的候选，最多 3 张，并按值得采用的程度排序。
+按当前内容判断视觉重点，兼容无人、多人、游戏、物品、拼图和任意数量的文字。保留原有风格与有意叠放。
+淘汰无意截字、新增挤压遮挡、重点变小难读、颜色变脏、装饰错位的方案；很小的改色或几乎相同的方案不必选。
+多个候选只有轻微配色差别时只留更好的一张；每张必须说明相对原图的具体改善。不要为了凑数挑选。
+全部不如原图或无法确认改善时返回空 picks，并在 rejected 说明；不能仅因变化大就认定更好。
+只输出 JSON：{{"picks": [{{"index": 2, "reason": "相对原图的具体改善（30字内）"}}], "rejected": "未选方案的原因或原图更合适的理由"}}"""
+        payload = self._ask(prompt, vision=True, images=(sheet,), max_tokens=1600)
+        if not isinstance(payload.get("picks"), list):
+            raise CoverAIError("AI 没有完成修改效果复核，请重试")
+        picks = []
+        seen = set()
+        for item in payload["picks"]:
+            if not isinstance(item, dict):
+                continue
+            index = item.get("index")
+            reason = _clean(item.get("reason"), 60)
+            if isinstance(index, bool) or not isinstance(index, int) or not 2 <= index <= count + 1 or index in seen or not reason:
+                continue
+            picks.append(AIPick("", index - 2, reason))
+            seen.add(index)
+        return AIChoice(tuple(picks[:3]), _clean(payload.get("rejected"), 120))

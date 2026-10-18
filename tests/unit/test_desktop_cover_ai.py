@@ -58,16 +58,21 @@ PERSON = (0.36, 0.18, 0.64, 1.0)
 class RoutingModel:
     """并发请求的模拟模型：按提示词内容应答，与调用顺序无关。"""
 
-    def __init__(self, analysis, choice, inspect=None, pick=None):
+    def __init__(self, analysis, choice, inspect=None, pick=None, review=None):
         self.replies = {"analysis": analysis, "choice": choice,
                         "inspect": inspect or json.dumps({"face": None, "ui": [], "note": ""}, ensure_ascii=False),
-                        "pick": pick or json.dumps({"index": 1})}
+                        "pick": pick or json.dumps({"index": 1}),
+                        "review": review or json.dumps({"reviews": [{
+                            "index": 1, "same_event": True, "standalone": True,
+                            "better_than_current": True, "better_than_title": True,
+                            "evidence": "选秀带手机居然会改变选曲",
+                        }]}, ensure_ascii=False)}
         self.calls = []
 
     def __call__(self, prompt, *, max_tokens, model_override, images):
         kind = (
             "pick" if "挑一张最适合" in prompt else "inspect" if "请标出" in prompt
-            else "choice" if "候选封面" in prompt else "analysis"
+            else "choice" if "候选封面" in prompt else "review" if "独立的封面文案复核" in prompt else "analysis"
         )
         self.calls.append((kind, model_override, len(images)))
         return self.replies[kind]
@@ -150,6 +155,53 @@ class CoverAIServiceTests(unittest.TestCase):
         model.replies.append(_analysis_reply())
         ai.analyze(TITLE, CUES, round_index=1)
         self.assertEqual(len(model.calls), 2)
+
+    def test_copy_review_requires_an_improvement_and_contiguous_evidence(self):
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+
+        valid = {"same_event": True, "standalone": True, "better_than_current": True,
+                 "better_than_title": True, "evidence": "选秀带手机居然会改变选曲"}
+        rows = [
+            {**valid, "index": 1, "better_than_current": False},
+            {**valid, "index": 2, "better_than_title": "true"},
+            {**valid, "index": 3, "evidence": "曲改机秀"},
+            {**valid, "index": 4}, {**valid, "index": 4}, {**valid, "index": 99},
+        ]
+        copies = tuple(AICopy("", text, "标题", "") for text in (
+            "居然会改变选曲", "场外干涉", "交手机", "选秀带手机",
+        ))
+        model = FakeModel(json.dumps({"reviews": rows}, ensure_ascii=False))
+        result = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).review_copies(
+            TITLE, CUES, copies, current=BasicCoverCopy("", "我自己写的主文案"), fixed_texts=("我的旁白",),
+        )
+        self.assertEqual(result, (copies[3],))
+        self.assertIn("我自己写的主文案", model.calls[0][2])
+        self.assertIn("我的旁白", model.calls[0][2])
+
+    def test_no_better_copy_keeps_baseline_and_invalid_highlight_is_not_used(self):
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+
+        model = FakeModel(_analysis_reply(copies=[], highlight={
+            "quote": "不存在的拼接句", "start": 12, "end": 14,
+        }))
+        result = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).analyze(
+            TITLE, CUES, title_copy=BasicCoverCopy("", "用户标题"),
+        )
+        self.assertEqual(result.copies, ())
+        self.assertIsNone(result.highlight)
+
+    def test_highlight_uses_subtitle_time_and_long_copies_are_not_truncated(self):
+        from autoslice.desktop.cover_copy import BasicCoverCopy
+
+        model = FakeModel(_analysis_reply(
+            copies=[{"headline": "选秀" * 15, "clarity": 5}],
+            highlight={"quote": CUES[1][2], "start": 999, "end": 1000},
+        ))
+        result = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).analyze(
+            TITLE, CUES, title_copy=BasicCoverCopy("", "用户标题"),
+        )
+        self.assertEqual(result.copies, ())
+        self.assertEqual((result.highlight.start, result.highlight.end), (12.5, 15.0))
 
     def test_unconfigured_or_all_rejected_gives_readable_errors(self):
         with self.assertRaisesRegex(CoverAIError, "设置页"):
@@ -249,6 +301,37 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertIn("[12.5] 这个位置竞演可以场外干涉", prompt)
         with self.assertRaisesRegex(CoverAIError, "投稿文案"):
             CoverAI(self.storage, llm=FakeModel("{}"), settings=lambda: CONFIGURED).submission_copy(TITLE, CUES, round_index=1)
+
+    def test_outline_colors_validate_targets_and_keep_distinct_color_options(self):
+        replies = {"fixes": [
+            {"issue": "紫色更协调", "actions": ["outline_colors"], "outlines": [
+                {"id": "extra-caption", "stroke": "#4b2848", "outer_stroke": "#fff4dd", "font_size": 9999},
+                {"id": "unknown", "stroke": "#123456"},
+                {"id": "copy-b", "stroke": "url(file:///bad)"},
+            ]},
+            {"issue": "蓝色更协调", "actions": ["outline_colors"], "outlines": [
+                {"id": "extra-caption", "stroke": "#183A53", "outer_stroke": ""},
+            ]},
+            {"issue": "重复方案", "actions": ["outline_colors"], "outlines": [
+                {"id": "extra-caption", "stroke": "#4B2848", "outer_stroke": "#FFF4DD"},
+            ]},
+            {"issue": "无效颜色", "actions": ["outline_colors"], "outlines": [
+                {"id": "copy-b", "stroke": "#123456", "outer_stroke": True},
+            ]},
+        ]}
+        model = FakeModel(json.dumps(replies, ensure_ascii=False))
+        fixes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).suggest_fixes(
+            b"cover-outlines", texts=("选秀", "交手机"), text_layers=(
+                {"id": "extra-caption", "text": "用户加的第三行", "fill": "#16D8ED", "stroke": "#111111", "outer_stroke": ""},
+                {"id": "copy-b", "text": "交手机", "fill": "#FFE438", "stroke": "#111111", "outer_stroke": ""},
+            ),
+        )
+        self.assertEqual(len(fixes), 2)
+        self.assertEqual(fixes[0].outlines[0].stroke, "#4B2848")
+        self.assertEqual(len(fixes[0].outlines), 1)
+        self.assertEqual(fixes[1].outlines[0].outer_stroke, "")
+        self.assertIn("用户加的第三行", model.calls[0][2])
+        self.assertEqual(fixes[0].steps, ("优化描边配色",))
 
     def test_pick_frame_maps_numbers_and_skips_single_frame(self):
         model = FakeModel(json.dumps({"index": 3, "expression": "惊讶张嘴", "reason": "反应最大"}, ensure_ascii=False),
@@ -438,31 +521,88 @@ class CoverAIEditorTests(unittest.TestCase):
             for item in self.widget.document.objects if isinstance(item, TextObject)
         }
 
-    def test_ai_picks_from_rendered_candidates_and_feeds_copy_rotation(self):
+    def test_ai_defaults_to_current_copy_and_keeps_copy_rotation(self):
         self.assertTrue(self.widget.ai_scheme_button.isEnabled())
+        before = self._texts()["B"].text
+        rotation = self.widget._copy_variants
         self.widget._ai_schemes()
         self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
         self.assertEqual([label.text() for label in self.widget.scheme_labels], ["AI·稳妥", "AI·换个构图", "AI·大胆一点"])
         # 先看原画面、写文案，再看候选总图（附原画面对照）挑选；取不到爆点前后的帧时不选帧。
         self.assertEqual(sorted(call[0] for call in self.model.calls), ["analysis", "choice", "inspect"])
         self.assertEqual(self.nearby_requests[0][0], 12.5)
-        self.assertIn(("choice", "gpt-5.6-luna", 2), self.model.calls)
+        self.assertIn(("choice", "gpt-5.6-luna", 3), self.model.calls)
         self.assertIn("这个位置竞演可以场外干涉", self.widget.ai_hint.text())
-        self.assertEqual(self.widget._copy_variants[0].headline, "居然会改变选曲")
+        self.assertEqual(self.widget._copy_variants, rotation)
         self.widget._apply_scheme(2)
         texts = self._texts()
+        self.assertEqual(texts["B"].text, before)
         self.assertFalse("A" in texts and texts["A"].visible)
         self.assertEqual(self.widget._applied_scheme, "ai:大胆一点")
         self.assertTrue(self.widget.undo_button.isEnabled())
 
     def test_ai_scheme_with_context_adds_a_block_to_b_only_cover(self):
         self.assertNotIn("A", self._texts())
+        self.widget.ai_rewrite_check.setChecked(True)
         self.widget._ai_schemes()
         self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
         self.widget._apply_scheme(1)
         texts = self._texts()
         self.assertEqual((texts["A"].text, texts["A"].visible), ("选秀", True))
         self.assertLess(texts["A"].style.font_size, texts["B"].style.font_size)
+
+    def test_rejected_new_copy_keeps_current_copy_and_rotation(self):
+        self.widget.ai_rewrite_check.setChecked(True)
+        self.model.replies["review"] = '{"reviews": []}'
+        original = self._texts()["B"].text
+        rotation = self.widget._copy_variants
+        self.widget._ai_schemes()
+        self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
+        self.widget._apply_scheme(0)
+        self.assertEqual(self._texts()["B"].text, original)
+        self.assertEqual(self.widget._copy_variants, rotation)
+        self.assertIn("没有明确优于", self.widget.ai_hint.text())
+
+    def test_copy_review_failure_falls_back_to_current_copy(self):
+        self.widget.ai_rewrite_check.setChecked(True)
+        self.model.replies["review"] = 'broken JSON'
+        original = self._texts()["B"].text
+        self.widget._ai_schemes()
+        self.wait_for(lambda: self.widget.ai_scheme_button.isEnabled())
+        self.assertEqual(self.widget.scheme_title.text(), "AI 方案")
+        self.widget._apply_scheme(0)
+        self.assertEqual(self._texts()["B"].text, original)
+        self.assertIn("复核未完成", self.widget.ai_hint.text())
+
+    def test_edits_during_generation_discard_old_result(self):
+        self.widget._ai_schemes()
+        self.widget.document = replace(self.widget.document, objects=tuple(
+            replace(item, text="刚刚手改的标题") if isinstance(item, TextObject) else item
+            for item in self.widget.document.objects
+        ))
+        self.wait_for(lambda: self.widget.ai_scheme_button.isEnabled())
+        self.assertIn("这批方案已作废", self.widget.notice_label.text())
+        self.assertEqual(self._texts()["B"].text, "刚刚手改的标题")
+
+    def test_manual_edits_after_generation_are_not_overwritten(self):
+        self.widget._ai_schemes()
+        self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
+        self.widget.document = replace(self.widget.document, objects=tuple(
+            replace(item, text="生成之后手改") if isinstance(item, TextObject) else item
+            for item in self.widget.document.objects
+        ))
+        before = self.widget.document
+        self.widget._apply_scheme(0)
+        self.assertEqual(self.widget.document, before)
+        self.assertIn("重新生成", self.widget.notice_label.text())
+
+    def test_undo_still_allows_selecting_another_generated_scheme(self):
+        self.widget._ai_schemes()
+        self.wait_for(lambda: self.widget.scheme_title.text() == "AI 方案")
+        self.widget._apply_scheme(0)
+        self.widget._undo()
+        self.widget._apply_scheme(1)
+        self.assertEqual(self.widget._applied_scheme, "ai:换个构图")
 
     def test_all_candidates_rejected_keeps_local_schemes(self):
         self.model.replies["choice"] = _choice_reply(rejected="都压住了画面原有的字")

@@ -397,7 +397,7 @@ class CoverLayoutMixin:
         scheme_head.addStretch(1)
         self.ai_scheme_button = self._button(
             "AI 方案", icon_name="sparkles",
-            tip="让 AI 读字幕找爆点、看画面，出“稳妥 / 换个构图 / 大胆一点”三套方案；再点一次换一批",
+            tip="保留当前文案和自建文字，避让已有对象优化排版；勾选下方选项才尝试更换主文案",
             slot=self._ai_schemes, enabled=False,
         )
         scheme_head.addWidget(self.ai_scheme_button)
@@ -415,6 +415,9 @@ class CoverLayoutMixin:
         )
         scheme_head.addWidget(self.scheme_refresh_button)
         section.addLayout(scheme_head)
+        self.ai_rewrite_check = QCheckBox("允许 AI 尝试更好的主文案")
+        self.ai_rewrite_check.setToolTip("默认保留当前文字；开启后，新文案须与当前文字及标题比较通过，自建文字块仍保留")
+        section.addWidget(self.ai_rewrite_check)
         scheme_row = QHBoxLayout()
         scheme_row.setSpacing(4)
         self.scheme_buttons: list[QPushButton] = []

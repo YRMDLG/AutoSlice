@@ -426,5 +426,3 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         if value != self._safe_area_warning:
             self._safe_area_warning = value
             self.safe_area_warning_changed.emit(value)
-
-

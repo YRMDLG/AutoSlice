@@ -10,11 +10,12 @@ import json
 import os
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from autoslice import runtime_config
+from autoslice.desktop.foundation import DesktopStorage
 from autoslice_cover.paths import DEFAULT_STICKER_ROOT
 
 SUPPORTED_ASSET_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".bmp"})
@@ -45,18 +46,47 @@ class CoverAsset:
 class CoverAssetLibrary:
     """按需扫描旧贴图库和本地导入目录。"""
 
-    def __init__(self, storage_root: Path | str, *, legacy_root: Path | str | None = None) -> None:
+    def __init__(
+        self, storage_root: Path | str, *, legacy_root: Path | str | None = None,
+        legacy_import_root: Path | str | None = None,
+    ) -> None:
         self.root = Path(storage_root).expanduser().resolve() / "cover-assets"
         self.import_root = self.root / "imports"
+        self.settings_path = self.root / "settings.json"
+        try:
+            settings = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            settings = {}
+        selected = settings.get("source_directory") if isinstance(settings, dict) else None
+        selected = selected.strip() if isinstance(selected, str) else ""
         configured = (
             os.environ.get("AUTOSLICE_STICKER_ROOT", "").strip()
             or os.environ.get("AUTOCOVER_STICKER_DIR", "").strip()
             or runtime_config.LOCAL_ENVIRONMENT.get("AUTOCOVER_STICKER_DIR", "")
         )
-        self.legacy_root = Path(legacy_root or configured or DEFAULT_STICKER_ROOT).expanduser().resolve()
+        self.legacy_root = Path(selected or legacy_root or configured or DEFAULT_STICKER_ROOT).expanduser().resolve()
+        imported = (
+            os.environ.get("AUTOCOVER_USER_ASSET_DIR", "").strip()
+            or runtime_config.LOCAL_ENVIRONMENT.get("AUTOCOVER_USER_ASSET_DIR", "")
+        )
+        # 旧网页导入目录必须显式接入；用户选过素材文件夹后，以所选范围为准。
+        imported = (legacy_import_root or imported) if not selected else None
+        self.legacy_import_root = Path(imported).expanduser().resolve() if imported else None
         self.index_path = self.root / "index.json"
         self._assets: dict[str, CoverAsset] = {}
         self._loaded = False
+
+    def set_source_directory(self, source: Path | str) -> Path:
+        """设置可控的素材范围；不复制、删除或改写素材文件。"""
+
+        directory = Path(source).expanduser().resolve()
+        if not directory.is_dir():
+            raise ValueError("请选择存在的素材文件夹")
+        DesktopStorage._write_json(self.settings_path, {"source_directory": str(directory)})
+        self.legacy_root = directory
+        self.legacy_import_root = None
+        self._loaded = False
+        return directory
 
     def _read_index(self) -> dict[str, dict[str, Any]]:
         try:
@@ -76,30 +106,37 @@ class CoverAssetLibrary:
     def scan(self) -> tuple[CoverAsset, ...]:
         existing = self._read_index()
         found: dict[str, CoverAsset] = {}
-        roots: list[tuple[Path, str]] = [(self.import_root, "我的导入")]
-        if self.legacy_root and self.legacy_root.is_dir():
-            roots.insert(0, (self.legacy_root, "旧版素材"))
+        roots = [(self.legacy_root, "文件夹素材"), (self.import_root, "我的导入")]
+        if self.legacy_import_root is not None:
+            roots.append((self.legacy_import_root, "旧版导入"))
         self.import_root.mkdir(parents=True, exist_ok=True)
         for root, group in roots:
             if not root.is_dir():
                 continue
-            candidates = root.rglob("*") if group != "我的导入" else root.glob("*")
+            root = root.resolve()
+            candidates = root.rglob("*")
             for path in candidates:
                 if not path.is_file() or path.suffix.casefold() not in SUPPORTED_ASSET_EXTENSIONS:
                     continue
                 try:
-                    key = str(path.resolve()).casefold()
-
-                except OSError:
+                    resolved = path.resolve()
+                    resolved.relative_to(root)
+                    key = str(resolved).casefold()
+                except (OSError, ValueError):
                     continue
                 import hashlib
                 asset_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:20]
+                if asset_id in found:
+                    continue
                 old = existing.get(asset_id) if isinstance(existing.get(asset_id), dict) else {}
                 found[asset_id] = CoverAsset(
                     asset_id=asset_id,
                     name=path.stem,
-                    path=str(path.resolve()),
-                    group=group if group == "我的导入" else (path.parent.name or group),
+                    path=str(resolved),
+                    group=(
+                        str(Path(root.name) / path.relative_to(root).parent).replace("\\", "/")
+                        if group == "文件夹素材" else group
+                    ),
                     usage_count=max(0, int(old.get("usage_count", 0))),
                     last_used_at=old.get("last_used_at") if isinstance(old.get("last_used_at"), str) else None,
                     final_export_count=max(0, int(old.get("final_export_count", 0))),
@@ -155,11 +192,20 @@ class CoverAssetLibrary:
 
     def mark_used(self, asset_id: str, *, final_export: bool = False) -> CoverAsset:
         asset = self.get(asset_id)
+        used_at = datetime.now(timezone.utc)
+        latest = max((item.last_used_at for item in self._assets.values() if item.last_used_at), default="")
+        try:
+            previous = datetime.fromisoformat(latest)
+        except ValueError:
+            previous = None
+        if previous is not None and previous.tzinfo is not None and used_at <= previous:
+            # Windows 的时钟可能让连续点击得到同一时间，给下一次使用保留确定的先后顺序。
+            used_at = previous + timedelta(microseconds=1)
         updated = CoverAsset(
             **{
                 **asset.to_payload(),
                 "usage_count": asset.usage_count + 1,
-                "last_used_at": datetime.now(timezone.utc).isoformat(),
+                "last_used_at": used_at.isoformat(),
                 "final_export_count": asset.final_export_count + (1 if final_export else 0),
             }
         )

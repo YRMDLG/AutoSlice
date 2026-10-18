@@ -11,7 +11,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
-from .cover_autolayout import replace_copy
+from .cover_autolayout import primary_copy_ids, replace_copy
+from .cover_scheme_quality import safe_scheme
 from .cover_style import streamer_key
 from .cover_templates import apply_template, make_template
 
@@ -20,6 +21,7 @@ class CoverSchemesMixin:
     def _clear_schemes(self, caption: str = "—"):
         self._scheme_generation += 1
         self._schemes = ()
+        self._ai_scheme_states = ()
         self.scheme_title.setText("快速方案")
         self.ai_hint.setVisible(False)
         for button, label in zip(self.scheme_buttons, self.scheme_labels):
@@ -63,6 +65,11 @@ class CoverSchemesMixin:
             return
         schemes, thumbnails = result
         self._schemes = tuple(schemes)
+        if not schemes:
+            for label in self.scheme_labels:
+                label.setText("无合适方案")
+            self.status_changed.emit("这批方案会挤到已有文字或素材，已过滤；当前封面保持原样")
+            return
         for index, (button, label) in enumerate(zip(self.scheme_buttons, self.scheme_labels)):
             if index >= len(self._schemes):
                 continue
@@ -79,7 +86,18 @@ class CoverSchemesMixin:
             return
         scheme = self._schemes[index]
         before = self.document
-        self.document = self.service.apply_scheme(self.document, scheme)
+        states = getattr(self, "_ai_scheme_states", ())
+        if scheme.key.startswith("ai:") and states and not any(
+            old.objects == before.objects and old.profiles == before.profiles and old.source == before.source
+            for old in states
+        ):
+            self._set_notice("封面已有新的手动修改，请重新生成 AI 方案后再套用", "warning")
+            return
+        changed = self.service.apply_scheme(self.document, scheme)
+        if not safe_scheme(before, changed, set(primary_copy_ids(changed).values())):
+            self._set_notice("这套方案会挤到已有文字或素材，未套用；请按当前封面重新生成方案", "warning")
+            return
+        self.document = changed
         for position, button in enumerate(self.scheme_buttons):
             button.setChecked(position == index)
         if self.document != before:
@@ -92,6 +110,8 @@ class CoverSchemesMixin:
                 self._update_nearby_frame_selection(timestamp)
                 self._refresh_nearby_frame_strip(timestamp)
         self._applied_scheme, self._edits_after_scheme = scheme.key, 0
+        if scheme.key.startswith("ai:"):
+            self._ai_scheme_states = (*states, self.document) if self.document not in states else states
         self.status_changed.emit(f"已套用方案：{scheme.label}（Ctrl+Z 可撤销）")
 
     def _next_scheme_batch(self):

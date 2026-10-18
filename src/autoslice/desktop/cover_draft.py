@@ -88,5 +88,3 @@ class CoverDraft:
             title, image_path, timestamp, text_x, text_y, font_size,
             background_x, background_y, background_scale,
         )
-
-

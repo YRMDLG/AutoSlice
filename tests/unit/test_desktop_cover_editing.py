@@ -233,7 +233,7 @@ class AssetLibraryTests(unittest.TestCase):
             stickers.mkdir(parents=True)
             for name in ("a", "b", "c"):
                 Image.new("RGBA", (16, 16), "red").save(stickers / f"{name}.png")
-            library = CoverAssetLibrary(root / "data", legacy_root=root / "stickers")
+            library = CoverAssetLibrary(root / "data", legacy_root=root / "stickers", legacy_import_root=root / "old-imports")
             assets = {item.name: item for item in library.list_assets()}
             self.assertEqual(library.recent_assets(), ())
             first = next(item for name, item in assets.items() if name.startswith("a"))
@@ -252,7 +252,7 @@ class AssetLibraryTests(unittest.TestCase):
             stickers.mkdir(parents=True)
             for name in ("a", "b"):
                 Image.new("RGBA", (16, 16), "red").save(stickers / f"{name}.png")
-            library = CoverAssetLibrary(root / "data", legacy_root=root / "stickers")
+            library = CoverAssetLibrary(root / "data", legacy_root=root / "stickers", legacy_import_root=root / "old-imports")
             tried, kept = sorted(library.list_assets(), key=lambda item: item.name)
             for _ in range(3):
                 library.mark_used(tried.asset_id)

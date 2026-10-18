@@ -16,6 +16,7 @@ from autoslice_cover.document_render import compose_document
 from .cover_ai import AICopy, AIFrameNotes, AISchemeIdea, Frac
 from .cover_copy import BasicCoverCopy
 from .cover_draft import CoverDraft
+from .cover_effects import follow_bursts
 from .cover_framing import SIDE_ZONES, subject_crop, text_hit
 from .cover_layout import (
     canvas_size,
@@ -42,6 +43,7 @@ from .cover_model import (
     text_override_payload,
     update_text_object,
 )
+from .cover_scheme_quality import safe_scheme
 from .cover_style import (
     STYLE_PRESETS,
     StylePreset,
@@ -145,8 +147,13 @@ def primary_copy_ids(document: CoverDocument) -> dict[str, str]:
     """每个角色的第一个文本框是 A/B 主文案；复制或新建的文本框不参与换文案与方案。"""
 
     ids: dict[str, str] = {}
+    # 正式主文案优先，避免调整图层顺序后，把自建/复制的同角色文字误当成主文案。
+    canonical = {"copy-a": "A", "copy-b": "B", "title-main": "B"}
     for item in document.objects:
-        if isinstance(item, TextObject):
+        if isinstance(item, TextObject) and item.id in canonical:
+            ids.setdefault(canonical[item.id], item.id)
+    for item in document.objects:
+        if isinstance(item, TextObject) and not item.id.startswith("text-"):
             ids.setdefault(item.copy_role, item.id)
     return ids
 
@@ -631,11 +638,17 @@ class CoverLayoutService:
         used_compositions = Counter(item.composition for item in recent)
         distinct.sort(key=lambda item: used_compositions[composition_signature(item.document)])
         middle = distinct[batch % len(distinct)]
-        return (
+        proposed = (
             CoverScheme("recommended", "推荐", "避开人物主体自动排版：A 交代背景，B 放大爆点", recommended),
             middle,
             CoverScheme("alternate", preset.label, "换一版文案并换配色", build(second, preset)),
         )
+        schemes = []
+        for scheme in proposed:
+            built = self.apply_scheme(document, scheme)
+            if safe_scheme(document, built, set(primary_copy_ids(built).values())):
+                schemes.append(replace(scheme, document=built))
+        return tuple(schemes)
 
     def schemes_from_ideas(
         self, document: CoverDocument, image_path: str | Path, ideas: tuple[AISchemeIdea, ...], *,
@@ -660,7 +673,7 @@ class CoverLayoutService:
 
     def ai_candidates(
         self, document: CoverDocument, image_path: str | Path, copies: tuple[AICopy, ...], *, limit: int = 12,
-        notes: AIFrameNotes | None = None,
+        notes: AIFrameNotes | None = None, preserve_copy: bool = False,
     ) -> tuple[CoverScheme, ...]:
         """给看图模型挑的候选：文案 × 排法和位置 × 取景 × 配色，尽量各不相同。
 
@@ -704,6 +717,9 @@ class CoverLayoutService:
             # 同一种排法每轮出现时换文案、换配色，避免和上一轮重复。
             plan, round_index = index % len(plans), index // len(plans)
             (layout, position), zoom, framing = plans[plan]
+            # 保留文案时不能为了“大字”构图偷偷删掉 A。
+            if preserve_copy and layout == "headline" and copies[0].context.strip():
+                layout = "lead"
             ideas.append(AISchemeIdea(
                 direction="", copy=copy_for(plan, round_index), layout=layout,
                 preset=_SCHEME_PRESETS[(plan + 2 * round_index) % len(_SCHEME_PRESETS)], reason="", place=position,
@@ -711,6 +727,12 @@ class CoverLayoutService:
             ))
         candidates: list[CoverScheme] = []
         for scheme in self.schemes_from_ideas(document, image_path, tuple(ideas), notes=notes):
+            # 缩略图必须与实际套用一致：锁定、自建对象和附着爆炸贴都走同一合并规则。
+            built = self.apply_scheme(document, scheme)
+            primary = set(primary_copy_ids(built).values())
+            if not safe_scheme(document, built, primary):
+                continue
+            scheme = replace(scheme, document=built)
             if all(item.document != scheme.document for item in candidates):
                 candidates.append(scheme)
         if source_size is not None and candidates:
@@ -749,9 +771,15 @@ class CoverLayoutService:
 
         source = scheme.document
         locked = {item.id for item in document.objects if item.locked}
-        ids = set(primary_copy_ids(source).values()) - locked
+        primary = primary_copy_ids(document)
+        ids = {
+            object_id for role, object_id in primary_copy_ids(source).items()
+            if role not in primary or primary[role] == object_id
+        } - locked
+        # 隐藏对象是用户的选择，方案不能重新显示或改写。
+        ids -= {item.id for item in document.objects if not item.visible}
         background = next((item.id for item in source.objects if isinstance(item, BackgroundObject)), None)
-        keys = ids | ({background} if background else set())
+        keys = ids | ({background} if background and background not in locked else set())
         replaced = {item.id: item for item in source.objects if item.id in ids}
         existing = {item.id for item in document.objects}
         # 方案里新补的 A 块（原封面只有 B 时）也一并带进来。
@@ -770,10 +798,10 @@ class CoverLayoutService:
         mine = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
         if (
             theirs is not None and mine is not None and theirs.asset is not None and theirs.asset != mine.asset
-            and not document.source.frame_locked
+            and not document.source.frame_locked and mine.id not in locked
         ):
             result = CoverLayoutService.with_frame(result, theirs.asset.path, source.source.selected_timestamp)
-        return result
+        return follow_bursts(document, result)
 
     @staticmethod
     def scheme_thumbnail(document: CoverDocument, *, canvas_key: str = "4x3", width: int = 240) -> bytes:

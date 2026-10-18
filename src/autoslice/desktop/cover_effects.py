@@ -135,3 +135,36 @@ def add_burst(document: CoverDocument, text_id: str, profile_key: str) -> CoverD
                 document, key, replace(shape, width=placed.width, height=placed.height, transform=placed.transform),
             )
     return document
+
+
+def follow_bursts(before: CoverDocument, after: CoverDocument) -> CoverDocument:
+    """排版改变后，让已有的文字爆炸贴跟随锚点，保留用户调过的颜色、大小比例和偏移。"""
+
+    for base in before.objects:
+        if not isinstance(base, TextObject):
+            continue
+        shape_id = burst_id(base.id)
+        for key in after.profiles:
+            old = object_for_profile(before, base.id, key)
+            new = object_for_profile(after, base.id, key)
+            shape = object_for_profile(after, shape_id, key)
+            if (
+                not isinstance(old, TextObject) or not isinstance(new, TextObject)
+                or not isinstance(shape, ShapeObject) or shape.locked or not shape.visible
+                or old == new or not new.visible or not new.text.strip()
+            ):
+                continue
+            previous, target = _burst_for(old, key), _burst_for(new, key)
+            moved = replace(
+                shape,
+                width=shape.width * target.width / max(0.001, previous.width),
+                height=shape.height * target.height / max(0.001, previous.height),
+                transform=replace(
+                    shape.transform,
+                    x=shape.transform.x + target.transform.x - previous.transform.x,
+                    y=shape.transform.y + target.transform.y - previous.transform.y,
+                    rotation=shape.transform.rotation + new.transform.rotation - old.transform.rotation,
+                ),
+            )
+            after = set_profile_override(after, key, moved)
+    return after
