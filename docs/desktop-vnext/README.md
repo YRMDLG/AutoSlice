@@ -36,6 +36,7 @@
 | [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) | 字幕研究数据、改进清单、桌面端取代网页端的差距 | 当前有效；随进展更新 |
 | [PACKAGING.md](PACKAGING.md) | 安装包构建（在主力机上运行） | 脚本已写，**待构建验证** |
 | [HANDOFF_2026-10-18.md](HANDOFF_2026-10-18.md) | 主力机接收清单：怎么接收、按什么顺序验证、带什么回来 | 一次性；验证完成后移入 `archive/` |
+| [REVIEW_RESPONSE_2026-10-18.md](REVIEW_RESPONSE_2026-10-18.md) | 对 GPT 审阅 5bce24e 的 6 个问题的核实结论与修复方案（给执行修复的人） | 一次性；修复完成后移入 `archive/` |
 
 这些文件描述“应该保持什么”，不会代替代码、测试或用户实际反馈成为实现证据。
 
@@ -91,6 +92,7 @@ docs/desktop-vnext/
 ├── IMPROVEMENT_BACKLOG.md            # 改进清单与取代网页端差距
 ├── PACKAGING.md                      # 安装包构建
 ├── HANDOFF_2026-10-18.md             # 主力机接收清单（一次性）
+├── REVIEW_RESPONSE_2026-10-18.md     # 审阅意见的核实与修复方案（一次性）
 ├── AUTOCOVER_COPY_GOLDEN_SET.md      # 长期参考：文案黄金集
 ├── AUTOCOVER_LAYOUT_GOLDEN_SET.md    # 长期参考：布局黄金集
 ├── AUTOCOVER_EDITOR_MODEL_PLAN.md    # 长期参考：编辑器模型规划
