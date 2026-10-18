@@ -8,7 +8,7 @@ SETUP_TEXT = """\
        pip install -U qwen-asr
    （官方建议 Python 3.12；如果装完报 transformers 版本不够，再 pip install -U "transformers>=5.13.0"）
 3) 模型有两条路，任选一条：
-   a. 不用管：第一次识别时自动从 Hugging Face 下载（识别模型约 3.5 GB + 对齐模型约 1.2 GB）。
+   a. 不用管：第一次识别时自动从 Hugging Face 下载（识别模型约 4 GB + 对齐模型约 1~2 GB，合计大约 5~6 GB，以下载时显示的为准）。
    b. 国内网络下不动就用 ModelScope：
           pip install -U modelscope
           modelscope download --model Qwen/Qwen3-ASR-1.7B

@@ -12,6 +12,8 @@
 
 ## 在你的主机上第一次用（按顺序）
 
+命令也可以用 `scripts\asr_tool.cmd <子命令>` 运行：它会把仓库的 `src` 放进 `PYTHONPATH`，并用环境变量 `AUTOSLICE_ASR_PYTHON` 指定的 Python（没设就用 PATH 里的 `python`）——也就是你装了 torch 的那个环境，不用先 `pip install` 本项目。
+
 ```bash
 python -m autoslice.desktop.asr setup            # 打印安装步骤（不会替你装）
 python -m autoslice.desktop.asr doctor           # 缺什么、显卡够不够，一次说清
@@ -27,7 +29,7 @@ python -m autoslice.desktop.asr bench --root <你的旧切片文件夹> --engine
 
 | 引擎 | 中文准确率 | 抗噪 | 热词 | 字级时间 | 8GB 显存 | 备注 |
 |---|---|---|---|---|---|---|
-| **Qwen3-ASR 1.7B + 对齐模型 0.6B** | 开源里第一梯队 | **开源里最好**（官方评测） | 有（提示里写词表） | 有（对齐模型，单次 ≤5 分钟） | 够（约 5~6GB） | 默认；`qwen-asr` 官方包 |
+| **Qwen3-ASR 1.7B + 对齐模型 0.6B** | 开源里第一梯队 | **开源里最好**（官方评测） | 有（提示里写词表） | 有（对齐模型，单次 ≤5 分钟） | 够（估算 5~6GB，以 `doctor --probe` 实测为准） | 默认；`qwen-asr` 官方包 |
 | FireRedASR2（AED/LLM） | 公开基准平均字错率最低 | 一般 | 无 | 需另配 | AED 可、LLM 版大概率不够 | 只在 Linux 验证过，单段 ≤60 秒；**没接入**，要比的话在 `engines/` 加一个文件 |
 | FunASR Paraformer-large（原网页版） | 好 | 一般 | 基本无效 | 有 | 够 | 之前在 2060 上用的，留作对照基线 |
 | Whisper large-v3 | 中文明显弱于上面几个 | 好 | 弱 | 有（不准） | 够 | 不考虑 |
@@ -66,7 +68,7 @@ qt_app/  asr_process.py（QProcess 封装）、asr_panel.py（设置卡片、提
 
 - **Qwen3 适配没碰过真模型**。三处做了宽容处理并写了测试：`transcribe` 是否接受 `context`（热词）参数——不接受就不传，并在运行信息里写“热词未生效”；`time_stamps` 条目是对象/字典/元组都认；时间单位秒或毫秒自动判断。第一次必须跑 `doctor --probe`。
 - `qwen-asr` 在 Windows 上能不能直接装好，我没验证（官方文档没提 Windows，建议 Python 3.12）。装不上就在 WSL 或另一台 Linux 上用设置里的“识别用的 Python”指过去也行，前提是能访问同一份项目目录。
-- 模型下载（识别模型约 3.5GB、对齐模型约 1.2GB）需要你在主机上自己执行，网络下不动就用 ModelScope（`setup` 里有命令）。
+- 模型下载（识别模型约 4GB（模型卡写的是 2B 参数、BF16）、对齐模型 0.6B 约 1~2GB，合计大约 5~6GB，以下载时显示的为准）需要你在主机上自己执行，网络下不动就用 ModelScope（`setup` 里有命令）。
 - 没有“说话人过滤”（旧识别的 CAM++ 只留主讲人）：Qwen3 路线下没有对应的东西。如果直播里常有他人语音，用 `bench` 看实际影响再决定要不要补。
 - FireRedASR2 没接入（原因见上表）。如果 `bench` 里 Qwen3 的字错率不理想，它是第一个要补的候选，接口已经留好。
 - 每个视频的识别缓存（整段 16k 音频，1 小时约 115MB）在 `%LOCALAPPDATA%\AutoSlice\cache\asr\`，成功后自动删，失败/取消后保留用于续跑。

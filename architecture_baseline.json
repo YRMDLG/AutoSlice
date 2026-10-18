@@ -14690,7 +14690,7 @@
       "longest_function": null,
       "module": "autoslice.desktop.asr.setup_text",
       "path": "src/autoslice/desktop/asr/setup_text.py",
-      "sha256": "94cf287603e9b77eb22a148433464524806dad292d1f8bb948e9cf345f1a6d5f",
+      "sha256": "c935ac7b0054a380958a8dd035f06b514c58f0ed884d46d38c8d407c5a730ca0",
       "top_level_classes": [],
       "top_level_functions": []
     },

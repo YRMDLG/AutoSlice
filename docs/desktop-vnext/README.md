@@ -31,6 +31,11 @@
 | [ROADMAP.md](ROADMAP.md) | 后续路线和暂缓范围 | 当前有效；不代替执行计划 |
 | [UI_CLEANUP_PLAN.md](UI_CLEANUP_PLAN.md) | AutoCover UI Cleanup 的原始清单与实施对照 | 部分实现；实机验收待完成 |
 | [SECURITY_NOTES.md](SECURITY_NOTES.md) | 安全审计提炼、发布可靠性与打包门槛 | 当前有效；发布前更新 |
+| [ASR.md](ASR.md) | 桌面端字幕识别：怎么用、为什么选 Qwen3-ASR、怎么提高准确度、风险 | 框架完成；**真模型待主力机验证** |
+| [ARCHIVE_LEARNING.md](ARCHIVE_LEARNING.md) | 学习旧切片：只读扫描本机档案，规格、数据约定和接手待办 | 框架完成；**真实旧数据待主力机验证** |
+| [IMPROVEMENT_BACKLOG.md](IMPROVEMENT_BACKLOG.md) | 字幕研究数据、改进清单、桌面端取代网页端的差距 | 当前有效；随进展更新 |
+| [PACKAGING.md](PACKAGING.md) | 安装包构建（在主力机上运行） | 脚本已写，**待构建验证** |
+| [HANDOFF_2026-10-18.md](HANDOFF_2026-10-18.md) | 主力机接收清单：怎么接收、按什么顺序验证、带什么回来 | 一次性；验证完成后移入 `archive/` |
 
 这些文件描述“应该保持什么”，不会代替代码、测试或用户实际反馈成为实现证据。
 
@@ -81,6 +86,11 @@ docs/desktop-vnext/
 ├── ROADMAP.md                        # 后续路线
 ├── UI_CLEANUP_PLAN.md                # 当前 AutoCover UI Cleanup 执行计划
 ├── SECURITY_NOTES.md                 # 安全与发布可靠性备注
+├── ASR.md                            # 字幕识别
+├── ARCHIVE_LEARNING.md               # 学习旧切片
+├── IMPROVEMENT_BACKLOG.md            # 改进清单与取代网页端差距
+├── PACKAGING.md                      # 安装包构建
+├── HANDOFF_2026-10-18.md             # 主力机接收清单（一次性）
 ├── AUTOCOVER_COPY_GOLDEN_SET.md      # 长期参考：文案黄金集
 ├── AUTOCOVER_LAYOUT_GOLDEN_SET.md    # 长期参考：布局黄金集
 ├── AUTOCOVER_EDITOR_MODEL_PLAN.md    # 长期参考：编辑器模型规划
