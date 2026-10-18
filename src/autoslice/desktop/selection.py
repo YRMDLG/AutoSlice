@@ -37,4 +37,3 @@ class CueSelection:
             self.active = next(item for item in order if item in self.selected)
         if self.selected:
             self.anchor = self.active
-

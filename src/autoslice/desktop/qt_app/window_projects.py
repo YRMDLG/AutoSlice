@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.archive import ArchiveService
-from autoslice.desktop.projects import ProjectSnapshot
-from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.projects import PROJECT_SORT_OPTIONS, ProjectSnapshot
+from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import ProjectItem, card, label, line, tool_icon
@@ -58,6 +58,16 @@ class ProjectsMixin:
         heading.addWidget(refresh)
         outer.addWidget(header)
         outer.addWidget(line())
+        sort_row = QHBoxLayout()
+        sort_row.setContentsMargins(12, 8, 12, 0)
+        sort_row.addWidget(label("排序", "subtle"))
+        self.project_sort = popups.ComboBox()
+        for key, title in PROJECT_SORT_OPTIONS:
+            self.project_sort.addItem(title, key)
+        self.project_sort.setCurrentIndex(self.project_sort.findData(self.service.sort_mode))
+        self.project_sort.currentIndexChanged.connect(self._project_sort_changed)
+        sort_row.addWidget(self.project_sort, 1)
+        outer.addLayout(sort_row)
         column = QVBoxLayout()
         column.setContentsMargins(8, 8, 8, 0)
         column.setSpacing(8)
@@ -127,7 +137,17 @@ class ProjectsMixin:
         layout.addWidget(render_card)
 
         # ── 封面 ──
-        cover_card, cover_column = card("封面", "封面字体、默认样式和素材库在封面编辑器中直接管理。")
+        cover_card, cover_column = card("封面", "素材只扫描所选文件夹及其子文件夹，手动导入的素材也会保留。")
+        cover_column.addWidget(label("素材文件夹", "muted"))
+        material_row = QHBoxLayout()
+        self.settings_material_directory = label(str(self.cover_editor.service.asset_library.legacy_root), "muted")
+        self.settings_material_directory.setWordWrap(True)
+        self.settings_material_directory.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        material_row.addWidget(self.settings_material_directory, 1)
+        browse_materials = QPushButton("选择文件夹")
+        browse_materials.clicked.connect(self._browse_material_directory)
+        material_row.addWidget(browse_materials)
+        cover_column.addLayout(material_row)
         cover_column.addWidget(label("桌面草稿保存在用户应用数据目录，重启后可恢复。", "muted"))
         layout.addWidget(cover_card)
 
@@ -160,6 +180,31 @@ class ProjectsMixin:
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.addWidget(scroll)
         return page
+
+    def _project_sort_changed(self):
+        snapshot = self.service.set_sort_mode(self.project_sort.currentData())
+        for index, project in enumerate(snapshot.projects):
+            button = self.project_buttons.get(project.id)
+            if button is not None:
+                self.projects_layout.removeWidget(button)
+                self.projects_layout.insertWidget(index, button)
+        self.cover_editor.set_project_list(snapshot.projects)
+        self._save_session()
+
+    def _browse_material_directory(self):
+        from PySide6.QtWidgets import QFileDialog
+
+        library = self.cover_editor.service.asset_library
+        path = QFileDialog.getExistingDirectory(self, "选择封面素材文件夹", str(library.legacy_root))
+        if not path:
+            return
+        try:
+            directory = library.set_source_directory(path)
+        except (OSError, ValueError) as exc:
+            self._show_transient_status(f"素材文件夹设置失败：{exc}")
+            return
+        self.settings_material_directory.setText(str(directory))
+        self._show_transient_status("素材文件夹已更新，下次打开素材库时生效")
 
     def _browse_submission_root(self):
         """让用户选择投稿目录。"""

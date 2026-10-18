@@ -40,6 +40,7 @@ class InputRoutingMixin:
     def event(self, event):
         if event.type() in (QEvent.Type.WindowDeactivate, QEvent.Type.Hide,
                             QEvent.Type.Close):
+            self._table_pointer_selecting = False
             self._stop_timeline_side_pan(event.type())
         return super().event(event)
 
@@ -80,6 +81,11 @@ class InputRoutingMixin:
             self._event_filter_busy = False
 
     def _event_filter_impl(self, watched, event):
+        if watched is self.table.viewport() and event.type() in (
+            QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+        ) and event.button() == Qt.MouseButton.LeftButton:
+            # clicked 在松手后才更新主选字幕；按下期间不能用旧主选行恢复 Qt 选择。
+            self._table_pointer_selecting = event.type() == QEvent.Type.MouseButtonPress
         if self._subtitle_editor_open() and self._handle_inline_editor_mouse(watched, event):
             return True
         if (event.type() == QEvent.Type.MouseButtonPress

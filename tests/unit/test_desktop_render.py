@@ -112,6 +112,9 @@ class SubtitleRenderQtTests(unittest.TestCase):
 
     def _close(self):
         self.window._resolve_unsaved = lambda: True
+        # 临时目录和 mock 撤销前，先消费项目切换/封面任务的迟到回调。
+        self.wait_for(lambda: not self.window._jobs and not self.window.cover_editor._jobs
+                      and not self.window._loading and not self.window._saving)
         self.window.close()
 
     def wait_for(self, condition):
@@ -136,6 +139,38 @@ class SubtitleRenderQtTests(unittest.TestCase):
 
         with patch.object(QMessageBox, "exec", new=choose):
             return self.window._resolve_unsaved()
+
+    def test_project_sort_preserves_selection_and_unsaved_subtitles_and_saves_preference(self):
+        self._make_unsaved_edit()
+        document, project = self.window.document, self.window.project
+        for mode in ("name_asc", "name_desc", "folder_created_asc"):
+            self.window.project_sort.setCurrentIndex(self.window.project_sort.findData(mode))
+            self.app.processEvents()
+            self.assertIs(self.window.document, document)
+            self.assertIs(self.window.project, project)
+            self.assertTrue(document.dirty)
+            self.assertEqual(document.entries[0].text, "本次未正式保存")
+            self.assertTrue(self.window.project_buttons[project.id].isChecked())
+            order = [self.window.projects_layout.itemAt(i).widget() for i in range(len(self.window.project_buttons))]
+            self.assertEqual(order, [self.window.project_buttons[p.id] for p in self.window.service.snapshot.projects])
+            self.assertEqual(self.storage.read_session()["project_sort"], mode)
+
+    def test_material_folder_can_be_changed_from_settings_and_is_persisted(self):
+        from PySide6.QtWidgets import QFileDialog
+
+        from autoslice.desktop.cover_assets import CoverAssetLibrary
+
+        chosen = self.root / "表情包"
+        chosen.mkdir()
+        with patch.object(QFileDialog, "getExistingDirectory", return_value=str(chosen)):
+            self.window._browse_material_directory()
+        self.assertEqual(self.window.settings_material_directory.text(), str(chosen.resolve()))
+        library = CoverAssetLibrary(self.storage.root)
+        self.assertEqual(library.legacy_root, chosen.resolve())
+        self.assertIsNone(library.legacy_import_root)
+        with patch.object(QFileDialog, "getExistingDirectory", return_value=""):
+            self.window._browse_material_directory()
+        self.assertEqual(self.window.cover_editor.service.asset_library.legacy_root, chosen.resolve())
 
     def test_timeline_gets_readable_default_height_unless_remembered(self):
         from autoslice.desktop.qt_app.window import TIMELINE_DEFAULT_HEIGHT
@@ -276,6 +311,8 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.window._start_render()
         self.assertEqual(len(calls), 1)
+        # 本用例只验证压制状态，隔离封面后台取帧对同一状态栏的独立写入。
+        self.window.cover_editor.status_changed.disconnect(self.window._show_transient_status)
         self.window._select_page(1)
         self.window._select_real_project(self.projects["项目乙"])
         self.wait_for(lambda: self.window.document is not None and
@@ -380,6 +417,32 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.assertEqual([row.row() for row in rows], [0])
         self.assertEqual(self.window.selection.selected, {1})
         self.assertEqual(self.window.selection.active, 1)
+
+    def test_click_after_scrolling_away_does_not_return_to_old_active_row(self):
+        self.window.document.entries[:] = [
+            SubtitleEntry(i, f"00:00:{i:02d},000", f"00:00:{i:02d},500", f"第{i}条字幕", (i,))
+            for i in range(1, 60)
+        ]
+        self.window.model.set_document(self.window.document)
+        for column in (2, 1):
+            self.window._commit_editor()
+            self.window._cue_clicked(self.window.model.index(49, 2))
+            self.app.processEvents()
+            bar = self.window.table.verticalScrollBar()
+            bar.setValue(0)
+            self.app.processEvents()
+            target = self.window.model.index(2, column)
+            point = self.window.table.visualRect(target).center()
+            self.assertTrue(self.window.table.viewport().rect().contains(point))
+            before = bar.value()
+            QTest.mousePress(self.window.table.viewport(), Qt.MouseButton.LeftButton, pos=point)
+            self.app.processEvents()
+            QTest.qWait(30)
+            self.assertEqual(bar.value(), before, "鼠标尚未松开时被旧选中行拉回")
+            QTest.mouseRelease(self.window.table.viewport(), Qt.MouseButton.LeftButton, pos=point)
+            self.app.processEvents()
+            self.assertEqual(self.window.selection.active, 3)
+            self.assertEqual(bar.value(), before)
 
     def test_explicit_seek_ignores_stale_player_position_and_playing_highlight(self):
         class FakePlayer:

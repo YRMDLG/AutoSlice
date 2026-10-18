@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from autoslice.desktop.projects import (
     DEFAULT_SUBMISSION_ROOT,
+    ProjectSnapshot,
+    SubmissionProject,
     SubmissionProjectService,
     configured_submission_root,
 )
@@ -42,6 +44,9 @@ class SubmissionProjectServiceTests(unittest.TestCase):
             projects = {item.title: item for item in snapshot.projects}
             self.assertEqual(set(projects), {"标题甲", "标题乙"})
             self.assertEqual(len(projects["标题甲"].videos), 2)
+            self.assertGreater(projects["标题甲"].folder_created_at, 0)
+            self.assertGreater(projects["标题甲"].folder_modified_at, 0)
+            self.assertGreater(projects["标题甲"].source_modified_at, 0)
             self.assertEqual(projects["标题甲"].status, "缺少字幕")
             self.assertEqual(projects["标题乙"].status, "缺少字幕")
 
@@ -58,6 +63,26 @@ class SubmissionProjectServiceTests(unittest.TestCase):
             self.assertNotIn(
                 "标题丙", {item.title for item in service.refresh().projects}
             )
+
+    def test_sort_modes_reorder_existing_projects_with_missing_times_last(self):
+        service = SubmissionProjectService("unused")
+        projects = (
+            SubmissionProject("a", "A", "a", (), folder_created_at=10, folder_modified_at=30, source_modified_at=20),
+            SubmissionProject("b", "B", "b", (), folder_created_at=30, folder_modified_at=10, source_modified_at=10),
+            SubmissionProject("c", "C", "c", (), folder_created_at=20, folder_modified_at=20, source_modified_at=30),
+            SubmissionProject("d", "D", "d", ()),
+        )
+        service.snapshot = ProjectSnapshot("unused", projects, "已刷新")
+        for mode, expected in (
+            ("folder_created_desc", "bcad"), ("folder_created_asc", "acbd"),
+            ("folder_modified_desc", "acbd"), ("source_modified_desc", "cabd"),
+            ("name_asc", "abcd"), ("name_desc", "dcba"),
+        ):
+            with self.subTest(mode=mode):
+                result = service.set_sort_mode(mode)
+                self.assertEqual("".join(item.id for item in result.projects), expected)
+                self.assertEqual({id(item) for item in result.projects}, {id(item) for item in projects})
+        self.assertEqual(service.set_sort_mode("invalid").projects[0].id, "b")
 
     def test_missing_and_empty_roots_are_displayable(self):
         with tempfile.TemporaryDirectory() as directory:

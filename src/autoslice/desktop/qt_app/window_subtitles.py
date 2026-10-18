@@ -135,7 +135,7 @@ class SubtitleListMixin:
             self._syncing_selection = False
 
     def _table_native_selection_changed(self, _selected, _deselected):
-        if self._syncing_selection or self.document is None:
+        if self._syncing_selection or self.document is None or self._table_pointer_selecting:
             return
         if getattr(self, "_selection_resync_pending", False):
             return
@@ -144,7 +144,7 @@ class SubtitleListMixin:
 
     def _restore_table_selection_after_native_change(self):
         self._selection_resync_pending = False
-        if self.document is not None:
+        if self.document is not None and not self._table_pointer_selecting:
             self._sync_table_selection()
 
     def _cue_clicked(self, index):

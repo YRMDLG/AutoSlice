@@ -120,6 +120,7 @@ class DesktopWindow(
         self._scan_generation = 0
         self._jobs = []
         self._session = self.storage.read_session() or {}
+        self.service.set_sort_mode(self._session.get("project_sort", "folder_created_desc"))
         self._baseline = None
         # PreviewWindow.__init__ 会在构建 QTableView 时安装本类 eventFilter，
         # 所以这些状态必须在 super() 前就存在。
@@ -127,6 +128,7 @@ class DesktopWindow(
         self._inline_editor_index = QModelIndex()
         self._inline_drag_anchor = None
         self._event_filter_busy = False
+        self._table_pointer_selecting = False
         super().__init__()
         self.cover_editor.status_changed.connect(self._show_transient_status)
         self.cover_editor.next_video_requested.connect(self._next_cover_video)
@@ -419,6 +421,7 @@ class DesktopWindow(
             self.storage.save_session({
                 "page": self.pages.currentIndex(),
                 "submission_root": str(self.service.root),
+                "project_sort": self.service.sort_mode,
                 "project_id": self.project.id if self.project else None,
                 "video_path": self.document.video.path if self.document else self.video_choice.currentData().path
                 if self.video_choice.currentData() else None,
@@ -482,5 +485,3 @@ class DesktopWindow(
         super().closeEvent(event)
         if event.isAccepted() and self.player:
             self.player.close()
-
-

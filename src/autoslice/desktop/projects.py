@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from autoslice import runtime_config
 from autoslice.subtitle_workflow import scan_submission_pairs
 
 DEFAULT_SUBMISSION_ROOT = runtime_config.PROJECT_DIR / "submissions"
+PROJECT_SORT_OPTIONS = (
+    ("folder_created_desc", "创建时间：新到旧"),
+    ("folder_created_asc", "创建时间：旧到新"),
+    ("folder_modified_desc", "文件夹最近修改"),
+    ("source_modified_desc", "视频最近修改"),
+    ("name_asc", "名称：升序"),
+    ("name_desc", "名称：降序"),
+)
 
 
 def configured_submission_root() -> Path:
@@ -45,6 +53,9 @@ class SubmissionProject:
     directory: str
     videos: tuple[ProjectVideo, ...]
     error: str = ""
+    folder_created_at: float = 0.0
+    folder_modified_at: float = 0.0
+    source_modified_at: float = 0.0
 
     @property
     def status(self) -> str:
@@ -77,6 +88,24 @@ class SubmissionProjectService:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root) if root is not None else configured_submission_root()
         self.snapshot = ProjectSnapshot(str(self.root), (), "未扫描")
+        self.sort_mode = "name_asc"
+
+    def set_sort_mode(self, mode: str) -> ProjectSnapshot:
+        """重排已有快照；保留项目身份，不重新载入媒体或字幕。"""
+
+        self.sort_mode = mode if isinstance(mode, str) and mode in dict(PROJECT_SORT_OPTIONS) else "folder_created_desc"
+        projects = sorted(self.snapshot.projects, key=lambda item: (item.title.casefold(), item.directory.casefold()))
+        if self.sort_mode == "name_desc":
+            projects.reverse()
+        elif self.sort_mode not in ("name_asc", "name_desc"):
+            field = self.sort_mode.removesuffix("_desc").removesuffix("_asc") + "_at"
+            descending = self.sort_mode != "folder_created_asc"
+            projects.sort(key=lambda item: (
+                getattr(item, field) <= 0,
+                -getattr(item, field) if descending else getattr(item, field),
+            ))
+        self.snapshot = replace(self.snapshot, projects=tuple(projects))
+        return self.snapshot
 
     def refresh(self) -> ProjectSnapshot:
         """重新读取磁盘；缺失和读取错误转换为可显示状态。"""
@@ -96,7 +125,11 @@ class SubmissionProjectService:
 
         projects = []
         for folder in folders:
+            folder_created_at = folder_modified_at = 0.0
             try:
+                stat = folder.stat()
+                folder_created_at = float(getattr(stat, "st_birthtime", stat.st_ctime))
+                folder_modified_at = float(stat.st_mtime)
                 # os.walk 遇到不可读目录会静默跳过，先显式检查项目入口。
                 next(folder.iterdir(), None)
                 pairs = scan_submission_pairs(folder)
@@ -120,8 +153,12 @@ class SubmissionProjectService:
                 for pair in pairs
             )
             identifier = hashlib.sha256(str(folder).casefold().encode("utf-8")).hexdigest()[:16]
-            projects.append(SubmissionProject(identifier, folder.name, str(folder), videos, error))
+            projects.append(SubmissionProject(
+                identifier, folder.name, str(folder), videos, error,
+                folder_created_at, folder_modified_at,
+                max((float(pair.get("source_modified_at", 0)) for pair in pairs), default=0.0),
+            ))
 
         status = "已刷新" if projects else "目录为空"
         self.snapshot = ProjectSnapshot(str(root), tuple(projects), status)
-        return self.snapshot
+        return self.set_sort_mode(self.sort_mode)
