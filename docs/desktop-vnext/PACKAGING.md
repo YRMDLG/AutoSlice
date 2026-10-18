@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
 - `dist\AutoSlice\AutoSlice.exe`（目录版，可以直接拷走用）
 - `dist\installer\AutoSlice-Setup-<版本>.exe`（装到当前用户目录，不要管理员权限；卸载只删程序，**你的草稿、缓存、设置、识别模型都在 `%LOCALAPPDATA%\AutoSlice\`，一律保留**）
 
-脚本最后会跑 `AutoSlice.exe --smoke`：不开窗口，检查关键库、字体和主播配置、识别模块、识别子进程用的源码是否都带上了，任何一项 `FAIL` 都会让构建失败。
+脚本最后会跑 `AutoSlice.exe --smoke`：不开窗口，检查关键库、字体和主播配置、识别模块、识别子进程用的源码是否都带上了，任何一项 `FAIL` 都会让构建失败。`PYTHONPATH`（指向 `src`）只在 PyInstaller 那一步设置，跑完立刻清掉，自检时环境里不会有它——否则缺失的模块会被源码目录补上，坏包也能通过自检。你自己 shell 里设过的 `PYTHONPATH` 也不会带进自检。
 
 ## 安装版和识别（重点）
 

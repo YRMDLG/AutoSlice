@@ -21,7 +21,6 @@ Set-Location $Root
 $Venv = Join-Path $Root "build\venv"
 $VenvPython = Join-Path $Venv "Scripts\python.exe"
 $Bin = Join-Path $Root "packaging\bin"
-$env:PYTHONPATH = Join-Path $Root "src"
 
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
 
@@ -70,8 +69,16 @@ foreach ($tool in @("ffmpeg.exe", "ffprobe.exe")) {
 }
 
 Step "4/6 PyInstaller"
-& $VenvPython -m PyInstaller packaging\autoslice-desktop.spec --noconfirm --clean --distpath dist --workpath build\pyinstaller
-if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败" }
+# 源码目录只在打包阶段放进 PYTHONPATH（让收集函数找得到 autoslice）。打包后自检必须在没有它的环境里跑，
+# 否则缺失的模块会被源码目录补上，坏包也能通过自检；调用者原有的 PYTHONPATH 同样不带进自检。
+$env:PYTHONPATH = Join-Path $Root "src"
+try {
+    & $VenvPython -m PyInstaller packaging\autoslice-desktop.spec --noconfirm --clean --distpath dist --workpath build\pyinstaller
+    $PyInstallerExit = $LASTEXITCODE
+} finally {
+    Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+}
+if ($PyInstallerExit -ne 0) { throw "PyInstaller 失败" }
 $Dist = Join-Path $Root "dist\AutoSlice"
 Copy-Item (Join-Path $Bin "*") $Dist -Force
 

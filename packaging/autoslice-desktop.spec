@@ -13,7 +13,10 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 ROOT = Path(SPECPATH).resolve().parent
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
-os.environ["PYTHONPATH"] = str(SRC) + os.pathsep + os.environ.get("PYTHONPATH", "")
+# 源码目录排第一；原有的 PYTHONPATH 去掉空项和重复项，不留尾部分隔符
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    [str(SRC), *(item for item in os.environ.get("PYTHONPATH", "").split(os.pathsep) if item and item != str(SRC))]
+)
 WORKER_SRC = ROOT / "build" / "worker_src"  # build_windows.ps1 先把纯源码整理到这里
 if not (WORKER_SRC / "autoslice").is_dir():
     raise SystemExit("缺少 build/worker_src，请用 packaging/build_windows.ps1 打包")
