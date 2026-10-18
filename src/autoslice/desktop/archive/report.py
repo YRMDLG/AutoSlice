@@ -13,6 +13,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from .extractors.corrections import CorrectionExtractor
 from .extractors.subtitles import quantile
 from .extractors.terms import grams
 from .layout import StreamerMatcher
@@ -78,6 +79,27 @@ def _overview(store: ArchiveStore, matcher: StreamerMatcher) -> dict:
     }
 
 
+def _corrections_error_patterns() -> tuple[str, str]:
+    """error 列是“抽取器名: 异常; 抽取器名: 异常”；匹配出自纠错抽取器的那几段。"""
+
+    name = CorrectionExtractor.name
+    return f"{name}:%", f"%; {name}:%"
+
+
+def _incomplete_streamers(store: ArchiveStore) -> set[str]:
+    """固定纠错证据不完整的主播：有条目没升到当前抽取版本，或纠错抽取器自己读取失败。
+
+    version=0 只是“下次扫描重试”的标记；术语、封面等别的抽取器出错，不影响纠错用的校对语料。
+    """
+
+    rows = store.query(
+        "SELECT DISTINCT streamer FROM entries WHERE version NOT IN (0, ?)"
+        " OR (version = 0 AND (error = '' OR error LIKE ? OR error LIKE ?))",
+        (EXTRACT_VERSION, *_corrections_error_patterns()),
+    )
+    return {row["streamer"] for row in rows}
+
+
 def _corrections(store: ArchiveStore, matcher: StreamerMatcher, known: Mapping[str, set], limit: int = 300) -> list[dict]:
     rows = store.query(
         "SELECT e.streamer AS streamer, c.wrong AS wrong, c.right AS right, COUNT(DISTINCT c.entry_id) AS videos,"
@@ -96,8 +118,7 @@ def _corrections(store: ArchiveStore, matcher: StreamerMatcher, known: Mapping[s
     for row in store.query("SELECT e.streamer, f.text FROM final_text f JOIN entries e ON e.id = f.entry_id"):
         for wrong in wanted.get(row["streamer"], ()):
             kept[(row["streamer"], wrong)] += row["text"].count(wrong)
-    incomplete = {row["streamer"] for row in store.query(
-        "SELECT DISTINCT streamer FROM entries WHERE version != ? OR error != ''", (EXTRACT_VERSION,))}
+    incomplete = _incomplete_streamers(store)
     items = []
     for row in rows:
         if row["videos"] < 2:
@@ -284,7 +305,7 @@ def _covers(store: ArchiveStore) -> dict:
 
 def _quality(store: ArchiveStore) -> dict:
     return {
-        "entries_needing_upgrade": store.scalar("SELECT COUNT(*) FROM entries WHERE version != ?", (EXTRACT_VERSION,)),
+        "entries_needing_upgrade": store.scalar("SELECT COUNT(*) FROM entries WHERE version NOT IN (0, ?)", (EXTRACT_VERSION,)),
         "entries_without_srt": store.scalar("SELECT COUNT(*) FROM entries WHERE srt_count = 0"),
         "entries_with_errors": store.scalar("SELECT COUNT(*) FROM entries WHERE error != ''"),
         "entries_with_several_videos": store.scalar("SELECT COUNT(*) FROM entries WHERE video_count > 1"),
@@ -292,6 +313,17 @@ def _quality(store: ArchiveStore) -> dict:
         "entries_unrecognized_streamer": store.scalar("SELECT COUNT(*) FROM entries WHERE streamer = ''"),
         "sample_errors": [row["error"] for row in store.query("SELECT error FROM entries WHERE error != '' LIMIT 5")],
     }
+
+
+def _problem_folders(store: ArchiveStore, limit: int = 20) -> list[dict]:
+    """读取出错的文件夹，纠错抽取器出错的排在前面。带完整路径，只进本机报告，不进给 AI 的摘要。"""
+
+    rows = store.query(
+        "SELECT folder, error, (error LIKE ? OR error LIKE ?) AS blocks FROM entries WHERE error != ''"
+        " ORDER BY blocks DESC, folder LIMIT ?",
+        (*_corrections_error_patterns(), limit),
+    )
+    return [{"folder": row["folder"], "error": row["error"], "blocks_corrections": bool(row["blocks"])} for row in rows]
 
 
 def build_report(store: ArchiveStore, matcher: StreamerMatcher | None = None) -> dict:
@@ -302,6 +334,7 @@ def build_report(store: ArchiveStore, matcher: StreamerMatcher | None = None) ->
         "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
         "overview": _overview(store, matcher),
         "quality": _quality(store),
+        "problem_folders": _problem_folders(store),
         "edits": _edits(store),
         "corrections": _corrections(store, matcher, replacements),
         "terms": {matcher.label(streamer): items for streamer, items in candidate_terms(store, glossary).items()},
@@ -328,6 +361,12 @@ def render_markdown(report: dict) -> str:
         f"- 没有字幕 {quality['entries_without_srt']}，读取出错 {quality['entries_with_errors']}，一个文件夹多个成片 {quality['entries_with_several_videos']}，"
         f"认不出日期 {quality['entries_without_date']}，认不出主播 {quality['entries_unrecognized_streamer']}",
     ]
+    problems = report.get("problem_folders", [])
+    if problems:
+        lines += ["", "## 读取出错的文件夹", "", "带 ⚠ 的会暂停该主播的固定纠错建议；修好文件后重新扫描即可恢复。", ""]
+        lines += [f"- {'⚠ ' if item['blocks_corrections'] else ''}{item['folder']} — {item['error']}" for item in problems]
+        if quality["entries_with_errors"] > len(problems):
+            lines.append(f"- …另有 {quality['entries_with_errors'] - len(problems)} 个")
     edits = report["edits"]
     if edits["aligned_cues"]:
         kinds = "、".join(f"{kind} {n}" for kind, n in edits["kinds"].items() if kind != "same")
@@ -335,7 +374,7 @@ def render_markdown(report: dict) -> str:
     if report["corrections"]:
         lines += ["", "## 反复出现的错词（至少两个视频）", ""]
         for item in report["corrections"][:40]:
-            warn = (" · 语料尚未完成升级或读取有误，请重新扫描后再判断" if not item["evidence_complete"] else
+            warn = (" · 该主播有文件夹尚未升级或校对稿读取失败（见“读取出错的文件夹”），修复并重新扫描后再判断" if not item["evidence_complete"] else
                     f" · 别处还有 {item['kept']} 处原样保留（精度 {item['precision']:.0%}，不适合当固定纠错）" if item["precision"] < 0.8 else "")
             lines.append(f"- 「{item['wrong']}」→「{item['right']}」 {item['videos']} 个视频 · {item['label']}{' · 已在词库' if item['known'] else ''}{warn}")
     for label, items in report["terms"].items():

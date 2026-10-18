@@ -21,7 +21,7 @@ from autoslice.desktop.archive.extractors import DEFAULT_EXTRACTORS, Extractor
 from autoslice.desktop.archive.extractors.corrections import align_cues, classify_edit
 from autoslice.desktop.archive.extractors.terms import grams
 from autoslice.desktop.archive.layout import infer_date
-from autoslice.desktop.archive.report import build_digest, build_report
+from autoslice.desktop.archive.report import build_digest, build_report, render_markdown
 from autoslice.desktop.archive.scanner import open_store, scan_roots, walk_folders
 from autoslice.desktop.archive.srt import Cue, parse_srt
 from autoslice.desktop.foundation import DesktopStorage
@@ -652,6 +652,56 @@ class CorpusPrecisionTests(ArchiveTestCase):
             self.assertEqual(store.scalar("SELECT COUNT(*) FROM final_text"), 4)
             self.assertEqual(int(store.scalar("SELECT value FROM meta WHERE key='schema_version'")), SCHEMA_VERSION)
         self.assertEqual(self.service.scan().skipped, 4)
+
+    def test_other_extractor_errors_do_not_pause_corrections(self):
+        for i in range(4):
+            self.make_case(i, "今天紫雨亭来了", "今天子语庭来了")
+        self.service.scan([str(self.archive)])
+        with self.service._store() as store:
+            # version=0 只是让条目下次扫描重试；纠错抽取器本身是成功的。
+            store.query("UPDATE entries SET version = 0, error = 'terms: ValueError: 坏数据'")
+        self.assertTrue(self.correction(WRONG)["evidence_complete"])
+        self.assertTrue(any(p.kind == "replacement" for p in self.service.proposals()))
+
+    def test_unreadable_corrected_file_pauses_promotions_and_is_listed_until_fixed(self):
+        for i in range(4):
+            self.make_case(i, "今天紫雨亭来了", "今天子语庭来了")
+        self.make_case(9, "今天紫雨亭来了", "今天子语庭来了")
+        broken = self.archive / "【泽音】统计样本9" / "视频_校对.srt"
+        broken.write_text("", encoding="utf-8")
+        self.service.scan([str(self.archive)])
+        self.assertFalse(self.correction(WRONG)["evidence_complete"])
+        self.assertFalse(any(p.kind == "replacement" for p in self.service.proposals()))
+        with self.service._store() as store:
+            report = build_report(store)
+            digest = json.dumps(build_digest(report), ensure_ascii=False)
+        self.assertEqual(len(report["problem_folders"]), 1)
+        problem = report["problem_folders"][0]
+        self.assertTrue(problem["folder"].endswith("统计样本9") and problem["blocks_corrections"])
+        self.assertIn("⚠ ", render_markdown(report))
+        # digest 里本来就有少量标题样本；出错清单带完整路径，只留在本机报告里。
+        self.assertNotIn(problem["folder"], digest)
+        self.assertNotIn("problem_folders", digest)
+        broken.write_text(srt_text([(0, 2, "今天子语庭来了")]), encoding="utf-8")
+        self.service.scan()
+        self.assertTrue(self.correction(WRONG)["evidence_complete"])
+        self.assertTrue(any(p.kind == "replacement" for p in self.service.proposals()))
+        with self.service._store() as store:
+            self.assertEqual(build_report(store)["problem_folders"], [])
+
+    def test_v1_failed_entries_return_to_old_version_when_upgraded(self):
+        for i in range(4):
+            self.make_case(i, "今天紫雨亭来了", "今天子语庭来了")
+        self.service.scan([str(self.archive)])
+        with self.service._store() as store:
+            store.query("UPDATE entries SET version = 0, error = 'terms: ValueError: v1 时代的失败'")
+            store.query("DELETE FROM final_text")
+            store.query("UPDATE meta SET value='1' WHERE key='schema_version'")
+        self.assertFalse(self.correction(WRONG)["evidence_complete"])
+        with self.service._store() as store:
+            self.assertEqual(store.scalar("SELECT COUNT(*) FROM entries WHERE version = 0"), 0)
+        self.service.scan()
+        self.assertTrue(self.correction(WRONG)["evidence_complete"])
 
 
 class CliTests(ArchiveTestCase):

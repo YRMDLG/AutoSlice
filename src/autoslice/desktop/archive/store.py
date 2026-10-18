@@ -65,6 +65,10 @@ class ArchiveStore:
         for ddl in schemas:
             self._db.executescript(ddl)
         # v1 → v2 只新增 final_text 表；保留原始事实，抽取版本负责重扫补齐语料。
+        if int(previous) < 2:
+            # v1 时代出错的条目 version 记为 0，但它们没有 final_text；退回旧版本号，
+            # 免得被当成“已升级、只是别的抽取器出错”而放行固定纠错。
+            self._db.execute("UPDATE entries SET version = 1 WHERE version = 0")
         self._db.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),))
         self._db.commit()
 
