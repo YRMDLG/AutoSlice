@@ -229,6 +229,21 @@ def split_subtitle_text_for_display(text, max_chars=SUBTITLE_MAX_CHARS):
             cut = preferred_cut
         else:
             cut = hard_cut
+            # 硬切点落在英文/数字词中间时前移到词首，避免“emoj | i”；前面不足 2 个字则保持原切点
+            if (
+                0 < cut < len(remaining)
+                and remaining[cut - 1].isascii() and remaining[cut - 1].isalnum()
+                and remaining[cut].isascii() and remaining[cut].isalnum()
+            ):
+                word_start = cut
+                while (
+                    word_start > 0
+                    and remaining[word_start - 1].isascii()
+                    and remaining[word_start - 1].isalnum()
+                ):
+                    word_start -= 1
+                if subtitle_text_size(remaining[:word_start]) >= 2:
+                    cut = word_start
         part = remaining[:cut].strip()
         if not part:
             part = remaining[:hard_cut].strip()

@@ -33,6 +33,16 @@
       "to": "autoslice.desktop.qt_app.__main__"
     },
     {
+      "from": "_autoslice_compat",
+      "imports": [
+        "types.ModuleType"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
       "from": "app",
       "imports": [
         "_autoslice_compat.alias_module"
@@ -51,6 +61,16 @@
         3
       ],
       "to": "_autoslice_compat"
+    },
+    {
+      "from": "autocover_tool._compat",
+      "imports": [
+        "types.ModuleType"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.desktop.asr.types"
     },
     {
       "from": "autocover_tool.app",
@@ -2995,6 +3015,690 @@
       "to": "autoslice.desktop.archive.model"
     },
     {
+      "from": "autoslice.desktop.asr",
+      "imports": [
+        "autoslice.desktop.asr.pipeline.TranscribeOptions",
+        "autoslice.desktop.asr.pipeline.TranscribeResult",
+        "autoslice.desktop.asr.pipeline.transcribe"
+      ],
+      "lines": [
+        3
+      ],
+      "to": "autoslice.desktop.asr.pipeline"
+    },
+    {
+      "from": "autoslice.desktop.asr",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings",
+        "autoslice.desktop.asr.settings.load_settings",
+        "autoslice.desktop.asr.settings.save_settings"
+      ],
+      "lines": [
+        4
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrCancelled",
+        "autoslice.desktop.asr.types.AsrError",
+        "autoslice.desktop.asr.types.Piece",
+        "autoslice.desktop.asr.types.Word"
+      ],
+      "lines": [
+        5
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.bench"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.desktop.asr.bench"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.doctor"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.desktop.asr.doctor"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.engines.ENGINES"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.desktop.asr.engines"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.hotwords.build_hotwords"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.desktop.asr.hotwords"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.jobs.JobSpec"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.desktop.asr.jobs"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings",
+        "autoslice.desktop.asr.settings.load_settings"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.setup_text.SETUP_TEXT"
+      ],
+      "lines": [
+        24
+      ],
+      "to": "autoslice.desktop.asr.setup_text"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.asr.worker.run_spec"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice.desktop.asr.worker"
+    },
+    {
+      "from": "autoslice.desktop.asr.__main__",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.asr.audio",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrError",
+        "autoslice.desktop.asr.types.Chunk"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.archive.layout.classify_folder"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.desktop.archive.layout"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.archive.model.SKIP_DIRS"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.desktop.archive.model"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.archive.srt.Cue",
+        "autoslice.desktop.archive.srt.load_cues"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.desktop.archive.srt"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.asr.audio"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.desktop.asr.audio"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.asr.engines.Engine",
+        "autoslice.desktop.asr.engines.create_engine"
+      ],
+      "lines": [
+        24
+      ],
+      "to": "autoslice.desktop.asr.engines"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.asr.hotwords.build_hotwords"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice.desktop.asr.hotwords"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.asr.pipeline.TranscribeOptions",
+        "autoslice.desktop.asr.pipeline.transcribe"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice.desktop.asr.pipeline"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.asr.text.cer",
+        "autoslice.desktop.asr.text.edit_distance",
+        "autoslice.desktop.asr.text.normalise_for_cer"
+      ],
+      "lines": [
+        28
+      ],
+      "to": "autoslice.desktop.asr.text"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrCancelled"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.bench",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.asr.doctor",
+      "imports": [
+        "autoslice.desktop.asr.engines.ENGINES",
+        "autoslice.desktop.asr.engines.create_engine"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.desktop.asr.engines"
+    },
+    {
+      "from": "autoslice.desktop.asr.doctor",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines",
+      "imports": [
+        "autoslice.desktop.asr.engines.funasr_legacy.FunAsrEngine"
+      ],
+      "lines": [
+        48
+      ],
+      "to": "autoslice.desktop.asr.engines.funasr_legacy"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines",
+      "imports": [
+        "autoslice.desktop.asr.engines.qwen3.Qwen3Engine"
+      ],
+      "lines": [
+        42
+      ],
+      "to": "autoslice.desktop.asr.engines.qwen3"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrError",
+        "autoslice.desktop.asr.types.Piece"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.desktop.asr.engines.runtime.cuda_peak_mb"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.desktop.asr.engines.runtime"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrError",
+        "autoslice.desktop.asr.types.Piece",
+        "autoslice.desktop.asr.types.Word"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.transcription.background_filter"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.transcription.background_filter"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.transcription.model_runtime"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.transcription.model_runtime"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.transcription.recognition"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.transcription.recognition"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.transcription.results"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.transcription.results"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.funasr_legacy",
+      "imports": [
+        "autoslice.transcription.segments"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.transcription.segments"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.qwen3",
+      "imports": [
+        "autoslice.desktop.asr.audio.wav_duration"
+      ],
+      "lines": [
+        128
+      ],
+      "to": "autoslice.desktop.asr.audio"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.qwen3",
+      "imports": [
+        "autoslice.desktop.asr.engines.runtime.cuda_peak_mb",
+        "autoslice.desktop.asr.engines.runtime.resolve_device"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.desktop.asr.engines.runtime"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.qwen3",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.qwen3",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrError",
+        "autoslice.desktop.asr.types.Piece",
+        "autoslice.desktop.asr.types.Word"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.engines.scripted",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrError",
+        "autoslice.desktop.asr.types.Piece"
+      ],
+      "lines": [
+        7
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.hotwords",
+      "imports": [
+        "autoslice.desktop.archive.knowledge.Knowledge",
+        "autoslice.desktop.archive.knowledge.profile_id_for"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.desktop.archive.knowledge"
+    },
+    {
+      "from": "autoslice.desktop.asr.hotwords",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.asr.hotwords",
+      "imports": [
+        "autoslice.streamer_profiles.resolve_streamer_profile"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.desktop.asr.hotwords",
+      "imports": [
+        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_GLOSSARY"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.desktop.asr.jobs",
+      "imports": [
+        "autoslice"
+      ],
+      "lines": [
+        64
+      ],
+      "to": "autoslice"
+    },
+    {
+      "from": "autoslice.desktop.asr.jobs",
+      "imports": [
+        "autoslice.desktop.asr.settings.AsrSettings"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.desktop.asr.settings"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.desktop.asr.audio"
+      ],
+      "lines": [
+        28
+      ],
+      "to": "autoslice.desktop.asr.audio"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.desktop.asr.engines.Engine"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.desktop.asr.engines"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.desktop.asr.text.piece_words"
+      ],
+      "lines": [
+        30
+      ],
+      "to": "autoslice.desktop.asr.text"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrCancelled",
+        "autoslice.desktop.asr.types.AsrError",
+        "autoslice.desktop.asr.types.Chunk",
+        "autoslice.desktop.asr.types.Word"
+      ],
+      "lines": [
+        31
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        18
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.streamer_profiles.AUTO_PROFILE_ID",
+        "autoslice.streamer_profiles.resolve_streamer_profile",
+        "autoslice.streamer_profiles.streamer_profile_context"
+      ],
+      "lines": [
+        19
+      ],
+      "to": "autoslice.streamer_profiles"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.transcription.contracts.DEFAULT_SUBTITLE_MAX_CHARS"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.transcription.segments"
+      ],
+      "lines": [
+        24
+      ],
+      "to": "autoslice.transcription.segments"
+    },
+    {
+      "from": "autoslice.desktop.asr.pipeline",
+      "imports": [
+        "autoslice.transcription.srt_io.write_srt_segments"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice.transcription.srt_io"
+    },
+    {
+      "from": "autoslice.desktop.asr.settings",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.asr.text",
+      "imports": [
+        "autoslice.desktop.asr.types.Piece",
+        "autoslice.desktop.asr.types.Word"
+      ],
+      "lines": [
+        8
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.worker",
+      "imports": [
+        "autoslice.desktop.asr.engines.Engine",
+        "autoslice.desktop.asr.engines.create_engine"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.desktop.asr.engines"
+    },
+    {
+      "from": "autoslice.desktop.asr.worker",
+      "imports": [
+        "autoslice.desktop.asr.jobs.JobSpec",
+        "autoslice.desktop.asr.jobs.format_event"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.desktop.asr.jobs"
+    },
+    {
+      "from": "autoslice.desktop.asr.worker",
+      "imports": [
+        "autoslice.desktop.asr.pipeline.TranscribeOptions",
+        "autoslice.desktop.asr.pipeline.transcribe",
+        "autoslice.desktop.asr.pipeline.work_dir_for"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.desktop.asr.pipeline"
+    },
+    {
+      "from": "autoslice.desktop.asr.worker",
+      "imports": [
+        "autoslice.desktop.asr.types.AsrCancelled",
+        "autoslice.desktop.asr.types.AsrError"
+      ],
+      "lines": [
+        17
+      ],
+      "to": "autoslice.desktop.asr.types"
+    },
+    {
+      "from": "autoslice.desktop.asr.worker",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
       "from": "autoslice.desktop.correction_memory",
       "imports": [
         "autoslice.desktop.foundation.DesktopStorage"
@@ -5213,6 +5917,132 @@
       "to": "autoslice.desktop.qt_preview.window"
     },
     {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.asr.AsrSettings",
+        "autoslice.desktop.asr.load_settings",
+        "autoslice.desktop.asr.save_settings"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.desktop.asr"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.asr.doctor.Check",
+        "autoslice.desktop.asr.doctor.format_checks"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.desktop.asr.doctor"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.asr.engines.ENGINES"
+      ],
+      "lines": [
+        24
+      ],
+      "to": "autoslice.desktop.asr.engines"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.asr.jobs.python_command"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice.desktop.asr.jobs"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.asr.setup_text.SETUP_TEXT"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice.desktop.asr.setup_text"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.qt_app.asr_process.ModuleProcess"
+      ],
+      "lines": [
+        33
+      ],
+      "to": "autoslice.desktop.qt_app.asr_process"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.icons.icon"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups"
+      ],
+      "lines": [
+        28
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        30
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.label"
+      ],
+      "lines": [
+        31
+      ],
+      "to": "autoslice.desktop.qt_preview.window"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.asr_process",
+      "imports": [
+        "autoslice.desktop.asr.jobs.JobSpec",
+        "autoslice.desktop.asr.jobs.parse_event",
+        "autoslice.desktop.asr.jobs.worker_command"
+      ],
+      "lines": [
+        9
+      ],
+      "to": "autoslice.desktop.asr.jobs"
+    },
+    {
       "from": "autoslice.desktop.qt_app.learning_panel",
       "imports": [
         "autoslice.desktop.correction_memory.CorrectionMemory"
@@ -5445,10 +6275,20 @@
     {
       "from": "autoslice.desktop.qt_app.window",
       "imports": [
-        "autoslice.desktop.qt_app.window_document.SubtitleDocumentMixin"
+        "autoslice.desktop.qt_app.window_asr.RecognizeMixin"
       ],
       "lines": [
         50
+      ],
+      "to": "autoslice.desktop.qt_app.window_asr"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_app.window_document.SubtitleDocumentMixin"
+      ],
+      "lines": [
+        51
       ],
       "to": "autoslice.desktop.qt_app.window_document"
     },
@@ -5458,7 +6298,7 @@
         "autoslice.desktop.qt_app.window_input.InputRoutingMixin"
       ],
       "lines": [
-        51
+        52
       ],
       "to": "autoslice.desktop.qt_app.window_input"
     },
@@ -5468,7 +6308,7 @@
         "autoslice.desktop.qt_app.window_player.PlayerMixin"
       ],
       "lines": [
-        52
+        53
       ],
       "to": "autoslice.desktop.qt_app.window_player"
     },
@@ -5478,7 +6318,7 @@
         "autoslice.desktop.qt_app.window_projects.ProjectsMixin"
       ],
       "lines": [
-        53
+        54
       ],
       "to": "autoslice.desktop.qt_app.window_projects"
     },
@@ -5488,7 +6328,7 @@
         "autoslice.desktop.qt_app.window_subtitles.SubtitleListMixin"
       ],
       "lines": [
-        54
+        55
       ],
       "to": "autoslice.desktop.qt_app.window_subtitles"
     },
@@ -5498,7 +6338,7 @@
         "autoslice.desktop.qt_app.window_timeline.TimelineMixin"
       ],
       "lines": [
-        55
+        56
       ],
       "to": "autoslice.desktop.qt_app.window_timeline"
     },
@@ -5508,7 +6348,7 @@
         "autoslice.desktop.qt_app.window_widgets._StatusLabel"
       ],
       "lines": [
-        56
+        57
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
     },
@@ -5679,6 +6519,66 @@
       "to": "autoslice.transcription.contracts"
     },
     {
+      "from": "autoslice.desktop.qt_app.window_asr",
+      "imports": [
+        "autoslice.desktop.asr.load_settings"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.desktop.asr"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_asr",
+      "imports": [
+        "autoslice.desktop.asr.engines.ENGINES"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.desktop.asr.engines"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_asr",
+      "imports": [
+        "autoslice.desktop.asr.hotwords.build_hotwords"
+      ],
+      "lines": [
+        12
+      ],
+      "to": "autoslice.desktop.asr.hotwords"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_asr",
+      "imports": [
+        "autoslice.desktop.asr.jobs.JobSpec"
+      ],
+      "lines": [
+        13
+      ],
+      "to": "autoslice.desktop.asr.jobs"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_asr",
+      "imports": [
+        "autoslice.desktop.qt_app.asr_panel.AsrBanner"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.desktop.qt_app.asr_panel"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_asr",
+      "imports": [
+        "autoslice.desktop.qt_app.asr_process.RecognizeJob"
+      ],
+      "lines": [
+        16
+      ],
+      "to": "autoslice.desktop.qt_app.asr_process"
+    },
+    {
       "from": "autoslice.desktop.qt_app.window_document",
       "imports": [
         "autoslice.desktop.ai_review.document_hash"
@@ -5803,10 +6703,20 @@
     {
       "from": "autoslice.desktop.qt_app.window_projects",
       "imports": [
-        "autoslice.desktop.qt_app.learning_panel.LearningPanel"
+        "autoslice.desktop.qt_app.asr_panel.AsrSettingsPanel"
       ],
       "lines": [
         35
+      ],
+      "to": "autoslice.desktop.qt_app.asr_panel"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_projects",
+      "imports": [
+        "autoslice.desktop.qt_app.learning_panel.LearningPanel"
+      ],
+      "lines": [
+        36
       ],
       "to": "autoslice.desktop.qt_app.learning_panel"
     },
@@ -6387,6 +7297,16 @@
         3
       ],
       "to": "autoslice.llm.transport"
+    },
+    {
+      "from": "autoslice.media_formats",
+      "imports": [
+        "types.MappingProxyType"
+      ],
+      "lines": [
+        11
+      ],
+      "to": "autoslice.desktop.asr.types"
     },
     {
       "from": "autoslice.media_preview",
@@ -9323,6 +10243,15 @@
       "qualname": "CoverLayoutMixin._build_text_panel"
     },
     {
+      "end_line": 276,
+      "kind": "function",
+      "line": 105,
+      "line_count": 172,
+      "module": "autoslice.desktop.qt_preview.theme",
+      "path": "src/autoslice/desktop/qt_preview/theme.py",
+      "qualname": "stylesheet"
+    },
+    {
       "end_line": 441,
       "kind": "function",
       "line": 276,
@@ -9339,15 +10268,6 @@
       "module": "autoslice_cover.copy_recommendations",
       "path": "src/autoslice_cover/copy_recommendations.py",
       "qualname": "generate_copy_recommendations"
-    },
-    {
-      "end_line": 268,
-      "kind": "function",
-      "line": 105,
-      "line_count": 164,
-      "module": "autoslice.desktop.qt_preview.theme",
-      "path": "src/autoslice/desktop/qt_preview/theme.py",
-      "qualname": "stylesheet"
     },
     {
       "end_line": 360,
@@ -13093,6 +14013,749 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 10,
+      "longest_function": null,
+      "module": "autoslice.desktop.asr",
+      "path": "src/autoslice/desktop/asr/__init__.py",
+      "sha256": "468b79c790db7af78fb87fdb0e648f0179ad201848d30cbcc19fdfbe0150deca",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 116,
+      "longest_function": {
+        "end_line": 112,
+        "kind": "function",
+        "line": 42,
+        "line_count": 71,
+        "qualname": "main"
+      },
+      "module": "autoslice.desktop.asr.__main__",
+      "path": "src/autoslice/desktop/asr/__main__.py",
+      "sha256": "000286d1d5031da6a6f4d9da4acdf844bdeee739bbe061980b0ef4914ec7a03b",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 32,
+          "kind": "function",
+          "line": 28,
+          "name": "_settings"
+        },
+        {
+          "end_line": 39,
+          "kind": "function",
+          "line": 35,
+          "name": "_add_overrides"
+        },
+        {
+          "end_line": 112,
+          "kind": "function",
+          "line": 42,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 108,
+      "longest_function": {
+        "end_line": 108,
+        "kind": "function",
+        "line": 85,
+        "line_count": 24,
+        "qualname": "plan_chunks"
+      },
+      "module": "autoslice.desktop.asr.audio",
+      "path": "src/autoslice/desktop/asr/audio.py",
+      "sha256": "699e55cc8d140360d8818414515901efe51b349af4961e2b1d825b9adbecac14",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 35,
+          "kind": "function",
+          "line": 23,
+          "name": "_ffmpeg"
+        },
+        {
+          "end_line": 51,
+          "kind": "function",
+          "line": 38,
+          "name": "extract_wav"
+        },
+        {
+          "end_line": 56,
+          "kind": "function",
+          "line": 54,
+          "name": "wav_duration"
+        },
+        {
+          "end_line": 75,
+          "kind": "function",
+          "line": 59,
+          "name": "parse_silences"
+        },
+        {
+          "end_line": 82,
+          "kind": "function",
+          "line": 78,
+          "name": "detect_silences"
+        },
+        {
+          "end_line": 108,
+          "kind": "function",
+          "line": 85,
+          "name": "plan_chunks"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 265,
+      "longest_function": {
+        "end_line": 228,
+        "kind": "function",
+        "line": 183,
+        "line_count": 46,
+        "qualname": "run_bench"
+      },
+      "module": "autoslice.desktop.asr.bench",
+      "path": "src/autoslice/desktop/asr/bench.py",
+      "sha256": "a9aa88f10846a09b83e9b5ff317d3a4642c4a3c837a0a0b063131052ea344408",
+      "top_level_classes": [
+        {
+          "end_line": 38,
+          "kind": "class",
+          "line": 33,
+          "name": "BenchCase"
+        },
+        {
+          "end_line": 45,
+          "kind": "class",
+          "line": 42,
+          "name": "Variant"
+        },
+        {
+          "end_line": 57,
+          "kind": "class",
+          "line": 49,
+          "name": "CaseScore"
+        },
+        {
+          "end_line": 88,
+          "kind": "class",
+          "line": 61,
+          "name": "VariantScore"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 119,
+          "kind": "function",
+          "line": 93,
+          "name": "discover_cases"
+        },
+        {
+          "end_line": 140,
+          "kind": "function",
+          "line": 122,
+          "name": "pick_windows"
+        },
+        {
+          "end_line": 144,
+          "kind": "function",
+          "line": 143,
+          "name": "reference_text"
+        },
+        {
+          "end_line": 157,
+          "kind": "function",
+          "line": 147,
+          "name": "diff_examples"
+        },
+        {
+          "end_line": 180,
+          "kind": "function",
+          "line": 162,
+          "name": "score_window"
+        },
+        {
+          "end_line": 228,
+          "kind": "function",
+          "line": 183,
+          "name": "run_bench"
+        },
+        {
+          "end_line": 256,
+          "kind": "function",
+          "line": 231,
+          "name": "render_report"
+        },
+        {
+          "end_line": 262,
+          "kind": "function",
+          "line": 259,
+          "name": "to_json"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 176,
+      "longest_function": {
+        "end_line": 136,
+        "kind": "function",
+        "line": 68,
+        "line_count": 69,
+        "qualname": "run_checks"
+      },
+      "module": "autoslice.desktop.asr.doctor",
+      "path": "src/autoslice/desktop/asr/doctor.py",
+      "sha256": "44af958043bb6dec512b10d84028206d38596f5b73d6e449e6eb090faad5c99e",
+      "top_level_classes": [
+        {
+          "end_line": 31,
+          "kind": "class",
+          "line": 24,
+          "name": "Check"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 38,
+          "kind": "function",
+          "line": 34,
+          "name": "_version"
+        },
+        {
+          "end_line": 48,
+          "kind": "function",
+          "line": 41,
+          "name": "_version_tuple"
+        },
+        {
+          "end_line": 65,
+          "kind": "function",
+          "line": 51,
+          "name": "_model_cached"
+        },
+        {
+          "end_line": 136,
+          "kind": "function",
+          "line": 68,
+          "name": "run_checks"
+        },
+        {
+          "end_line": 166,
+          "kind": "function",
+          "line": 139,
+          "name": "probe"
+        },
+        {
+          "end_line": 176,
+          "kind": "function",
+          "line": 169,
+          "name": "format_checks"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 71,
+      "longest_function": {
+        "end_line": 71,
+        "kind": "function",
+        "line": 67,
+        "line_count": 5,
+        "qualname": "create_engine"
+      },
+      "module": "autoslice.desktop.asr.engines",
+      "path": "src/autoslice/desktop/asr/engines/__init__.py",
+      "sha256": "47947b726e81ebf663a98623ac623a57ce9429a58da2f12d558b17f9fb57d13c",
+      "top_level_classes": [
+        {
+          "end_line": 28,
+          "kind": "class",
+          "line": 16,
+          "name": "Engine"
+        },
+        {
+          "end_line": 38,
+          "kind": "class",
+          "line": 32,
+          "name": "EngineSpec"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 44,
+          "kind": "function",
+          "line": 41,
+          "name": "_qwen3"
+        },
+        {
+          "end_line": 50,
+          "kind": "function",
+          "line": 47,
+          "name": "_funasr"
+        },
+        {
+          "end_line": 71,
+          "kind": "function",
+          "line": 67,
+          "name": "create_engine"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 73,
+      "longest_function": {
+        "end_line": 45,
+        "kind": "function",
+        "line": 26,
+        "line_count": 20,
+        "qualname": "FunAsrEngine.load"
+      },
+      "module": "autoslice.desktop.asr.engines.funasr_legacy",
+      "path": "src/autoslice/desktop/asr/engines/funasr_legacy.py",
+      "sha256": "33b3e8c0531355fdb21c0ff251fdd81ca09193ddef54af7d94180238e69cae0e",
+      "top_level_classes": [
+        {
+          "end_line": 73,
+          "kind": "class",
+          "line": 17,
+          "name": "FunAsrEngine"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 156,
+      "longest_function": {
+        "end_line": 58,
+        "kind": "function",
+        "line": 25,
+        "line_count": 34,
+        "qualname": "parse_time_stamps"
+      },
+      "module": "autoslice.desktop.asr.engines.qwen3",
+      "path": "src/autoslice/desktop/asr/engines/qwen3.py",
+      "sha256": "d56f85565cca3059950dde26abdd2e0987b77b152cc8213f6af945da922b040e",
+      "top_level_classes": [
+        {
+          "end_line": 156,
+          "kind": "class",
+          "line": 69,
+          "name": "Qwen3Engine"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 58,
+          "kind": "function",
+          "line": 25,
+          "name": "parse_time_stamps"
+        },
+        {
+          "end_line": 62,
+          "kind": "function",
+          "line": 61,
+          "name": "_is_triplet"
+        },
+        {
+          "end_line": 66,
+          "kind": "function",
+          "line": 65,
+          "name": "clean_text"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 32,
+      "longest_function": {
+        "end_line": 19,
+        "kind": "function",
+        "line": 6,
+        "line_count": 14,
+        "qualname": "resolve_device"
+      },
+      "module": "autoslice.desktop.asr.engines.runtime",
+      "path": "src/autoslice/desktop/asr/engines/runtime.py",
+      "sha256": "dc4f83e56471e8aee61d38a3ebc8919b27215eee61f4d72999490c11396fd9cf",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 19,
+          "kind": "function",
+          "line": 6,
+          "name": "resolve_device"
+        },
+        {
+          "end_line": 32,
+          "kind": "function",
+          "line": 22,
+          "name": "cuda_peak_mb"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 39,
+      "longest_function": {
+        "end_line": 22,
+        "kind": "function",
+        "line": 15,
+        "line_count": 8,
+        "qualname": "ScriptedEngine.__init__"
+      },
+      "module": "autoslice.desktop.asr.engines.scripted",
+      "path": "src/autoslice/desktop/asr/engines/scripted.py",
+      "sha256": "152b570886a3bb4460388bcecf14c002724a6e664fbcde756519b5aae507639e",
+      "top_level_classes": [
+        {
+          "end_line": 39,
+          "kind": "class",
+          "line": 10,
+          "name": "ScriptedEngine"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 43,
+      "longest_function": {
+        "end_line": 43,
+        "kind": "function",
+        "line": 16,
+        "line_count": 28,
+        "qualname": "build_hotwords"
+      },
+      "module": "autoslice.desktop.asr.hotwords",
+      "path": "src/autoslice/desktop/asr/hotwords.py",
+      "sha256": "bdcf02231cb864e86ecfc30e62538ea86a76e8820104fbc01d2305a050d23d3e",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 43,
+          "kind": "function",
+          "line": 16,
+          "name": "build_hotwords"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 74,
+      "longest_function": {
+        "end_line": 58,
+        "kind": "function",
+        "line": 48,
+        "line_count": 11,
+        "qualname": "parse_event"
+      },
+      "module": "autoslice.desktop.asr.jobs",
+      "path": "src/autoslice/desktop/asr/jobs.py",
+      "sha256": "fccbd4de4739c0089cadc43d484a695890feb2fa1d485982f1ff53836d90a7a2",
+      "top_level_classes": [
+        {
+          "end_line": 41,
+          "kind": "class",
+          "line": 20,
+          "name": "JobSpec"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 45,
+          "kind": "function",
+          "line": 44,
+          "name": "format_event"
+        },
+        {
+          "end_line": 58,
+          "kind": "function",
+          "line": 48,
+          "name": "parse_event"
+        },
+        {
+          "end_line": 70,
+          "kind": "function",
+          "line": 61,
+          "name": "python_command"
+        },
+        {
+          "end_line": 74,
+          "kind": "function",
+          "line": 73,
+          "name": "worker_command"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 193,
+      "longest_function": {
+        "end_line": 181,
+        "kind": "function",
+        "line": 94,
+        "line_count": 88,
+        "qualname": "transcribe"
+      },
+      "module": "autoslice.desktop.asr.pipeline",
+      "path": "src/autoslice/desktop/asr/pipeline.py",
+      "sha256": "5b5007ac253dea6b7968ad86cfcbcf24329c2350a6395679274c225fdc58ea52",
+      "top_level_classes": [
+        {
+          "end_line": 41,
+          "kind": "class",
+          "line": 38,
+          "name": "TranscribeOptions"
+        },
+        {
+          "end_line": 51,
+          "kind": "class",
+          "line": 45,
+          "name": "TranscribeResult"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 56,
+          "kind": "function",
+          "line": 54,
+          "name": "work_dir_for"
+        },
+        {
+          "end_line": 62,
+          "kind": "function",
+          "line": 59,
+          "name": "_write_json"
+        },
+        {
+          "end_line": 70,
+          "kind": "function",
+          "line": 65,
+          "name": "_signature"
+        },
+        {
+          "end_line": 78,
+          "kind": "function",
+          "line": 73,
+          "name": "words_in_core"
+        },
+        {
+          "end_line": 91,
+          "kind": "function",
+          "line": 81,
+          "name": "build_segments"
+        },
+        {
+          "end_line": 181,
+          "kind": "function",
+          "line": 94,
+          "name": "transcribe"
+        },
+        {
+          "end_line": 193,
+          "kind": "function",
+          "line": 184,
+          "name": "_read_checkpoint"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 53,
+      "longest_function": {
+        "end_line": 47,
+        "kind": "function",
+        "line": 34,
+        "line_count": 14,
+        "qualname": "load_settings"
+      },
+      "module": "autoslice.desktop.asr.settings",
+      "path": "src/autoslice/desktop/asr/settings.py",
+      "sha256": "c80c4a4b561d7fa33ec854be97b07c8327d4b1c43c49e0fc9e788b7024934091",
+      "top_level_classes": [
+        {
+          "end_line": 27,
+          "kind": "class",
+          "line": 15,
+          "name": "AsrSettings"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 31,
+          "kind": "function",
+          "line": 30,
+          "name": "settings_path"
+        },
+        {
+          "end_line": 47,
+          "kind": "function",
+          "line": 34,
+          "name": "load_settings"
+        },
+        {
+          "end_line": 53,
+          "kind": "function",
+          "line": 50,
+          "name": "save_settings"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 21,
+      "longest_function": null,
+      "module": "autoslice.desktop.asr.setup_text",
+      "path": "src/autoslice/desktop/asr/setup_text.py",
+      "sha256": "94cf287603e9b77eb22a148433464524806dad292d1f8bb948e9cf345f1a6d5f",
+      "top_level_classes": [],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 116,
+      "longest_function": {
+        "end_line": 48,
+        "kind": "function",
+        "line": 18,
+        "line_count": 31,
+        "qualname": "attach_punctuation"
+      },
+      "module": "autoslice.desktop.asr.text",
+      "path": "src/autoslice/desktop/asr/text.py",
+      "sha256": "d57b643bca2e6b98a9b188f872e2ab725c6934cd1b17e1f064715746565b36e4",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 15,
+          "kind": "function",
+          "line": 14,
+          "name": "is_punct"
+        },
+        {
+          "end_line": 48,
+          "kind": "function",
+          "line": 18,
+          "name": "attach_punctuation"
+        },
+        {
+          "end_line": 71,
+          "kind": "function",
+          "line": 51,
+          "name": "spread_words"
+        },
+        {
+          "end_line": 80,
+          "kind": "function",
+          "line": 74,
+          "name": "piece_words"
+        },
+        {
+          "end_line": 87,
+          "kind": "function",
+          "line": 83,
+          "name": "normalise_for_cer"
+        },
+        {
+          "end_line": 109,
+          "kind": "function",
+          "line": 90,
+          "name": "edit_distance"
+        },
+        {
+          "end_line": 116,
+          "kind": "function",
+          "line": 112,
+          "name": "cer"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 47,
+      "longest_function": {
+        "end_line": 47,
+        "kind": "function",
+        "line": 46,
+        "line_count": 2,
+        "qualname": "Chunk.input_duration"
+      },
+      "module": "autoslice.desktop.asr.types",
+      "path": "src/autoslice/desktop/asr/types.py",
+      "sha256": "e270ee0199511ab476758737f16ace9c62d14495378ec3d3c53d59626fafa543",
+      "top_level_classes": [
+        {
+          "end_line": 9,
+          "kind": "class",
+          "line": 8,
+          "name": "AsrCancelled"
+        },
+        {
+          "end_line": 13,
+          "kind": "class",
+          "line": 12,
+          "name": "AsrError"
+        },
+        {
+          "end_line": 22,
+          "kind": "class",
+          "line": 17,
+          "name": "Word"
+        },
+        {
+          "end_line": 32,
+          "kind": "class",
+          "line": 26,
+          "name": "Piece"
+        },
+        {
+          "end_line": 47,
+          "kind": "class",
+          "line": 36,
+          "name": "Chunk"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 60,
+      "longest_function": {
+        "end_line": 48,
+        "kind": "function",
+        "line": 20,
+        "line_count": 29,
+        "qualname": "run_spec"
+      },
+      "module": "autoslice.desktop.asr.worker",
+      "path": "src/autoslice/desktop/asr/worker.py",
+      "sha256": "3aa57886e6eac04a26d0556a9e9af89e8effacba2933f129c97c3c30a276b114",
+      "top_level_classes": [],
+      "top_level_functions": [
+        {
+          "end_line": 48,
+          "kind": "function",
+          "line": 20,
+          "name": "run_spec"
+        },
+        {
+          "end_line": 56,
+          "kind": "function",
+          "line": 51,
+          "name": "main"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 31,
       "longest_function": {
         "end_line": 28,
@@ -15237,6 +16900,64 @@
     },
     {
       "duplicate_top_level_definitions": [],
+      "line_count": 278,
+      "longest_function": {
+        "end_line": 135,
+        "kind": "function",
+        "line": 39,
+        "line_count": 97,
+        "qualname": "AsrSettingsPanel.__init__"
+      },
+      "module": "autoslice.desktop.qt_app.asr_panel",
+      "path": "src/autoslice/desktop/qt_app/asr_panel.py",
+      "sha256": "2c824f0352715d2e8470e1cd56eeb1525e64fedda53a3eeea582c79cfbbb4c66",
+      "top_level_classes": [
+        {
+          "end_line": 215,
+          "kind": "class",
+          "line": 38,
+          "name": "AsrSettingsPanel"
+        },
+        {
+          "end_line": 278,
+          "kind": "class",
+          "line": 218,
+          "name": "AsrBanner"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 134,
+      "longest_function": {
+        "end_line": 44,
+        "kind": "function",
+        "line": 31,
+        "line_count": 14,
+        "qualname": "ModuleProcess.start"
+      },
+      "module": "autoslice.desktop.qt_app.asr_process",
+      "path": "src/autoslice/desktop/qt_app/asr_process.py",
+      "sha256": "73ca1d71da09056f91fba0c2204c524d92b127cc470aa876c89475e52c5d40fb",
+      "top_level_classes": [
+        {
+          "end_line": 84,
+          "kind": "class",
+          "line": 14,
+          "name": "ModuleProcess"
+        },
+        {
+          "end_line": 134,
+          "kind": "class",
+          "line": 87,
+          "name": "RecognizeJob"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
       "line_count": 116,
       "longest_function": {
         "end_line": 70,
@@ -15326,30 +17047,30 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 481,
+      "line_count": 486,
       "longest_function": {
-        "end_line": 217,
+        "end_line": 219,
         "kind": "function",
-        "line": 85,
+        "line": 87,
         "line_count": 133,
         "qualname": "DesktopWindow.__init__"
       },
       "module": "autoslice.desktop.qt_app.window",
       "path": "src/autoslice/desktop/qt_app/window.py",
-      "sha256": "3a64e41f85b9f0d64b9ff8044882173bbb6814369c29c195b6ae1dd7beded41d",
+      "sha256": "a83fcba291b101f3f0b3005d6367f081e01f406caef9b03cc742fcdeacea6097",
       "top_level_classes": [
         {
-          "end_line": 479,
+          "end_line": 484,
           "kind": "class",
-          "line": 71,
+          "line": 72,
           "name": "DesktopWindow"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 68,
+          "end_line": 69,
           "kind": "function",
-          "line": 62,
+          "line": 63,
           "name": "_saved_submission_root"
         }
       ]
@@ -15373,6 +17094,29 @@
           "kind": "class",
           "line": 35,
           "name": "AiReviewMixin"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 101,
+      "longest_function": {
+        "end_line": 97,
+        "kind": "function",
+        "line": 77,
+        "line_count": 21,
+        "qualname": "RecognizeMixin._asr_finished"
+      },
+      "module": "autoslice.desktop.qt_app.window_asr",
+      "path": "src/autoslice/desktop/qt_app/window_asr.py",
+      "sha256": "b0f3857f3bb1f4d668ce8f5369f6ae292a0b35c584bc7e6473aacf5d2a855676",
+      "top_level_classes": [
+        {
+          "end_line": 101,
+          "kind": "class",
+          "line": 19,
+          "name": "RecognizeMixin"
         }
       ],
       "top_level_functions": []
@@ -15448,22 +17192,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 433,
+      "line_count": 444,
       "longest_function": {
-        "end_line": 157,
+        "end_line": 162,
         "kind": "function",
-        "line": 83,
-        "line_count": 75,
+        "line": 84,
+        "line_count": 79,
         "qualname": "ProjectsMixin._settings_page"
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "7ccc78c82154015068be94b588bf5c78f993cfc7c51b21d750f9dbe1f04be858",
+      "sha256": "453f05fe5555b2faa06ba592320232984f922515b884535d07ffda8e0fc476cf",
       "top_level_classes": [
         {
-          "end_line": 433,
+          "end_line": 444,
           "kind": "class",
-          "line": 38,
+          "line": 39,
           "name": "ProjectsMixin"
         }
       ],
@@ -15471,20 +17215,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 359,
+      "line_count": 360,
       "longest_function": {
-        "end_line": 107,
+        "end_line": 108,
         "kind": "function",
         "line": 41,
-        "line_count": 67,
+        "line_count": 68,
         "qualname": "SubtitleListMixin._subtitle_list"
       },
       "module": "autoslice.desktop.qt_app.window_subtitles",
       "path": "src/autoslice/desktop/qt_app/window_subtitles.py",
-      "sha256": "6d242ad1da5026e7b728c7f9fac06826ed87d1771ee1092bda469dc851d3af1a",
+      "sha256": "da05ff892e71c5d84cad011a180851027846f7c8bc3c2806720fc136b8417bd0",
       "top_level_classes": [
         {
-          "end_line": 359,
+          "end_line": 360,
           "kind": "class",
           "line": 40,
           "name": "SubtitleListMixin"
@@ -15955,17 +17699,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 268,
+      "line_count": 276,
       "longest_function": {
-        "end_line": 268,
+        "end_line": 276,
         "kind": "function",
         "line": 105,
-        "line_count": 164,
+        "line_count": 172,
         "qualname": "stylesheet"
       },
       "module": "autoslice.desktop.qt_preview.theme",
       "path": "src/autoslice/desktop/qt_preview/theme.py",
-      "sha256": "b898e2f6a37a4543e4c39244e538c41a73a92ad4f13a179f4231757b3304f4d2",
+      "sha256": "393f629565960e825fce7ed75a0cc384d5c9811f0884995eb38610ae81f7ea99",
       "top_level_classes": [
         {
           "end_line": 57,
@@ -15982,7 +17726,7 @@
       ],
       "top_level_functions": [
         {
-          "end_line": 268,
+          "end_line": 276,
           "kind": "function",
           "line": 105,
           "name": "stylesheet"
@@ -19944,17 +21688,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1005,
+      "line_count": 1020,
       "longest_function": {
-        "end_line": 774,
+        "end_line": 789,
         "kind": "function",
-        "line": 719,
+        "line": 734,
         "line_count": 56,
         "qualname": "segments_from_funasr_result_with_trace"
       },
       "module": "autoslice.transcription.segments",
       "path": "src/autoslice/transcription/segments.py",
-      "sha256": "92c81fbd6d65416e3598a159a8573259146869e10512d4fce6b359ffcf4d7247",
+      "sha256": "0d3f0ff4f8595239eab5b5e43f2504b1d5a2bb60ff851427f3166447b037e8f1",
       "top_level_classes": [
         {
           "end_line": 72,
@@ -19975,9 +21719,9 @@
           "name": "SubtitleSegmentationTrace"
         },
         {
-          "end_line": 691,
+          "end_line": 706,
           "kind": "class",
-          "line": 309,
+          "line": 324,
           "name": "_SubtitleSegmentationPlanner"
         }
       ],
@@ -20025,93 +21769,93 @@
           "name": "subtitle_text_size"
         },
         {
-          "end_line": 242,
+          "end_line": 257,
           "kind": "function",
           "line": 206,
           "name": "split_subtitle_text_for_display"
         },
         {
-          "end_line": 281,
+          "end_line": 296,
           "kind": "function",
-          "line": 245,
+          "line": 260,
           "name": "split_timed_subtitle_segment"
         },
         {
-          "end_line": 306,
+          "end_line": 321,
           "kind": "function",
-          "line": 284,
+          "line": 299,
           "name": "should_hold_subtitle_for_short_clause"
         },
         {
-          "end_line": 703,
+          "end_line": 718,
           "kind": "function",
-          "line": 694,
+          "line": 709,
           "name": "segment_timed_tokens_with_trace"
         },
         {
-          "end_line": 716,
+          "end_line": 731,
           "kind": "function",
-          "line": 706,
+          "line": 721,
           "name": "segment_timed_tokens"
         },
         {
-          "end_line": 774,
+          "end_line": 789,
           "kind": "function",
-          "line": 719,
+          "line": 734,
           "name": "segments_from_funasr_result_with_trace"
         },
         {
-          "end_line": 793,
+          "end_line": 808,
           "kind": "function",
-          "line": 777,
+          "line": 792,
           "name": "segments_from_funasr_result"
         },
         {
-          "end_line": 823,
+          "end_line": 838,
           "kind": "function",
-          "line": 796,
+          "line": 811,
           "name": "dedupe_overlapping_funasr_segments"
         },
         {
-          "end_line": 827,
+          "end_line": 842,
           "kind": "function",
-          "line": 826,
+          "line": 841,
           "name": "is_funasr_punctuation"
         },
         {
-          "end_line": 884,
+          "end_line": 899,
           "kind": "function",
-          "line": 830,
+          "line": 845,
           "name": "attach_funasr_punctuation_to_tokens"
         },
         {
-          "end_line": 939,
+          "end_line": 954,
           "kind": "function",
-          "line": 887,
+          "line": 902,
           "name": "align_funasr_tokens"
         },
         {
-          "end_line": 967,
+          "end_line": 982,
           "kind": "function",
-          "line": 942,
+          "line": 957,
           "name": "trim_funasr_tokens_to_core"
         },
         {
-          "end_line": 974,
+          "end_line": 989,
           "kind": "function",
-          "line": 970,
+          "line": 985,
           "name": "srt_time"
         },
         {
-          "end_line": 986,
+          "end_line": 1001,
           "kind": "function",
-          "line": 977,
+          "line": 992,
           "name": "parse_srt_timestamp"
         },
         {
-          "end_line": 993,
+          "end_line": 1008,
           "kind": "function",
-          "line": 989,
+          "line": 1004,
           "name": "srt_video_duration"
         }
       ]
@@ -24020,15 +25764,36 @@
       "src/autoslice/desktop/archive/extractors/covers.py",
       "src/autoslice/desktop/archive/extractors/subtitles.py",
       "src/autoslice/desktop/archive/extractors/terms.py",
+      "src/autoslice/desktop/asr/__init__.py",
+      "src/autoslice/desktop/asr/__main__.py",
+      "src/autoslice/desktop/asr/audio.py",
+      "src/autoslice/desktop/asr/bench.py",
+      "src/autoslice/desktop/asr/doctor.py",
+      "src/autoslice/desktop/asr/hotwords.py",
+      "src/autoslice/desktop/asr/jobs.py",
+      "src/autoslice/desktop/asr/pipeline.py",
+      "src/autoslice/desktop/asr/settings.py",
+      "src/autoslice/desktop/asr/setup_text.py",
+      "src/autoslice/desktop/asr/text.py",
+      "src/autoslice/desktop/asr/types.py",
+      "src/autoslice/desktop/asr/worker.py",
+      "src/autoslice/desktop/asr/engines/__init__.py",
+      "src/autoslice/desktop/asr/engines/funasr_legacy.py",
+      "src/autoslice/desktop/asr/engines/qwen3.py",
+      "src/autoslice/desktop/asr/engines/runtime.py",
+      "src/autoslice/desktop/asr/engines/scripted.py",
       "src/autoslice/desktop/qt_app/__init__.py",
       "src/autoslice/desktop/qt_app/__main__.py",
       "src/autoslice/desktop/qt_app/ai_settings_panel.py",
       "src/autoslice/desktop/qt_app/archive_panel.py",
+      "src/autoslice/desktop/qt_app/asr_panel.py",
+      "src/autoslice/desktop/qt_app/asr_process.py",
       "src/autoslice/desktop/qt_app/learning_panel.py",
       "src/autoslice/desktop/qt_app/player.py",
       "src/autoslice/desktop/qt_app/timeline.py",
       "src/autoslice/desktop/qt_app/window.py",
       "src/autoslice/desktop/qt_app/window_ai.py",
+      "src/autoslice/desktop/qt_app/window_asr.py",
       "src/autoslice/desktop/qt_app/window_document.py",
       "src/autoslice/desktop/qt_app/window_input.py",
       "src/autoslice/desktop/qt_app/window_player.py",
@@ -24151,6 +25916,8 @@
       "tests/unit/test_desktop_ai_settings.py",
       "tests/unit/test_desktop_app.py",
       "tests/unit/test_desktop_archive.py",
+      "tests/unit/test_desktop_asr.py",
+      "tests/unit/test_desktop_asr_qt.py",
       "tests/unit/test_desktop_correction_memory.py",
       "tests/unit/test_desktop_cover.py",
       "tests/unit/test_desktop_cover_ai.py",
@@ -24229,12 +25996,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 851,
-    "production_line_count": 70656,
-    "production_module_count": 281,
+    "import_edge_count": 939,
+    "production_line_count": 72862,
+    "production_module_count": 302,
     "test_private_patch_count": 17,
-    "top_level_class_count": 279,
-    "top_level_function_count": 1383
+    "top_level_class_count": 303,
+    "top_level_function_count": 1438
   },
   "test_private_patches": {
     "by_target_module": {

@@ -32,6 +32,7 @@ from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
 from .ai_settings_panel import AISettingsPanel
 from .archive_panel import ArchivePanel
+from .asr_panel import AsrSettingsPanel
 from .learning_panel import LearningPanel
 
 
@@ -137,6 +138,10 @@ class ProjectsMixin:
         # ── 学习旧切片（扫描本机旧投稿文件夹；学到的东西要确认才生效） ──
         self.archive_panel = ArchivePanel(ArchiveService(self.storage), self._run, self.forget_habit_cache)
         layout.addWidget(self.archive_panel)
+
+        # ── 字幕识别 ──
+        self.asr_settings_panel = AsrSettingsPanel(self.storage)
+        layout.addWidget(self.asr_settings_panel)
 
         # ── AI ──
         self.ai_settings_panel = AISettingsPanel(self._run)
@@ -256,6 +261,7 @@ class ProjectsMixin:
         if project.videos:
             self._load_video(project.videos[index])
         else:
+            self._asr_hide()
             self._media_ready = False
             self.play_button.setEnabled(False)
             if self.player:
@@ -315,6 +321,7 @@ class ProjectsMixin:
     def _load_video(self, video):
         if self.project is not None:
             self.cover_editor.set_context(self.project, video)
+        self._asr_hide(video)
         self.ai_session = None
         self._ai_selected = None
         self._pending_filter = False
@@ -361,7 +368,11 @@ class ProjectsMixin:
         if self.project is not project or self.video_choice.currentData() != video:
             return
         if error:
-            self.subtitle_status.setText(f"字幕无法加载：{error}")
+            if not video.has_source_srt:
+                self.subtitle_status.setText("这个视频还没有字幕")
+                self._asr_offer(video)
+            else:
+                self.subtitle_status.setText(f"字幕无法加载：{error}")
             return
         document, self._baseline, draft = result
         if draft.status == "ready":

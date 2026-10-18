@@ -215,6 +215,14 @@ def stylesheet() -> str:
         QPushButton#projectItemCompact {{ min-height: {m.project_compact_height}px; max-height: {m.project_compact_height}px; }}
         QPushButton#projectItem:hover, QPushButton#projectItemCompact:hover {{ background: {c.project_hover}; }}
         QPushButton#projectItem:checked, QPushButton#projectItemCompact:checked {{ background: {c.project_selected}; }}
+        QCheckBox {{ spacing: 8px; }}
+        QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c.playback_border}; border-radius: 4px; background: {c.well}; }}
+        QCheckBox::indicator:hover {{ border-color: {c.focus_ring}; }}
+        QCheckBox::indicator:checked {{ background: {c.accent}; border-color: {c.accent_edge}; }}
+        QCheckBox::indicator:disabled {{ border-color: {c.border}; background: {c.panel}; }}
+        QProgressBar {{ background: {c.well}; border: 1px solid {c.border}; border-radius: 4px; min-height: 8px; max-height: 8px; text-align: center; }}
+        QProgressBar::chunk {{ background: {c.accent}; border-radius: 3px; }}
+        QWidget#asrBanner {{ background: {c.panel}; border: 1px solid {c.border}; border-radius: {m.control_radius}px; }}
         QPlainTextEdit {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: {m.control_radius}px; padding: 5px 8px; selection-background-color: {c.accent_pressed}; }}
         QSpinBox, QDoubleSpinBox {{ background: {c.well}; border: 1px solid {c.border}; border-top-color: {c.canvas}; border-radius: {m.control_radius}px; padding: 0 22px 0 8px; selection-background-color: {c.accent_pressed}; }}
         QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {c.button_hover_border}; border-top-color: {c.border}; }}

@@ -47,6 +47,7 @@ from autoslice.desktop.waveform import WaveformCache
 from .player import MpvAdapter
 from .timeline import TimelineSidePanController
 from .window_ai import AiReviewMixin
+from .window_asr import RecognizeMixin
 from .window_document import SubtitleDocumentMixin
 from .window_input import InputRoutingMixin
 from .window_player import PlayerMixin
@@ -71,6 +72,7 @@ def _saved_submission_root(storage: DesktopStorage) -> Path | None:
 class DesktopWindow(
     ProjectsMixin,
     AiReviewMixin,
+    RecognizeMixin,
     SubtitleListMixin,
     InputRoutingMixin,
     TimelineMixin,
@@ -473,6 +475,9 @@ class DesktopWindow(
             self.cover_editor.flush_draft()
         if hasattr(self, "archive_panel"):
             self.archive_panel.stop()
+        if hasattr(self, "asr_settings_panel"):
+            self.asr_settings_panel.stop()
+        self._asr_shutdown()
         self._save_session()
         super().closeEvent(event)
         if event.isAccepted() and self.player:

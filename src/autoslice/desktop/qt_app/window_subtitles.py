@@ -70,6 +70,7 @@ class SubtitleListMixin:
         self.subtitle_status = label("请选择项目", "subtle")
         heading.addWidget(self.subtitle_status)
         layout.addLayout(heading)
+        layout.addWidget(self._build_asr_banner())
         self.model = SubtitleTableModel(self)
         self.table = QTableView()
         self.table.setModel(self.model)
