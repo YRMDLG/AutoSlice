@@ -65,7 +65,8 @@ python -m autoslice.desktop.archive report                   # 用库里已有�
 每个事实表的第一列都是 `entry_id`；某个文件夹变了，先删它在各表的旧行再写新行。
 
 - `entries(id, root, folder, title, streamer, date, year, video_count, video_bytes, srt_count, corrected_count, burned_count, cover_count, signature, version, scanned, error)`
-- `corrections(entry_id, wrong, right, n, kept, context)`：一个文件夹里某个（错词→正确词）改了几处（`n`）、错词在校对稿其他地方还**原样留着**几处（`kept`）、一条原文例子
+- `corrections(entry_id, wrong, right, n, kept, context)`：一个文件夹里某个（错词→正确词）改了几处（`n`）、兼容列 `kept`（写 0，不再读取）、一条原文例子
+- `final_text(entry_id, text)`：每份有效校对稿的最终文本，用于按主播统计全部原样保留次数
 - `edits(entry_id, kind, n)`：改动类型 same / replace / punctuation / delete_filler / delete_text / insert_text / linebreak / split / merge / other
 - `terms(entry_id, term, n)`：候选术语（每个文件夹最多 80 个）
 - `subtitle_stats(entry_id, source, cues, chars, seconds, cps_p50/p90/max, chars_p50/p90, line_p90, multiline, trailing_punct, short, long, overlap)`
@@ -76,9 +77,13 @@ python -m autoslice.desktop.archive report                   # 用库里已有�
 
 ## 6. 建议如何变成效果
 
+2026-10-18 修复：精度按该主播全部有效校对稿统计，包含只剩校对稿的条目；仅有初稿不算认可保留。`precision = 此替换次数 /（同一错词所有替换次数 + 全部校对稿中原样保留次数）`，少数替换去向也进入分母。数据库版本与抽取版本均升级为 2，新增 `final_text(entry_id, text)` 保存本机最终字幕事实；旧 `corrections.kept` 列仅为兼容保留，不再作为统计依据。
+
+升级只新增表并保留原数据，下次扫描会重抽旧条目。某主播仍有旧版本或读取失败的条目时，报告会标明语料尚未补齐，并暂停该主播的固定纠错建议；完成重扫后恢复。报告和 digest 的版本也升级为 2，增加证据完整状态。首次升级重扫后，未改动条目仍会增量跳过。
+
 | 建议 | 生成条件 | 确认后写到哪 | 运行时谁用 |
 |---|---|---|---|
-| 固定纠错 | ≥3 个视频、该错词的改法一致度 ≥0.8、**精度 ≥0.8**（改过次数 /（改过 + 别处原样保留））、不在词库里 | 本机覆盖词库（受“每个主播 ≤100 条”约束） | AI 字幕检查的“固定纠错映射” |
+| 固定纠错 | ≥3 个视频、语料升级完整、**精度 ≥0.8**（此替换次数 /（所有替换次数 + 全部原样保留））、不在词库里 | 本机覆盖词库（受“每个主播 ≤100 条”约束） | AI 字幕检查的“固定纠错映射” |
 | 术语 | ≥5 个视频、不是更长词的碎片、不是普通词、跨主播扩散 ≤2、不在术语表里 | `knowledge/glossary.json`（无 200 条上限） | AI 字幕检查：只带和当前字幕有关的几十个 |
 | 标题范例 | ≥10 个该主播标题 | `knowledge/titles.json` | 投稿文案：挑和当前视频最像的几个，再补当前目录里的 |
 | 字幕阈值 | ≥20 个视频 | `knowledge/habits.json`（读速、一条字数、单行字数，取各视频 90 分位的 90 分位 ×1.1） | 字幕质量提醒（学过才启用） |
@@ -125,5 +130,5 @@ python -m autoslice.desktop.archive report                   # 用库里已有�
 
 - `digest.json` 有 `kind`、`version`；字段变了就加版本。
 - `knowledge/*.json` 有 `schema_version`，按主播 id 分桶。
-- 数据库表结构变了加 `SCHEMA_VERSION` 并写迁移（目前还没有已发布的库，没有迁移）。
+- 数据库表结构变了加 `SCHEMA_VERSION` 并写迁移；v1 → v2 为新增最终文本表的幂等升级，保留已有事实并等待重新抽取。
 - 新抽取器、新建议类型都要有合成档案的测试；不能依赖用户真实数据，也不能读写用户真实配置（测试里用 `AUTOSLICE_STREAMER_PROFILE_OVERRIDES` 指向临时文件）。

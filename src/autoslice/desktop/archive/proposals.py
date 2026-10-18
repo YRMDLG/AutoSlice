@@ -24,7 +24,6 @@ from .store import ArchiveStore
 
 PENDING, ACCEPTED, REJECTED = "pending", "accepted", "rejected"
 MIN_VIDEOS = 3
-MIN_DOMINANCE = 0.8
 # 改过的次数占“改过 + 别处原样保留”的比例至少这么高，才当固定纠错（防止把“意思→ins”这种多数时候是对的词改坏）。
 MIN_PRECISION = 0.8
 MIN_TERM_DF = 5
@@ -59,7 +58,7 @@ def build_proposals(store: ArchiveStore, matcher: StreamerMatcher | None = None)
     proposals: list[Proposal] = []
     for item in corrections_table(store, matcher, replacements, limit=100000):
         if (
-            item["known"] or item["videos"] < MIN_VIDEOS or item["dominance"] < MIN_DOMINANCE
+            item["known"] or not item["evidence_complete"] or item["videos"] < MIN_VIDEOS
             or item["precision"] < MIN_PRECISION or not _is_profile(item["streamer"])
         ):
             continue

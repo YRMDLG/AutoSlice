@@ -58,9 +58,14 @@ class ArchiveStore:
         self._db.execute("PRAGMA synchronous=NORMAL")
         self._db.execute("PRAGMA foreign_keys=OFF")
         self._db.executescript(_CORE_SCHEMA)
+        previous = self.scalar("SELECT value FROM meta WHERE key = 'schema_version'", default="1")
+        if int(previous) > SCHEMA_VERSION:
+            self._db.close()
+            raise ValueError("档案数据库版本较新，请使用更新版本的 AutoSlice")
         for ddl in schemas:
             self._db.executescript(ddl)
-        self._db.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),))
+        # v1 → v2 只新增 final_text 表；保留原始事实，抽取版本负责重扫补齐语料。
+        self._db.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),))
         self._db.commit()
 
     def __enter__(self) -> "ArchiveStore":

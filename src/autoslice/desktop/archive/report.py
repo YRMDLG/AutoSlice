@@ -16,10 +16,11 @@ from typing import Iterable, Mapping
 from .extractors.subtitles import quantile
 from .extractors.terms import grams
 from .layout import StreamerMatcher
+from .model import EXTRACT_VERSION
 from .stopwords import is_generic
 from .store import ArchiveStore
 
-REPORT_VERSION = 1
+REPORT_VERSION = 2
 MAX_DIGEST_BYTES = 150_000
 _EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿⭐⭕⌚-⏿❤]")
 _BRACKET = re.compile(r"^\s*[【\[]([^】\]]{1,20})[】\]]")
@@ -85,17 +86,30 @@ def _corrections(store: ArchiveStore, matcher: StreamerMatcher, known: Mapping[s
         " ORDER BY videos DESC, n DESC LIMIT 30000"
     )
     totals: Counter = Counter()
+    changed: Counter = Counter()
+    wanted: dict[str, set[str]] = defaultdict(set)
     for row in rows:
         totals[(row["streamer"], row["wrong"])] += row["videos"]
+        changed[(row["streamer"], row["wrong"])] += row["n"]
+        wanted[row["streamer"]].add(row["wrong"])
+    kept: Counter = Counter()
+    for row in store.query("SELECT e.streamer, f.text FROM final_text f JOIN entries e ON e.id = f.entry_id"):
+        for wrong in wanted.get(row["streamer"], ()):
+            kept[(row["streamer"], wrong)] += row["text"].count(wrong)
+    incomplete = {row["streamer"] for row in store.query(
+        "SELECT DISTINCT streamer FROM entries WHERE version != ? OR error != ''", (EXTRACT_VERSION,))}
     items = []
     for row in rows:
         if row["videos"] < 2:
             continue
         items.append({
             "streamer": row["streamer"], "label": matcher.label(row["streamer"]),
-            "wrong": row["wrong"], "right": row["right"], "videos": row["videos"], "n": row["n"], "kept": row["kept"],
-            # 精度：改过的次数 /（改过的次数 + 在别处被原样保留的次数）；低了说明这个词多数时候是对的
-            "precision": round(row["n"] / max(1, row["n"] + row["kept"]), 2),
+            "wrong": row["wrong"], "right": row["right"], "videos": row["videos"], "n": row["n"],
+            "kept": kept[(row["streamer"], row["wrong"])],
+            "evidence_complete": row["streamer"] not in incomplete,
+            # 所有替换去向都进入分母；保留次数来自该主播全部校对稿（含只有校对稿的条目）。
+            "precision": (row["n"] / max(1, changed[(row["streamer"], row["wrong"])]
+                          + kept[(row["streamer"], row["wrong"])])) if row["streamer"] not in incomplete else 0.0,
             "dominance": round(row["videos"] / totals[(row["streamer"], row["wrong"])], 2),
             "context": row["context"], "last": row["last"],
             "known": (row["wrong"], row["right"]) in known.get(row["streamer"], ()),
@@ -270,6 +284,7 @@ def _covers(store: ArchiveStore) -> dict:
 
 def _quality(store: ArchiveStore) -> dict:
     return {
+        "entries_needing_upgrade": store.scalar("SELECT COUNT(*) FROM entries WHERE version != ?", (EXTRACT_VERSION,)),
         "entries_without_srt": store.scalar("SELECT COUNT(*) FROM entries WHERE srt_count = 0"),
         "entries_with_errors": store.scalar("SELECT COUNT(*) FROM entries WHERE error != ''"),
         "entries_with_several_videos": store.scalar("SELECT COUNT(*) FROM entries WHERE video_count > 1"),
@@ -320,7 +335,8 @@ def render_markdown(report: dict) -> str:
     if report["corrections"]:
         lines += ["", "## 反复出现的错词（至少两个视频）", ""]
         for item in report["corrections"][:40]:
-            warn = f" · 别处还有 {item['kept']} 处原样保留（精度 {item['precision']:.0%}，不适合当固定纠错）" if item["precision"] < 0.8 else ""
+            warn = (" · 语料尚未完成升级或读取有误，请重新扫描后再判断" if not item["evidence_complete"] else
+                    f" · 别处还有 {item['kept']} 处原样保留（精度 {item['precision']:.0%}，不适合当固定纠错）" if item["precision"] < 0.8 else "")
             lines.append(f"- 「{item['wrong']}」→「{item['right']}」 {item['videos']} 个视频 · {item['label']}{' · 已在词库' if item['known'] else ''}{warn}")
     for label, items in report["terms"].items():
         shown = [item for item in items if not item["known"]][:40]
@@ -373,7 +389,7 @@ def build_digest(report: dict, max_bytes: int = MAX_DIGEST_BYTES) -> dict:
         "quality": report["quality"],
         "edits": report["edits"],
         "corrections": [
-            {key: item[key] for key in ("label", "wrong", "right", "videos", "n", "kept", "precision", "dominance", "context", "known")}
+            {key: item[key] for key in ("label", "wrong", "right", "videos", "n", "kept", "precision", "dominance", "context", "known", "evidence_complete")}
             for item in report["corrections"][:120]
         ],
         "terms": {label: [{"term": i["term"], "df": i["df"], "spread": i["spread"], "known": i["known"]} for i in items[:200]]

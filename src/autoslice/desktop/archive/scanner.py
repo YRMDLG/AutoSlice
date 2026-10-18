@@ -86,7 +86,7 @@ def analyze_entry(
             results.update(extractor.extract(entry, context))
         except Exception as exc:  # 抽取器的毛病不能中断整次扫描
             errors.append(f"{extractor.name}: {type(exc).__name__}: {exc}"[:200])
-    entry_id = store.upsert_entry(root, entry, streamer, EXTRACT_VERSION, "; ".join(errors))
+    entry_id = store.upsert_entry(root, entry, streamer, 0 if errors else EXTRACT_VERSION, "; ".join(errors))
     for extractor in extractors:
         for table, columns in extractor.tables.items():
             if extractor.enabled(options) or table in results:

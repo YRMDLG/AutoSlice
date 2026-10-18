@@ -95,37 +95,41 @@ CREATE INDEX IF NOT EXISTS corrections_entry ON corrections(entry_id);
 CREATE INDEX IF NOT EXISTS corrections_pair ON corrections(wrong, right);
 CREATE TABLE IF NOT EXISTS edits (entry_id INTEGER NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS edits_entry ON edits(entry_id);
+CREATE TABLE IF NOT EXISTS final_text (entry_id INTEGER NOT NULL, text TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS final_text_entry ON final_text(entry_id);
 """
-    tables = {"corrections": ("wrong", "right", "n", "kept", "context"), "edits": ("kind", "n")}
+    tables = {"corrections": ("wrong", "right", "n", "kept", "context"),
+              "edits": ("kind", "n"), "final_text": ("text",)}
 
     def extract(self, entry: ArchiveEntry, context: ExtractContext) -> Mapping[str, Sequence[Sequence]]:
         hits: Counter[tuple[str, str]] = Counter()
-        kept: Counter[tuple[str, str]] = Counter()
+        final_text: list[tuple[str]] = []
         contexts: dict[tuple[str, str], str] = {}
         kinds: Counter[str] = Counter()
         for video in entry.videos:
-            if not (video.srt and video.corrected):
+            if not video.corrected:
                 continue
-            raw, corrected = load_cues(video.srt), load_cues(video.corrected)
+            corrected = load_cues(video.corrected)
+            if not corrected:
+                raise ValueError("校对字幕无法读取或没有有效条目，请检查文件后重新扫描")
+            if corrected:
+                final_text.append(("\n".join(cue.text.replace("\n", " ") for cue in corrected),))
+            raw = load_cues(video.srt) if video.srt else []
             if not raw or not corrected:
                 continue
             pairs, splits, merges = align_cues(raw, corrected)
             kinds["split"] += splits
             kinds["merge"] += merges
-            found: set[tuple[str, str]] = set()
             for before, after in pairs:
                 kind, learned = classify_edit(before.text, after.text)
                 kinds[kind] += 1
                 for pair in learned:
                     hits[pair] += 1
-                    found.add(pair)
                     contexts.setdefault(pair, before.text.replace("\n", " ")[:80])
-            # 错词在校对稿的其他地方还原样留着几处：留得多说明它多半是对的词，不能当固定纠错。
-            for wrong, right in found:
-                kept[(wrong, right)] += sum(cue.text.count(wrong) for cue in corrected)
         return {
             "corrections": [
-                (wrong, right, n, kept[(wrong, right)], contexts.get((wrong, right), "")) for (wrong, right), n in hits.items()
+                (wrong, right, n, 0, contexts.get((wrong, right), "")) for (wrong, right), n in hits.items()
             ],
             "edits": [(kind, n) for kind, n in kinds.items() if n],
+            "final_text": final_text,
         }

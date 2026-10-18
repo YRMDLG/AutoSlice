@@ -72,8 +72,13 @@ def make_archive(root: Path, count: int = 12) -> None:
         folder = root / "2024-10" / f"【泽音】{name}"
         folder.mkdir(parents=True)
         (folder / "视频.mp4").write_bytes(b"v" * 100)
-        (folder / "视频.srt").write_text(srt_text(RAW), encoding="utf-8")
-        (folder / "视频_校对.srt").write_text(srt_text(corrected_rows(i < 8)), encoding="utf-8")
+        # 后四份初稿原本就识别正确；正例的错词不会在其他视频里被认可保留。
+        raw = srt_text(RAW)
+        corrected = srt_text(corrected_rows(i < 8))
+        if i >= 8:
+            raw, corrected = raw.replace(WRONG, RIGHT), corrected.replace(WRONG, RIGHT)
+        (folder / "视频.srt").write_text(raw, encoding="utf-8")
+        (folder / "视频_校对.srt").write_text(corrected, encoding="utf-8")
         (folder / "视频_字幕版.mp4").write_bytes(b"b" * 50)
         if Image is not None:
             image = Image.new("RGB", (320, 240), (40, 60, 160))
@@ -279,10 +284,14 @@ class ScanTests(ArchiveTestCase):
         with open_store(self.service.db_path, extractors) as store:
             result = scan_roots(store, [str(self.archive)], ScanOptions(), extractors=extractors)
             self.assertEqual(result.entries, 6)  # 4 个泽音 + 坏字幕 + 别的主播
-            self.assertEqual(len(result.errors), 1)
-            self.assertIn("故意的", result.errors[0])
+            self.assertEqual(len(result.errors), 2)
+            self.assertTrue(any("故意的" in error for error in result.errors))
+            self.assertTrue(any("校对字幕无法读取" in error for error in result.errors))
             # 出错的那个文件夹的其他事实照样写进去了
             self.assertEqual(store.scalar("SELECT COUNT(*) FROM subtitle_stats"), 5)
+            retried = scan_roots(store, [str(self.archive)], ScanOptions(), extractors=extractors)
+            self.assertEqual(len(retried.errors), 2)
+            self.assertEqual(retried.changed, 2)  # 失败条目必须能重试，正常的四个条目仍然跳过。
 
     def test_removed_folders_are_forgotten_after_a_complete_scan(self):
         make_archive(self.archive, 3)
@@ -318,9 +327,10 @@ class ReportAndProposalTests(ArchiveTestCase):
         self.assertEqual(report["overview"]["with_both"], 12)
         top = next(item for item in report["corrections"] if item["wrong"] == WRONG)
         self.assertEqual((top["right"], top["videos"], top["dominance"], top["precision"], top["kept"]), (RIGHT, 8, 1.0, 1.0, 0))
-        # “意思→ins”：每个视频里还有一处“意思”被原样保留，精度只有一半
+        # 前八份各保留一次，后四份各保留两次，全部进入分母。
         ins = next(item for item in report["corrections"] if item["wrong"] == "意思")
-        self.assertEqual((ins["right"], ins["videos"], ins["kept"], ins["precision"]), ("ins", 8, 8, 0.5))
+        self.assertEqual((ins["right"], ins["videos"], ins["kept"]), ("ins", 8, 16))
+        self.assertAlmostEqual(ins["precision"], 1 / 3)
         self.assertEqual(report["edits"]["kinds"]["delete_filler"], 12)
         self.assertEqual(report["edits"]["kinds"]["punctuation"], 12)
         titles = report["titles"]
@@ -586,6 +596,62 @@ class ArchivePanelTests(ArchiveTestCase):
         window.archive_panel._cancel = threading.Event()
         window.close()
         self.assertTrue(window.archive_panel._cancel.is_set())
+
+
+class CorpusPrecisionTests(ArchiveTestCase):
+    def make_case(self, index, original, corrected, *, raw=True):
+        folder = self.archive / f"【泽音】统计样本{index}"
+        folder.mkdir()
+        if raw:
+            (folder / "视频.srt").write_text(srt_text([(0, 2, original)]), encoding="utf-8")
+        (folder / "视频_校对.srt").write_text(srt_text([(0, 2, corrected)]), encoding="utf-8")
+
+    def correction(self, wrong):
+        with self.service._store() as store:
+            return next(item for item in build_report(store)["corrections"] if item["wrong"] == wrong)
+
+    def test_all_corrected_videos_include_unchanged_and_corrected_only_evidence(self):
+        for i in range(13):
+            self.make_case(i, "这个意思上面改", "这个ins上面改" if i < 3 else "这个意思上面改")
+        self.make_case(13, "", "我懂你的意思", raw=False)
+        # 未校对初稿即使含有该词，也不是认可保留的证据。
+        (self.archive / "【泽音】初稿.srt").write_text(srt_text([(0, 2, "意思" * 20)]), encoding="utf-8")
+        self.service.scan([str(self.archive)])
+        item = self.correction("意思")
+        self.assertEqual(item["kept"], 11)
+        self.assertAlmostEqual(item["precision"], 3 / 14)
+        self.assertFalse(any(p.kind == "replacement" for p in self.service.proposals()))
+
+    def test_minor_alternative_replacement_is_in_denominator(self):
+        for i in range(4):
+            self.make_case(i, "这个意思上面改", "这个ins上面改" if i < 3 else "这个ig上面改")
+        self.service.scan([str(self.archive)])
+        item = self.correction("意思")
+        self.assertEqual(item["precision"], 0.75)
+        self.assertFalse(any(p.kind == "replacement" for p in self.service.proposals()))
+
+    def test_partial_upgrade_blocks_promotions_until_all_streamer_evidence_is_reextracted(self):
+        from autoslice.desktop.archive.model import EXTRACT_VERSION, SCHEMA_VERSION
+
+        for i in range(4):
+            self.make_case(i, "今天紫雨亭来了", "今天子语庭来了")
+        self.service.scan([str(self.archive)])
+        with self.service._store() as store:
+            store.query("UPDATE entries SET version = 1")
+            store.query("DELETE FROM final_text")
+            store.query("UPDATE meta SET value='1' WHERE key='schema_version'")
+        self.assertFalse(self.correction(WRONG)["evidence_complete"])
+        self.assertFalse(any(p.kind == "replacement" for p in self.service.proposals()))
+        self.service.scan(options=ScanOptions(limit=2))
+        self.assertFalse(any(p.kind == "replacement" for p in self.service.proposals()))
+        self.service.scan()
+        self.assertTrue(self.correction(WRONG)["evidence_complete"])
+        self.assertTrue(any(p.kind == "replacement" for p in self.service.proposals()))
+        with self.service._store() as store:
+            self.assertEqual(store.scalar("SELECT COUNT(*) FROM entries WHERE version != ?", (EXTRACT_VERSION,)), 0)
+            self.assertEqual(store.scalar("SELECT COUNT(*) FROM final_text"), 4)
+            self.assertEqual(int(store.scalar("SELECT value FROM meta WHERE key='schema_version'")), SCHEMA_VERSION)
+        self.assertEqual(self.service.scan().skipped, 4)
 
 
 class CliTests(ArchiveTestCase):
