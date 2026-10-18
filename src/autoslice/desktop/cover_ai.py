@@ -755,14 +755,22 @@ evidence 必须逐字引用标题或某一条字幕里连续的一段，能支�
         state: str = "",
         text_layers: Sequence[dict[str, object]] = (),
         scene: Sequence[dict[str, object]] = (),
+        allow_rewrite: bool = False,
     ) -> tuple[AIFix, ...]:
         """看成品挑最影响效果的问题，每条只给工具能一键做到的修改；没问题就返回空。
 
         state 是封面现在的样子（已强调的词、倾斜、外描边、配色、放大倍数），让 AI 别提已经做过的。
+        allow_rewrite 默认关：用户没主动允许时不改文案，这条由代码保证，不只靠提示词劝阻。
         """
 
         context, headline = texts
-        actions = "\n".join(f"- {key}：{text}" for key, text in FIX_ACTIONS.items())
+        offered = {key: text for key, text in FIX_ACTIONS.items() if allow_rewrite or key != "rewrite"}
+        actions = "\n".join(f"- {key}：{text}" for key, text in offered.items())
+        rewrite_rule = "只有新文案明显比现在更好、且出自原话时才使用 rewrite；" if allow_rewrite else "不要使用 rewrite；"
+        rewrite_howto = (
+            "\nrewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截取、删减、压缩，可以补“的、了、被、到”这类虚词；"
+            "配合标题要能看懂，优先主播最冲的一句原话。"
+        ) if allow_rewrite else ""
         presets = "、".join(f"{preset.key}（{preset.label}）" for preset in STYLE_PRESETS)
         layer_data = json.dumps(list(text_layers), ensure_ascii=False)
         scene_data = json.dumps(list(scene), ensure_ascii=False)
@@ -772,12 +780,11 @@ evidence 必须逐字引用标题或某一条字幕里连续的一段，能支�
 {f"封面现在：{state}。已经做到的不要再提（比如已经强调过的词、已经倾斜过）。" if state else ""}
 根据这张封面的实际内容与风格，给最多 6 个有实际改善的候选方案，按效果从大到小排，稍后会渲染成品复核。
 适用于一句标题、多段文字、对话、多人、无人、游戏、物品、抠图和拼图；不要假定一定有人脸、三行字或固定主次。
-保留用户写好的正文、手动换行与原有风格。不要使用 rewrite；画面已经清楚时不要机械放大、加描边、换高饱和配色或增加装饰。
+保留用户写好的正文、手动换行与原有风格。{rewrite_rule}画面已经清楚时不要机械放大、加描边、换高饱和配色或增加装饰。
 有意的文字叠放、贴边、倾斜和装饰穿插可以保留；优先解决实际的难读、主次混乱或无意遮挡。
 每个方案组合 1~3 个下面的操作（比如“主文案放大 + 字倾斜 + 加外描边”），改完要在首页小图上一眼看得出变化；几个方案之间要明显不同。这个工具能一键做到的只有这些操作：
 {actions}
-restyle 时在 preset 里给配色名，只能是：{presets}。
-rewrite 时给出新的 A 和 B：只能用投稿标题和字幕里的原话截取、删减、压缩，可以补“的、了、被、到”这类虚词；配合标题要能看懂，优先主播最冲的一句原话。
+restyle 时在 preset 里给配色名，只能是：{presets}。{rewrite_howto}
 emphasize 时在 words 里给 1~2 个要换色的词，必须是封面上 A 或 B 里原样出现的片段（2~5 字）。
 可调整描边的全部文字块（id、正文及当前颜色）：{layer_data}。
 完整对象清单（位置和 bounds 为画布比例，font_size 为导出像素，locked 的对象只能作为避让约束）：{scene_data}。
@@ -811,7 +818,7 @@ outline_colors 时在 outlines 里按 id 指定修改。结合填色、背景明
             actions: list[str] = []
             for value in raw:
                 action = str(value).strip().lower()
-                if action not in FIX_ACTIONS or action in actions or _OPPOSITE.get(action) in actions:
+                if action not in offered or action in actions or _OPPOSITE.get(action) in actions:
                     continue
                 # 换文案同样逐字校验，不能编；强调词必须是封面上已有的字；配色只能是预设里的。
                 if action == "rewrite" and (not new_headline or not from_source(new_context + new_headline, source or title)):

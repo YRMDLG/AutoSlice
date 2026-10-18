@@ -183,7 +183,7 @@ class CoverLayoutMixin:
         self._set_menu(self.shape_menu_button, self._shape_menu(self.shape_menu_button))
         self.hidden_button = self._button("已隐藏", icon_name="eye", tip="被删除或隐藏的文字和素材，点一下恢复")
         self.ai_critique_button = self._button(
-            "AI 改一改", icon_name="sparkles", tip="让 AI 看这张封面，给出能一键应用的修改（移字、拉近、放大、换文案），可撤销",
+            "AI 改一改", icon_name="sparkles", tip="让 AI 逐个调整文字和素材的位置、大小与描边配色，保留你写的文案和锁定的对象；对照预览后一键应用，可撤销",
             slot=self._ai_critique, enabled=False,
         )
         self.hidden_menu = QMenu(self.hidden_button)
@@ -416,7 +416,8 @@ class CoverLayoutMixin:
         scheme_head.addWidget(self.scheme_refresh_button)
         section.addLayout(scheme_head)
         self.ai_rewrite_check = QCheckBox("允许 AI 尝试更好的主文案")
-        self.ai_rewrite_check.setToolTip("默认保留当前文字；开启后，新文案须与当前文字及标题比较通过，自建文字块仍保留")
+        self.ai_rewrite_check.setToolTip(
+            "默认保留当前文字；开启后，AI 方案和“AI 改一改”才可能给新文案。AI 方案的新文案须与当前文字及标题比较通过，自建文字块仍保留")
         section.addWidget(self.ai_rewrite_check)
         scheme_row = QHBoxLayout()
         scheme_row.setSpacing(4)

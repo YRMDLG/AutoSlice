@@ -243,12 +243,29 @@ class CoverAIServiceTests(unittest.TestCase):
         ]}, ensure_ascii=False)
         model = FakeModel(reply)
         fixes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).suggest_fixes(
-            b"cover", texts=("", "交手机"), title=TITLE, source=TITLE, frame=b"frame",
+            b"cover", texts=("", "交手机"), title=TITLE, source=TITLE, frame=b"frame", allow_rewrite=True,
         )
         self.assertEqual([(fix.actions, fix.headline) for fix in fixes], [(("move_bottom",), ""), (("rewrite",), "居然会改变选曲")])
         self.assertEqual(fixes[1].label, "换成 A「选秀」 B「居然会改变选曲」")
         self.assertEqual(model.calls[0][1], 2)
         self.assertIn("B「交手机」", model.calls[0][2])
+        self.assertIn("- rewrite：", model.calls[0][2])
+
+    def test_rewrite_is_dropped_by_code_unless_the_user_allowed_it(self):
+        reply = json.dumps({"fixes": [
+            {"issue": "字压脸并换文案", "actions": ["move_bottom", "rewrite"], "context": "选秀", "headline": "居然会改变选曲"},
+            {"issue": "只换文案", "action": "rewrite", "context": "选秀", "headline": "居然会改变选曲"},
+        ]}, ensure_ascii=False)
+        model = FakeModel(reply)
+        fixes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).suggest_fixes(
+            b"cover", texts=("", "交手机"), title=TITLE, source=TITLE, frame=b"frame",
+        )
+        # 提示词劝阻之外，模型违规返回的 rewrite 也不会进方案：组合里只去掉改文案，纯改文案的整条丢弃。
+        self.assertEqual([(fix.actions, fix.headline) for fix in fixes], [(("move_bottom",), "")])
+        prompt = model.calls[0][2]
+        self.assertIn("不要使用 rewrite", prompt)
+        self.assertNotIn("- rewrite：", prompt)
+        self.assertNotIn("rewrite 时给出新的 A 和 B", prompt)
 
     def test_emphasize_fix_only_uses_words_already_on_the_cover(self):
         reply = json.dumps({"fixes": [

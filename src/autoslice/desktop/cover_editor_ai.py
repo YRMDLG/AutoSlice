@@ -316,6 +316,7 @@ class CoverAIMixin:
         document, canvas_key, service = self.document, self._canvas_key, self.service
         image_path, project, video = self.draft.image_path, self.project, self.video
         ids = self._primary_copy_ids()
+        allow_rewrite = self.ai_rewrite_check.isChecked()
 
         def text_of(role: str) -> str:
             current = object_for_profile(document, ids[role], canvas_key) if role in ids else None
@@ -334,6 +335,7 @@ class CoverAIMixin:
                 state=describe_state(document, canvas_key),
                 text_layers=describe_text_layers(document, canvas_key),
                 scene=describe_scene(document, canvas_key),
+                allow_rewrite=allow_rewrite,
             )
             previews = []
             for fix in fixes:

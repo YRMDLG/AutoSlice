@@ -10662,9 +10662,9 @@
       "qualname": "_find_relevant_topic_context_end"
     },
     {
-      "end_line": 669,
+      "end_line": 670,
       "kind": "function",
-      "line": 495,
+      "line": 496,
       "line_count": 175,
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
@@ -15402,17 +15402,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 866,
+      "line_count": 873,
       "longest_function": {
-        "end_line": 553,
+        "end_line": 846,
         "kind": "function",
-        "line": 456,
-        "line_count": 98,
-        "qualname": "CoverAI.analyze"
+        "line": 747,
+        "line_count": 100,
+        "qualname": "CoverAI.suggest_fixes"
       },
       "module": "autoslice.desktop.cover_ai",
       "path": "src/autoslice/desktop/cover_ai.py",
-      "sha256": "c60d3f900b84cfb036faa9f70b32549b2fef6905663a1898428241cdacfbb3ac",
+      "sha256": "83820a07691435497eab5af6c6dfdfc0e80f86b43ee3a3ada8cc576b40766ea7",
       "top_level_classes": [
         {
           "end_line": 53,
@@ -15487,7 +15487,7 @@
           "name": "AIFix"
         },
         {
-          "end_line": 866,
+          "end_line": 873,
           "kind": "class",
           "line": 418,
           "name": "CoverAI"
@@ -16091,7 +16091,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 421,
+      "line_count": 423,
       "longest_function": {
         "end_line": 186,
         "kind": "function",
@@ -16101,10 +16101,10 @@
       },
       "module": "autoslice.desktop.cover_editor_ai",
       "path": "src/autoslice/desktop/cover_editor_ai.py",
-      "sha256": "27abe82f4116a75cc4ebb681aede72d88afc2f566776a55bd5e2728924554495",
+      "sha256": "af448e1eb1a48a75bab6cad6bcfb4a2eecff110540ca2bfb944685ff82e19088",
       "top_level_classes": [
         {
-          "end_line": 421,
+          "end_line": 423,
           "kind": "class",
           "line": 58,
           "name": "CoverAIMixin"
@@ -16243,20 +16243,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 916,
+      "line_count": 917,
       "longest_function": {
-        "end_line": 669,
+        "end_line": 670,
         "kind": "function",
-        "line": 495,
+        "line": 496,
         "line_count": 175,
         "qualname": "CoverLayoutMixin._build_text_panel"
       },
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
-      "sha256": "6053cbd608c8164ac2f017bb40cb3cc76ed263e7cdd94738e6b38264f0d9be3b",
+      "sha256": "35a3cc8f0654df0ecf2470e17c3e159d88e556714bff4d76decf10de0402d484",
       "top_level_classes": [
         {
-          "end_line": 916,
+          "end_line": 917,
           "kind": "class",
           "line": 52,
           "name": "CoverLayoutMixin"
@@ -26883,7 +26883,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 978,
-    "production_line_count": 74709,
+    "production_line_count": 74719,
     "production_module_count": 311,
     "test_private_patch_count": 17,
     "top_level_class_count": 318,
