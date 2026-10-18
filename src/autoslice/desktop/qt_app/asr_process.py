@@ -6,18 +6,16 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
-import sys
 import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from autoslice.desktop.asr.jobs import JobSpec, parse_event, worker_command
+from autoslice.desktop.asr.process_tree import ProcessTree
 
 _TAIL_LINES = 12
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
 class ModuleProcess(QObject):
@@ -31,6 +29,7 @@ class ModuleProcess(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._process: subprocess.Popen | None = None
+        self._tree: ProcessTree | None = None
         self._tail: list[str] = []
         self._cancelled = False
         self._ended.connect(self._finish)
@@ -44,10 +43,8 @@ class ModuleProcess(QObject):
             raise RuntimeError("已有任务在运行")
         self._tail, self._cancelled = [], False
         try:
-            process = subprocess.Popen(
-                [program, *arguments], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                env={**os.environ, **environment}, creationflags=_NO_WINDOW,
-            )
+            self._tree = ProcessTree(program, arguments, environment)
+            process = self._tree.process
         except OSError as exc:
             self._tail = [f"没法启动 {program}：{exc}（检查设置里“识别用的 Python”）"]
             self._process = None
@@ -62,9 +59,9 @@ class ModuleProcess(QObject):
         self._cancelled = True
         if self._process is not None:
             try:
-                self._process.kill()
-            except OSError:
-                pass
+                self._tree.cancel()
+            except OSError as exc:
+                self._tail.append(f"取消识别失败：{exc}")
 
     def _pump(self, process: subprocess.Popen) -> None:
         """读线程：只读输出、发信号，不碰界面对象。"""
@@ -80,7 +77,12 @@ class ModuleProcess(QObject):
         except (OSError, ValueError):
             pass
         finally:
-            code = process.wait()
+            process.stdout.close()
+            code = self._tree.wait()
+            if self._tree.cleanup_error:
+                self._tail.append(self._tree.cleanup_error)
+                self._cancelled = False
+                code = -1
             try:
                 self._ended.emit(code)
             except RuntimeError:
@@ -88,6 +90,7 @@ class ModuleProcess(QObject):
 
     def _finish(self, code: int) -> None:
         self._process = None
+        self._tree = None
         self.finished.emit(code, "\n".join(self._tail), self._cancelled)
 
 
@@ -134,10 +137,12 @@ class RecognizeJob(QObject):
     def _on_finished(self, code: int, tail: str, cancelled: bool) -> None:
         if cancelled:
             self.finished.emit("cancelled", {})
+        elif code == -1:
+            self.finished.emit("error", {"message": tail or "识别进程未能正常清理"})
         elif self._result is not None and self._result["type"] == "done":
             self.finished.emit("done", self._result)
         elif self._result is not None and self._result["type"] == "error":
-            self.finished.emit("error", {"message": str(self._result.get("message", "识别失败"))})
+            self.finished.emit("error", {**self._result, "message": str(self._result.get("message", "识别失败"))})
         elif self._result is not None:
             self.finished.emit("cancelled", {})
         else:

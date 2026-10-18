@@ -37,7 +37,7 @@ def run_spec(spec: JobSpec, emit: Callable[[str], None], engine: Engine | None =
         emit(format_event("cancelled"))
         return 3
     except AsrError as exc:
-        emit(format_event("error", message=str(exc)))
+        emit(format_event("error", code=exc.code, message=str(exc)))
         return 2
     except Exception as exc:  # noqa: BLE001 - 子进程最后一道防线：任何意外都要变成界面看得懂的错误事件
         emit(format_event("error", message=f"{type(exc).__name__}: {str(exc)[:300]}"))

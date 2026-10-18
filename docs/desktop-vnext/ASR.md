@@ -1,6 +1,6 @@
 # 桌面端字幕识别（ASR）
 
-> 状态：**框架和界面已完成并通过测试；真实模型还没在带显卡的主机上跑过**。写代码的机器是别人的电脑，不适合下几个 GB 的模型，所以所有“要真模型才能验证的事”都做成了你在主机上自己运行的命令：`doctor --probe` 验证接口，`bench` 用你自己校对过的字幕选引擎。决策记录见 [DECISIONS.md](DECISIONS.md) D-032。
+> 状态：**框架和界面已完成；2026-10-18 已在主力机 Windows / Python 3.10 / RTX 4060（8GB）上跑通真实 Qwen 模型加载、3 秒静音探针和官方 4.2 秒中文样本的逐字时间对齐**，试跑显存峰值约 5.57GB。真实录播的识别精度、长音频稳定性和双引擎对比仍待 `bench` 验证。决策记录见 [DECISIONS.md](DECISIONS.md) D-032。
 
 ## 怎么用
 
@@ -11,6 +11,12 @@
 只对**没有字幕的视频**提供识别，不会覆盖已有的 `.srt`（已有字幕的校对状态是按条序号记的，覆盖会让校对状态对不上）。
 
 ## 在你的主机上第一次用（按顺序）
+
+请给 Qwen 识别单独准备 Python 环境，让 `qwen-asr` 安装它声明的依赖；不要单独升级 transformers。`qwen-asr 0.0.6` 声明的是 `transformers==4.57.6`，自检会读取已安装包的元数据核对，而不套用其他加载路线的版本要求。缺少元数据或解析库时会提示“兼容性未验证”。
+
+主力机已安装独立环境 `%LOCALAPPDATA%\AutoSlice\qwen-asr-py310\Scripts\python.exe`，使用 `qwen-asr 0.0.6`、`transformers 4.57.6`、`torch 2.12.1+cu130`，并已写入桌面端设置的“识别用的 Python”。命令行使用 `scripts\asr_tool.cmd` 时仍需把 `AUTOSLICE_ASR_PYTHON` 设为这个路径。安装日志、依赖版本清单和模型试跑结果保存在 `%LOCALAPPDATA%\AutoSlice\logs\qwen-*20261018*`。
+
+`bench --engines qwen3-asr,funasr` 要求两个引擎在同一个环境中都可用；若依赖冲突，分别在各自环境运行 `bench --engines qwen3-asr --out bench-qwen.md` 和 `bench --engines funasr --out bench-funasr.md`，使用相同的旧切片目录和取样参数。
 
 命令也可以用 `scripts\asr_tool.cmd <子命令>` 运行：它会把仓库的 `src` 放进 `PYTHONPATH`，并用环境变量 `AUTOSLICE_ASR_PYTHON` 指定的 Python（没设就用 PATH 里的 `python`）——也就是你装了 torch 的那个环境，不用先 `pip install` 本项目。
 
@@ -59,16 +65,20 @@ desktop/asr/
   doctor.py     环境自检与加载试跑
   bench.py      用校对字幕对比引擎（字错率、热词命中、速度、显存）
   settings.py   asr.json
-qt_app/  asr_process.py（QProcess 封装）、asr_panel.py（设置卡片、提示条）、window_asr.py（混入窗口）
+qt_app/  asr_process.py（进程事件封装）、asr_panel.py（设置卡片、提示条）、window_asr.py（混入窗口）
 ```
 
 为什么用子进程：显存随进程结束一定释放；模型或 CUDA 崩了不会带走界面；可以用另一个装了 torch 的 Python 环境跑（设置里的“识别用的 Python”，源码目录自动放进它的 `PYTHONPATH`）。取消就是结束进程，检查点已经落盘。
 
-## 还没验证的、以及风险
+Windows 启动时先把等待握手的 Python 放入 Job Object，确认成功后才允许加载识别模块；取消、关闭界面或 worker 正常退出后都会清理其后代进程。每个视频的缓存用系统文件锁保护，锁覆盖识别、发布和清理；同一视频不能被界面和命令行同时写入。音频先写独立临时 WAV，成功后原子发布。
 
-- **Qwen3 适配没碰过真模型**。三处做了宽容处理并写了测试：`transcribe` 是否接受 `context`（热词）参数——不接受就不传，并在运行信息里写“热词未生效”；`time_stamps` 条目是对象/字典/元组都认；时间单位秒或毫秒自动判断。第一次必须跑 `doctor --probe`。
-- `qwen-asr` 在 Windows 上能不能直接装好，我没验证（官方文档没提 Windows，建议 Python 3.12）。装不上就在 WSL 或另一台 Linux 上用设置里的“识别用的 Python”指过去也行，前提是能访问同一份项目目录。
-- 模型下载（识别模型约 4GB（模型卡写的是 2B 参数、BF16）、对齐模型 0.6B 约 1~2GB，合计大约 5~6GB，以下载时显示的为准）需要你在主机上自己执行，网络下不动就用 ModelScope（`setup` 里有命令）。
+识别途中出现同名字幕时，默认发布会拒绝覆盖，保留用户文件、完整检查点及缓存中的 `recognized.srt`。没有未保存修改时界面会刷新载入用户字幕。可用相同设置执行 `run <原视频> --output <其他路径>` 复用检查点另存结果；显式 `--overwrite` 才允许覆盖。失败及待恢复缓存不会按天数自动删除。
+
+## 已验证的范围与待验证项
+
+- **Qwen3 适配已在主力机通过真模型试跑**。`doctor --probe` 通过桌面端同一套子进程启动方式运行，确认 `context` 参数可用、两个本地模型能加载以及静音接口调用成功；官方中文短样本返回了 13 个字的有效时间戳。不同库版本的返回结构兼容仍需各自验证，不能据此推定真实录播的识别精度。
+- `qwen-asr 0.0.6` 已在上述 Windows / Python 3.10 独立环境安装并通过依赖检查、导入和 CUDA 试跑；其它 Python、驱动或硬件组合仍需运行 `doctor --probe`。
+- 本机从官方 ModelScope 下载的识别模型为 4.70GB，对齐模型为 1.84GB，合计 **6.54GB、22 个文件**，已逐文件核对官方大小与 SHA-256。模型位于 `%LOCALAPPDATA%\AutoSlice\models\Qwen\`，桌面设置已指向本地目录；校验清单见 `%LOCALAPPDATA%\AutoSlice\downloads\qwen-model-download-20261018.json`。
 - 没有“说话人过滤”（旧识别的 CAM++ 只留主讲人）：Qwen3 路线下没有对应的东西。如果直播里常有他人语音，用 `bench` 看实际影响再决定要不要补。
 - FireRedASR2 没接入（原因见上表）。如果 `bench` 里 Qwen3 的字错率不理想，它是第一个要补的候选，接口已经留好。
 - 每个视频的识别缓存（整段 16k 音频，1 小时约 115MB）在 `%LOCALAPPDATA%\AutoSlice\cache\asr\`，成功后自动删，失败/取消后保留用于续跑。

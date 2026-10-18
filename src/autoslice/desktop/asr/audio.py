@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
+import uuid
 import wave
 from pathlib import Path
 
@@ -48,7 +50,13 @@ def extract_wav(source: str | Path, target: str | Path, *, foreground: bool = Fa
     command += ["-vn", "-ac", "1", "-ar", "16000", "-acodec", "pcm_s16le"]
     if foreground:
         command += ["-af", FOREGROUND_FILTER]
-    _ffmpeg([*command, "-y", str(target)])
+    target = Path(target)
+    temporary = target.with_name(f".{target.stem}.{uuid.uuid4().hex}.part.wav")
+    try:
+        _ffmpeg([*command, "-f", "wav", "-y", str(temporary)])
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def wav_duration(path: str | Path) -> float:

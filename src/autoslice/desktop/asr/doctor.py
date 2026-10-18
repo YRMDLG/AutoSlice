@@ -14,8 +14,6 @@ from pathlib import Path
 from .engines import ENGINES, create_engine
 from .settings import AsrSettings
 
-# 模型卡写明的下限；低了会加载失败
-MIN_TRANSFORMERS = "5.13.0"
 # Qwen3-ASR 1.7B + 对齐模型 + 解码缓存，8GB 显卡够用的参考值（MB）
 VRAM_NEEDED_MB = {"qwen3-asr": 6500, "funasr": 3000}
 
@@ -38,14 +36,39 @@ def _version(package: str) -> str:
         return ""
 
 
-def _version_tuple(value: str) -> tuple[int, ...]:
-    parts = []
-    for piece in value.split("."):
-        digits = "".join(char for char in piece if char.isdigit())
-        if not digits:
-            break
-        parts.append(int(digits))
-    return tuple(parts)
+def check_transformers(installed: str, declarations: list[str] | None) -> Check:
+    """按已安装 qwen-asr 的依赖元数据检查兼容性，不混用原生 HF 加载要求。"""
+
+    if not installed:
+        return Check("transformers", "fail", "没装", "在独立识别环境中安装 qwen-asr，让它安装匹配的依赖")
+    try:
+        from packaging.requirements import InvalidRequirement, Requirement
+        from packaging.version import InvalidVersion
+    except ImportError:
+        return Check("transformers", "warn", installed, "缺少 packaging，未能验证依赖兼容性；请在识别环境中检查")
+    try:
+        requirements = [Requirement(line) for line in declarations or ()]
+        wanted = [item for item in requirements
+                  if item.name.casefold().replace("_", "-") == "transformers"
+                  and (item.marker is None or item.marker.evaluate({"extra": ""}))]
+        if not wanted:
+            return Check("transformers", "warn", installed, "没有找到 qwen-asr 的有效依赖声明，兼容性未验证")
+        for item in wanted:
+            if not item.specifier.contains(installed, prereleases=True):
+                return Check("transformers", "warn", installed,
+                             f"与 qwen-asr 声明的 {item} 不一致；请在独立识别环境中重新安装当前版本的 qwen-asr，不要单独升级 transformers")
+    except (InvalidRequirement, InvalidVersion, ValueError):
+        return Check("transformers", "warn", installed, "依赖元数据或版本无法解析，兼容性未验证")
+    return Check("transformers", "ok", installed)
+
+
+def qwen_requirements() -> list[str] | None:
+    """读取已安装识别包的依赖声明；不联网、不导入模型。"""
+
+    try:
+        return importlib.metadata.requires("qwen-asr")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 def _model_cached(model: str) -> str:
@@ -92,7 +115,7 @@ def run_checks(settings: AsrSettings, *, storage_root: Path | None = None) -> li
             need = VRAM_NEEDED_MB.get(settings.engine, 0)
             status = "ok" if total >= need else "warn"
             checks.append(Check("显卡", status, f"{properties.name}  {total / 1024:.1f} GB",
-                                "" if status == "ok" else f"建议至少 {need / 1024:.1f} GB，显存不足会自动退到很慢的 CPU"))
+                                f"显存需求约 {need / 1024:.1f} GB（估算），以加载试跑的峰值为准"))
             bf16 = torch.cuda.is_bf16_supported()
             checks.append(Check("bf16", "ok" if bf16 else "warn", "支持" if bf16 else "不支持",
                                 "" if bf16 else "30 系以下显卡不支持 bf16，Qwen3-ASR 可能需要改用 float16"))
@@ -110,14 +133,7 @@ def run_checks(settings: AsrSettings, *, storage_root: Path | None = None) -> li
         else:
             checks.append(Check(pip_name, "fail", "没装", f"pip install -U {pip_name}"))
     if settings.engine == "qwen3-asr":
-        transformers = _version("transformers")
-        if not transformers:
-            checks.append(Check("transformers", "fail", "没装", f'pip install "transformers>={MIN_TRANSFORMERS}"'))
-        elif _version_tuple(transformers) < _version_tuple(MIN_TRANSFORMERS):
-            checks.append(Check("transformers", "warn", transformers,
-                                f"qwen-asr 官方要求 >= {MIN_TRANSFORMERS}（它自己的依赖通常会带上），装完先 --probe 验证"))
-        else:
-            checks.append(Check("transformers", "ok", transformers))
+        checks.append(check_transformers(_version("transformers"), qwen_requirements()))
         for label, model in (("识别模型", settings.model), ("对齐模型", settings.aligner)):
             if not model:
                 if label == "对齐模型":

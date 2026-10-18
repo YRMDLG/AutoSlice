@@ -10,7 +10,9 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 import time
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,7 +30,8 @@ from autoslice.transcription.srt_io import write_srt_segments
 from . import audio
 from .engines import Engine
 from .text import piece_words
-from .types import AsrCancelled, AsrError, Chunk, Word
+from .types import AsrCancelled, AsrError, AsrOutputExists, Chunk, Word
+from .work_lock import WorkLock
 
 CHECKPOINT_VERSION = 1
 Progress = Callable[[str, float], None]
@@ -91,7 +94,17 @@ def build_segments(words: list[Word], options: TranscribeOptions,
             tokens, streamer_name=profile.canonical_name, max_chars=options.max_chars)
 
 
-def transcribe(video_path: str | Path, output_srt: str | Path, engine: Engine, *, workdir: Path,
+def publish_no_clobber(temporary: Path, target: Path) -> None:
+    """原子发布且不覆盖；不支持硬链接的平台明确失败，不退回覆盖写入。"""
+
+    if sys.platform == "win32":
+        os.rename(temporary, target)
+    else:
+        os.link(temporary, target)
+        temporary.unlink()
+
+
+def _transcribe(video_path: str | Path, output_srt: str | Path, engine: Engine, *, workdir: Path,
                fingerprint: str = "", hotwords: Sequence[str] = (), options: TranscribeOptions | None = None,
                progress: Progress | None = None, cancelled: Callable[[], bool] | None = None,
                keep_work: bool = False, manage_engine: bool = True) -> TranscribeResult:
@@ -100,7 +113,7 @@ def transcribe(video_path: str | Path, output_srt: str | Path, engine: Engine, *
     if not video.is_file():
         raise AsrError("视频文件不存在")
     if output.exists() and not options.overwrite:
-        raise AsrError(f"已有字幕，不覆盖：{output.name}")
+        raise AsrOutputExists(f"已有字幕，不覆盖：{output.name}")
     started = time.monotonic()
     report = progress or (lambda _message, _fraction: None)
     stop = cancelled or (lambda: False)
@@ -167,12 +180,22 @@ def transcribe(video_path: str | Path, output_srt: str | Path, engine: Engine, *
     segments = build_segments(all_words, options, video)
     if not segments:
         raise AsrError("没有识别到有效语音")
-    temporary = output.with_name(f".{output.stem}.asr-{os.getpid()}.tmp")
+    temporary = output.with_name(f".{output.stem}.asr-{uuid.uuid4().hex}.tmp")
     try:
         count = write_srt_segments(temporary, segments, minimum_text_chars=1)
         if not count:
             raise AsrError("没有识别到有效语音")
-        os.replace(temporary, output)
+        if options.overwrite:
+            os.replace(temporary, output)
+        else:
+            try:
+                publish_no_clobber(temporary, output)
+            except FileExistsError as exc:
+                shutil.copyfile(temporary, workdir / "recognized.srt")
+                raise AsrOutputExists(
+                    f"已有字幕“{output.name}”，没有覆盖。识别结果保留在缓存中；"
+                    "可以用 run --output <其他路径> 复用检查点另存。"
+                ) from exc
     finally:
         temporary.unlink(missing_ok=True)
     if not keep_work:
@@ -191,3 +214,15 @@ def _read_checkpoint(path: Path, signature: str) -> dict:
     if not isinstance(payload, dict) or payload.get("signature") != signature or payload.get("version") != CHECKPOINT_VERSION:
         return fresh
     return {**fresh, **{key: payload[key] for key in ("audio_ready", "silences", "chunks", "estimated") if key in payload}}
+
+
+def transcribe(video_path: str | Path, output_srt: str | Path, engine: Engine, *, workdir: Path,
+               fingerprint: str = "", hotwords: Sequence[str] = (), options: TranscribeOptions | None = None,
+               progress: Progress | None = None, cancelled: Callable[[], bool] | None = None,
+               keep_work: bool = False, manage_engine: bool = True) -> TranscribeResult:
+    """锁住检查点、识别、发布及清理的完整生命周期，避免界面和命令行相互写坏。"""
+
+    with WorkLock(workdir):
+        return _transcribe(video_path, output_srt, engine, workdir=workdir, fingerprint=fingerprint,
+                           hotwords=hotwords, options=options, progress=progress, cancelled=cancelled,
+                           keep_work=keep_work, manage_engine=manage_engine)

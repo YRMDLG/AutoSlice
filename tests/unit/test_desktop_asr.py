@@ -33,7 +33,7 @@ from autoslice.desktop.asr.engines.scripted import ScriptedEngine
 from autoslice.desktop.asr.hotwords import build_hotwords
 from autoslice.desktop.asr.pipeline import words_in_core
 from autoslice.desktop.asr.settings import load_settings, save_settings
-from autoslice.desktop.asr.types import Chunk
+from autoslice.desktop.asr.types import AsrOutputExists, Chunk
 from autoslice.desktop.asr.worker import run_spec
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.transcription.segments import split_subtitle_text_for_display
@@ -279,6 +279,25 @@ class PipelineTests(NeedsFfmpeg):
             self.run_pipeline(ScriptedEngine([[], []], max_chunk_seconds=6))
         self.assertFalse(self.out.exists())
 
+    def test_subtitle_created_during_recognition_is_preserved_and_result_can_be_recovered(self):
+        output = self.out
+
+        class ConcurrentEngine(ScriptedEngine):
+            def recognize(self, wav_path):
+                output.write_text("用户保存的字幕", encoding="utf-8")
+                return super().recognize(wav_path)
+
+        with self.assertRaises(AsrOutputExists):
+            self.run_pipeline(ConcurrentEngine(self.script(), max_chunk_seconds=6))
+        self.assertEqual(self.out.read_text(encoding="utf-8"), "用户保存的字幕")
+        self.assertTrue((self.work / "recognized.srt").is_file())
+        self.assertEqual(list(self.root.glob(".*.asr-*.tmp")), [])
+        recovered = self.root / "另存.srt"
+        engine = ScriptedEngine([], max_chunk_seconds=6)
+        transcribe(self.video, recovered, engine, workdir=self.work, fingerprint="t")
+        self.assertEqual(engine.calls, [])
+        self.assertIn("大家好", recovered.read_text(encoding="utf-8"))
+
     def test_engine_without_word_timing_is_flagged_as_estimated(self):
         engine = ScriptedEngine([[Piece(0.3, 3.8, "没有字级时间的一句话")], []], max_chunk_seconds=6)
         result = self.run_pipeline(engine)
@@ -446,9 +465,22 @@ class DoctorTests(unittest.TestCase):
         checks = doctor.run_checks(AsrSettings(engine="nope"))
         self.assertEqual(checks[-1].status, "fail")
 
-    def test_version_comparison(self):
-        self.assertLess(doctor._version_tuple("4.57.3"), doctor._version_tuple("5.13.0"))
-        self.assertGreaterEqual(doctor._version_tuple("5.13.0.dev1"), doctor._version_tuple("5.13.0"))
+    def test_transformers_checks_exact_declared_version_and_markers(self):
+        declared = ['transformers==4.57.6', 'transformers>=99; extra == "vllm"']
+        self.assertEqual(doctor.check_transformers("4.57.6", declared).status, "ok")
+        for version in ("4.57.5", "5.13.0", "bad version"):
+            self.assertEqual(doctor.check_transformers(version, declared).status, "warn")
+        self.assertEqual(doctor.check_transformers("", declared).status, "fail")
+        self.assertEqual(doctor.check_transformers("4.57.6", None).status, "warn")
+        self.assertEqual(doctor.check_transformers("4.57.6", ["invalid ???"]).status, "warn")
+
+    def test_qwen_dependency_metadata_is_read_without_importing_the_engine(self):
+        from unittest.mock import patch
+
+        with patch.object(doctor.importlib.metadata, "requires", return_value=["transformers==4.57.6"]):
+            self.assertEqual(doctor.qwen_requirements(), ["transformers==4.57.6"])
+        with patch.dict("sys.modules", {"packaging.requirements": None}):
+            self.assertEqual(doctor.check_transformers("4.57.6", ["transformers==4.57.6"]).status, "warn")
 
     def test_local_model_folder_counts_as_present(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -465,6 +497,31 @@ class DoctorTests(unittest.TestCase):
     def test_probe_reports_a_failing_engine_instead_of_raising(self):
         checks = doctor.probe(AsrSettings(engine="qwen3-asr", model="/definitely/not/a/model", aligner=""))
         self.assertTrue(any(check.status == "fail" for check in checks))
+
+
+class FunAsrDeviceTests(unittest.TestCase):
+    def test_explicit_cpu_and_cuda_and_auto_reach_the_shared_model_loader(self):
+        import sys
+        from types import ModuleType, SimpleNamespace
+        from unittest.mock import patch
+
+        from autoslice.desktop.asr.engines.funasr_legacy import FunAsrEngine
+        from autoslice.transcription import model_runtime
+
+        funasr = ModuleType("funasr")
+        funasr.AutoModel = object
+        torch = ModuleType("torch")
+        torch.cuda = SimpleNamespace(is_available=lambda: True)
+        with patch.dict(sys.modules, {"funasr": funasr, "torch": torch}), \
+                patch.object(model_runtime, "load_funasr_model", return_value=SimpleNamespace()) as load, \
+                patch.object(model_runtime, "funasr_generate_kwargs", return_value={}):
+            for device, expected in (("cpu", "cpu"), ("cuda", "cuda:0"), ("auto", "cuda:0")):
+                info = FunAsrEngine(AsrSettings(engine="funasr", device=device)).load()
+                self.assertEqual(load.call_args.kwargs["device"], expected)
+                self.assertEqual(info["设备"], expected)
+            torch.cuda.is_available = lambda: False
+            with self.assertRaisesRegex(AsrError, "CUDA"):
+                FunAsrEngine(AsrSettings(engine="funasr", device="cuda")).load()
 
 
 class BenchTests(unittest.TestCase):

@@ -45,12 +45,13 @@ class FunASRRecognitionSession:
         foreground_only: bool | None = None,
         background_filter_mode: str | None = None,
         progress_callback: Any = None,
+        device: str | None = None,
     ) -> FunASRRecognitionSession:
         policy = background_filter.background_filter_policy(
             background_filter_mode,
             foreground_only=foreground_only,
         )
-        requested_device = model_runtime.resolve_funasr_device()
+        requested_device = model_runtime.resolve_funasr_device(device)
         if progress_callback:
             progress_callback(f"加载 FunASR 模型({requested_device})...", 10, 100)
         model_load_options = {"background_filter_mode": policy.mode}

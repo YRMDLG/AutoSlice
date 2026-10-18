@@ -12,6 +12,14 @@ class AsrCancelled(Exception):
 class AsrError(RuntimeError):
     """识别失败，消息可直接给用户看。"""
 
+    code = "failed"
+
+
+class AsrOutputExists(AsrError):
+    """目标字幕已存在；保留用户文件及可另存的识别结果。"""
+
+    code = "exists"
+
 
 @dataclass(frozen=True)
 class Word:

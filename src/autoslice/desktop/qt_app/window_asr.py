@@ -79,6 +79,12 @@ class RecognizeMixin:
         current = self.video_choice.currentData() if self.project is not None else None
         here = current is not None and current.path == video_path
         self.app_status.setText("")
+        if state == "error" and payload.get("code") == "exists":
+            self.asr_banner.hide()
+            self._show_transient_status(str(payload.get("message", "已有字幕，未覆盖")), 9000)
+            if self.document is None or not self.document.dirty:
+                self.refresh()
+            return
         if state == "done":
             self.asr_banner.hide()
             note = f"字幕识别完成：{payload.get('cue_count', 0)} 条，用时 {payload.get('seconds', 0):.0f} 秒"

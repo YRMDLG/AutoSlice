@@ -40,6 +40,9 @@ elif mode == "crash":
     sys.exit(3)
 elif mode == "fail":
     event(type="error", message="没有安装 qwen-asr")
+elif mode == "exists":
+    open(spec["output"], "w", encoding="utf-8").write("1\n00:00:00,000 --> 00:00:01,000\n用户保留的字幕\n")
+    event(type="error", code="exists", message="已有字幕，未覆盖")
 else:
     event(type="progress", message="识别中 1/1", fraction=0.5)
     open(spec["output"], "w", encoding="utf-8").write("1\n00:00:00,000 --> 00:00:01,000\n识别出来的字幕\n")
@@ -134,6 +137,14 @@ class AsrQtTests(unittest.TestCase):
         self.assertIn("没有安装 qwen-asr", self.window.asr_banner.detail.text())
         self.assertEqual(self.window.asr_banner.start_button.text(), "重试")
         self.assertFalse((self.root / "没字幕" / "视频.srt").exists())
+
+    def test_existing_output_event_reaches_window_and_loads_the_preserved_subtitle(self):
+        self.use_model("exists")
+        self.select("没字幕")
+        self.window.asr_banner.start_button.click()
+        self.wait_for(lambda: not self.window._asr_running() and self.window.document is not None)
+        self.assertFalse(self.banner_visible())
+        self.assertEqual(self.window.document.entries[0].text, "用户保留的字幕")
 
     def test_a_crash_without_any_event_surfaces_the_last_output_line(self):
         self.use_model("crash")

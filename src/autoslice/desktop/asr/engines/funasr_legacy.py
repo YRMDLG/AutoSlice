@@ -11,7 +11,7 @@ from autoslice.transcription import background_filter, model_runtime, recognitio
 
 from ..settings import AsrSettings
 from ..types import AsrError, Piece, Word
-from .runtime import cuda_peak_mb
+from .runtime import cuda_peak_mb, resolve_device
 
 
 class FunAsrEngine:
@@ -33,11 +33,18 @@ class FunAsrEngine:
         except ImportError as exc:
             raise AsrError("没有安装 funasr，先运行 `python -m autoslice.desktop.asr doctor` 看缺什么。") from exc
         try:
+            device = resolve_device(self.settings.device)
+            if self.settings.device.lower() != "auto" and device.startswith("cuda"):
+                import torch
+
+                if not torch.cuda.is_available():
+                    raise AsrError("选了显卡，但这台机器没有可用的 CUDA")
             self.session = recognition.FunASRRecognitionSession.load(
                 AutoModel,
                 hotwords=" ".join(hotwords)[:model_runtime.FUNASR_HOTWORD_MAX_CHARS],
                 background_filter_mode=background_filter.BACKGROUND_FILTER_OFF,
                 progress_callback=relay,
+                device=device,
             )
         except Exception as exc:  # noqa: BLE001 - 模型缺失/依赖缺失/显存，统一转成可读提示
             raise AsrError(f"FunASR 加载失败：{str(exc)[:200]}") from exc
