@@ -12,11 +12,25 @@ from unittest.mock import patch
 
 from autoslice.desktop.ai_settings import AISettings
 from autoslice.desktop.cover_ai import AIFix, AIFrameNotes, AIOutline, CoverAI, CoverAIError
-from autoslice.desktop.cover_fixes import FIX_TILT, apply_fix, describe_state, describe_text_layers
+from autoslice.desktop.cover_fix_schema import AIObjectEdit
+from autoslice.desktop.cover_fixes import (
+    FIX_TILT,
+    apply_fix,
+    apply_fix_profiles,
+    describe_state,
+    describe_text_layers,
+)
 from autoslice.desktop.cover_framing import subject_crop, text_bands
 from autoslice.desktop.cover_layout import canvas_size, text_layout
 from autoslice.desktop.cover_migration import document_from_basic_title_values
-from autoslice.desktop.cover_model import AssetRef, BackgroundObject, TextObject, object_for_profile
+from autoslice.desktop.cover_model import (
+    AssetRef,
+    BackgroundObject,
+    TextObject,
+    object_for_profile,
+    set_object_locked,
+    set_profile_override,
+)
 from autoslice.desktop.cover_service import CoverService
 from autoslice.desktop.foundation import DesktopStorage
 
@@ -180,7 +194,7 @@ class CritiqueDialogTests(unittest.TestCase):
         reply = json.dumps({"fixes": [
             # 封面本来就在下面：移下去等于没改，不显示。
             {"issue": "压脸", "actions": ["move_bottom"]},
-            {"issue": "没动感", "actions": ["bigger", "tilt"]},
+            {"issue": "没动感", "actions": ["tilt"]},
             {"issue": "没重点", "actions": ["emphasize"], "words": [headline.text[:2]]},
         ]}, ensure_ascii=False)
         calls = []
@@ -280,13 +294,14 @@ class CritiqueDialogTests(unittest.TestCase):
             self.app.processEvents()
             page = dialog.tabs.currentWidget()
             pictures = page.findChildren(CoverComparisonImage)
-            self.assertEqual(len(pictures), 2)
+            self.assertEqual(len(pictures), 4)
             for picture in pictures:
                 pixmap = picture.pixmap()
                 self.assertFalse(pixmap.isNull())
                 self.assertLessEqual(pixmap.width(), picture.width())
                 self.assertLessEqual(pixmap.height(), picture.height())
-                self.assertAlmostEqual(pixmap.width() / pixmap.height(), 4 / 3, delta=0.02)
+                ratio = 16 / 9 if picture.property("profile_key") == "16x9" else 4 / 3
+                self.assertAlmostEqual(pixmap.width() / pixmap.height(), ratio, delta=0.02)
             self.assertTrue(page.rect().contains(dialog.apply_buttons[index].geometry()))
 
     def test_custom_text_preview_applies_and_undoes_after_review(self):
@@ -307,7 +322,8 @@ class CritiqueDialogTests(unittest.TestCase):
         self.widget._ai_critique()
         self._wait(lambda: getattr(self.widget, "_critique_box", None) is not None)
         dialog = self.widget._critique_box
-        self.assertEqual(dialog.previews[0].fix.issue, "自定义文字更清楚")
+        self.assertIn("4:3：自定义文字更清楚", dialog.previews[0].fix.issue)
+        self.assertIn("16:9：自定义文字更清楚", dialog.previews[0].fix.issue)
         self.assertIn(extra.text, dialog.previews[0].fix.steps[0])
         self.assertEqual(self.widget.document, original)
         dialog.apply_buttons[0].click()
@@ -330,7 +346,194 @@ class CritiqueDialogTests(unittest.TestCase):
             self._wait(lambda: self.widget.ai_critique_button.isEnabled())
         self.assertEqual(self.widget.document, original)
         self.assertIsNone(getattr(self.widget, "_critique_box", None))
-        self.assertEqual(message.call_args.args[2], "原图的配色更协调")
+        message.assert_not_called()
+        self.assertIn("未改动", self.widget.notice_label.text())
+
+    def test_rejected_candidates_are_revised_from_original_with_feedback(self):
+        original = self.widget.document
+        target = self.widget._primary_copy_ids()["B"]
+        suggestions, reviews = [], []
+
+        def model(prompt, **kwargs):
+            if prompt.startswith("封面修改成品复核"):
+                reviews.append(prompt)
+                if len(reviews) == 1:
+                    return json.dumps({"picks": [], "rejected": "2 几乎无差异，3 破坏黑边风格"})
+                return json.dumps({"picks": [{"index": 2, "reason": "主文案更清楚"}]})
+            suggestions.append((prompt, kwargs["images"]))
+            if len(suggestions) == 1:
+                return json.dumps({"fixes": [{"issue": "换色", "actions": ["restyle"], "preset": "yellow-purple"}]})
+            return json.dumps({"fixes": [{"issue": "主文案更清楚", "actions": ["edit_objects"], "edits": [
+                {"id": target, "fill": "#FFFFFF"},
+            ]}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        with patch.object(QMessageBox, "information"):
+            self.widget._ai_critique()
+            self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        self.assertEqual(len(suggestions), 2)
+        self.assertEqual(len(reviews), 3)
+        self.assertIn("破坏黑边风格", suggestions[1][0])
+        self.assertIn("yellow-purple", suggestions[1][0])
+        self.assertEqual(suggestions[0][1], suggestions[1][1])
+        self.assertEqual(self.widget.document, original)
+        expected = apply_fix_profiles(self.widget.service, original, self.widget.draft.image_path, AIFix(
+            "主文案更清楚", ("edit_objects",), edits=self.widget._critique_box.previews[0].fix.edits,
+        ))
+        self.assertEqual(self.widget._critique_box.previews[0].document, expected)
+        self.widget._critique_box.apply_buttons[0].click()
+        self.assertEqual(self.widget.document, expected)
+        self.widget._undo()
+        self.assertEqual(self.widget.document, original)
+
+    def test_invisible_candidates_are_revised_before_review(self):
+        target = self.widget._primary_copy_ids()["B"]
+        suggestions, reviews = [], []
+
+        def model(prompt, **_kwargs):
+            if prompt.startswith("封面修改成品复核"):
+                reviews.append(prompt)
+                return json.dumps({"picks": [{"index": 2, "reason": "文字更清楚"}]})
+            suggestions.append(prompt)
+            edit = {"id": target, "dx": 0.000001} if len(suggestions) == 1 else {"id": target, "fill": "#FFFFFF"}
+            return json.dumps({"fixes": [{"issue": "调整", "actions": ["edit_objects"], "edits": [edit]}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        with patch.object(QMessageBox, "information"):
+            self.widget._ai_critique()
+            self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        self.assertEqual(len(suggestions), 2)
+        self.assertEqual(len(reviews), 2)
+        self.assertIn("看不出变化", suggestions[1])
+        self.assertIsNotNone(getattr(self.widget, "_critique_box", None))
+
+    def test_two_rejected_rounds_stop_without_showing_internal_numbers(self):
+        original = self.widget.document
+        suggestions, reviews = [], []
+
+        def model(prompt, **_kwargs):
+            if prompt.startswith("封面修改成品复核"):
+                reviews.append(prompt)
+                return json.dumps({"picks": [], "rejected": "2、3 与原图几乎无差异；4、5 风格混乱"})
+            suggestions.append(prompt)
+            preset = "yellow-purple" if len(suggestions) == 1 else "white"
+            return json.dumps({"fixes": [{"issue": "换色", "actions": ["restyle"], "preset": preset}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        with patch.object(QMessageBox, "information") as message:
+            self.widget._ai_critique()
+            self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        self.assertEqual(len(suggestions), 2)
+        self.assertEqual(len(reviews), 2)
+        self.assertEqual(self.widget.document, original)
+        self.assertIsNone(getattr(self.widget, "_critique_box", None))
+        message.assert_not_called()
+        self.assertIn("未改动", self.widget.notice_label.text())
+        self.assertNotIn("2、3", self.widget.notice_label.text())
+
+    def test_retry_does_not_review_a_previously_rejected_rendering(self):
+        calls = []
+
+        def model(prompt, **_kwargs):
+            calls.append(prompt)
+            if prompt.startswith("封面修改成品复核"):
+                return json.dumps({"picks": [], "rejected": "改色没有改善"})
+            return json.dumps({"fixes": [{"issue": "换色", "actions": ["restyle"], "preset": "yellow-purple"}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        with patch.object(QMessageBox, "information"):
+            self.widget._ai_critique()
+            self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sum(prompt.startswith("封面修改成品复核") for prompt in calls), 1)
+
+    def test_clicking_again_does_not_reuse_the_same_failed_analysis(self):
+        calls = []
+
+        def model(prompt, **_kwargs):
+            calls.append(prompt)
+            return json.dumps({"fixes": []})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        with patch.object(QMessageBox, "information") as message:
+            for _ in range(2):
+                self.widget._ai_critique()
+                self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        self.assertEqual(len(calls), 2)
+        message.assert_not_called()
+
+    def test_subtitles_and_both_profiles_are_reviewed_and_applied_atomically(self):
+        subtitle = Path(self.temp.name) / "完整校对.srt"
+        subtitle.write_text("1\n00:00:01,000 --> 00:00:03,000\n先交代原因\n\n2\n00:00:40,000 --> 00:00:42,000\n最后才发生反转\n", encoding="utf-8")
+        self.widget.video = replace(self.widget.video, corrected_srt_path=str(subtitle))
+        original = self.widget.document
+        target = self.widget._primary_copy_ids()["B"]
+        calls = []
+
+        def model(prompt, **kwargs):
+            calls.append((prompt, len(kwargs["images"])))
+            if prompt.startswith("封面修改成品复核"):
+                return json.dumps({"picks": [{"index": 2, "reason": "两种比例的文字位置更清楚"}]})
+            return json.dumps({"fixes": [{"issue": "分别调整位置", "actions": ["edit_objects"], "profile_edits": {
+                "4x3": [{"id": target, "dx": 0.02}], "16x9": [{"id": target, "dx": 0.04}],
+            }}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        self.widget._ai_critique()
+        self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        dialog = self.widget._critique_box
+        self.assertEqual([count for _prompt, count in calls], [3, 1, 1])
+        for prompt, _count in calls:
+            self.assertIn("先交代原因", prompt)
+            self.assertIn("最后才发生反转", prompt)
+        self.assertEqual(self.widget.document, original)
+        self.assertEqual(dialog.profile_combo.count(), 3)
+        self.assertEqual(dialog.profile_combo.currentData(), "all")
+        dialog.profile_combo.setCurrentIndex(dialog.profile_combo.findData("16x9"))
+        self.app.processEvents()
+        from autoslice.desktop.cover_critique_dialog import CoverComparisonImage
+
+        for picture in dialog.tabs.currentWidget().findChildren(CoverComparisonImage):
+            if picture.isVisible():
+                self.assertEqual(picture.property("profile_key"), "16x9")
+                self.assertAlmostEqual(picture.pixmap().width() / picture.pixmap().height(), 16 / 9, delta=0.04)
+        dialog.apply_buttons[0].click()
+        for key, delta in (("4x3", 0.02), ("16x9", 0.04)):
+            self.assertAlmostEqual(object_for_profile(self.widget.document, target, key).transform.x,
+                                   object_for_profile(original, target, key).transform.x + delta)
+        self.widget._undo()
+        self.assertEqual(self.widget.document, original)
+
+    def test_geometry_fix_changes_both_ratios_and_preserves_locks_and_hidden_profiles(self):
+        original = self.widget.document
+        target = self.widget._primary_copy_ids()["B"]
+        fix = AIFix("移动", ("edit_objects",), edits=(AIObjectEdit(target, dx=0.03),))
+        after = apply_fix_profiles(self.widget.service, original, self.widget.draft.image_path, fix)
+        for key in original.profiles:
+            self.assertAlmostEqual(object_for_profile(after, target, key).transform.x,
+                                   object_for_profile(original, target, key).transform.x + 0.03)
+        hidden = replace(object_for_profile(original, target, "16x9"), visible=False)
+        original = set_profile_override(original, "16x9", hidden)
+        after = apply_fix_profiles(self.widget.service, original, self.widget.draft.image_path, fix)
+        self.assertEqual(object_for_profile(after, target, "16x9"), hidden)
+        self.assertNotEqual(object_for_profile(after, target, "4x3"), object_for_profile(original, target, "4x3"))
+        locked = set_object_locked(original, target, True)
+        self.assertEqual(apply_fix_profiles(self.widget.service, locked, self.widget.draft.image_path, fix), locked)
+
+    def test_a_change_in_the_other_ratio_still_gets_a_preview(self):
+        target = self.widget._primary_copy_ids()["B"]
+
+        def model(prompt, **_kwargs):
+            if prompt.startswith("封面修改成品复核"):
+                return json.dumps({"picks": [{"index": 2, "reason": "横版间距更合适"}]})
+            return json.dumps({"fixes": [{"issue": "横版位置", "actions": ["edit_objects"], "profile_edits": {
+                "4x3": [], "16x9": [{"id": target, "dx": 0.04}],
+            }}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        self.widget._ai_critique()
+        self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        self.assertIsNotNone(getattr(self.widget, "_critique_box", None))
 
     def test_review_failure_keeps_original_and_shows_error(self):
         original = self.widget.document
@@ -346,6 +549,57 @@ class CritiqueDialogTests(unittest.TestCase):
         self.assertEqual(self.widget.document, original)
         self.assertIsNone(getattr(self.widget, "_critique_box", None))
         self.assertIn("复核服务暂不可用", self.widget.notice_label.text())
+
+    def test_format_failure_names_the_stage_and_keeps_both_profiles(self):
+        original = self.widget.document
+        for failing_stage in ("排版建议", "修改效果复核"):
+            with self.subTest(stage=failing_stage):
+                calls = []
+
+                def model(prompt, **kwargs):
+                    stage = "修改效果复核" if prompt.startswith("封面修改成品复核") else "排版建议"
+                    calls.append((stage, kwargs["json_mode"]))
+                    if stage == failing_stage:
+                        return "无法解析的私密响应"
+                    return json.dumps({"fixes": [{"issue": "增加动感", "actions": ["tilt"]}]})
+
+                self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+                self.widget._ai_critique()
+                self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+                self.assertEqual(self.widget.document, original)
+                self.assertIsNone(getattr(self.widget, "_critique_box", None))
+                self.assertIn(failing_stage + "失败", self.widget.notice_label.text())
+                self.assertIn("自动纠正一次", self.widget.notice_label.text())
+                self.assertNotIn("私密响应", self.widget.notice_label.text())
+                self.assertEqual(sum(stage == failing_stage for stage, _mode in calls), 2)
+                self.assertTrue(all(mode for _stage, mode in calls))
+
+    def test_format_repair_returns_preview_then_applies_and_undoes_both_profiles(self):
+        original = self.widget.document
+        calls = []
+
+        def model(prompt, **kwargs):
+            calls.append((prompt, kwargs))
+            if prompt.startswith("封面修改成品复核"):
+                return json.dumps({"picks": [{"index": 2, "reason": "倾斜增强层级"}]})
+            if len(calls) == 1:
+                return "建议让文字稍微倾斜"
+            return json.dumps({"fixes": [{"issue": "增加动感", "actions": ["tilt"]}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        self.widget._ai_critique()
+        self._wait(lambda: self.widget.ai_critique_button.isEnabled())
+        dialog = self.widget._critique_box
+        self.assertEqual(len(calls), 4)
+        self.assertIn("格式纠正", calls[1][0])
+        self.assertEqual(calls[0][1]["images"], calls[1][1]["images"])
+        self.assertEqual(self.widget.document, original)
+        dialog.apply_buttons[0].click()
+        target = self.widget._primary_copy_ids()["B"]
+        for key in original.profiles:
+            self.assertEqual(object_for_profile(self.widget.document, target, key).transform.rotation, FIX_TILT)
+        self.widget._undo()
+        self.assertEqual(self.widget.document, original)
 
     def test_edits_during_critique_discard_old_result(self):
         def model(prompt, **_kwargs):
@@ -383,7 +637,7 @@ class CritiqueDialogTests(unittest.TestCase):
         self.widget._ai_critique()
         self._wait(lambda: getattr(self.widget, "_critique_box", None) is not None)
         self.assertEqual(len(self.widget._critique_box.previews), 1)
-        self.assertEqual(len(reviews), 1)
+        self.assertEqual(len(reviews), 2)
         self.assertIn("编号 2~2", reviews[0])
 
 

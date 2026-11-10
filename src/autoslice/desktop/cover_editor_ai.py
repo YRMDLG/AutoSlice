@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -35,7 +34,7 @@ from .cover_copy import BasicCoverCopy
 from .cover_critique_dialog import CoverCritiqueDialog, CoverFixPreview
 from .cover_effects import burst_id
 from .cover_fix_quality import describe_scene, safe_candidate, visually_distinct
-from .cover_fixes import apply_fix, describe_state, describe_text_layers
+from .cover_fixes import apply_fix_profiles, describe_state, describe_text_layers
 from .cover_model import TextObject, object_for_profile
 from .cover_style import streamer_key
 from .qt_preview import motion
@@ -154,11 +153,15 @@ class CoverAIMixin:
             # 本地按看图标出的脸和界面裁切、排字，先筛掉字压界面压脸的，渲染成总图，AI 看成品挑：看不懂、读不清的一票否决。
             candidates = service.ai_candidates(working, path, copies, notes=notes, preserve_copy=not approved)
             distinct, rendered = [], []
-            for candidate in candidates:
-                thumbnail = service.scheme_thumbnail(candidate.document, canvas_key=profile_key, width=320)
-                if all(visually_distinct(thumbnail, previous) for previous in rendered):
-                    distinct.append(candidate)
-                    rendered.append(thumbnail)
+            def render_candidate(candidate):
+                return candidate, service.scheme_thumbnail(candidate.document, canvas_key=profile_key, width=320)
+
+            # 候选彼此独立；并行渲染缩短本地筛选等待，质量筛选仍按原顺序执行。
+            with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
+                for candidate, thumbnail in pool.map(render_candidate, candidates):
+                    if all(visually_distinct(thumbnail, previous) for previous in rendered):
+                        distinct.append(candidate)
+                        rendered.append(thumbnail)
             candidates = tuple(distinct)
             if not candidates:
                 raise CoverAIError("这批排版会挤到已有文字或素材，已全部过滤；当前封面保持原样")
@@ -323,40 +326,68 @@ class CoverAIMixin:
 
         texts = (text_of("A"), text_of("B"))
         self.ai_critique_button.setEnabled(False)
-        self._set_notice("AI 正在调整封面并筛选效果…", "info")
+        self._set_notice("AI 正在读取字幕并调整 4:3、16:9 封面…", "info")
 
         def work():
-            before = service.scheme_thumbnail(document, canvas_key=canvas_key, width=_PREVIEW_WIDTH)
-            source = project.title + "\n" + "\n".join(text for _start, _end, text in service.subtitle_cues(video))
-            fixes = service.ai.suggest_fixes(
-                jpeg_bytes(service.scheme_thumbnail(document, canvas_key=canvas_key, width=480), max_side=480),
-                texts=texts, title=project.title, source=source, frame=jpeg_bytes(image_path),
-                state=describe_state(document, canvas_key),
-                text_layers=describe_text_layers(document, canvas_key),
-                scene=describe_scene(document, canvas_key),
-            )
-            previews = []
-            for fix in fixes:
-                after = apply_fix(service, document, image_path, fix, canvas_key)
-                if after != document and safe_candidate(document, after, canvas_key):
-                    thumbnail = service.scheme_thumbnail(after, canvas_key=canvas_key, width=_PREVIEW_WIDTH)
-                    if not visually_distinct(before, thumbnail) or any(
-                        not visually_distinct(item.thumbnail, thumbnail) for item in previews
-                    ):
+            before_profiles = {key: service.scheme_thumbnail(document, canvas_key=key, width=_PREVIEW_WIDTH)
+                               for key in document.profiles}
+            before = before_profiles[canvas_key]
+            cover = jpeg_bytes(before, max_side=480)
+            frame = jpeg_bytes(image_path)
+            cues = service.subtitle_cues(video)
+            state = describe_state(document, canvas_key)
+            layers, scene = describe_text_layers(document, canvas_key), describe_scene(document, canvas_key)
+            scenes = {key: describe_scene(document, key) for key in document.profiles}
+            feedback, previous_fixes, rendered = "", (), []
+            # 首轮失败后仅修正一次，始终以原文档为基准，防止失败改动叠加。
+            for _attempt in range(2):
+                fixes = service.ai.suggest_fixes(
+                    cover, texts=texts, title=project.title, frame=frame, state=state,
+                    text_layers=layers, scene=scene, feedback=feedback,
+                    previous_fixes=previous_fixes, cues=cues, canvas_key=canvas_key, profile_scenes=scenes,
+                    profile_covers=tuple((key, jpeg_bytes(data, max_side=480)) for key, data in before_profiles.items() if key != canvas_key),
+                )
+                if not fixes:
+                    break
+                previews, failures = [], []
+                for fix in fixes:
+                    after = apply_fix_profiles(service, document, image_path, fix)
+                    if after == document:
+                        failures.append(f"{fix.issue}：执行后没有变化")
                         continue
-                    previews.append(CoverFixPreview(
-                        fix, thumbnail, after,
-                    ))
-            rejected = "这轮没有生成合适的修改，可以重试或继续手动调整。"
-            if previews:
+                    if not safe_candidate(document, after, canvas_key):
+                        failures.append(f"{fix.issue}：新增越界、挤压或破坏锁定对象，需调整参数")
+                        continue
+                    thumbnails = {key: service.scheme_thumbnail(after, canvas_key=key, width=_PREVIEW_WIDTH)
+                                  for key in document.profiles}
+                    thumbnail = thumbnails[canvas_key]
+                    if not any(visually_distinct(before_profiles[key], data) for key, data in thumbnails.items()):
+                        failures.append(f"{fix.issue}：小图上看不出变化")
+                        continue
+                    if any(all(not visually_distinct(dict(item.profile_thumbnails)[key], data)
+                               for key, data in thumbnails.items()) for item in (*rendered, *previews)):
+                        failures.append(f"{fix.issue}：与本轮或上轮候选几乎重复")
+                        continue
+                    previews.append(CoverFixPreview(fix, thumbnail, after, tuple(thumbnails.items())))
+                previous_fixes += fixes
+                rendered.extend(previews)
+                if not previews:
+                    feedback = "；".join(failures)
+                    continue
                 choice = service.ai.review_fixes(
                     contact_sheet((before, *(item.thumbnail for item in previews)), labels_outside=True), len(previews),
-                    title=project.title, state=describe_state(document, canvas_key),
+                    title=project.title, state=state, changes=tuple(item.fix.label for item in previews),
+                    cues=cues, canvas_key=canvas_key,
+                    profile_states={key: describe_state(document, key) for key in document.profiles},
+                    profile_sheets=tuple((key, contact_sheet((data, *(dict(item.profile_thumbnails)[key] for item in previews)), labels_outside=True))
+                                         for key, data in before_profiles.items() if key != canvas_key),
                 )
-                previews = [replace(previews[pick.index], fix=replace(previews[pick.index].fix, issue=pick.reason))
-                            for pick in choice.picks]
-                rejected = choice.rejected or "这轮候选没有比原图更合适的效果，已保留原图。"
-            return document, canvas_key, before, tuple(previews), rejected
+                if choice.picks:
+                    selected = tuple(replace(previews[pick.index], fix=replace(previews[pick.index].fix, issue=pick.reason))
+                                     for pick in choice.picks)
+                    return document, canvas_key, before_profiles, selected, len(cues)
+                feedback = "；".join((*failures, choice.rejected or "候选未体现可靠改善，请重新解决原图的具体问题"))
+            return document, canvas_key, before_profiles, (), len(cues)
 
         self._run(work, lambda result, error: self._ai_critique_ready(generation, result, error))
 
@@ -369,7 +400,7 @@ class CoverAIMixin:
             message = str(error) if isinstance(error, CoverAIError) else f"AI 改一改失败：{error}"
             self._set_notice(message, "error")
             return
-        original, canvas_key, before, previews, rejected = result
+        original, canvas_key, before_profiles, previews, subtitle_count = result
         project, video = self.project, self.video
         if self.document is None or self._canvas_key != canvas_key or (
             original.objects != self.document.objects or original.profiles != self.document.profiles
@@ -378,8 +409,9 @@ class CoverAIMixin:
             self._set_notice("分析期间封面已有修改，请再次点击“AI 改一改”按最新封面生成。", "warning")
             return
         if not previews:
-            self.status_changed.emit(rejected)
-            QMessageBox.information(self, "AI 改一改", rejected)
+            message = "这轮未能生成通过检查的改进，未改动你的封面，可以继续编辑。"
+            self._set_notice(message, "warning")
+            self.status_changed.emit(message)
             return
 
         def apply_preview(preview: CoverFixPreview) -> bool:
@@ -395,13 +427,18 @@ class CoverAIMixin:
                 self._commit_document_change(previous)
                 self.canvas.set_document(self.document, self._canvas_key)
                 self._sync_selected_text_controls()
-                self.status_changed.emit(f"已应用：{preview.fix.label}（Ctrl+Z 可撤销）")
+                self.status_changed.emit(f"已同时应用到 4:3 和 16:9：{preview.fix.label}（Ctrl+Z 可撤销）")
             return True
 
         if getattr(self, "_critique_box", None) is not None:
             self._critique_box.close()
             self._critique_box.deleteLater()
-        dialog = CoverCritiqueDialog(before, previews, apply_preview, undo=self._undo, redo=self._redo, parent=self)
+        dialog = CoverCritiqueDialog(
+            before_profiles[canvas_key], previews, apply_preview, undo=self._undo, redo=self._redo,
+            before_profiles=tuple(before_profiles.items()), canvas_key=canvas_key,
+            context_note=f"已读取 {subtitle_count} 条字幕。" if subtitle_count else "未找到可读字幕，本次依据标题和画面。",
+            parent=self,
+        )
         dialog.show()
         self._critique_box = dialog
 
@@ -411,7 +448,7 @@ class CoverAIMixin:
         if self.document is None or not self.draft.image_path:
             return False
         before = self.document
-        self.document = apply_fix(self.service, self.document, self.draft.image_path, fix, self._canvas_key)
+        self.document = apply_fix_profiles(self.service, self.document, self.draft.image_path, fix)
         if self.document == before:
             return False
         self._commit_document_change(before)

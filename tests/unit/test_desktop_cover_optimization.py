@@ -16,7 +16,7 @@ from autoslice.desktop.cover_ai import AIFix, CoverAI, CoverAIError, contact_she
 from autoslice.desktop.cover_effects import add_burst, burst_id
 from autoslice.desktop.cover_fix_quality import describe_scene, safe_candidate, visually_distinct
 from autoslice.desktop.cover_fix_schema import AIObjectEdit, object_changes
-from autoslice.desktop.cover_fixes import apply_fix, describe_text_layers
+from autoslice.desktop.cover_fixes import apply_fix, apply_fix_profiles, describe_text_layers
 from autoslice.desktop.cover_model import (
     AssetRef,
     BackgroundObject,
@@ -235,6 +235,108 @@ class CoverOptimizationTests(unittest.TestCase):
         self.assertEqual(self.ai({"picks": [], "rejected": "原图更协调"}).review_fixes(b"sheet", 2).picks, ())
         with self.assertRaises(CoverAIError):
             self.ai({"fixes": []}).review_fixes(b"sheet", 2)
+
+    def test_shared_palette_survives_independent_profile_geometry(self):
+        document = self.document(2)
+        scenes = {key: describe_scene(document, key) for key in document.profiles}
+        fix = self.ai({"fixes": [{"issue": "配色与构图", "actions": ["edit_objects"],
+            "edits": [{"id": "custom-0", "fill": "#16D8ED", "scale": 1.1}],
+            "profile_edits": {
+                "4x3": [{"id": "custom-0", "x": 0.05, "y": 0.08, "width": 0.85, "font_size": 86}],
+                "16x9": [{"id": "custom-0", "x": 0.18, "y": 0.78, "width": 0.72, "font_size": 100}],
+            },
+        }]}).suggest_fixes(b"cover", scene=scenes["4x3"], profile_scenes=scenes)[0]
+        after = apply_fix_profiles(self.service, document, self.frame, fix)
+        for key, x, y, width, size in (("4x3", .05, .08, .85, 86), ("16x9", .18, .78, .72, 100)):
+            item = object_for_profile(after, "custom-0", key)
+            self.assertEqual(item.style.fill, "#16D8ED")
+            self.assertEqual(item.style.font_size, size)
+            self.assertEqual((item.transform.x, item.transform.y, item.rect.width), (x, y, width))
+            self.assertEqual(item.text, document.object("custom-0").text)
+            with Image.open(io.BytesIO(self.service.scheme_thumbnail(after, canvas_key=key, width=560))) as image:
+                cyan = sum(g > 150 and b > 170 and r < 80 for r, g, b in image.convert("RGB").getdata())
+                self.assertGreater(cyan, 80)
+
+    def test_specific_zero_and_neutral_values_override_common_geometry_without_losing_color(self):
+        common = object_changes([{"id": "custom-0", "dx": .12, "scale": 1.2, "fill": "#FF80AB"}],
+                                describe_scene(self.document(1), "4x3"))
+        merged = object_changes([{"id": "custom-0", "dx": 0, "scale": 1}],
+                                describe_scene(self.document(1), "4x3"), base_edits=common)
+        self.assertEqual((merged[0].dx, merged[0].scale, merged[0].fill), (0, 1, "#FF80AB"))
+        reset = object_changes([{"id": "custom-0", "dx": 0}], describe_scene(self.document(1), "4x3"),
+                               base_edits=(AIObjectEdit("custom-0", dx=.2),))
+        self.assertEqual(len(reset), 1)
+        self.assertEqual(reset[0].dx, 0)
+
+    def test_profile_font_changes_keep_independent_outline_widths(self):
+        document = self.document(1)
+        item = document.object("custom-0")
+        for key, size, stroke in (("4x3", 100, 10), ("16x9", 80, 4)):
+            document = set_profile_override(document, key, replace(item, style=replace(item.style, font_size=size, stroke_width=stroke)))
+        after = apply_fix_profiles(self.service, document, self.frame, AIFix(
+            "各自字号", ("edit_objects",), profile_edits=(
+                ("4x3", (AIObjectEdit(item.id, font_size=120, fill="#16D8ED", outer_stroke="#FFFFFF"),)),
+                ("16x9", (AIObjectEdit(item.id, font_size=100, fill="#16D8ED", outer_stroke="#FFFFFF"),)),
+            ),
+        ))
+        self.assertEqual(object_for_profile(after, item.id, "4x3").style.stroke_width, 12)
+        self.assertEqual(object_for_profile(after, item.id, "16x9").style.stroke_width, 5)
+        self.assertEqual(object_for_profile(after, item.id, "4x3").style.outer_stroke_width, 4)
+        self.assertEqual(object_for_profile(after, item.id, "16x9").style.outer_stroke_width, 3)
+
+    def test_typed_fix_also_merges_shared_color_with_profile_positions(self):
+        before = self.document(1)
+        after = apply_fix_profiles(self.service, before, self.frame, AIFix(
+            "独立位置", ("edit_objects",), edits=(AIObjectEdit("custom-0", fill="#FF80AB"),),
+            profile_edits=(("4x3", (AIObjectEdit("custom-0", y=.4),)),
+                           ("16x9", (AIObjectEdit("custom-0", y=.8),))),
+        ))
+        for key, y in (("4x3", .4), ("16x9", .8)):
+            self.assertEqual(object_for_profile(after, "custom-0", key).style.fill, "#FF80AB")
+            self.assertEqual(object_for_profile(after, "custom-0", key).transform.y, y)
+
+    def test_absolute_parameters_reject_invalid_values_and_locked_targets(self):
+        layers = ({"id": "t", "text": "字幕", "kind": "text"}, {"id": "lock", "locked": True})
+        edits = object_changes([
+            {"id": "t", "x": float("nan"), "y": True, "font_size": 5000, "width": -1},
+            {"id": "lock", "x": .2}, {"id": "t", "x": .1, "y": .7, "font_size": 96, "width": .8},
+        ], layers)
+        self.assertEqual(len(edits), 1)
+        self.assertEqual((edits[0].x, edits[0].y, edits[0].font_size, edits[0].width), (.1, .7, 96, .8))
+
+    def test_review_checks_each_profile_and_only_keeps_the_intersection(self):
+        calls = []
+
+        def model(prompt, **kwargs):
+            calls.append((prompt, kwargs["images"]))
+            return json.dumps({"picks": (
+                [{"index": 2, "reason": "主次清楚"}, {"index": 3, "reason": "双色清楚"}]
+                if "本次只评 4:3" in prompt else [{"index": 3, "reason": "横版留出人物面部"}]
+            )})
+
+        result = CoverAI(self.service.storage, llm=model, settings=lambda: CONFIGURED).review_fixes(
+            b"narrow", 2, profile_sheets=(("16x9", b"wide"),),
+            profile_states={"4x3": "narrow-state", "16x9": "wide-state"},
+        )
+        self.assertEqual([pick.index for pick in result.picks], [1])
+        self.assertEqual([images for _prompt, images in calls], [(("image/jpeg", b"narrow"),), (("image/jpeg", b"wide"),)])
+        self.assertIn("narrow-state", calls[0][0])
+        self.assertIn("wide-state", calls[1][0])
+        self.assertIn("4:3：", result.picks[0].reason)
+        self.assertIn("16:9：", result.picks[0].reason)
+
+    def test_failed_wide_profile_cannot_be_approved_by_narrow_profile(self):
+        def model(prompt, **_kwargs):
+            return json.dumps({"picks": [{"index": 2, "reason": "更清楚"}]} if "本次只评 4:3" in prompt else {
+                "picks": [], "rejected": "文字压住眼睛，阅读顺序颠倒",
+            })
+
+        result = CoverAI(self.service.storage, llm=model, settings=lambda: CONFIGURED).review_fixes(
+            b"narrow", 1, profile_sheets=(("16x9", b"wide"),),
+        )
+        self.assertEqual(result.picks, ())
+        self.assertIn("16:9", result.rejected)
+        self.assertIn("阅读顺序", result.rejected)
 
     def test_review_sheet_includes_original_and_preserves_aspect_ratio(self):
         images = tuple(self.service.scheme_thumbnail(self.document(count), width=240) for count in (1, 2, 3))

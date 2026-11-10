@@ -26,6 +26,11 @@ from autoslice.desktop.cover_ai import (
 from autoslice.desktop.cover_model import AssetRef, BackgroundObject, TextObject, object_for_profile
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import ProjectVideo, SubmissionProject
+from autoslice.llm.contracts import (
+    LLMResponseFormatError,
+    LLMResponseTruncatedError,
+    LLMTransportError,
+)
 from autoslice_cover.document_layout import background_box
 
 try:
@@ -44,10 +49,17 @@ class FakeModel:
     def __init__(self, *replies):
         self.replies = list(replies)
         self.calls = []
+        self.json_modes = []
+        self.token_limits = []
 
-    def __call__(self, prompt, *, max_tokens, model_override, images):
+    def __call__(self, prompt, *, max_tokens, model_override, images, json_mode=False):
         self.calls.append((model_override, len(images), prompt))
-        return self.replies.pop(0)
+        self.json_modes.append(json_mode)
+        self.token_limits.append(max_tokens)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
 
 # _person_frame(…, 960) 画的人：脸在中间，身体在下面。
@@ -69,7 +81,7 @@ class RoutingModel:
                         }]}, ensure_ascii=False)}
         self.calls = []
 
-    def __call__(self, prompt, *, max_tokens, model_override, images):
+    def __call__(self, prompt, *, max_tokens, model_override, images, json_mode=False):
         kind = (
             "pick" if "挑一张最适合" in prompt else "inspect" if "请标出" in prompt
             else "choice" if "候选封面" in prompt else "review" if "独立的封面文案复核" in prompt else "analysis"
@@ -156,6 +168,100 @@ class CoverAIServiceTests(unittest.TestCase):
         ai.analyze(TITLE, CUES, round_index=1)
         self.assertEqual(len(model.calls), 2)
 
+    def test_invalid_json_is_corrected_once_and_only_success_is_cached(self):
+        model = FakeModel("我觉得可以把字放大一点", _analysis_reply())
+        ai = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED)
+        first = ai.analyze(TITLE, CUES)
+        self.assertTrue(first.copies)
+        self.assertEqual(model.json_modes, [True, True])
+        self.assertIn(model.calls[0][2], model.calls[1][2])
+        self.assertIn("格式纠正", model.calls[1][2])
+        self.assertIn("我觉得可以把字放大一点", model.calls[1][2])
+        self.assertEqual(ai.analyze(TITLE, CUES), first)
+        self.assertEqual(len(model.calls), 2)
+        self.assertIsInstance(json.loads(next(ai.cache.glob("*.json")).read_text(encoding="utf-8")), dict)
+
+    def test_repair_preserves_images_model_and_original_task_and_bounds_previous_reply(self):
+        calls = []
+
+        def model(prompt, **kwargs):
+            calls.append((prompt, kwargs))
+            return "无效回答" * 4000 if len(calls) == 1 else '{"fixes": [{"issue": "倾斜", "action": "tilt"}]}'
+
+        ai = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED)
+        fixes = ai.suggest_fixes(
+            b"cover", texts=("选秀", "交手机"), title=TITLE, frame=b"frame",
+            profile_covers=(("16x9", b"wide-cover"),), cues=CUES,
+        )
+        self.assertEqual(fixes[0].actions, ("tilt",))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1], calls[1][1])
+        self.assertEqual(calls[1][1]["model_override"], CONFIGURED.vision_model)
+        self.assertEqual(calls[1][1]["images"], (
+            ("image/jpeg", b"cover"), ("image/jpeg", b"frame"), ("image/jpeg", b"wide-cover"),
+        ))
+        self.assertIn(calls[0][0], calls[1][0])
+        self.assertLess(len(calls[1][0]) - len(calls[0][0]), 6500)
+        self.assertFalse(ai.cache.exists())  # 修改建议每轮重新生成。
+
+    def test_protocol_format_and_truncation_errors_get_one_repair(self):
+        for round_index, failure in enumerate((
+            "[]", "", LLMResponseFormatError("缺少文本"), LLMResponseTruncatedError("输出被截断"),
+            '{"highlight": {"quote": "说到一半"}, "copies": [',
+            '{"unexpected": true}',
+        )):
+            with self.subTest(failure=failure):
+                model = FakeModel(failure, _analysis_reply())
+                ai = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED)
+                analysis = ai.analyze(TITLE, CUES, round_index=round_index)
+                self.assertTrue(analysis.copies)
+                self.assertEqual(len(model.calls), 2)
+                self.assertEqual(model.json_modes, [True, True])
+                self.assertEqual(model.token_limits, (
+                    [4000, 8000] if isinstance(failure, LLMResponseTruncatedError) else [4000, 4000]
+                ))
+
+    def test_each_stage_reports_bounded_format_failure_without_response_body(self):
+        stages = (
+            ("字幕与文案分析", lambda ai: ai.analyze(TITLE, CUES)),
+            ("封面文案复核", lambda ai: ai.review_copies(TITLE, CUES, COPIES, current=COPIES[0].as_basic())),
+            ("画面识别", lambda ai: ai.inspect(_thumb("red"))),
+            ("选帧", lambda ai: ai.pick_frame((b"frame1", b"frame2"))),
+            ("封面方案筛选", lambda ai: ai.choose(b"sheet", 1, title=TITLE)),
+            ("投稿文案生成", lambda ai: ai.submission_copy(TITLE, CUES)),
+            ("排版建议", lambda ai: ai.suggest_fixes(b"cover", texts=("", "手机"), title=TITLE)),
+            ("修改效果复核", lambda ai: ai.review_fixes(b"sheet", 1, title=TITLE, state="")),
+        )
+        for stage, run in stages:
+            with self.subTest(stage=stage):
+                model = FakeModel("私密响应正文", "私密响应正文")
+                ai = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED)
+                with self.assertRaises(CoverAIError) as raised:
+                    run(ai)
+                message = str(raised.exception)
+                self.assertIn(stage + "失败", message)
+                self.assertIn("自动纠正一次", message)
+                self.assertIn("当前封面已保留", message)
+                self.assertNotIn("私密响应正文", message)
+                self.assertEqual(len(model.calls), 2)
+        self.assertFalse(ai.cache.exists())
+
+    def test_request_error_is_not_retried_as_a_format_problem(self):
+        model = FakeModel(LLMTransportError("LLM HTTP 请求失败（HTTP 401）", status_code=401))
+        with self.assertRaisesRegex(CoverAIError, "字幕与文案分析请求失败.*401"):
+            CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).analyze(TITLE, CUES)
+        self.assertEqual(len(model.calls), 1)
+
+    def test_invalid_cached_structure_is_ignored_and_replaced(self):
+        model = FakeModel(_analysis_reply(), _analysis_reply())
+        ai = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED)
+        first = ai.analyze(TITLE, CUES)
+        path = next(ai.cache.glob("*.json"))
+        path.write_text("[]", encoding="utf-8")
+        self.assertEqual(ai.analyze(TITLE, CUES), first)
+        self.assertEqual(len(model.calls), 2)
+        self.assertIsInstance(json.loads(path.read_text(encoding="utf-8")), dict)
+
     def test_copy_review_requires_an_improvement_and_contiguous_evidence(self):
         from autoslice.desktop.cover_copy import BasicCoverCopy
 
@@ -233,7 +339,7 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertEqual((model_name, image_count), ("gpt-5.6-luna", 3))
         self.assertIn("一票否决", prompt)
 
-    def test_fixes_come_only_from_the_menu_and_rewrites_must_come_from_source(self):
+    def test_fixes_come_only_from_the_menu_and_preserve_current_copy(self):
         reply = json.dumps({"fixes": [
             {"issue": "字压脸", "action": "move_bottom"},
             {"issue": "加个贴纸", "action": "add_sticker"},
@@ -245,10 +351,10 @@ class CoverAIServiceTests(unittest.TestCase):
         fixes = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED).suggest_fixes(
             b"cover", texts=("", "交手机"), title=TITLE, source=TITLE, frame=b"frame",
         )
-        self.assertEqual([(fix.actions, fix.headline) for fix in fixes], [(("move_bottom",), ""), (("rewrite",), "居然会改变选曲")])
-        self.assertEqual(fixes[1].label, "换成 A「选秀」 B「居然会改变选曲」")
+        self.assertEqual([(fix.actions, fix.headline) for fix in fixes], [(("move_bottom",), "")])
         self.assertEqual(model.calls[0][1], 2)
         self.assertIn("B「交手机」", model.calls[0][2])
+        self.assertNotIn("- rewrite：", model.calls[0][2])
 
     def test_emphasize_fix_only_uses_words_already_on_the_cover(self):
         reply = json.dumps({"fixes": [
@@ -300,7 +406,7 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertIn("- 【泽音】泽音一个晚上居然被冲了万楼？！", prompt)
         self.assertIn("[12.5] 这个位置竞演可以场外干涉", prompt)
         with self.assertRaisesRegex(CoverAIError, "投稿文案"):
-            CoverAI(self.storage, llm=FakeModel("{}"), settings=lambda: CONFIGURED).submission_copy(TITLE, CUES, round_index=1)
+            CoverAI(self.storage, llm=FakeModel("{}", "{}"), settings=lambda: CONFIGURED).submission_copy(TITLE, CUES, round_index=1)
 
     def test_outline_colors_validate_targets_and_keep_distinct_color_options(self):
         replies = {"fixes": [

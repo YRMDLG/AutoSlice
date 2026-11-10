@@ -56,25 +56,32 @@ def apply_object_edits(document: CoverDocument, edits: Sequence[AIObjectEdit], k
         if not isinstance(current, (TextObject, ImageObject, StickerObject, ShapeObject)) or current.locked or not current.visible:
             continue
         transform = replace(
-            current.transform, x=current.transform.x + edit.dx, y=current.transform.y + edit.dy,
+            current.transform,
+            x=current.transform.x + edit.dx if edit.x is None else edit.x,
+            y=current.transform.y + edit.dy if edit.y is None else edit.y,
             rotation=current.transform.rotation if edit.rotation is None else edit.rotation,
         )
         if isinstance(current, TextObject):
-            size = max(12, round(current.style.font_size * edit.scale))
+            size = max(12, round(edit.font_size if edit.font_size is not None else current.style.font_size * edit.scale))
             ratio = size / max(1, current.style.font_size)
-            new_width = min(3.0, current.rect.width * ratio * edit.width_scale)
+            new_width = edit.width if edit.width is not None else min(3.0, current.rect.width * ratio * edit.width_scale)
             style = resize_text_style(current.style, size)
             colors = {name: getattr(edit, name) for name in ("fill", "stroke", "outer_stroke", "accent", "line_spacing")
                       if getattr(edit, name) is not None}
             if edit.outer_stroke is not None:
                 colors["outer_stroke_width"] = (style.outer_stroke_width or stroke_for(size, 0.03)) if edit.outer_stroke else 0
             updated = replace(
-                current, transform=replace(transform, x=transform.x + (current.rect.width - new_width) / 2),
+                current, transform=replace(
+                    transform, x=transform.x if edit.x is not None else transform.x + (current.rect.width - new_width) / 2,
+                ),
                 rect=replace(current.rect, width=new_width, height=min(3.0, current.rect.height * ratio)),
                 style=replace(style, **colors), emphasis=current.emphasis if edit.words is None else edit.words,
             )
             if updated != current:
-                document = update_text_object(document, updated, profile_key=key)
+                document = update_text_object(
+                    document, updated, profile_key=key,
+                    shared_style_fields=tuple(name for name in colors if name != "outer_stroke_width"),
+                )
                 if burst_id(current.id) not in explicit:
                     document = _follow_burst(document, current, updated, key)
         else:

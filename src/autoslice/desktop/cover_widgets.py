@@ -14,7 +14,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QColorDialog,
-    QMenu,
     QPlainTextEdit,
     QPushButton,
     QStyle,
@@ -25,8 +24,8 @@ from PySide6.QtWidgets import (
 
 from autoslice_cover.document_render import rgba
 
+from .cover_color_palette import CoverColorMenu
 from .cover_style import StylePreset
-from .qt_preview import popups
 
 
 class _TitleEdit(QPlainTextEdit):
@@ -153,7 +152,7 @@ class _ColorButton(QPushButton):
 
     color_changed = Signal()
 
-    def __init__(self, *, allow_none: bool = False, allow_alpha: bool = False, none_label: str = "无", parent=None):
+    def __init__(self, *, allow_none: bool = False, allow_alpha: bool = False, none_label: str = "无", storage=None, parent=None):
         super().__init__(parent)
         self._color = ""
         self._allow_none = allow_none
@@ -161,15 +160,14 @@ class _ColorButton(QPushButton):
         self._none_label = none_label
         self.setFixedHeight(26)
         self.setIconSize(QSize(14, 14))
-        if allow_none:
-            menu = QMenu(self)
-            popups.MenuFx(menu)
-            menu.addAction("选择颜色…", self._pick)
-            menu.addAction(none_label, lambda: self._choose(""))
-            self.setProperty("hasMenu", True)
-            self.setMenu(menu)
-        else:
-            self.clicked.connect(self._pick)
+        menu = CoverColorMenu(
+            allow_none=allow_none, allow_alpha=allow_alpha, none_label=none_label,
+            recent_path=storage.root / "cover" / "colors.json" if storage is not None else None, parent=self,
+        )
+        menu.color_selected.connect(self._choose)
+        menu.more_requested.connect(self._pick)
+        self.setProperty("hasMenu", True)
+        self.setMenu(menu)
         self._refresh()
 
     def color(self) -> str:
@@ -180,6 +178,7 @@ class _ColorButton(QPushButton):
         self._refresh()
 
     def _choose(self, value: str) -> None:
+        self.menu().remember(value.upper())
         if value != self._color:
             self.set_color(value)
             self.color_changed.emit()
@@ -196,6 +195,7 @@ class _ColorButton(QPushButton):
 
     def _refresh(self) -> None:
         self.setText(self._color or self._none_label)
+        self.menu().set_color(self._color)
         pixmap = QPixmap(14, 14)
         pixmap.fill(QColor(*rgba(self._color)) if self._color else QColor(0, 0, 0, 0))
         if not self._color:
