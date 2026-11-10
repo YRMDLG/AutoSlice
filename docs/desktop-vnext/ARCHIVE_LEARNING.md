@@ -18,9 +18,9 @@
 命令行（在有旧切片的那台机器上，建议先 `inspect`）：
 
 ```
-python -m autoslice.desktop.archive inspect D:\切片        # 只读：看文件夹怎么被认出来、没被认出来的里面是什么后缀
-python -m autoslice.desktop.archive scan D:\切片 --limit 200 # 先试跑 200 个
-python -m autoslice.desktop.archive scan D:\切片             # 全量；可 Ctrl+C，下次接着扫
+python -m autoslice.desktop.archive inspect .\旧切片        # 只读：看文件夹怎么被认出来、没被认出来的里面是什么后缀
+python -m autoslice.desktop.archive scan .\旧切片 --limit 200 # 先试跑 200 个
+python -m autoslice.desktop.archive scan .\旧切片             # 全量；可 Ctrl+C，下次接着扫
 python -m autoslice.desktop.archive proposals                # 看学到了什么
 python -m autoslice.desktop.archive apply --kinds replacement,titles,subtitle_limits
 python -m autoslice.desktop.archive report                   # 用库里已有的数据重新生成报告

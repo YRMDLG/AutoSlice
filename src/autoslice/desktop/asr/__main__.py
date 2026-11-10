@@ -3,7 +3,7 @@
     python -m autoslice.desktop.asr doctor [--probe]
     python -m autoslice.desktop.asr setup
     python -m autoslice.desktop.asr run 视频.mp4 [--overwrite]
-    python -m autoslice.desktop.asr bench --root D:\\旧切片 [--engines qwen3-asr,funasr]
+    python -m autoslice.desktop.asr bench --root 旧切片 [--engines qwen3-asr,funasr]
 """
 
 from __future__ import annotations

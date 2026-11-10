@@ -12,7 +12,23 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_FONT_ASSETS = {
     "src/autoslice_cover/resources/fonts/seto-bilibili.ttf":
         "b7a4ddcae7cd07098d51daf6b8544c3fd37a188c981e8aeebb34c3db91abc176",
+    "src/autoslice/resources/fonts/ResourceHanRoundedCN-Medium.ttf":
+        "b2ec1727fbc04b70255db6cb71be0eca3b7a7167ef11655059c5576cc920143f",
+    "src/autoslice/resources/fonts/ResourceHanRoundedCN-Regular.ttf":
+        "1c5c623f008eabef10c45135a48b01b46311f9369c28857355872cfe05f48dc0",
 }
+# 已人工核对的历史界面反馈图；新增或修改图片仍须重新审查。
+PUBLIC_REVIEW_IMAGE_ASSETS = {
+    "docs/desktop-vnext/review-assets/2026-10-18-ai-cover-suggestions.png":
+        "0a32d073373f3b48a7f4056cb14cd7fcd11e6801c39a8f8588172c3f8b43457d",
+    "docs/desktop-vnext/review-assets/2026-10-18-cover-material-library.png":
+        "46509fdd04456f5b63d79b0b5eedab43f91afd549db61867604ec1268489c3df",
+    "docs/desktop-vnext/review-assets/2026-10-18-cover-outline-colors.png":
+        "f9f35914f30119eca89e47e0f0656df69734ef7a8470b2a724ca1f3bdbbfa508",
+    "docs/desktop-vnext/review-assets/2026-10-18-cover-text-center-resize.png":
+        "d7f2a4e68f4fdbb3072f7436e3bf983f5339a3bb9da9da40c7228340ca8f9b73",
+}
+PUBLIC_BINARY_ASSETS = {**PUBLIC_FONT_ASSETS, **PUBLIC_REVIEW_IMAGE_ASSETS}
 FORBIDDEN_NAMES = {
     ".env",
     "api_config.json",
@@ -159,14 +175,14 @@ def main() -> int:
         relative = path.relative_to(ROOT).as_posix()
         for message in _path_errors(path):
             errors.append(f"{relative}：{message}")
-        if relative in PUBLIC_FONT_ASSETS:
+        if relative in PUBLIC_BINARY_ASSETS:
             try:
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
             except OSError as exc:
-                errors.append(f"{relative}：字体资源无法读取：{exc}")
+                errors.append(f"{relative}：发布资源无法读取：{exc}")
             else:
-                if digest != PUBLIC_FONT_ASSETS[relative]:
-                    errors.append(f"{relative}：字体资源 SHA-256 与发布清单不符")
+                if digest != PUBLIC_BINARY_ASSETS[relative]:
+                    errors.append(f"{relative}：发布资源 SHA-256 与发布清单不符")
             continue
         try:
             text = path.read_text(encoding="utf-8")

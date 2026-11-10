@@ -2,11 +2,11 @@
 
 AutoSlice 是面向 B 站录播的本机工作流工具：结合语音字幕、弹幕和可选人工时间轴生成话题报告与高光候选，再衔接字幕校对、硬字幕压制和 AutoCover 封面制作。
 
-桌面端最新开发与协作使用 **`desktop-vnext-dev`** 分支；仓库默认分支 `main`
+桌面端最新开发与朋友协作使用 **`desktop-cover-opus55`** 分支；仓库默认分支 `main`
 保留现有 Web 工作流。要接手 Qt 字幕与 AutoCover 编辑器，请从开发分支克隆：
 
 ```powershell
-git clone --branch desktop-vnext-dev https://github.com/YRMDLG/AutoSlice.git
+git clone --branch desktop-cover-opus55 https://github.com/YRMDLG/AutoSlice.git
 cd AutoSlice
 ```
 
