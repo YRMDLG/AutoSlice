@@ -86,7 +86,7 @@ def generate_waveform(video: Path | str, *, max_samples: int = 2400) -> Waveform
     probe = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", errors="replace", check=False,
     )
     try:
         duration = float(probe.stdout.strip())

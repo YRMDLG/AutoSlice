@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - desktop-vnext-dev
+      - desktop-cover-opus55
+      - 'codex/**'
   pull_request:
 
 permissions:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,6 +78,43 @@ class CorrectionMemoryTests(unittest.TestCase):
         self.memory.learn("other", "video-2", self.fix)
         self.assertEqual(self.promoted, [])
         self.assertEqual({profile for profile, _entry in self.memory.entries()}, {"zeyin", "other"})
+
+    def test_kept_correct_words_in_other_videos_reduce_precision(self):
+        fix = [("她的意思账号", "她的ins账号")]
+        for number in range(10):
+            self.memory.learn("zeyin", f"kept-{number}", [], final_text="这个词是什么意思")
+        self.memory.learn("zeyin", "changed-1", fix, final_text="她的ins账号")
+        self.memory.learn("zeyin", "changed-2", fix, final_text="她的ins账号")
+        self.assertEqual(self.promoted, [])
+        self.assertEqual(self.memory.replacements("zeyin"), ())
+        (_, entry), = self.memory.entries()
+        self.assertEqual(entry.kept, 10)
+        self.assertAlmostEqual(entry.precision, 2 / 12)
+
+    def test_default_learning_stays_advisory_and_resaving_replaces_old_evidence(self):
+        memory = CorrectionMemory(DesktopStorage(Path(self.temp.name) / "advisory"))
+        memory.learn("zeyin", "one", self.fix)
+        memory.learn("zeyin", "two", self.fix)
+        self.assertEqual(memory.replacements("zeyin"), (("音乐生", "音悦生"),))
+        memory.learn("zeyin", "two", [], final_text="音乐生")
+        self.assertEqual(memory.replacements("zeyin"), ())
+        (_, entry), = memory.entries()
+        self.assertEqual(entry.videos, 1)
+        self.assertFalse(entry.promoted)
+
+    def test_old_automatic_replacements_are_migrated_once(self):
+        root = Path(self.temp.name) / "legacy"
+        path = root / "learning" / "subtitle-corrections.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"schema_version": 1, "profiles": {"zeyin": {
+            "意思\tins": {"wrong": "意思", "right": "ins", "videos": ["one", "two"], "promoted": True},
+        }}}), encoding="utf-8")
+        removed = []
+        memory = CorrectionMemory(DesktopStorage(root), demote=lambda *args: removed.append(args))
+        self.assertEqual(removed, [("zeyin", "意思", "ins")])
+        self.assertEqual(memory.replacements("zeyin"), ())
+        CorrectionMemory(DesktopStorage(root), demote=lambda *args: removed.append(args))
+        self.assertEqual(len(removed), 1)
 
 
 if __name__ == "__main__":

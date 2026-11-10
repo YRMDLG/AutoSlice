@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import os
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -341,6 +341,33 @@ class DesktopAIQtTests(unittest.TestCase):
         self.wait_for(lambda: reopened.document is not None)
         self.assertEqual([item.status for item in reopened.ai_session.suggestions], ["skipped", "pending"])
         self.assertEqual(len(self.calls), 1)
+
+    def test_save_disables_ai_acceptance_and_preserves_the_saved_text(self):
+        import threading
+
+        from autoslice.desktop import subtitles
+
+        self.window._start_ai_check()
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
+        self.window.document.edit_text(2, "手动改好的第二句")
+        entered, release = threading.Event(), threading.Event()
+        original = subtitles.save_corrected_srt
+        def delayed_save(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise TimeoutError("测试保存等待超时")
+            return original(*args, **kwargs)
+        with patch.object(subtitles, "save_corrected_srt", side_effect=delayed_save):
+            self.window.save()
+            try:
+                self.wait_for(entered.is_set)
+                self.assertFalse(self.window.ai_accept.isEnabled())
+                self.window._accept_ai()
+                self.assertEqual(self.window.document.entries[0].text, "错字一")
+            finally:
+                release.set()
+            self.wait_for(lambda: not self.window._saving and not self.window._jobs)
+        self.assertFalse(self.window.document.dirty)
 
 
 if __name__ == "__main__":

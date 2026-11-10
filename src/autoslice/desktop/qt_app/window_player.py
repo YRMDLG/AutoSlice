@@ -127,13 +127,19 @@ class PlayerMixin:
     def _play_window(self, start, end):
         if not self.player or not self._media_ready or end <= start:
             return
-        self._audition_until = end
-        self._loop_enabled = False
+        self._clear_playback_range()
         self._seek_to(start)
+        self._audition_until = end
         self._player_paused = False
         self.player.seek(start, pause=False)
         self.player.play()
         self._set_play_button(False)
+
+    def _clear_playback_range(self):
+        self._audition_until = None
+        self._loop_enabled = False
+        self._loop_cue_id = None
+        self._loop_seek_pending = False
 
     def _set_loop(self, enabled):
         self._loop_enabled = bool(enabled)
@@ -143,12 +149,19 @@ class PlayerMixin:
         self._show_transient_status("已开启当前字幕循环" if enabled else "已关闭当前字幕循环")
 
     def _seek_to(self, seconds):
+        # 主动定位结束当前试听；不能把旧试听的停止点带到新的播放位置。
+        self._audition_until = None
         if not self.player:
             return
         if not self._media_ready:
             self._pending_seek = max(0.0, float(seconds))
             return
         target = max(0.0, min(float(seconds), self._player_duration))
+        if self._loop_enabled:
+            bounds = self._entry_bounds(self._loop_cue_id)
+            if bounds is None or not max(0.0, bounds[0] - .2) <= target <= bounds[1] + .2:
+                self._clear_playback_range()
+            self._loop_seek_pending = False
         self._pending_seek = None
         self._player_paused = True
         self._set_play_button(True)
@@ -185,6 +198,8 @@ class PlayerMixin:
     def _toggle_play(self):
         if not self.player or not self._media_ready:
             return
+        # 用户接管播放后恢复普通播放，避免继续被上次试听的结束点截停。
+        self._audition_until = None
         if self._player_paused:
             self._player_paused = False
             # 开始播放不应抢走用户手动调整过的时间轴视野。
@@ -259,6 +274,7 @@ class PlayerMixin:
                 self._player_paused = True
                 self.player.pause()
                 self._seek_to(until)
+                requested_seek = True
             elif self._loop_enabled and self._loop_cue_id is not None:
                 bounds = self._entry_bounds(self._loop_cue_id)
                 if bounds is not None:

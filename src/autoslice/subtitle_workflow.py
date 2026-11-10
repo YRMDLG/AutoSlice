@@ -19,6 +19,7 @@ from autoslice.llm import transport as llm_gateway
 from autoslice.llm.prompts import PromptContext, build_title_hook_guide
 from autoslice.media_formats import SUPPORTED_VIDEO_EXTENSIONS
 from autoslice.streamer_profiles import StreamerProfile, merge_profile_subtitle_glossary
+from autoslice.subtitle_edits import normalise_document_entries, serialise_document_entries
 from autoslice.transcription import background_filter as background_filter_contract
 from autoslice.transcription.contracts import (
     DEFAULT_MAX_PUBLISH_TITLE_CHARS,
@@ -694,7 +695,7 @@ def reflow_subtitle_srt_for_display(
 def save_corrected_srt(
         source_srt_path, corrections, output_path=None, *, deleted_indices=None,
         merge_pairs=None, merge_overrides=None, time_overrides=None,
-        split_groups=None,
+        split_groups=None, document_entries=None,
         persist_state=True):
     """校验并保存正文、删除、合并和时间调整；原 SRT 保持只读。
 
@@ -705,6 +706,12 @@ def save_corrected_srt(
         raise ValueError("预览临时字幕必须显式指定输出路径")
 
     cues = parse_srt_document(source_srt_path)
+    snapshot = (normalise_document_entries(cues, document_entries)
+                if document_entries is not None else None)
+    if snapshot is None and persist_state:
+        previous = load_subtitle_edit_state(source_srt_path)
+        if previous and previous.get("document_entries"):
+            raise ValueError("该字幕包含桌面端的组合编辑，请在桌面端继续保存，避免丢失拆分或合并结果")
     cue_by_index = {cue.index: cue for cue in cues}
     updates = {}
     for item in corrections or []:
@@ -760,7 +767,7 @@ def save_corrected_srt(
             raise ValueError("预览临时字幕不能覆盖正式字幕或校对状态")
     _atomic_write_text(
         destination,
-        serialise_srt(
+        serialise_document_entries(cues, snapshot) if snapshot is not None else serialise_srt(
             cues,
             updates,
             deleted_indices=deleted,
@@ -813,6 +820,8 @@ def save_corrected_srt(
                 for source, segments in sorted(normalized_split_groups.items())
             ],
         }
+        if snapshot is not None:
+            state_payload["document_entries"] = snapshot
         _atomic_write_text(
             _subtitle_edit_state_path(source_srt_path),
             json.dumps(state_payload, ensure_ascii=False, indent=2),
@@ -882,7 +891,7 @@ def load_subtitle_edit_state(source_srt_path):
                 "original": cue_by_index[index].text,
                 "corrected": corrected_text,
             })
-        return {
+        result = {
             "state_path": str(state_path),
             "corrected_srt_path": str(corrected),
             "corrections": corrections,
@@ -914,6 +923,12 @@ def load_subtitle_edit_state(source_srt_path):
                 for source, segments in sorted(normalized_split_groups.items())
             ],
         }
+        if "document_entries" in payload:
+            entries = normalise_document_entries(cues, payload["document_entries"])
+            if corrected.read_text(encoding="utf-8") != serialise_document_entries(cues, entries):
+                return None
+            result["document_entries"] = entries
+        return result
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
@@ -1481,9 +1496,17 @@ def suggest_subtitle_corrections(
         srt_path, context_title="", glossary=None, llm_runner=None,
         use_cache=True, progress_callback=None, replacements=None,
         streamer_profile_id="", streamer_profile_label="",
-        streamer_profile_fingerprint="", streamer_profile=None):
+        streamer_profile_fingerprint="", streamer_profile=None, review_indices=None):
     """逐批检查字幕并返回建议；不修改原始字幕。"""
     cues = parse_srt_document(srt_path)
+    scope = None
+    if review_indices is not None:
+        known = {cue.index for cue in cues}
+        if not isinstance(review_indices, (set, list, tuple)) or not review_indices or any(
+            type(index) is not int or index not in known for index in review_indices
+        ):
+            raise ValueError("请选择当前字幕中有效的复查条目")
+        scope = sorted(set(review_indices))
     if streamer_profile is not None:
         if replacements:
             raise ValueError("指定主播 profile 时固定纠错只能来自该 profile")
@@ -1525,7 +1548,7 @@ def suggest_subtitle_corrections(
                 streamer_profile_fingerprint,
                 cache_path,
             )
-            if validated:
+            if validated and cached.get("review_indices") == scope:
                 return validated
         except (OSError, ValueError, TypeError):
             pass
@@ -1534,19 +1557,26 @@ def suggest_subtitle_corrections(
     suggestions_by_index = {
         item["index"]: item
         for item in _fixed_replacement_suggestions(cues, active_replacements)
+        if scope is None or item["index"] in scope
     }
     batch_specs = []
-    for batch_number, target_start in enumerate(
-            range(0, len(cues), SUBTITLE_REVIEW_BATCH_SIZE), 1):
+    positions = {cue.index: index for index, cue in enumerate(cues)}
+    for target_start in range(0, len(cues), SUBTITLE_REVIEW_BATCH_SIZE):
         target_cues = cues[target_start:target_start + SUBTITLE_REVIEW_BATCH_SIZE]
-        context_start = max(0, target_start - SUBTITLE_REVIEW_CONTEXT_CUES)
+        if scope is not None:
+            target_cues = [cue for cue in target_cues if cue.index in scope]
+        if not target_cues:
+            continue
+        first = positions[target_cues[0].index]
+        last = positions[target_cues[-1].index]
+        context_start = max(0, first - SUBTITLE_REVIEW_CONTEXT_CUES)
         context_end = min(
             len(cues),
-            target_start + SUBTITLE_REVIEW_BATCH_SIZE + SUBTITLE_REVIEW_CONTEXT_CUES,
+            last + 1 + SUBTITLE_REVIEW_CONTEXT_CUES,
         )
         context_cues = cues[context_start:context_end]
         target_indices = [cue.index for cue in target_cues]
-        batch_specs.append((batch_number, context_cues, target_indices))
+        batch_specs.append((len(batch_specs) + 1, context_cues, target_indices))
 
     total_batches = len(batch_specs)
     batch_results = [None] * total_batches
@@ -1615,6 +1645,7 @@ def suggest_subtitle_corrections(
         "suggestions": [suggestions_by_index[index] for index in sorted(suggestions_by_index)],
         "cache_path": str(cache_path),
         "cache_hit": False,
+        "review_indices": scope,
     }
     if _subtitle_source_fingerprint(
             srt_path, context_title, active_glossary, active_replacements,

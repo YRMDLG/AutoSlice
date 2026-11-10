@@ -172,30 +172,40 @@ class CoverStoreService:
     def subtitle_cues(video: ProjectVideo) -> tuple[tuple[float, float, str], ...]:
         """整份字幕（优先校对版）：(起, 止, 文本)；读不到返回空。"""
 
-        source = video.corrected_srt_path if video.has_corrected_srt else video.srt_path
-        if not source or not Path(source).is_file():
-            return ()
-        try:
-            raw = Path(source).read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeError):
-            return ()
         import re
+
         def seconds(value: str) -> float:
             match = re.match(r"(\d+):(\d{2}):(\d{2})[,.](\d{3})", value.strip())
             if not match:
                 return -1.0
             return int(match.group(1)) * 3600 + int(match.group(2)) * 60 + int(match.group(3)) + int(match.group(4)) / 1000
-        cues: list[tuple[float, float, str]] = []
-        for block in re.split(r"\r?\n\s*\r?\n", raw):
-            lines = [line.strip() for line in block.splitlines() if line.strip()]
-            if len(lines) < 2 or "-->" not in lines[1]:
+        # 列表中的存在标记可能落后于实际文件；校对版失效时继续尝试原字幕。
+        sibling = str(Path(video.path).with_suffix(".srt")) if video.path else ""
+        for source in dict.fromkeys((video.corrected_srt_path, video.srt_path, sibling)):
+            if not source or not Path(source).is_file():
                 continue
-            start_raw, end_raw = [item.strip() for item in lines[1].split("-->", 1)]
-            start, end = seconds(start_raw), seconds(end_raw)
-            text = " ".join(lines[2:]).strip()
-            if start >= 0 and end >= 0 and text:
-                cues.append((start, end, text))
-        return tuple(cues)
+            raw = None
+            for encoding in ("utf-8-sig", "gb18030"):
+                try:
+                    raw = Path(source).read_text(encoding=encoding)
+                    break
+                except (OSError, UnicodeError):
+                    continue
+            if raw is None:
+                continue
+            cues: list[tuple[float, float, str]] = []
+            for block in re.split(r"\r?\n\s*\r?\n", raw):
+                lines = [line.strip() for line in block.splitlines() if line.strip()]
+                if len(lines) < 3 or "-->" not in lines[1]:
+                    continue
+                start_raw, end_raw = [item.strip() for item in lines[1].split("-->", 1)]
+                start, end = seconds(start_raw), seconds(end_raw)
+                text = " ".join(lines[2:]).strip()
+                if start >= 0 and end > start and text:
+                    cues.append((start, end, text))
+            if cues:
+                return tuple(cues)
+        return ()
 
     def _reflow_auto_default_layout(
         self, document: CoverDocument, *, canvas_key: str,

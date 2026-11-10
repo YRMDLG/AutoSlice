@@ -81,6 +81,16 @@ class AiReviewMixin:
         self.ai_note = label("AI 只生成待确认建议，不修改字幕。", "muted")
         self.ai_note.setWordWrap(True)
         content.addWidget(self.ai_note)
+        scope_row = QHBoxLayout()
+        self.ai_selected_check = QPushButton("复查选中")
+        self.ai_selected_check.setToolTip("仅检查选中的字幕，保留其它已确认结果")
+        self.ai_selected_check.clicked.connect(lambda: self._start_ai_check("selected"))
+        scope_row.addWidget(self.ai_selected_check)
+        self.ai_changed_check = QPushButton("复查改动")
+        self.ai_changed_check.setToolTip("只检查上次 AI 检查后改动或新增的字幕")
+        self.ai_changed_check.clicked.connect(lambda: self._start_ai_check("changed"))
+        scope_row.addWidget(self.ai_changed_check)
+        content.addLayout(scope_row)
 
         self.ai_card = QWidget()
         self.ai_card.setObjectName("aiSuggestionCard")
@@ -209,8 +219,10 @@ class AiReviewMixin:
             self.nav_badge.adjustSize()
             motion.reveal(self.nav_badge, badge_count > 0)
         self.ai_collapsed_label.setText(f"AI {count}" if count else "AI")
-        self.ai_run.setEnabled(bool(self.document))
-        self.ai_local.setEnabled(bool(self.document) and not self._ai_running)
+        self.ai_run.setEnabled(bool(self.document) and not self._saving)
+        self.ai_local.setEnabled(bool(self.document) and not self._ai_running and not self._saving)
+        for button in (self.ai_selected_check, self.ai_changed_check):
+            button.setEnabled(bool(self.document) and not self._ai_running and not self._saving)
         rechecking = bool(self.ai_session) and not self.ai_session.local_only
         self.ai_run.setText("取消检查" if self._ai_running else
                             "重新检查" if rechecking else "AI 检查")
@@ -258,6 +270,7 @@ class AiReviewMixin:
                                 self.ai_note.text() not in routine_notes)
         self._show_ai_detail()
         if getattr(self, "_pending_filter", False):
+            self._commit_editor()
             self.model.set_pending_filter({item.cue_id for item in pending})
 
     @staticmethod
@@ -315,6 +328,8 @@ class AiReviewMixin:
         self.ai_skip.show()
 
     def _select_ai(self, suggestion_id):
+        # 建议按钮动态创建，不依赖初始化时安装的鼠标过滤器来结束正文编辑。
+        self._commit_editor()
         self._ai_selected = suggestion_id
         if self.ai_session:
             pending = self.ai_session.pending
@@ -340,7 +355,7 @@ class AiReviewMixin:
             self._save_session()
 
     def _accept_ai(self):
-        if not self.document or not self.ai_session or not self._ai_selected:
+        if self._saving or not self.document or not self.ai_session or not self._ai_selected:
             return
         self._commit_editor()
         item = self.ai_session.find(self._ai_selected)
@@ -366,8 +381,9 @@ class AiReviewMixin:
             self._select_cue(item.cue_id)
 
     def _skip_ai(self):
-        if not self.document or not self.ai_session or not self._ai_selected:
+        if self._saving or not self.document or not self.ai_session or not self._ai_selected:
             return
+        self._commit_editor()
         current = self.ai_session.find(self._ai_selected)
         self._ai_skip_undo.append((document_hash(self.document.entries), self._ai_selected))
         self._ai_skip_redo.clear()
@@ -390,8 +406,8 @@ class AiReviewMixin:
         self._select_page(0)
         project = next((p for p in self.service.snapshot.projects if p.id == self._ai_return_project), None)
         if project:
-            self._session["video_path"] = getattr(self, "_ai_return_video_path", "")
-            self._select_real_project(project)
+            if not self._open_task_video(project.id, getattr(self, "_ai_return_video_path", "")):
+                return
         if self.document and self.ai_session and self.ai_session.pending:
             self._set_ai_open(True)
             self._select_ai(self.ai_session.pending[0].suggestion_id)
@@ -402,14 +418,15 @@ class AiReviewMixin:
     def _start_local_check(self):
         """同音检查：纯本地、立刻出结果，建议并进同一个待确认队列，不需要配置 AI。"""
 
-        if not self.document or not self.project or self._ai_running:
+        if self._saving or not self.document or not self.project or self._ai_running:
             return
         self._commit_editor()
-        if not homophone_available():
+        available = homophone_available()
+        found = self.ai_service.local_suggestions(self.document, self.project.title, homophones=available)
+        if not available and not found:
             self.ai_note.setText("同音检查需要 pypinyin：在运行 AutoSlice 的 Python 里执行 pip install pypinyin")
             self.ai_note.show()
             return
-        found = self.ai_service.local_suggestions(self.document, self.project.title)
         session = self.ai_session
         known = {(item.cue_id, item.suggested_text) for item in session.suggestions} if session else set()
         fresh = [item for item in found if (item.cue_id, item.suggested_text) not in known]
@@ -422,17 +439,18 @@ class AiReviewMixin:
                 session.content_hash = content
             self.ai_session = session
             self._ai_selected = None
-            if not session.local_only:
-                self._save_ai_session()
+            self._save_ai_session()
         self._render_ai()
         if fresh:
             self._set_ai_open(True)
-            self.ai_note.setText(f"同音检查：找到 {len(fresh)} 处疑似听错，逐条确认即可。")
+            self.ai_note.setText(f"{'同音检查' if available else '校对记忆'}：找到 {len(fresh)} 处待确认改字，逐条确认即可。")
         else:
             self.ai_note.setText("同音检查：没有发现发音和术语相同、写法不同的地方。")
         self.ai_note.show()
 
-    def _start_ai_check(self):
+    def _start_ai_check(self, scope="all"):
+        if self._saving:
+            return
         if self._ai_running:
             self._ai_cancel.set()
             self.ai_note.setText("正在取消检查…")
@@ -440,21 +458,38 @@ class AiReviewMixin:
         if not self.document or not self.project:
             return
         self._commit_editor()
+        cue_ids = None
+        if scope == "selected":
+            cue_ids = set(self.selection.selected)
+            if not cue_ids:
+                self.ai_note.setText("请先在字幕列表或时间轴选中需要复查的字幕。")
+                return
+        elif scope == "changed":
+            if not self.ai_session or not self.ai_session.reviewed_entries:
+                self.ai_note.setText("请先完成一次 AI 检查，再使用“复查改动”。")
+                return
+            cue_ids = self.ai_session.changed_indices(self.document.entries)
+            if not cue_ids:
+                self.ai_note.setText("上次检查后没有新的字幕改动。")
+                return
         rechecking = self.ai_session is not None and not self.ai_session.local_only
         if rechecking:
             choice = QMessageBox.question(self, "重新检查字幕",
-                                          "重新检查会再次调用 AI 并消耗额度，确定继续吗？")
+                                          f"将复查 {len(cue_ids) if cue_ids is not None else len(self.document.entries)} 条字幕，会调用 AI 并消耗额度，确定继续吗？")
             if choice != QMessageBox.StandardButton.Yes:
                 return
         snapshot = copy.copy(self.document)
         snapshot.entries = list(self.document.entries)
         project = self.project
+        previous = copy.deepcopy(self.ai_session)
         force = rechecking
         self._ai_running = True
         self._ai_cancel = threading.Event()
         cancellation = self._ai_cancel
         self._ai_generation += 1
         generation = self._ai_generation
+        self._task_update("ai", kind="AI 校对", project=project, video_path=snapshot.video.path,
+                          message="正在检查字幕…", cancel=cancellation.set)
         self.app_status.setText(f"{project.title} · AI 检查中")
         self.ai_note.setText("后台检查中，可切换页面。")
         self._render_ai()
@@ -463,8 +498,9 @@ class AiReviewMixin:
                 if cancellation.is_set():
                     raise RuntimeError("检查已取消")
                 self.ai_progress.emit(generation, project.title, _step, _total)
+            extra = {"cue_ids": cue_ids, "previous": previous} if cue_ids is not None else {}
             result = self.ai_service.check(snapshot, project.title, force=force,
-                                          progress_callback=progress)
+                                          progress_callback=progress, **extra)
             if cancellation.is_set():
                 raise RuntimeError("检查已取消")
             self.ai_service.save(snapshot, project.title, result)
@@ -474,12 +510,16 @@ class AiReviewMixin:
 
     def _show_ai_progress(self, generation, project_title, step, total):
         if generation == self._ai_generation and self._ai_running:
+            self._task_update("ai", message=f"正在检查 {step}/{total} 批" if total else "正在检查字幕…")
             self.app_status.setText(f"{project_title} · AI 检查中"
                                     + (f" ({step}/{total} 批)" if total > 0 else ""))
 
     def _ai_finished(self, generation, project, snapshot, result, error):
         if generation != self._ai_generation:
             return
+        self._task_update("ai", state="cancelled" if error and self._ai_cancel and self._ai_cancel.is_set() else
+                          "error" if error else "done",
+                          message=str(error) if error else f"检查完成，{len(result.pending)} 条待确认建议")
         self._ai_running = False
         if error:
             message = str(error)

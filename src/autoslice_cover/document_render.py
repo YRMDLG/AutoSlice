@@ -133,13 +133,20 @@ def _blurred(path: str, _mtime: int, radius: float) -> Image.Image:
         return source.convert("RGB").filter(ImageFilter.GaussianBlur(radius))
 
 
+@lru_cache(maxsize=4)
+def _source(path: str, _mtime: int) -> Image.Image:
+    """缓存未虚化底图；同一批候选只需要重复裁切和缩放，不必反复解码原图。"""
+
+    with Image.open(path) as source:
+        return source.convert("RGB")
+
+
 def background_source(path: str, blur_radius: float = 0.0) -> Image.Image:
     """底图（要虚化就先在源图上按源图像素半径糊好；画布和导出用同一张，拖动底图不用重算）。"""
 
     if blur_radius >= 0.5:
         return _blurred(path, Path(path).stat().st_mtime_ns, round(float(blur_radius), 1))
-    with Image.open(path) as source:
-        return source.convert("RGB")
+    return _source(path, Path(path).stat().st_mtime_ns)
 
 
 def paste_background(base: Image.Image, layer: BackgroundLayer) -> None:

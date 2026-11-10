@@ -278,8 +278,9 @@ class SubtitleRenderQtTests(unittest.TestCase):
                 self.window._edited()
                 self.window.save()
                 self.wait_for(lambda: not self.window._saving and not self.window._jobs)
-            # 两个视频都把“原文”改成“原稿”：写进本机覆盖词库（测试里指向临时文件）。
-            self.assertIn("原稿", overrides.read_text(encoding="utf-8"))
+            # 日常记忆只提供校对参考，不写入识别阶段的自动替换。
+            self.assertFalse(overrides.exists())
+            self.assertIn(("原文", "原稿"), self.window.correction_memory.replacements("generic"))
             self.assertIn("记住了常见错字", self.window.app_status.text())
             self.window._select_page(2)
             self.assertIn("原文 → 原稿", self.window.learning_panel.list.item(0).text())

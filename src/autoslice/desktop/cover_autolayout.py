@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
-from collections import Counter
+import json
+import threading
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -68,6 +70,37 @@ _SPLIT_HEIGHT = 0.22
 _SPLIT_TOP = 0.05
 
 _SPLIT_BOTTOM = 0.70
+
+# AI 方案会先用 320px 总图筛选，再用 156px 卡片展示，同一份文档通常会重复渲染。
+# JPEG 字节不可变，可以安全地在后台任务之间共享；文件签名放进 key，素材被替换后自动失效。
+_THUMBNAIL_CACHE: OrderedDict[tuple, bytes] = OrderedDict()
+_THUMBNAIL_CACHE_LOCK = threading.RLock()
+_THUMBNAIL_CACHE_LIMIT = 192
+
+
+def _thumbnail_cache_key(document: CoverDocument, canvas_key: str, width: int) -> tuple:
+    payload = document.to_payload()
+    # 选择态不会改变成品图，排除后可复用画布切换和候选卡片的同一张缩略图。
+    payload["selected_object_id"] = None
+    payload["active_profile"] = "4x3"
+    assets = []
+    for item in document.objects:
+        asset = getattr(item, "asset", None)
+        path = getattr(asset, "path", None)
+        if not path:
+            continue
+        try:
+            stat = Path(path).stat()
+        except OSError:
+            assets.append((path, None, None))
+        else:
+            assets.append((path, stat.st_size, stat.st_mtime_ns))
+    return (
+        canvas_key,
+        max(1, int(width)),
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        tuple(assets),
+    )
 
 _SPLIT_FONT_A = 136
 
@@ -807,6 +840,12 @@ class CoverLayoutService:
     def scheme_thumbnail(document: CoverDocument, *, canvas_key: str = "4x3", width: int = 240) -> bytes:
         """方案缩略图（JPEG 字节）；与导出同一套图层，看到的就是套用后的样子。"""
 
+        key = _thumbnail_cache_key(document, canvas_key, width)
+        with _THUMBNAIL_CACHE_LOCK:
+            cached = _THUMBNAIL_CACHE.get(key)
+            if cached is not None:
+                _THUMBNAIL_CACHE.move_to_end(key)
+                return cached
         background, layers = document_layers(document, canvas_key)
         if background is None:
             raise ValueError("方案缺少底图")
@@ -815,6 +854,12 @@ class CoverLayoutService:
             image.thumbnail((width, width), Image.Resampling.LANCZOS)
             buffer = io.BytesIO()
             image.convert("RGB").save(buffer, "JPEG", quality=88)
-            return buffer.getvalue()
+            result = buffer.getvalue()
         finally:
             image.close()
+        with _THUMBNAIL_CACHE_LOCK:
+            _THUMBNAIL_CACHE[key] = result
+            _THUMBNAIL_CACHE.move_to_end(key)
+            while len(_THUMBNAIL_CACHE) > _THUMBNAIL_CACHE_LIMIT:
+                _THUMBNAIL_CACHE.popitem(last=False)
+        return result

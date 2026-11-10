@@ -107,15 +107,28 @@ class SubtitlePreviewService:
             if issues:
                 flags[entry.index] = tuple(issues)
         _flag_boundary_duplicates(entries, flags)
+        for current, following in zip(entries, entries[1:]):
+            try:
+                overlap = _seconds(current.end) - _seconds(following.start)
+            except ValueError:
+                continue
+            if overlap > 0:
+                flags[current.index] = (*flags.get(current.index, ()), f"与下一条重叠 {overlap:.2f} 秒")
         return flags
 
 
 def _flag_boundary_duplicates(entries, flags: dict[int, tuple[str, ...]]) -> None:
+    for index, tail in boundary_duplicates(entries).items():
+        flags[index] = (*flags.get(index, ()), f"末尾“{tail}”和下一条开头重复，疑似多出的字")
+
+
+def boundary_duplicates(entries) -> dict[int, str]:
     """上一条末尾的字和下一条开头一样、两条几乎连着：多半是识别断句时多出来的字（比如“101系选 | 选秀…”）。
 
     两条各至少 6 个字才查（短的“对对 | 对对对”多半是说话人在重复），间隔不超过 0.3 秒。
     """
 
+    found = {}
     for current, following in zip(entries, entries[1:]):
         try:
             if _seconds(following.start) - _seconds(current.end) > 0.3:
@@ -127,8 +140,9 @@ def _flag_boundary_duplicates(entries, flags: dict[int, tuple[str, ...]]) -> Non
             tail = before[-size:]
             repeated_run = size == 1 and before[-2:-1] == tail  # “…对对 | 对…”是说话人在重复，不是漏出来的字
             if len(before) >= 6 and len(after) >= 6 and tail == after[:size] and _WORD.search(tail) and not repeated_run:
-                flags[current.index] = (*flags.get(current.index, ()), f"末尾“{tail}”和下一条开头重复，疑似多出的字")
+                found[current.index] = tail
                 break
+    return found
 
 
 def _seconds(value: str) -> float:

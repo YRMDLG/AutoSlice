@@ -812,15 +812,19 @@ def set_profile_override(document: CoverDocument, profile_key: str, item: Render
     })
 
 
-def update_text_object(document: CoverDocument, updated: TextObject, *, profile_key: str) -> CoverDocument:
-    """写回一次文字编辑：文案和样式同步到两个比例，其余只写当前比例。"""
+def update_text_object(
+    document: CoverDocument, updated: TextObject, *, profile_key: str,
+    shared_style_fields: tuple[str, ...] | None = None,
+) -> CoverDocument:
+    """写回文字编辑；默认共享全部样式，AI 可仅共享显式改动的颜色，保留各比例字号与描边。"""
 
     from dataclasses import replace
 
     base = next((item for item in document.objects if item.id == updated.id), None)
     if not isinstance(base, TextObject):
         return document
-    shared = {name: getattr(updated.style, name) for name in SHARED_TEXT_STYLE_FIELDS}
+    fields = SHARED_TEXT_STYLE_FIELDS if shared_style_fields is None else shared_style_fields
+    shared = {name: getattr(updated.style, name) for name in fields if name in SHARED_TEXT_STYLE_FIELDS}
     new_base = replace(base, text=updated.text, emphasis=updated.emphasis, style=replace(base.style, **shared))
     profiles: dict[str, LayoutProfile] = {}
     for key, profile in document.profiles.items():

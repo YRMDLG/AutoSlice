@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTabWidget,
     QVBoxLayout,
@@ -28,6 +30,7 @@ class CoverFixPreview:
     fix: AIFix
     thumbnail: bytes
     document: CoverDocument
+    profile_thumbnails: tuple[tuple[str, bytes], ...] = ()
 
 
 class CoverComparisonImage(QLabel):
@@ -36,13 +39,20 @@ class CoverComparisonImage(QLabel):
     def __init__(self, data: bytes, parent=None):
         super().__init__(parent)
         self._original = QPixmap()
-        self._original.loadFromData(data)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(120, 90)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.set_image(data)
+
+    def set_image(self, data: bytes) -> None:
+        self._original.loadFromData(data)
+        self._refresh_image()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._refresh_image()
+
+    def _refresh_image(self) -> None:
         self.setPixmap(self._original.scaled(
             self.contentsRect().size(), Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
@@ -53,7 +63,8 @@ class CoverCritiqueDialog(QDialog):
     def __init__(
         self, before: bytes, previews: tuple[CoverFixPreview, ...],
         apply: Callable[[CoverFixPreview], bool], *, undo: Callable[[], None],
-        redo: Callable[[], None], parent=None,
+        redo: Callable[[], None], before_profiles: tuple[tuple[str, bytes], ...] = (),
+        canvas_key: str = "4x3", context_note: str = "", parent=None,
     ):
         super().__init__(parent)
         self.setWindowTitle("AI 改一改")
@@ -61,12 +72,25 @@ class CoverCritiqueDialog(QDialog):
         self.setMinimumSize(540, 400)
         self.previews = previews
         self._apply_callback = apply
+        self._before = dict(before_profiles) or {canvas_key: before}
+        self._comparisons: list[tuple[str, QWidget]] = []
+        self._apply_label = "应用到两个比例" if len(self._before) > 1 else "应用"
         self.apply_buttons: list[QPushButton] = []
         layout = QVBoxLayout(self)
-        hint = QLabel("左侧是当前封面，右侧是修改效果。切换方案对照，点“应用”后可撤销。")
+        hint = QLabel(context_note + ("左侧是当前封面，右侧是修改效果。默认同时对照两个比例，也可单独放大检查；应用后一起更新，Ctrl+Z 一起撤销。"
+                                     if len(self._before) > 1 else "左侧是当前封面，右侧是修改效果。切换方案对照，点“应用”后可撤销。"))
         hint.setWordWrap(True)
         hint.setObjectName("subtle")
         layout.addWidget(hint)
+        self.profile_combo = QComboBox()
+        if len(self._before) > 1:
+            self.profile_combo.addItem("两个比例对照", "all")
+        for key in self._before:
+            self.profile_combo.addItem(key.replace("x", ":"), key)
+        self.profile_combo.setCurrentIndex(0 if len(self._before) > 1 else max(0, self.profile_combo.findData(canvas_key)))
+        self.profile_combo.setVisible(len(self._before) > 1)
+        self.profile_combo.currentIndexChanged.connect(self._change_profile)
+        layout.addWidget(self.profile_combo)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
         for index, preview in enumerate(previews):
@@ -79,20 +103,34 @@ class CoverCritiqueDialog(QDialog):
             font.setBold(True)
             issue.setFont(font)
             column.addWidget(issue)
-            pictures = QHBoxLayout()
-            for title, data in (("当前封面", before), ("方案预览", preview.thumbnail)):
-                side = QVBoxLayout()
-                side.addWidget(QLabel(title))
-                side.addWidget(CoverComparisonImage(data), 1)
-                pictures.addLayout(side, 1)
-            column.addLayout(pictures, 1)
+            for key, original_image in self._before.items():
+                section = QWidget()
+                section_layout = QVBoxLayout(section)
+                section_layout.setContentsMargins(0, 0, 0, 0)
+                section_layout.addWidget(QLabel(key.replace("x", ":")))
+                pictures = QHBoxLayout()
+                data = dict(preview.profile_thumbnails).get(key, preview.thumbnail)
+                for title, image in (("当前封面", original_image), ("方案预览", data)):
+                    side = QVBoxLayout()
+                    side.addWidget(QLabel(title))
+                    picture = CoverComparisonImage(image)
+                    picture.setProperty("profile_key", key)
+                    side.addWidget(picture, 1)
+                    pictures.addLayout(side, 1)
+                section_layout.addLayout(pictures, 1)
+                self._comparisons.append((key, section))
+                column.addWidget(section, 1)
             operations = QLabel("\n".join(f"• {step}" for step in preview.fix.steps))
             operations.setTextFormat(Qt.TextFormat.PlainText)
             operations.setWordWrap(True)
-            column.addWidget(operations)
+            details = QScrollArea()
+            details.setWidgetResizable(True)
+            details.setMaximumHeight(110)
+            details.setWidget(operations)
+            column.addWidget(details)
             row = QHBoxLayout()
             row.addStretch(1)
-            button = QPushButton("应用")
+            button = QPushButton(self._apply_label)
             button.clicked.connect(lambda _checked=False, item=preview, sender=button: self._apply(item, sender))
             row.addWidget(button)
             column.addLayout(row)
@@ -117,14 +155,20 @@ class CoverCritiqueDialog(QDialog):
         close.clicked.connect(self.close)
         controls.addWidget(close)
         layout.addLayout(controls)
+        self._change_profile()
         available = self.screen().availableGeometry()
         self.resize(min(1000, available.width() - 48), min(720, available.height() - 48))
         motion.install_tree(self)
 
+    def _change_profile(self, _index: int = 0) -> None:
+        key = self.profile_combo.currentData()
+        for profile, section in self._comparisons:
+            section.setVisible(key == "all" or key == profile)
+
     def _reset_buttons(self) -> None:
         for button in self.apply_buttons:
             button.setEnabled(True)
-            button.setText("应用")
+            button.setText(self._apply_label)
 
     def _history(self, action: Callable[[], None]) -> None:
         action()

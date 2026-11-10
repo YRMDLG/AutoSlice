@@ -15,9 +15,10 @@ from autoslice_cover.document_layout import clamp_background_scale
 from .cover_ai import AIFix
 from .cover_autolayout import primary_copy_ids, replace_copy
 from .cover_copy import BasicCoverCopy
-from .cover_effects import add_burst, burst_id
+from .cover_effects import add_burst, burst_id, follow_bursts
 from .cover_fix_edits import apply_object_edits
 from .cover_fix_quality import describe_scene, object_bounds
+from .cover_fix_schema import merge_object_edit
 from .cover_layout import canvas_size, text_layout
 from .cover_model import (
     BackgroundObject,
@@ -107,10 +108,22 @@ def apply_fix(service: Any, document: CoverDocument, image_path: str | Path, fix
 
     original = document
     for action in fix.actions:
+        before_action = document
         document = _apply_action(service, document, image_path, fix, action, profile_key)
+        if action != "edit_objects":
+            document = follow_bursts(before_action, document)
     if all(action in {"outline_colors", "edit_objects"} for action in fix.actions):
         return document
-    return _keep_inside(document, profile_key, original)
+    return follow_bursts(document, _keep_inside(document, profile_key, original))
+
+
+def apply_fix_profiles(service: Any, document: CoverDocument, image_path: str | Path, fix: AIFix) -> CoverDocument:
+    """一次修改覆盖所有导出比例，每个比例使用自己的几何并保护锁定与隐藏对象。"""
+
+    original = document
+    for key in original.profiles:
+        document = apply_fix(service, document, image_path, fix, key)
+    return replace(document, active_profile=original.active_profile)
 
 
 def _keep_inside(document: CoverDocument, profile_key: str, original: CoverDocument) -> CoverDocument:
@@ -152,7 +165,13 @@ def _apply_action(
     key = profile_key
     texts = _visible_texts(document, key)
     if action == "edit_objects":
-        return apply_object_edits(document, fix.edits, key)
+        profiles = dict(fix.profile_edits)
+        specific = profiles.get(key, () if fix.edits else next(iter(profiles.values()), ()))
+        ids = {edit.object_id for edit in specific}
+        common = {edit.object_id: edit for edit in fix.edits}
+        merged = tuple(merge_object_edit(common[edit.object_id], edit) if edit.object_id in common else edit
+                       for edit in specific)
+        return apply_object_edits(document, (*tuple(edit for edit in fix.edits if edit.object_id not in ids), *merged), key)
     if action == "outline_colors":
         for colors in fix.outlines:
             current = object_for_profile(document, colors.object_id, key)

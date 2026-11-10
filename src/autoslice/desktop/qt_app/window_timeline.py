@@ -148,8 +148,9 @@ class TimelineMixin:
         self._trim_active("end")
 
     def _trim_active(self, side):
-        if not self.document or self.selection.active is None:
+        if self._saving or not self.document or self.selection.active is None:
             return
+        self._commit_editor()
         entry = next((item for item in self.document.entries if item.index == self.selection.active), None)
         if not entry:
             return
@@ -168,7 +169,7 @@ class TimelineMixin:
         self._edited()
 
     def _split_at_playhead(self):
-        if not self.document or self.selection.active is None:
+        if self._saving or not self.document or self.selection.active is None:
             return
         entry = next((item for item in self.document.entries if item.index == self.selection.active), None)
         if not entry:
@@ -225,8 +226,9 @@ class TimelineMixin:
         )
 
     def _merge_selected(self):
-        if not self.document:
+        if self._saving or not self.document:
             return
+        self._commit_editor()
         try:
             new_index = self.document.merge_adjacent(set(self.selection.selected))
         except ValueError as exc:

@@ -66,6 +66,12 @@ class SubtitleListMixin:
         self.filter_all.setChecked(True)
         motion.SegmentedFx(segmented, (self.filter_all, self.filter_pending))
         heading.addWidget(segmented)
+        self.quality_button = QPushButton("待检查 0")
+        self.quality_button.setObjectName("quiet")
+        self.quality_button.setToolTip("检查重复字、显示时间、重叠和长字幕，支持定位、试听与撤销")
+        self.quality_button.setEnabled(False)
+        self.quality_button.clicked.connect(self._show_quality)
+        heading.addWidget(self.quality_button)
         heading.addStretch()
         self.subtitle_status = label("请选择项目", "subtle")
         heading.addWidget(self.subtitle_status)
@@ -158,6 +164,9 @@ class SubtitleListMixin:
         self.selected_index = self.selection.active
         self._sync_table_selection()
         self._row_changed(index, QModelIndex())
+        if self._loop_enabled:
+            self._loop_cue_id = entry.index
+            self._loop_seek_pending = False
         target = srt_timestamp_seconds(entry.start)
         if abs(self._player_position - target) > .1 or not self._player_paused:
             self.timeline.set_selection(entry.index, self.selection.selected)
@@ -227,6 +236,7 @@ class SubtitleListMixin:
         self._inline_editor_index = index
         self.table.setIndexWidget(index, editor)
         editor.show()
+        self._sync_shortcuts()
 
     def _focus_subtitle_editor(self, index, viewport_position=None):
         editing_index = self._editing_subtitle_index()
@@ -332,13 +342,16 @@ class SubtitleListMixin:
         if index is None or not index.isValid() or editor is None:
             return
         self.model.finish_live_text(index, editor.toPlainText())
+        # hide/remove 会同步触发焦点变化，必须先结束编辑状态，避免快捷键一直禁用。
+        self._inline_editor = None
+        self._inline_editor_index = QModelIndex()
+        self._inline_drag_anchor = None
         editor.hide()
         self.table.setIndexWidget(index, None)
         editor.setParent(None)
-        self._inline_editor = None
-        self._inline_editor_index = QModelIndex()
         editor.deleteLater()
         self.table.viewport().update(self.table.visualRect(index))
+        self._sync_shortcuts()
 
     def _select_cue(self, cue_index, *, center_timeline=True):
         if self.document is None:

@@ -318,6 +318,123 @@ class ResponsesProtocolTests(unittest.TestCase):
         self.assertEqual(config.api_type, "openai-responses")
 
 
+class JsonModeCompatibilityTests(unittest.TestCase):
+    """不支持格式约束的接口可以降级，但不能吞掉认证、模型或服务错误。"""
+
+    def tearDown(self):
+        transport.reset_reasoning_effort_capability_cache()
+
+    @staticmethod
+    def _valid_response(protocol):
+        text = '{"ok": true}'
+        return make_response(
+            {"choices": [{"message": {"content": text}, "finish_reason": "stop"}]}
+            if protocol == "openai" else {"output_text": text}
+        )
+
+    def test_explicit_json_rejection_retries_with_same_evidence_and_images(self):
+        for protocol, field, message, status in (
+            ("openai", "response_format", "response_format json_object is not supported", 400),
+            ("openai-responses", "text", "Unknown parameter: text.format", 422),
+        ):
+            with self.subTest(protocol=protocol):
+                rejected = make_response({}, status_code=status, text=message)
+                rejected.raise_for_status.side_effect = make_http_error(status)
+                post = Mock(side_effect=[rejected, self._valid_response(protocol)])
+                config = LLMApiConfig("https://gateway.example/v1", "test-token", "m", protocol)
+                result = transport.call_llm(
+                    "证据，请只返回 JSON", max_tokens=3000, json_mode=True,
+                    model_override="vision", load_config_func=lambda: config, request_post=post,
+                    request_timeout=(1, 2), images=(("image/png", b"png"),),
+                )
+                self.assertEqual(result, '{"ok": true}')
+                self.assertEqual(post.call_count, 2)
+                first, second = post.call_args_list
+                self.assertIn(field, first.kwargs["json"])
+                self.assertNotIn(field, second.kwargs["json"])
+                self.assertEqual(
+                    {key: value for key, value in first.kwargs["json"].items() if key != field},
+                    second.kwargs["json"],
+                )
+                self.assertEqual(first.args, second.args)
+                self.assertEqual(first.kwargs["headers"], second.kwargs["headers"])
+                self.assertEqual(second.kwargs["timeout"], (1.0, 2.0))
+
+    def test_json_and_reasoning_rejections_can_arrive_in_either_order(self):
+        for protocol, json_field, reasoning_field in (
+            ("openai", "response_format", "reasoning_effort"),
+            ("openai-responses", "text", "reasoning"),
+        ):
+            for json_first in (True, False):
+                with self.subTest(protocol=protocol, json_first=json_first):
+                    transport.reset_reasoning_effort_capability_cache()
+                    rejected = [
+                        make_response({}, status_code=400, text="Unsupported parameter: text.format response_format"),
+                        make_response({}, status_code=400, text="Unknown parameter: reasoning_effort"),
+                    ]
+                    if not json_first:
+                        rejected.reverse()
+                    post = Mock(side_effect=[*rejected, self._valid_response(protocol)])
+                    config = LLMApiConfig("https://gateway.example/v1", "test-token", "m", protocol)
+                    self.assertEqual(transport.call_llm(
+                        "证据 JSON", json_mode=True, reasoning_stage="analysis",
+                        load_config_func=lambda: config, request_post=post,
+                    ), '{"ok": true}')
+                    self.assertEqual(post.call_count, 3)
+                    first, second, third = (call.kwargs["json"] for call in post.call_args_list)
+                    self.assertIn(json_field, first)
+                    self.assertIn(reasoning_field, first)
+                    removed = json_field if json_first else reasoning_field
+                    self.assertNotIn(removed, second)
+                    self.assertNotIn(json_field, third)
+                    self.assertNotIn(reasoning_field, third)
+
+    def test_unrelated_errors_and_json_prompt_errors_are_not_retried(self):
+        for protocol in ("openai", "openai-responses"):
+            for status, message in (
+                (400, "Unknown model"),
+                (400, "response_format json_object requires prompt to contain JSON"),
+                (401, "Unsupported response_format"),
+                (403, "Unsupported response_format"),
+                (429, "Unsupported response_format"),
+                (500, "Unsupported response_format"),
+            ):
+                with self.subTest(protocol=protocol, status=status, message=message):
+                    rejected = make_response({}, status_code=status, text=message)
+                    rejected.raise_for_status.side_effect = make_http_error(status)
+                    post = Mock(return_value=rejected)
+                    config = LLMApiConfig("https://gateway.example/v1", "test-token", "m", protocol)
+                    with self.assertRaises(transport.LLMTransportError):
+                        transport.call_llm(
+                            "证据 JSON", json_mode=True,
+                            load_config_func=lambda: config, request_post=post,
+                        )
+                    self.assertEqual(post.call_count, 1)
+
+    def test_failed_fallback_stops_after_one_json_downgrade(self):
+        rejected = make_response({}, status_code=400, text="Unsupported response_format")
+        rejected.raise_for_status.side_effect = make_http_error(400)
+        post = Mock(return_value=rejected)
+        config = LLMApiConfig("https://gateway.example/v1", "test-token", "m", "openai")
+        with self.assertRaises(transport.LLMTransportError):
+            transport.call_llm(
+                "证据 JSON", json_mode=True, load_config_func=lambda: config, request_post=post,
+            )
+        self.assertEqual(post.call_count, 2)
+
+    def test_anthropic_keeps_its_supported_message_parameters(self):
+        post = Mock(return_value=make_response({
+            "content": [{"type": "text", "text": '{"ok": true}'}], "stop_reason": "end_turn",
+        }))
+        config = LLMApiConfig("https://gateway.example/v1", "test-token", "m", "anthropic")
+        self.assertEqual(transport.call_llm(
+            "证据 JSON", json_mode=True, load_config_func=lambda: config, request_post=post,
+        ), '{"ok": true}')
+        self.assertEqual(post.call_count, 1)
+        self.assertNotIn("response_format", post.call_args.kwargs["json"])
+        self.assertNotIn("text", post.call_args.kwargs["json"])
+
+
 class ProxyModeTests(unittest.TestCase):
 
     @staticmethod
