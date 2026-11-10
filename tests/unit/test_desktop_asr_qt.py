@@ -174,6 +174,31 @@ class AsrQtTests(unittest.TestCase):
         self.wait_for(lambda: not self.window._asr_running())
         self.assertFalse(self.banner_visible())
 
+    def test_finishing_elsewhere_reenables_the_current_missing_subtitle_video(self):
+        folder = self.root / "另一个没字幕"
+        folder.mkdir()
+        (folder / "视频.mp4").touch()
+        self.window.refresh()
+        self.wait_for(lambda: not self.window._jobs and any(
+            project.title == "另一个没字幕" for project in self.window.service.snapshot.projects))
+        self.projects = {p.title: p for p in self.window.service.snapshot.projects}
+        for state in ("error", "cancelled"):
+            with self.subTest(state=state):
+                self.use_model("sleep")
+                self.select("没字幕")
+                self.window.asr_banner.start_button.click()
+                self.wait_for(lambda: self.window.asr_banner.bar.value() > 0)
+                self.select("另一个没字幕")
+                self.assertFalse(self.window.asr_banner.start_button.isEnabled())
+                self.window._asr_job.cancel()
+                self.wait_for(lambda: not self.window._asr_running())
+                # 错误事件与取消事件共用当前视频状态收口。
+                if state == "error":
+                    self.window._asr_video = str(self.root / "没字幕" / "视频.mp4")
+                    self.window._asr_finished("error", {"message": "模拟识别失败"})
+                self.assertTrue(self.window.asr_banner.start_button.isEnabled())
+                self.assertNotIn("正在识别另一个", self.window.asr_banner.detail.text())
+
     def test_closing_the_window_stops_a_running_recognition(self):
         self.use_model("sleep")
         self.select("没字幕")

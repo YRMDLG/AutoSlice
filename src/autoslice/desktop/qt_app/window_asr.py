@@ -64,17 +64,23 @@ class RecognizeMixin:
         spec = JobSpec(video=video.path, output=video.srt_path, storage_root=str(self.storage.root),
                        settings=dataclasses.asdict(settings), hotwords=hotwords)
         self._asr_video = video.path
+        self._task_update("asr", kind="字幕识别", project=self.project, video_path=video.path,
+                          message="准备识别…", cancel=self._asr_job.cancel)
         self.asr_banner.start_button.setEnabled(True)
         self.asr_banner.show_running("准备中…", 0.0)
         self._asr_job.start(spec, self.storage.root / "cache" / "asr" / "job.json", settings.python)
 
     def _asr_progress(self, message: str, fraction: float) -> None:
+        self._task_update("asr", message=f"{fraction * 100:.0f}% · {message}")
         current = self.video_choice.currentData() if self.project is not None else None
         if current is not None and current.path == self._asr_video:
             self.asr_banner.show_running(message, fraction)
         self.app_status.setText(f"识别字幕 {fraction * 100:.0f}% · {message}")
 
     def _asr_finished(self, state: str, payload: dict) -> None:
+        self._task_update("asr", state="done" if payload.get("code") == "exists" else state,
+                          message=payload.get("message") or
+                          (f"识别完成，{payload.get('cue_count', 0)} 条字幕" if state == "done" else "识别已停止"))
         video_path, self._asr_video = self._asr_video, None
         current = self.video_choice.currentData() if self.project is not None else None
         here = current is not None and current.path == video_path
@@ -94,8 +100,13 @@ class RecognizeMixin:
                 self.refresh()
             return
         if not here:
+            if current is not None and not current.has_source_srt:
+                self._asr_offer(current)
             if state == "error":
-                self._show_transient_status(f"字幕识别没成功：{payload.get('message', '')}", 9000)
+                from pathlib import Path
+
+                title = Path(video_path).parent.name if video_path else "其它视频"
+                self._show_transient_status(f"{title} · 字幕识别没成功：{payload.get('message', '')}", 9000)
             return
         if state == "cancelled":
             self.asr_banner.show_cancelled()

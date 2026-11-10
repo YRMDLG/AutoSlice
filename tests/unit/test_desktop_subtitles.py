@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -31,6 +32,109 @@ class DesktopSubtitleTests(unittest.TestCase):
 
     def video(self):
         return SubmissionProjectService(self.root).refresh().projects[0].videos[0]
+
+    def test_split_merge_combinations_roundtrip_without_losing_text_or_time(self):
+        for operation in ("split_merge", "merge_split", "split_retime", "repeated_split"):
+            with self.subTest(operation=operation):
+                document = SubtitleDocument.load(self.video())
+                if operation == "split_merge":
+                    new_index = document.split_at(1, 1.5, left_text="第一")
+                    document.merge_adjacent({new_index, 2})
+                elif operation == "merge_split":
+                    document.merge_adjacent({1, 2})
+                    document.split_at(1, 2.0, left_text="第一条")
+                elif operation == "split_retime":
+                    document.split_at(1, 1.5, left_text="第一")
+                    document.change_time(1, .8, 1.5)
+                else:
+                    document.split_at(1, 1.7, left_text="第一")
+                    document.split_at(1, 1.3, left_text="第")
+                expected = list(document.entries)
+                output = document.save()
+                cues = parse_srt_document(output)
+                self.assertEqual([(c.index, c.start, c.end, c.text) for c in cues],
+                                 [(e.index, e.start, e.end, e.text) for e in expected])
+                self.assertEqual(SubtitleDocument.load(self.video()).entries, expected)
+                self.assertFalse(document.dirty)
+                Path(output).unlink()
+                self.source.with_name("成片_校对状态.json").unlink()
+
+    def test_new_split_and_merge_drafts_restore_before_first_save(self):
+        for operation in ("split", "merge", "mixed"):
+            with self.subTest(operation=operation):
+                document = SubtitleDocument.load(self.video())
+                if operation == "merge":
+                    document.merge_adjacent({1, 2})
+                else:
+                    new_index = document.split_at(1, 1.5)
+                    if operation == "mixed":
+                        document.edit_text(new_index, "后半句")
+                        document.merge_adjacent({new_index, 2})
+                reopened = SubtitleDocument.load(self.video())
+                reopened.restore_draft(document.draft_payload())
+                self.assertEqual(reopened.entries, document.entries)
+                self.assertTrue(reopened.dirty)
+
+    def test_draft_rejects_unknown_sources_duplicate_ids_and_reversed_time(self):
+        document = SubtitleDocument.load(self.video())
+        for field, value in (("source_indices", [999]), ("index", 2),
+                             ("end", "00:00:00,500")):
+            payload = document.draft_payload()
+            payload["entries"][0][field] = value
+            with self.assertRaises(ValueError):
+                document.restore_draft(payload)
+
+    def test_save_keeps_new_edits_dirty_when_document_changes_during_write(self):
+        document = SubtitleDocument.load(self.video())
+        document.edit_text(1, "保存开始时")
+        entered, release = threading.Event(), threading.Event()
+        failures = []
+        def delayed_save(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise TimeoutError("测试保存等待超时")
+            return save_corrected_srt(*args, **kwargs)
+        def save():
+            try:
+                document.save()
+            except Exception as exc:
+                failures.append(exc)
+        with patch("autoslice.desktop.subtitles.save_corrected_srt", side_effect=delayed_save):
+            worker = threading.Thread(target=save)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                document.edit_text(1, "保存期间的新修改")
+            finally:
+                release.set()
+                worker.join(5)
+        self.assertFalse(failures)
+        self.assertTrue(document.dirty)
+        self.assertEqual(parse_srt_document(document.corrected_path)[0].text, "保存开始时")
+        document.save()
+        self.assertEqual(SubtitleDocument.load(self.video()).entries[0].text, "保存期间的新修改")
+
+    def test_legacy_writer_cannot_overwrite_combined_desktop_edits(self):
+        document = SubtitleDocument.load(self.video())
+        new_index = document.split_at(1, 1.5, left_text="第一")
+        document.merge_adjacent({new_index, 2})
+        output = Path(document.save())
+        before = output.read_bytes()
+        with self.assertRaisesRegex(ValueError, "桌面端"):
+            save_corrected_srt(self.source, [])
+        self.assertEqual(output.read_bytes(), before)
+
+    def test_deleting_one_split_part_and_editing_after_reopen_remains_saveable(self):
+        document = SubtitleDocument.load(self.video())
+        right = document.split_at(1, 1.5, left_text="第一")
+        document.delete(right)
+        document.save()
+        reopened = SubtitleDocument.load(self.video())
+        self.assertEqual(reopened.entries[0].text, "第一")
+        reopened.edit_text(1, "再次校对")
+        reopened.change_time(1, .8, 1.4)
+        reopened.save()
+        self.assertEqual(SubtitleDocument.load(self.video()).entries, reopened.entries)
 
     def test_load_edit_delete_undo_redo_save_reload(self):
         document = SubtitleDocument.load(self.video())

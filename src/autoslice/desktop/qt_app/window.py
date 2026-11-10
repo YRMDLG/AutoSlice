@@ -52,7 +52,9 @@ from .window_document import SubtitleDocumentMixin
 from .window_input import InputRoutingMixin
 from .window_player import PlayerMixin
 from .window_projects import ProjectsMixin
+from .window_quality import QualityReviewMixin
 from .window_subtitles import SubtitleListMixin
+from .window_tasks import TaskPanelMixin
 from .window_timeline import TimelineMixin
 from .window_widgets import _StatusLabel
 
@@ -78,6 +80,8 @@ class DesktopWindow(
     TimelineMixin,
     PlayerMixin,
     SubtitleDocumentMixin,
+    QualityReviewMixin,
+    TaskPanelMixin,
     PreviewWindow,
 ):
     # 各职责的混入类必须排在 PreviewWindow 之前，才能覆盖它的同名构建方法。
@@ -267,6 +271,10 @@ class DesktopWindow(
         self.render_location.clicked.connect(self._locate_render_output)
         motion.reveal(self.render_location, False)
         row.addWidget(self.render_location)
+        self.tasks_button = QPushButton("任务")
+        self.tasks_button.setObjectName("quiet")
+        self.tasks_button.clicked.connect(self._show_tasks)
+        row.addWidget(self.tasks_button)
         self.ai_return = QPushButton("查看待确认")
         self.ai_return.clicked.connect(self._return_to_ai)
         motion.reveal(self.ai_return, False)
@@ -338,6 +346,14 @@ class DesktopWindow(
         QThreadPool.globalInstance().start(job)
 
     def _update_status(self):
+        if hasattr(self, "ai_accept"):
+            self._show_ai_detail()
+            self.ai_skip.setEnabled(not self._saving)
+            self.ai_run.setEnabled(self.document is not None and not self._saving)
+            self.ai_local.setEnabled(self.document is not None and not self._saving and not self._ai_running)
+            for button in (self.ai_selected_check, self.ai_changed_check):
+                button.setEnabled(self.document is not None and not self._saving and not self._ai_running)
+        self._refresh_quality_panel()
         if self.document is None:
             self.subtitle_status.setText("请选择有字幕的视频")
             self.save_button.setEnabled(False)
@@ -345,10 +361,14 @@ class DesktopWindow(
             self.render_button.setText("压制字幕")
             self.render_button.setIcon(desktop_icon("render", COLORS.text))
             self.timeline_overlap.setText("")
+            self.quality_button.setEnabled(False)
+            self.quality_button.setText("待检查 0")
             return
         suffix = " · 未保存" if self.document.dirty else " · 已保存"
         quality = self.preview_service.quality_flags(self.document.entries, self._habit_limits())
         quality_text = f" · ⚠ {len(quality)} 条待检查" if quality else ""
+        self.quality_button.setText(f"待检查 {len(quality)}")
+        self.quality_button.setEnabled(bool(quality))
         self.subtitle_status.setText(f"全部 {len(self.document.entries)} 条{suffix}{quality_text}")
         self.subtitle_status.setToolTip("\n".join(
             f"第 {index} 条：{'、'.join(issues)}" for index, issues in quality.items()

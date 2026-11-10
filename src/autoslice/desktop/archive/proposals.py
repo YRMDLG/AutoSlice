@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
+from autoslice.desktop.correction_memory import MIN_PRECISION
 from autoslice.desktop.foundation import DesktopStorage
 
 from .knowledge import Knowledge, archive_dir
@@ -25,7 +26,6 @@ from .store import ArchiveStore
 PENDING, ACCEPTED, REJECTED = "pending", "accepted", "rejected"
 MIN_VIDEOS = 3
 # 改过的次数占“改过 + 别处原样保留”的比例至少这么高，才当固定纠错（防止把“意思→ins”这种多数时候是对的词改坏）。
-MIN_PRECISION = 0.8
 MIN_TERM_DF = 5
 MAX_SPREAD = 2
 HABIT_MIN_VIDEOS = 20

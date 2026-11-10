@@ -31,6 +31,7 @@ class SubtitleTimeline(QWidget):
         super().__init__(parent)
         self.setMinimumHeight(54)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.document: SubtitleDocument | None = None
         self.selected_index: int | None = None
         self.selected_indices: set[int] = set()

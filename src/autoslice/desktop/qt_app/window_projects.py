@@ -27,6 +27,7 @@ from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import ProjectItem, card, label, line, tool_icon
+from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
@@ -266,7 +267,7 @@ class ProjectsMixin:
             self.video_name.setText("选择视频")
             self.cover_editor.set_context(None, None)
 
-    def _select_real_project(self, project):
+    def _select_real_project(self, project, *, preferred_video=None):
         if self._loading or self._saving:
             self._restore_project_button()
             return
@@ -279,6 +280,11 @@ class ProjectsMixin:
         self.project = project
         self.ai_session = None
         self._ai_selected = None
+        self._ai_undo.clear()
+        self._ai_redo.clear()
+        self._ai_skip_undo.clear()
+        self._ai_skip_redo.clear()
+        self.selection = CueSelection()
         self._pending_filter = False
         self.filter_all.setChecked(True)
         self._render_ai()
@@ -294,7 +300,7 @@ class ProjectsMixin:
         self.video_choice.clear()
         for video in project.videos:
             self.video_choice.addItem(video.name, video)
-        preferred = self._session.get("video_path")
+        preferred = preferred_video or self._session.get("video_path")
         index = next((i for i, video in enumerate(project.videos) if video.path == preferred), 0)
         self.video_choice.setCurrentIndex(index if project.videos else -1)
         self.video_choice.blockSignals(False)
@@ -364,17 +370,32 @@ class ProjectsMixin:
         self._load_video(video)
 
     def _load_video(self, video):
+        self._commit_editor()
         if self.project is not None:
             self.cover_editor.set_context(self.project, video)
         self._asr_hide(video)
         self.ai_session = None
         self._ai_selected = None
+        self._ai_undo.clear()
+        self._ai_redo.clear()
+        self._ai_skip_undo.clear()
+        self._ai_skip_redo.clear()
+        self.selection = CueSelection()
+        self.selected_index = None
         self._pending_filter = False
         self.filter_all.setChecked(True)
         self._render_ai()
         self._media_ready = False
         self._preview_attached = False
         self._pending_seek = None
+        self._clear_playback_range()
+        self._seek_guard_target = None
+        self._seek_guard_until = 0.0
+        self._player_duration = 0.0
+        self._player_position = 0.0
+        self.timeline.set_duration(0.0)
+        self.timeline.set_playhead(0.0, playing=False)
+        self.timeline.set_waveform(None)
         self.play_button.setEnabled(False)
         self._player_paused = True
         self._set_play_button(True)
@@ -382,8 +403,6 @@ class ProjectsMixin:
             self._player_load_token += 1
             token = self._player_load_token
             self.video_stack.setCurrentIndex(1)
-            self._player_duration = 0.0
-            self._player_position = 0.0
             self._resume_pending = self._session.get("video_path") == video.path
             self.time_label.setText("正在加载视频…")
             self.player.load(video.path)
@@ -392,6 +411,7 @@ class ProjectsMixin:
             self.video_stack.setCurrentIndex(0)
         self._loading = True
         self.document = None
+        self.model.set_pending_filter(None)
         self.model.set_document(None)
         self.timeline.set_document(None)
         self.subtitle_status.setText("正在加载字幕…")

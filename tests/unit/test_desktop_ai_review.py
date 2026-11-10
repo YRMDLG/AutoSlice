@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from autoslice.desktop.ai_review import AIReviewService
+from autoslice.desktop.ai_review import AIReviewService, AIReviewSession, Suggestion, document_hash
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.projects import SubmissionProjectService
 from autoslice.desktop.subtitles import SubtitleDocument
@@ -94,6 +94,28 @@ class DesktopAIReviewTests(unittest.TestCase):
                                   config_loader=lambda: (_ for _ in ()).throw(ValueError("未配置 LLM API")))
         with self.assertRaisesRegex(ValueError, "未配置"):
             service.check(self.document, self.title)
+
+    def test_local_session_restores_processed_states_without_ai_configuration(self):
+        self.service.config_loader = lambda: (_ for _ in ()).throw(ValueError("未配置 AI"))
+        session = AIReviewSession([
+            Suggestion("local-1", 1, "错字一", "正字一", "同音", None, status="skipped", source="homophone"),
+            Suggestion("local-2", 2, "错字二", "正字二", "同音", None, source="homophone"),
+        ], "local-cache", document_hash(self.document.entries), local_only=True)
+        self.service.save(self.document, self.title, session)
+        restored, status = self.service.load(self.document, self.title)
+        self.assertEqual(status, "ready")
+        self.assertTrue(restored.local_only)
+        self.assertEqual([item.status for item in restored.suggestions], ["skipped", "pending"])
+        self.assertEqual(self.calls, [])
+
+    def test_correction_memory_creates_local_suggestions_without_changing_text(self):
+        fix = [("错字一", "正字一")]
+        self.service.memory.learn("test", "one", fix)
+        self.service.memory.learn("test", "two", fix)
+        suggestions = self.service.local_suggestions(self.document, self.title)
+        self.assertEqual([(item.cue_id, item.suggested_text, item.source) for item in suggestions],
+                         [(1, "正字一", "memory"), (2, "正字二", "memory")])
+        self.assertEqual(self.document.entries[0].text, "错字一")
 
 
 if __name__ == "__main__":

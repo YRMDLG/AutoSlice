@@ -98,10 +98,13 @@ class SubtitleDocumentMixin:
             self._save_then_render = False
             QMessageBox.warning(self, "保存失败", str(error))
         elif self.document is document:
-            self._remove_draft(document)
             self._baseline = self.storage.capture_baseline(
                 document.source_path, dependencies=[document.corrected_path]
             )
+            if document.dirty:
+                self._write_draft()
+            else:
+                self._remove_draft(document)
             self._show_transient_status(f"✓ 已保存 · {Path(result).name}")
             self._learn_corrections(document)
         self._update_status()
@@ -122,14 +125,15 @@ class SubtitleDocumentMixin:
             (str(item.get("original", "")), str(item.get("corrected", "")))
             for item in (document.saved_state or {}).get("corrections", [])
         ]
-        if not corrections:
-            return
         title = self.project.title if self.project is not None else ""
         video_key = hashlib.sha1(os.path.normcase(str(Path(document.video.path).resolve())).encode("utf-8")).hexdigest()[:16]
 
         def learn():
             profile = resolve_streamer_profile("auto", document.video.path, context_hint=title)
-            return self.correction_memory.learn(profile.id, video_key, corrections)
+            return self.correction_memory.learn(
+                profile.id, video_key, corrections,
+                final_text="\n".join(entry.text for entry in document._saved_entries),
+            )
 
         def done(result, error):
             if error is None and result:
@@ -231,6 +235,8 @@ class SubtitleDocumentMixin:
         cancellation = threading.Event()
         self._render_jobs[key] = {"title": project.title, "cancel": cancellation,
                                   "percent": 0, "percent_enabled": True}
+        self._task_update(f"render:{key}", kind="字幕压制", project=project,
+                          video_path=document.video.path, message="准备压制…", cancel=cancellation.set)
         self._render_result = None
         motion.reveal(self.render_location, False)
         self.app_status.setText(f"{project.title} · 正在压制…")
@@ -260,12 +266,16 @@ class SubtitleDocumentMixin:
         elif percent is not None and job["percent_enabled"]:
             job["percent"] = max(job["percent"], percent)
         suffix = f" {job['percent']}%" if percent is not None and job["percent_enabled"] else ""
+        self._task_update(f"render:{key}", message=f"正在压制{suffix} · {message}")
         self.app_status.setText(f"{job['title']} · 正在压制{suffix}")
 
     def _render_finished(self, key, result, error):
         job = self._render_jobs.pop(key, None)
         if job is None:
             return
+        self._task_update(f"render:{key}", state="cancelled" if error and job["cancel"].is_set() else
+                          "error" if error else "done",
+                          message=str(error) if error else "字幕压制完成，可定位输出文件。")
         if error:
             if job["cancel"].is_set():
                 self.app_status.setText(f"{job['title']} · 压制已停止")

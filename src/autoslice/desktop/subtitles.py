@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from autoslice.desktop.projects import ProjectVideo
+from autoslice.subtitle_edits import normalise_document_entries, serialise_document_entries
 from autoslice.subtitle_workflow import (
     load_subtitle_edit_state,
     parse_srt_document,
     save_corrected_srt,
+    serialise_srt,
 )
 from autoslice.transcription.contracts import SubtitleCue, srt_timestamp_seconds
 
@@ -136,6 +138,9 @@ class SubtitleDocument:
     def _entries_from_saved(
         source_cues: list[SubtitleCue], corrected_cues: list[SubtitleCue], state: dict
     ) -> list[SubtitleEntry]:
+        if state.get("document_entries"):
+            return [SubtitleEntry(**{**item, "source_indices": tuple(item["source_indices"])})
+                    for item in normalise_document_entries(source_cues, state["document_entries"])]
         split_by_source = {
             int(group["source"]): group.get("segments", [])
             for group in state.get("split_groups", [])
@@ -250,7 +255,8 @@ class SubtitleDocument:
             original = entry.text
             left = original if left_text is None else original[:max(0, min(len(original), len(left_text)))]
             right = original[len(left):] if left_text is not None else ""
-            new_index = max((item.index for item in self.entries), default=0) + 1
+            new_index = max([item.index for item in self.entries]
+                            + [cue.index for cue in self.source_cues]) + 1
             self.entries[offset:offset + 1] = [
                 replace(entry, end=_timestamp(position), text=left,
                         stable_id=f"{entry.source_indices[0]}:0"),
@@ -302,13 +308,6 @@ class SubtitleDocument:
             raise ValueError("所选字幕已不存在")
         if len(indices) >= len(self.entries):
             raise ValueError("至少保留一条字幕，不能删除全部字幕")
-        selected_sources = [entry.source_indices for entry in self.entries
-                            if entry.index in indices]
-        for source_indices in selected_sources:
-            group_ids = {entry.index for entry in self.entries
-                         if entry.source_indices == source_indices}
-            if len(group_ids) > 1 and not group_ids <= indices:
-                raise ValueError("拆分字幕请先合并后再删除")
         self._remember()
         self.entries = [entry for entry in self.entries if entry.index not in indices]
 
@@ -350,52 +349,11 @@ class SubtitleDocument:
 
         if not isinstance(payload, dict) or payload.get("schema_version") != 1:
             raise ValueError("字幕草稿版本不兼容")
-        raw_entries = payload.get("entries")
-        if not isinstance(raw_entries, list) or not raw_entries:
-            raise ValueError("字幕草稿内容无效")
-        source_order = [cue.index for cue in self.source_cues]
-        allowed_groups = {entry.source_indices for entry in self.entries}
-        used: list[int] = []
-        restored = []
-        for item in raw_entries:
-            if not isinstance(item, dict):
-                raise ValueError("字幕草稿内容无效")
-            members = item.get("source_indices")
-            if not isinstance(members, list) or not members or any(
-                not isinstance(value, int) or isinstance(value, bool) for value in members
-            ):
-                raise ValueError("字幕草稿成员序号无效")
-            split_group = tuple(members) in allowed_groups and sum(
-                1 for entry in self.entries if entry.source_indices == tuple(members)
-            ) > 1
-            if ((not split_group and item.get("index") != members[0])
-                    or (not split_group and any(value in used for value in members))):
-                raise ValueError("字幕草稿序号冲突")
-            if tuple(members) not in allowed_groups:
-                raise ValueError("字幕草稿合并关系与正式字幕不一致")
-            if not all(isinstance(item.get(key), str) for key in ("start", "end", "text")):
-                raise ValueError("字幕草稿字段无效")
-            try:
-                start = srt_timestamp_seconds(item["start"])
-                end = srt_timestamp_seconds(item["end"])
-            except ValueError as exc:
-                raise ValueError("字幕草稿时间无效") from exc
-            if start < 0 or end <= start:
-                raise ValueError("字幕草稿时间范围无效")
-            used.extend(members)
-            restored.append(SubtitleEntry(
-                int(item["index"]), item["start"], item["end"], item["text"],
-                tuple(members), item.get("stable_id")
-            ))
-        unique_used = []
-        for value in used:
-            if value not in unique_used:
-                unique_used.append(value)
-        if unique_used != [value for value in source_order if value in unique_used]:
-            raise ValueError("字幕草稿与当前源字幕不匹配")
-        if any(srt_timestamp_seconds(left.start) > srt_timestamp_seconds(right.start)
-               for left, right in zip(restored, restored[1:])):
-            raise ValueError("字幕草稿时间顺序无效")
+        raw_entries = normalise_document_entries(
+            self.source_cues, payload.get("entries"), allow_empty_text=True,
+        )
+        restored = [SubtitleEntry(**{**item, "source_indices": tuple(item["source_indices"])})
+                    for item in raw_entries]
         self.entries = restored
         self._undo.clear()
         self._redo.clear()
@@ -405,9 +363,10 @@ class SubtitleDocument:
         ) else None
 
     def save(self) -> str:
-        if not self.entries:
+        entries = tuple(self.entries)
+        if not entries:
             raise ValueError("至少保留一条字幕")
-        if any(not entry.text.strip() for entry in self.entries):
+        if any(not entry.text.strip() for entry in entries):
             raise ValueError("字幕文字不能为空，请补全后保存")
         if _fingerprint(self.source_path) != self.source_fingerprint:
             raise ValueError("源字幕已在外部变化，请重新加载后再保存")
@@ -415,15 +374,13 @@ class SubtitleDocument:
             raise ValueError("校对字幕已在外部变化，请重新加载后再保存")
 
         source_by_index = {cue.index: cue for cue in self.source_cues}
-        active = {index for entry in self.entries for index in entry.source_indices}
+        active = {index for entry in entries for index in entry.source_indices}
         deleted = [cue.index for cue in self.source_cues if cue.index not in active]
-        corrections = {
-            int(item["index"]): str(item["corrected"])
-            for item in self.saved_state.get("corrections", [])
-            if int(item["index"]) in active
-        }
-        for entry in self.entries:
-            if len(entry.source_indices) > 1:
+        corrections = {}
+        for entry in entries:
+            if len(entry.source_indices) > 1 or sum(
+                entry.source_indices[0] in part.source_indices for part in entries
+            ) != 1:
                 continue
             if entry.index in source_by_index and entry.text != source_by_index[entry.index].text:
                 corrections[entry.index] = entry.text
@@ -437,14 +394,14 @@ class SubtitleDocument:
         merge_overrides = {}
         split_groups = []
         seen_split = set()
-        for entry in self.entries:
+        for entry in entries:
             members = entry.source_indices
             if len(members) > 1:
                 for first, second in zip(members, members[1:]):
                     merge_pairs.append({"first": first, "second": second})
                 merge_overrides[str(members[0])] = entry.text
         for source in sorted(active):
-            parts = [item for item in self.entries if item.source_indices == (source,)]
+            parts = [item for item in entries if item.source_indices == (source,)]
             if len(parts) < 2:
                 continue
             if source in seen_split:
@@ -461,7 +418,7 @@ class SubtitleDocument:
             })
         time_overrides = {}
         split_sources = {int(item["source"]) for item in split_groups}
-        for entry in self.entries:
+        for entry in entries:
             if entry.source_indices[0] in split_sources:
                 continue
             if len(entry.source_indices) != 1 and entry.index not in source_by_index:
@@ -473,20 +430,23 @@ class SubtitleDocument:
                     "start": srt_timestamp_seconds(entry.start),
                     "end": srt_timestamp_seconds(entry.end),
                 }
-        output = save_corrected_srt(
-            self.source_path,
-            correction_items,
-            deleted_indices=deleted,
-            merge_pairs=merge_pairs,
-            merge_overrides=merge_overrides,
-            time_overrides=time_overrides,
-            split_groups=split_groups,
-        )
+        options = dict(deleted_indices=deleted, merge_pairs=merge_pairs,
+                       merge_overrides=merge_overrides, time_overrides=time_overrides,
+                       split_groups=split_groups)
+        snapshot = normalise_document_entries(self.source_cues, [asdict(entry) for entry in entries])
+        expected = serialise_document_entries(self.source_cues, snapshot)
+        try:
+            legacy = serialise_srt(self.source_cues, corrections, **options)
+        except ValueError:
+            legacy = None
+        if legacy != expected or self.saved_state.get("document_entries"):
+            options = {"document_entries": snapshot}
+        output = save_corrected_srt(self.source_path, correction_items, **options)
         # 旧写入契约可能在写状态时失败；只有两个产物都有效才更新基线。
         saved = load_subtitle_edit_state(self.source_path)
         if saved is None:
             raise OSError("校对字幕已写入，但校对状态保存失败；请检查磁盘并重新加载")
         self.saved_state = saved
         self.corrected_fingerprint = _fingerprint(self.corrected_path)
-        self._saved_entries = tuple(self.entries)
+        self._saved_entries = entries
         return output

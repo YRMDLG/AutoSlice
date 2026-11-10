@@ -9,6 +9,7 @@ from pathlib import Path
 
 from autoslice.desktop.archive.knowledge import Knowledge
 from autoslice.desktop.asr.hotwords import build_hotwords
+from autoslice.desktop.correction_memory import CorrectionMemory
 from autoslice.desktop.foundation import DesktopStorage
 from autoslice.desktop.homophone import HomophoneIndex, apply_hits, describe
 from autoslice.desktop.subtitles import SubtitleDocument, SubtitleEntry
@@ -42,12 +43,18 @@ class Suggestion:
 
 
 class AIReviewSession:
-    def __init__(self, suggestions: list[Suggestion], cache_key: str, content_hash: str, local_only: bool = False):
+    def __init__(self, suggestions: list[Suggestion], cache_key: str, content_hash: str,
+                 local_only: bool = False, reviewed_entries: dict | None = None):
         self.suggestions = suggestions
         self.cache_key = cache_key
         self.content_hash = content_hash
         # 只有本地同音检查的结果（没调用过 AI）：重新做 AI 检查时不用提醒“会消耗额度”
         self.local_only = local_only
+        self.reviewed_entries = dict(reviewed_entries or {})
+
+    def changed_indices(self, entries) -> set[int]:
+        return {entry.index for entry in entries
+                if self.reviewed_entries.get(str(entry.index)) != _digest(asdict(entry))}
 
     @property
     def pending(self) -> list[Suggestion]:
@@ -62,6 +69,11 @@ class AIReviewSession:
         self.suggestions = [replace(item, status=status) if item.suggestion_id == suggestion_id else item
                             for item in self.suggestions]
         self.content_hash = document_hash(entries)
+        item = next((item for item in self.suggestions if item.suggestion_id == suggestion_id), None)
+        if status == "accepted" and item is not None:
+            for entry in entries:
+                if entry.index == item.cue_id:
+                    self.reviewed_entries[str(entry.index)] = _digest(asdict(entry))
 
 
 class AIReviewService:
@@ -71,30 +83,46 @@ class AIReviewService:
         self.checker = checker
         self.config_loader = config_loader
         self.terms_provider = terms_provider or self._review_terms
+        self.memory = CorrectionMemory(storage)
 
     def _review_terms(self, document: SubtitleDocument, project_title: str) -> list[str]:
         """同音检查用的术语：固定词、主播配置、你确认过的学到术语（比识别热词多放，不受 60 个限制）。"""
 
         return build_hotwords(document.video.path, storage=self.storage, title=project_title, limit=2000)
 
-    def local_suggestions(self, document: SubtitleDocument, project_title: str) -> list[Suggestion]:
+    def local_suggestions(self, document: SubtitleDocument, project_title: str,
+                          *, homophones: bool = True) -> list[Suggestion]:
         """本地同音检测：不调用 AI、不花额度；没装 pypinyin 返回空。"""
 
-        index = HomophoneIndex(self.terms_provider(document, project_title))
-        if not index.ready:
-            return []
+        index = HomophoneIndex(self.terms_provider(document, project_title), enabled=homophones)
+        profile = resolve_streamer_profile("auto", document.video.path, context_hint=project_title)
+        remembered = self.memory.replacements(profile.id)
         content = document_hash(document.entries)
         suggestions = []
         for entry in document.entries:
-            hits = index.find(entry.text)
-            if not hits:
+            corrected = entry.text
+            used = []
+            for wrong, right in sorted(remembered, key=lambda pair: -len(pair[0])):
+                if wrong in corrected:
+                    corrected = corrected.replace(wrong, right)
+                    used.append(f"“{wrong}”→“{right}”")
+            hits = index.find(corrected)
+            if not hits and not used:
                 continue
-            corrected = apply_hits(entry.text, hits)
+            corrected = apply_hits(corrected, hits)
+            if corrected == entry.text:
+                continue
             suggestions.append(Suggestion(
                 _digest((content, entry.index, entry.text, corrected))[:20], entry.index, entry.text, corrected,
-                describe(hits), None, source="homophone",
+                "；".join(filter(None, ["校对记忆：" + "、".join(used) if used else "", describe(hits)])),
+                None, source="memory" if used else "homophone",
             ))
         return suggestions
+
+    def _local_identity(self, document, project_title):
+        profile = resolve_streamer_profile("auto", document.video.path, context_hint=project_title)
+        return (profile.id, profile.subtitle_review_fingerprint(),
+                self.terms_provider(document, project_title), self.memory.replacements(profile.id))
 
     def _identity(self, document: SubtitleDocument, project_title: str):
         config = self.config_loader()
@@ -103,7 +131,8 @@ class AIReviewService:
         settings = (config.base_url, config.api_type, config.model,
                     config.review_reasoning_effort, getattr(config, "proxy_mode", None),
                     getattr(config, "allow_insecure_http", False), profile.id,
-                    profile.subtitle_review_fingerprint(), SUBTITLE_REVIEW_VERSION)
+                    profile.subtitle_review_fingerprint(), SUBTITLE_REVIEW_VERSION,
+                    self._local_identity(document, project_title))
         return config, profile, settings
 
     def _key(self, document: SubtitleDocument, project_title: str, settings) -> str:
@@ -126,7 +155,10 @@ class AIReviewService:
         if not isinstance(envelope, dict) or envelope.get("schema_version") != SCHEMA_VERSION:
             return None, "invalid"
         try:
-            _, _, settings = self._identity(document, project_title)
+            local_only = envelope.get("local_only", False)
+            if type(local_only) is not bool:
+                return None, "invalid"
+            settings = self._local_identity(document, project_title) if local_only else self._identity(document, project_title)[2]
             suggestions = [Suggestion(**item) for item in envelope["suggestions"]]
         except (OSError, ValueError) as exc:
             return None, "unconfigured" if "未配置" in str(exc) else "invalid"
@@ -142,10 +174,13 @@ class AIReviewService:
             return None, "stale"
         if envelope.get("content_hash") != document_hash(document.entries):
             return None, "stale"
-        return AIReviewSession(suggestions, envelope["cache_key"], envelope["content_hash"]), "ready"
+        reviewed = envelope.get("reviewed_entries", {})
+        if not isinstance(reviewed, dict) or any(not isinstance(value, str) for value in reviewed.values()):
+            return None, "invalid"
+        return AIReviewSession(suggestions, envelope["cache_key"], envelope["content_hash"], local_only, reviewed), "ready"
 
     def save(self, document: SubtitleDocument, project_title: str, session: AIReviewSession) -> None:
-        _, _, settings = self._identity(document, project_title)
+        settings = self._local_identity(document, project_title) if session.local_only else self._identity(document, project_title)[2]
         self.storage._write_json(self._session_path(document), {
             "schema_version": SCHEMA_VERSION,
             "project_title": project_title,
@@ -153,15 +188,22 @@ class AIReviewService:
             "cache_key": session.cache_key,
             "content_hash": session.content_hash,
             "source_fingerprint": document.source_fingerprint,
+            "local_only": session.local_only,
+            "reviewed_entries": session.reviewed_entries,
             "suggestions": [asdict(item) for item in session.suggestions],
         })
 
     def check(self, document: SubtitleDocument, project_title: str, *, force: bool = False,
-              progress_callback=None) -> AIReviewSession:
+              progress_callback=None, cue_ids: set[int] | None = None,
+              previous: AIReviewSession | None = None) -> AIReviewSession:
         if hashlib.sha256(document.source_path.read_bytes()).hexdigest() != document.source_fingerprint:
             raise ValueError("源字幕已变化，请重新加载后再检查")
         config, profile, settings = self._identity(document, project_title)
         key = self._key(document, project_title, settings)
+        if cue_ids is not None:
+            if not cue_ids or not cue_ids <= {entry.index for entry in document.entries}:
+                raise ValueError("请选择有效的复查字幕")
+            key = _digest((key, sorted(cue_ids)))
         input_path = self._result_path(key)
         input_path.parent.mkdir(parents=True, exist_ok=True)
         # 旧检查器只读这份快照；旧缓存也留在用户应用数据目录，不写投稿文件夹。
@@ -175,6 +217,8 @@ class AIReviewService:
             profile.id, "\n".join(entry.text for entry in document.entries),
         )
         extra = {"glossary": learned} if learned else {}
+        if cue_ids is not None:
+            extra["review_indices"] = sorted(cue_ids)
         result = self.checker(input_path, context_title=project_title,
                               streamer_profile=profile, use_cache=not force,
                               progress_callback=progress_callback, **extra)
@@ -185,7 +229,7 @@ class AIReviewService:
         for item in result.get("suggestions", []):
             cue_id = int(item["index"])
             entry = by_index.get(cue_id)
-            if entry is None or entry.text != item["original"]:
+            if entry is None or entry.text != item["original"] or (cue_ids is not None and cue_id not in cue_ids):
                 continue
             suggestion_id = _digest((key, cue_id, item["original"], item["corrected"]))[:20]
             suggestions.append(Suggestion(
@@ -195,5 +239,14 @@ class AIReviewService:
             ))
         # 本地同音建议顺带并进来；AI 已经给过建议的那几条以 AI 为准
         covered = {item.cue_id for item in suggestions}
-        suggestions += [item for item in self.local_suggestions(document, project_title) if item.cue_id not in covered]
-        return AIReviewSession(suggestions, key, document_hash(document.entries))
+        suggestions += [item for item in self.local_suggestions(document, project_title)
+                        if item.cue_id not in covered and (cue_ids is None or item.cue_id in cue_ids)]
+        reviewed = dict(previous.reviewed_entries) if previous and cue_ids is not None else {}
+        if previous is not None and cue_ids is not None:
+            suggestions = [item for item in previous.suggestions if item.cue_id not in cue_ids
+                           and item.cue_id in by_index] + suggestions
+        reviewed.update({str(entry.index): _digest(asdict(entry)) for entry in document.entries
+                         if cue_ids is None or entry.index in cue_ids})
+        order = {entry.index: index for index, entry in enumerate(document.entries)}
+        suggestions.sort(key=lambda item: order[item.cue_id])
+        return AIReviewSession(suggestions, key, document_hash(document.entries), reviewed_entries=reviewed)

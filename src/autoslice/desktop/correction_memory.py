@@ -1,8 +1,7 @@
 """字幕纠错记忆：从每次保存的校对结果里学常见的识别错词。
 
-同一对“错词 → 正确词”在两个不同视频里都被改过，就写进该主播的本机覆盖词库
-（asr_replacements）。之后 AI 校对会把它列成建议，仍由用户采纳或跳过；
-公开的 streamer_profiles.json 不会被改动。
+同一改动在多个视频出现、且在已保存语料中精度足够时，作为待确认校对建议。
+日常学习不再写入识别阶段的固定替换，避免特定语境的改字影响其它句子。
 """
 
 from __future__ import annotations
@@ -10,21 +9,20 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Iterable
 
-from autoslice.streamer_profiles import (
-    add_streamer_profile_replacement,
-    remove_streamer_profile_replacement,
-)
+from autoslice.streamer_profiles import remove_streamer_profile_replacement
 
 from .foundation import DesktopStorage
 
 # 同一对改动出现在几个不同视频里才记住；只改过一次的可能只是这句话的语境。
 MIN_VIDEOS = 2
+MIN_PRECISION = 0.8
 _WORD_RE = re.compile(r"[一-鿿A-Za-z0-9]")
-_MAX_VIDEOS_KEPT = 20
+_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +32,8 @@ class LearnedCorrection:
     videos: int
     promoted: bool
     note: str = ""
+    kept: int = 0
+    precision: float = 0.0
 
 
 def _learnable(wrong: str, right: str) -> bool:
@@ -76,63 +76,94 @@ def correction_pairs(original: str, corrected: str) -> tuple[tuple[str, str], ..
 
 
 class CorrectionMemory:
-    """按主播记录改过的错词；达到门槛后写进本机覆盖词库。"""
+    """按主播积累完整校对样本，成熟的记忆只供校对确认。"""
 
     def __init__(
         self,
         storage: DesktopStorage,
         *,
-        promote: Callable[[str, str, str], object] = add_streamer_profile_replacement,
+        promote: Callable[[str, str, str], object] | None = None,
         demote: Callable[[str, str, str], object] = remove_streamer_profile_replacement,
     ) -> None:
         self.path = storage.root / "learning" / "subtitle-corrections.json"
         self._promote = promote
         self._demote = demote
+        with _LOCK:
+            data = self._data()
+            if data.get("schema_version") == 1:
+                for profile, bucket in data.get("profiles", {}).items():
+                    for item in bucket.values():
+                        if item.get("promoted"):
+                            try:
+                                self._demote(profile, item["wrong"], item["right"])
+                            except ValueError:
+                                pass  # 已删除的主播或不存在的覆盖规则无需再次移除。
+                        item.update(promoted=False, note="旧记忆已转为校对参考，等待完整样本")
+                self._write(data)
 
-    def _read(self) -> dict:
+    def _data(self) -> dict:
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return {}
-        profiles = payload.get("profiles") if isinstance(payload, dict) else None
-        return profiles if isinstance(profiles, dict) else {}
+            return {"profiles": {}, "samples": {}}
+        if not isinstance(payload, dict) or not isinstance(payload.get("profiles"), dict):
+            return {"profiles": {}, "samples": {}}
+        payload.setdefault("samples", {})
+        return payload
 
-    def _write(self, profiles: dict) -> None:
-        DesktopStorage._write_json(self.path, {"schema_version": 1, "profiles": profiles})
+    def _write(self, data: dict) -> None:
+        DesktopStorage._write_json(self.path, {**data, "schema_version": 2})
 
     def learn(
         self, profile_id: str, video_key: str, corrections: Iterable[tuple[str, str]],
+        *, final_text: str | None = None,
     ) -> tuple[tuple[str, str], ...]:
-        """记一次保存的改动；返回本次新写进词库的错词对。"""
+        """记住当前视频的最终版本，返回本次新增的校对参考。"""
+        with _LOCK:
+            return self._learn(profile_id, video_key, list(corrections), final_text)
 
-        profiles = self._read()
+    def _learn(self, profile_id, video_key, corrections, final_text):
+        data = self._data()
+        profiles = data["profiles"]
         bucket = profiles.setdefault(profile_id, {})
+        samples = data["samples"].setdefault(profile_id, {})
+        pairs = [pair for original, corrected in corrections
+                 for pair in correction_pairs(original, corrected)]
+        samples[video_key] = {"text": final_text if final_text is not None else
+                             "\n".join(corrected for _, corrected in corrections),
+                             "pairs": [list(pair) for pair in pairs]}
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         promoted: list[tuple[str, str]] = []
-        for original, corrected in corrections:
-            for wrong, right in correction_pairs(original, corrected):
-                item = bucket.setdefault(f"{wrong}\t{right}", {"wrong": wrong, "right": right, "videos": []})
-                if video_key not in item["videos"]:
-                    item["videos"] = [*item["videos"], video_key][-_MAX_VIDEOS_KEPT:]
-                item["last"] = now
-                if item.get("promoted") or item.get("ignored") or item.get("note") or len(item["videos"]) < MIN_VIDEOS:
-                    continue
+        for wrong, right in pairs:
+            bucket.setdefault(f"{wrong}\t{right}", {"wrong": wrong, "right": right})
+        for item in bucket.values():
+            wrong, right = item["wrong"], item["right"]
+            pair = [wrong, right]
+            videos = [key for key, sample in samples.items() if pair in sample["pairs"]]
+            count = sum(sample["pairs"].count(pair) for sample in samples.values())
+            kept = sum(sample["text"].count(wrong) for sample in samples.values())
+            precision = count / (count + kept) if count + kept else 0.0
+            ready = not item.get("ignored") and len(videos) >= MIN_VIDEOS and precision >= MIN_PRECISION
+            if ready and not item.get("promoted"):
                 try:
-                    self._promote(profile_id, wrong, right)
+                    if self._promote is not None:
+                        self._promote(profile_id, wrong, right)
                 except ValueError as exc:
-                    # 与已有固定纠错冲突、超过上限或主播未配置：不写词库，原因留给设置页显示。
+                    ready = False
                     item["note"] = str(exc)
-                    continue
-                item["promoted"] = True
-                promoted.append((wrong, right))
-        self._write(profiles)
+                else:
+                    item["note"] = ""
+                    promoted.append((wrong, right))
+            item.update(videos=videos, n=count, kept=kept, precision=precision,
+                        promoted=bool(ready), last=now)
+        self._write(data)
         return tuple(promoted)
 
     def entries(self, profile_id: str | None = None) -> tuple[tuple[str, LearnedCorrection], ...]:
         """（主播, 记录），已记住的在前，其次按出现的视频数。"""
 
         rows = []
-        for profile, bucket in self._read().items():
+        for profile, bucket in self._data()["profiles"].items():
             if profile_id is not None and profile != profile_id:
                 continue
             for item in bucket.values():
@@ -141,22 +172,32 @@ class CorrectionMemory:
                 rows.append((profile, LearnedCorrection(
                     wrong=str(item.get("wrong", "")), right=str(item.get("right", "")),
                     videos=len(item.get("videos", ())), promoted=bool(item.get("promoted")),
-                    note=str(item.get("note", "")),
+                    note=str(item.get("note", "")), kept=int(item.get("kept", 0)),
+                    precision=float(item.get("precision", 0)),
                 )))
         rows.sort(key=lambda row: (not row[1].promoted, -row[1].videos, row[1].wrong))
         return tuple(rows)
 
-    def forget(self, profile_id: str, wrong: str, right: str) -> None:
-        """忽略一条：从本机覆盖词库删除，以后同样的改动也不再自动记住。"""
+    def replacements(self, profile_id: str) -> tuple[tuple[str, str], ...]:
+        """仅返回可供人工确认的校对建议，不用于识别阶段自动替换。"""
+        return tuple((item.wrong, item.right) for _, item in self.entries(profile_id) if item.promoted)
 
-        profiles = self._read()
+    def forget(self, profile_id: str, wrong: str, right: str) -> None:
+        """忽略一条校对参考，以后同样的改动也不再提供建议。"""
+
+        with _LOCK:
+            self._forget(profile_id, wrong, right)
+
+    def _forget(self, profile_id, wrong, right):
+        data = self._data()
+        profiles = data["profiles"]
         item = profiles.get(profile_id, {}).get(f"{wrong}\t{right}")
         if item is None:
             return
-        if item.get("promoted"):
+        if item.get("promoted") and self._promote is not None:
             try:
                 self._demote(profile_id, wrong, right)
             except ValueError:
                 pass
         item.update(promoted=False, ignored=True)
-        self._write(profiles)
+        self._write(data)

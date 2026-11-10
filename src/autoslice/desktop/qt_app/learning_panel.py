@@ -38,8 +38,8 @@ class LearningPanel(QWidget):
 
         memory_card, layout = card(
             "字幕纠错记忆",
-            "保存校对字幕时自动学习：同一个错词在两个视频里都被你改过，就记住它。"
-            "之后 AI 检查会把它列成建议，仍由你决定是否采纳。只存在本机。",
+            "保存校对字幕时学习常见改字，同时统计其它字幕中原样保留的用法。"
+            "可靠的记忆作为待确认校对建议，不会自动改写识别结果。只存在本机。",
         )
         self.summary = label("", "muted")
         layout.addWidget(self.summary)
@@ -52,7 +52,7 @@ class LearningPanel(QWidget):
         row.addStretch()
         self.forget_button = QPushButton("忽略所选")
         self.forget_button.setIcon(desktop_icon("trash", COLORS.muted, SIZES.tool_icon_size))
-        self.forget_button.setToolTip("从词库删除，以后同样的改动也不再自动记住")
+        self.forget_button.setToolTip("忽略这条校对记忆，以后同样的改动不再提供建议")
         self.forget_button.setEnabled(False)
         self.forget_button.clicked.connect(self._forget)
         row.addWidget(self.forget_button)
@@ -73,7 +73,10 @@ class LearningPanel(QWidget):
         rows = self.memory.entries()
         self.list.clear()
         for profile_id, entry in rows:
-            state = "已记住" if entry.promoted else (f"未记住：{entry.note}" if entry.note else "再改一次就记住")
+            state = "已记住 · 仅供校对确认" if entry.promoted else (
+                f"观察中：{entry.note}" if entry.note else
+                f"其它字幕保留原写法 {entry.kept} 次，继续观察" if entry.kept else "继续积累校对样本"
+            )
             text = f"{entry.wrong} → {entry.right}　·　{_profile_label(profile_id)}　·　{entry.videos} 个视频　·　{state}"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, (profile_id, entry.wrong, entry.right))
