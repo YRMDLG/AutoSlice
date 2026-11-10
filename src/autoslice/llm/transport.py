@@ -98,6 +98,22 @@ def _response_rejects_reasoning_effort(response: Any) -> bool:
     return "reasoning_effort" in text or "reasoning effort" in text or "reasoning.effort" in text
 
 
+def _response_rejects_json_mode(response: Any) -> bool:
+    """仅在接口明确不支持 JSON 输出参数时降级，其他 HTTP 错误原样处理。"""
+    if getattr(response, "status_code", None) not in {400, 422}:
+        return False
+    try:
+        text = str(response.text or "").casefold()
+    except (AttributeError, TypeError, ValueError):
+        return False
+    fields = ("response_format", "response format", "json_object", "text.format", '"text"', "'text'")
+    rejections = (
+        "unsupported", "not supported", "does not support", "unknown", "unrecognized",
+        "unexpected", "not allowed", "not permitted", "不支持", "不接受", "不允许", "未识别",
+    )
+    return any(field in text for field in fields) and any(word in text for word in rejections)
+
+
 def infer_api_type(base_url: Any, token: Any) -> str:
     """仅为缺少显式协议的旧配置推断 OpenAI/Anthropic 兼容类型。"""
     lower_token = str(token).casefold()
@@ -698,11 +714,16 @@ def call_compatible_api(
                 )
 
             response = post_openai(request_payload)
-            if send_reasoning_effort and _response_rejects_reasoning_effort(response):
-                _disable_reasoning_effort(capability_key)
-                fallback_payload = dict(request_payload)
-                fallback_payload.pop("reasoning_effort", None)
-                response = post_openai(fallback_payload)
+            # 两种可选参数各最多降级一次；后一次沿用已移除参数的请求。
+            for _ in range(2):
+                if "reasoning_effort" in request_payload and _response_rejects_reasoning_effort(response):
+                    _disable_reasoning_effort(capability_key)
+                    request_payload.pop("reasoning_effort")
+                elif "response_format" in request_payload and _response_rejects_json_mode(response):
+                    request_payload.pop("response_format")
+                else:
+                    break
+                response = post_openai(request_payload)
             _raise_for_status(
                 response,
                 protocol=request.protocol,
@@ -784,11 +805,15 @@ def _call_responses_api(
         )
 
     response = post(request_payload)
-    if send_reasoning_effort and _response_rejects_reasoning_effort(response):
-        _disable_reasoning_effort(capability_key)
-        fallback = dict(request_payload)
-        fallback.pop("reasoning", None)
-        response = post(fallback)
+    for _ in range(2):
+        if "reasoning" in request_payload and _response_rejects_reasoning_effort(response):
+            _disable_reasoning_effort(capability_key)
+            request_payload.pop("reasoning")
+        elif "text" in request_payload and _response_rejects_json_mode(response):
+            request_payload.pop("text")
+        else:
+            break
+        response = post(request_payload)
     _raise_for_status(response, protocol=request.protocol, model=request.model)
     return parse_responses_response(
         decode_response(response, "OpenAI Responses"),
