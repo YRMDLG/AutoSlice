@@ -18,6 +18,7 @@ import requests
 from autoslice.llm.contracts import (
     DEFAULT_PROXY_MODE,
     DEFAULT_REASONING_EFFORT,
+    THINKING_OFF,
     LLMApiConfig,
     LLMProviderUnavailableError,
     LLMRequest,
@@ -42,6 +43,9 @@ from autoslice.llm.contracts import (
 from autoslice.paths import APPLICATION_DATA_ROOT
 
 DEFAULT_MODEL = "gpt-5.6-terra"
+# 单次请求显式“关掉思考”（THINKING_OFF）：服务不认就退到 low，不连带关掉这个模型的推理强度。
+# 实测判断题（复核、挑帧）关思考结果不变：DeepSeek V4.1 Flash 复核 14~19 秒 → 1.7 秒，gpt-5.6-terra 14 秒 → 9 秒。
+_THINKING_OFF_FALLBACK = "low"
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_COMPACT_MAX_TOKENS = 12000
 DEFAULT_REQUEST_TIMEOUT = (30, 300)
@@ -412,7 +416,8 @@ def parse_openai_response(data: dict, model: str, max_tokens: int) -> str:
     if not isinstance(message, dict):
         raise LLMResponseFormatError("OpenAI API 的 message 必须是对象")
     content = _openai_content_text(message.get("content"), "message.content")
-    if not content:
+    # 截断时 reasoning_content 只是半截思考，常引用字段示例，不能当答案（DeepSeek 实测）
+    if not content and choice.get("finish_reason") != "length":
         reasoning_content = _openai_content_text(
             message.get("reasoning_content"),
             "message.reasoning_content",
@@ -637,8 +642,12 @@ def call_compatible_api(
         parse_anthropic: Optional[Callable] = None,
         request_post: Optional[Callable] = None,
         reasoning_stage: Any = None,
-        images: Any = ()) -> str:
-    """发送一次兼容请求并用本模块的唯一解析器返回文本。"""
+        images: Any = (),
+        reasoning_effort: Any = None) -> str:
+    """发送一次兼容请求并用本模块的唯一解析器返回文本。
+
+    reasoning_effort 显式给出时覆盖按阶段取的推理强度（桌面端交互用 low 换速度）。
+    """
     config = load_config()
     base_url, token, configured_model = config
     validate_llm_endpoint_security(
@@ -652,11 +661,17 @@ def call_compatible_api(
     api_type = normalise_protocol(api_type)
     model = str(model_override or configured_model).strip()
     stage = normalise_reasoning_stage(reasoning_stage)
-    reasoning_effort = (
-        getattr(config, f"{stage}_reasoning_effort", None)
-        if stage
-        else None
-    )
+    if reasoning_effort is not None:
+        reasoning_effort = (
+            THINKING_OFF if str(reasoning_effort).strip().casefold() == THINKING_OFF
+            else normalise_reasoning_effort(reasoning_effort)
+        )
+    else:
+        reasoning_effort = (
+            getattr(config, f"{stage}_reasoning_effort", None)
+            if stage
+            else None
+        )
     request = LLMRequest(
         prompt=prompt,
         model=model,
@@ -714,11 +729,14 @@ def call_compatible_api(
                 )
 
             response = post_openai(request_payload)
-            # 两种可选参数各最多降级一次；后一次沿用已移除参数的请求。
-            for _ in range(2):
+            # 两种可选参数各最多降级一次（none 先退到 low）；后一次沿用已降级的请求。
+            for _ in range(3):
                 if "reasoning_effort" in request_payload and _response_rejects_reasoning_effort(response):
-                    _disable_reasoning_effort(capability_key)
-                    request_payload.pop("reasoning_effort")
+                    if request_payload["reasoning_effort"] == THINKING_OFF:
+                        request_payload["reasoning_effort"] = _THINKING_OFF_FALLBACK
+                    else:
+                        _disable_reasoning_effort(capability_key)
+                        request_payload.pop("reasoning_effort")
                 elif "response_format" in request_payload and _response_rejects_json_mode(response):
                     request_payload.pop("response_format")
                 else:
@@ -805,10 +823,13 @@ def _call_responses_api(
         )
 
     response = post(request_payload)
-    for _ in range(2):
+    for _ in range(3):
         if "reasoning" in request_payload and _response_rejects_reasoning_effort(response):
-            _disable_reasoning_effort(capability_key)
-            request_payload.pop("reasoning")
+            if request_payload["reasoning"].get("effort") == THINKING_OFF:
+                request_payload["reasoning"] = {"effort": _THINKING_OFF_FALLBACK}
+            else:
+                _disable_reasoning_effort(capability_key)
+                request_payload.pop("reasoning")
         elif "text" in request_payload and _response_rejects_json_mode(response):
             request_payload.pop("text")
         else:
@@ -829,7 +850,8 @@ def call_llm(
         request_timeout: Any = DEFAULT_REQUEST_TIMEOUT,
         load_config_func: Optional[Callable] = None,
         request_post: Optional[Callable] = None,
-        images: Any = ()) -> str:
+        images: Any = (),
+        reasoning_effort: Any = None) -> str:
     """公开网关 seam；配置加载和 HTTP 均可由测试显式注入。images 为 (媒体类型, 字节) 列表。"""
     return call_compatible_api(
         prompt,
@@ -841,6 +863,7 @@ def call_llm(
         request_post=request_post,
         reasoning_stage=reasoning_stage,
         images=images,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -978,8 +1001,12 @@ def call_llm_with_retry(
         *, call_func: Optional[Callable] = None,
         retry_delays=DEFAULT_RETRY_DELAYS,
         provider_retry_delays=DEFAULT_PROVIDER_UNAVAILABLE_RETRY_DELAYS,
-        json_extractor: Callable = extract_json_payload) -> str:
-    """统一处理限流、5xx、连接中断、响应格式和结构化输出重试。"""
+        json_extractor: Callable = extract_json_payload,
+        request_timeout: Any = None) -> str:
+    """统一处理限流、5xx、连接中断、响应格式和结构化输出重试。
+
+    request_timeout 给出时覆盖单次请求的默认超时（30 秒连接、300 秒读取），桌面端交互用更短的值。
+    """
     retry_delays = tuple(retry_delays)
     provider_retry_delays = tuple(provider_retry_delays)
     total_attempts = attempts or (len(retry_delays) + 1)
@@ -1010,6 +1037,8 @@ def call_llm_with_retry(
                 call_kwargs["model_override"] = model_override
             if reasoning_stage:
                 call_kwargs["reasoning_stage"] = reasoning_stage
+            if request_timeout is not None:
+                call_kwargs["request_timeout"] = request_timeout
             result = (call_func or call_llm)(active_prompt, **call_kwargs)
             if require_json and json_extractor(result) is None:
                 raise LLMStructuredOutputError(

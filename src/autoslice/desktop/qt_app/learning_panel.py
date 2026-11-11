@@ -41,22 +41,25 @@ class LearningPanel(QWidget):
             "保存校对字幕时学习常见改字，同时统计其它字幕中原样保留的用法。"
             "可靠的记忆作为待确认校对建议，不会自动改写识别结果。只存在本机。",
         )
+        # 摘要和“忽略所选”放同一行：按钮放在列表下方时曾压到列表边上
+        summary_row = QHBoxLayout()
+        summary_row.setContentsMargins(0, 0, 0, 0)
         self.summary = label("", "muted")
-        layout.addWidget(self.summary)
-        self.list = QListWidget()
-        self.list.itemSelectionChanged.connect(self._selection_changed)
-        layout.addWidget(self.list)
+        summary_row.addWidget(self.summary, 1)
         self.forget_row = QWidget()
         row = QHBoxLayout(self.forget_row)
         row.setContentsMargins(0, 0, 0, 0)
-        row.addStretch()
         self.forget_button = QPushButton("忽略所选")
         self.forget_button.setIcon(desktop_icon("trash", COLORS.muted, SIZES.tool_icon_size))
         self.forget_button.setToolTip("忽略这条校对记忆，以后同样的改动不再提供建议")
         self.forget_button.setEnabled(False)
         self.forget_button.clicked.connect(self._forget)
         row.addWidget(self.forget_button)
-        layout.addWidget(self.forget_row)
+        summary_row.addWidget(self.forget_row)
+        layout.addLayout(summary_row)
+        self.list = QListWidget()
+        self.list.itemSelectionChanged.connect(self._selection_changed)
+        layout.addWidget(self.list)
         outer.addWidget(memory_card)
 
         works_card, works_layout = card(
@@ -72,12 +75,16 @@ class LearningPanel(QWidget):
     def refresh(self) -> None:
         rows = self.memory.entries()
         self.list.clear()
+        # 每次解析都会重读主播配置文件；几百行纠错只对应几个主播，按主播缓存（进设置页曾因此卡 1 秒）
+        labels: dict[str, str] = {}
         for profile_id, entry in rows:
+            if profile_id not in labels:
+                labels[profile_id] = _profile_label(profile_id)
             state = "已记住 · 仅供校对确认" if entry.promoted else (
                 f"观察中：{entry.note}" if entry.note else
                 f"其它字幕保留原写法 {entry.kept} 次，继续观察" if entry.kept else "继续积累校对样本"
             )
-            text = f"{entry.wrong} → {entry.right}　·　{_profile_label(profile_id)}　·　{entry.videos} 个视频　·　{state}"
+            text = f"{entry.wrong} → {entry.right}　·　{labels[profile_id]}　·　{entry.videos} 个视频　·　{state}"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, (profile_id, entry.wrong, entry.right))
             self.list.addItem(item)

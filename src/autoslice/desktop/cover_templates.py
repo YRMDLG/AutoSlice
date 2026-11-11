@@ -53,6 +53,22 @@ class CoverTemplate:
         )
 
 
+def _template_slots(document: CoverDocument) -> dict[str, str]:
+    """模板里 A/B 的位置：正式主文案被隐藏、改用自建文字块当标题时，以看得见的那块为准。
+
+    否则自建标题会被当成“固定的字”连内容一起存进模板，套到别的视频上和新标题叠在一起。
+    """
+
+    slots = dict(primary_copy_ids(document))
+    visible = {item.id: item.visible for item in document.objects}
+    for item in document.objects:
+        if isinstance(item, TextObject) and item.visible and item.copy_role in ("A", "B"):
+            current = slots.get(item.copy_role)
+            if current is None or not visible.get(current, False):
+                slots[item.copy_role] = item.id
+    return slots
+
+
 def _inside(path: str | None, folder: Path) -> bool:
     try:
         return bool(path) and Path(path).resolve().is_relative_to(folder.resolve())
@@ -63,7 +79,7 @@ def _inside(path: str | None, folder: Path) -> bool:
 def make_template(document: CoverDocument, name: str, *, video_dirs: Sequence[Path]) -> CoverTemplate:
     """当前封面存成模板。video_dirs 是视频截帧、抠图的缓存目录：从那里来的拼图小图和人物图层每期不同，不进模板。"""
 
-    primary = primary_copy_ids(document)
+    primary = _template_slots(document)
     bursts = tuple(
         role for role, object_id in primary.items()
         if any(item.id == burst_id(object_id) and item.visible for item in document.objects)
@@ -103,7 +119,7 @@ def apply_template(document: CoverDocument, template: CoverTemplate, profile_key
         },
     )
     source = template.document
-    theirs = primary_copy_ids(source)
+    theirs = _template_slots(source)
     if "A" in theirs:
         # 模板有 A 块、当前封面只有 B：先补一个 A 块，A 的文字有了再显示。
         document = ensure_context_text(document)

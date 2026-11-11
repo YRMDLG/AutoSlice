@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QObject, QPoint, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -154,6 +156,11 @@ class ArchivePanel(QWidget):
         self.remove_button.setObjectName("quiet")
         self.remove_button.clicked.connect(self._remove)
         row.addWidget(self.remove_button)
+        self.default_button = QPushButton("默认主播…")
+        self.default_button.setObjectName("quiet")
+        self.default_button.setToolTip("所选文件夹里，标题没写主播名的投稿（比如“1月26日”）按这位主播算；标题里写了别人的名字不受影响")
+        self.default_button.clicked.connect(self._choose_default)
+        row.addWidget(self.default_button)
         self.covers_check = QCheckBox("也分析旧封面（稍慢）")
         self.covers_check.setChecked(True)
         row.addWidget(self.covers_check)
@@ -196,10 +203,20 @@ class ArchivePanel(QWidget):
         return self._cancel is not None
 
     def refresh(self) -> None:
-        selected = {item.text() for item in self.folders.selectedItems()}
+        selected = set(self._selected_paths())
+        defaults = self.service.root_defaults()
+        names = dict(self.service.streamer_choices())
         self.folders.clear()
         for path in self.service.roots():
-            item = QListWidgetItem(path)
+            default = defaults.get(path, "")
+            text = f"{path}　·　默认主播：{names.get(default, default)}" if default else path
+            missing = not Path(path).is_dir()
+            # 换电脑后（比如主力机的 F:、G: 盘）文件夹可能不在了：标出来，扫描时会跳过
+            item = QListWidgetItem(text + ("　·　本机找不到这个文件夹" if missing else ""))
+            if missing:
+                item.setForeground(QColor(COLORS.subtle))
+                item.setToolTip("这台电脑上没有这个文件夹，扫描时会跳过；已学到的内容不受影响")
+            item.setData(Qt.ItemDataRole.UserRole, path)  # 显示文字里带了默认主播，路径单独存
             self.folders.addItem(item)
             item.setSelected(path in selected)
         # 没添加文件夹时不画一个空的黑框；有了按行数撑开，最多露出四行
@@ -208,12 +225,31 @@ class ArchivePanel(QWidget):
         if not self.running:
             summary = self.service.summary()
             if summary["entries"]:
-                pending = self.service.pending_count()
                 when = time.strftime("%Y-%m-%d %H:%M", time.localtime(summary["last_scan"])) if summary["last_scan"] else "—"
-                self.status.setText(
-                    f"已学习 {summary['entries']} 个文件夹，其中 {summary['with_both']} 个有“初稿 + 校对稿”；"
-                    f"最近一次扫描 {when}。" + (f" 有 {pending} 条建议等你确认。" if pending else "")
-                )
+                base = (f"已学习 {summary['entries']} 个文件夹，其中 {summary['with_both']} 个有“初稿 + 校对稿”；"
+                        f"最近一次扫描 {when}。")
+                self.status.setText(base)
+                # 待确认数量要重算全部建议（几千个文件夹约 0.6 秒），放后台，算完再补上；
+                # 扫描结果、建议状态、默认主播都没变时直接用上次的数，不再和界面抢 GIL
+                key = (summary["entries"], summary["last_scan"], summary.get("corrections"),
+                       repr(sorted(self.service.status().items())), repr(sorted(defaults.items())))
+                self._pending_generation = getattr(self, "_pending_generation", 0) + 1
+                generation = self._pending_generation
+
+                def show_pending(pending, error, generation=generation, base=base, key=key):
+                    if error is None:
+                        self._pending_cache = (key, pending)
+                    text = self.status.text()
+                    # 扫描结束后可能已在后面补了“改了主播/读取出错”，数量插在基础说明之后
+                    if (error is None and pending and generation == self._pending_generation
+                            and not self.running and text.startswith(base)):
+                        self.status.setText(base + f" 有 {pending} 条建议等你确认。" + text[len(base):])
+
+                cached = getattr(self, "_pending_cache", None)
+                if cached is not None and cached[0] == key:
+                    show_pending(cached[1], None)
+                else:
+                    self._run(self.service.pending_count, show_pending)
             else:
                 self.status.setText("还没扫描过：添加存放旧切片的文件夹（可以添加好几个），点“开始扫描”。")
         self._sync()
@@ -224,6 +260,7 @@ class ArchivePanel(QWidget):
         self.stop_button.setEnabled(self.running)
         self.add_button.setEnabled(not self.running)
         self.remove_button.setEnabled(bool(self.folders.selectedItems()) and not self.running)
+        self.default_button.setEnabled(bool(self.folders.selectedItems()) and not self.running)
         for button in (self.report_button, self.folder_button, self.proposals_button, self.forget_button):
             button.setEnabled(has_data and not self.running)
 
@@ -234,10 +271,37 @@ class ArchivePanel(QWidget):
             self.service.add_root(path)
             self.refresh()
 
+    def _selected_paths(self) -> list[str]:
+        return [str(item.data(Qt.ItemDataRole.UserRole)) for item in self.folders.selectedItems()]
+
     def _remove(self) -> None:
-        for item in self.folders.selectedItems():
-            self.service.remove_root(item.text())
+        for path in self._selected_paths():
+            self.service.remove_root(path)
         self.refresh()
+
+    def _default_menu(self, paths: list[str]) -> QMenu:
+        menu = QMenu(self)
+        for streamer, text in (
+            ("", "不设置（认不出主播的投稿算“未识别”）"), *self.service.streamer_choices(),
+        ):
+            action = menu.addAction(text)
+            action.triggered.connect(lambda _checked=False, value=streamer: self._set_default(paths, value))
+        return menu
+
+    def _choose_default(self) -> None:
+        paths = self._selected_paths()
+        if paths:
+            self._default_menu(paths).exec(self.default_button.mapToGlobal(QPoint(0, self.default_button.height())))
+
+    def _set_default(self, paths: list[str], streamer: str) -> None:
+        for path in paths:
+            self.service.set_root_default(path, streamer)
+        self.refresh()
+        name = dict(self.service.streamer_choices()).get(streamer, streamer)
+        self.status.setText(
+            (f"已把默认主播设为“{name}”" if streamer else "已清除默认主播")
+            + "：点“开始扫描”后按新设置重新归属，没变的文件夹不会重新抽取。"
+        )
 
     # ── 扫描 ──
     def _start(self) -> None:

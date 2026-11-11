@@ -9514,6 +9514,11 @@ class HybridModelRoutingTests(unittest.TestCase):
                 patch("autoslice.reporting.build_refinement_manifest", return_value={}),
                 patch("autoslice.reporting.write_refinement_manifest_files"),
                 patch("autoslice.reporting.upsert_unified_refinement_queue"),
+                # 不读本机 api_config.json：开发机换了模型时报告里的模型名会跟着变
+                patch(
+                    "autoslice.llm.transport.resolve_configured_model_name",
+                    side_effect=lambda *, default_model=None, **_kwargs: default_model,
+                ),
             ):
                 result = run_pipeline(
                     str(flv_path),

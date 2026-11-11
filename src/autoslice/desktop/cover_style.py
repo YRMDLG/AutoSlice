@@ -195,3 +195,67 @@ class CoverStyleMemoryStore:
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(self.path)
 
+
+
+class CoverFramingStore:
+    """每个主播上次导出时底图的放大和位置（4:3、16:9 各一份）。
+
+    同一主播的直播布局（顶部横幅、两侧弹幕栏和礼物栏）基本不变：新视频默认套用上次的裁切，
+    不用每次重裁。只按主播记、不回退到“通用”——不同主播的布局不能互相套。
+    """
+
+    def __init__(self, root: Path | str) -> None:
+        self.path = Path(root).expanduser().resolve() / "cover-framing-memory.json"
+
+    def _records(self) -> dict:
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            return {}
+        records = payload.get("records") if isinstance(payload, dict) else None
+        return records if isinstance(records, dict) else {}
+
+    @staticmethod
+    def _clean(raw) -> dict[str, float] | None:
+        if not isinstance(raw, dict):
+            return None
+        try:
+            scale = float(raw["scale"])
+            pan_x = float(raw["pan_x"])
+            pan_y = float(raw["pan_y"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not (1.0 <= scale <= 100.0 and 0.0 <= pan_x <= 1.0 and 0.0 <= pan_y <= 1.0):
+            return None
+        return {"scale": scale, "pan_x": pan_x, "pan_y": pan_y}
+
+    def load(self, streamer: str | None) -> dict[str, dict[str, float]]:
+        """{画幅: {scale, pan_x, pan_y}}；没记过或主播不明时为空。"""
+
+        if not streamer:
+            return {}
+        raw = self._records().get(streamer.casefold())
+        if not isinstance(raw, dict):
+            return {}
+        return {key: value for key, value in ((key, self._clean(item)) for key, item in raw.items()) if value}
+
+    def save(self, streamer: str | None, framing: dict[str, dict[str, float] | None]) -> None:
+        """framing 里值为 None 的画幅表示清掉记录。"""
+
+        if not streamer:
+            return
+        cleaned = {key: value for key, value in ((key, self._clean(item)) for key, item in framing.items()) if value}
+        cleared = {key for key, item in framing.items() if item is None}
+        records = self._records()
+        previous = records.get(streamer.casefold(), {})
+        merged = {key: value for key, value in {**previous, **cleaned}.items() if key not in cleared}
+        if merged == previous:
+            return
+        if merged:
+            records[streamer.casefold()] = merged
+        else:
+            records.pop(streamer.casefold(), None)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"records": records}, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(self.path)

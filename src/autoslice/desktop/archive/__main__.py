@@ -108,6 +108,26 @@ def _cmd_scan(args) -> int:
     return 0
 
 
+def _cmd_default_streamer(args) -> int:
+    """给扫描根目录设默认主播：标题里连名字都没写的文件夹（比如“1月26日”）按这位算。"""
+
+    service = _service(args)
+    choices = dict(service.streamer_choices())
+    if not args.root:
+        print("可选主播：" + "、".join(f"{key}（{label}）" for key, label in choices.items()))
+        for root, streamer in service.root_defaults().items():
+            print(f"  {root} → {choices.get(streamer, streamer)}")
+        return 0
+    if args.streamer and args.streamer not in choices:
+        print(f"没有这个主播 id：{args.streamer}；可选：{'、'.join(choices)}")
+        return 2
+    service.add_root(args.root)
+    service.set_root_default(args.root, args.streamer or "")
+    print(f"已把 {args.root} 的默认主播设为 {choices[args.streamer]}。" if args.streamer else f"已清除 {args.root} 的默认主播。")
+    print("下次 scan 会按新设置重新归属，没变的文件夹不会重新抽取。")
+    return 0
+
+
 def _cmd_report(args) -> int:
     service = _service(args)
     if not service.has_data():
@@ -170,6 +190,10 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--no-covers", action="store_true", help="不分析旧封面")
     scan.add_argument("--force", action="store_true", help="全部重新抽取")
     scan.set_defaults(handler=_cmd_scan)
+    default = sub.add_parser("default-streamer", help="给扫描根目录设默认主播（不带参数列出现状）")
+    default.add_argument("root", nargs="?")
+    default.add_argument("streamer", nargs="?", help="主播 id；不写就清除")
+    default.set_defaults(handler=_cmd_default_streamer)
     sub.add_parser("report", help="用库里已有的数据重新生成报告").set_defaults(handler=_cmd_report)
     proposals = sub.add_parser("proposals", help="列出待确认的建议")
     proposals.add_argument("--all", action="store_true", help="也列出已处理的")

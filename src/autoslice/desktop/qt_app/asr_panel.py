@@ -32,6 +32,7 @@ from autoslice.desktop.qt_preview.window import label
 
 from .asr_process import ModuleProcess
 
+_FORM_SPACING = 16
 _DEVICES = (("auto", "自动（有显卡就用显卡）"), ("cuda", "显卡（CUDA）"), ("cpu", "CPU（很慢）"))
 
 
@@ -47,20 +48,24 @@ class AsrSettingsPanel(QWidget):
         layout.addWidget(label("字幕识别", "cardTitle"))
         intro = label(
             "视频没有字幕时，在字幕页点“识别字幕”。识别在单独的进程里跑，用的是这台电脑的显卡；"
-            "这里只管选引擎和模型。哪个引擎对你的直播最准，用命令行 python -m autoslice.desktop.asr bench "
-            "拿你自己校对过的旧字幕测（点“安装步骤”看完整流程）。", "muted")
+            "这里只管选引擎和模型。不知道哪个引擎对你的直播更准，点“对比引擎…”选一个有校对字幕的旧切片文件夹，"
+            "用你自己的字幕给它们打分。第一次用先看“安装步骤”。", "muted")
         intro.setWordWrap(True)
         layout.addWidget(intro)
-        form = QFormLayout()
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(10)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        captions: list[QWidget] = []
 
-        def add_row(text: str, widget) -> QWidget:
+        def new_form() -> QFormLayout:
+            form = QFormLayout()
+            form.setHorizontalSpacing(_FORM_SPACING)
+            form.setVerticalSpacing(10)
+            form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            return form
+
+        def add_row(form: QFormLayout, text: str, widget) -> QWidget:
             caption = label(text, "formLabel")
-            caption.setMinimumWidth(72)
             caption.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            captions.append(caption)
             form.addRow(caption, widget)
             return caption
 
@@ -69,21 +74,29 @@ class AsrSettingsPanel(QWidget):
         for key, spec in ENGINES.items():
             self.engine_box.addItem(spec.label, key)
         self.engine_box.currentIndexChanged.connect(self._engine_changed)
-        add_row("识别引擎", self.engine_box)
+        engine_form = new_form()
+        add_row(engine_form, "识别引擎", self.engine_box)
+        layout.addLayout(engine_form)
+        # 引擎说明不进表单：表单按宽度算折行高度不准，放格子里会把下拉框压扁、单独一行又被裁字。
+        # 放在两段表单之间，左边让出标签列，看着仍挨着下拉框。
+        note_row = QHBoxLayout()
+        note_row.setContentsMargins(0, 0, 0, 0)
         self.engine_note = label("", "muted")
         self.engine_note.setWordWrap(True)
-        form.addRow(QWidget(), self.engine_note)
+        note_row.addWidget(self.engine_note, 1)
+        layout.addLayout(note_row)
+        form = new_form()
         self.model_edit = QLineEdit()
         self.model_edit.setPlaceholderText("Qwen/Qwen3-ASR-1.7B，或本机模型文件夹")
-        self.model_caption = add_row("识别模型", self.model_edit)
+        self.model_caption = add_row(form, "识别模型", self.model_edit)
         self.aligner_edit = QLineEdit()
         self.aligner_edit.setPlaceholderText("Qwen/Qwen3-ForcedAligner-0.6B（留空则时间按字数估算）")
-        self.aligner_caption = add_row("对齐模型", self.aligner_edit)
+        self.aligner_caption = add_row(form, "对齐模型", self.aligner_edit)
         self.device_box = popups.ComboBox()
         self.device_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for key, text in _DEVICES:
             self.device_box.addItem(text, key)
-        add_row("运行在", self.device_box)
+        add_row(form, "运行在", self.device_box)
         python_row = QHBoxLayout()
         python_row.setSpacing(8)
         self.python_edit = QLineEdit()
@@ -91,12 +104,22 @@ class AsrSettingsPanel(QWidget):
         python_row.addWidget(self.python_edit, 1)
         browse = QPushButton("选择")
         browse.clicked.connect(self._browse_python)
-        python_row.addWidget(browse)
+        # 和输入框同高，不然按钮下沿比输入框低一截；先套上样式表再量，否则量的是默认样式的高度
+        self.python_edit.ensurePolished()
+        browse.setFixedHeight(self.python_edit.sizeHint().height())
+        python_row.addWidget(browse, 0, Qt.AlignmentFlag.AlignVCenter)
         holder = QWidget()
         holder.setLayout(python_row)
         python_row.setContentsMargins(0, 0, 0, 0)
-        add_row("识别用的 Python", holder)
+        add_row(form, "识别用的 Python", holder)
         layout.addLayout(form)
+        # 两段表单的标签列等宽，输入框左沿才对得齐
+        for caption in captions:
+            caption.ensurePolished()
+        caption_width = max(caption.sizeHint().width() for caption in captions)
+        for caption in captions:
+            caption.setFixedWidth(caption_width)
+        note_row.insertSpacing(0, caption_width + _FORM_SPACING)
         self.hotword_check = QCheckBox("识别时带上热词（主播名、提督/舰长、你确认过的术语）")
         self.filter_check = QCheckBox("识别前先压低背景音乐和底噪")
         layout.addWidget(self.hotword_check)
@@ -114,6 +137,10 @@ class AsrSettingsPanel(QWidget):
         self.setup_button = QPushButton("安装步骤")
         self.setup_button.clicked.connect(self._show_setup)
         row.addWidget(self.setup_button)
+        self.bench_button = QPushButton("对比引擎…")
+        self.bench_button.setToolTip("用你校对过的旧字幕给各个识别引擎打分：只读旧文件夹，会占显卡，可能要跑几十分钟")
+        self.bench_button.clicked.connect(self._bench)
+        row.addWidget(self.bench_button)
         self.probe_button = QPushButton("加载试跑")
         self.probe_button.setToolTip("真的把模型加载起来试跑一小段；会占显存，第一次可能要下载模型")
         self.probe_button.clicked.connect(lambda: self._check(probe=True))
@@ -132,6 +159,9 @@ class AsrSettingsPanel(QWidget):
         self._runner.line.connect(self._collect)
         self._runner.finished.connect(self._checked)
         self._lines: list[str] = []
+        # 当前进程在做什么：doctor 只收 JSON 结果，bench 边跑边显示
+        self._mode = "doctor"
+        self._bench_report = None
         self.refresh()
 
     def refresh(self) -> None:
@@ -178,32 +208,66 @@ class AsrSettingsPanel(QWidget):
         self.output.setPlainText(SETUP_TEXT)
         self.output.show()
 
-    def _check(self, *, probe: bool) -> None:
-        if self._runner.running or not self._save():
-            return
-        for button in (self.check_button, self.probe_button):
-            button.setEnabled(False)
-        self.status.setText("正在加载模型试跑，第一次可能要几分钟…" if probe else "正在检查环境…")
+    def _run_buttons(self, enabled: bool) -> None:
+        for button in (self.check_button, self.probe_button, self.bench_button):
+            button.setEnabled(enabled)
+
+    def _start(self, mode: str, arguments: list[str], message: str) -> None:
+        self._run_buttons(False)
+        self.status.setText(message)
         self.output.clear()
         self.output.show()
         self._lines = []
-        arguments = ["doctor", "--json", *(["--probe"] if probe else [])]
+        self._mode = mode
         try:
             program, args, environment = python_command("autoslice.desktop.asr", arguments, self.python_edit.text())
         except ValueError as exc:
-            for button in (self.check_button, self.probe_button):
-                button.setEnabled(True)
+            self._run_buttons(True)
             self.status.setText(str(exc))
             self.output.hide()
             return
         self._runner.start(program, args, environment)
 
+    def _check(self, *, probe: bool) -> None:
+        if self._runner.running or not self._save():
+            return
+        self._start("doctor", ["doctor", "--json", *(["--probe"] if probe else [])],
+                    "正在加载模型试跑，第一次可能要几分钟…" if probe else "正在检查环境…")
+
+    def _bench(self) -> None:
+        """原来要自己敲 bench 命令：选旧切片文件夹，后台跑，报告写进数据目录。"""
+
+        if self._runner.running:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "选一个旧切片文件夹（里面要有视频和“_校对”字幕）")
+        if not folder or not self._save():
+            return
+        report = self.storage.root / "asr" / "引擎对比.md"
+        try:
+            report.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.status.setText(f"报告目录建不了：{exc}")
+            return
+        self._bench_report = report
+        self._start("bench", ["bench", "--root", folder, "--engines", ",".join(ENGINES), "--out", str(report)],
+                    "正在对比引擎：每个引擎都要加载模型跑几段，可能要几十分钟…")
+
     def _collect(self, text: str) -> None:
         self._lines.append(text)
+        if self._mode == "bench":
+            self.output.appendPlainText(text)
 
-    def _checked(self, code: int, tail: str, _cancelled: bool) -> None:
-        for button in (self.check_button, self.probe_button):
-            button.setEnabled(True)
+    def _checked(self, code: int, tail: str, cancelled: bool) -> None:
+        self._run_buttons(True)
+        if self._mode == "bench":
+            self.status.setText(
+                "对比已取消。" if cancelled else
+                f"对比完成，报告在 {self._bench_report}" if code == 0 else
+                "没找到可用的片段：所选文件夹里要有视频和同名的“_校对”字幕。" if code == 2 else
+                f"对比没跑完（退出码 {code}），原因见下面。")
+            if code not in (0, 2) and tail and not cancelled:
+                self.output.appendPlainText(tail)
+            return
         payload = next((line for line in reversed(self._lines) if line.lstrip().startswith("[")), "")
         try:
             checks = [Check(**item) for item in json.loads(payload)]

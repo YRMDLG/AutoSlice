@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import unittest
 
-from autoslice.desktop.cover_copy import CopyLexicon, generate_basic_copy_variants
+from autoslice.desktop.cover_copy import CopyLexicon, collapse_repeats, generate_basic_copy_variants
 from autoslice.streamer_profiles import CoverEmphasisTerm
 
 
 class BasicCopyContractTests(unittest.TestCase):
+    def test_stuttered_subtitles_are_collapsed_before_becoming_copy(self):
+        # 封面走查：字幕里“他想唱他想唱他想唱的”原样上了封面
+        self.assertEqual(collapse_repeats("他想唱他想唱他想唱的"), "他想唱的")
+        self.assertEqual(collapse_repeats("我觉得我觉得这个好"), "我觉得这个好")
+        self.assertEqual(collapse_repeats("谢谢谢谢谢谢"), "谢谢")
+        # 正常的叠词不动
+        for text in ("研究研究", "一步一步来", "看看", "哈哈哈"):
+            self.assertEqual(collapse_repeats(text), text)
+        variants = generate_basic_copy_variants("一期", subtitle_context="他想唱他想唱他想唱的 / 当时韩国就有选手")
+        self.assertFalse(any("他想唱他想唱" in item.text for item in variants))
+
     def test_packaging_suspense_does_not_beat_real_event(self):
         title = "〖泽音〗音姐直播间突入神秘人物👀气的音姐大骂音悦生要他退钱！😰究竟发生了什么🤔"
         variants = generate_basic_copy_variants(title)

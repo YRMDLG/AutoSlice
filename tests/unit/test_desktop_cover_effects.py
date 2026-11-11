@@ -223,6 +223,69 @@ class TemplateTests(unittest.TestCase):
             sum(item.id.startswith(TEMPLATE_PREFIX) for item in applied.objects),
         )
 
+    def test_new_sticker_moves_off_the_headline(self):
+        # 走查 N20：新素材固定放在 (0.62, 0.54)，常常正好压住下方的大标题
+        from autoslice.desktop.cover_layout import (
+            canvas_size,
+            overlay_geometry,
+            place_overlay,
+            text_layout,
+        )
+
+        sticker_path = Path(self.temp.name) / "sticker.png"
+        Image.new("RGBA", (300, 300), (255, 0, 0, 255)).save(sticker_path)
+        headline = TextObject(id="copy-b", text="选秀带手机居然会改变选曲", copy_role="B",
+                              transform=Transform(x=0.05, y=0.55), style=TextStyle(font_size=150))
+        document = CoverDocument(objects=(BackgroundObject(id="background-main"), headline),
+                                 profiles=default_profiles())
+        sticker = StickerObject(id="image-1", asset=AssetRef(path=str(sticker_path)),
+                                transform=Transform(x=0.62, y=0.54, scale=0.85))
+        size = canvas_size("4x3")
+        placed = place_overlay(document, sticker, "4x3")
+        box = overlay_geometry(placed, size)
+        ink = text_layout(object_for_profile(document, "copy-b", "4x3"), size).ink
+        overlap_w = min(box.right, ink.right) - max(box.left, ink.left)
+        overlap_h = min(box.bottom, ink.bottom) - max(box.top, ink.top)
+        self.assertFalse(overlap_w > 0 and overlap_h > 0, "新素材仍压在标题上")
+        self.assertTrue(0 <= box.left and box.right <= size[0] and 0 <= box.top and box.bottom <= size[1])
+        # 原位置不压字就不动
+        empty = CoverDocument(objects=(BackgroundObject(id="background-main"),), profiles=default_profiles())
+        self.assertEqual(place_overlay(empty, sticker, "4x3").transform, sticker.transform)
+
+    def test_custom_headline_takes_the_headline_slot_instead_of_fixed_text(self):
+        # 走查 N7：主文案隐藏、自建文字块当标题时，模板曾把这段文字当“固定的字”叠到别的视频上
+        source = CoverDocument(
+            objects=(
+                BackgroundObject(id="background-main"),
+                TextObject(id="copy-b", text="原标题", copy_role="B", visible=False),
+                TextObject(id="text-4", text="你们磕CP就是为了看她俩在床上？", copy_role="B",
+                           transform=Transform(x=0.2, y=0.6), style=TextStyle(font_size=120, fill="#FFE438")),
+            ),
+            profiles=default_profiles(),
+        )
+        template = make_template(source, "普通文字配表情", video_dirs=())
+        self.assertEqual([item.text for item in template.document.objects if isinstance(item, TextObject)], [""])
+        target = CoverDocument(
+            objects=(BackgroundObject(id="background-main"),
+                     TextObject(id="copy-b", text="选秀带手机", copy_role="B")),
+            profiles=default_profiles(),
+        )
+
+        def visible_texts(document):
+            return [object_for_profile(document, item.id, "4x3").text for item in document.objects
+                    if isinstance(item, TextObject) and object_for_profile(document, item.id, "4x3").visible]
+
+        applied = apply_template(target, template)
+        self.assertEqual(visible_texts(applied), ["选秀带手机"])
+        headline = object_for_profile(applied, "copy-b", "4x3")
+        self.assertEqual(headline.style.font_size, 120)
+        self.assertAlmostEqual(headline.transform.x, 0.2)
+        # 早先存下旧内容的模板（主力机那份）套用时也不再叠出旧文字
+        stale = replace(template, document=replace(template.document, objects=tuple(
+            replace(item, text="你们磕CP就是为了看她俩在床上？") if isinstance(item, TextObject) else item
+            for item in template.document.objects)))
+        self.assertEqual(visible_texts(apply_template(target, stale)), ["选秀带手机"])
+
     def test_store_lists_recently_used_first_and_deletes(self):
         store = CoverTemplateStore(Path(self.temp.name) / "data")
         first = make_template(self.source, "一", video_dirs=(self.frames,))

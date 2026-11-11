@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from autoslice.desktop.ai_review import document_hash
 from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.subtitle_render import subtitle_font_problem
 from autoslice.streamer_profiles import resolve_streamer_profile
 
 
@@ -239,8 +240,11 @@ class SubtitleDocumentMixin:
                           video_path=document.video.path, message="准备压制…", cancel=cancellation.set)
         self._render_result = None
         motion.reveal(self.render_location, False)
-        self.app_status.setText(f"{project.title} · 正在压制…")
-        self.app_status.setToolTip("")
+        # 点了就开始，所以要说清在后台、成片放哪、怎么停
+        output_name = self.render_service.default_output(Path(document.video.path)).name
+        self.app_status.setText(f"{project.title} · 正在后台压制…")
+        self.app_status.setToolTip(f"成片：{output_name}（不覆盖已有文件）；可在右上角“任务”里查看或停止")
+        self._show_transient_status(f"已开始后台压制：{output_name} · 可在“任务”里停止")
         self._update_status()
         video_path = document.video.path
         corrected_path = document.corrected_path
@@ -291,6 +295,9 @@ class SubtitleDocumentMixin:
                     hint = "请检查视频与校对字幕后重试"
                 self.app_status.setText(f"{job['title']} · 压制失败：{hint}")
                 self.app_status.setToolTip(f"{detail}\n详细记录：{self.storage.logs / 'subtitle-render.log'}")
+                if "字体" in detail and not isinstance(error, FileNotFoundError):
+                    # 缺字体是每次必失败的环境问题，顶栏一行灰字太容易漏看
+                    QMessageBox.warning(self, "压制失败：缺少字幕字体", subtitle_font_problem() or detail)
         else:
             self._render_result = Path(result["output_video_path"])
             self._show_transient_status(f"{job['title']} · ✓ 压制完成 · {self._render_result.name}")

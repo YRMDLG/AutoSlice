@@ -115,6 +115,7 @@ def scan_roots(
     last_report = 0.0
     run_id = store.start_run()
     pending = 0
+    defaults = store.root_defaults()
 
     def report(force: bool = False) -> None:
         nonlocal last_report
@@ -149,7 +150,7 @@ def scan_roots(
             state.entries += 1
             seen_folders.add(folder)
             known = store.entry_state(folder)
-            streamer = matcher.infer(folder, name)
+            streamer = matcher.infer(folder, name, defaults.get(root, ""))
             if known is not None and not options.force and known[1] == entry.signature and known[2] == EXTRACT_VERSION:
                 if streamer != known[3]:
                     # 归属只取决于文件夹名和路径：规则变了不用重新抽取，直接改

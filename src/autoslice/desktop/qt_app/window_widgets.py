@@ -10,7 +10,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QBrush, QColor, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QTextCursor
 from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
@@ -29,8 +29,17 @@ class _StatusLabel(QLabel):
     """空闲时从工作栏收起；后台任务或反馈出现时才占用空间。"""
 
     def setText(self, text: str) -> None:
+        fading = getattr(self, "_fading", None)
+        if text and fading is not None:
+            # 旧文字的淡出残影还没散，新文字就到了：先收掉，免得盖住新文字开头（走查 M13）
+            try:
+                fading.hide()
+                fading.deleteLater()
+            except RuntimeError:
+                pass
+            self._fading = None
         if not text and self.text():
-            motion.fade_out_snapshot(self)
+            self._fading = motion.fade_out_snapshot(self)
         appearing = bool(text) and not self.isVisible()
         super().setText(text)
         self.setVisible(bool(text))
@@ -81,21 +90,50 @@ class SubtitleTableModel(QAbstractTableModel):
         self.document: SubtitleDocument | None = None
         self.playing_index: int | None = None
         self.pending_ids: set[int] | None = None
+        self._filter_cache = None  # (键, 位置列表, 对应字幕编号)
+
+    def _filtered_rows(self):
+        """“待确认”筛选下各行在 entries 里的位置。
+
+        每次取格子都重筛整份字幕时，3000 条画一屏要约 100 毫秒；这里按列表身份、长度和筛选集合缓存。
+        条目内容始终现读，改字、改时间不受缓存影响；拆分、合并、删除、撤销会改变长度或换列表而重算。
+        """
+
+        entries = self.document.entries
+        key = (id(entries), len(entries), id(self.pending_ids))
+        if self._filter_cache is None or self._filter_cache[0] != key:
+            positions = [i for i, item in enumerate(entries) if item.index in self.pending_ids]
+            self._filter_cache = (key, positions, [entries[i].index for i in positions])
+        return self._filter_cache
 
     def visible_entries(self):
         entries = self.document.entries if self.document else []
-        return [item for item in entries if item.index in self.pending_ids] if self.pending_ids is not None else entries
+        if self.pending_ids is None or not entries:
+            return entries if self.pending_ids is None else []
+        _key, positions, _ids = self._filtered_rows()
+        return [entries[i] for i in positions]
 
     def entry_at(self, row):
-        return self.visible_entries()[row]
+        if self.pending_ids is None or self.document is None:
+            return self.visible_entries()[row]
+        _key, positions, ids = self._filtered_rows()
+        entry = self.document.entries[positions[row]]
+        if entry.index != ids[row]:
+            # 同长度整体替换等少见情况：编号对不上就重算一次
+            self._filter_cache = None
+            _key, positions, ids = self._filtered_rows()
+            entry = self.document.entries[positions[row]]
+        return entry
 
     def set_pending_filter(self, cue_ids):
         self.beginResetModel()
+        self._filter_cache = None
         self.pending_ids = set(cue_ids) if cue_ids is not None else None
         self.endResetModel()
 
     def set_document(self, document: SubtitleDocument | None):
         self.beginResetModel()
+        self._filter_cache = None
         self.document = document
         self.playing_index = None
         self.endResetModel()
@@ -113,7 +151,11 @@ class SubtitleTableModel(QAbstractTableModel):
                                       [Qt.ItemDataRole.BackgroundRole])
 
     def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() or self.document is None else len(self.visible_entries())
+        if parent.isValid() or self.document is None:
+            return 0
+        if self.pending_ids is None:
+            return len(self.document.entries)
+        return len(self._filtered_rows()[1]) if self.document.entries else 0
 
     def columnCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else 3
@@ -342,7 +384,11 @@ class SubtitleTextDelegate(QStyledItemDelegate):
 def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:
     """字幕行内编辑框：贴合表格行、不换行、选中行底色。两条编辑入口共用。"""
 
-    editor.setFont(font)
+    # 全局样式表的 12px 会盖过 setFont，编辑态字号要和正文列（text_body）一致，并垂直居中不跳位
+    body = QFont(font)
+    body.setPixelSize(SIZES.text_body)
+    top = max(0, (SIZES.subtitle_row_height - QFontMetrics(body).height()) // 2)
+    editor.setFont(body)
     editor.document().setDocumentMargin(0)
     editor.setTabChangesFocus(True)
     editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -354,7 +400,7 @@ def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:
     editor.viewport().setAutoFillBackground(True)
     editor.setStyleSheet(
         f"QPlainTextEdit {{ background: {COLORS.row_selected}; color: {COLORS.text}; "
-        f"border: none; border-radius: 0; padding: 10px 6px 0 6px; "
+        f"border: none; border-radius: 0; padding: {top}px 6px 0 6px; font-size: {SIZES.text_body}px; "
         f"selection-background-color: {COLORS.accent_pressed}; }}"
         "QPlainTextEdit:focus { border: none; }"
     )

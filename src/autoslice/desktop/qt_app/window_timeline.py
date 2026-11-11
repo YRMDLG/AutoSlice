@@ -37,9 +37,9 @@ class TimelineMixin:
         heading.setSpacing(4)
         heading.addWidget(label("字幕时间轴", "sectionTitle"))
         heading.addSpacing(SIZES.space_2)
-        hint = ElidedLabel("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
+        hint = ElidedLabel("快捷键 Ctrl+/ · 拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
         hint.setObjectName("subtle")
-        hint.setToolTip("拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
+        hint.setToolTip("快捷键一览 Ctrl+/ · 拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
         heading.addWidget(hint, 1)
         heading.addStretch()
         self.snap_button = QPushButton("磁吸")
@@ -205,16 +205,91 @@ class TimelineMixin:
             merge.setToolTip("请先选择时间轴中连续相邻的字幕")
         menu.addAction("删除 Delete", self._delete)
         menu.addSeparator()
+        # 字幕块和声音对不上（尾音被切、拖进静音、两句间闪一下）：按真实停顿重定起止
+        snap = menu.addAction("选中字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=True))
+        snap.setEnabled(bool(self.document) and bool(self.selection.selected))
+        menu.addAction("全部字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=False)).setEnabled(
+            bool(self.document))
+        menu.addSeparator()
+        menu.addAction("试听这一句 F1", self._audition_current)
+        menu.addAction("只播这一句 F4", self._audition_once)
         menu.addAction("试听开头", self._audition_start)
         menu.addAction("试听结尾", self._audition_end)
         loop = menu.addAction("循环当前字幕")
         loop.setCheckable(True)
         loop.setChecked(self._loop_enabled)
         loop.triggered.connect(self._set_loop)
+        menu.addSeparator()
+        menu.addAction("快捷键一览 Ctrl+/", self._show_shortcuts)
         anchor = position if global_position else (
             self.timeline.mapToGlobal(position) if position is not None else self.cursor().pos()
         )
         effects.popup(anchor)
+
+    def _show_shortcuts(self):
+        dialog = getattr(self, "_shortcuts_dialog", None)
+        if dialog is None:
+            from .shortcuts_dialog import ShortcutsDialog
+
+            dialog = self._shortcuts_dialog = ShortcutsDialog(self)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _snap_cues_to_speech(self, *, selected_only: bool):
+        """起止按真实停顿重定（识别后的同一套规则）；后台抽一次音频，结果一步撤销。"""
+
+        if self._saving or not self.document or getattr(self, "_speech_snapping", False):
+            return
+        self._commit_editor()
+        entries = tuple(self.document.entries)
+        chosen = set(self.selection.selected) if selected_only else {entry.index for entry in entries}
+        if not chosen:
+            self._show_transient_status("先在列表或时间轴里选中要调整的字幕")
+            return
+        from autoslice.desktop.asr.refine import snap_to_speech, speech_audio
+
+        segments = [(srt_timestamp_seconds(e.start), srt_timestamp_seconds(e.end), e.text) for e in entries]
+        video, cache = self.document.video.path, self.storage.root / "cache" / "speech"
+        self._speech_snapping = True
+        self._show_transient_status("正在对着声音调整字幕起止…", 60000)
+        self._run(lambda: snap_to_speech(segments, speech_audio(cache, video)),
+                  lambda result, error: self._speech_snapped(entries, chosen, result, error))
+
+    def _speech_snapped(self, entries, chosen, result, error):
+        self._speech_snapping = False
+        if error:
+            self._show_transient_status(f"贴合声音没成功：{error}", 9000)
+            return
+        if not self.document or tuple(self.document.entries) != entries or len(result) != len(entries):
+            self._show_transient_status("调整期间字幕改过了，没有应用；需要的话再点一次")
+            return
+        before = entries
+        changed = 0
+        for position, (entry, (start, end, _text)) in enumerate(zip(entries, result)):
+            if entry.index not in chosen:
+                continue
+            # 没选中的邻句保持原样：不压到它们
+            if position and entries[position - 1].index not in chosen:
+                start = max(start, srt_timestamp_seconds(entries[position - 1].end))
+            if position + 1 < len(entries) and entries[position + 1].index not in chosen:
+                end = min(end, srt_timestamp_seconds(entries[position + 1].start))
+            old_start, old_end = srt_timestamp_seconds(entry.start), srt_timestamp_seconds(entry.end)
+            if end - start < 0.1 or (abs(start - old_start) < 0.005 and abs(end - old_end) < 0.005):
+                continue
+            try:
+                self.document.change_time(entry.index, start, end, remember=False)
+            except ValueError:
+                continue
+            changed += 1
+        self.document.commit_time_preview(before)
+        if not changed:
+            self._show_transient_status("起止已经贴着声音了，没有要调的")
+            return
+        self.model.set_document(self.document)
+        self.timeline.update()
+        self._edited()
+        self._show_transient_status(f"已按声音调整 {changed} 条字幕的起止（Ctrl+Z 撤销）", 6000)
 
     def _can_merge_selected(self):
         if not self.document or len(self.selection.selected) < 2:

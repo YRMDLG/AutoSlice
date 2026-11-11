@@ -442,15 +442,56 @@ _LEADING_WORDS = (
     "突然", "直接", "却", "就", "都", "还", "又", "才", "也", "被", "把", "给", "让",
 )
 _UNITS = set("万千百亿个次楼岁元块位只条张天年月日号%")
+# 没有分词库时的小词表：只收通用高频词和直播常用词，不收某个账号的专有词。
+# 词中间断行很贵（“居 / 然”像错字），词边界比普通字间便宜。
+_COMMON_WORDS = frozenset("""
+居然 竟然 果然 原来 结果 直接 突然 终于 已经 还是 就是 真的 其实 当然 而且 如果 虽然 只是 只有 还有
+然后 但是 可是 不过 所以 因为 于是 甚至 毕竟 难道 到底 简直 完全 根本 一直 一定 一样 一起 一下 一点
+为什么 什么 怎么 怎样 怎么样 这么 那么 多少 哪里 这里 那里 这个 那个 这样 那样 这种 那种 这些 那些
+我们 你们 他们 她们 它们 自己 大家 别人 人家
+没有 知道 觉得 可以 喜欢 讨厌 不是 不会 不要 不能 不用 应该 需要 希望 害怕 担心 相信 发现 看到 听到
+告诉 回答 解释 承认 表示 开始 结束 继续 准备 决定 选择 改变 变成 成为 出现 离开 回来 回家 出来 起来
+时候 现在 今天 明天 昨天 以前 以后 之前 之后 最后 最近 马上 立刻 赶紧 第一 第一次 一次 每次 有时
+事情 东西 问题 原因 真相 秘密 内幕 操作 朋友 粉丝 主播 直播 观众 弹幕 礼物 舰长 提督 视频 游戏
+唱歌 跳舞 声音 眼泪 姐姐 妹妹 哥哥 弟弟 妈妈 爸爸 老师 同学 公司 节目 比赛 舞台 偶像 练习 出道
+开心 难过 生气 好看 好听 厉害 离谱 震惊 破防 笑死 可爱 漂亮 特别 非常 真是 竟是
+""".split())
+_COMMON_WORD_MAX = max(len(word) for word in _COMMON_WORDS)
 SEMANTIC_BREAK = 0.0
 PARTICLE_BREAK = 0.03
 CONNECTIVE_BREAK = 0.04
-SCRIPT_BREAK = 0.05
+WORD_EDGE_BREAK = 0.1
 PLAIN_BREAK = 0.2
+SCRIPT_BREAK = 0.05
+WORD_INSIDE_BREAK = 0.5
 
 
 def _word_character(character: str) -> bool:
     return character.isascii() and (character.isalnum() or character in "'_-")
+
+
+@lru_cache(maxsize=1024)
+def _common_word_spans(text: str) -> tuple[frozenset[int], frozenset[int]]:
+    """正向最长匹配词表：(落在词中间的断点, 词边界的断点)。断点 i 指在 text[i] 前断。"""
+
+    inside: set[int] = set()
+    edges: set[int] = set()
+    # “居然 / 可以”：连接词挂在行尾不自然，紧跟连接词的断点不给词边界优惠
+    after_leading: set[int] = set()
+    index = 0
+    while index < len(text):
+        for length in range(min(_COMMON_WORD_MAX, len(text) - index), 1, -1):
+            word = text[index:index + length]
+            if word in _COMMON_WORDS:
+                inside.update(range(index + 1, index + length))
+                edges.update((index, index + length))
+                if word in _LEADING_WORDS:
+                    after_leading.add(index + length)
+                index += length
+                break
+        else:
+            index += 1
+    return frozenset(inside), frozenset(edges - inside - after_leading)
 
 
 def break_penalty(text: str, index: int) -> float | None:
@@ -474,9 +515,14 @@ def break_penalty(text: str, index: int) -> float | None:
         return PARTICLE_BREAK
     if _word_character(before) != _word_character(after):
         return SCRIPT_BREAK
+    inside, edges = _common_word_spans(text)
+    if index in inside:
+        return WORD_INSIDE_BREAK
     rest = text[index:]
     if any(rest.startswith(word) for word in _LEADING_WORDS):
         return CONNECTIVE_BREAK
+    if index in edges:
+        return WORD_EDGE_BREAK
     return PLAIN_BREAK
 
 

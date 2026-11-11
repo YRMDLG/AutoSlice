@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # 数据库结构版本；改表结构时加一并写迁移。
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 # 抽取逻辑版本；任何抽取器的输出含义变了就加一，旧条目下次扫描时自动重新抽取。
 EXTRACT_VERSION = 2
 

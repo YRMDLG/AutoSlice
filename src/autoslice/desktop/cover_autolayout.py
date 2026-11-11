@@ -592,8 +592,9 @@ class CoverLayoutService:
     ) -> CoverDocument:
         """把一套文案和样式写回 A/B 主文案，清掉它们的比例覆盖，交给自动排版重新放置。"""
 
-        if copy.context.strip():
-            document = ensure_context_text(document)
+        # 只有 B 的方案也带上（空的、隐藏的）A：套用时才会把上一套方案留下的 A 收掉，
+        # 不然“黄青（有 A）→ 推荐（只有 B）”时旧 A 留在画面上和新 B 挤在一起，被安全检查拒掉
+        document = ensure_context_text(document)
         ids = set(primary_copy_ids(document).values())
         objects = []
         for item in document.objects:
@@ -614,6 +615,29 @@ class CoverLayoutService:
             for key, profile in document.profiles.items()
         }
         return replace(document, objects=tuple(objects), profiles=profiles)
+
+    @staticmethod
+    def user_framed(document: CoverDocument) -> bool:
+        """底图放大过（点了“裁掉两侧”、手动缩放，或沿用了按主播记的裁切）。
+
+        这时套方案只换文字排法和配色，保住取景：原来每套方案都重新自动取景，
+        一点方案，裁掉的直播界面又全回来了。
+        """
+
+        background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
+        if background is None:
+            return False
+        for key in document.profiles or ("4x3",):
+            shown = object_for_profile(document, background.id, key)
+            if isinstance(shown, BackgroundObject) and shown.fit_mode == "cover" and shown.scale > 1.0 + 1e-3:
+                return True
+        return False
+
+    @staticmethod
+    def _headline_size(document: CoverDocument) -> int:
+        ids = primary_copy_ids(document)
+        item = object_for_profile(document, ids["B"], "4x3") if "B" in ids else None
+        return item.style.font_size if isinstance(item, TextObject) else 0
 
     def layout_schemes(
         self,
@@ -649,8 +673,11 @@ class CoverLayoutService:
         )
         preset = presets[ranked_presets[batch % len(ranked_presets)]]
 
+        keep_framing = self.user_framed(document)
+
         def build(copy: BasicCoverCopy, style: StylePreset | None, *, big: bool = False, mode: str = "auto") -> CoverDocument:
-            return self.apply_auto_layout(self._seed_copy(document, copy, style, big=big), image_path, mode=mode)
+            return self.apply_auto_layout(self._seed_copy(document, copy, style, big=big), image_path, mode=mode,
+                                          reframe=not keep_framing)
 
         recommended = build(first, None)
         # 第二套换一种构图；“换一批”在与推荐不同的构图之间轮换。
@@ -667,6 +694,12 @@ class CoverLayoutService:
             ),
             CoverScheme("side", "侧边", "文字放到画面较空的一侧，人物更完整", build(first, None, mode="slot")),
         ]
+        # “大字”放不大（槽位只够这么宽）时就不叫大字了，换别的构图
+        big_enough = self._headline_size(recommended) * 1.05
+        alternatives = [
+            item for item in alternatives
+            if item.key != "headline" or self._headline_size(item.document) >= big_enough
+        ] or alternatives
         distinct = [item for item in alternatives if item.document != recommended] or alternatives
         used_compositions = Counter(item.composition for item in recent)
         distinct.sort(key=lambda item: used_compositions[composition_signature(item.document)])
@@ -690,6 +723,8 @@ class CoverLayoutService:
         """AI 选的“文案 + 排法 + 配色”交给本地排版引擎，生成可编辑的方案。"""
 
         presets = {preset.key: preset for preset in STYLE_PRESETS}
+        # 用户裁过底图就保住取景，AI 只定文案、排法和配色
+        keep_framing = self.user_framed(document)
         schemes = []
         for idea in ideas:
             copy = idea.copy.as_basic()
@@ -699,7 +734,7 @@ class CoverLayoutService:
             mode = "split" if big else idea.layout
             built = self.apply_auto_layout(
                 self._seed_copy(document, copy, presets[idea.preset], big=big), image_path, mode=mode, position=idea.place,
-                zoom=idea.zoom, notes=notes, framing=idea.framing,
+                zoom=idea.zoom, notes=notes, framing=idea.framing, reframe=not keep_framing,
             )
             schemes.append(CoverScheme(f"ai:{idea.direction}", f"AI·{idea.direction}", idea.reason, built))
         return tuple(schemes)
@@ -809,10 +844,14 @@ class CoverLayoutService:
             object_id for role, object_id in primary_copy_ids(source).items()
             if role not in primary or primary[role] == object_id
         } - locked
-        # 隐藏对象是用户的选择，方案不能重新显示或改写。
-        ids -= {item.id for item in document.objects if not item.visible}
+        # 用户隐藏的对象（还留着字）是用户的选择，方案不能重新显示或改写；
+        # 没有字的隐藏块只是空位（方案或清空文案留下的），可以用。
+        ids -= {item.id for item in document.objects
+                if not item.visible and not (isinstance(item, TextObject) and not item.text.strip())}
         background = next((item.id for item in source.objects if isinstance(item, BackgroundObject)), None)
-        keys = ids | ({background} if background and background not in locked else set())
+        # 用户裁过底图时保住取景：方案可能是裁切之前生成的，照搬会把直播界面又露出来
+        keep_framing = CoverLayoutService.user_framed(document)
+        keys = ids | ({background} if background and background not in locked and not keep_framing else set())
         replaced = {item.id: item for item in source.objects if item.id in ids}
         existing = {item.id for item in document.objects}
         # 方案里新补的 A 块（原封面只有 B 时）也一并带进来。

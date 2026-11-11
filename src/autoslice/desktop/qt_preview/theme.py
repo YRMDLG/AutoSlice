@@ -54,6 +54,8 @@ class Palette:
     scrollbar_hover: str = "#3F3E3A"
     # AI 差异：柔珊瑚删除、薄荷新增
     ai_removed: str = "#F08A80"
+    # 要删的字的底色：套上应用样式表后 Qt 富文本的删除线几乎画不出来，靠底色标出
+    ai_removed_bg: str = "#4A2A27"
     ai_added: str = "#5CD6A0"
 
 
@@ -123,6 +125,8 @@ def stylesheet() -> str:
         QPlainTextEdit#inlineTextEdit {{ background: rgba(12, 16, 22, 235); color: #FFFFFF; border: 1px solid {c.accent}; border-radius: 6px; padding: 4px 6px; font-size: 15px; }}
         QListWidget {{ background: {c.player}; border: 1px solid {c.divider}; border-radius: 6px; padding: 4px; }}
         QListWidget::item {{ padding: 4px 2px; }}
+        QListWidget::item:hover {{ background: {c.hover}; }}
+        QListWidget::item:selected {{ background: {c.row_selected}; color: {c.text}; border-left: 2px solid {c.accent}; }}
         QListWidget::indicator {{ width: 13px; height: 13px; border: 1px solid {c.muted}; border-radius: 3px; background: {c.panel}; }}
         QListWidget::indicator:checked {{ background: {c.accent}; border-color: {c.accent}; }}
         QWidget#appbar {{ background: {c.nav}; border-bottom: 1px solid {c.divider}; }}

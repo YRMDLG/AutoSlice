@@ -243,6 +243,11 @@ class StreamerMatcher:
             return self._by_label(label) or f"ext:{label}"
         return default
 
+    def choices(self) -> list[tuple[str, str]]:
+        """可以选作默认主播的：[(id, 名称)]。"""
+
+        return [(profile_id, label) for profile_id, label, *_rest in self._profiles]
+
     def label(self, streamer: str) -> str:
         for profile_id, label, *_rest in self._profiles:
             if profile_id == streamer:

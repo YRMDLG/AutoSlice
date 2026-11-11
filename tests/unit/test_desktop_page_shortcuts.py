@@ -128,7 +128,7 @@ class PageShortcutTests(unittest.TestCase):
                 self.press(Qt.Key.Key_Space)
                 self.window.player.pause.assert_called_once_with()
 
-    def test_text_space_and_delete_keep_text_scope_then_enter_restores_playback(self):
+    def test_text_space_and_delete_keep_text_scope_then_escape_restores_playback(self):
         player = self.use_player()
         editor = self.open_text()
         editor.selectAll()
@@ -141,7 +141,8 @@ class PageShortcutTests(unittest.TestCase):
         self.assertEqual(editor.toPlainText(), "")
         self.assertEqual(self.deleted, [])
         editor.insertPlainText("编辑后播放")
-        self.press(Qt.Key.Key_Return)
+        # 回车现在是“确认并编辑下一句”，退出编辑用 Esc
+        self.press(Qt.Key.Key_Escape)
         self.assertFalse(self.window._subtitle_editor_open())
         self.press(Qt.Key.Key_Space)
         player.play.assert_called_once_with()

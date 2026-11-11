@@ -72,6 +72,34 @@ class SubmissionProject:
         return "素材已识别"
 
 
+def nested_root_candidate(projects) -> SubmissionProject | None:
+    """选高了一层的迹象：某个“项目”的视频分散在它下面两个以上不同的子文件夹里。
+
+    投稿目录下每个子文件夹算一个项目；把装着几个项目的上一级选成投稿目录时，
+    几条视频会被递归归进同一个“项目”。这时它本身才是投稿目录。
+    只有这种项目占了有视频项目的一半以上才算：正常目录里个别项目自带子文件夹不提示。
+    """
+
+    spread = []
+    with_videos = 0
+    for project in projects:
+        if not project.videos:
+            continue
+        with_videos += 1
+        root = Path(project.directory)
+        children = set()
+        for video in project.videos:
+            try:
+                relative = Path(video.path).parent.relative_to(root)
+            except ValueError:
+                continue
+            if relative.parts:
+                children.add(relative.parts[0].casefold())
+        if len(children) >= 2:
+            spread.append(project)
+    return spread[0] if spread and len(spread) * 2 > with_videos else None
+
+
 @dataclass(frozen=True)
 class ProjectSnapshot:
     """两页共同消费的一次完整刷新结果。"""

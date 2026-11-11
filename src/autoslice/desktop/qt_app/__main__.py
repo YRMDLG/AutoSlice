@@ -5,6 +5,7 @@ import hashlib
 import os
 import sys
 
+from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -20,6 +21,11 @@ def main() -> int:
         os.environ["PATH"] = os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", "")
     app = QApplication(sys.argv)
     app.setApplicationName("AutoSlice")
+    # Qt 自带的“是/否/确定/取消”和文件对话框用中文；找不到翻译文件时保持英文
+    translator = QTranslator(app)
+    if translator.load(QLocale(QLocale.Language.Chinese, QLocale.Country.China), "qtbase", "_",
+                       QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
+        app.installTranslator(translator)
     app.setStyle("Fusion")
     fonts.load()
     app.setStyleSheet(stylesheet())

@@ -222,6 +222,31 @@ class AsrQtTests(unittest.TestCase):
         panel.refresh()
         self.assertEqual(panel.python_edit.text(), "D:/py/python.exe")
 
+    def test_engine_box_keeps_its_height_and_note_is_not_clipped(self):
+        # 走查 M2：说明和下拉框挤在表单同一格时，下拉框被压到 18 像素
+        panel = self.window.asr_settings_panel
+        self.window._open_asr_settings()
+        self.app.processEvents()
+        self.assertGreaterEqual(panel.engine_box.height(), panel.engine_box.sizeHint().height())
+        note = panel.engine_note
+        self.assertGreaterEqual(note.height(), note.heightForWidth(note.width()) - 1)
+        self.assertGreater(note.geometry().top(), panel.engine_box.geometry().top())
+        # 走查 M15：说明里不再让用户敲命令，换成按钮
+        self.assertNotIn("python -m", "".join(label.text() for label in panel.findChildren(type(note))))
+
+    def test_bench_button_runs_the_comparison_and_reports_where_the_report_is(self):
+        panel = self.window.asr_settings_panel
+        command = (sys.executable, ["-u", "-c", "print('片段 1/2'); print('片段 2/2')"], {"PYTHONIOENCODING": "utf-8"})
+        with patch("autoslice.desktop.qt_app.asr_panel.QFileDialog.getExistingDirectory", return_value=str(self.root)), \
+                patch("autoslice.desktop.qt_app.asr_panel.python_command", return_value=command) as build:
+            panel.bench_button.click()
+            self.wait_for(lambda: panel.bench_button.isEnabled())
+        arguments = build.call_args.args[1]
+        self.assertEqual(arguments[:3], ["bench", "--root", str(self.root)])
+        self.assertIn("--out", arguments)
+        self.assertIn("片段 2/2", panel.output.toPlainText())
+        self.assertIn("对比完成", panel.status.text())
+
     def test_doctor_button_formats_the_child_process_report(self):
         report = json.dumps([{"name": "torch", "status": "fail", "detail": "没装", "hint": "pip install torch"}])
         command = (sys.executable, ["-u", "-c", f"print('噪音'); print({report!r})"], {"PYTHONIOENCODING": "utf-8"})

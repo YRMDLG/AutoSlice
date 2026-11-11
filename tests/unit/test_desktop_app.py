@@ -12,7 +12,6 @@ from unittest.mock import patch
 from autoslice.desktop.app import DesktopApp
 from autoslice.desktop.projects import SubmissionProjectService
 
-
 SRT = "1\n00:00:00,000 --> 00:00:01,000\n第一条\n\n2\n00:00:02,000 --> 00:00:03,000\n第二条\n"
 
 

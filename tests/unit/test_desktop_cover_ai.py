@@ -51,11 +51,13 @@ class FakeModel:
         self.calls = []
         self.json_modes = []
         self.token_limits = []
+        self.efforts = []
 
-    def __call__(self, prompt, *, max_tokens, model_override, images, json_mode=False):
+    def __call__(self, prompt, *, max_tokens, model_override, images, json_mode=False, **_request):
         self.calls.append((model_override, len(images), prompt))
         self.json_modes.append(json_mode)
         self.token_limits.append(max_tokens)
+        self.efforts.append(_request.get("reasoning_effort"))
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
@@ -81,7 +83,7 @@ class RoutingModel:
                         }]}, ensure_ascii=False)}
         self.calls = []
 
-    def __call__(self, prompt, *, max_tokens, model_override, images, json_mode=False):
+    def __call__(self, prompt, *, max_tokens, model_override, images, json_mode=False, **_request):
         kind = (
             "pick" if "挑一张最适合" in prompt else "inspect" if "请标出" in prompt
             else "choice" if "候选封面" in prompt else "review" if "独立的封面文案复核" in prompt else "analysis"
@@ -368,6 +370,16 @@ class CoverAIServiceTests(unittest.TestCase):
         self.assertEqual(CoverAI(self.storage, llm=FakeModel(empty), settings=lambda: CONFIGURED).suggest_fixes(
             b"cover2", texts=("选秀", "交手机"), title=TITLE, source=TITLE,
         ), ())
+
+    def test_fix_suggestions_skip_thinking_unless_asked_and_leave_room_for_it(self):
+        reply = json.dumps({"fixes": []})
+        model = FakeModel(reply, reply)
+        ai = CoverAI(self.storage, llm=model, settings=lambda: CONFIGURED)
+        ai.suggest_fixes(b"cover", texts=("选秀", "交手机"), title=TITLE)
+        ai.suggest_fixes(b"cover", texts=("选秀", "交手机"), title=TITLE, effort="low")
+        # 首轮关思考求快，修正轮才开 low；带图请求的输出上限给思考留足
+        self.assertEqual(model.efforts, ["none", "low"])
+        self.assertEqual(model.token_limits, [8000, 8000])
 
     def test_fix_bundles_drop_invalid_and_opposite_actions(self):
         reply = json.dumps({"fixes": [

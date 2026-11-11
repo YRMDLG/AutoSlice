@@ -27,7 +27,7 @@ from autoslice.transcription import segments as subtitle_segments
 from autoslice.transcription.contracts import DEFAULT_SUBTITLE_MAX_CHARS
 from autoslice.transcription.srt_io import write_srt_segments
 
-from . import audio
+from . import audio, refine
 from .engines import Engine
 from .text import piece_words
 from .types import AsrCancelled, AsrError, AsrOutputExists, Chunk, Word
@@ -42,6 +42,8 @@ class TranscribeOptions:
     foreground_filter: bool = False
     max_chars: int = DEFAULT_SUBTITLE_MAX_CHARS
     overwrite: bool = False
+    # 断句后修边界、把起止贴到说话声（refine.py）；对比原始结果时关掉
+    refine: bool = True
 
 
 @dataclass
@@ -178,6 +180,9 @@ def _transcribe(video_path: str | Path, output_srt: str | Path, engine: Engine, 
     report("生成字幕…", 0.96)
     all_words = [Word(*item) for key in sorted(done, key=int) for item in done[key]]
     segments = build_segments(all_words, options, video)
+    if options.refine and segments:
+        segments = refine.fix_boundaries(segments, all_words, max_chars=options.max_chars)
+        segments = refine.snap_to_speech(segments, wav)
     if not segments:
         raise AsrError("没有识别到有效语音")
     temporary = output.with_name(f".{output.stem}.asr-{uuid.uuid4().hex}.tmp")

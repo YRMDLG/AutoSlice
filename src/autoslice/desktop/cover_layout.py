@@ -210,6 +210,53 @@ def overlay_geometry(item: ImageObject | StickerObject, size: tuple[int, int]) -
     )
 
 
+def place_overlay(document: CoverDocument, overlay: ImageObject | StickerObject, profile_key: str) -> RenderableObject:
+    """新插入的素材找个不压字、不叠已有素材的位置；原定位置不压就不动，都压时选压得最少的。"""
+
+    size = canvas_size(profile_key)
+    probe = overlay_geometry(overlay, size)
+    if probe is None:
+        return overlay
+
+    def rect(box: Box) -> tuple[float, float, float, float]:
+        return box.left, box.top, box.right, box.bottom
+
+    def overlap(first, second) -> float:
+        width = min(first[2], second[2]) - max(first[0], second[0])
+        height = min(first[3], second[3]) - max(first[1], second[1])
+        return max(0.0, width) * max(0.0, height)
+
+    texts, others = [], []
+    for item in effective_objects(document, profile_key):
+        if not getattr(item, "visible", True):
+            continue
+        if isinstance(item, TextObject) and item.text.strip():
+            texts.append(rect(text_layout(item, size).ink))
+        elif isinstance(item, (ImageObject, StickerObject)):
+            box = overlay_geometry(item, size)
+            if box is not None:
+                others.append(rect(box))
+    canvas = (0.0, 0.0, float(size[0]), float(size[1]))
+
+    def moved(x: float, y: float):
+        return replace(overlay, transform=replace(overlay.transform, x=x, y=y))
+
+    def cost(x: float, y: float) -> float:
+        box = overlay_geometry(moved(x, y), size)
+        if box is None:
+            return 0.0
+        placed = rect(box)
+        outside = box.width * box.height - overlap(placed, canvas)
+        return 3 * sum(overlap(placed, item) for item in texts) + sum(overlap(placed, item) for item in others) + 2 * outside
+
+    width, height = probe.width / size[0], probe.height / size[1]
+    xs = (max(0.0, 1 - width - 0.03), 0.03, max(0.0, (1 - width) / 2))
+    ys = (max(0.0, (1 - height) / 2), 0.04, max(0.0, 1 - height - 0.04))
+    candidates = [(overlay.transform.x, overlay.transform.y)] + [(x, y) for x in xs for y in ys]
+    best = min(candidates, key=lambda point: cost(*point))  # 代价相同时取靠前的：原定位置优先
+    return moved(*best) if best != candidates[0] else overlay
+
+
 def settle_overlay(item: RenderableObject, size: tuple[int, int]) -> RenderableObject:
     """贴住底边的图层：把记下的位置改成实际画出来的位置，免得往回拖时有一段拖不动。"""
 

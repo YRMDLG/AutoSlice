@@ -83,7 +83,7 @@ class Qwen3Engine:
             import torch
             from qwen_asr import Qwen3ASRModel
         except ImportError as exc:
-            raise AsrError(f"没有安装 qwen-asr 或 torch（{exc}）。先运行 `python -m autoslice.desktop.asr doctor` 看缺什么。") from exc
+            raise AsrError(f"没有安装 qwen-asr 或 torch（{exc}）。到设置页“字幕识别”点“自检”看缺什么（命令行：`python -m autoslice.desktop.asr doctor`）。") from exc
         self._device = resolve_device(self.settings.device)
         dtype = torch.bfloat16 if self._device.startswith("cuda") else torch.float32
         if progress:

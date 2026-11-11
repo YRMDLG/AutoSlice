@@ -15,9 +15,9 @@ SETUP_TEXT = """\
           modelscope download --model Qwen/Qwen3-ASR-1.7B
           modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B
       下完在设置里把“识别模型 / 对齐模型”改成对应的本地文件夹。
-4) 验证：
+4) 验证（设置页“加载试跑”按钮做的就是这一步）：
        python -m autoslice.desktop.asr doctor --probe
-5) 用你自己的旧字幕选引擎（只读你的旧文件夹）：
+5) 用你自己的旧字幕选引擎（只读你的旧文件夹；设置页“对比引擎…”按钮做的就是这一步）：
        python -m autoslice.desktop.asr bench --root <你的旧切片文件夹> --engines qwen3-asr,funasr
    两个引擎需要在这个 Python 中都可用；依赖冲突时，分别在各自环境中运行 bench --engines <引擎> --out <不同报告名>。
 """

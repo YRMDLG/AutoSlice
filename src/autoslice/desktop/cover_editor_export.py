@@ -5,7 +5,12 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
+
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 
 from .cover_batch_dialog import BatchTarget, CoverBatchDialog
 from .cover_export_dialog import CoverExportDialog
@@ -47,7 +52,8 @@ class CoverExportMixin:
         self.export_summary.setText(f"已导出 4:3 + 16:9 · 项目目录 · {names}")
         self.export_summary.setToolTip("\n".join(str(Path(item)) for item in result))
         self._set_notice("")
-        self.status_changed.emit(f"双比例封面已导出：{names}")
+        self.status_changed.emit(f"✓ 双比例封面已导出：{names}")
+        self._show_export_folder(Path(result[0]) if result else None)
 
     def _work_meta(self) -> dict:
         """给作品库的信息：套用过哪个快速方案、之后又改了几步、最初给的基础文案。"""
@@ -86,9 +92,26 @@ class CoverExportMixin:
             f"已导出 · {self._canvas_label()} · {size} · 项目目录 · {output_name}"
         )
         self.export_summary.setToolTip(str(output_dir / output_name))
-        message = f"封面已导出：{output_name}（{self._canvas_label()} · {size}）"
+        message = f"✓ 封面已导出：{output_name}（{self._canvas_label()} · {size}）"
         self._set_notice("")
         self.status_changed.emit(message)
+        self._show_export_folder(output_dir / output_name)
+
+    def _show_export_folder(self, path: Path | None) -> None:
+        self._last_export_path = path
+        button = getattr(self, "open_export_button", None)
+        if button is not None:
+            button.setVisible(path is not None)
+
+    def _open_export_folder(self) -> None:
+        path = getattr(self, "_last_export_path", None)
+        if path is None:
+            return
+        if os.name == "nt" and Path(path).is_file():
+            # 资源管理器里直接选中这张图
+            subprocess.Popen(["explorer", "/select,", str(path)])
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
     def set_project_list(self, projects) -> None:
         """主窗口扫描后的投稿项目，供批量出图使用。"""

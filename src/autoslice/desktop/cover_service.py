@@ -16,6 +16,7 @@ from .cover_exporting import CoverExportService
 from .cover_frames import CoverFrameService
 from .cover_store import CoverStoreService
 from .cover_style import (
+    CoverFramingStore,
     CoverStyleMemoryStore,
 )
 from .cover_templates import CoverTemplateStore
@@ -36,6 +37,7 @@ class CoverService(
         self.previews = storage.thumbnails / "cover-previews"
         self.asset_library = CoverAssetLibrary(storage.root)
         self.style_memory = CoverStyleMemoryStore(storage.root)
+        self.framing_memory = CoverFramingStore(storage.root)
         self.templates = CoverTemplateStore(storage.root)
         self.works = CoverWorks(storage)
         self.ai = CoverAI(storage)

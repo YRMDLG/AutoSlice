@@ -25,6 +25,7 @@ from .cover_model import (
     Rect,
     TextObject,
     object_for_profile,
+    object_override_payload,
 )
 from .cover_style import (
     CoverStyleMemory,
@@ -130,6 +131,51 @@ class CoverStoreService:
             for item in document.objects
         )
         return replace(document, objects=objects)
+
+    def remember_framing(self, project: SubmissionProject, document: CoverDocument,
+                         canvas_keys: tuple[str, ...]) -> None:
+        """导出的画幅各记一份底图取景。
+
+        只记放大过的（为了裁掉直播界面）：没放大时的位置多半是按画面自动找的主体，
+        记下来反而会盖掉下个视频的自动取景，所以没放大就清掉这个画幅的记录。
+        """
+
+        background = next((item for item in document.objects if isinstance(item, BackgroundObject)), None)
+        if background is None:
+            return
+        framing = {}
+        for key in canvas_keys:
+            shown = object_for_profile(document, background.id, key)
+            if not isinstance(shown, BackgroundObject):
+                continue
+            zoomed = shown.fit_mode == "cover" and shown.scale > 1.0 + 1e-3
+            framing[key] = {"scale": shown.scale, "pan_x": shown.pan_x, "pan_y": shown.pan_y} if zoomed else None
+        try:
+            self.framing_memory.save(streamer_key(project.title), framing)
+        except OSError:
+            # 只是默认值记忆，写失败不影响已导出的封面
+            pass
+
+    def default_layout(self, project: SubmissionProject | None, document: CoverDocument,
+                       image_path) -> CoverDocument:
+        """新底图的默认构图：这个主播导出过就沿用上次的放大和裁切，只重排文字；否则自动取景。"""
+
+        remembered = self.framing_memory.load(streamer_key(project.title)) if project is not None else {}
+        laid = self.apply_auto_layout(document, image_path)
+        background = next((item for item in laid.objects if isinstance(item, BackgroundObject)), None)
+        if not remembered or background is None or background.fit_mode != "cover":
+            return laid
+        # 先照常自动取景（没记过的画幅保持自动），再把记过的画幅换成上次的裁切，按新取景重排文字
+        profiles = dict(laid.profiles)
+        for key, profile in laid.profiles.items():
+            if key not in remembered:
+                continue
+            current = object_for_profile(laid, background.id, key)
+            current = current if isinstance(current, BackgroundObject) else background
+            framed = replace(current, **remembered[key])
+            profiles[key] = replace(profile, overrides={**profile.overrides,
+                                                        background.id: object_override_payload(framed)})
+        return self.apply_auto_layout(replace(laid, profiles=profiles), image_path, reframe=False)
 
     def remember_style(self, project: SubmissionProject, document: CoverDocument) -> None:
         ids = primary_copy_ids(document)

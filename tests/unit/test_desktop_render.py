@@ -208,6 +208,24 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.addCleanup(fallback.close)
         self.assertNotEqual(fallback.service.root, chosen)
 
+    def test_empty_submission_root_offers_choose_button(self):
+        # 走查 N9：列表为空时只有一行“目录为空”，新手找不到选目录的入口
+        from PySide6.QtWidgets import QFileDialog
+
+        self.assertTrue(self.window.empty_projects.isHidden())
+        chosen = Path(self.temp.name) / "空目录"
+        chosen.mkdir()
+        with patch.object(QFileDialog, "getExistingDirectory", return_value=str(chosen)):
+            self.window._browse_submission_root()
+        self.wait_for(lambda: not self.window.empty_projects.isHidden())
+        self.assertFalse(self.window.empty_projects.isHidden())
+        self.assertIn("还没有投稿项目", self.window.empty_projects_hint.text())
+        # 选到上一级：子文件夹里都没有视频
+        (chosen / "data").mkdir()
+        self.window.refresh()
+        self.wait_for(lambda: "都没有视频" in self.window.empty_projects_hint.text())
+        self.assertIn("都没有视频", self.window.empty_projects_hint.text())
+
     def test_resolve_unsaved_without_changes_keeps_direct_exit_behavior(self):
         self.wait_for(lambda: self.window._waveform_generation > 0 and not self.window._jobs)
         with patch.object(QMessageBox, "exec", side_effect=AssertionError("不应弹出确认框")):
@@ -487,6 +505,130 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.window._cue_clicked(index)
         self.window.player.seek.assert_called_once_with(0.0, pause=True)
         self.assertEqual(self.window.selection.active, 1)
+
+    def test_timeline_cue_click_jumps_playhead_even_without_player(self):
+        # 用户反馈“点时间轴字幕没有跳”；缺 libmpv 时播放头也要跳过去
+        self.assertIsNone(self.window.player)
+        self.window.document.entries[:] = [
+            SubtitleEntry(1, "00:00:00,000", "00:00:01,000", "第一条", (1,)),
+            SubtitleEntry(2, "00:00:04,000", "00:00:05,000", "第二条", (2,)),
+        ]
+        self.window.model.set_document(self.window.document)
+        self.window.timeline.set_document(self.window.document)
+        self.window.timeline.set_duration(10.0)
+        self.window.timeline.span = 10.0
+        self.window.timeline.center = 5.0
+        self.app.processEvents()
+        block = next(item for item in self.window.timeline._visible_blocks() if item[0].index == 2)
+        point = block[3].center().toPoint()
+
+        QTest.mouseClick(self.window.timeline, Qt.MouseButton.LeftButton, pos=point)
+        self.app.processEvents()
+
+        self.assertEqual(self.window.selection.active, 2)
+        self.assertAlmostEqual(self.window._player_position, 4.0, delta=0.001)
+        self.assertAlmostEqual(self.window.timeline.playhead, 4.0, delta=0.001)
+        self.assertTrue(self.window.time_label.text().startswith("00:00:04"))
+
+    def _entries(self, count, step=2):
+        def stamp(seconds):
+            return f"00:{seconds // 60:02d}:{seconds % 60:02d},000"
+        self.window.document.entries[:] = [
+            SubtitleEntry(i, stamp(i * step), stamp(i * step + 1), f"第{i}条", (i,))
+            for i in range(1, count + 1)
+        ]
+        self.window.model.set_document(self.window.document)
+        self.window.timeline.set_document(self.window.document)
+        self.window.timeline.set_duration(float(count * step + 10))
+        self.app.processEvents()
+
+    def _settle(self):
+        for _ in range(3):
+            self.app.processEvents()
+            QTest.qWait(5)
+
+    def test_keyboard_proofreading_moves_line_by_line(self):
+        # 走查 N2：校对时不用鼠标也能逐句往下改
+        self._entries(8)
+        table = self.window.table
+        self.window._cue_clicked(self.window.model.index(0, 1))  # 时间列：只选中
+        table.setFocus()
+        self._settle()
+        QTest.keyClick(table, Qt.Key.Key_Down)
+        self._settle()
+        self.assertEqual(self.window.selection.active, 2)
+        self.assertAlmostEqual(self.window.timeline.playhead, 4.0, delta=0.001)
+        QTest.keyClick(table, Qt.Key.Key_End)
+        self.assertEqual(self.window.selection.active, 8)
+        QTest.keyClick(table, Qt.Key.Key_Home)
+        self.assertEqual(self.window.selection.active, 1)
+
+        QTest.keyClick(table, Qt.Key.Key_Return)
+        self._settle()
+        editor = self.window._active_subtitle_editor()
+        self.assertIsNotNone(editor)
+        editor.insertPlainText("改")
+        QTest.keyClick(editor, Qt.Key.Key_Return)
+        self._settle()
+        self.assertIn("改", self.window.document.entries[0].text)
+        self.assertEqual(self.window.selection.active, 2)
+        self.assertEqual(self.window._editing_subtitle_index().row(), 1)
+
+        QTest.keyClick(self.window._active_subtitle_editor(), Qt.Key.Key_Up)
+        self._settle()
+        self.assertEqual(self.window._editing_subtitle_index().row(), 0)
+        QTest.keyClick(self.window._active_subtitle_editor(), Qt.Key.Key_Tab)
+        self._settle()
+        self.assertEqual(self.window._editing_subtitle_index().row(), 1)
+        QTest.keyClick(self.window._active_subtitle_editor(), Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+        self._settle()
+        self.assertEqual(self.window._editing_subtitle_index().row(), 1, "Shift+Enter 仍是换行")
+
+    def test_ctrl_s_saves_subtitles(self):
+        from dataclasses import replace
+
+        entry = self.window.document.entries[0]
+        self.window.document.entries[0] = replace(entry, text="Ctrl+S 保存")
+        self.window._edited()
+        self.assertTrue(self.window.document.dirty)
+        with patch.object(QMessageBox, "warning") as warning:
+            self.window._shortcuts["Ctrl+S"].activated.emit()
+            self.wait_for(lambda: not self.window._saving and not self.window.document.dirty)
+        warning.assert_not_called()
+        self.assertFalse(self.window.document.dirty)
+        self.assertIn("Ctrl+S 保存", self.window.document.corrected_path.read_text(encoding="utf-8"))
+
+    def test_list_click_reveals_cue_after_manual_timeline_pan(self):
+        self._entries(12, step=5)
+        timeline = self.window.timeline
+        timeline.set_duration(70.0)
+        timeline.span = 10.0
+        timeline.set_view_start(0.0)
+        self.assertTrue(timeline._manual_pan)
+        self.window._cue_clicked(self.window.model.index(10, 1))  # 第 11 条在 55 秒
+        self._settle()
+        left = timeline._view_start()
+        self.assertLessEqual(left, 55.0)
+        self.assertGreaterEqual(left + timeline.span, 56.0)
+
+    def test_cover_text_box_keeps_its_own_enter_and_undo(self):
+        # 字幕页的回车/撤销拦截曾经作用到封面文案框：回车换不了行，Ctrl+Z 去撤销字幕
+        from dataclasses import replace
+
+        entry = self.window.document.entries[0]
+        self.window.document.entries[0] = replace(entry, text="字幕改过")
+        self.window._edited()
+        box = next(edit for edit in self.window.cover_editor.findChildren(QPlainTextEdit))
+        box.installEventFilter(self.window)
+        box.setPlainText("第一行")
+        box.setFocus()
+        cursor = box.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        box.setTextCursor(cursor)
+        QTest.keyClick(box, Qt.Key.Key_Return)
+        QTest.keyClick(box, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        self.app.processEvents()
+        self.assertEqual(self.window.document.entries[0].text, "字幕改过", "封面框里的 Ctrl+Z 撤销了字幕")
 
     def test_timeline_selection_preserves_manual_view(self):
         self.window.timeline.set_duration(60.0)

@@ -36,6 +36,7 @@ class QualityReviewMixin:
             self.quality_detail.setWordWrap(True)
             layout.addWidget(self.quality_detail)
             row = QHBoxLayout()
+            row.addStretch()  # 按钮靠右、按内容宽，不再撑满整行
             self.quality_locate = QPushButton("定位字幕")
             self.quality_locate.clicked.connect(self._locate_quality)
             row.addWidget(self.quality_locate)

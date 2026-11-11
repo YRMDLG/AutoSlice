@@ -1,13 +1,13 @@
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
+from unittest.mock import patch
 
 from autoslice.setup_asr_model import (
     RECOMMENDED_MODELS,
     _download_model,
     install_recommended_models,
 )
-from unittest.mock import patch
 
 
 class SetupAsrModelTests(unittest.TestCase):

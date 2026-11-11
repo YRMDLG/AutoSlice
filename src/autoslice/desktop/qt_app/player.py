@@ -20,7 +20,11 @@ def libmpv_path() -> Path:
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
             return Path(candidate)
-    raise FileNotFoundError("未找到 libmpv-2.dll；请在 AUTOSLICE_LIBMPV_PATH 指定开发用 DLL")
+    raise FileNotFoundError(
+        "没找到播放组件 libmpv-2.dll，视频暂时放不了（字幕和封面照常能改）。"
+        "把 libmpv-2.dll 放进 %LOCALAPPDATA%\\AutoSlice\\bin 文件夹后重启即可；"
+        "开发时也可以用 AUTOSLICE_LIBMPV_PATH 指定位置。"
+    )
 
 
 class MpvAdapter(QObject):

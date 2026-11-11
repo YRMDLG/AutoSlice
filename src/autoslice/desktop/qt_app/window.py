@@ -151,7 +151,8 @@ class DesktopWindow(
             self.player.error.connect(self._player_error)
         except (OSError, FileNotFoundError) as exc:
             self.player = None
-            self.video_placeholder.setText(f"播放器不可用：{exc}")
+            self.video_placeholder.setText(str(exc))
+            self.video_placeholder.setWordWrap(True)
         self._player_position = 0.0
         self._player_duration = 0.0
         self._player_paused = True
@@ -193,6 +194,7 @@ class DesktopWindow(
             self.commands.register(name, action)
         self._shortcuts = {}
         for shortcut, action, command in (("Ctrl+Z", self._undo, "undo"), ("Ctrl+Y", self._redo, "redo"),
+                                 ("Ctrl+S", self.save, None),
                                  ("Delete", self._delete, "delete_selected_cues"),
                                  ("Ctrl+Space", self._toggle_play, "play_pause"),
                                  ("Space", self._toggle_play, "play_pause"),
@@ -204,6 +206,9 @@ class DesktopWindow(
                                  ("Q", self._trim_start, "trim_start_to_playhead"),
                                  ("W", self._trim_end, "trim_end_to_playhead"),
                                  ("Ctrl+B", self._split_at_playhead, "split_at_playhead"),
+                                 ("Alt+A", self._accept_ai, None),
+                                 ("Alt+S", self._skip_ai, None),
+                                 ("Ctrl+/", self._show_shortcuts, None),
                                  ("Esc", self._escape_context, None)):
             key = QShortcut(QKeySequence(shortcut), self)
             key.setContext(Qt.ShortcutContext.WindowShortcut)
@@ -363,12 +368,12 @@ class DesktopWindow(
             self.render_button.setIcon(desktop_icon("render", COLORS.text))
             self.timeline_overlap.setText("")
             self.quality_button.setEnabled(False)
-            self.quality_button.setText("待检查 0")
+            self.quality_button.setText("检查提醒 0")
             return
         suffix = " · 未保存" if self.document.dirty else " · 已保存"
         quality = self.preview_service.quality_flags(self.document.entries, self._habit_limits())
         quality_text = f" · ⚠ {len(quality)} 条待检查" if quality else ""
-        self.quality_button.setText(f"待检查 {len(quality)}")
+        self.quality_button.setText(f"检查提醒 {len(quality)}…" if quality else "检查提醒 0")
         self.quality_button.setEnabled(bool(quality))
         self.subtitle_status.setText(f"全部 {len(self.document.entries)} 条{suffix}{quality_text}")
         self.subtitle_status.setToolTip("\n".join(
@@ -379,7 +384,9 @@ class DesktopWindow(
         self.render_button.setEnabled(not self._saving and bool(self.project) and not running)
         self.render_button.setText("压制中…" if running else "压制字幕")
         self.render_button.setIcon(desktop_icon("render", COLORS.subtle if running else COLORS.text))
-        self.timeline_overlap.setText("存在重叠" if self.timeline.overlap_count() else "")
+        overlaps = self.timeline.overlap_count()
+        self.timeline_overlap.setText(f"{overlaps} 处重叠" if overlaps else "")
+        self.timeline_overlap.setToolTip("时间轴上标红的地方：前后两条字幕的时间叠在一起" if overlaps else "")
 
     def _habit_limits(self) -> dict:
         """从旧切片学到的个人字幕阈值；没学过是空字典。按视频缓存，学到新东西后 _forget_habit_cache 清掉。"""
@@ -410,6 +417,8 @@ class DesktopWindow(
             self.learning_panel.refresh()
         if index == 2 and hasattr(self, "archive_panel"):
             self.archive_panel.refresh()
+        if index == 2:
+            self._check_render_font()
         if index == 1 and hasattr(self, "cover_editor"):
             # 只读取字幕页当前播放位置，切页不 seek、不暂停、不修改字幕状态。
             self.cover_editor.set_current_playhead(getattr(self, "_player_position", 0.0))
@@ -435,6 +444,9 @@ class DesktopWindow(
             return
         remaining = available - timeline
         video = max(200, min(remaining - 170, sizes[0]))
+        if getattr(self, "player", True) is None:
+            # 没有播放器时视频区只是一块黑底：让给字幕列表，多露几行
+            video = max(200, int(remaining * .32))
         self.vertical_splitter.setSizes([video, timeline, max(170, remaining - video)])
 
     def _save_session(self):

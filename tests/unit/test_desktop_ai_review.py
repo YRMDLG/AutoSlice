@@ -75,7 +75,14 @@ class DesktopAIReviewTests(unittest.TestCase):
         session = self.service.check(self.document, self.title)
         self.service.save(self.document, self.title, session)
         self.document.edit_text(1, "人工修改")
+        # 走查 M14：字幕改了只作废对不上的那条，另一条原文没变照样恢复
+        restored, status = self.service.load(self.document, self.title)
+        self.assertEqual(status, "partial")
+        self.assertEqual([item.cue_id for item in restored.pending], [2])
+        self.assertEqual(restored.dropped, 1)
+        self.document.edit_text(2, "也改了")
         self.assertEqual(self.service.load(self.document, self.title)[1], "stale")
+        self.document.undo()
         self.document.undo()
         self.config.model = "changed-model"
         self.assertEqual(self.service.load(self.document, self.title)[1], "stale")

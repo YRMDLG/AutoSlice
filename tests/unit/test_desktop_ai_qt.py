@@ -80,6 +80,21 @@ class DesktopAIQtTests(unittest.TestCase):
             time.sleep(.01)
         self.fail(f"Qt 后台任务未完成：{self.window.scan_status.text()} / {self.window.subtitle_status.text()}")
 
+    def test_first_full_check_from_button_asks_before_spending_quota(self):
+        # 走查 N18：点“AI 检查”曾不确认直接分批调用
+        from PySide6.QtWidgets import QMessageBox
+
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as ask:
+            self.window.ai_run.click()
+        ask.assert_called_once()
+        self.assertIn("消耗额度", ask.call_args.args[2])
+        self.assertFalse(self.window._ai_running)
+        self.assertEqual(self.calls, [])
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            self.window.ai_run.click()
+        self.wait_for(lambda: self.window.ai_session is not None)
+        self.assertEqual(len(self.calls), 1)
+
     def test_background_queue_accept_skip_conflict_and_navigation(self):
         self.window._start_ai_check()
         self.window._select_page(1)
@@ -97,7 +112,12 @@ class DesktopAIQtTests(unittest.TestCase):
         first = self.window.ai_session.pending[0]
         self.window._select_ai(first.suggestion_id)
         self.assertEqual(self.window.selected_index, 1)
-        self.assertIn("line-through", self.window.ai_diff.text())
+        # 走查 M4：要删的字标在原文里，建议一行只显示改后的句子
+        from autoslice.desktop.qt_preview.theme import COLORS
+
+        self.assertIn(COLORS.ai_removed_bg, self.window.ai_original.text())
+        self.assertNotIn(COLORS.ai_removed, self.window.ai_diff.text())
+        self.assertNotIn("错", self.window.ai_diff.text())
         self.window._accept_ai()
         self.assertEqual(self.window.document.entries[0].text, "正字一")
         self.assertTrue(self.window.document.dirty)
@@ -231,6 +251,43 @@ class DesktopAIQtTests(unittest.TestCase):
         self.assertEqual(self.window.ai_session.pending, [])
         self.assertIn("已处理所有建议", self.window.ai_note.text())
         self.assertFalse(self.window.ai_queue.isVisible())
+
+    def test_unconfigured_ai_check_points_to_settings_without_asking_to_spend(self):
+        # 走查 M1：没配 AI 时不该先问“会消耗额度，开始吗”，点了“是”才报错
+        from PySide6.QtWidgets import QMessageBox
+
+        self.window.ai_service.config_loader = lambda: (_ for _ in ()).throw(ValueError("未配置 LLM API"))
+        with patch.object(QMessageBox, "question") as ask:
+            self.window._ai_run_clicked()
+        ask.assert_not_called()
+        self.assertFalse(self.window._ai_running)
+        self.assertIn("还没配置 AI", self.window.ai_note.text())
+        self.assertFalse(self.window.ai_setup.isHidden())
+        self.window.ai_setup.click()
+        self.wait_for(lambda: self.window.pages.currentIndex() == 2)
+        self.app.processEvents()
+        panel = self.window.ai_settings_panel
+        self.assertIn(self.app.focusWidget(), (panel.url_edit, panel.token_edit))
+
+    def test_recheck_buttons_appear_only_after_an_ai_check_and_list_follows_the_card(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        # 走查 M1：没做过 AI 检查时“复查选中 / 复查改动”不出现
+        self.assertFalse(self.window.ai_scope_row.isVisible())
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            self.window._ai_run_clicked()
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
+        self.assertTrue(self.window.ai_scope_row.isVisible())
+        # 走查 M5：卡片显示哪条，字幕列表和时间轴就选中哪条
+        first = self.window.ai_session.pending[0]
+        self.assertEqual(self.window._ai_selected, first.suggestion_id)
+        self.assertEqual(self.window.selected_index, first.cue_id)
+        # 走查 M12：采纳 / 跳过有快捷键，写在悬停提示里
+        for key, button in (("Alt+A", self.window.ai_accept), ("Alt+S", self.window.ai_skip)):
+            self.assertIn(key, self.window._shortcuts)
+            self.assertIn(key, button.toolTip())
+        self.window._shortcuts["Alt+S"].activated.emit()
+        self.assertEqual(self.window.ai_session.find(first.suggestion_id).status, "skipped")
 
     def test_missing_config_and_cancel_leave_editor_available(self):
         self.window.ai_service.config_loader = lambda: (_ for _ in ()).throw(ValueError("未配置 LLM API"))

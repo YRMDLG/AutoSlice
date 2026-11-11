@@ -15,7 +15,10 @@ from .model import SCHEMA_VERSION, ArchiveEntry
 
 _CORE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE IF NOT EXISTS roots (path TEXT PRIMARY KEY, added REAL, last_scan REAL);
+CREATE TABLE IF NOT EXISTS roots (
+    path TEXT PRIMARY KEY, added REAL, last_scan REAL,
+    default_streamer TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY,
     root TEXT NOT NULL,
@@ -64,6 +67,9 @@ class ArchiveStore:
             raise ValueError("档案数据库版本较新，请使用更新版本的 AutoSlice")
         for ddl in schemas:
             self._db.executescript(ddl)
+        # v2 → v3 只给 roots 加 default_streamer 列（扫描根目录的默认主播）；老库没有这一列就补上。
+        if "default_streamer" not in {row["name"] for row in self._db.execute("PRAGMA table_info(roots)")}:
+            self._db.execute("ALTER TABLE roots ADD COLUMN default_streamer TEXT NOT NULL DEFAULT ''")
         # v1 → v2 只新增 final_text 表；保留原始事实，抽取版本负责重扫补齐语料。
         if int(previous) < 2:
             # v1 时代出错的条目 version 记为 0，但它们没有 final_text；退回旧版本号，
@@ -108,6 +114,16 @@ class ArchiveStore:
 
     def roots(self) -> list[str]:
         return [row["path"] for row in self.query("SELECT path FROM roots ORDER BY added")]
+
+    def root_defaults(self) -> dict[str, str]:
+        """设了默认主播的根目录：{路径: 主播 id}。"""
+
+        rows = self.query("SELECT path, default_streamer FROM roots")
+        return {row["path"]: row["default_streamer"] for row in rows if row["default_streamer"]}
+
+    def set_root_default(self, path: str, streamer: str) -> None:
+        self._db.execute("UPDATE roots SET default_streamer = ? WHERE path = ?", (streamer, path))
+        self._db.commit()
 
     def mark_scanned(self, path: str) -> None:
         self._db.execute("UPDATE roots SET last_scan = ? WHERE path = ?", (time.time(), path))

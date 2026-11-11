@@ -11,6 +11,8 @@ from typing import Any, Optional
 from urllib.parse import urlsplit
 
 DEFAULT_REASONING_EFFORT = "xhigh"
+# 单次请求显式“关掉思考”时原样发出的值；配置里的 none 仍归一成“不发参数”。
+THINKING_OFF = "none"
 DEFAULT_PROXY_MODE = "direct"
 
 
@@ -386,7 +388,8 @@ class LLMRequest:
         object.__setattr__(
             self,
             "reasoning_effort",
-            normalise_reasoning_effort(self.reasoning_effort),
+            THINKING_OFF if self.reasoning_effort == THINKING_OFF
+            else normalise_reasoning_effort(self.reasoning_effort),
         )
         object.__setattr__(self, "temperature", temperature)
 

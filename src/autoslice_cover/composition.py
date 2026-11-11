@@ -70,11 +70,18 @@ def _integral(values: Sequence[float], width: int, height: int) -> tuple[float, 
     return tuple(result)
 
 
+def _pixel_values(image: Image.Image):
+    """逐像素取值：Pillow 14 删掉 getdata，新版用 get_flattened_data；用户的 3.10 环境是 Pillow 11，仍走 getdata。"""
+
+    flattened = getattr(image, "get_flattened_data", None)
+    return flattened() if flattened is not None else image.getdata()
+
+
 def _blur(values: list[float], width: int, height: int, radius: float) -> list[float]:
     image = Image.new("L", (width, height))
     image.putdata([max(0, min(255, round(value * 255))) for value in values])
     blurred = image.filter(ImageFilter.GaussianBlur(radius))
-    return [value / 255.0 for value in blurred.getdata()]
+    return [value / 255.0 for value in _pixel_values(blurred)]
 
 
 def _subtitle_band(detail: list[float], width: int, height: int) -> tuple[float, float] | None:
@@ -105,7 +112,7 @@ def _analyze(path: str) -> SaliencyMap:
         image = source.convert("RGB")
     image.thumbnail((ANALYSIS_WIDTH, ANALYSIS_WIDTH), Image.Resampling.BILINEAR)
     width, height = image.size
-    pixels = list(image.getdata())
+    pixels = list(_pixel_values(image))
     lightness = [(0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0 for r, g, b in pixels]
     skin: list[float] = []
     saturation: list[float] = []

@@ -280,10 +280,48 @@ class SubtitleTimeline(QWidget):
         self.selected_indices = set(selected)
         self.select_cue(active, center=center)
 
+    def reveal_cue(self, index: int | None) -> None:
+        """列表或键盘切到的字幕不在视野里时把视野移过去；已经看得见就不动。"""
+        entry = next((item for item in self.document.entries if item.index == index), None) if self.document else None
+        if entry is None:
+            return
+        start, end = srt_timestamp_seconds(entry.start), srt_timestamp_seconds(entry.end)
+        left = self._view_start()
+        right = left + (min(self.span, self.duration) if self.duration > 0 else self.span)
+        if start < left or end > right:
+            self.glide_to(start)
+            self._manual_pan = False
+
     def set_playing_cue(self, index: int | None):
         if index != self.playing_index:
             self.playing_index = index
             self.update()
+
+    def overlap_spans(self) -> list[tuple[float, float]]:
+        """相邻两条字幕时间叠在一起的区间（秒）。"""
+
+        if not self.document:
+            return []
+        spans = []
+        for left, right in zip(self.document.entries, self.document.entries[1:]):
+            start, end = srt_timestamp_seconds(right.start), srt_timestamp_seconds(left.end)
+            if end > start:
+                spans.append((start, end))
+        return spans
+
+    def _paint_overlaps(self, painter) -> None:
+        """重叠的地方在字幕块上标红：原来只在工具栏角落写“存在重叠”，看不出是哪两条。"""
+
+        blocks = list(self._visible_blocks())
+        if not blocks:
+            return
+        top, height = blocks[0][3].top(), blocks[0][3].height()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(faded(COLORS.ai_removed, .6))
+        for start, end in self.overlap_spans():
+            left, right = max(12.0, self._x(start)), min(self.width() - 12.0, self._x(end))
+            if right > left - 2:
+                painter.drawRoundedRect(QRectF(left, top, max(3.0, right - left), height), 2, 2)
 
     def overlap_count(self) -> int:
         if not self.document:
@@ -444,8 +482,18 @@ class SubtitleTimeline(QWidget):
             if rect.width() >= 28:
                 painter.setPen(mix(COLORS.muted, COLORS.text, max(s, h * .6)))
                 # 主选指示条出现时序号让出位置
-                painter.drawText(rect.adjusted(5 + 4 * m, 0, -3, 0), Qt.AlignmentFlag.AlignVCenter,
-                                 str(entry.index))
+                area = rect.adjusted(5 + 4 * m, 0, -3, 0)
+                number = str(entry.index)
+                painter.drawText(area, Qt.AlignmentFlag.AlignVCenter, number)
+                # 块够宽就跟上开头几个字，不用对照下面的列表找是哪句；放不下三个字就不画半截
+                metrics = painter.fontMetrics()
+                gap = metrics.horizontalAdvance(number) + 6
+                room = int(area.width()) - gap
+                if room >= metrics.horizontalAdvance("字字字"):
+                    preview = " ".join(entry.text.split())
+                    if preview:
+                        painter.drawText(area.adjusted(gap, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter,
+                                         metrics.elidedText(preview, Qt.TextElideMode.ElideRight, room))
             if m > .01:
                 length = (rect.height() - 6) * motion.ease(m)
                 painter.fillRect(QRectF(rect.left() + 2, rect.center().y() - length / 2, 2, length),
@@ -460,6 +508,7 @@ class SubtitleTimeline(QWidget):
                     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                     painter.setPen(pen)
                     painter.drawLine(QPointF(edge_x, rect.top() + 3), QPointF(edge_x, rect.bottom() - 3))
+        self._paint_overlaps(painter)
         if self._marquee:
             rectangle = QRectF(self._marquee[0], self._marquee[1],
                                self._marquee[2] - self._marquee[0],
@@ -541,15 +590,14 @@ class SubtitleTimeline(QWidget):
                 event.accept()
             return
         entry, start, end, mode = hit
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         self._press = {"kind": "cue", "entry": entry, "start": start, "end": end,
                        "mode": mode, "x": x, "y": y, "started": time.monotonic(),
-                       "moved": False, "before": tuple(self.document.entries)}
+                       "moved": False, "before": tuple(self.document.entries),
+                       "plain": not (ctrl or shift)}
         self.select_cue(entry.index, center=False)
-        self.selection_requested.emit(
-            entry.index,
-            bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier),
-            bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier),
-        )
+        self.selection_requested.emit(entry.index, ctrl, shift)
         event.accept()
 
     def _activate_press(self, event):
@@ -689,8 +737,10 @@ class SubtitleTimeline(QWidget):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             if press["kind"] == "playhead":
                 self.seek_requested.emit(self.playhead)
-            # 时间轴字幕块点击只负责选择，不负责定位/居中。
-            # 真正“选中并跳转”只保留给底部字幕列表。
+            elif press["kind"] == "cue" and press.get("plain"):
+                # 单击字幕块（没拖动、没按 Ctrl/Shift）：选中并跳到这句开头；不重新居中视野。
+                # 拖动、改边缘在 _activate_press 里已转成 _drag，不会走到这里。
+                self.seek_requested.emit(press["start"])
             self.update()
             event.accept()
             return

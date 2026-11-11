@@ -10,7 +10,7 @@ import difflib
 import html
 import threading
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -56,18 +56,11 @@ class AiReviewMixin:
         self.ai_header = label("AI 建议", "sectionTitle")
         header.addWidget(self.ai_header)
         header.addStretch()
-        self.ai_local = QPushButton()
-        self.ai_local.setObjectName("quiet")
-        self.ai_local.setFixedSize(28, 28)
-        tool_icon(self.ai_local, "bolt")
-        self.ai_local.setToolTip("同音检查（本地、免费）：找发音和你的术语表相同、写法不同的字，比如“紫雨亭”→“子语庭”")
-        self.ai_local.clicked.connect(self._start_local_check)
-        header.addWidget(self.ai_local)
         self.ai_run = QPushButton("AI 检查")
         self.ai_run.setObjectName("quiet")
         self.ai_run.setFixedHeight(28)
-        self.ai_run.setToolTip("重新检查会再次调用 AI 并消耗额度")
-        self.ai_run.clicked.connect(self._start_ai_check)
+        self.ai_run.setToolTip("把字幕发给 AI 检查错字，会消耗额度；只生成待确认建议")
+        self.ai_run.clicked.connect(self._ai_run_clicked)
         header.addWidget(self.ai_run)
         column.addWidget(header_bar)
         column.addWidget(line())
@@ -81,7 +74,29 @@ class AiReviewMixin:
         self.ai_note = label("AI 只生成待确认建议，不修改字幕。", "muted")
         self.ai_note.setWordWrap(True)
         content.addWidget(self.ai_note)
-        scope_row = QHBoxLayout()
+        # 没配 AI 时给直达入口，不让人自己去设置页底下找
+        self.ai_setup = QPushButton("去设置 AI 接口")
+        self.ai_setup.setObjectName("secondary")
+        self.ai_setup.clicked.connect(self._open_ai_settings)
+        content.addWidget(self.ai_setup, 0, Qt.AlignmentFlag.AlignLeft)
+        self.ai_setup.hide()
+        # 免费的本地检查带字放在正文里：表头放不下两个带字按钮，只有闪电图标新手认不出
+        local_row = QHBoxLayout()
+        local_row.setSpacing(8)
+        self.ai_local = QPushButton("本地检查")
+        self.ai_local.setObjectName("secondary")
+        tool_icon(self.ai_local, "bolt")
+        self.ai_local.setToolTip("本地检查（免费、秒出、不用 AI）：主播固定纠错、你以前改过的错字、发音和术语相同写法不同的字（如“紫雨亭”→“子语庭”）")
+        self.ai_local.clicked.connect(self._start_local_check)
+        local_row.addWidget(self.ai_local)
+        local_row.addWidget(label("免费，不用 AI", "subtle"))
+        local_row.addStretch()
+        content.addLayout(local_row)
+        # 复查只在做过一次 AI 检查后才有意义，之前整行藏起来
+        self.ai_scope_row = QWidget()
+        scope_row = QHBoxLayout(self.ai_scope_row)
+        scope_row.setContentsMargins(0, 0, 0, 0)
+        scope_row.setSpacing(8)
         self.ai_selected_check = QPushButton("复查选中")
         self.ai_selected_check.setToolTip("仅检查选中的字幕，保留其它已确认结果")
         self.ai_selected_check.clicked.connect(lambda: self._start_ai_check("selected"))
@@ -90,7 +105,9 @@ class AiReviewMixin:
         self.ai_changed_check.setToolTip("只检查上次 AI 检查后改动或新增的字幕")
         self.ai_changed_check.clicked.connect(lambda: self._start_ai_check("changed"))
         scope_row.addWidget(self.ai_changed_check)
-        content.addLayout(scope_row)
+        scope_row.addStretch()
+        content.addWidget(self.ai_scope_row)
+        self.ai_scope_row.hide()
 
         self.ai_card = QWidget()
         self.ai_card.setObjectName("aiSuggestionCard")
@@ -114,6 +131,7 @@ class AiReviewMixin:
         card.addWidget(self.ai_original_label)
         self.ai_original = label("", "muted")
         self.ai_original.setObjectName("aiOriginal")
+        self.ai_original.setTextFormat(Qt.TextFormat.RichText)
         self.ai_original.setWordWrap(True)
         self.ai_original.setMinimumWidth(0)
         self.ai_original.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -147,10 +165,12 @@ class AiReviewMixin:
         actions.setSpacing(8)
         self.ai_accept = QPushButton("采纳")
         self.ai_accept.setObjectName("primary")
+        self.ai_accept.setToolTip("采纳这条建议并看下一条（Alt+A）")
         self.ai_accept.clicked.connect(self._accept_ai)
         actions.addWidget(self.ai_accept, 2)
         self.ai_skip = QPushButton("跳过")
         self.ai_skip.setObjectName("secondary")
+        self.ai_skip.setToolTip("不改这条，看下一条（Alt+S）")
         self.ai_skip.clicked.connect(self._skip_ai)
         actions.addWidget(self.ai_skip, 1)
         card.addLayout(actions)
@@ -224,6 +244,9 @@ class AiReviewMixin:
         for button in (self.ai_selected_check, self.ai_changed_check):
             button.setEnabled(bool(self.document) and not self._ai_running and not self._saving)
         rechecking = bool(self.ai_session) and not self.ai_session.local_only
+        self.ai_scope_row.setVisible(rechecking and bool(self.document))
+        if rechecking:
+            self.ai_setup.hide()
         self.ai_run.setText("取消检查" if self._ai_running else
                             "重新检查" if rechecking else "AI 检查")
         if self._ai_running:
@@ -274,22 +297,29 @@ class AiReviewMixin:
             self.model.set_pending_filter({item.cue_id for item in pending})
 
     @staticmethod
-    def _diff_html(original, suggested):
+    def _diff_sides(original, suggested):
+        """(原文, 建议) 两行各自成句：原文里要删的字标红加底色，建议里新加的字标绿。
+
+        删的、加的挤在一行会读成“要教交他就教交这个呗”，像病句。
+        """
+
         def wrap_text(value):
             return "&#8203;".join(html.escape(char) for char in value)
 
-        pieces = []
+        old_pieces, new_pieces = [], []
         for kind, a, b, c, d in difflib.SequenceMatcher(None, original, suggested).get_opcodes():
             old = wrap_text(original[a:b])
             new = wrap_text(suggested[c:d])
             if kind == "equal":
-                pieces.append(new)
-            else:
-                if old:
-                    pieces.append(f'<span style="color:{COLORS.ai_removed};text-decoration:line-through">{old}</span>')
-                if new:
-                    pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:500">{new}</span>')
-        return "".join(pieces).replace("\n", "<br>")
+                old_pieces.append(old)
+                new_pieces.append(new)
+                continue
+            if old:
+                old_pieces.append(f'<span style="color:{COLORS.ai_removed};background-color:{COLORS.ai_removed_bg};'
+                                  f'text-decoration:line-through">{old}</span>')
+            if new:
+                new_pieces.append(f'<span style="color:{COLORS.ai_added};font-weight:600">{new}</span>')
+        return tuple("".join(pieces).replace("\n", "<br>") for pieces in (old_pieces, new_pieces))
 
     def _show_ai_detail(self):
         item = self.ai_session.find(self._ai_selected) if self.ai_session and self._ai_selected else None
@@ -311,10 +341,11 @@ class AiReviewMixin:
         self.ai_card.show()
         self.ai_cue.setText(f"第 {item.cue_id} 条")
         self.ai_cue.show()
-        self.ai_original.setText(item.original_text)
+        old_html, new_html = self._diff_sides(item.original_text, item.suggested_text)
+        self.ai_original.setText(old_html)
         self.ai_original.setToolTip(item.original_text)
         self.ai_original.show()
-        self.ai_diff.setText(self._diff_html(item.original_text, item.suggested_text))
+        self.ai_diff.setText(new_html)
         self.ai_diff.setToolTip(f"建议：{item.suggested_text}")
         self.ai_diff.show()
         reason = item.reason + ("\n字幕已修改或删除；建议基于旧文本，请重新判断或跳过。" if conflict else "")
@@ -416,7 +447,7 @@ class AiReviewMixin:
         self._render_ai()
 
     def _start_local_check(self):
-        """同音检查：纯本地、立刻出结果，建议并进同一个待确认队列，不需要配置 AI。"""
+        """本地检查：纯本地、立刻出结果，建议并进同一个待确认队列，不需要配置 AI。"""
 
         if self._saving or not self.document or not self.project or self._ai_running:
             return
@@ -424,7 +455,7 @@ class AiReviewMixin:
         available = homophone_available()
         found = self.ai_service.local_suggestions(self.document, self.project.title, homophones=available)
         if not available and not found:
-            self.ai_note.setText("同音检查需要 pypinyin：在运行 AutoSlice 的 Python 里执行 pip install pypinyin")
+            self.ai_note.setText("本地检查：固定纠错和校对记忆没发现要改的地方；同音字这项需要 pypinyin（在运行 AutoSlice 的 Python 里执行 pip install pypinyin）")
             self.ai_note.show()
             return
         session = self.ai_session
@@ -443,10 +474,71 @@ class AiReviewMixin:
         self._render_ai()
         if fresh:
             self._set_ai_open(True)
-            self.ai_note.setText(f"{'同音检查' if available else '校对记忆'}：找到 {len(fresh)} 处待确认改字，逐条确认即可。")
+            fresh_ids = {item.suggestion_id for item in fresh}
+            self._follow_first_pending(fresh_ids)
+            self.ai_note.setText(f"本地检查：找到 {len(fresh)} 处待确认改字，逐条确认即可。" + ("" if available else "（没装 pypinyin，同音字这项没查）"))
         else:
-            self.ai_note.setText("同音检查：没有发现发音和术语相同、写法不同的地方。")
+            self.ai_note.setText("本地检查：固定纠错、校对记忆和同音字都没发现要改的地方。" if available else "本地检查：固定纠错和校对记忆没发现要改的地方（没装 pypinyin，同音字这项没查）。")
         self.ai_note.show()
+
+    def _follow_first_pending(self, among=None):
+        """卡片显示哪条，字幕列表和时间轴就跟到哪条；正在改字或不在字幕页时不打扰。"""
+
+        if not self.ai_session or self.pages.currentIndex() != 0 or self._subtitle_editor_open():
+            return
+        target = next((item for item in self.ai_session.pending
+                       if among is None or item.suggestion_id in among), None)
+        if target is not None:
+            self._select_ai(target.suggestion_id)
+
+    def _ai_configured(self):
+        try:
+            self.ai_service.config_loader()
+        except (OSError, ValueError):
+            return False
+        return True
+
+    def _show_ai_unconfigured(self):
+        self.ai_note.setText("还没配置 AI 接口：AI 检查要先在设置页填好接口地址和密钥。"
+                             "下面的“本地检查”不用 AI，可以先用它查一遍。")
+        self._set_ai_open(True)
+        self.ai_note.show()
+        self.ai_setup.show()
+
+    def _open_ai_settings(self):
+        """跳到设置页的“AI 接口”一节，光标放进还没填的那一格。"""
+
+        self._select_page(2)
+        scroll, panel = getattr(self, "settings_scroll", None), getattr(self, "ai_settings_panel", None)
+        if scroll is None or panel is None:
+            return
+
+        def reveal():
+            scroll.ensureWidgetVisible(panel, 0, 24)
+            panel.focus_first_missing()
+
+        QTimer.singleShot(0, reveal)
+
+    def _ai_run_clicked(self, _checked=False):
+        """按钮入口：第一次全量检查前先确认，免得一点就开始花额度（重新检查在下面另有确认）。"""
+
+        if not self._ai_running and not self._ai_configured():
+            # 没配置就别问“会消耗额度，开始吗”，点了“是”才报错
+            self._show_ai_unconfigured()
+            return
+        self.ai_setup.hide()
+        first_run = (not self._ai_running and not self._saving and self.document is not None
+                     and self.project is not None and (self.ai_session is None or self.ai_session.local_only))
+        if first_run:
+            count = len(self.document.entries)
+            choice = QMessageBox.question(
+                self, "AI 检查字幕",
+                f"将把 {count} 条字幕分批发给 AI 检查错字，会消耗额度。\n"
+                "检查只生成待确认建议，不会直接改字幕。开始吗？",
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+        self._start_ai_check()
 
     def _start_ai_check(self, scope="all"):
         if self._saving:
@@ -528,6 +620,7 @@ class AiReviewMixin:
             self.ai_note.setText("检查已取消，可稍后主动重试。" if cancelled else
                                  "未配置 AI，请在设置页配置后主动重试。" if "未配置" in message else
                                  f"检查失败：{message}")
+            self.ai_setup.setVisible("未配置" in message)
         else:
             self._show_transient_status("✓ AI 检查完成")
             self.ai_note.setText("检查完成。建议需逐条确认。")
@@ -537,6 +630,7 @@ class AiReviewMixin:
                 self._render_ai()
                 if result.pending:
                     self._set_ai_open(True)
+                    self._follow_first_pending()
                     if self.pages.currentIndex() != 0:
                         self._ai_return_project = project.id
                         self._ai_return_video_path = snapshot.video.path

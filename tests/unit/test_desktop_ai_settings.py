@@ -36,6 +36,44 @@ class AISettingsTests(unittest.TestCase):
         for key in ("AUTOSLICE_API_BASE_URL", "AUTOSLICE_API_TOKEN"):
             ai_settings.os.environ.pop(key, None)
 
+    def test_model_list_marks_which_models_can_see_images(self):
+        # 走查 M3：DeepSeek 的 /models 用 input_modalities 标了能不能看图
+        save_ai_settings(base_url="https://api.deepseek.com", api_type="openai", token="saved-key",
+                         text_model="deepseek-flash", vision_model="deepseek-flash")
+        calls = []
+
+        def get(url, *, headers, timeout):
+            calls.append((url, headers))
+            return type("Response", (), {"status_code": 200, "json": lambda _self: {"data": [
+                {"id": "deepseek-v4-pro", "input_modalities": ["text"]},
+                {"id": "deepseek-flash", "input_modalities": ["text", "image"]},
+                {"id": ""},
+            ]}})()
+
+        models = ai_settings.list_models("https://api.deepseek.com", "openai", get=get)
+        self.assertEqual([(model.id, model.vision) for model in models],
+                         [("deepseek-flash", True), ("deepseek-v4-pro", False)])
+        # 密钥留空时用已保存的
+        self.assertEqual(calls, [("https://api.deepseek.com/models", {"Authorization": "Bearer saved-key"})])
+
+    def test_model_list_errors_are_plain_and_hide_the_key(self):
+        def status(code):
+            return lambda *_args, **_kwargs: type("Response", (), {"status_code": code, "json": lambda _self: {}})()
+
+        for code, words in ((401, "密钥不对"), (404, "不提供模型列表"), (500, "HTTP 500")):
+            with self.assertRaises(ValueError) as caught:
+                ai_settings.list_models("https://relay.example/v1", "openai", "sk-secret", get=status(code))
+            self.assertIn(words, str(caught.exception))
+            self.assertNotIn("sk-secret", str(caught.exception))
+        with self.assertRaises(ValueError):
+            ai_settings.list_models("", "openai", "sk-secret", get=status(200))
+
+    def test_presets_are_recognised_by_host(self):
+        self.assertEqual(ai_settings.preset_for("https://api.deepseek.com"), "deepseek")
+        self.assertEqual(ai_settings.preset_for("https://API.DeepSeek.com/v1"), "deepseek")
+        self.assertEqual(ai_settings.preset_for("http://relay.example:8318/v1"), "custom")
+        self.assertEqual(ai_settings.preset_for(""), "custom")
+
     def test_full_endpoint_is_split_into_base_and_type(self):
         self.assertEqual(split_endpoint("http://relay.example:8318/v1/responses"),
                          ("http://relay.example:8318/v1", "openai-responses"))
@@ -110,6 +148,44 @@ class AISettingsPanelTests(AISettingsTests):
         self.assertEqual(panel.token_edit.text(), "")
         self.assertIn("已保存", panel.token_edit.placeholderText())
         app.processEvents()
+
+    def test_new_user_starts_from_a_provider_preset_and_can_fetch_models(self):
+        # 走查 M3：不再默认你有中转；选服务商就填好地址和模型，只差密钥
+        from autoslice.desktop.ai_settings import ModelInfo
+        from autoslice.desktop.qt_app.ai_settings_panel import AISettingsPanel
+
+        QApplication.instance() or QApplication([])
+        panel = AISettingsPanel(run=lambda action, callback: callback(action(), None))
+        self.addCleanup(panel.deleteLater)
+        self.assertEqual(panel.provider_box.currentData(), "deepseek")
+        self.assertEqual(panel.url_edit.text(), "https://api.deepseek.com")
+        self.assertEqual(panel.text_model_box.currentText(), "deepseek-flash")
+        panel.provider_box.setCurrentIndex(panel.provider_box.findData("custom"))
+        panel._provider_chosen()
+        self.assertEqual(panel.url_edit.text(), "")
+        panel.url_edit.setText("https://api.deepseek.com/chat/completions")
+        panel._url_changed()
+        self.assertEqual(panel.provider_box.currentData(), "deepseek")
+        models = (ModelInfo("deepseek-flash", True), ModelInfo("deepseek-v4-pro", False))
+        with patch("autoslice.desktop.qt_app.ai_settings_panel.list_models", return_value=models):
+            panel._fetch_models()
+        self.assertEqual([panel.vision_model_box.itemText(i) for i in range(panel.vision_model_box.count())],
+                         ["deepseek-flash"])
+        self.assertEqual(panel.text_model_box.count(), 2)
+        self.assertIn("能看图的：deepseek-flash", panel.status.text())
+
+    def test_empty_address_gets_a_plain_hint_instead_of_file_path(self):
+        # 走查 N12：没填地址点“测试连接”曾提示“没保存：API 配置缺少 base_url：<完整路径>”
+        from autoslice.desktop.qt_app.ai_settings_panel import AISettingsPanel
+
+        QApplication.instance() or QApplication([])
+        panel = AISettingsPanel(run=lambda action, callback: callback(action(), None))
+        self.addCleanup(panel.deleteLater)
+        panel.url_edit.setText("")
+        panel.token_edit.setText("secret")
+        self.assertFalse(panel._save())
+        self.assertIn("接口地址", panel.status.text())
+        self.assertNotIn("base_url", panel.status.text())
 
 
 if __name__ == "__main__":

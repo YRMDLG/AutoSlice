@@ -310,6 +310,14 @@ class ResponsesProtocolTests(unittest.TestCase):
         with self.assertRaises(transport.LLMResponseTruncatedError):
             self._call({"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []})
 
+    def test_openai_thinking_cut_by_length_is_truncation_not_answer(self):
+        thinking = '需要输出 JSON：{"picks":[{"index":2,"reason":"..."}]}，先看图……'
+        data = {"choices": [{"finish_reason": "length", "message": {"content": "", "reasoning_content": thinking}}]}
+        with self.assertRaises(transport.LLMResponseTruncatedError):
+            transport.parse_openai_response(data, "m", 1600)
+        data["choices"][0]["finish_reason"] = "stop"
+        self.assertEqual(transport.parse_openai_response(data, "m", 1600), thinking)
+
     def test_config_accepts_responses_protocol(self):
         config = transport.normalise_api_config(
             {"base_url": "https://gateway.example/v1", "token": "t", "model": "m", "api_type": "responses"},
@@ -388,6 +396,25 @@ class JsonModeCompatibilityTests(unittest.TestCase):
                     self.assertNotIn(removed, second)
                     self.assertNotIn(json_field, third)
                     self.assertNotIn(reasoning_field, third)
+
+    def test_thinking_off_is_sent_and_falls_back_to_low_without_disabling_effort(self):
+        def effort(payload, protocol):
+            return payload.get("reasoning_effort") if protocol == "openai" else (payload.get("reasoning") or {}).get("effort")
+
+        for protocol in ("openai", "openai-responses"):
+            with self.subTest(protocol=protocol):
+                transport.reset_reasoning_effort_capability_cache()
+                config = LLMApiConfig("https://gateway.example/v1", "test-token", "m", protocol)
+                post = Mock(side_effect=[
+                    make_response({}, status_code=400, text="reasoning_effort none is not supported"),
+                    self._valid_response(protocol), self._valid_response(protocol),
+                ])
+                for value in ("none", "xhigh"):
+                    transport.call_llm("复核 JSON", json_mode=True, reasoning_effort=value,
+                                       load_config_func=lambda: config, request_post=post)
+                sent = [effort(call.kwargs["json"], protocol) for call in post.call_args_list]
+                # 不认 none 的服务退到 low；之后的 xhigh 照常发送
+                self.assertEqual(sent, ["none", "low", "xhigh"])
 
     def test_unrelated_errors_and_json_prompt_errors_are_not_retried(self):
         for protocol in ("openai", "openai-responses"):

@@ -99,6 +99,15 @@ class TextLayoutTests(unittest.TestCase):
         self.assertGreaterEqual(layout.ink.left, layout.area.left - 1)
         self.assertLessEqual(layout.ink.bottom, layout.area.bottom + 1)
 
+    def test_common_words_are_not_split_to_gain_font_size(self):
+        # 走查 M8：原来为了大两号字断成“选秀带手机居 / 然会改变选曲⁉”
+        layout = self._layout("选秀带手机居然会改变选曲⁉", width=1037, height=400, size=170)
+        self.assertEqual([line.text for line in layout.lines], ["选秀带手机", "居然会改变选曲⁉"])
+        from autoslice_cover.document_layout import WORD_INSIDE_BREAK, break_penalty
+
+        self.assertEqual(break_penalty("为什么他们", 1), WORD_INSIDE_BREAK)
+        self.assertLess(break_penalty("为什么他们", 3), break_penalty("选秀带手机", 2))
+
     def test_prefers_break_before_connective_over_bigger_size(self):
         # 宁可字小一点，也不拆开“居然”。
         layout = self._layout("韩国选秀居然可以带手机", width=600, height=324, size=120)

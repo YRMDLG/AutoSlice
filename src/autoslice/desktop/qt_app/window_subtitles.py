@@ -66,7 +66,7 @@ class SubtitleListMixin:
         self.filter_all.setChecked(True)
         motion.SegmentedFx(segmented, (self.filter_all, self.filter_pending))
         heading.addWidget(segmented)
-        self.quality_button = QPushButton("待检查 0")
+        self.quality_button = QPushButton("检查提醒 0")
         self.quality_button.setObjectName("quiet")
         self.quality_button.setToolTip("检查重复字、显示时间、重叠和长字幕，支持定位、试听与撤销")
         self.quality_button.setEnabled(False)
@@ -164,6 +164,8 @@ class SubtitleListMixin:
         self.selected_index = self.selection.active
         self._sync_table_selection()
         self._row_changed(index, QModelIndex())
+        # 手动平移过时间轴后点列表里离得远的句子，时间轴也要跟过去
+        self.timeline.reveal_cue(entry.index)
         if self._loop_enabled:
             self._loop_cue_id = entry.index
             self._loop_seek_pending = False
@@ -248,6 +250,55 @@ class SubtitleListMixin:
         editor.setFocus(Qt.FocusReason.MouseFocusReason)
         if viewport_position is not None:
             self._place_caret(index, viewport_position)
+        else:
+            cursor = editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            editor.setTextCursor(cursor)
+
+    def _step_subtitle(self, delta, *, edit):
+        """键盘切句：delta 为相对当前句的行数，0 表示原地进入编辑。"""
+        if self.document is None:
+            return
+        editing = self._editing_subtitle_index()
+        if editing is not None and editing.isValid():
+            row = editing.row()
+        else:
+            row = next((i for i, entry in enumerate(self.model.visible_entries())
+                        if entry.index == self.selection.active), None)
+        target = 0 if row is None else row + delta
+        if not 0 <= target < len(self.model.visible_entries()):
+            # 到头了：确认当前编辑，留在原句
+            self._commit_editor()
+            self.table.setFocus()
+            return
+        self._go_to_subtitle_row(target, edit=edit)
+
+    def _go_to_subtitle_row(self, row, *, edit):
+        self._commit_editor()
+        entries = self.model.visible_entries()
+        if self.document is None or not 0 <= row < len(entries):
+            return
+        entry = entries[row]
+        self.selection.choose(entry.index, self._cue_order())
+        self.selected_index = self.selection.active
+        self._sync_table_selection()
+        index = self.model.index(row, 2)
+        motion.smooth_scroll(self.table, lambda: self.table.scrollTo(index))
+        self.timeline.set_selection(entry.index, self.selection.selected)
+        self.timeline.reveal_cue(entry.index)
+        if self._loop_enabled:
+            self._loop_cue_id = entry.index
+            self._loop_seek_pending = False
+        target = srt_timestamp_seconds(entry.start)
+        if abs(self._player_position - target) > .1 or not self._player_paused:
+            self._seek_to(target)
+        self._save_session()
+        if edit:
+            self._open_inline_editor(index)
+            self.table.setCurrentIndex(index)
+            QTimer.singleShot(0, lambda idx=index: self._focus_subtitle_editor(idx))
+        else:
+            self.table.setFocus()
 
     def _is_subtitle_editor_widget(self, widget) -> bool:
         current = widget

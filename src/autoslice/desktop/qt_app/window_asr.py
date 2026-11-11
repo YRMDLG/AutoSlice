@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import dataclasses
 
+from PySide6.QtCore import QTimer
+
 from autoslice.desktop.asr import load_settings
 from autoslice.desktop.asr.engines import ENGINES
 from autoslice.desktop.asr.hotwords import build_hotwords
@@ -23,7 +25,7 @@ class RecognizeMixin:
         self._asr_video = None
         self.asr_banner.start_clicked.connect(self._asr_start)
         self.asr_banner.cancel_clicked.connect(self._asr_job.cancel)
-        self.asr_banner.settings_clicked.connect(lambda: self._select_page(2))
+        self.asr_banner.settings_clicked.connect(self._open_asr_settings)
         self._asr_job.progress.connect(self._asr_progress)
         self._asr_job.finished.connect(self._asr_finished)
         return self.asr_banner
@@ -116,3 +118,11 @@ class RecognizeMixin:
     def _asr_shutdown(self) -> None:
         if self._asr_running():
             self._asr_job.cancel()
+
+    def _open_asr_settings(self):
+        """字幕页“识别设置”：直接滚到设置页的“字幕识别”一节，不停在页顶。"""
+
+        self._select_page(2)
+        scroll, panel = getattr(self, "settings_scroll", None), getattr(self, "asr_settings_panel", None)
+        if scroll is not None and panel is not None:
+            QTimer.singleShot(0, lambda: scroll.ensureWidgetVisible(panel, 0, 24))

@@ -9,8 +9,8 @@ from tempfile import TemporaryDirectory
 from autoslice.task_store import (
     DEFAULT_TASK_DATABASE_PATH,
     MAX_LIST_LIMIT,
-    SensitiveTaskDataError,
     TASK_STORE_SCHEMA_VERSION,
+    SensitiveTaskDataError,
     TaskConflictError,
     TaskStore,
     TaskStoreCorruptionError,

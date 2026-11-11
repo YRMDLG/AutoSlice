@@ -102,7 +102,7 @@ class CoverExportService:
                 ),
             )
             if not keep_layout:
-                document = self.apply_auto_layout(document, best.path)
+                document = self.default_layout(project, document, best.path)
                 if template is not None:
                     document = apply_template(document, template)
             self.save_document(project, video, document)
@@ -207,6 +207,7 @@ class CoverExportService:
 
         # 导出即用户确认的成品，此时才记忆风格，临时试色不进入长期偏好。
         self.remember_style(project, document)
+        self.remember_framing(project, document, canvas_keys)
         for item in document.objects:
             if isinstance(item, (ImageObject, StickerObject)) and item.asset and item.asset.asset_id:
                 try:

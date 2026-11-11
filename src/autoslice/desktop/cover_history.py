@@ -26,10 +26,16 @@ class CoverHistory:
     def current(self) -> CoverDocument | None:
         return getattr(self, "_current", None)
 
-    def commit(self, document: CoverDocument) -> bool:
+    def commit(self, document: CoverDocument, *, merge: bool = False) -> bool:
+        """merge：并入上一条（连续打字只算一步），撤销时直接回到这串输入之前。"""
+
         before = self.current
         if before == document:
             return False
+        if merge and self._undo_stack:
+            self._current = document
+            self._redo_stack.clear()
+            return True
         if before is not None:
             self._undo_stack.append(before)
             if len(self._undo_stack) > self.limit:

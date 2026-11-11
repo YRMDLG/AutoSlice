@@ -12,7 +12,28 @@ from pathlib import Path
 from threading import Event
 
 from autoslice.desktop.foundation import DesktopStorage
-from autoslice.subtitle_workflow import burn_subtitles, parse_srt_document
+from autoslice.subtitle_workflow import (
+    EXACT_SUBTITLE_FONT,
+    burn_subtitles,
+    parse_srt_document,
+    verify_exact_subtitle_font,
+)
+
+
+def subtitle_font_problem() -> str:
+    """默认字幕字体能否精确加载：能则返回空串，否则返回给用户看的说明（结果有缓存）。"""
+
+    try:
+        result = verify_exact_subtitle_font()
+    except FileNotFoundError:
+        return "没找到 FFmpeg：压制字幕需要 FFmpeg 和 ffprobe，安装后重启软件。"
+    except OSError as exc:
+        return f"检查字幕字体失败：{exc}"
+    if result["available"]:
+        return ""
+    actual = result["resolved"] or "其它字体"
+    return (f"本机没装默认字幕字体「{EXACT_SUBTITLE_FONT}」（思源黑体 Black），压制会失败"
+            f"（现在会被换成 {actual}）。安装这个字体后重启软件即可。")
 
 
 class SubtitleRenderService:

@@ -1303,7 +1303,7 @@ def _review_prompt(
     )
 
 
-def _default_llm_runner(prompt, compact_prompt, retry_coordinator=None):
+def _default_llm_runner(prompt, compact_prompt, retry_coordinator=None, request_timeout=None):
     call_kwargs = {
         "compact_prompt": compact_prompt,
         "max_tokens": 12000,
@@ -1314,6 +1314,8 @@ def _default_llm_runner(prompt, compact_prompt, retry_coordinator=None):
     }
     if retry_coordinator is not None:
         call_kwargs["retry_coordinator"] = retry_coordinator
+    if request_timeout is not None:
+        call_kwargs["request_timeout"] = request_timeout
     response = llm_gateway.call_llm_with_retry(
         prompt,
         **call_kwargs,
@@ -1321,7 +1323,7 @@ def _default_llm_runner(prompt, compact_prompt, retry_coordinator=None):
     return llm_gateway.extract_json_payload(response)
 
 
-def _build_default_llm_runner():
+def _build_default_llm_runner(request_timeout=None):
     retry_coordinator = llm_gateway.LLMProviderRetryCoordinator()
 
     def run(prompt, compact_prompt):
@@ -1329,6 +1331,7 @@ def _build_default_llm_runner():
             prompt,
             compact_prompt,
             retry_coordinator=retry_coordinator,
+            request_timeout=request_timeout,
         )
 
     return run
@@ -1496,8 +1499,12 @@ def suggest_subtitle_corrections(
         srt_path, context_title="", glossary=None, llm_runner=None,
         use_cache=True, progress_callback=None, replacements=None,
         streamer_profile_id="", streamer_profile_label="",
-        streamer_profile_fingerprint="", streamer_profile=None, review_indices=None):
-    """逐批检查字幕并返回建议；不修改原始字幕。"""
+        streamer_profile_fingerprint="", streamer_profile=None, review_indices=None,
+        concurrency=None, request_timeout=None):
+    """逐批检查字幕并返回建议；不修改原始字幕。
+
+    concurrency / request_timeout 默认沿用模块常量与网关默认值；桌面端交互时传更高并发、更短超时。
+    """
     cues = parse_srt_document(srt_path)
     scope = None
     if review_indices is not None:
@@ -1553,7 +1560,7 @@ def suggest_subtitle_corrections(
         except (OSError, ValueError, TypeError):
             pass
 
-    runner = llm_runner if llm_runner is not None else _build_default_llm_runner()
+    runner = llm_runner if llm_runner is not None else _build_default_llm_runner(request_timeout)
     suggestions_by_index = {
         item["index"]: item
         for item in _fixed_replacement_suggestions(cues, active_replacements)
@@ -1597,7 +1604,7 @@ def suggest_subtitle_corrections(
             progress_callback("字幕 AI 校对 (1/1)...", 0, 1)
         _, batch_results[0] = review_spec(batch_specs[0])
     else:
-        worker_count = min(SUBTITLE_REVIEW_CONCURRENCY, total_batches)
+        worker_count = min(max(1, int(concurrency or SUBTITLE_REVIEW_CONCURRENCY)), total_batches)
         if progress_callback:
             progress_callback(
                 f"字幕 AI 校对并行处理中 (0/{total_batches})...",

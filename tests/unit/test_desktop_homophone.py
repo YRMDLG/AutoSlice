@@ -121,6 +121,28 @@ class HomophoneReviewTests(unittest.TestCase):
         self.assertTrue(all(item.status == "pending" and item.confidence is None for item in found))
         self.assertEqual(len({item.suggestion_id for item in found}), 2)
 
+    def test_local_check_also_uses_fixed_and_observed_corrections(self):
+        # 不用 AI 也能查：主播固定纠错（原来只在 AI 检查时生效）+ 观察中、且别处从没保留原写法的改法
+        from unittest.mock import Mock
+
+        from autoslice.desktop.correction_memory import LearnedCorrection
+
+        service = self.service(terms=())
+        service.memory = Mock()
+        service.memory.replacements.return_value = ()
+        service.memory.entries.return_value = (
+            ("test", LearnedCorrection(wrong="今天来", right="今天要", videos=1, promoted=False, kept=0)),
+            ("test", LearnedCorrection(wrong="真好看", right="真难看", videos=1, promoted=False, kept=2)),
+        )
+        with patch("autoslice.desktop.ai_review.subtitle_review_profile_rules", return_value=((), (("聊聊", "谈谈"),))):
+            found = service.local_suggestions(self.document, self.title, homophones=False)
+        by_cue = {item.cue_id: item for item in found}
+        self.assertEqual(by_cue[1].suggested_text, f"今天要谈谈{WRONG}")
+        self.assertIn("主播固定纠错", by_cue[1].reason)
+        self.assertIn("观察中", by_cue[1].reason)
+        self.assertEqual(by_cue[1].source, "fixed_replacement")
+        self.assertNotIn(3, by_cue, "别处保留过原写法（kept>0）的观察中改法不提示")
+
     def test_ai_check_merges_local_hits_but_lets_ai_own_the_cues_it_covered(self):
         self.ai_covered = [(1, f"今天来聊聊{WRONG}")]
         session = self.service().check(self.document, self.title)
@@ -213,7 +235,7 @@ class HomophoneQtTests(unittest.TestCase):
         # 再检查一遍：已经改对了，没有新的疑似
         window.ai_local.click()
         self.assertEqual(len(window.ai_session.pending), 0)
-        self.assertIn("没有发现", window.ai_note.text())
+        self.assertIn("没发现要改的地方", window.ai_note.text())
         # 撤销后能再次发现
         self.assertTrue(window.document.undo())
         window.model.set_document(window.document)

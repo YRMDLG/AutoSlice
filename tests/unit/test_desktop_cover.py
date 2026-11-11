@@ -667,6 +667,40 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
         restored = object_for_profile(self.widget.document, b_id, "4x3")
         self.assertAlmostEqual(restored.transform.x, applied.transform.x, places=3)
 
+    def test_typing_burst_in_copy_box_is_one_undo_step(self):
+        # 走查 N16：连打 4 个字要按 4 次 Ctrl+Z
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertIsNotNone(self.widget.document)
+        self.widget.show()
+        edit = self.widget.title_edit
+        edit.setFocus()
+        self.app.processEvents()
+        self.assertTrue(edit.hasFocus())
+        before = edit.toPlainText()
+        for char in "测试手感":
+            cursor = edit.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            edit.setTextCursor(cursor)
+            edit.insertPlainText(char)
+            self.app.processEvents()
+        self.assertTrue(edit.toPlainText().endswith("测试手感"))
+        self.widget._undo()
+        self.app.processEvents()
+        self.assertEqual(edit.toPlainText(), before)
+        self.widget._redo()
+        self.app.processEvents()
+        self.assertTrue(edit.toPlainText().endswith("测试手感"))
+
+    def test_undo_redo_shortcuts_are_not_ambiguous(self):
+        # Windows 的系统重做已含 Ctrl+Y；重复注册会歧义，按了没反应
+        from PySide6.QtGui import QShortcut
+
+        keys = [key.toString() for shortcut in self.widget.findChildren(QShortcut)
+                if shortcut.parent() is self.widget for key in shortcut.keys()]
+        self.assertEqual(len(keys), len(set(keys)), keys)
+        self.assertIn("Ctrl+Y", keys)
+        self.assertIn("Ctrl+Z", keys)
+
     def test_align_button_changes_only_current_ratio_and_can_undo(self):
         image = Path(self.temp.name) / "align.png"
         Image.new("RGB", (640, 480), "#334155").save(image)
@@ -802,8 +836,25 @@ class CoverEditorQtSmokeTests(unittest.TestCase):
             if window.project is projects[1]:
                 break
         self.assertIs(window.project, projects[1])
+
+        def settle():
+            for _ in range(300):
+                self.app.processEvents()
+                if window.cover_editor.video is not None and not window._loading:
+                    return
+
+        settle()
+        # 列表末尾：绕回开头还没导出过封面的那个，不再只说“最后一个了”
         window.cover_editor.next_button.click()
-        self.assertIn("最后一个", window.app_status.text())
+        self.assertIs(window.project, projects[0])
+        settle()
+        for project in projects:
+            (Path(project.directory) / "AutoCover-视频.jpg").write_bytes(b"jpg")
+        window.cover_editor.next_button.click()
+        self.assertIs(window.project, projects[1])
+        settle()
+        window.cover_editor.next_button.click()
+        self.assertIn("都导出过封面了", window.app_status.text())
 
 
 @unittest.skipIf(QApplication is None, "PySide6 不在当前解释器中")
@@ -887,6 +938,25 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         self.assertNotEqual(self.widget.document, before)
         self.widget._undo()
         self.assertEqual(self.widget.document.profiles, before.profiles)
+        self.widget.close()
+
+    def test_auto_pick_shows_the_whole_video_candidates_in_the_strip(self):
+        # 走查 N19：自动挑帧后帧条只放选中画面前后 2 秒的 7 张，几乎一样
+        from autoslice.desktop.cover_frames import CoverFrame
+
+        picked = Path(self.temp.name) / "spread.png"
+        Image.new("RGB", (640, 360), "#335577").save(picked)
+        stamps = [0.05, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95]  # 测试视频很短，候选铺满全片
+        self.widget.service.overview_candidates = lambda video, count=7: tuple(
+            CoverFrame(picked, stamp, 50.0 + index) for index, stamp in enumerate(stamps)
+        )
+        self.widget.show()
+        self.widget.set_current_playhead(0.0)
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and not self.widget._frame_extract_pending))
+        self.assertTrue(self.widget._strip_pinned)
+        strip = [round(float(button.property("timestamp")), 2) for button in self.widget.nearby_frame_buttons]
+        self.assertEqual(strip, stamps)
         self.widget.close()
 
     def test_clicking_a_whole_video_candidate_keeps_the_other_candidates_for_comparison(self):

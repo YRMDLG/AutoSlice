@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -45,6 +46,13 @@ from .cover_model import (
 )
 from .cover_service import CoverService
 from .jobs import BackgroundJob
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 class CoverEditorWidget(
@@ -112,13 +120,20 @@ class CoverEditorWidget(
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
         self._draft_timer.timeout.connect(self._save_draft)
+        # 文案连打：撤销合并成一步，画布重画合并成一次
+        self._typing_source = None
+        self._typing_at = 0.0
+        self._typing_render_at = 0.0
+        self._typing_render_timer = QTimer(self)
+        self._typing_render_timer.setSingleShot(True)
+        self._typing_render_timer.timeout.connect(self._typing_render)
         self._build()
         # 封面页自己的撤销/重做；文案框获得焦点时由输入框处理文字撤销。
-        for sequence, action in (
-            (QKeySequence.StandardKey.Undo, self._undo),
-            (QKeySequence.StandardKey.Redo, self._redo),
-            (QKeySequence("Ctrl+Y"), self._redo),
-        ):
+        # Windows 的系统重做已含 Ctrl+Y，再单独注册会快捷键冲突，两个都不触发。
+        shortcuts = [(QKeySequence.StandardKey.Undo, self._undo), (QKeySequence.StandardKey.Redo, self._redo)]
+        if QKeySequence("Ctrl+Y") not in QKeySequence.keyBindings(QKeySequence.StandardKey.Redo):
+            shortcuts.append((QKeySequence("Ctrl+Y"), self._redo))
+        for sequence, action in shortcuts:
             shortcut = QShortcut(sequence, self)
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(action)
@@ -185,10 +200,12 @@ class CoverEditorWidget(
         self._record_history()
         self._draft_timer.start()
 
-    def _record_history(self):
-        """记一条撤销历史，撤销/重做按钮跟着可用状态。"""
+    def _record_history(self, *, merge: bool = False):
+        """记一条撤销历史，撤销/重做按钮跟着可用状态；merge 时并入上一条（连续打字）。"""
 
-        self.history.commit(self.document)
+        self.history.commit(self.document, merge=merge)
+        if not merge:
+            self._typing_source = None
         self._edits_after_scheme += 1
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
@@ -206,8 +223,18 @@ class CoverEditorWidget(
             return
         self.document = document
         self.draft = CoverDraft.from_document(self.document)
+        self._typing_source = None  # 撤销后再打字是新的一步
         self._apply_draft()
         self._sync_overlay_controls()
+        # 撤销回别的帧时，下面的“当前 N 秒”和帧条跟上（原来停在撤销前的那一帧）
+        timestamp = float(self.document.source.selected_timestamp)
+        if self.draft.image_path and abs(self.timestamp_edit.value() - timestamp) > 0.01:
+            self.timestamp_edit.setValue(timestamp)
+            if self._strip_holds(timestamp):
+                self._select_strip_frame(timestamp)
+            else:
+                self._refresh_nearby_frame_strip(timestamp)
+                self._queue_nearby_thumbnails(timestamp)
         self.undo_button.setEnabled(self.history.can_undo)
         self.redo_button.setEnabled(self.history.can_redo)
         self._draft_timer.start()
@@ -335,6 +362,7 @@ class CoverEditorWidget(
         self.draft_status.setText("未加载草稿")
         self._refresh_nearby_frame_strip(0.0)
         self._update_export_summary()
+        self._show_export_folder(None)
         self._update_canvas_hint()
         self._show_background(None)
         self.canvas.setText("请先在字幕页选择投稿项目和视频")
@@ -362,6 +390,9 @@ class CoverEditorWidget(
         self._set_editing_enabled(True)
         self._set_notice("")
         self._update_export_summary()
+        # “打开文件夹”跟着视频走：这个视频导出过就指向它最新的那张，没导出过就藏起来（原来会留着上一个视频的）
+        existing = self.service.existing_exports(project, video)
+        self._show_export_folder(max(existing, key=_mtime) if existing else None)
         video_path = Path(video.path)
         video_available = video_path.is_file()
         self.extract_button.setEnabled(video_available)
@@ -503,11 +534,30 @@ class CoverEditorWidget(
         self._store_text_controls()
         self._store_background_controls()
         self.draft = CoverDraft.from_document(self.document) if self.document else self._read_draft()
+        source = self.sender()
+        # 只有用户正在这个框里打字（框有焦点）才算连打；按钮用代码改框里的字是独立的一步
+        typing = (source is not None and source in (getattr(self, "title_edit", None), getattr(self, "emphasis_edit", None))
+                  and source.hasFocus())
+        now = time.monotonic()
         if self.document is not None and before != self.document:
-            self._record_history()
-        self._refresh_canvas()
+            # 同一个框里 1.5 秒内的连续输入算一步撤销，不用一个字一个字地撤
+            merge = typing and source is self._typing_source and now - self._typing_at < 1.5
+            self._record_history(merge=merge)
+            if typing:
+                self._typing_source, self._typing_at = source, now
+        if typing and now - self._typing_render_at < 0.15:
+            # 快速连打时整张封面不用每个字都重画，停手 90 毫秒后画一次
+            self._typing_render_timer.start(90)
+        else:
+            self._typing_render_timer.stop()
+            self._typing_render_at = now
+            self._refresh_canvas()
         self._refresh_hidden_button()
         self._draft_timer.start()
+
+    def _typing_render(self):
+        self._typing_render_at = time.monotonic()
+        self._refresh_canvas()
 
     def _gesture_finished(self):
         # object_changed 已在 release 提交并启动防抖保存；释放时不同步写盘，

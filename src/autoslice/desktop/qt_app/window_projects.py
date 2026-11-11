@@ -22,12 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.archive import ArchiveService
-from autoslice.desktop.projects import PROJECT_SORT_OPTIONS, ProjectSnapshot
+from autoslice.desktop.projects import PROJECT_SORT_OPTIONS, ProjectSnapshot, nested_root_candidate
 from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import ProjectItem, card, label, line, tool_icon
 from autoslice.desktop.selection import CueSelection
+from autoslice.desktop.subtitle_render import subtitle_font_problem
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
@@ -83,6 +84,26 @@ class ProjectsMixin:
         self.projects_layout.addStretch()
         scroll.setWidget(container)
         column.addWidget(scroll, 1)
+        # 第一次用或目录选错时列表是空的：直接给出选目录的入口，不用自己去设置页找
+        self.empty_projects = QWidget()
+        empty = QVBoxLayout(self.empty_projects)
+        empty.setContentsMargins(12, 4, 12, 4)
+        empty.setSpacing(8)
+        self.empty_projects_hint = label("", "muted")
+        self.empty_projects_hint.setWordWrap(True)
+        empty.addWidget(self.empty_projects_hint)
+        # 选高了一层时一键改用那个文件夹（M9）
+        self.nested_root_button = QPushButton("")
+        tool_icon(self.nested_root_button, "folder")
+        self.nested_root_button.clicked.connect(self._use_nested_root)
+        empty.addWidget(self.nested_root_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.nested_root_button.hide()
+        choose = QPushButton("选择投稿目录")
+        tool_icon(choose, "folder")
+        choose.clicked.connect(self._browse_submission_root)
+        empty.addWidget(choose, 0, Qt.AlignmentFlag.AlignLeft)
+        self.empty_projects.hide()
+        column.insertWidget(0, self.empty_projects)
         self.project_group = QButtonGroup(self)
         self.project_group.setExclusive(True)
         self.project_buttons = {}
@@ -96,6 +117,7 @@ class ProjectsMixin:
         page = QWidget()
         page.setObjectName("settingsSurface")
         scroll = QScrollArea()
+        self.settings_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         body = QWidget()
@@ -107,7 +129,14 @@ class ProjectsMixin:
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        outer.addWidget(content)
+        # 放进横向一行再加进页面：滚动区按“宽度→高度”给内容定高，竖排里直接放限宽控件时，
+        # Qt 按整页宽度（不是 880）算折行，高度算少了，所有行被挤到最小高度以下（下拉框压扁、按钮被裁）。
+        # 横排会先按限宽分好宽度再算高度。
+        column = QHBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addWidget(content, 1)
+        column.addStretch(0)
+        outer.addLayout(column)
         outer.addStretch(1)
         layout.addWidget(label("设置", "pageTitle"))
         layout.addSpacing(2)
@@ -129,12 +158,22 @@ class ProjectsMixin:
         directory_column.addLayout(dir_row)
         layout.addWidget(directory_card)
 
+        # ── AI 接口（原来排在第 7 节，新用户找不到）──
+        self.ai_settings_panel = AISettingsPanel(self._run)
+        layout.addWidget(self.ai_settings_panel)
+
         # ── 字幕压制 ──
         render_card, render_column = card(
             "字幕压制",
             f"默认样式：{DEFAULT_SUBTITLE_STYLE['font_name']} · #{DEFAULT_SUBTITLE_STYLE['outline_color']} 描边",
         )
         render_column.addWidget(label("压制使用既有 FFmpeg 工作流，NVENC 可用时自动优先。", "muted"))
+        # 缺字体或 FFmpeg 时压制必失败：进设置页就检查并醒目提示
+        self.render_font_note = label("")
+        self.render_font_note.setWordWrap(True)
+        self.render_font_note.setStyleSheet(f"color: {COLORS.ai_removed};")
+        self.render_font_note.hide()
+        render_column.addWidget(self.render_font_note)
         layout.addWidget(render_card)
 
         # ── 封面 ──
@@ -164,14 +203,14 @@ class ProjectsMixin:
         self.asr_settings_panel = AsrSettingsPanel(self.storage)
         layout.addWidget(self.asr_settings_panel)
 
-        # ── AI ──
-        self.ai_settings_panel = AISettingsPanel(self._run)
-        layout.addWidget(self.ai_settings_panel)
-
         # ── 播放器 ──
         player_card, player_column = card("播放器")
-        player_status = "libmpv 已连接" if getattr(self, "player", None) is not None else "libmpv 未连接（仅预览模式）"
-        player_column.addWidget(label(player_status, "muted"))
+        player_status = "libmpv 已连接" if getattr(self, "player", None) is not None else (
+            "没找到播放组件 libmpv-2.dll：视频放不了，字幕和封面照常能改。"
+            "放进 %LOCALAPPDATA%\\AutoSlice\\bin 文件夹后重启即可。")
+        player_note = label(player_status, "muted")
+        player_note.setWordWrap(True)
+        player_column.addWidget(player_note)
         hwdec = getattr(self, "_hwdec", None)
         if hwdec:
             player_column.addWidget(label(f"硬件解码：{hwdec}", "muted"))
@@ -207,16 +246,36 @@ class ProjectsMixin:
         self.settings_material_directory.setText(str(directory))
         self._show_transient_status("素材文件夹已更新，下次打开素材库时生效")
 
+    def _check_render_font(self):
+        """进设置页时在后台查一次默认字幕字体（要跑一次 FFmpeg，结果有缓存）。"""
+        if getattr(self, "_render_font_checked", False) or not hasattr(self, "render_font_note"):
+            return
+        self._render_font_checked = True
+
+        def done(problem, error):
+            text = "" if error is not None else problem
+            self.render_font_note.setText(f"⚠ {text}" if text else "")
+            self.render_font_note.setVisible(bool(text))
+
+        self._run(subtitle_font_problem, done)
+
     def _browse_submission_root(self):
         """让用户选择投稿目录。"""
         from PySide6.QtWidgets import QFileDialog
         path = QFileDialog.getExistingDirectory(self, "选择投稿目录", str(self.service.root))
         if path:
-            self.service.root = Path(path)
-            self.settings_directory.setText(str(self.service.root))
-            self._save_session()
-            self._show_transient_status(f"投稿目录已更新：{path}")
-            self.refresh()
+            self._set_submission_root(path)
+
+    def _set_submission_root(self, path):
+        self.service.root = Path(path)
+        self.settings_directory.setText(str(self.service.root))
+        self._save_session()
+        self._show_transient_status(f"投稿目录已更新：{path}")
+        self.refresh()
+
+    def _use_nested_root(self):
+        if getattr(self, "_nested_root", ""):
+            self._set_submission_root(self._nested_root)
 
     def refresh(self):
         if self._loading or self._saving or not self._resolve_unsaved():
@@ -234,6 +293,27 @@ class ProjectsMixin:
             return
         assert isinstance(snapshot, ProjectSnapshot)
         self.scan_status.setText(f"{snapshot.status} · {len(snapshot.projects)} 个项目")
+        no_video = bool(snapshot.projects) and not any(project.videos for project in snapshot.projects)
+        nested = None if no_video else nested_root_candidate(snapshot.projects)
+        self._nested_root = nested.directory if nested else ""
+        self.nested_root_button.setVisible(nested is not None)
+        if nested is not None:
+            name = Path(nested.directory).name
+            self.empty_projects_hint.setText(
+                f"“{name}”里的视频分在几个子文件夹里，被当成了一个项目——看起来投稿目录选高了一层。"
+                f"每个装视频的文件夹应该各算一个项目。"
+            )
+            self.nested_root_button.setText(f"改用“{name}”作投稿目录")
+        elif no_video:
+            self.empty_projects_hint.setText(
+                f"这个目录下的 {len(snapshot.projects)} 个文件夹里都没有视频，可能选到了上一级或别的目录。"
+            )
+        else:
+            self.empty_projects_hint.setText(
+                f"这个目录里还没有投稿项目：{self.service.root}。"
+                "投稿目录下每个子文件夹算一个项目，里面放视频（和字幕）。"
+            )
+        self.empty_projects.setVisible(not snapshot.projects or no_video or nested is not None)
         self.cover_editor.set_project_list(snapshot.projects)
         while self.projects_layout.count() > 1:
             item = self.projects_layout.takeAt(0)
@@ -323,24 +403,35 @@ class ProjectsMixin:
         self._save_session()
 
     def _next_cover_video(self):
-        """封面页“下一个”：同项目的下一个视频，否则列表里的下一个项目；页面停在封面。"""
+        """封面页“下一个”：按列表顺序找下一个还没导出过封面的视频，到末尾绕回开头；页面停在封面。
+
+        都做过了就按顺序切到下一个（到末尾就说明一声）。
+        """
 
         if self.project is None:
             return
         current = self.cover_editor.video
-        videos = list(self.project.videos)
-        index = next((i for i, video in enumerate(videos) if current is not None and video.path == current.path), -1)
-        if 0 <= index < len(videos) - 1:
-            self.video_choice.setCurrentIndex(index + 1)
+        order = [(project, video) for project in self.service.snapshot.projects for video in project.videos]
+        here = next((i for i, (project, video) in enumerate(order)
+                     if project.id == self.project.id and current is not None and video.path == current.path), -1)
+        if here < 0 or len(order) < 2:
+            self._show_transient_status("投稿列表里没有别的视频")
             return
-        projects = [project for project in self.service.snapshot.projects if project.videos]
-        position = next((i for i, project in enumerate(projects) if project.id == self.project.id), -1)
-        if position + 1 >= len(projects):
-            self._show_transient_status("已经是投稿列表里的最后一个视频")
+        rest = order[here + 1:] + order[:here]
+        exported = self.cover_editor.service.existing_exports
+        target = next((item for item in rest if not exported(*item)), None)
+        if target is None:
+            if here + 1 >= len(order):
+                self._show_transient_status("投稿列表里的视频都导出过封面了")
+                return
+            target = order[here + 1]
+        project, video = target
+        if project.id == self.project.id:
+            self.video_choice.setCurrentIndex(list(project.videos).index(video))
             return
-        self._select_real_project(projects[position + 1])
-        if self.project is projects[position + 1]:
-            self._show_transient_status(f"已切到下一个：{self.project.title}")
+        self._select_real_project(project, preferred_video=video.path)
+        if self.project is project:
+            self._show_transient_status(f"已切到下一个：{project.title}")
 
     def _restore_project_button(self):
         if self.project and self.project.id in self.project_buttons:
@@ -414,6 +505,8 @@ class ProjectsMixin:
         self.model.set_pending_filter(None)
         self.model.set_document(None)
         self.timeline.set_document(None)
+        # 先把上一个视频的“待检查 N”“存在重叠”、保存/压制按钮状态清掉，没字幕的视频不会再残留
+        self._update_status()
         self.subtitle_status.setText("正在加载字幕…")
         project = self.project
         def action():
@@ -469,10 +562,18 @@ class ProjectsMixin:
                 self.ai_service.config_loader()
             except (OSError, ValueError):
                 ai_status = "unconfigured"
+        if ai_status == "partial":
+            # 字幕和检查时不同（如没恢复草稿）：对得上的建议留着，按当前字幕重新记一份
+            self._save_ai_session()
         self.ai_note.setText("旧建议已过期，请主动重新检查。" if ai_status == "stale" else
                              "未配置 AI，请在设置页配置后主动检查。" if ai_status == "unconfigured" else
                              "已恢复待确认建议。" if ai_status == "ready" else
+                             f"已恢复 {len(self.ai_session.pending)} 条待确认建议；"
+                             f"另有 {self.ai_session.dropped} 条对应的字幕已经改过，已作废。"
+                             if ai_status == "partial" and self.ai_session.dropped else
+                             "已恢复待确认建议。" if ai_status == "partial" else
                              "AI 只生成待确认建议，不修改字幕。")
+        self.ai_setup.setVisible(ai_status == "unconfigured")
         self._render_ai()
         if getattr(self, "_ai_return_project", None) == project.id and self.ai_session and self.ai_session.pending:
             self._set_ai_open(True)

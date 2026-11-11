@@ -21,6 +21,7 @@ from autoslice.desktop.archive.extractors import DEFAULT_EXTRACTORS, Extractor
 from autoslice.desktop.archive.extractors.corrections import align_cues, classify_edit
 from autoslice.desktop.archive.extractors.terms import grams
 from autoslice.desktop.archive.layout import StreamerMatcher, infer_date
+from autoslice.desktop.archive.model import SCHEMA_VERSION
 from autoslice.desktop.archive.report import build_digest, build_report, render_markdown
 from autoslice.desktop.archive.scanner import open_store, scan_roots, walk_folders
 from autoslice.desktop.archive.srt import Cue, parse_srt
@@ -527,6 +528,25 @@ class ArchivePanelTests(ArchiveTestCase):
         self.addCleanup(self.panel.deleteLater)
         make_archive(self.archive)
 
+    def test_default_streamer_menu_sets_it_for_the_selected_folder_and_keeps_the_path(self):
+        self.service.add_root(str(self.archive))
+        self.panel.refresh()
+        self.assertFalse(self.panel.default_button.isEnabled())
+        self.panel.folders.item(0).setSelected(True)
+        self.assertTrue(self.panel.default_button.isEnabled())
+        path = self.service.roots()[0]
+        menu = self.panel._default_menu(self.panel._selected_paths())
+        next(action for action in menu.actions() if "泽音" in action.text()).trigger()
+        self.assertEqual(self.service.root_defaults(), {path: "zeyin"})
+        self.assertIn("默认主播：泽音", self.panel.folders.item(0).text())
+        self.assertIn("重新归属", self.panel.status.text())
+        self.assertEqual(self.panel._selected_paths(), [path])  # 显示文字变了，路径还是原样
+        self.panel._default_menu([path]).actions()[0].trigger()  # 第一项是“不设置”
+        self.assertEqual(self.service.root_defaults(), {})
+        self.assertEqual(self.panel.folders.item(0).text(), path)
+        self.panel._remove()
+        self.assertEqual(self.service.roots(), [])
+
     def test_add_folder_scan_review_apply_and_forget(self):
         self.assertFalse(self.panel.start_button.isEnabled())
         self.assertIn("还没扫描过", self.panel.status.text())
@@ -735,12 +755,70 @@ class StreamerAttributionTests(ArchiveTestCase):
             self.assertEqual(scan_roots(store, [str(self.archive)], matcher=StreamerMatcher.from_profiles()).reassigned, 0)
 
 
+class RootDefaultTests(ArchiveTestCase):
+    def streamers(self):
+        with self.service._store() as store:
+            return {row["title"]: row["streamer"] for row in store.query("SELECT title, streamer FROM entries")}
+
+    def test_v2_database_gets_the_default_streamer_column(self):
+        import sqlite3
+
+        self.service.dir.mkdir(parents=True, exist_ok=True)
+        old = sqlite3.connect(str(self.service.db_path))
+        old.executescript(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);"
+            "CREATE TABLE roots (path TEXT PRIMARY KEY, added REAL, last_scan REAL);"
+            "INSERT INTO meta VALUES('schema_version','2'); INSERT INTO roots(path, added) VALUES('D:/旧', 1);"
+        )
+        old.commit()
+        old.close()
+        with self.service._store() as store:
+            self.assertEqual((store.roots(), store.root_defaults()), (["D:/旧"], {}))
+            store.set_root_default("D:/旧", "zeyin")
+            self.assertEqual(store.root_defaults(), {"D:/旧": "zeyin"})
+            self.assertEqual(int(store.scalar("SELECT value FROM meta WHERE key='schema_version'")), SCHEMA_VERSION)
+        with self.service._store() as store:  # 再打开一次：补列是幂等的
+            self.assertEqual(store.root_defaults(), {"D:/旧": "zeyin"})
+
+    def test_default_streamer_fills_unnamed_folders_and_changes_without_reextracting(self):
+        for title in ("1月26日(1)", "【梨安】舞蹈", "【泽音】有名字"):
+            folder = self.archive / title
+            folder.mkdir()
+            (folder / "视频.srt").write_text(srt_text([(0, 2, "今天天气不错")]), encoding="utf-8")
+        self.service.add_root(str(self.archive))
+        self.assertEqual(self.service.root_defaults(), {})
+        self.service.scan()
+        self.assertEqual(self.streamers(), {"1月26日(1)": "", "【梨安】舞蹈": "ext:梨安", "【泽音】有名字": "zeyin"})
+        self.service.set_root_default(str(self.archive), "zeyin")
+        second = self.service.scan()
+        self.assertEqual((second.changed, second.reassigned), (0, 1))
+        self.assertEqual(self.streamers(), {"1月26日(1)": "zeyin", "【梨安】舞蹈": "ext:梨安", "【泽音】有名字": "zeyin"})
+        self.service.set_root_default(str(self.archive), "")
+        third = self.service.scan()
+        self.assertEqual((third.changed, third.reassigned), (0, 1))
+        self.assertEqual(self.streamers()["1月26日(1)"], "")
+
+
 class CliTests(ArchiveTestCase):
     def run_cli(self, *args) -> tuple[int, str]:
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(io.StringIO()):
             code = archive_main(["--data-dir", str(self.storage.root), *args])
         return code, buffer.getvalue()
+
+    def test_default_streamer_command_lists_sets_validates_and_clears(self):
+        code, output = self.run_cli("default-streamer")
+        self.assertEqual(code, 0)
+        self.assertIn("zeyin", output)
+        code, output = self.run_cli("default-streamer", str(self.archive), "zeyin")
+        self.assertEqual(code, 0)
+        self.assertEqual(list(self.service.root_defaults().values()), ["zeyin"])
+        code, output = self.run_cli("default-streamer", str(self.archive), "没有这个人")
+        self.assertEqual(code, 2)
+        self.assertIn("没有这个主播 id", output)
+        self.assertEqual(list(self.service.root_defaults().values()), ["zeyin"])  # 无效 id 不改动
+        code, output = self.run_cli("default-streamer", str(self.archive))
+        self.assertEqual((code, self.service.root_defaults()), (0, {}))
 
     def test_inspect_scan_proposals_apply_forget(self):
         make_archive(self.archive)

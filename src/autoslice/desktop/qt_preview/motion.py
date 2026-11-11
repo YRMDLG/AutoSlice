@@ -27,6 +27,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
+    QAbstractSpinBox,
     QApplication,
     QComboBox,
     QGraphicsOpacityEffect,
@@ -117,6 +118,22 @@ def install_app(app: QApplication) -> None:
         QApplication.setEffectEnabled(effect, on)
     for effect in (Qt.UIEffect.UI_AnimateMenu, Qt.UIEffect.UI_FadeMenu, Qt.UIEffect.UI_AnimateCombo):
         QApplication.setEffectEnabled(effect, False)
+    if not hasattr(app, "_wheel_guard"):
+        app._wheel_guard = WheelGuard(app)
+        app.installEventFilter(app._wheel_guard)
+
+
+class WheelGuard(QObject):
+    """滚动页面时鼠标划过下拉框、数字框不改值：没焦点就把滚轮交给外层滚动。"""
+
+    def eventFilter(self, obj, event) -> bool:
+        if (event.type() == QEvent.Type.Wheel
+                and isinstance(obj, (QComboBox, QAbstractSpinBox))
+                and not obj.hasFocus()):
+            # 忽略后 Qt 会继续交给父控件（滚动区）处理
+            event.ignore()
+            return True
+        return False
 
 
 def mix(a, b, t: float) -> QColor:
@@ -680,13 +697,13 @@ def crossfade(container: QWidget, apply, duration: int = PAGE) -> None:
         _Fade(host, snapshot, geometry, duration)
 
 
-def fade_out_snapshot(widget: QWidget, duration: int = FADE) -> None:
-    """控件即将隐藏时留下快照淡出，逻辑上仍立即隐藏。"""
+def fade_out_snapshot(widget: QWidget, duration: int = FADE) -> QWidget | None:
+    """控件即将隐藏时留下快照淡出，逻辑上仍立即隐藏。返回淡出层，调用方可提前收掉。"""
 
     parent = widget.parentWidget()
     if not enabled() or parent is None or not widget.isVisible():
-        return
-    _Fade(parent, widget.grab(), widget.geometry(), duration)
+        return None
+    return _Fade(parent, widget.grab(), widget.geometry(), duration)
 
 
 def fade_in(widget: QWidget, duration: int = FADE, delay: int = 0, start: float = 0.0) -> None:

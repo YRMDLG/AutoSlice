@@ -267,9 +267,10 @@ class CoverOptimizationTests(unittest.TestCase):
         self.assertFalse(visually_distinct(before, output.getvalue()))
 
     def test_review_rejects_original_unknown_duplicate_and_unexplained_picks(self):
+        # 总图里原图标 0、方案从 1 编起（与界面“方案 N”一致）
         result = self.ai({"picks": [
-            {"index": 1, "reason": "原图"}, {"index": 3, "reason": "间距更清楚"},
-            {"index": 3, "reason": "重复"}, {"index": 2}, {"index": True, "reason": "错误"},
+            {"index": 0, "reason": "原图"}, {"index": 2, "reason": "间距更清楚"},
+            {"index": 2, "reason": "重复"}, {"index": 1}, {"index": True, "reason": "错误"},
             {"index": 99, "reason": "越界"},
         ]}).review_fixes(b"sheet", 2)
         self.assertEqual([(pick.index, pick.reason) for pick in result.picks], [(1, "间距更清楚")])
@@ -351,8 +352,8 @@ class CoverOptimizationTests(unittest.TestCase):
         def model(prompt, **kwargs):
             calls.append((prompt, kwargs["images"]))
             return json.dumps({"picks": (
-                [{"index": 2, "reason": "主次清楚"}, {"index": 3, "reason": "双色清楚"}]
-                if "本次只评 4:3" in prompt else [{"index": 3, "reason": "横版留出人物面部"}]
+                [{"index": 1, "reason": "主次清楚"}, {"index": 2, "reason": "双色清楚"}]
+                if "本次只评 4:3" in prompt else [{"index": 2, "reason": "横版留出人物面部"}]
             )})
 
         result = CoverAI(self.service.storage, llm=model, settings=lambda: CONFIGURED).review_fixes(
@@ -368,7 +369,7 @@ class CoverOptimizationTests(unittest.TestCase):
 
     def test_failed_wide_profile_cannot_be_approved_by_narrow_profile(self):
         def model(prompt, **_kwargs):
-            return json.dumps({"picks": [{"index": 2, "reason": "更清楚"}]} if "本次只评 4:3" in prompt else {
+            return json.dumps({"picks": [{"index": 1, "reason": "更清楚"}]} if "本次只评 4:3" in prompt else {
                 "picks": [], "rejected": "文字压住眼睛，阅读顺序颠倒",
             })
 

@@ -126,18 +126,55 @@ class InputRoutingMixin:
                 )
             else:
                 self._pending_caret_click = None
-        if isinstance(watched, QPlainTextEdit) and event.type() == QEvent.Type.KeyPress:
-            if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
-                    and not event.modifiers()):
-                self._commit_editor()
-                self.table.setFocus()
-                return True
-            if (event.key() == Qt.Key.Key_Z
-                    and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
-                self._undo()
-                return True
-            if (event.key() == Qt.Key.Key_Y
-                    and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
-                self._redo()
-                return True
+        if event.type() == QEvent.Type.KeyPress:
+            # 只管字幕行内编辑框；封面文案框等其它输入框的回车、撤销交给它们自己
+            if isinstance(watched, QPlainTextEdit) and watched is self._active_subtitle_editor():
+                if self._subtitle_editor_key(watched, event):
+                    return True
+            elif watched is getattr(self, "table", None) and not self._subtitle_editor_open():
+                if self._subtitle_table_key(event):
+                    return True
         return super().eventFilter(watched, event)
+
+    def _subtitle_editor_key(self, editor, event) -> bool:
+        """行内编辑：回车/Tab 确认并编辑下一句，首行 ↑ / 末行 ↓ 跳到上一句/下一句。"""
+        key, modifiers = event.key(), event.modifiers()
+        plain = modifiers == Qt.KeyboardModifier.NoModifier
+        cursor = editor.textCursor()
+        if (key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and plain) or (key == Qt.Key.Key_Tab and plain):
+            self._step_subtitle(1, edit=True)
+            return True
+        if key == Qt.Key.Key_Backtab or (key == Qt.Key.Key_Tab and modifiers == Qt.KeyboardModifier.ShiftModifier):
+            self._step_subtitle(-1, edit=True)
+            return True
+        if key == Qt.Key.Key_Up and plain and cursor.blockNumber() == 0:
+            self._step_subtitle(-1, edit=True)
+            return True
+        if key == Qt.Key.Key_Down and plain and cursor.blockNumber() == editor.blockCount() - 1:
+            self._step_subtitle(1, edit=True)
+            return True
+        if key == Qt.Key.Key_Z and modifiers == Qt.KeyboardModifier.ControlModifier:
+            self._undo()
+            return True
+        if key == Qt.Key.Key_Y and modifiers == Qt.KeyboardModifier.ControlModifier:
+            self._redo()
+            return True
+        return False
+
+    def _subtitle_table_key(self, event) -> bool:
+        """表格有焦点、不在编辑：↑ ↓ PageUp PageDown Home End 切句，回车编辑当前句（F2 已是试听）。"""
+        if event.modifiers() != Qt.KeyboardModifier.NoModifier or self.document is None:
+            return False
+        page = max(1, self.table.viewport().height() // max(1, self.table.verticalHeader().defaultSectionSize()) - 1)
+        steps = {Qt.Key.Key_Up: -1, Qt.Key.Key_Down: 1, Qt.Key.Key_PageUp: -page, Qt.Key.Key_PageDown: page}
+        key = event.key()
+        if key in steps:
+            self._step_subtitle(steps[key], edit=False)
+        elif key in (Qt.Key.Key_Home, Qt.Key.Key_End):
+            self._go_to_subtitle_row(0 if key == Qt.Key.Key_Home else len(self.model.visible_entries()) - 1,
+                                     edit=False)
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._step_subtitle(0, edit=True)
+        else:
+            return False
+        return True

@@ -419,6 +419,17 @@ def _context_for(
     return context
 
 
+# 口语和识别结果里的重复：“他想唱他想唱他想唱的”。两字词要连说三遍才算（“研究研究”“一步一步”是正常说法），
+# 三字以上说两遍就算。
+_REPEAT_RE = re.compile(r"(.{2})\1{2,}|(.{3,8}?)\2+")
+
+
+def collapse_repeats(text: str) -> str:
+    """把连着重复的片段合成一遍；封面上原样重复像错字。"""
+
+    return _REPEAT_RE.sub(lambda match: match.group(1) or match.group(2), str(text or ""))
+
+
 def generate_basic_copy_variants(
     title: str,
     *,
@@ -436,7 +447,7 @@ def generate_basic_copy_variants(
     names = _title_names(title)
     # 字幕只作为当前片段的语义上下文；只把原文片段加入候选，不进行
     # 事实补写或营销式改写。标题已有明确爆点时，优先保留标题结果。
-    context_chunks = _chunks(subtitle_context or "", markers)
+    context_chunks = _chunks(collapse_repeats(subtitle_context or ""), markers)
     if context_chunks and (not chunks or not any(any(marker in item.text for marker in markers.high) for item in chunks)):
         offset = len(chunks)
         chunks = chunks + tuple(

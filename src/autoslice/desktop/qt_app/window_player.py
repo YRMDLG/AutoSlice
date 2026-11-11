@@ -152,6 +152,14 @@ class PlayerMixin:
         # 主动定位结束当前试听；不能把旧试听的停止点带到新的播放位置。
         self._audition_until = None
         if not self.player:
+            # 没有播放器（缺 libmpv）时播放头照样跳，按播放头裁切、拆分仍可用。
+            duration = self.timeline.duration
+            target = max(0.0, float(seconds))
+            if duration > 0:
+                target = min(target, duration)
+            self._player_position = target
+            self.timeline.set_playhead(target, playing=False)
+            self.time_label.setText(f"{self._clock(target)} / {self._clock(duration)}")
             return
         if not self._media_ready:
             self._pending_seek = max(0.0, float(seconds))

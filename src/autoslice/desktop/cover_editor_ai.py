@@ -325,27 +325,33 @@ class CoverAIMixin:
             return current.text if isinstance(current, TextObject) and current.visible else ""
 
         texts = (text_of("A"), text_of("B"))
+        # 默认先出结果：第一轮能渲染出的候选马上给你对照，看图复核放后台、回来后在窗口里标注。
+        # 严格模式（旧行为）等复核通过才给、被否再重出一轮，实测要 2 分多钟还常常什么都不给。
+        strict = bool(getattr(self, "_critique_strict", False))
         self.ai_critique_button.setEnabled(False)
-        self._set_notice("AI 正在读取字幕并调整 4:3、16:9 封面…", "info")
+        self._set_notice("AI 正在读取字幕并调整 4:3、16:9 封面…（一般 15~40 秒）", "info")
 
         def work():
             before_profiles = {key: service.scheme_thumbnail(document, canvas_key=key, width=_PREVIEW_WIDTH)
                                for key in document.profiles}
             before = before_profiles[canvas_key]
             cover = jpeg_bytes(before, max_side=480)
-            frame = jpeg_bytes(image_path)
+            # 原始帧缩到 768：看图请求更小更快
+            frame = jpeg_bytes(image_path, max_side=768)
             cues = service.subtitle_cues(video)
             state = describe_state(document, canvas_key)
             layers, scene = describe_text_layers(document, canvas_key), describe_scene(document, canvas_key)
             scenes = {key: describe_scene(document, key) for key in document.profiles}
             feedback, previous_fixes, rendered = "", (), []
             # 首轮失败后仅修正一次，始终以原文档为基准，防止失败改动叠加。
+            # 首轮关思考求快（2~3 秒）；关思考时约一半会全被本地检查拦下（越界、挤压），修正轮开 low 补救。
             for _attempt in range(2):
                 fixes = service.ai.suggest_fixes(
                     cover, texts=texts, title=project.title, frame=frame, state=state,
                     text_layers=layers, scene=scene, feedback=feedback,
                     previous_fixes=previous_fixes, cues=cues, canvas_key=canvas_key, profile_scenes=scenes,
                     profile_covers=tuple((key, jpeg_bytes(data, max_side=480)) for key, data in before_profiles.items() if key != canvas_key),
+                    effort="none" if _attempt == 0 else "low",
                 )
                 if not fixes:
                     break
@@ -374,20 +380,26 @@ class CoverAIMixin:
                 if not previews:
                     feedback = "；".join(failures)
                     continue
-                choice = service.ai.review_fixes(
-                    contact_sheet((before, *(item.thumbnail for item in previews)), labels_outside=True), len(previews),
-                    title=project.title, state=state, changes=tuple(item.fix.label for item in previews),
-                    cues=cues, canvas_key=canvas_key,
-                    profile_states={key: describe_state(document, key) for key in document.profiles},
-                    profile_sheets=tuple((key, contact_sheet((data, *(dict(item.profile_thumbnails)[key] for item in previews)), labels_outside=True))
-                                         for key, data in before_profiles.items() if key != canvas_key),
-                )
+
+                def review(previews=tuple(previews)):
+                    return service.ai.review_fixes(
+                        contact_sheet((before, *(item.thumbnail for item in previews)), labels_outside=True, first_number=0), len(previews),
+                        title=project.title, state=state, changes=tuple(item.fix.label for item in previews),
+                        cues=cues, canvas_key=canvas_key,
+                        profile_states={key: describe_state(document, key) for key in document.profiles},
+                        profile_sheets=tuple((key, contact_sheet((data, *(dict(item.profile_thumbnails)[key] for item in previews)), labels_outside=True, first_number=0))
+                                             for key, data in before_profiles.items() if key != canvas_key),
+                    )
+
+                if not strict:
+                    return document, canvas_key, before_profiles, tuple(previews), len(cues), review
+                choice = review()
                 if choice.picks:
                     selected = tuple(replace(previews[pick.index], fix=replace(previews[pick.index].fix, issue=pick.reason))
                                      for pick in choice.picks)
-                    return document, canvas_key, before_profiles, selected, len(cues)
+                    return document, canvas_key, before_profiles, selected, len(cues), None
                 feedback = "；".join((*failures, choice.rejected or "候选未体现可靠改善，请重新解决原图的具体问题"))
-            return document, canvas_key, before_profiles, (), len(cues)
+            return document, canvas_key, before_profiles, (), len(cues), None
 
         self._run(work, lambda result, error: self._ai_critique_ready(generation, result, error))
 
@@ -400,7 +412,7 @@ class CoverAIMixin:
             message = str(error) if isinstance(error, CoverAIError) else f"AI 改一改失败：{error}"
             self._set_notice(message, "error")
             return
-        original, canvas_key, before_profiles, previews, subtitle_count = result
+        original, canvas_key, before_profiles, previews, subtitle_count, review = result
         project, video = self.project, self.video
         if self.document is None or self._canvas_key != canvas_key or (
             original.objects != self.document.objects or original.profiles != self.document.profiles
@@ -437,10 +449,22 @@ class CoverAIMixin:
             before_profiles[canvas_key], previews, apply_preview, undo=self._undo, redo=self._redo,
             before_profiles=tuple(before_profiles.items()), canvas_key=canvas_key,
             context_note=f"已读取 {subtitle_count} 条字幕。" if subtitle_count else "未找到可读字幕，本次依据标题和画面。",
-            parent=self,
+            parent=self, reviewing=review is not None,
         )
         dialog.show()
         self._critique_box = dialog
+        if review is not None:
+            self._run(review, lambda choice, error: self._critique_reviewed(generation, dialog, choice, error))
+
+    def _critique_reviewed(self, generation: int, dialog, choice, error) -> None:
+        """后台复核回来：只在同一次“改一改”的窗口还开着时标注，不替用户做决定。"""
+
+        if generation != self._ai_generation or getattr(self, "_critique_box", None) is not dialog:
+            return
+        if error is not None:
+            dialog.set_review({}, failed=str(error) if isinstance(error, CoverAIError) else "复核请求失败")
+            return
+        dialog.set_review({pick.index: pick.reason for pick in choice.picks}, rejected=choice.rejected)
 
     def _apply_ai_fix(self, fix) -> bool:
         """把一条 AI 修改落到当前文档上（可撤销）；已经是这样就什么都不做。"""

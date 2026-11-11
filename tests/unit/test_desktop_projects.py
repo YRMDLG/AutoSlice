@@ -25,6 +25,32 @@ class SubmissionProjectServiceTests(unittest.TestCase):
         with patch.dict(os.environ, {"AUTOSLICE_SUBMISSION_DIR": r"D:\投稿"}):
             self.assertEqual(configured_submission_root(), Path(r"D:\投稿"))
 
+    def test_folder_one_level_too_high_is_detected(self):
+        # 走查 M9：把装着两个项目的文件夹选成投稿目录，两条视频会被归进同一个“项目”
+        from autoslice.desktop.projects import nested_root_candidate
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("投稿/项目甲", "投稿/项目乙"):
+                (root / name).mkdir(parents=True)
+                (root / name / "视频.mp4").touch()
+            service = SubmissionProjectService(root)
+            candidate = nested_root_candidate(service.refresh().projects)
+            self.assertIsNotNone(candidate)
+            self.assertEqual(Path(candidate.directory).name, "投稿")
+            # 选对之后不再提示
+            service.root = root / "投稿"
+            self.assertIsNone(nested_root_candidate(service.refresh().projects))
+            # 正常目录里个别项目自带子文件夹，不算选高
+            for name in ("项目丙", "项目丁"):
+                (root / "投稿" / name).mkdir()
+                (root / "投稿" / name / "视频.mp4").touch()
+            (root / "投稿" / "项目甲" / "第二段").mkdir()
+            (root / "投稿" / "项目甲" / "第二段" / "视频.mp4").touch()
+            (root / "投稿" / "项目甲" / "第三段").mkdir()
+            (root / "投稿" / "项目甲" / "第三段" / "视频.mp4").touch()
+            self.assertIsNone(nested_root_candidate(service.refresh().projects))
+
     def test_refresh_groups_existing_scan_pairs_by_title_folder(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

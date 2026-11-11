@@ -2,8 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autoslice import runtime_config, task_store
-from autoslice import paths
+from autoslice import paths, runtime_config, task_store
 
 
 class RuntimePathContractTests(unittest.TestCase):

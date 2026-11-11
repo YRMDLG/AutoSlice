@@ -282,6 +282,13 @@ def _has_evidence(quote: str, sources: Sequence[str]) -> bool:
     return len(words) >= 2 and any(words in "".join(_WORD_RE.findall(source)) for source in sources)
 
 
+_INTERACTIVE_TIMEOUT = (15, 150)
+# 推理模型的思考也算进输出上限：DeepSeek V4.1 Flash 看图复核即使 low 也要想 2000+ token，
+# 1600 的上限会在思考里用完、一个字答案都没有；看图偶尔要想 4000+。上限只是封顶，没用到的不计费。
+_MIN_OUTPUT_BUDGET = 4000
+_MIN_VISION_BUDGET = 8000
+
+
 def jpeg_bytes(image: str | Path | Image.Image | bytes, *, max_side: int = 1280, quality: int = 85) -> bytes:
     """缩到长边不超过 max_side 的 JPEG，发给看图模型。"""
 
@@ -297,8 +304,11 @@ def jpeg_bytes(image: str | Path | Image.Image | bytes, *, max_side: int = 1280,
         return buffer.getvalue()
 
 
-def contact_sheet(thumbnails: Sequence[bytes], *, labels_outside: bool = False) -> bytes:
-    """把候选缩略图拼成一张带编号（从 1 开始）的总图，按首页小图的大小给模型看。"""
+def contact_sheet(thumbnails: Sequence[bytes], *, labels_outside: bool = False, first_number: int = 1) -> bytes:
+    """把候选缩略图拼成一张带编号的总图，按首页小图的大小给模型看。
+
+    复核时 first_number=0：原图标 0，方案从 1 编起，AI 说“方案 2”就是界面上的方案 2。
+    """
 
     pictures = []
     for data in thumbnails:
@@ -321,7 +331,7 @@ def contact_sheet(thumbnails: Sequence[bytes], *, labels_outside: bool = False) 
         x = gap + (index % _SHEET_COLUMNS) * (cell_width + gap)
         y = gap + (index // _SHEET_COLUMNS) * (cell_height + gap)
         sheet.paste(picture, (x, y + label_height))
-        label = str(index + 1)
+        label = str(index + first_number)
         box = draw.textbbox((0, 0), label, font=font)
         draw.rectangle((x, y, x + box[2] + 14, y + box[3] + 10), fill=(220, 30, 30))
         draw.text((x + 7, y + 3), label, fill=(255, 255, 255), font=font)
@@ -451,7 +461,11 @@ class CoverAI:
     def _ask(
         self, prompt: str, *, vision: bool, images: Sequence[bytes] = (), max_tokens: int = 4000,
         use_cache: bool = True, stage: str = "封面分析", result_keys: Sequence[str] = (),
+        effort: str | None = None,
     ) -> dict:
+        """effort：看图的几步（出修改、复核、看画面、挑帧、方案筛选）用 none 关掉思考，写文案保持服务默认。
+        实测出修改：DeepSeek V4.1 Flash low 15.5 秒 → 2~3 秒、gpt-5.6-terra 17.5 → 14 秒，建议条数和问题点相当；
+        复核挑的方案不变。成品还有本地检查和后台复核标注，用不用由用户定。"""
         settings = self._settings()
         if not settings.configured:
             raise CoverAIError("还没配置 AI 接口：到设置页填写地址、密钥和模型")
@@ -468,6 +482,7 @@ class CoverAI:
             except (OSError, ValueError):
                 pass
         request_prompt = prompt
+        max_tokens = max(max_tokens, _MIN_VISION_BUDGET if images else _MIN_OUTPUT_BUDGET)
         for attempt in range(2):
             reply = ""
             problem = "AI 返回的格式不正确"
@@ -475,6 +490,9 @@ class CoverAI:
                 text = self._llm(
                     request_prompt, max_tokens=max_tokens, model_override=model, json_mode=True,
                     images=tuple(("image/jpeg", image) for image in images),
+                    # 交互用：中转卡住时最多等 150 秒（原来是 300 秒），实测最慢的一次约 72 秒
+                    request_timeout=_INTERACTIVE_TIMEOUT,
+                    **({"reasoning_effort": effort} if effort else {}),
                 )
             except LLMResponseTruncatedError:
                 problem = "AI 的输出被截断"
@@ -668,7 +686,7 @@ evidence 必须逐字引用标题或某一条字幕里连续的一段，能支�
 {{"face": [x0, y0, x1, y1], "person": [x0, y0, x1, y1], "ui": [[x0, y0, x1, y1]], "note": "画面原有文字和界面在哪（30 字内）"}}"""
         return _frame_notes(self._ask(
             prompt, vision=True, images=(frame,), max_tokens=2000, stage="画面识别",
-            result_keys=("face", "person", "ui", "note"),
+            result_keys=("face", "person", "ui", "note"), effort="none",
         ))
 
     def pick_frame(self, frames: Sequence[bytes], *, quote: str = "", title: str = "") -> AIFramePick:
@@ -684,7 +702,7 @@ evidence 必须逐字引用标题或某一条字幕里连续的一段，能支�
 - 几张差不多时选第 1 张。
 只输出 JSON，不要解释：
 {{"index": 编号, "expression": "选中那张的表情（10 字内）", "reason": "为什么选它（20 字内）"}}"""
-        payload = self._ask(prompt, vision=True, images=tuple(frames), max_tokens=1000, stage="选帧", result_keys=("index",))
+        payload = self._ask(prompt, vision=True, images=tuple(frames), max_tokens=1000, stage="选帧", result_keys=("index",), effort="none")
         try:
             index = int(payload.get("index")) - 1
         except (TypeError, ValueError):
@@ -738,7 +756,7 @@ evidence 必须逐字引用标题或某一条字幕里连续的一段，能支�
 {{"picks": [{{"direction": "稳妥|换个构图|大胆一点", "index": 编号, "reason": "为什么选它（25 字内）"}}], "rejected": "其余候选被淘汰的主要原因（30 字内）"}}"""
         images = (sheet, *((frame,) if frame is not None else ()),
                   *((current_cover,) if current_cover is not None else ()), *recent_thumbnails[:2])
-        payload = self._ask(prompt, vision=True, images=images, stage="封面方案筛选", result_keys=("picks", "rejected"))
+        payload = self._ask(prompt, vision=True, images=images, stage="封面方案筛选", result_keys=("picks", "rejected"), effort="none")
         picks: list[AIPick] = []
         for item in payload.get("picks") or ():
             if not isinstance(item, dict):
@@ -818,6 +836,7 @@ evidence 必须逐字引用标题或某一条字幕里连续的一段，能支�
         canvas_key: str = "4x3",
         profile_covers: Sequence[tuple[str, bytes]] = (),
         profile_scenes: Mapping[str, Sequence[dict[str, object]]] | None = None,
+        effort: str = "none",
     ) -> tuple[AIFix, ...]:
         """看成品挑最影响效果的问题，每条只给工具能一键做到的修改；没问题就返回空。
 
@@ -886,7 +905,7 @@ outline_colors 时在 outlines 里按 id 指定修改。只有现有描边影响
         images = (cover, *((frame,) if frame is not None else ()), *(data for _key, data in profile_covers))
         payload = self._ask(
             prompt, vision=True, images=images, max_tokens=6000, use_cache=False,
-            stage="排版建议", result_keys=("fixes",),
+            stage="排版建议", result_keys=("fixes",), effort=effort,
         )
         fixes: list[AIFix] = []
         signatures = set()
@@ -967,23 +986,23 @@ outline_colors 时在 outlines 里按 id 指定修改。只有现有描边影响
                                 for key, choice in choices if choice.rejected)
             return AIChoice(picks, rejected or ("两个比例没有共同通过的方案，需分别修正构图与配色" if not picks else ""))
 
-        prompt = f"""封面修改成品复核：总图中编号 1 是用户原图，编号 2~{count + 1} 是修改后的候选。
+        prompt = f"""封面修改成品复核：总图中编号 0 是用户原图，编号 1~{count} 是修改后的候选，就是用户界面里的“方案 1~{count}”；说明里提到候选时写“方案 N”。
 本次只评 {canvas_key.replace('x', ':')}，该比例会单独决定是否通过，不得用另一个画幅的效果代替。
 投稿标题：{title}。对象与原有状态：{state}。
 字幕上下文：{_subtitle_lines(cues) or "未读取到字幕，不得猜测视频内容"}
 第一张总图是 {canvas_key.replace('x', ':')}，附加总图依次为 {[key.replace('x', ':') for key, _data in profile_sheets]}，编号在所有比例中对应同一个方案。
 每个比例都与其原图比较；不能把另一个比例的新增遮挡或难读忽略。几何可以分别适配，内容与整体风格应一致。
-各候选实际执行的修改（供核对，以成品画面为准）：{json.dumps(dict(enumerate(changes, start=2)), ensure_ascii=False)}。
+各候选实际执行的修改（供核对，以成品画面为准）：{json.dumps(dict(enumerate(changes, start=1)), ensure_ascii=False)}。
 分别检查文字顺序、主次、断行、主体避让及填色/描边/强调色的协调。16:9 不能只沿用窄画幅的堆叠而遮住主体；配色方案应实际换色或强调词，而非仅写在说明中。
 只挑出比原图更好读、层级更清楚或构图和配色更协调的候选，最多 3 张，并按值得采用的程度排序。
 按当前内容判断视觉重点，兼容无人、多人、游戏、物品、拼图和任意数量的文字。保留原有风格与有意叠放。
 淘汰无意截字、新增挤压遮挡、重点变小难读、颜色变脏、装饰错位的方案；很小的改色或几乎相同的方案不必选。
 多个候选只有轻微配色差别时只留更好的一张；每张必须说明相对原图的具体改善。不要为了凑数挑选。
 全部不如原图或无法确认改善时返回空 picks，并在 rejected 说明具体失败点和下一轮可修正的方向；候选失败不能作为原图已完美的证明，不能仅因变化大就认定更好。
-只输出 JSON：{{"picks": [{{"index": 2, "reason": "相对原图的具体改善（30字内）"}}], "rejected": "未选方案的原因或原图更合适的理由"}}"""
+只输出 JSON：{{"picks": [{{"index": 1, "reason": "相对原图的具体改善（30字内）"}}], "rejected": "未选方案的原因或原图更合适的理由"}}"""
         payload = self._ask(
             prompt, vision=True, images=(sheet, *(data for _key, data in profile_sheets)),
-            max_tokens=1600, stage="修改效果复核", result_keys=("picks",),
+            max_tokens=1600, stage="修改效果复核", result_keys=("picks",), effort="none",
         )
         if not isinstance(payload.get("picks"), list):
             raise CoverAIError("AI 没有完成修改效果复核，请重试")
@@ -994,8 +1013,8 @@ outline_colors 时在 outlines 里按 id 指定修改。只有现有描边影响
                 continue
             index = item.get("index")
             reason = _clean(item.get("reason"), 60)
-            if isinstance(index, bool) or not isinstance(index, int) or not 2 <= index <= count + 1 or index in seen or not reason:
+            if isinstance(index, bool) or not isinstance(index, int) or not 1 <= index <= count or index in seen or not reason:
                 continue
-            picks.append(AIPick("", index - 2, reason))
+            picks.append(AIPick("", index - 1, reason))
             seen.add(index)
         return AIChoice(tuple(picks[:3]), _clean(payload.get("rejected"), 120))

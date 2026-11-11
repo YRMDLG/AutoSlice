@@ -1,5 +1,5 @@
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from autoslice.media_formats import (
     MEDIA_FORMATS,

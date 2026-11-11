@@ -58,6 +58,7 @@ class TaskPanelMixin:
             self.task_detail.setWordWrap(True)
             layout.addWidget(self.task_detail)
             row = QHBoxLayout()
+            row.addStretch()  # 按钮靠右、按内容宽，不再撑满整行
             self.task_locate = QPushButton("查看所属视频")
             self.task_locate.clicked.connect(self._locate_task)
             row.addWidget(self.task_locate)

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtGui import (
     QIcon,
     QPixmap,
@@ -12,6 +14,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from .cover_autolayout import primary_copy_ids, replace_copy
+from .cover_model import BackgroundObject
 from .cover_scheme_quality import safe_scheme
 from .cover_style import streamer_key
 from .cover_templates import apply_template, make_template
@@ -183,7 +186,14 @@ class CoverSchemesMixin:
             self._commit_document_change(before)
             self.canvas.set_document(self.document, self._canvas_key)
             self._sync_selected_text_controls()
-        self.status_changed.emit(f"已套用模板「{template.name}」（Ctrl+Z 可撤销）")
+        # 模板从别的电脑带过来时，里面的贴纸图片可能不在这台电脑上：说一声，不要静默不显示
+        missing = sum(
+            1 for item in template.document.objects
+            if getattr(getattr(item, "asset", None), "path", None) and not Path(item.asset.path).is_file()
+            and not isinstance(item, BackgroundObject)
+        )
+        note = f"；模板里有 {missing} 个素材在这台电脑上找不到，已跳过" if missing else ""
+        self.status_changed.emit(f"已套用模板「{template.name}」（Ctrl+Z 可撤销）{note}")
 
     def _delete_template(self, template):
         answer = QMessageBox.question(self, "删除模板", f"删除模板「{template.name}」？已经做好的封面不受影响。")

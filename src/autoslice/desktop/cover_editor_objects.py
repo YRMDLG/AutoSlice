@@ -22,7 +22,7 @@ from .cover_asset_dialog import CoverAssetDialog
 from .cover_cutout import is_outlined, outline_variant
 from .cover_draft import CoverDraft
 from .cover_effects import add_burst
-from .cover_layout import canvas_size, settle_overlay
+from .cover_layout import canvas_size, place_overlay, settle_overlay
 from .cover_model import (
     AssetRef,
     BackgroundObject,
@@ -65,11 +65,11 @@ class CoverObjectsMixin:
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "无法导入素材", str(exc))
             return
-        self._insert_overlay(ImageObject(
+        self._insert_overlay(place_overlay(self.document, ImageObject(
             id=self._new_object_id("image"),
             asset=AssetRef(path=asset.path, asset_id=asset.asset_id),
             transform=Transform(x=0.62, y=0.54, scale=0.85, rotation=0.0),
-        ))
+        ), self._canvas_key))
         self.service.asset_library.mark_used(asset.asset_id)
 
     def _browse_assets(self):
@@ -142,7 +142,8 @@ class CoverObjectsMixin:
         }
         if overlay_type is StickerObject:
             overlay_kwargs["category"] = asset.group
-        self._insert_overlay(overlay_type(**overlay_kwargs))
+        # 默认位置压到文字时换到空着的地方，免得一插进来就挡字
+        self._insert_overlay(place_overlay(self.document, overlay_type(**overlay_kwargs), self._canvas_key))
         self.service.asset_library.mark_used(asset.asset_id)
 
     def _shape_menu(self, parent) -> QMenu:

@@ -179,6 +179,8 @@ class CritiqueDialogTests(unittest.TestCase):
         self.widget.draft = CoverDraft.from_document(self.widget.document)
         self.widget.history.reset(self.widget.document)
         self.widget._apply_draft()
+        # 这组用例验证严格模式（等复核通过才给、被否再修一轮）；默认的先出结果模式见 FastCritiqueTests
+        self.widget._critique_strict = True
 
     def _wait(self, condition, seconds=30):
         deadline = time.monotonic() + seconds
@@ -202,7 +204,7 @@ class CritiqueDialogTests(unittest.TestCase):
         def model(prompt, **_kwargs):
             calls.append(prompt)
             if prompt.startswith("封面修改成品复核"):
-                return json.dumps({"picks": [{"index": 2, "reason": "重点更突出"}, {"index": 3, "reason": "强调更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "重点更突出"}, {"index": 2, "reason": "强调更清楚"}]})
             return reply
 
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
@@ -230,7 +232,7 @@ class CritiqueDialogTests(unittest.TestCase):
         ]}, ensure_ascii=False)
         def model(prompt, **_kwargs):
             if prompt.startswith("封面修改成品复核"):
-                return json.dumps({"picks": [{"index": 2, "reason": "深紫更协调"}, {"index": 3, "reason": "深蓝更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "深紫更协调"}, {"index": 2, "reason": "深蓝更清楚"}]})
             return reply
 
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
@@ -313,7 +315,7 @@ class CritiqueDialogTests(unittest.TestCase):
 
         def model(prompt, **_kwargs):
             if prompt.startswith("封面修改成品复核"):
-                return json.dumps({"picks": [{"index": 2, "reason": "自定义文字更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "自定义文字更清楚"}]})
             return json.dumps({"fixes": [{"issue": "自定义文字调整", "actions": ["edit_objects"], "edits": [
                 {"id": extra.id, "fill": "#FFFFFF", "dx": 0.02},
             ]}]})
@@ -357,9 +359,10 @@ class CritiqueDialogTests(unittest.TestCase):
         def model(prompt, **kwargs):
             if prompt.startswith("封面修改成品复核"):
                 reviews.append(prompt)
-                if len(reviews) == 1:
+                # 两个比例并行复核：按轮次（已有几次建议）决定结论，不靠谁先返回
+                if len(suggestions) == 1:
                     return json.dumps({"picks": [], "rejected": "2 几乎无差异，3 破坏黑边风格"})
-                return json.dumps({"picks": [{"index": 2, "reason": "主文案更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "主文案更清楚"}]})
             suggestions.append((prompt, kwargs["images"]))
             if len(suggestions) == 1:
                 return json.dumps({"fixes": [{"issue": "换色", "actions": ["restyle"], "preset": "yellow-purple"}]})
@@ -372,7 +375,7 @@ class CritiqueDialogTests(unittest.TestCase):
             self.widget._ai_critique()
             self._wait(lambda: self.widget.ai_critique_button.isEnabled())
         self.assertEqual(len(suggestions), 2)
-        self.assertEqual(len(reviews), 3)
+        self.assertEqual(len(reviews), 2 * len(original.profiles))  # 两轮，每轮每个比例各复核一次
         self.assertIn("破坏黑边风格", suggestions[1][0])
         self.assertIn("yellow-purple", suggestions[1][0])
         self.assertEqual(suggestions[0][1], suggestions[1][1])
@@ -393,7 +396,7 @@ class CritiqueDialogTests(unittest.TestCase):
         def model(prompt, **_kwargs):
             if prompt.startswith("封面修改成品复核"):
                 reviews.append(prompt)
-                return json.dumps({"picks": [{"index": 2, "reason": "文字更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "文字更清楚"}]})
             suggestions.append(prompt)
             edit = {"id": target, "dx": 0.000001} if len(suggestions) == 1 else {"id": target, "fill": "#FFFFFF"}
             return json.dumps({"fixes": [{"issue": "调整", "actions": ["edit_objects"], "edits": [edit]}]})
@@ -424,7 +427,7 @@ class CritiqueDialogTests(unittest.TestCase):
             self.widget._ai_critique()
             self._wait(lambda: self.widget.ai_critique_button.isEnabled())
         self.assertEqual(len(suggestions), 2)
-        self.assertEqual(len(reviews), 2)
+        self.assertEqual(len(reviews), 2 * len(original.profiles))  # 两轮，每轮每个比例各复核一次
         self.assertEqual(self.widget.document, original)
         self.assertIsNone(getattr(self.widget, "_critique_box", None))
         message.assert_not_called()
@@ -444,8 +447,10 @@ class CritiqueDialogTests(unittest.TestCase):
         with patch.object(QMessageBox, "information"):
             self.widget._ai_critique()
             self._wait(lambda: self.widget.ai_critique_button.isEnabled())
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(sum(prompt.startswith("封面修改成品复核") for prompt in calls), 1)
+        profiles = len(self.widget.document.profiles)
+        # 第一轮 1 次建议 + 每个比例 1 次复核；第二轮出的成品与被拒的相同，只有建议、不再复核
+        self.assertEqual(len(calls), 2 + profiles)
+        self.assertEqual(sum(prompt.startswith("封面修改成品复核") for prompt in calls), profiles)
 
     def test_clicking_again_does_not_reuse_the_same_failed_analysis(self):
         calls = []
@@ -473,7 +478,7 @@ class CritiqueDialogTests(unittest.TestCase):
         def model(prompt, **kwargs):
             calls.append((prompt, len(kwargs["images"])))
             if prompt.startswith("封面修改成品复核"):
-                return json.dumps({"picks": [{"index": 2, "reason": "两种比例的文字位置更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "两种比例的文字位置更清楚"}]})
             return json.dumps({"fixes": [{"issue": "分别调整位置", "actions": ["edit_objects"], "profile_edits": {
                 "4x3": [{"id": target, "dx": 0.02}], "16x9": [{"id": target, "dx": 0.04}],
             }}]})
@@ -488,7 +493,8 @@ class CritiqueDialogTests(unittest.TestCase):
             self.assertIn("最后才发生反转", prompt)
         self.assertEqual(self.widget.document, original)
         self.assertEqual(dialog.profile_combo.count(), 3)
-        self.assertEqual(dialog.profile_combo.currentData(), "all")
+        # 走查 M10：默认只看正在编辑的比例，图更大
+        self.assertEqual(dialog.profile_combo.currentData(), self.widget._canvas_key)
         dialog.profile_combo.setCurrentIndex(dialog.profile_combo.findData("16x9"))
         self.app.processEvents()
         from autoslice.desktop.cover_critique_dialog import CoverComparisonImage
@@ -525,7 +531,7 @@ class CritiqueDialogTests(unittest.TestCase):
 
         def model(prompt, **_kwargs):
             if prompt.startswith("封面修改成品复核"):
-                return json.dumps({"picks": [{"index": 2, "reason": "横版间距更合适"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "横版间距更合适"}]})
             return json.dumps({"fixes": [{"issue": "横版位置", "actions": ["edit_objects"], "profile_edits": {
                 "4x3": [], "16x9": [{"id": target, "dx": 0.04}],
             }}]})
@@ -571,7 +577,9 @@ class CritiqueDialogTests(unittest.TestCase):
                 self.assertIn(failing_stage + "失败", self.widget.notice_label.text())
                 self.assertIn("自动纠正一次", self.widget.notice_label.text())
                 self.assertNotIn("私密响应", self.widget.notice_label.text())
-                self.assertEqual(sum(stage == failing_stage for stage, _mode in calls), 2)
+                # 复核按比例分别进行（1089fdf 起），每个比例各有一次原始请求和一次格式纠正
+                per_round = len(original.profiles) if failing_stage == "修改效果复核" else 1
+                self.assertEqual(sum(stage == failing_stage for stage, _mode in calls), 2 * per_round)
                 self.assertTrue(all(mode for _stage, mode in calls))
 
     def test_format_repair_returns_preview_then_applies_and_undoes_both_profiles(self):
@@ -581,7 +589,7 @@ class CritiqueDialogTests(unittest.TestCase):
         def model(prompt, **kwargs):
             calls.append((prompt, kwargs))
             if prompt.startswith("封面修改成品复核"):
-                return json.dumps({"picks": [{"index": 2, "reason": "倾斜增强层级"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "倾斜增强层级"}]})
             if len(calls) == 1:
                 return "建议让文字稍微倾斜"
             return json.dumps({"fixes": [{"issue": "增加动感", "actions": ["tilt"]}]})
@@ -604,7 +612,7 @@ class CritiqueDialogTests(unittest.TestCase):
     def test_edits_during_critique_discard_old_result(self):
         def model(prompt, **_kwargs):
             if prompt.startswith("封面修改成品复核"):
-                return json.dumps({"picks": [{"index": 2, "reason": "文字更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "文字更清楚"}]})
             return json.dumps({"fixes": [{"issue": "配色", "actions": ["restyle"], "preset": "yellow-purple"}]})
 
         self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
@@ -626,7 +634,7 @@ class CritiqueDialogTests(unittest.TestCase):
         def model(prompt, **_kwargs):
             if prompt.startswith("封面修改成品复核"):
                 reviews.append(prompt)
-                return json.dumps({"picks": [{"index": 2, "reason": "文字更清楚"}]})
+                return json.dumps({"picks": [{"index": 1, "reason": "文字更清楚"}]})
             return json.dumps({"fixes": [
                 {"issue": "微小移动", "actions": ["edit_objects"], "edits": [{"id": target, "dx": 0.000001}]},
                 {"issue": "清楚", "actions": ["edit_objects"], "edits": [{"id": target, "fill": "#FFFFFF"}]},
@@ -638,8 +646,57 @@ class CritiqueDialogTests(unittest.TestCase):
         self._wait(lambda: getattr(self.widget, "_critique_box", None) is not None)
         self.assertEqual(len(self.widget._critique_box.previews), 1)
         self.assertEqual(len(reviews), 2)
-        self.assertIn("编号 2~2", reviews[0])
+        # 原图标 0、方案从 1 编起，和界面“方案 N”一致
+        self.assertIn("编号 1~1", reviews[0])
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FastCritiqueTests(unittest.TestCase):
+    """默认模式：第一轮能渲染出的候选马上给对照，看图复核放后台、回来后标注，不再等两轮。"""
+
+    _wait = CritiqueDialogTests._wait
+
+    def setUp(self):
+        CritiqueDialogTests.setUp(self)
+        self.widget._critique_strict = False
+
+    def test_candidates_show_before_review_and_review_only_annotates(self):
+        from threading import Event
+
+        release, reviews = Event(), []
+
+        def model(prompt, **_kwargs):
+            if prompt.startswith("封面修改成品复核"):
+                reviews.append(prompt)
+                release.wait(10)
+                return json.dumps({"picks": [], "rejected": "改色没有改善"})
+            return json.dumps({"fixes": [{"issue": "增加动感", "actions": ["tilt"]}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        self.widget._ai_critique()
+        self._wait(lambda: getattr(self.widget, "_critique_box", None) is not None)
+        dialog = self.widget._critique_box
+        self.assertTrue(self.widget.ai_critique_button.isEnabled(), "出了候选就该能继续用，不等复核")
+        self.assertIn("复核中", dialog.review_labels[0].text())
+        release.set()
+        self._wait(lambda: "不建议" in dialog.review_labels[0].text())
+        self.assertIn("改色没有改善", dialog.notice.text())
+        self.assertEqual(len(dialog.previews), 1, "复核不建议也照样留给用户自己判断")
+        self.assertEqual(len(reviews), len(self.widget.document.profiles))
+
+    def test_review_pick_marks_the_tab(self):
+        def model(prompt, **_kwargs):
+            if prompt.startswith("封面修改成品复核"):
+                return json.dumps({"picks": [{"index": 1, "reason": "倾斜后更有动感"}]})
+            return json.dumps({"fixes": [{"issue": "增加动感", "actions": ["tilt"]}]})
+
+        self.widget.service.ai = CoverAI(self.widget.service.storage, llm=model, settings=lambda: CONFIGURED)
+        self.widget._ai_critique()
+        self._wait(lambda: getattr(self.widget, "_critique_box", None) is not None
+                   and "推荐" in self.widget._critique_box.review_labels[0].text())
+        dialog = self.widget._critique_box
+        self.assertIn("倾斜后更有动感", dialog.review_labels[0].text())
+        self.assertIn("✓", dialog.tabs.tabText(0))

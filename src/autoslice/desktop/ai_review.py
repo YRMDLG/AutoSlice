@@ -15,7 +15,11 @@ from autoslice.desktop.homophone import HomophoneIndex, apply_hits, describe
 from autoslice.desktop.subtitles import SubtitleDocument, SubtitleEntry
 from autoslice.llm.transport import load_api_config
 from autoslice.streamer_profiles import resolve_streamer_profile
-from autoslice.subtitle_workflow import SUBTITLE_REVIEW_VERSION, suggest_subtitle_corrections
+from autoslice.subtitle_workflow import (
+    SUBTITLE_REVIEW_VERSION,
+    subtitle_review_profile_rules,
+    suggest_subtitle_corrections,
+)
 
 SCHEMA_VERSION = 1
 
@@ -51,6 +55,8 @@ class AIReviewSession:
         # 只有本地同音检查的结果（没调用过 AI）：重新做 AI 检查时不用提醒“会消耗额度”
         self.local_only = local_only
         self.reviewed_entries = dict(reviewed_entries or {})
+        # 恢复时因字幕已改而作废的建议条数
+        self.dropped = 0
 
     def changed_indices(self, entries) -> set[int]:
         return {entry.index for entry in entries
@@ -76,6 +82,10 @@ class AIReviewSession:
                     self.reviewed_entries[str(entry.index)] = _digest(asdict(entry))
 
 
+DESKTOP_REVIEW_CONCURRENCY = 4
+DESKTOP_REVIEW_TIMEOUT = (15, 120)
+
+
 class AIReviewService:
     def __init__(self, storage: DesktopStorage, checker=suggest_subtitle_corrections,
                  config_loader=load_api_config, terms_provider=None):
@@ -92,37 +102,60 @@ class AIReviewService:
 
     def local_suggestions(self, document: SubtitleDocument, project_title: str,
                           *, homophones: bool = True) -> list[Suggestion]:
-        """本地同音检测：不调用 AI、不花额度；没装 pypinyin 返回空。"""
+        """本地检查：不调用 AI、不花额度、秒出结果；都只是待确认建议，不会自动改字。
+
+        依次用：主播固定纠错（原来只在 AI 检查时生效）、已记住的校对改法、观察中且在别的字幕里
+        从没被保留过原写法的改法（同一个错词改过就提示，可靠性低一档，理由里写明），最后是同音字。
+        没装 pypinyin 时只是少了同音字这一项。
+        """
 
         index = HomophoneIndex(self.terms_provider(document, project_title), enabled=homophones)
         profile = resolve_streamer_profile("auto", document.video.path, context_hint=project_title)
+        try:
+            fixed = subtitle_review_profile_rules(profile)[1]
+        except (TypeError, ValueError):
+            fixed = ()
         remembered = self.memory.replacements(profile.id)
+        observed = tuple(
+            (item.wrong, item.right) for _profile, item in self.memory.entries(profile.id)
+            if not item.promoted and item.kept == 0 and len(item.wrong) >= 2 and item.wrong != item.right
+            and (item.wrong, item.right) not in remembered
+        )
+        layers = (("主播固定纠错", fixed), ("校对记忆", remembered), ("校对记忆（观察中，未记住）", observed))
         content = document_hash(document.entries)
         suggestions = []
         for entry in document.entries:
             corrected = entry.text
-            used = []
-            for wrong, right in sorted(remembered, key=lambda pair: -len(pair[0])):
-                if wrong in corrected:
-                    corrected = corrected.replace(wrong, right)
-                    used.append(f"“{wrong}”→“{right}”")
+            reasons, sources = [], []
+            for label, pairs in layers:
+                used = []
+                for wrong, right in sorted(pairs, key=lambda pair: -len(pair[0])):
+                    if wrong in corrected and right not in corrected:
+                        corrected = corrected.replace(wrong, right)
+                        used.append(f"“{wrong}”→“{right}”")
+                if used:
+                    reasons.append(f"{label}：" + "、".join(used))
+                    sources.append("fixed_replacement" if label == "主播固定纠错" else "memory")
             hits = index.find(corrected)
-            if not hits and not used:
+            if not hits and not reasons:
                 continue
             corrected = apply_hits(corrected, hits)
             if corrected == entry.text:
                 continue
             suggestions.append(Suggestion(
                 _digest((content, entry.index, entry.text, corrected))[:20], entry.index, entry.text, corrected,
-                "；".join(filter(None, ["校对记忆：" + "、".join(used) if used else "", describe(hits)])),
-                None, source="memory" if used else "homophone",
+                "；".join(filter(None, [*reasons, describe(hits)])),
+                None, source=sources[0] if sources else "homophone",
             ))
         return suggestions
 
     def _local_identity(self, document, project_title):
         profile = resolve_streamer_profile("auto", document.video.path, context_hint=project_title)
+        # 本地检查也看“观察中”的改法：记忆有变化时，旧的本地结果按过期处理
+        observed = tuple((item.wrong, item.right, item.kept) for _p, item in self.memory.entries(profile.id)
+                         if not item.promoted)
         return (profile.id, profile.subtitle_review_fingerprint(),
-                self.terms_provider(document, project_title), self.memory.replacements(profile.id))
+                self.terms_provider(document, project_title), self.memory.replacements(profile.id), observed)
 
     def _identity(self, document: SubtitleDocument, project_title: str):
         config = self.config_loader()
@@ -172,12 +205,26 @@ class AIReviewService:
             return None, "invalid"
         if envelope.get("source_fingerprint") != document.source_fingerprint:
             return None, "stale"
-        if envelope.get("content_hash") != document_hash(document.entries):
-            return None, "stale"
         reviewed = envelope.get("reviewed_entries", {})
         if not isinstance(reviewed, dict) or any(not isinstance(value, str) for value in reviewed.values()):
             return None, "invalid"
-        return AIReviewSession(suggestions, envelope["cache_key"], envelope["content_hash"], local_only, reviewed), "ready"
+        current = document_hash(document.entries)
+        if envelope.get("content_hash") == current:
+            return AIReviewSession(suggestions, envelope["cache_key"], current, local_only, reviewed), "ready"
+        # 字幕和检查时不一样（例如启动时没恢复草稿）：逐条核对，原文还对得上的建议照样能用，
+        # 不用整批作废、重花额度。草稿里采纳过、现在又变回原文的，重新待确认。
+        texts = {entry.index: entry.text for entry in document.entries}
+        kept = []
+        for item in suggestions:
+            matches = texts.get(item.cue_id) == item.original_text
+            if item.status == "pending" and not matches:
+                continue
+            kept.append(replace(item, status="pending") if item.status == "accepted" and matches else item)
+        if not any(item.status == "pending" for item in kept):
+            return None, "stale"
+        session = AIReviewSession(kept, envelope["cache_key"], current, local_only, reviewed)
+        session.dropped = len(suggestions) - len(kept)
+        return session, "partial"
 
     def save(self, document: SubtitleDocument, project_title: str, session: AIReviewSession) -> None:
         settings = self._local_identity(document, project_title) if session.local_only else self._identity(document, project_title)[2]
@@ -219,9 +266,12 @@ class AIReviewService:
         extra = {"glossary": learned} if learned else {}
         if cue_ids is not None:
             extra["review_indices"] = sorted(cue_ids)
+        # 桌面端是边等边用：4 批并行（147 句约 5 批，实测 27 秒降到一轮多），单次最多等 120 秒
         result = self.checker(input_path, context_title=project_title,
                               streamer_profile=profile, use_cache=not force,
-                              progress_callback=progress_callback, **extra)
+                              progress_callback=progress_callback,
+                              concurrency=DESKTOP_REVIEW_CONCURRENCY,
+                              request_timeout=DESKTOP_REVIEW_TIMEOUT, **extra)
         if hashlib.sha256(document.source_path.read_bytes()).hexdigest() != document.source_fingerprint:
             raise ValueError("源字幕在检查期间已变化，请重新加载")
         by_index = {entry.index: entry for entry in document.entries}

@@ -17,7 +17,9 @@ from autoslice_cover.fonts import resolve_font_selection
 
 from .cover_autolayout import primary_copy_ids
 from .cover_draft import CoverDraft
+from .cover_layout import canvas_size, text_layout
 from .cover_model import (
+    CoverDocument,
     TextObject,
     emphasis_words,
     object_for_profile,
@@ -251,10 +253,14 @@ class CoverTextMixin:
                 accent=self.accent_button.color(),
             ),
         )
+        before = self.document
         # 文案与样式写回对象本体并同步另一比例，位置和字号只写当前比例。
         self.document = update_text_object(self.document, updated, profile_key=self._canvas_key)
         # 清空即在两个比例中隐藏，重新输入即恢复；这是内容操作，不分比例。
         self.document = set_object_visible(self.document, updated.id, bool(typed_text))
+        # 改字、改字号会改行数：别让框掉出画布
+        if typed_text and (typed_text != current.text or updated.style.font_size != current.style.font_size):
+            self.document = keep_text_on_canvas(before, self.document, updated.id)
 
     def _apply_style_preset(self, preset: StylePreset) -> None:
         if self.document is None:
@@ -297,3 +303,41 @@ class CoverTextMixin:
             button.blockSignals(True)
             button.setChecked(key == item.align)
             button.blockSignals(False)
+
+
+# 文字离画布边至少留这么多（画布高的比例）
+_EDGE_MARGIN = 0.02
+
+
+def keep_text_on_canvas(before: CoverDocument, after: CoverDocument, object_id: str) -> CoverDocument:
+    """改了文字、行数变了以后，把框留在画布里。
+
+    字号固定、按行宽换行（D-021），文字变长就往下多出一行；压在画面下半部的标题会掉出底边。
+    下半部的框保持底边不动、往上长；无论在哪，原来没出界的都不让新文字出界。
+    """
+
+    for key in after.profiles or ("4x3",):
+        old = object_for_profile(before, object_id, key)
+        new = object_for_profile(after, object_id, key)
+        if not (isinstance(old, TextObject) and isinstance(new, TextObject)) or not new.visible:
+            continue
+        width, height = canvas_size(key)
+        old_ink, new_ink = text_layout(old, (width, height)).ink, text_layout(new, (width, height)).ink
+        if new_ink.height <= 0:
+            continue
+        shift = 0.0
+        if old.text.strip() and old_ink.height > 0 and old_ink.center_y > height / 2:
+            shift = old_ink.bottom - new_ink.bottom
+        margin = height * _EDGE_MARGIN
+        top, bottom = new_ink.top + shift, new_ink.bottom + shift
+        old_overflow = max(0.0, old_ink.bottom - (height - margin)) if old.text.strip() else 0.0
+        if bottom > height - margin + old_overflow:
+            shift -= bottom - (height - margin + old_overflow)
+        top = new_ink.top + shift
+        if top < margin and old_ink.top >= margin:
+            shift += margin - top
+        if abs(shift) < 0.5:
+            continue
+        moved = replace(new, transform=replace(new.transform, y=new.transform.y + shift / height))
+        after = set_profile_override(after, key, moved)
+    return after

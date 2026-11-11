@@ -31,7 +31,7 @@ class FunAsrEngine:
         try:
             from funasr import AutoModel
         except ImportError as exc:
-            raise AsrError("没有安装 funasr，先运行 `python -m autoslice.desktop.asr doctor` 看缺什么。") from exc
+            raise AsrError("没有安装 funasr，到设置页“字幕识别”点“自检”看缺什么（命令行：`python -m autoslice.desktop.asr doctor`）。") from exc
         try:
             device = resolve_device(self.settings.device)
             if self.settings.device.lower() != "auto" and device.startswith("cuda"):

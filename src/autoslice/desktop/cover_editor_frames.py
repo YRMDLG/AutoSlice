@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QIcon,
+    QImageReader,
     QPainter,
     QPixmap,
 )
@@ -52,6 +53,22 @@ from .qt_preview import popups
 
 # 拼进来的小图：放在右上、占画面约四成宽、稍微歪一点，白边宽度（导出像素）。
 _PICTURE_X, _PICTURE_Y, _PICTURE_SCALE, _PICTURE_TILT, _PICTURE_BORDER = 0.56, 0.06, 1.6, 3.0, 10
+# “裁掉两侧”：放大 1.4 倍（4:3 两侧各裁掉约两成，弹幕/礼物栏一般就这么宽），
+# 焦点略偏下把顶上的横幅一起裁掉；脸多在画面中部偏上，仍在框里
+_CROP_SIDES_SCALE, _CROP_SIDES_PAN_Y = 1.4, 0.55
+
+
+def _thumbnail_pixmap(path: str, size: QSize) -> QPixmap:
+    """按缩略图需要的尺寸直接解码：整张 1080p 帧解码再缩小，每张要 10 多毫秒、全在界面线程。"""
+
+    reader = QImageReader(path)
+    reader.setAutoTransform(True)
+    source = reader.size()
+    target = QSize(size.width() * 2, size.height() * 2)
+    if source.isValid() and source.width() > target.width() * 2:
+        reader.setScaledSize(source.scaled(target * 2, Qt.AspectRatioMode.KeepAspectRatioByExpanding))
+    image = reader.read()
+    return QPixmap.fromImage(image) if not image.isNull() else QPixmap()
 
 
 def _captioned(pixmap: QPixmap, size: QSize, caption: str, recommended: bool) -> QPixmap:
@@ -265,7 +282,7 @@ class CoverFramesMixin:
         button.setProperty("path", str(frame.path))
         caption = f"{frame.timestamp:.2f}s"
         button.setText(f"{'★ ' if recommended else ''}{caption}")
-        pixmap = QPixmap(str(frame.path))
+        pixmap = _thumbnail_pixmap(str(frame.path), button.iconSize())
         if not pixmap.isNull():
             button.setIcon(QIcon(_captioned(pixmap, button.iconSize(), caption, recommended)))
         metrics = frame.metrics
@@ -464,11 +481,17 @@ class CoverFramesMixin:
         if request_generation != self._frame_request_generation:
             return
         self._frame_extract_pending = False
-        best = None if error else best_overview_frame(tuple(result or ()))
+        frames = () if error else tuple(result or ())
+        best = best_overview_frame(frames) if frames else None
         timestamp = best.timestamp if best is not None else self._current_playhead
         self.timestamp_edit.setValue(timestamp)
         self._update_nearby_frame_selection(timestamp)
-        self._refresh_nearby_frame_strip(timestamp)
+        if len(frames) > 1:
+            # 已经从全片算出了候选：帧条直接放这批（分布在全片），别只放选中画面前后几乎一样的 7 帧
+            self._nearby_request_generation += 1
+            self._wider_frames_ready(self._nearby_request_generation, frames, None, scope="全片")
+        else:
+            self._refresh_nearby_frame_strip(timestamp)
         self._extract_frame()
 
     def _extract_frame(self):
@@ -535,8 +558,9 @@ class CoverFramesMixin:
             self._reuse_layout_timestamp = None
             draft = CoverDraft.from_document(self.document)
         elif first_background and self.document is not None:
-            # 新底图的默认构图：两个比例分别保住主体，A/B 避开人脸和杂乱区域。
-            self.document = self.service.apply_auto_layout(self.document, path)
+            # 新底图的默认构图：两个比例分别保住主体，A/B 避开人脸和杂乱区域；
+            # 这个主播导出过就沿用上次的放大和裁切（直播界面位置不变）。
+            self.document = self.service.default_layout(self.project, self.document, path)
             draft = CoverDraft.from_document(self.document)
         self.draft = draft
         if self.document is not None and before_document != self.document:
@@ -550,6 +574,7 @@ class CoverFramesMixin:
             # 自动排版改了字号和对齐，右侧控件跟着刷新。
             self.canvas.set_document(self.document, self._canvas_key)
             self._sync_selected_text_controls()
+            self._update_canvas_hint()
         self._save_draft()
         self._set_notice("")
         self.status_changed.emit("已加载当前视频画面")
@@ -687,9 +712,22 @@ class CoverFramesMixin:
 
     def _fill_canvas(self):
         self._set_background_transform(0.5, 0.5, 1.0, fit_mode="cover")
+        self._framing_changed()
 
     def _fit_canvas(self):
         self._set_background_transform(0.5, 0.5, 1.0, fit_mode="contain")
+        self._framing_changed()
+
+    def _crop_sides(self):
+        # 直播录屏两侧是弹幕/礼物栏、顶上是横幅：拉近到中间
+        self._set_background_transform(0.5, _CROP_SIDES_PAN_Y, _CROP_SIDES_SCALE, fit_mode="cover")
+        self._framing_changed()
+
+    def _framing_changed(self):
+        """取景按钮改完：本地快速方案按新取景重出，缩略图和套用效果才对得上（AI 方案不动，免得白花额度）。"""
+
+        if self.scheme_title.text() == "快速方案":
+            self._refresh_schemes()
 
     def _current_background(self) -> BackgroundObject | None:
         background = next((item for item in self.document.objects if isinstance(item, BackgroundObject)), None) if self.document else None
@@ -714,4 +752,5 @@ class CoverFramesMixin:
         self.zoom_spin.setValue(scale)
         self.zoom_spin.blockSignals(False)
         self.canvas.set_document(self.document, self._canvas_key)
+        self._update_canvas_hint()
         self._draft_timer.start()

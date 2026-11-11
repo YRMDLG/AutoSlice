@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -34,7 +35,7 @@ from autoslice_cover.document_layout import (
 )
 
 from .cover_canvas import CoverCanvas
-from .cover_style import STYLE_PRESETS
+from .cover_style import STYLE_PRESETS, streamer_key
 from .cover_widgets import (
     FitToolbar,
     ToolbarButton,
@@ -274,15 +275,27 @@ class CoverLayoutMixin:
         self.inline_edit.textChanged.connect(self._inline_text_changed)
         self.inline_edit.finished.connect(self._finish_inline_edit)
         layout.addWidget(self.canvas, 1)
-        # 提示行：左边操作提示，右边本次导出的文件名与比例；放不下时各自右侧省略
-        info_row = QHBoxLayout()
+        # 提示行：左边操作提示，右边本次导出的文件名与比例；放不下时各自右侧省略。
+        # 行高按“打开文件夹”按钮预留：按钮导出后才出现，不预留的话画布会被挤矮、往下跳一下
+        info_holder = QWidget()
+        info_row = QHBoxLayout(info_holder)
+        info_row.setContentsMargins(0, 0, 0, 0)
         info_row.setSpacing(12)
         self.canvas_hint = ElidedLabel("")
         self.canvas_hint.setObjectName("subtle")
         info_row.addWidget(self.canvas_hint, 3)
         self.export_summary.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         info_row.addWidget(self.export_summary, 2)
-        layout.addLayout(info_row)
+        # 导出后才出现：直接打开成品所在文件夹
+        self.open_export_button = QPushButton("打开文件夹")
+        self.open_export_button.setObjectName("tool")
+        self.open_export_button.setToolTip("在资源管理器里打开刚导出的封面")
+        self.open_export_button.clicked.connect(self._open_export_folder)
+        self.open_export_button.hide()
+        info_row.addWidget(self.open_export_button)
+        self.open_export_button.ensurePolished()
+        info_holder.setFixedHeight(self.open_export_button.sizeHint().height())
+        layout.addWidget(info_holder)
         return center
 
     def _build_right_panel(self) -> QWidget:
@@ -292,7 +305,21 @@ class CoverLayoutMixin:
         self.right_panel.setObjectName("coverPanel")
         self.right_panel.setMinimumWidth(0)
         self.right_panel.setMaximumWidth(280)
-        layout = QVBoxLayout(self.right_panel)
+        outer = QVBoxLayout(self.right_panel)
+        outer.setContentsMargins(0, 0, 0, 0)
+        # 窗口不够高时整块滚动，不再把下拉框、数字框压扁叠在一起
+        self.right_scroll = QScrollArea()
+        self.right_scroll.setWidgetResizable(True)
+        self.right_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.right_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollArea > QWidget > QWidget#coverPanelInner { background: transparent; }")
+        inner = _NoSqueezeWidget()
+        inner.setObjectName("coverPanelInner")
+        inner.setStyleSheet("QWidget#coverPanelInner { background: transparent; }")
+        self.right_scroll.setWidget(inner)
+        self.right_scroll.viewport().setAutoFillBackground(False)
+        outer.addWidget(self.right_scroll)
+        layout = QVBoxLayout(inner)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
         layout.addLayout(self._build_scheme_section())
@@ -307,6 +334,8 @@ class CoverLayoutMixin:
         self.bg_controls = self._build_bg_panel()
         for panel in (self.copy_controls, self.asset_controls, self.bg_controls):
             self.panel_stack.addWidget(panel)
+        # 换了属性页（文字/素材/底图）就回到顶部，免得停在上一页滚到的位置、看不到开头的按钮
+        self.panel_stack.currentChanged.connect(lambda _index: self.right_scroll.verticalScrollBar().setValue(0))
         return self.right_panel
 
     def _build_frame_strip(self) -> QWidget:
@@ -815,6 +844,11 @@ class CoverLayoutMixin:
         self.fit_button = self._button("适应", icon_name="contain", slot=self._fit_canvas, tip="底图完整放进画布")
         fit_row.addWidget(self.fit_button, 1)
         layout.addLayout(fit_row)
+        self.crop_sides_button = self._button(
+            "裁掉两侧", icon_name="expand", slot=self._crop_sides,
+            tip="放大一点、略偏上，裁掉两侧弹幕栏和顶部横幅。导出后会按主播记住这次的裁切，下个视频自动沿用",
+        )
+        layout.addWidget(self.crop_sides_button)
 
         # 人物抠图：抠出来的人物是单独的图层，能拖动、缩放（参考切片封面：人物清楚、背景虚化，或人物放到内容画面的角落）。
         self.cutout_button = self._button(
@@ -876,9 +910,19 @@ class CoverLayoutMixin:
         if self.project is None or self.video is None:
             self.canvas_hint.setText("先到“字幕”页选择投稿项目和视频")
             return
-        self.canvas_hint.setText(
-            f"{self._canvas_label()} 主画布 · 拖动文字或底图；四角缩放/旋转，两侧改行宽；双击改字；滚轮缩放底图"
-        )
+        hint = f"{self._canvas_label()} 主画布 · 拖动文字或底图；四角缩放/旋转，两侧改行宽；双击改字；滚轮缩放底图"
+        if self._suggest_crop():
+            hint = "画面带着直播界面？选中底图点“裁掉两侧”，导出后这个主播的下个视频自动沿用 · " + hint
+        self.canvas_hint.setText(hint)
+        self.canvas_hint.setToolTip(hint)
+
+    def _suggest_crop(self) -> bool:
+        """这个主播还没记过裁切、底图也没放大过：多半是第一次做，提醒一句“裁掉两侧”在哪。"""
+
+        if self.document is None or self.project is None or self.service.user_framed(self.document):
+            return False
+        streamer = streamer_key(self.project.title)
+        return bool(streamer) and not self.service.framing_memory.load(streamer)
 
     def _update_export_summary(self):
         """把当前输出契约放在导出动作旁，tooltip 只补充完整路径。"""
@@ -915,3 +959,10 @@ class CoverLayoutMixin:
             )
         else:
             self._update_canvas_hint()
+
+
+class _NoSqueezeWidget(QWidget):
+    """放进滚动区的内容：最小高度就是完整高度，空间不够时滚动而不是压扁。"""
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, self.sizeHint().height())

@@ -64,7 +64,7 @@ class CoverCritiqueDialog(QDialog):
         self, before: bytes, previews: tuple[CoverFixPreview, ...],
         apply: Callable[[CoverFixPreview], bool], *, undo: Callable[[], None],
         redo: Callable[[], None], before_profiles: tuple[tuple[str, bytes], ...] = (),
-        canvas_key: str = "4x3", context_note: str = "", parent=None,
+        canvas_key: str = "4x3", context_note: str = "", parent=None, reviewing: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("AI 改一改")
@@ -76,18 +76,21 @@ class CoverCritiqueDialog(QDialog):
         self._comparisons: list[tuple[str, QWidget]] = []
         self._apply_label = "应用到两个比例" if len(self._before) > 1 else "应用"
         self.apply_buttons: list[QPushButton] = []
+        # 每个方案一行“AI 复核”：复核在后台进行时先写“复核中”，结果回来再标推荐/不建议
+        self.review_labels: list[QLabel] = []
         layout = QVBoxLayout(self)
-        hint = QLabel(context_note + ("左侧是当前封面，右侧是修改效果。默认同时对照两个比例，也可单独放大检查；应用后一起更新，Ctrl+Z 一起撤销。"
+        hint = QLabel(context_note + ("左侧是当前封面，右侧是修改效果。上面可切换比例或两个比例一起看；应用后两个比例一起更新，Ctrl+Z 一起撤销。"
                                      if len(self._before) > 1 else "左侧是当前封面，右侧是修改效果。切换方案对照，点“应用”后可撤销。"))
         hint.setWordWrap(True)
         hint.setObjectName("subtle")
         layout.addWidget(hint)
         self.profile_combo = QComboBox()
-        if len(self._before) > 1:
-            self.profile_combo.addItem("两个比例对照", "all")
         for key in self._before:
-            self.profile_combo.addItem(key.replace("x", ":"), key)
-        self.profile_combo.setCurrentIndex(0 if len(self._before) > 1 else max(0, self.profile_combo.findData(canvas_key)))
+            self.profile_combo.addItem(f"看 {key.replace('x', ':')}", key)
+        if len(self._before) > 1:
+            self.profile_combo.addItem("两个比例一起看", "all")
+        # 默认只看正在编辑的比例：两个比例上下挤着时预览只有一百多像素高，看不清细节
+        self.profile_combo.setCurrentIndex(max(0, self.profile_combo.findData(canvas_key)))
         self.profile_combo.setVisible(len(self._before) > 1)
         self.profile_combo.currentIndexChanged.connect(self._change_profile)
         layout.addWidget(self.profile_combo)
@@ -103,6 +106,12 @@ class CoverCritiqueDialog(QDialog):
             font.setBold(True)
             issue.setFont(font)
             column.addWidget(issue)
+            review = QLabel("AI 复核中…不影响现在对照和应用" if reviewing else "")
+            review.setObjectName("subtle")
+            review.setWordWrap(True)
+            review.setVisible(reviewing)
+            column.addWidget(review)
+            self.review_labels.append(review)
             for key, original_image in self._before.items():
                 section = QWidget()
                 section_layout = QVBoxLayout(section)
@@ -157,8 +166,26 @@ class CoverCritiqueDialog(QDialog):
         layout.addLayout(controls)
         self._change_profile()
         available = self.screen().availableGeometry()
-        self.resize(min(1000, available.width() - 48), min(720, available.height() - 48))
+        self.resize(min(1280, available.width() - 48), min(860, available.height() - 48))
         motion.install_tree(self)
+
+    def set_review(self, picks: dict[int, str], rejected: str = "", failed: str = "") -> None:
+        """后台复核结果：picks 是 {方案序号(0 起): 理由}；不在里面的标“不建议”，失败时说明可自行判断。"""
+
+        for index, label in enumerate(self.review_labels):
+            if failed:
+                text = f"AI 复核没完成（{failed}），可以自己对照判断。"
+            elif index in picks:
+                text = f"✓ AI 复核推荐：{picks[index]}"
+                self.tabs.setTabText(index, f"方案 {index + 1} ✓")
+            else:
+                text = "AI 复核不建议（理由见窗口下方），可以自己对照判断。" if rejected else "AI 复核不建议，可以自己对照判断。"
+            label.setText(text)
+            label.setVisible(True)
+        if rejected and not failed:
+            # 发给 AI 的总图里原图标 0、方案从 1 编起，意见里的“方案 N”就是这里的方案 N
+            self.notice.setText(f"AI 复核意见：{rejected}")
+            self.notice.show()
 
     def _change_profile(self, _index: int = 0) -> None:
         key = self.profile_combo.currentData()

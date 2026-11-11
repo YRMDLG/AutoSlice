@@ -20,6 +20,12 @@ from .foundation import DesktopStorage
 
 # 用户中转上常用的两个模型，界面里作候选，可改成任意名字。
 SUGGESTED_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna")
+# 服务商预设：(键, 显示名, 基础地址, 接口类型, 候选模型)。模型名以“获取模型列表”为准。
+PROVIDER_PRESETS = (
+    ("deepseek", "DeepSeek 官方", "https://api.deepseek.com", "openai", ("deepseek-flash",)),
+    ("openai", "OpenAI 官方", "https://api.openai.com/v1", "openai-responses", ()),
+    ("custom", "中转 / 其它（自己填地址）", "", "", SUGGESTED_MODELS),
+)
 _ENV_KEYS = ("AUTOSLICE_API_BASE_URL", "AUTOSLICE_API_TOKEN")
 # 粘贴完整接口地址时，按结尾判断接口类型并截成基础地址。
 _ENDPOINT_SUFFIXES = (
@@ -179,3 +185,95 @@ def check_connection(llm=None) -> tuple[str, ...]:
         else:
             lines.append(f"✓ {label} {model}：{answer.strip()[:40]}")
     return tuple(lines)
+
+
+def preset_for(base_url: str) -> str:
+    """按地址的主机名认出是哪个预设；认不出就是中转 / 其它。"""
+
+    try:
+        host = (urlsplit(str(base_url or "").strip()).hostname or "").casefold()
+    except ValueError:
+        return "custom"
+    for key, _title, url, _kind, _models in PROVIDER_PRESETS:
+        if url and host == (urlsplit(url).hostname or "").casefold():
+            return key
+    return "custom"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelInfo:
+    id: str
+    # 接口标了 input_modalities 时才知道能不能看图；None = 没说
+    vision: bool | None = None
+
+
+def _proxy_session(payload: dict):
+    import requests
+
+    from autoslice.llm.contracts import normalise_proxy_mode, normalise_proxy_url
+
+    session = requests.Session()
+    mode = normalise_proxy_mode(payload.get("proxy_mode"))
+    session.trust_env = mode == "system"
+    if mode == "custom":
+        session.proxies = {
+            scheme: url for scheme, url in (
+                ("http", normalise_proxy_url(payload.get("http_proxy"), "http_proxy")),
+                ("https", normalise_proxy_url(payload.get("https_proxy"), "https_proxy")),
+            ) if url
+        }
+    return session
+
+
+def list_models(base_url: str, api_type: str, token: str = "", *, get=None,
+                path: Path | None = None) -> tuple[ModelInfo, ...]:
+    """读接口的 /models；密钥留空时用已保存的。报错不带地址里的密钥或代理凭据。"""
+
+    payload = _read_payload(path or ai_config_path())
+    token = str(token or "").strip() or str(payload.get("token") or "").strip()
+    base, kind = split_endpoint(base_url, api_type)
+    if not base:
+        raise ValueError("先填接口地址。")
+    if not token:
+        raise ValueError("先填密钥。")
+    headers = ({"x-api-key": token, "anthropic-version": "2023-06-01"} if kind == "anthropic"
+               else {"Authorization": f"Bearer {token}"})
+    close = None
+    if get is None:
+        session = _proxy_session(payload)
+        get, close = session.get, session.close
+    import requests
+
+    host = urlsplit(base).hostname or base
+    try:
+        response = get(f"{base}/models", headers=headers, timeout=20)
+    except requests.Timeout:
+        raise ValueError(f"连接 {host} 超时。") from None
+    except requests.RequestException:
+        raise ValueError(f"连不上 {host}：检查地址和网络。") from None
+    finally:
+        if close:
+            close()
+    status = getattr(response, "status_code", 200)
+    if status in (401, 403):
+        raise ValueError(f"密钥不对或没有权限（HTTP {status}）。")
+    if status == 404:
+        raise ValueError("这个接口不提供模型列表，模型名请照服务商的说明填。")
+    if status >= 400:
+        raise ValueError(f"获取模型列表失败（HTTP {status}）。")
+    try:
+        data = response.json().get("data")
+    except (ValueError, AttributeError):
+        data = None
+    if not isinstance(data, list):
+        raise ValueError("接口返回的不是模型列表，模型名请照服务商的说明填。")
+    models = []
+    for item in data:
+        if not isinstance(item, dict) or not str(item.get("id") or "").strip():
+            continue
+        modalities = item.get("input_modalities")
+        vision = ("image" in modalities) if isinstance(modalities, list) else None
+        models.append(ModelInfo(str(item["id"]).strip(), vision))
+    if not models:
+        raise ValueError("接口返回的模型列表是空的。")
+    return tuple(sorted(models, key=lambda model: model.id))

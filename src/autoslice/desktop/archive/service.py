@@ -59,6 +59,23 @@ class ArchiveService:
         with self._store() as store:
             store.remove_root(path, forget_data=forget_data)
 
+    def streamer_choices(self) -> list[tuple[str, str]]:
+        """可以选作默认主播的：[(id, 名称)]。"""
+
+        return StreamerMatcher.from_profiles().choices()
+
+    def root_defaults(self) -> dict[str, str]:
+        if not self.has_data():
+            return {}
+        with self._store() as store:
+            return store.root_defaults()
+
+    def set_root_default(self, path: str, streamer: str) -> None:
+        """给根目录设默认主播（空串清除）：标题里连名字都没写的文件夹按这位算。下次扫描生效，不用重新抽取。"""
+
+        with self._store() as store:
+            store.set_root_default(str(Path(path).expanduser()).replace("\\", "/"), streamer)
+
     # ── 扫描 ──
     def scan(
         self, roots: Sequence[str] | None = None, options: ScanOptions | None = None, *,
