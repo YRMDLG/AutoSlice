@@ -15,24 +15,33 @@ def prepare_pipeline_subtitles(
         ensure_progress_callback: Callable | None,
         seed_artifact_from_legacy: Callable,
         ensure_srt: Callable,
-        export_corrected_srt: Callable):
+        export_corrected_srt: Callable,
+        existing_srt_path=None):
     """完成流水线 Step 1，并返回源字幕、校对字幕和实际分析字幕路径。
 
     依赖全部由调用方显式传入，使本阶段可以在不触碰真实媒体或转录服务的
     单元测试中执行；该模块不承载字幕解析、人工时间轴或报告逻辑。
+    给了 ``existing_srt_path`` 就直接用这份字幕：不识别、不隔离、不改写它。
     """
     seed_artifact_from_legacy(
         artifact_layout["asr_checkpoint_path"],
         legacy_checkpoint_path,
     )
 
-    if progress_callback:
-        progress_callback("Step 1/5: 检查/生成字幕...", 0, 100)
-    source_srt_path = ensure_srt(
-        flv_path,
-        ensure_progress_callback,
-        checkpoint_path=artifact_layout["asr_checkpoint_path"],
-    )
+    if existing_srt_path:
+        source_srt_path = os.path.abspath(os.fspath(existing_srt_path))
+        if not os.path.isfile(source_srt_path) or not os.path.getsize(source_srt_path):
+            raise FileNotFoundError(f"已有字幕不存在或为空: {source_srt_path}")
+        if progress_callback:
+            progress_callback("Step 1/5: 使用已有字幕，跳过识别", 0, 100)
+    else:
+        if progress_callback:
+            progress_callback("Step 1/5: 检查/生成字幕...", 0, 100)
+        source_srt_path = ensure_srt(
+            flv_path,
+            ensure_progress_callback,
+            checkpoint_path=artifact_layout["asr_checkpoint_path"],
+        )
     if not source_srt_path:
         raise RuntimeError("无法生成 SRT 字幕")
     corrected_srt_path = export_corrected_srt(

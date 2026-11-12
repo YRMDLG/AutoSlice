@@ -101,6 +101,51 @@ class PipelineTranscriptionTests(unittest.TestCase):
         self.assertEqual(progress, [("Step 1/5: 检查/生成字幕...", 0, 100)])
         self.assertEqual(export_calls, [])
 
+    def test_existing_srt_skips_recognition_and_keeps_user_file(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            existing = root / "recording_校对.srt"
+            existing.write_text("1\n00:00:01,000 --> 00:00:02,000\n已有字幕\n", encoding="utf-8")
+            original = existing.read_bytes()
+            exported = []
+            progress = []
+
+            result = prepare_pipeline_subtitles(
+                str(root / "recording.flv"),
+                self.layout,
+                "legacy.json",
+                progress_callback=lambda *args: progress.append(args),
+                ensure_progress_callback=None,
+                seed_artifact_from_legacy=lambda *_args: None,
+                ensure_srt=lambda *_args, **_kwargs: self.fail("已有字幕时不得识别"),
+                export_corrected_srt=lambda source, output_path=None: exported.append(source) or None,
+                existing_srt_path=existing,
+            )
+
+            self.assertEqual(result["source_srt_path"], str(existing))
+            self.assertEqual(result["srt_path"], str(existing))
+            self.assertEqual(exported, [str(existing)])
+            self.assertEqual(progress, [("Step 1/5: 使用已有字幕，跳过识别", 0, 100)])
+            self.assertEqual(existing.read_bytes(), original)
+
+    def test_missing_existing_srt_fails_without_recognition(self):
+        with TemporaryDirectory() as temp_dir:
+            empty = Path(temp_dir) / "empty.srt"
+            empty.write_text("", encoding="utf-8")
+            for path in (Path(temp_dir) / "missing.srt", empty):
+                with self.subTest(path=path.name), self.assertRaisesRegex(FileNotFoundError, "不存在或为空"):
+                    prepare_pipeline_subtitles(
+                        "recording.flv",
+                        self.layout,
+                        "legacy.json",
+                        progress_callback=None,
+                        ensure_progress_callback=None,
+                        seed_artifact_from_legacy=lambda *_args: None,
+                        ensure_srt=lambda *_args, **_kwargs: self.fail("不得退回识别"),
+                        export_corrected_srt=lambda *_args, **_kwargs: self.fail("不得导出"),
+                        existing_srt_path=str(path),
+                    )
+
     def test_legacy_checkpoint_is_migrated_before_srt_generation(self):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

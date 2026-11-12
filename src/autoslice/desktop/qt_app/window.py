@@ -42,7 +42,9 @@ from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
 from autoslice.desktop.subtitle_render import SubtitleRenderService
 from autoslice.desktop.subtitles import SubtitleDocument
+from autoslice.desktop.topics import TopicAnalysisService
 from autoslice.desktop.waveform import WaveformCache
+from autoslice.runtime_config import OUTPUT_DIR
 
 from .player import MpvAdapter
 from .timeline import TimelineSidePanController
@@ -56,6 +58,7 @@ from .window_quality import QualityReviewMixin
 from .window_subtitles import SubtitleListMixin
 from .window_tasks import TaskPanelMixin
 from .window_timeline import TimelineMixin
+from .window_topics import TopicAnalysisMixin
 from .window_widgets import _StatusLabel
 
 # 时间轴默认高度（像素）：记住过高度的按记住的来。
@@ -82,6 +85,7 @@ class DesktopWindow(
     SubtitleDocumentMixin,
     QualityReviewMixin,
     TaskPanelMixin,
+    TopicAnalysisMixin,
     PreviewWindow,
 ):
     # 各职责的混入类必须排在 PreviewWindow 之前，才能覆盖它的同名构建方法。
@@ -101,6 +105,8 @@ class DesktopWindow(
         self.waveform_cache = WaveformCache(self.storage.waveforms)
         # 设置页构建时就要用到，必须在 super().__init__ 之前创建。
         self.correction_memory = CorrectionMemory(self.storage)
+        # 话题报告和网页端放同一个输出目录，不放进投稿目录（免得被当成新视频扫进来）
+        self.topic_service = TopicAnalysisService(OUTPUT_DIR)
         self._render_jobs = {}
         self._render_result = None
         self._save_then_render = False
@@ -328,6 +334,7 @@ class DesktopWindow(
         self.render_button.setToolTip("使用默认字幕样式，将已保存的校对字幕压制到新视频")
         self.render_button.clicked.connect(self._start_render)
         self.render_button.setEnabled(False)
+        action_row.addWidget(self._build_topic_button())
         action_row.addWidget(self.save_button)
         action_row.addWidget(self.render_button)
         row.addWidget(actions)
@@ -355,6 +362,7 @@ class DesktopWindow(
         QThreadPool.globalInstance().start(job)
 
     def _update_status(self):
+        self._refresh_topic_button()
         if hasattr(self, "ai_accept"):
             self._show_ai_detail()
             self.ai_skip.setEnabled(not self._saving)
@@ -517,6 +525,7 @@ class DesktopWindow(
         if hasattr(self, "asr_settings_panel"):
             self.asr_settings_panel.stop()
         self._asr_shutdown()
+        self._topic_shutdown()
         self._save_session()
         super().closeEvent(event)
         if event.isAccepted() and self.player:

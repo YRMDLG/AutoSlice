@@ -511,7 +511,7 @@ def _monotonic_progress_callback(progress_callback):
 def run_pipeline(
         flv_path, ass_path=None, progress_callback=None, manual_timeline_path=None,
         optimized_timeline_path=None, output_dir=None, artifact_dir=None,
-        streamer_profile_id="auto"):
+        streamer_profile_id="auto", subtitle_path=None):
     """在隔离的主播配置上下文中执行完整分析流水线。"""
     flv_path = slicing_service.validate_video_path(flv_path)
     with streamer_profile_context(streamer_profile_id, flv_path) as profile:
@@ -523,6 +523,7 @@ def run_pipeline(
             optimized_timeline_path=optimized_timeline_path,
             output_dir=output_dir,
             artifact_dir=artifact_dir,
+            subtitle_path=subtitle_path,
         )
         result["streamer_profile_id"] = profile.id
         return result
@@ -530,9 +531,12 @@ def run_pipeline(
 
 def run_pipeline_impl(
         flv_path, ass_path=None, progress_callback=None, manual_timeline_path=None,
-        optimized_timeline_path=None, output_dir=None, artifact_dir=None):
+        optimized_timeline_path=None, output_dir=None, artifact_dir=None,
+        subtitle_path=None):
     """
     完整流水线：SRT → 弹幕 → LLM分析 → 报告 + 切片标记
+
+    subtitle_path: 已有字幕；给了就跳过识别，直接用它分析（桌面端入口）。
 
     返回: {
         "report": str (Markdown),
@@ -566,6 +570,7 @@ def run_pipeline_impl(
         seed_artifact_from_legacy=_seed_artifact_from_legacy,
         ensure_srt=ensure_srt,
         export_corrected_srt=export_corrected_srt,
+        existing_srt_path=subtitle_path,
     )
     source_srt_path = prepared_subtitles["source_srt_path"]
     corrected_srt_path = prepared_subtitles["corrected_srt_path"]

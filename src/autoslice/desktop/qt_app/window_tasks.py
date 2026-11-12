@@ -1,10 +1,11 @@
-"""窗口内统一查看识别、字幕检查和压制任务。"""
+"""窗口内统一查看识别、字幕检查、压制和话题分析任务。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
 
 class TaskPanelMixin:
     def _task_update(self, key, *, kind=None, project=None, video_path=None,
-                     state="running", message="", cancel=None):
+                     state="running", message="", cancel=None, result=None, result_label=None):
         if not hasattr(self, "_task_records"):
             self._task_records = {}
         record = self._task_records.setdefault(key, {})
@@ -30,7 +31,12 @@ class TaskPanelMixin:
             record["video_path"] = video_path
         record.update(state=state, message=message)
         if cancel is not None:
+            # 新一轮开始：上次的结果不再对应
             record["cancel"] = cancel
+            record.pop("result", None)
+            record.pop("result_label", None)
+        if result is not None:
+            record.update(result=result, result_label=result_label or "打开结果")
         if state != "running":
             record.pop("cancel", None)
         while len(self._task_records) > 30:
@@ -47,7 +53,7 @@ class TaskPanelMixin:
             self.task_dialog.setWindowTitle("后台任务")
             self.task_dialog.resize(660, 370)
             layout = QVBoxLayout(self.task_dialog)
-            title = QLabel("可查看所属视频、返回继续编辑或停止正在运行的任务。")
+            title = QLabel("可查看所属视频、打开结果，或停止正在运行的任务。")
             title.setWordWrap(True)
             layout.addWidget(title)
             self.task_list = QListWidget()
@@ -62,6 +68,9 @@ class TaskPanelMixin:
             self.task_locate = QPushButton("查看所属视频")
             self.task_locate.clicked.connect(self._locate_task)
             row.addWidget(self.task_locate)
+            self.task_open = QPushButton("打开结果")
+            self.task_open.clicked.connect(self._open_task_result)
+            row.addWidget(self.task_open)
             self.task_cancel = QPushButton("停止任务")
             self.task_cancel.clicked.connect(self._cancel_task)
             row.addWidget(self.task_cancel)
@@ -103,6 +112,8 @@ class TaskPanelMixin:
     def _task_selection_changed(self, _row=None):
         record = self._selected_task()
         self.task_locate.setEnabled(bool(record and record.get("video_path")))
+        self.task_open.setEnabled(bool(record and record.get("result")))
+        self.task_open.setText(record.get("result_label", "打开结果") if record else "打开结果")
         self.task_cancel.setEnabled(bool(record and record.get("cancel")))
         self.task_detail.setText(record["message"] if record else "当前没有后台任务。")
 
@@ -130,6 +141,25 @@ class TaskPanelMixin:
         record = self._selected_task()
         if record:
             self._open_task_video(record.get("project_id"), record.get("video_path"))
+
+    def _open_task_result(self):
+        record = self._selected_task()
+        if record and record.get("result"):
+            self._open_local_path(record["result"])
+
+    def _open_local_path(self, path):
+        """用系统默认程序打开；打不开（比如 .md 没关联程序）就打开所在文件夹。"""
+
+        target = Path(path)
+        if not target.exists():
+            self._show_transient_status(f"找不到：{target}", 6000)
+            return False
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(target))):
+            return True
+        if target.is_file() and QDesktopServices.openUrl(QUrl.fromLocalFile(str(target.parent))):
+            return True
+        self._show_transient_status(f"没能打开，请手动查看：{target}", 9000)
+        return False
 
     def _cancel_task(self):
         record = self._selected_task()
