@@ -347,6 +347,7 @@ class CoverEditorWidget(
         """没有项目：清空画布和状态，右侧面板收起，画布占满。"""
 
         self._context_generation += 1
+        self._overview_pending, self._auto_first = False, None
         self.project = None
         self.video = None
         self.document = None
@@ -383,6 +384,7 @@ class CoverEditorWidget(
         """进入项目：载入（或新建）草稿，同步控件，然后预览或取帧。"""
 
         self._context_generation += 1
+        self._overview_pending, self._auto_first = False, None
         self.project, self.video = project, video
         self.project_label.setText(project.title if len(project.title) <= 32 else project.title[:32] + "…")
         self.project_label.setToolTip(project.title)

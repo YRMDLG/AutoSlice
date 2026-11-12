@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollBar,
@@ -236,14 +237,18 @@ class TimelineMixin:
         dialog.raise_()
         dialog.activateWindow()
 
-    def _snap_cues_to_speech(self, *, selected_only: bool):
-        """起止按真实停顿重定（识别后的同一套规则）；后台抽一次音频，结果一步撤销。"""
+    def _snap_cues_to_speech(self, *, selected_only: bool, foreground: bool = False, chosen=None):
+        """起止按真实停顿重定（识别后的同一套规则）；后台抽一次音频，结果一步撤销。
+
+        foreground=True：用压低背景音乐后的音频再试（背景声音太满、分不清人声时）。
+        """
 
         if self._saving or not self.document or getattr(self, "_speech_snapping", False):
             return
         self._commit_editor()
         entries = tuple(self.document.entries)
-        chosen = set(self.selection.selected) if selected_only else {entry.index for entry in entries}
+        if chosen is None:
+            chosen = set(self.selection.selected) if selected_only else {entry.index for entry in entries}
         if not chosen:
             self._show_transient_status("先在列表或时间轴里选中要调整的字幕")
             return
@@ -252,15 +257,21 @@ class TimelineMixin:
         segments = [(srt_timestamp_seconds(e.start), srt_timestamp_seconds(e.end), e.text) for e in entries]
         video, cache = self.document.video.path, self.storage.root / "cache" / "speech"
         self._speech_snapping = True
-        self._show_transient_status("正在对着声音调整字幕起止…", 60000)
-        self._run(lambda: snap_to_speech(segments, speech_audio(cache, video)),
-                  lambda result, error: self._speech_snapped(entries, chosen, result, error))
+        self._show_transient_status("正在压低背景音乐后再对一遍…" if foreground else "正在对着声音调整字幕起止…", 60000)
 
-    def _speech_snapped(self, entries, chosen, result, error):
+        def action():
+            reasons: dict[int, str] = {}
+            snapped = snap_to_speech(segments, speech_audio(cache, video, foreground=foreground), reasons=reasons)
+            return snapped, reasons
+
+        self._run(action, lambda result, error: self._speech_snapped(entries, chosen, result, error, foreground))
+
+    def _speech_snapped(self, entries, chosen, result, error, foreground=False):
         self._speech_snapping = False
         if error:
             self._show_transient_status(f"贴合声音没成功：{error}", 9000)
             return
+        result, reasons = result
         if not self.document or tuple(self.document.entries) != entries or len(result) != len(entries):
             self._show_transient_status("调整期间字幕改过了，没有应用；需要的话再点一次")
             return
@@ -283,13 +294,35 @@ class TimelineMixin:
                 continue
             changed += 1
         self.document.commit_time_preview(before)
-        if not changed:
-            self._show_transient_status("起止已经贴着声音了，没有要调的")
-            return
-        self.model.set_document(self.document)
-        self.timeline.update()
-        self._edited()
-        self._show_transient_status(f"已按声音调整 {changed} 条字幕的起止（Ctrl+Z 撤销）", 6000)
+        # 没动的句子说清楚原因，别让人以为功能没生效
+        from autoslice.desktop.asr.refine import GUARDED, NO_AUDIO, NO_PAUSE, TOO_LOUD
+
+        counts = {code: 0 for code in (NO_AUDIO, TOO_LOUD, NO_PAUSE, GUARDED)}
+        loud = set()
+        for position, entry in enumerate(entries):
+            code = reasons.get(position)
+            if entry.index in chosen and code in counts:
+                counts[code] += 1
+                if code == TOO_LOUD:
+                    loud.add(entry.index)
+        labels = {NO_AUDIO: "没有拿到音频", TOO_LOUD: "背景声音太满、分不清人声",
+                  NO_PAUSE: "前后没有停顿（话连着说）", GUARDED: "挪了会压到别的句子的字"}
+        untouched = "；".join(f"{count} 条{labels[code]}" for code, count in counts.items() if count)
+        self._speech_report = counts
+        if changed:
+            self.model.set_document(self.document)
+            self.timeline.update()
+            self._edited()
+        head = f"已按声音调整 {changed} 条字幕的起止（Ctrl+Z 撤销）" if changed else "起止已经贴着声音了，没有要调的"
+        self._show_transient_status(head + (f"。没动的：{untouched}" if untouched else ""), 9000)
+        if loud and not foreground:
+            choice = QMessageBox.question(
+                self, "背景声音太满",
+                f"有 {len(loud)} 条字幕附近背景声音太满，分不清人声和停顿，没有自动调整。\n"
+                "要先压低背景音乐和底噪（识别设置里的同一个滤镜），再对这些字幕试一次吗？",
+            )
+            if choice == QMessageBox.StandardButton.Yes:
+                self._snap_cues_to_speech(selected_only=False, foreground=True, chosen=loud)
 
     def _can_merge_selected(self):
         if not self.document or len(self.selection.selected) < 2:

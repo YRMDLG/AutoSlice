@@ -118,6 +118,16 @@ class CoverFrameService:
 
         return self.nearby_candidates(video, center, self._wider_offsets(span, count))
 
+    def first_frame(self, video: ProjectVideo, *, count: int = 8) -> CoverFrame:
+        """先出一张能用的画面：全片候选里中间那个时间点（避开片头片尾）。
+
+        取的就是 overview_candidates 会取的时间点之一，后台补全片候选时直接命中缓存，不白取。
+        """
+
+        metadata = self._video_metadata(video)
+        timestamps = plan_candidate_timestamps(metadata.duration, count)
+        return self.extract_frame_candidate(video, timestamps[len(timestamps) // 2])
+
     def overview_candidates(self, video: ProjectVideo, *, count: int = 8) -> tuple[CoverFrame, ...]:
         """全片均匀候选（避开片头片尾），没有播放位置时据此自动挑首帧。"""
 

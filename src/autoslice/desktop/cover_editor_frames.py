@@ -219,6 +219,9 @@ class CoverFramesMixin:
         # 帧条放着“全片/更多”挑出的候选时不重排，否则切个页面回来就把候选缩略图换没了。
         if self._strip_pinned or not self.isVisible() or self.video is None or not Path(self.video.path).is_file():
             return
+        if getattr(self, "_overview_pending", False):
+            # 第一张是临时的：全片候选马上就把帧条换掉，现在排附近帧只会和它抢 FFmpeg
+            return
         center = max(0.0, float(center or 0.0))
         offsets = self._nearby_offsets(center)
         self._nearby_request_generation += 1
@@ -463,6 +466,11 @@ class CoverFramesMixin:
         self._extract_frame()
 
     def _auto_pick_frame(self):
+        """没有播放位置：先取一张出封面，后台再从全片挑画质最好的。
+
+        原来要等全片 8 张候选都取完、打完分才出第一张，6 分钟的视频十几秒；现在一两秒先能用。
+        """
+
         if self.video is None or not Path(self.video.path).is_file():
             self._extract_frame()
             return
@@ -470,12 +478,69 @@ class CoverFramesMixin:
         self._frame_request_generation += 1
         request_generation = self._frame_request_generation
         video = self.video
-        self.canvas.setText("正在从全片挑选画面…")
-        self._set_notice("没有播放位置：正在从全片挑一张画质好的画面…", "info")
-        self._run(
-            lambda: self.service.overview_candidates(video),
-            lambda result, error: self._overview_ready(request_generation, result, error),
-        )
+        self.canvas.setText("正在取一张画面…")
+        self._set_notice("没有播放位置：先取一张画面，后台再从全片挑画质更好的…", "info")
+        # 全片候选会把帧条换掉，先别为第一张排附近帧的缩略图
+        self._overview_pending = True
+        service = self.service
+
+        def first():
+            frame = service.first_frame(video)
+            # 构图分析在后台预热，回到界面线程的自动排版直接命中缓存
+            service.warm_composition(frame.path)
+            return frame
+
+        self._run(first, lambda result, error: self._first_frame_ready(request_generation, video, result, error))
+
+    def _first_frame_ready(self, request_generation: int, video, result, error):
+        if request_generation != self._frame_request_generation:
+            return
+        if error or result is None:
+            # 取不到单张就走原来的全片挑选
+            self._run(
+                lambda: self.service.overview_candidates(video),
+                lambda frames, failure: self._overview_ready(request_generation, frames, failure),
+            )
+            return
+        self.timestamp_edit.setValue(result.timestamp)
+        self._frame_ready(request_generation, True, (result.path, result.timestamp), None)
+        # 记下“自动给的第一张”：后台候选回来时，用户没动过才换成更好的
+        self._auto_first = (request_generation, self.document, getattr(self, "_last_export_path", None))
+        service = self.service
+
+        def overview():
+            frames = service.overview_candidates(video)
+            best = best_overview_frame(frames) if frames else None
+            if best is not None:
+                service.warm_composition(best.path)
+            return frames
+
+        self._run(overview, lambda frames, failure: self._overview_after_first(request_generation, frames, failure))
+
+    def _overview_after_first(self, request_generation: int, result, error):
+        """后台全片候选回来：帧条补齐；用户没碰过封面才换成画质最好的那张。"""
+
+        self._overview_pending = False
+        auto = getattr(self, "_auto_first", None)
+        self._auto_first = None
+        if request_generation != self._frame_request_generation or auto is None or auto[0] != request_generation:
+            # 用户已经换过帧，或者换了视频：结果作废，帧条按用户的选择来
+            return
+        frames = () if error else tuple(result or ())
+        if len(frames) > 1:
+            self._nearby_request_generation += 1
+            self._wider_frames_ready(self._nearby_request_generation, frames, None, scope="全片")
+        else:
+            self._queue_nearby_thumbnails(self.timestamp_edit.value())
+        best = best_overview_frame(frames) if frames else None
+        untouched = (self.document == auto[1] and not self._frame_locked
+                     and getattr(self, "_last_export_path", None) == auto[2])
+        if best is None or not untouched or abs(best.timestamp - self.timestamp_edit.value()) < 0.05:
+            return
+        # 当作新底图重新排一次（用户还没动过，排版跟着新画面走）；Ctrl+Z 能换回第一张
+        self.timestamp_edit.setValue(best.timestamp)
+        self._frame_ready(request_generation, True, (best.path, best.timestamp), None)
+        self.status_changed.emit("已换成全片里画质更好的一张（Ctrl+Z 换回）")
 
     def _overview_ready(self, request_generation: int, result, error):
         if request_generation != self._frame_request_generation:
@@ -501,6 +566,8 @@ class CoverFramesMixin:
             self.status_changed.emit(message)
             return
         first_background = not bool(self.draft.image_path)
+        # 用户自己取帧了：后台全片候选不再替换画面，帧条也按这次的来
+        self._overview_pending = False
         self.extract_button.setEnabled(False)
         self.current_frame_button.setEnabled(False)
         for button in self.nearby_frame_buttons:

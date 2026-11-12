@@ -190,32 +190,62 @@ def _quiet_runs(levels, low_t: float, high_t: float) -> list[tuple[float, float]
     return [(a, b) for a, b in runs if b >= low_t and a <= high_t]
 
 
+# 贴声音没动某句的原因（字幕页按这个告诉用户）
+NO_AUDIO = "no_audio"        # 没有音频（抽不出来或缺 numpy）
+TOO_LOUD = "too_loud"        # 背景声音太满，人声和停顿分不清
+NO_PAUSE = "no_pause"        # 前后没有停顿：话是连着说的
+GUARDED = "guarded"          # 找到了停顿，但会挪进别的句子的字里，被护栏拦下
+_REASON_ORDER = (NO_AUDIO, TOO_LOUD, NO_PAUSE, GUARDED)
+
+
+def _blocked(levels, moment: float) -> str:
+    """边界附近分不清声音和静音时：往外看前后 3 秒，远处有安静段就是话连着说，远处也没有才是背景太满。"""
+
+    import numpy as np
+
+    low, high = max(0, int((moment - 3.0) / _FRAME)), min(len(levels), int((moment + 3.0) / _FRAME) + 1)
+    wide = levels[low:high]
+    if len(wide) >= 8 and float(np.percentile(wide, 95)) - float(np.percentile(wide, 10)) >= _CONTRAST_DB:
+        return NO_PAUSE
+    return TOO_LOUD
+
+
 def snap_to_speech(segments: Sequence[Segment], wav_path: str | Path, *, lead: float = 0.08, tail: float = 0.2,
-                   window: float = 0.35, close_gap: float = 0.3, min_duration: float = 0.6) -> list[Segment]:
+                   window: float = 0.35, close_gap: float = 0.3, min_duration: float = 0.6,
+                   reasons: dict[int, str] | None = None) -> list[Segment]:
     """按两句之间真正的停顿重定边界：上一句结束在停顿开始后一点，下一句开始在停顿结束前一点。
 
     每个边界只看它附近（前后 window 秒）的停顿；找不到停顿（话连着说）或声音和静音分不清
     （背景音乐太满）就不动。最后把小缝接上，太短的往后补。
+    给了 reasons 就把“哪句为什么没动”写进去（键是句子位置，值是上面的原因代号）。
     """
 
     levels = _frame_levels(wav_path)
     result = [list(item) for item in segments]
+    # 每个边界的结果：0 是第一句开头，i+1 是第 i 句和下一句之间，最后一个是最后一句结尾
+    boundary = [None] * (len(result) + 1)
+    if levels is None:
+        boundary = [NO_AUDIO] * (len(result) + 1)
     if levels is not None and result:
         # 第一句开头、最后一句结尾：只和前面 / 后面的静音比
         runs = _quiet_runs(levels, result[0][0] - window, result[0][0] + window)
+        boundary[0] = _blocked(levels, result[0][0]) if runs is None else NO_PAUSE
         if runs:
             before = [run for run in runs if abs(run[1] - result[0][0]) <= window and run[0] <= result[0][0] + 0.02]
             if before:
                 result[0][0] = max(0.0, min(before, key=lambda run: abs(run[1] - result[0][0]))[1] - lead)
-        for item, following in zip(result, result[1:]):
+        for position, (item, following) in enumerate(zip(result, result[1:]), start=1):
             end, start = item[1], following[0]
             runs = _quiet_runs(levels, end - window, start + window)
+            boundary[position] = _blocked(levels, (end + start) / 2) if runs is None else NO_PAUSE
             if not runs:
                 continue
             # 上一句结束：开始点离原终点最近、且一直延续到原终点之后的停顿（句子中间的停顿不算）；
             # 下一句开始同理：停顿要从原起点之前就开始
             near_end = [run for run in runs if abs(run[0] - end) <= window and run[1] >= end - 0.02]
             near_start = [run for run in runs if abs(run[1] - start) <= window and run[0] <= start + 0.02]
+            if near_end or near_start:
+                boundary[position] = GUARDED
             new_end = min(near_end, key=lambda run: abs(run[0] - end))[0] + tail if near_end else end
             new_start = min(near_start, key=lambda run: abs(run[1] - start))[1] - lead if near_start else start
             # 字级时间当护栏：下一句不早于上一句最后一个字说完，上一句不晚于下一句第一个字开口。
@@ -229,6 +259,7 @@ def snap_to_speech(segments: Sequence[Segment], wav_path: str | Path, *, lead: f
             if new_end - item[0] >= 0.2 and following[1] - new_start >= 0.2:
                 item[1], following[0] = new_end, new_start
         runs = _quiet_runs(levels, result[-1][1] - window, result[-1][1] + window)
+        boundary[-1] = _blocked(levels, result[-1][1]) if runs is None else NO_PAUSE
         if runs:
             after = [run for run in runs if abs(run[0] - result[-1][1]) <= window and run[1] >= result[-1][1] - 0.02]
             if after:
@@ -247,6 +278,11 @@ def snap_to_speech(segments: Sequence[Segment], wav_path: str | Path, *, lead: f
     for item in result:
         # 保证条数不变（字幕页按位置对回去）：极端情况下也留出 0.1 秒
         item[1] = max(item[1], item[0] + 0.1)
+    if reasons is not None:
+        for position, (old, new) in enumerate(zip(segments, result)):
+            if abs(old[0] - new[0]) < 0.005 and abs(old[1] - new[1]) < 0.005:
+                found = [code for code in (boundary[position], boundary[position + 1]) if code]
+                reasons[position] = min(found, key=_REASON_ORDER.index) if found else NO_PAUSE
     return [(start, end, text) for start, end, text in result]
 
 
@@ -254,19 +290,23 @@ def snap_to_speech(segments: Sequence[Segment], wav_path: str | Path, *, lead: f
 _AUDIO_CACHE_KEEP = 6
 
 
-def speech_audio(cache_root: str | Path, video: str | Path) -> Path:
-    """字幕页“贴合声音”用的 16k 单声道音频：按视频路径、大小、修改时间缓存，视频换了才重抽。"""
+def speech_audio(cache_root: str | Path, video: str | Path, *, foreground: bool = False) -> Path:
+    """字幕页“贴合声音”用的 16k 单声道音频：按视频路径、大小、修改时间缓存，视频换了才重抽。
+
+    foreground=True 时先压低背景音乐和底噪（识别设置里同一个滤镜），单独缓存一份。
+    """
 
     from . import audio
 
     video = Path(video)
     stat = video.stat()
-    key = hashlib.sha256(f"{video.resolve()}|{stat.st_size}|{stat.st_mtime_ns}".casefold().encode("utf-8")).hexdigest()[:20]
+    raw = f"{video.resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{'fg' if foreground else ''}"
+    key = hashlib.sha256(raw.casefold().encode("utf-8")).hexdigest()[:20]
     root = Path(cache_root)
     target = root / f"{key}.wav"
     if not target.is_file():
         root.mkdir(parents=True, exist_ok=True)
-        audio.extract_wav(video, target)
+        audio.extract_wav(video, target, foreground=foreground)
         cached = sorted(root.glob("*.wav"), key=lambda path: path.stat().st_mtime, reverse=True)
         for old in cached[_AUDIO_CACHE_KEEP:]:
             old.unlink(missing_ok=True)

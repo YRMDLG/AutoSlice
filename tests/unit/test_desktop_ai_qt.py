@@ -92,13 +92,13 @@ class DesktopAIQtTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
             self.window.ai_run.click()
-        self.wait_for(lambda: self.window.ai_session is not None)
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
         self.assertEqual(len(self.calls), 1)
 
     def test_background_queue_accept_skip_conflict_and_navigation(self):
         self.window._start_ai_check()
         self.window._select_page(1)
-        self.wait_for(lambda: self.window.ai_session is not None)
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
         self.assertEqual(self.window.pages.currentIndex(), 1)
         self.assertTrue(self.window.ai_return.isVisible())
         self.assertTrue(self.window.nav_badge.isVisible())
@@ -168,7 +168,7 @@ class DesktopAIQtTests(unittest.TestCase):
         self.window._player_duration = 10.0
         self.window.timeline.set_duration(10.0)
         self.window._start_ai_check()
-        self.wait_for(lambda: self.window.ai_session is not None)
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
 
         first = self.window.ai_session.pending[0]
         rows = [self.window.ai_queue_layout.itemAt(index).widget()
@@ -190,7 +190,7 @@ class DesktopAIQtTests(unittest.TestCase):
 
     def test_pending_issue_row_elides_with_tooltip_without_growing(self):
         self.window._start_ai_check()
-        self.wait_for(lambda: self.window.ai_session is not None)
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
         item = self.window.ai_session.pending[0]
         long_original = "这是一个非常长的原字幕内容，用来验证待处理列表使用真正的右侧省略号"
         long_suggested = "这是一个非常长的建议文本，用来验证完整内容仍然保留在 tooltip"
@@ -235,7 +235,7 @@ class DesktopAIQtTests(unittest.TestCase):
         self.window._player_duration = 10.0
         self.window.timeline.set_duration(10.0)
         self.window._start_ai_check()
-        self.wait_for(lambda: self.window.ai_session is not None)
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
         first, second = self.window.ai_session.pending
         self.window._select_ai(first.suggestion_id)
 
@@ -288,6 +288,33 @@ class DesktopAIQtTests(unittest.TestCase):
             self.assertIn(key, button.toolTip())
         self.window._shortcuts["Alt+S"].activated.emit()
         self.assertEqual(self.window.ai_session.find(first.suggestion_id).status, "skipped")
+
+    def test_continue_check_only_sends_cues_changed_since_the_last_check(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        self.window._start_ai_check()
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
+        self.assertEqual(self.window.ai_run.text(), "重新检查")
+        sent = []
+        checker = self.window.ai_service.checker
+
+        def spy(path, **kwargs):
+            sent.append(kwargs.get("review_indices"))
+            return checker(path, **kwargs)
+
+        self.window.ai_service.checker = spy
+        # 手动改了第 2 条：按钮变成“继续检查”，只把这一条发出去
+        self.window.document.edit_text(2, "手改的错字二")
+        self.window._edited()
+        self.window._render_ai()
+        self.assertEqual(self.window.ai_run.text(), "继续检查")
+        self.assertIn("还有 1 条", self.window.ai_run.toolTip())
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as ask:
+            self.window._ai_run_clicked()
+            self.wait_for(lambda: not self.window._ai_running)
+        self.assertIn("1 条", ask.call_args.args[2])
+        self.assertEqual(sent, [[2]])
+        self.assertEqual(self.window.ai_run.text(), "重新检查")
 
     def test_missing_config_and_cancel_leave_editor_available(self):
         self.window.ai_service.config_loader = lambda: (_ for _ in ()).throw(ValueError("未配置 LLM API"))
@@ -381,7 +408,7 @@ class DesktopAIQtTests(unittest.TestCase):
         from autoslice.desktop.qt_app.window import DesktopWindow
 
         self.window._start_ai_check()
-        self.wait_for(lambda: self.window.ai_session is not None)
+        self.wait_for(lambda: self.window.ai_session is not None and not self.window._ai_running)
         first = self.window.ai_session.pending[0]
         self.window._select_ai(first.suggestion_id)
         self.window._skip_ai()

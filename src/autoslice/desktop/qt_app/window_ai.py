@@ -92,6 +92,14 @@ class AiReviewMixin:
         local_row.addWidget(label("免费，不用 AI", "subtle"))
         local_row.addStretch()
         content.addLayout(local_row)
+        # 固定纠错、记住的改法很可靠，一条条点太慢：一次采纳，一步撤回
+        self.ai_apply_local = QPushButton("全部采纳本地纠错")
+        self.ai_apply_local.setObjectName("secondary")
+        self.ai_apply_local.setToolTip("主播固定纠错和已经记住的校对改法一次采纳；同音字、观察中的改法仍要逐条看。"
+                                       "只改界面里的字幕，保存前不写文件；Ctrl+Z 一步撤回")
+        self.ai_apply_local.clicked.connect(self._apply_local_batch)
+        content.addWidget(self.ai_apply_local, 0, Qt.AlignmentFlag.AlignLeft)
+        self.ai_apply_local.hide()
         # 复查只在做过一次 AI 检查后才有意义，之前整行藏起来
         self.ai_scope_row = QWidget()
         scope_row = QHBoxLayout(self.ai_scope_row)
@@ -243,12 +251,20 @@ class AiReviewMixin:
         self.ai_local.setEnabled(bool(self.document) and not self._ai_running and not self._saving)
         for button in (self.ai_selected_check, self.ai_changed_check):
             button.setEnabled(bool(self.document) and not self._ai_running and not self._saving)
+        batch = self._batch_local()
+        self.ai_apply_local.setText(f"全部采纳本地纠错（{len(batch)} 条）")
+        self.ai_apply_local.setVisible(bool(batch))
+        self.ai_apply_local.setEnabled(bool(self.document) and not self._saving)
         rechecking = bool(self.ai_session) and not self.ai_session.local_only
         self.ai_scope_row.setVisible(rechecking and bool(self.document))
         if rechecking:
             self.ai_setup.hide()
+        left = len(self.ai_session.unchecked(self.document.entries)) if rechecking and self.document else 0
         self.ai_run.setText("取消检查" if self._ai_running else
-                            "重新检查" if rechecking else "AI 检查")
+                            "继续检查" if left else "重新检查" if rechecking else "AI 检查")
+        self.ai_run.setToolTip(
+            f"还有 {left} 条没查（上次没查完，或查过之后改过），只发这些" if left and not self._ai_running else
+            "把字幕发给 AI 检查错字，会消耗额度；只生成待确认建议")
         if self._ai_running:
             self.ai_run.setIcon(QIcon())
         else:
@@ -426,6 +442,57 @@ class AiReviewMixin:
                               if candidate.cue_id > current.cue_id), self.ai_session.pending[0])
             self._select_ai(next_item.suggestion_id)
 
+    def _batch_local(self):
+        """能一次采纳的本地建议：主播固定纠错和已记住的改法；同音字、观察中的改法要人看，不算。"""
+
+        if not self.ai_session or not self.document:
+            return []
+        seen, result = set(), []
+        for item in self.ai_session.pending:
+            reliable = item.source == "fixed_replacement" or (item.source == "memory" and "观察中" not in item.reason)
+            if reliable and "疑似识别听错" not in item.reason and item.cue_id not in seen:
+                seen.add(item.cue_id)
+                result.append(item)
+        return result
+
+    def _apply_local_batch(self):
+        if self._saving or not self.document or not self.ai_session:
+            return
+        self._commit_editor()
+        items = self._batch_local()
+        texts = {entry.index: entry.text for entry in self.document.entries}
+        ready = [item for item in items if texts.get(item.cue_id) == item.original_text]
+        conflicts = len(items) - len(ready)
+        if not ready:
+            self.ai_note.setText("这些本地纠错对应的字幕都已经改过了，没有可以直接采纳的；可以逐条看看。")
+            self.ai_note.show()
+            return
+        listing = "\n".join(f"第 {item.cue_id} 条：{item.original_text} → {item.suggested_text}" for item in ready[:12])
+        if len(ready) > 12:
+            listing += f"\n……等共 {len(ready)} 条"
+        choice = QMessageBox.question(
+            self, "全部采纳本地纠错",
+            f"将按本地纠错改掉下面 {len(ready)} 条字幕（只改界面里的字幕，保存前不写文件，Ctrl+Z 一步撤回）：\n\n"
+            f"{listing}" + (f"\n\n另有 {conflicts} 条原文已经被你改过，跳过不动。" if conflicts else ""),
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+        before = document_hash(self.document.entries)
+        self.document.edit_texts({item.cue_id: item.suggested_text for item in ready})
+        after = document_hash(self.document.entries)
+        # 撤销时整批一起回到待确认
+        self._ai_undo.append((before, after, tuple(item.suggestion_id for item in ready)))
+        self._ai_redo.clear()
+        for item in ready:
+            self.ai_session.mark(item.suggestion_id, "accepted", self.document.entries)
+        self._save_ai_session()
+        self.model.set_document(self.document)
+        self._edited()
+        self._render_ai()
+        self._select_cue(self.selected_index)
+        self._show_transient_status(f"已采纳 {len(ready)} 条本地纠错（Ctrl+Z 撤销）"
+                                    + (f"，{conflicts} 条原文改过已跳过" if conflicts else ""), 6000)
+
     def _save_ai_session(self):
         if self.ai_session and self.document and self.project:
             try:
@@ -565,7 +632,16 @@ class AiReviewMixin:
                 self.ai_note.setText("上次检查后没有新的字幕改动。")
                 return
         rechecking = self.ai_session is not None and not self.ai_session.local_only
-        if rechecking:
+        # 全量检查：上次没查完（或查过后改了字）就只查剩下的；都查过了才是整份重查
+        left = self.ai_session.unchecked(self.document.entries) if rechecking and cue_ids is None else []
+        force = rechecking and not left
+        if left:
+            choice = QMessageBox.question(self, "继续检查字幕",
+                                          f"还有 {len(left)} 条字幕没查（上次没查完，或查过之后改过），"
+                                          "只把这些发给 AI，会消耗额度。继续吗？")
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+        elif rechecking:
             choice = QMessageBox.question(self, "重新检查字幕",
                                           f"将复查 {len(cue_ids) if cue_ids is not None else len(self.document.entries)} 条字幕，会调用 AI 并消耗额度，确定继续吗？")
             if choice != QMessageBox.StandardButton.Yes:
@@ -574,7 +650,6 @@ class AiReviewMixin:
         snapshot.entries = list(self.document.entries)
         project = self.project
         previous = copy.deepcopy(self.ai_session)
-        force = rechecking
         self._ai_running = True
         self._ai_cancel = threading.Event()
         cancellation = self._ai_cancel
@@ -590,15 +665,60 @@ class AiReviewMixin:
                 if cancellation.is_set():
                     raise RuntimeError("检查已取消")
                 self.ai_progress.emit(generation, project.title, _step, _total)
-            extra = {"cue_ids": cue_ids, "previous": previous} if cue_ids is not None else {}
-            result = self.ai_service.check(snapshot, project.title, force=force,
-                                          progress_callback=progress, **extra)
-            if cancellation.is_set():
-                raise RuntimeError("检查已取消")
-            self.ai_service.save(snapshot, project.title, result)
-            return result
+
+            def partial(session):
+                # 每批查完就送回界面线程：边查边显示，当场落盘，取消、关窗都不丢
+                self.ai_partial.emit(generation, snapshot, project.title, session)
+
+            return self.ai_service.check(snapshot, project.title, force=force, progress_callback=progress,
+                                         cue_ids=cue_ids, previous=previous, partial_callback=partial)
         self._run(action, lambda result, error: self._ai_finished(
             generation, project, snapshot, result, error))
+
+    def _absorb_ai_result(self, snapshot, project_title, session) -> bool:
+        """把查完的结果并进这个视频的建议会话并保存；返回是不是当前打开的视频。
+
+        并而不是替换：检查途中用户采纳 / 跳过的状态留着，改过的句子只作废对不上的那几条。
+        用户已经切到别的视频时，并进那个视频存在磁盘上的会话。
+        """
+
+        if self.document is not None and self.document.video.path == snapshot.video.path:
+            if self.ai_session is None or self.ai_session.local_only and not session.local_only:
+                local = self.ai_session
+                self.ai_session = copy.deepcopy(session)
+                self.ai_session.suggestions = []
+                if local is not None:
+                    self.ai_session.suggestions = list(local.suggestions)
+            self.ai_session.absorb(session, self.document.entries)
+            self._save_ai_session()
+            return True
+        try:
+            stored, _status = self.ai_service.load(snapshot, project_title)
+        except (OSError, ValueError):
+            stored = None
+        if stored is None:
+            stored = session
+        else:
+            stored.absorb(session, snapshot.entries)
+        try:
+            self.ai_service.save(snapshot, project_title, stored)
+        except (OSError, ValueError):
+            pass
+        return False
+
+    def _ai_partial_ready(self, generation, snapshot, project_title, session):
+        if generation != self._ai_generation:
+            return
+        here = self._absorb_ai_result(snapshot, project_title, session)
+        if not here:
+            return
+        first = getattr(self, "_ai_followed", None) != generation and bool(self.ai_session.pending)
+        self._render_ai()
+        if first:
+            # 第一批出结果就打开面板、跟到第一条：不用等全部查完
+            self._ai_followed = generation
+            self._set_ai_open(True)
+            self._follow_first_pending()
 
     def _show_ai_progress(self, generation, project_title, step, total):
         if generation == self._ai_generation and self._ai_running:
@@ -617,29 +737,30 @@ class AiReviewMixin:
             message = str(error)
             cancelled = "检查已取消" in message
             self.app_status.setText(f"{project.title} · {'检查已取消' if cancelled else 'AI 检查失败'}")
-            self.ai_note.setText("检查已取消，可稍后主动重试。" if cancelled else
+            here = self.document is not None and self.document.video.path == snapshot.video.path
+            left = len(self.ai_session.unchecked(self.document.entries)) if here and self.ai_session else 0
+            kept = (f"已查完的建议都留着，还有 {left} 条没查，点“继续检查”只查这些。"
+                    if left and left < len(self.document.entries) else "")
+            self.ai_note.setText(("检查已取消。" + kept if kept else "检查已取消，可稍后主动重试。") if cancelled else
                                  "未配置 AI，请在设置页配置后主动重试。" if "未配置" in message else
-                                 f"检查失败：{message}")
+                                 f"检查失败：{message}" + (f" {kept}" if kept else ""))
             self.ai_setup.setVisible("未配置" in message)
         else:
             self._show_transient_status("✓ AI 检查完成")
             self.ai_note.setText("检查完成。建议需逐条确认。")
-            if self.document and self.document.video.path == snapshot.video.path and document_hash(self.document.entries) == result.content_hash:
-                self.ai_session = result
-                self._ai_selected = None
+            if self._absorb_ai_result(snapshot, project.title, result):
+                pending = self.ai_session.pending
                 self._render_ai()
-                if result.pending:
+                if pending:
                     self._set_ai_open(True)
-                    self._follow_first_pending()
+                    if getattr(self, "_ai_followed", None) != generation:
+                        self._follow_first_pending()
                     if self.pages.currentIndex() != 0:
                         self._ai_return_project = project.id
                         self._ai_return_video_path = snapshot.video.path
-                        self._ai_return_count = len(result.pending)
-                        self.ai_return.setText(f"查看 {project.title} 的 {len(result.pending)} 条建议")
+                        self._ai_return_count = len(pending)
+                        self.ai_return.setText(f"查看 {project.title} 的 {len(pending)} 条建议")
                         motion.reveal(self.ai_return)
-            elif self.document and self.document.video.path == snapshot.video.path:
-                self.app_status.setText(f"{project.title} · 字幕已变化，建议未应用")
-                self.ai_note.setText("检查期间字幕已变化，请主动重新检查。")
             elif result.pending:
                 self._ai_return_project = project.id
                 self._ai_return_video_path = snapshot.video.path

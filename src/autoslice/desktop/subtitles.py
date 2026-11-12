@@ -215,6 +215,20 @@ class SubtitleDocument:
                 return
         raise ValueError("当前字幕已不存在")
 
+    def edit_texts(self, changes: dict[int, str]) -> int:
+        """一次改多句：只记一步撤销（批量采纳本地纠错用）；返回实际改了几句。"""
+
+        positions = {entry.index: position for position, entry in enumerate(self.entries)}
+        if any(index not in positions for index in changes):
+            raise ValueError("当前字幕已不存在")
+        changed = {index: text for index, text in changes.items() if self.entries[positions[index]].text != text}
+        if not changed:
+            return 0
+        self._remember()
+        for index, text in changed.items():
+            self.entries[positions[index]] = replace(self.entries[positions[index]], text=text)
+        return len(changed)
+
     def change_time(self, index: int, start: float, end: float, *, remember: bool = True) -> None:
         """时间轴修改与文字共用一份文档；预览拖动可延后记录一次撤销。"""
 

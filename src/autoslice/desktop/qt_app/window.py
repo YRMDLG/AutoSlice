@@ -86,6 +86,8 @@ class DesktopWindow(
 ):
     # 各职责的混入类必须排在 PreviewWindow 之前，才能覆盖它的同名构建方法。
     ai_progress = Signal(int, str, int, int)
+    # 一批检查完：(第几次检查, 当时的字幕快照, 项目标题, 到目前为止的结果)
+    ai_partial = Signal(int, object, str, object)
     render_progress = Signal(str, object, str)
 
     def __init__(self, service: SubmissionProjectService | None = None,
@@ -139,6 +141,7 @@ class DesktopWindow(
         self.cover_editor.next_video_requested.connect(self._next_cover_video)
         self._timeline_side_pan = TimelineSidePanController(self.timeline, self)
         self.ai_progress.connect(self._show_ai_progress)
+        self.ai_partial.connect(self._ai_partial_ready)
         self.render_progress.connect(self._show_render_progress)
         self.nav_badge = QLabel(self.nav_buttons[0])
         self.nav_badge.setObjectName("badge")

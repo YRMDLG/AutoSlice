@@ -11,6 +11,11 @@ from unittest.mock import patch
 from autoslice.subtitle_workflow import suggest_subtitle_corrections
 from tests.unit import test_desktop_ai_qt as ai_fixture
 
+try:
+    from PySide6.QtWidgets import QApplication
+except ImportError:  # pragma: no cover - 没装 Qt 的环境跳过
+    QApplication = None
+
 
 class ScopedReviewTests(unittest.TestCase):
     def test_scoped_review_keeps_context_and_does_not_reuse_a_partial_cache_as_full(self):
@@ -147,3 +152,86 @@ class ReviewWorkflowQtTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(QApplication is None, "PySide6 不在当前解释器中")
+class LocalBatchApplyTests(unittest.TestCase):
+    """本地固定纠错、记住的改法一次采纳、一步撤销；同音字和被手改过的句子不动。不需要配置 AI。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        import time
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from autoslice.desktop.foundation import DesktopStorage
+        from autoslice.desktop.projects import SubmissionProjectService
+        from autoslice.desktop.qt_app.window import DesktopWindow
+
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        folder = root / "本地纠错"
+        folder.mkdir()
+        (folder / "视频.mp4").write_bytes(b"video")
+        (folder / "视频.srt").write_text("\n\n".join(
+            f"{i}\n00:00:0{i},000 --> 00:00:0{i},800\n错字{i}" for i in range(1, 5)) + "\n", encoding="utf-8")
+        self.app = QApplication.instance() or QApplication([])
+        with patch("autoslice.desktop.qt_app.window.MpvAdapter", side_effect=OSError("测试无播放器")):
+            self.window = DesktopWindow(SubmissionProjectService(root), DesktopStorage(root / "data"))
+        self.window.show()
+        self.addCleanup(lambda: (setattr(self.window, "_resolve_unsaved", lambda: True), self.window.close()))
+        self.time = time
+        self.wait_for(lambda: bool(self.window.project_buttons))
+        self.window._select_real_project(next(p for p in self.window.service.snapshot.projects if p.title == "本地纠错"))
+        self.wait_for(lambda: self.window.document is not None)
+        self.window.ai_service.config_loader = lambda: (_ for _ in ()).throw(ValueError("未配置 AI"))
+
+    def wait_for(self, condition):
+        deadline = self.time.monotonic() + 10
+        while self.time.monotonic() < deadline:
+            self.app.processEvents()
+            if condition():
+                return
+            self.time.sleep(0.01)
+        self.fail("等待超时")
+
+    def test_apply_all_reliable_local_fixes_in_one_undo_step(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        from autoslice.desktop.ai_review import Suggestion
+
+        found = [
+            Suggestion("fix-1", 1, "错字1", "正字1", "主播固定纠错：“错字”→“正字”", None, source="fixed_replacement"),
+            Suggestion("mem-2", 2, "错字2", "正字2", "校对记忆：“错字”→“正字”", None, source="memory"),
+            Suggestion("fix-3", 3, "错字3", "正字3", "主播固定纠错：“错字”→“正字”", None, source="fixed_replacement"),
+            Suggestion("hom-4", 4, "错字4", "错子4", "“字”发音和术语“子”相同，疑似识别听错", None, source="homophone"),
+        ]
+        with patch.object(self.window.ai_service, "local_suggestions", return_value=found):
+            self.window._start_local_check()
+        self.assertFalse(self.window.ai_apply_local.isHidden())
+        self.assertIn("3 条", self.window.ai_apply_local.text())
+        # 第 3 条用户已经手改过：跳过
+        self.window.document.edit_text(3, "手改的第三句")
+        self.window._edited()
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as ask:
+            self.window.ai_apply_local.click()
+        self.assertIn("1 条原文已经被你改过", ask.call_args.args[2])
+        texts = [entry.text for entry in self.window.document.entries]
+        self.assertEqual(texts, ["正字1", "正字2", "手改的第三句", "错字4"])
+        status = {item.suggestion_id: item.status for item in self.window.ai_session.suggestions}
+        self.assertEqual((status["fix-1"], status["mem-2"], status["hom-4"]), ("accepted", "accepted", "pending"))
+        # 一步撤回两条，建议回到待确认；重做再一起采纳
+        self.window._undo()
+        self.assertEqual([entry.text for entry in self.window.document.entries][:2], ["错字1", "错字2"])
+        self.assertEqual({item.status for item in self.window.ai_session.suggestions if item.cue_id in (1, 2)}, {"pending"})
+        self.window._redo()
+        self.assertEqual([entry.text for entry in self.window.document.entries][:2], ["正字1", "正字2"])
+        restored, _status = self.window.ai_service.load(self.window.document, self.window.project.title)
+        self.assertEqual({item.suggestion_id: item.status for item in restored.suggestions}["fix-1"], "accepted")
+        # 只改界面里的字幕：保存前不写文件
+        self.assertFalse(self.window.document.corrected_path.exists())
+        # 再做一次本地检查不重复追加
+        with patch.object(self.window.ai_service, "local_suggestions", return_value=found):
+            self.window._start_local_check()
+        self.assertEqual(len(self.window.ai_session.suggestions), 4)

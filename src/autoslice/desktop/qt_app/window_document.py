@@ -181,7 +181,9 @@ class SubtitleDocumentMixin:
             if self.ai_session and self._ai_undo and self._ai_undo[-1][:2] == (after, before):
                 transition = self._ai_undo.pop()
                 self._ai_redo.append(transition)
-                self.ai_session.mark(transition[2], "pending", self.document.entries)
+                # 批量采纳记的是一组建议，一起回到待确认
+                for suggestion_id in transition[2] if isinstance(transition[2], tuple) else (transition[2],):
+                    self.ai_session.mark(suggestion_id, "pending", self.document.entries)
             self.model.set_document(self.document)
             self.timeline.update()
             self._select_cue(self.selected_index)
@@ -205,7 +207,8 @@ class SubtitleDocumentMixin:
             if self.ai_session and self._ai_redo and self._ai_redo[-1][:2] == (before, after):
                 transition = self._ai_redo.pop()
                 self._ai_undo.append(transition)
-                self.ai_session.mark(transition[2], "accepted", self.document.entries)
+                for suggestion_id in transition[2] if isinstance(transition[2], tuple) else (transition[2],):
+                    self.ai_session.mark(suggestion_id, "accepted", self.document.entries)
             self.model.set_document(self.document)
             self.timeline.update()
             self._select_cue(self.selected_index)

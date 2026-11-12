@@ -125,5 +125,107 @@ class DesktopAIReviewTests(unittest.TestCase):
         self.assertEqual(self.document.entries[0].text, "错字一")
 
 
+
+class ResumableAIReviewTests(unittest.TestCase):
+    """分批检查可续跑：取消后已完成批次不丢，再查只发没查过的句子。"""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        folder = self.root / "【投稿】续跑"
+        folder.mkdir()
+        (folder / "成片.mp4").touch()
+        self.source = folder / "成片.srt"
+        blocks = [f"{i}\n00:{i // 60:02d}:{i % 60:02d},000 --> 00:{i // 60:02d}:{i % 60:02d},800\n第{i}句错字"
+                  for i in range(1, 148)]
+        self.source.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+        project = SubmissionProjectService(self.root).refresh().projects[0]
+        self.title = project.title
+        self.document = SubtitleDocument.load(project.videos[0])
+        self.batches = []
+        config = SimpleNamespace(base_url="https://example.invalid", api_type="openai",
+                                 model="existing-model", review_reasoning_effort="high")
+        profile = SimpleNamespace(id="test", label="测试", subtitle_review_fingerprint=lambda: "rules-v1")
+
+        def checker(path, **kwargs):
+            indices = kwargs["review_indices"]
+            self.batches.append(indices)
+            texts = {entry.index: entry.text for entry in self.document.entries}
+            suggestions = [{"index": i, "original": texts[i], "corrected": texts[i].replace("错字", "正字"),
+                            "reason": "错别字", "confidence": .9} for i in indices if "错字" in texts[i]]
+            # 同一批重复返回同一条建议
+            return {"suggestions": suggestions + suggestions[:1]}
+
+        self.service = AIReviewService(DesktopStorage(self.root / "app-data"), checker=checker,
+                                       config_loader=lambda: config)
+        self.service.concurrency = 1
+        patcher = patch("autoslice.desktop.ai_review.resolve_streamer_profile", return_value=profile)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def cancel_after(self, batches):
+        def progress(_message, step, _total):
+            if step >= batches:
+                raise RuntimeError("检查已取消")
+        return progress
+
+    def test_cancel_keeps_finished_batches_and_resume_sends_only_the_rest(self):
+        original = self.source.read_text(encoding="utf-8")
+        partials = []
+        with self.assertRaises(RuntimeError):
+            self.service.check(self.document, self.title, progress_callback=self.cancel_after(3),
+                               partial_callback=partials.append)
+        self.assertEqual([len(batch) for batch in self.batches], [30, 30, 30])
+        kept = partials[-1]
+        self.assertEqual(len(kept.pending), 90)
+        self.assertEqual(len(kept.unchecked(self.document.entries)), 57)
+        # 界面会在每批完成时落盘；这里模拟取消后关窗，再从磁盘读回来
+        kept.mark(kept.pending[0].suggestion_id, "skipped", self.document.entries)
+        self.service.save(self.document, self.title, kept)
+        restored, status = self.service.load(self.document, self.title)
+        self.assertEqual(status, "ready")
+
+        self.batches.clear()
+        resumed = self.service.check(self.document, self.title, previous=restored)
+        self.assertEqual([batch[0] for batch in self.batches], [91, 121])
+        self.assertEqual([len(batch) for batch in self.batches], [30, 27])
+        self.assertEqual(len(resumed.suggestions), 147)
+        self.assertEqual(resumed.unchecked(self.document.entries), [])
+        self.assertEqual(resumed.find(restored.pending[0].suggestion_id).status, "pending")
+        self.assertEqual([item.status for item in resumed.suggestions].count("skipped"), 1)
+        self.assertEqual(len({item.suggestion_id for item in resumed.suggestions}), 147)
+
+        # 改了一条字幕：再查只发这一条，其它建议原样保留
+        self.document.edit_text(50, "第50句改过了错字")
+        self.batches.clear()
+        again = self.service.check(self.document, self.title, previous=resumed)
+        self.assertEqual(self.batches, [[50]])
+        self.assertEqual([item.original_text for item in again.suggestions if item.cue_id == 50], ["第50句改过了错字"])
+        self.assertEqual(len(again.suggestions), 147)
+        # 检查只产生待确认建议，用户的字幕文件一个字没动
+        self.assertEqual(self.source.read_text(encoding="utf-8"), original)
+
+    def test_failed_batch_keeps_earlier_batches(self):
+        partials = []
+        real = self.service.checker
+
+        def flaky(path, **kwargs):
+            if kwargs["review_indices"][0] == 61:
+                raise RuntimeError("AI 未返回 JSON 对象")
+            return real(path, **kwargs)
+
+        self.service.checker = flaky
+        with self.assertRaises(RuntimeError):
+            self.service.check(self.document, self.title, partial_callback=partials.append)
+        self.assertEqual(len(partials[-1].pending), 60)
+
+    def test_rules_change_means_everything_is_checked_again(self):
+        first = self.service.check(self.document, self.title)
+        self.batches.clear()
+        first.settings_key = "旧规则"
+        self.service.check(self.document, self.title, previous=first)
+        self.assertEqual(sum(len(batch) for batch in self.batches), 147)
+
 if __name__ == "__main__":
     unittest.main()

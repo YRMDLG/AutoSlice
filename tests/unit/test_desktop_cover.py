@@ -921,17 +921,17 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
 
         picked = Path(self.temp.name) / "picked.png"
         Image.new("RGB", (640, 360), "#335577").save(picked)
-        calls = []
         self.widget.service.overview_candidates = lambda video: (
             CoverFrame(picked, 0.3, 50.0), CoverFrame(picked, 0.9, 70.0),
         )
-        original = self.widget.service.extract_frame
-        self.widget.service.extract_frame = lambda video, timestamp: (calls.append(timestamp), original(video, timestamp))[1]
         self.widget.show()
         self.widget.set_current_playhead(0.0)
         self.widget.set_context(self.project, self.project.videos[0])
-        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and self.widget._schemes))
-        self.assertAlmostEqual(calls[0], 0.9)
+        # 先出第一张，后台全片候选回来后换成画质最好的 0.9 秒
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and self.widget._schemes
+                                   and not self.widget._overview_pending
+                                   and abs(self.widget.timestamp_edit.value() - 0.9) < 0.01))
+        self.assertEqual(Path(self.widget.draft.image_path), picked)
         before = self.widget.document
         self.widget.scheme_buttons[1].click()
         self.assertTrue(self.widget.scheme_buttons[1].isChecked())
@@ -953,10 +953,74 @@ class CoverEditorQtMediaIntegrationTests(unittest.TestCase):
         self.widget.show()
         self.widget.set_current_playhead(0.0)
         self.widget.set_context(self.project, self.project.videos[0])
-        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and not self.widget._frame_extract_pending))
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and not self.widget._frame_extract_pending
+                                   and not self.widget._overview_pending))
         self.assertTrue(self.widget._strip_pinned)
         strip = [round(float(button.property("timestamp")), 2) for button in self.widget.nearby_frame_buttons]
         self.assertEqual(strip, stamps)
+        self.widget.close()
+
+    def test_first_frame_shows_before_the_whole_video_candidates_finish(self):
+        # 封面 C10：原来要等全片候选都取完才出第一张
+        import threading
+
+        from autoslice.desktop.cover_frames import CoverFrame
+
+        picked = Path(self.temp.name) / "later.png"
+        Image.new("RGB", (640, 360), "#775533").save(picked)
+        release = threading.Event()
+
+        def slow(video, count=8):
+            release.wait(10)
+            return tuple(CoverFrame(picked, stamp, 50.0 + index * 10) for index, stamp in enumerate((0.2, 0.6, 0.95)))
+
+        self.widget.service.overview_candidates = slow
+        self.addCleanup(release.set)
+        self.widget.show()
+        self.widget.set_current_playhead(0.0)
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and self.widget._overview_pending))
+        first = self.widget.draft.image_path
+        self.assertNotEqual(Path(first), picked)
+        release.set()
+        self.assertTrue(self._wait(lambda: not self.widget._overview_pending
+                                   and Path(self.widget.draft.image_path) == picked))
+        self.assertAlmostEqual(self.widget.timestamp_edit.value(), 0.95, places=2)
+        # Ctrl+Z 换回第一张
+        self.widget._undo()
+        self.assertEqual(self.widget.draft.image_path, first)
+        self.widget.close()
+
+    def test_user_frame_change_is_not_overridden_by_late_candidates(self):
+        import threading
+
+        from autoslice.desktop.cover_frames import CoverFrame
+
+        picked = Path(self.temp.name) / "late.png"
+        Image.new("RGB", (640, 360), "#557733").save(picked)
+        release = threading.Event()
+
+        def slow(video, count=8):
+            release.wait(10)
+            return (CoverFrame(picked, 0.2, 50.0), CoverFrame(picked, 0.95, 90.0))
+
+        self.widget.service.overview_candidates = slow
+        self.addCleanup(release.set)
+        self.widget.show()
+        self.widget.set_current_playhead(0.0)
+        self.widget.set_context(self.project, self.project.videos[0])
+        self.assertTrue(self._wait(lambda: self.widget.draft.image_path and self.widget._overview_pending))
+        # 用户自己换到 0.5 秒
+        self.widget.timestamp_edit.setValue(0.5)
+        self.widget._extract_frame()
+        self.assertTrue(self._wait(lambda: not self.widget._frame_extract_pending))
+        mine = self.widget.draft.image_path
+        release.set()
+        for _ in range(50):
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertEqual(self.widget.draft.image_path, mine)
+        self.assertNotEqual(Path(mine), picked)
         self.widget.close()
 
     def test_clicking_a_whole_video_candidate_keeps_the_other_candidates_for_comparison(self):

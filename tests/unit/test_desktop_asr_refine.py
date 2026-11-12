@@ -84,6 +84,25 @@ class SnapToSpeechTests(unittest.TestCase):
         segments = [(1.0, 2.0, "第一句"), (3.0, 4.0, "第二句")]
         self.assertEqual(snap_to_speech(segments, self.wav), segments)
 
+    def test_untouched_cues_say_why(self):
+        from autoslice.desktop.asr.refine import NO_AUDIO, NO_PAUSE, TOO_LOUD
+
+        # 背景声音铺满：分不清人声和停顿
+        _wav(self.wav, [(0.0, 5.0)], 5.0)
+        reasons = {}
+        snap_to_speech([(1.0, 2.0, "一"), (3.0, 4.0, "二")], self.wav, reasons=reasons)
+        self.assertEqual(reasons, {0: TOO_LOUD, 1: TOO_LOUD})
+        # 两句之间话是连着说的：有安静的地方，但不在这两句的边界附近
+        _wav(self.wav, [(1.0, 4.0)], 6.0)
+        reasons = {}
+        snapped = snap_to_speech([(1.5, 2.5, "一"), (2.5, 3.5, "二")], self.wav, reasons=reasons)
+        self.assertEqual(snapped[0][1], 2.5)
+        self.assertEqual(reasons.get(0), NO_PAUSE)
+        # 没有音频
+        reasons = {}
+        snap_to_speech([(1.0, 2.0, "一")], Path(self.temp.name) / "没有.wav", reasons=reasons)
+        self.assertEqual(reasons, {0: NO_AUDIO})
+
     def test_missing_audio_only_fixes_gaps_and_overlaps(self):
         snapped = snap_to_speech([(0.0, 1.0, "一"), (1.05, 2.0, "二"), (1.9, 3.0, "三")], self.wav)
         self.assertEqual(snapped[0][1], snapped[1][0])
@@ -157,6 +176,26 @@ class SnapFromSubtitlePageTests(unittest.TestCase):
         self.assertIn("已按声音调整 2 条", self.window.app_status.text())
         self.window._undo()
         self.assertEqual(list(self.window.document.entries), before)
+
+    def test_loud_background_is_explained_and_can_retry_with_music_turned_down(self):
+        from unittest.mock import patch
+
+        from PySide6.QtWidgets import QMessageBox
+
+        loud = Path(self.temp.name) / "loud.wav"
+        _wav(loud, [(0.0, 5.0)], 5.0)
+        used = []
+
+        def audio(_cache, _video, *, foreground=False):
+            used.append(foreground)
+            return self.wav if foreground else loud
+
+        with patch("autoslice.desktop.asr.refine.speech_audio", side_effect=audio),                 patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as ask:
+            self.window._snap_cues_to_speech(selected_only=False)
+            self.wait_for(lambda: used == [False, True] and not self.window._speech_snapping)
+        self.assertIn("2 条字幕附近背景声音太满", ask.call_args.args[2])
+        # 压低背景音乐后的那份音频分得清：两句都调整了
+        self.assertIn("已按声音调整 2 条", self.window.app_status.text())
 
 if __name__ == "__main__":
     unittest.main()

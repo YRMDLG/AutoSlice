@@ -574,6 +574,12 @@ class ProjectsMixin:
                              "已恢复待确认建议。" if ai_status == "partial" else
                              "AI 只生成待确认建议，不修改字幕。")
         self.ai_setup.setVisible(ai_status == "unconfigured")
+        if self.ai_session is not None and not self.ai_session.local_only and self.ai_session.checked:
+            left = len(self.ai_session.unchecked(document.entries))
+            if left:
+                # 上次取消了或者关窗了：说清楚还剩几条、怎么接着查
+                self.ai_note.setText(f"{self.ai_note.text()}上次检查还有 {left} 条没查完（或之后改过），"
+                                     "点“继续检查”只查这些。")
         self._render_ai()
         if getattr(self, "_ai_return_project", None) == project.id and self.ai_session and self.ai_session.pending:
             self._set_ai_open(True)
