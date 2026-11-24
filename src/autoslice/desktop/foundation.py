@@ -14,6 +14,7 @@ from typing import Any
 
 DRAFT_SCHEMA_VERSION = 1
 SESSION_SCHEMA_VERSION = 1
+PREFERENCES_SCHEMA_VERSION = 1
 DATA_DIR_ENV_NAME = "AUTOSLICE_DESKTOP_DATA_DIR"
 _DRAFT_KINDS = {"subtitle", "cover"}
 
@@ -225,6 +226,26 @@ class DesktopStorage:
         path = self.sessions / "last.json"
         self._write_json(path, {"schema_version": SESSION_SCHEMA_VERSION, "payload": payload})
         return path
+
+    @property
+    def preferences_path(self) -> Path:
+        return self.root / "preferences.json"
+
+    def save_preferences(self, payload: dict[str, Any]) -> Path:
+        """界面偏好（主题、强调色等）；和会话分开存，保存会话不会冲掉它。"""
+
+        self._write_json(self.preferences_path, {"schema_version": PREFERENCES_SCHEMA_VERSION, "payload": payload})
+        return self.preferences_path
+
+    def read_preferences(self) -> dict[str, Any]:
+        try:
+            value = json.loads(self.preferences_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            return {}
+        if not isinstance(value, dict) or value.get("schema_version") != PREFERENCES_SCHEMA_VERSION:
+            return {}
+        payload = value.get("payload")
+        return payload if isinstance(payload, dict) else {}
 
     def read_session(self) -> dict[str, Any] | None:
         try:

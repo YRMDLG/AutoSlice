@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QFontMetrics, QGuiApplication, QPainter, QPain
 from PySide6.QtWidgets import QComboBox, QMenu, QWidget
 
 from . import motion
-from .theme import COLORS
+from .theme import COLORS, STYLE
 
 # 投影留白：左、上、右、下；光源在上方，下侧留得更多
 SHADOW = (10, 6, 10, 14)
@@ -20,19 +20,27 @@ ITEM_OUT = 180
 _SHORTCUT = re.compile(r"^(.*?)\s+((?:Ctrl\+|Shift\+|Alt\+)*(?:[A-Z0-9]|Delete|Del|Space|Enter|F\d{1,2}))$")
 
 
-def paint_panel(painter: QPainter, rect: QRectF, radius: float = 8) -> None:
-    """层叠圆角矩形模拟柔和投影，再画浮层面板与顶边高光。"""
+def paint_panel(painter: QPainter, rect: QRectF, radius: float | None = None) -> None:
+    """层叠圆角矩形模拟柔和投影，再画浮层面板与描边；夜航投影深、晨雾投影暖而淡。"""
 
+    radius = STYLE.menu_radius if radius is None else radius
     painter.setPen(Qt.PenStyle.NoPen)
+    shadow = QColor(COLORS.shadow)
+    step = (0.05 if STYLE.dark else 0.018)
     for spread in range(8, 0, -1):
-        painter.setBrush(QColor(0, 0, 0, int(255 * 0.022 * (9 - spread))))
-        painter.drawRoundedRect(rect.adjusted(-spread, -spread + 3, spread, spread + 3),
+        shadow.setAlphaF(min(1.0, step * (9 - spread) * STYLE.shadow_alpha / 0.7))
+        painter.setBrush(shadow)
+        painter.drawRoundedRect(rect.adjusted(-spread, -spread + 4, spread, spread + 4),
                                 radius + spread, radius + spread)
     path = QPainterPath()
     path.addRoundedRect(rect, radius, radius)
     painter.fillPath(path, QColor(COLORS.overlay))
-    painter.setPen(motion._edge_pen(rect, COLORS.highlight, COLORS.border))
+    painter.setPen(QPen(QColor(COLORS.overlay_border), 1))
     painter.drawPath(path)
+    if STYLE.dark:
+        # 顶边一道极淡的高光
+        painter.setPen(QPen(QColor(COLORS.card_highlight), 1))
+        painter.drawLine(QPointF(rect.left() + radius, rect.top() + 1), QPointF(rect.right() - radius, rect.top() + 1))
 
 
 def paint_check(painter: QPainter, center: QPointF, color) -> None:
@@ -50,8 +58,8 @@ def paint_check(painter: QPainter, center: QPointF, color) -> None:
 def paint_row(painter: QPainter, rect: QRectF, hover: float) -> None:
     if hover > 0.01:
         path = QPainterPath()
-        path.addRoundedRect(rect, 5, 5)
-        painter.fillPath(path, motion.faded(COLORS.accent, hover))
+        path.addRoundedRect(rect, 8, 8)
+        painter.fillPath(path, motion.faded(motion.flat_hover(), hover))
 
 
 class _Ghost(QWidget):
@@ -170,13 +178,12 @@ class ComboPopup(QWidget):
             h = self._rows.value(index, 1.0 if active else 0.0, ITEM_IN if active else ITEM_OUT)
             paint_row(painter, rect, h)
             selected = index == current
-            base = COLORS.accent_text if selected else COLORS.text
-            painter.setPen(motion.mix(base, "#FFFFFF", h))
+            base = COLORS.accent_ink if selected else COLORS.text_secondary
+            painter.setPen(motion.mix(base, COLORS.accent_ink if selected else COLORS.text, h))
             painter.drawText(rect.adjusted(12, 0, -30, 0), Qt.AlignmentFlag.AlignVCenter,
                              self.combo.itemText(index))
             if selected:
-                paint_check(painter, QPointF(rect.right() - 15, rect.center().y()),
-                            motion.mix(COLORS.accent_text, "#FFFFFF", h))
+                paint_check(painter, QPointF(rect.right() - 15, rect.center().y()), COLORS.accent_ink)
 
     def mouseMoveEvent(self, event) -> None:
         if self._closing:
@@ -315,17 +322,18 @@ class MenuFx(QObject):
             paint_row(painter, row, h)
             match = _SHORTCUT.match(action.text().replace("&", ""))
             label, shortcut = (match.group(1), match.group(2)) if match else (action.text().replace("&", ""), "")
-            text = motion.mix(COLORS.text if enabled else COLORS.disabled, "#FFFFFF", h)
+            base = COLORS.text_secondary if enabled else COLORS.disabled
+            if enabled and action.property("danger"):
+                base = COLORS.danger
+            text = motion.mix(base, COLORS.danger if action.property("danger") else COLORS.text, h)
             painter.setPen(text)
             painter.drawText(row.adjusted(12, 0, -12, 0), Qt.AlignmentFlag.AlignVCenter, label)
             trailing = row.right() - 12
             if action.isCheckable() and action.isChecked():
-                paint_check(painter, QPointF(trailing - 4, row.center().y()),
-                            motion.mix(COLORS.accent_text, "#FFFFFF", h))
+                paint_check(painter, QPointF(trailing - 4, row.center().y()), COLORS.accent_ink)
                 trailing -= 20
             if shortcut:
-                painter.setPen(motion.mix(COLORS.subtle if enabled else COLORS.disabled,
-                                          motion.faded("#FFFFFF", 0.8), h))
+                painter.setPen(QColor(COLORS.subtle if enabled else COLORS.disabled))
                 painter.drawText(QRectF(row.left(), row.top(), trailing - row.left(), row.height()),
                                  Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, shortcut)
         painter.end()

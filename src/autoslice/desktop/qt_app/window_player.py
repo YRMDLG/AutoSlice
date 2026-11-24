@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.qt_preview import popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
+from autoslice.desktop.qt_preview.appearance import themed
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
@@ -68,8 +69,8 @@ class PlayerMixin:
         controls.addWidget(self.time_label)
         controls.addStretch()
         volume_icon = label("")
-        volume_icon.setPixmap(desktop_icon("volume", size=SIZES.tool_icon_size).pixmap(
-            SIZES.tool_icon_size, SIZES.tool_icon_size))
+        themed(volume_icon, lambda: volume_icon.setPixmap(desktop_icon("volume", size=SIZES.tool_icon_size).pixmap(
+            SIZES.tool_icon_size, SIZES.tool_icon_size)))
         volume_icon.setToolTip("音量")
         controls.addWidget(volume_icon)
         self.volume = QSlider(Qt.Orientation.Horizontal)

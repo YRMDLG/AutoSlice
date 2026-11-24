@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import COLORS
+from .theme import COLORS, STYLE
 
 # 时长（毫秒）
 PRESS = 90
@@ -53,6 +53,9 @@ VIEW = 260
 SCROLL = 280
 FADE = 180
 STAGGER = 28
+SHEEN = 720
+SPRING_MOVE = 300
+SPRING_MOVE_BOLD = 380
 
 
 def _bezier(x1: float, y1: float, x2: float, y2: float) -> QEasingCurve:
@@ -63,6 +66,15 @@ def _bezier(x1: float, y1: float, x2: float, y2: float) -> QEasingCurve:
 
 STANDARD = _bezier(0.2, 0.0, 0.0, 1.0)
 EMPHASIZED = _bezier(0.3, 0.0, 0.0, 1.0)
+# 设计稿缓动：--out 快出缓停；--spring 两套主题回弹幅度不同；--soft 晨雾的柔和进出
+OUT = _bezier(0.16, 1.0, 0.3, 1.0)
+SPRING_NIGHT = _bezier(0.34, 1.45, 0.5, 1.0)
+SPRING_MORNING = _bezier(0.34, 1.56, 0.64, 1.0)
+SOFT = _bezier(0.45, 0.0, 0.2, 1.0)
+
+
+def spring() -> QEasingCurve:
+    return SPRING_NIGHT if STYLE.dark else SPRING_MORNING
 
 
 def restart(animation: QVariantAnimation, start, end, duration: int, curve: QEasingCurve | None = None) -> None:
@@ -259,9 +271,13 @@ def _edge_pen(rect: QRectF, top, body) -> QPen:
 
 
 class ButtonFx(QObject):
-    """按钮背景接管绘制：悬停、按下、勾选与键盘焦点四个通道平滑过渡。"""
+    """按钮背景接管绘制：悬停、按下、勾选与键盘焦点四个通道平滑过渡。
 
-    _RADIUS = {"navButton": 8, "projectItem": 6, "projectItemCompact": 6, "segment": 5}
+    夜航所有按钮只描边不填充，主按钮是强调色描边；晨雾次按钮白底、主按钮实心强调色，悬停扫过一道高光。
+    """
+
+    _RADIUS = {"navButton": 10, "projectItem": 8, "projectItemCompact": 8, "segment": 6,
+               "frameThumb": 7, "schemeThumb": 7}
 
     def __init__(self, button: QPushButton) -> None:
         super().__init__(button)
@@ -272,6 +288,8 @@ class ButtonFx(QObject):
         self.press = Channel(self, refresh)
         self.checked = Channel(self, refresh, 1.0 if button.isChecked() else 0.0)
         self.focus = Channel(self, refresh)
+        # 晨雾主按钮悬停时扫过的高光，0→1 为从左到右
+        self.sheen = Channel(self, refresh)
         button.toggled.connect(self._toggled)
         # 背景交给这里绘制；文字颜色、尺寸仍由全局样式决定
         button.setStyleSheet("QPushButton { background: transparent; border-color: transparent; }")
@@ -289,13 +307,16 @@ class ButtonFx(QObject):
         elif kind == QEvent.Type.Enter:
             if self.button.isEnabled():
                 self.hover.to(1.0, HOVER_IN)
+                if self.kind == "primary" and STYLE.filled_primary:
+                    self.sheen.snap(0.0)
+                    self.sheen.to(1.0, SHEEN, SOFT)
         elif kind == QEvent.Type.Leave:
             self.hover.to(0.0, HOVER_OUT)
             self.press.to(0.0, HOVER_OUT)
         elif kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
             self.press.to(1.0, PRESS)
         elif kind == QEvent.Type.MouseButtonRelease:
-            self.press.to(0.0, HOVER_OUT)
+            self.press.to(0.0, HOVER_OUT, spring())
         elif kind == QEvent.Type.FocusIn:
             keyboard = event.reason() in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason,
                                           Qt.FocusReason.ShortcutFocusReason)
@@ -307,96 +328,139 @@ class ButtonFx(QObject):
             self.press.snap(0.0)
         return False
 
+    def _radius(self) -> float:
+        return self._RADIUS.get(self.kind, STYLE.control_radius)
+
     def _paint(self) -> None:
         button = self.button
         rect = QRectF(button.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        radius = self._RADIUS.get(self.kind, 6)
+        radius = self._radius()
         painter = QPainter(button)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         h, p, c, f = self.hover.value, self.press.value, self.checked.value, self.focus.value
         enabled_ = button.isEnabled()
+        if p > 0.01:
+            # 按下时底板按主题比例内缩（夜航 0.96、晨雾 0.94），文字不动
+            shrink = (1 - STYLE.press_scale) * min(1.0, p) / 2
+            rect = rect.adjusted(rect.width() * shrink, rect.height() * shrink,
+                                 -rect.width() * shrink, -rect.height() * shrink)
         if self.kind in ("raised", "secondary", "primary"):
-            self._paint_raised(painter, rect, radius, h, p, c, enabled_)
+            self._paint_button(painter, rect, radius, h, p, c, enabled_)
         elif self.kind in ("navButton", "projectItem", "projectItemCompact"):
             self._paint_selectable(painter, rect, radius, h, p, c)
         elif self.kind == "segment":
             if enabled_ and h * (1 - c) > 0.01:
-                painter.fillPath(_rounded(rect, radius), faded(COLORS.hover, h * (1 - c)))
+                painter.fillPath(_rounded(rect, radius), faded(flat_hover(), h * (1 - c) * 0.7))
         else:
             self._paint_flat(painter, rect, radius, h, p, c, enabled_)
         if f > 0.01:
-            painter.setPen(QPen(faded(COLORS.focus_ring, f), 1))
+            painter.setPen(QPen(faded(COLORS.focus_ring, f), 1.5))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect, radius, radius)
+            painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
         painter.end()
 
-    def _paint_raised(self, painter, rect, radius, h, p, c, enabled_) -> None:
+    def _paint_button(self, painter, rect, radius, h, p, c, enabled_) -> None:
         path = _rounded(rect, radius)
         if not enabled_:
-            painter.fillPath(path, QColor(COLORS.panel))
+            if STYLE.filled_buttons:
+                painter.fillPath(path, faded(COLORS.card, 0.6))
             painter.setPen(QPen(QColor(COLORS.divider), 1))
             painter.drawPath(path)
             return
         if self.kind == "primary":
-            top = mix(COLORS.accent_top, "#5A8FF1", h)
-            bottom = mix(COLORS.accent, COLORS.accent_hover, h)
-            body = mix(COLORS.accent_pressed, COLORS.accent, h)
-            edge = mix(COLORS.accent_edge, "#86ADF6", h)
-            pressed, pressed_edge = COLORS.accent_pressed, COLORS.accent_medium
+            if STYLE.filled_primary:
+                fill = mix(mix(COLORS.accent, COLORS.accent_hover, h * 0.35), COLORS.accent_pressed, p)
+                painter.fillPath(path, fill)
+                self._paint_sheen(painter, path, rect)
+                painter.setPen(QPen(QColor(COLORS.accent_line), 1))
+            else:
+                # 夜航主按钮：强调色描边 + 悬停时极淡的强调色铺底和内光圈
+                painter.fillPath(path, faded(COLORS.accent, 0.09 * max(h, c) + 0.05 * p))
+                if h > 0.01:
+                    painter.setPen(QPen(faded(COLORS.accent, 0.14 * h), 3))
+                    painter.drawPath(_rounded(rect.adjusted(1.5, 1.5, -1.5, -1.5), max(1.0, radius - 1.5)))
+                painter.setPen(QPen(QColor(COLORS.accent), 1))
+            painter.drawPath(path)
+            return
+        if STYLE.filled_buttons:
+            fill = mix(mix(COLORS.card, COLORS.button_hover, h), COLORS.accent_soft, c)
+            painter.fillPath(path, mix(fill, COLORS.button_pressed, p))
         else:
-            top = mix(COLORS.raised_top, "#2B2B28", h)
-            bottom = mix(COLORS.raised, COLORS.button_hover, h)
-            body = mix(COLORS.border, COLORS.button_hover_border, h)
-            edge = mix(COLORS.highlight, "#45443F", h)
-            pressed, pressed_edge = COLORS.button_pressed, COLORS.canvas
-            if c > 0:
-                top, bottom = mix(top, COLORS.accent_subtle, c), mix(bottom, COLORS.accent_subtle, c)
-                body, edge = mix(body, COLORS.accent_tint, c), mix(edge, "#24375A", c)
-        top, bottom, edge = mix(top, pressed, p), mix(bottom, pressed, p), mix(edge, pressed_edge, p)
-        gradient = QLinearGradient(0, rect.top(), 0, rect.bottom())
-        gradient.setColorAt(0, top)
-        gradient.setColorAt(1, bottom)
-        painter.fillPath(path, QBrush(gradient))
-        painter.setPen(_edge_pen(rect, edge, body))
+            painter.fillPath(path, faded(COLORS.button_hover, max(h, p * 0.6)))
+            if c > 0.01:
+                painter.fillPath(path, faded(COLORS.accent_soft, c * 0.6))
+        border = mix(COLORS.control_border, COLORS.control_hover_border, h)
+        painter.setPen(QPen(mix(border, COLORS.accent_line, c), 1))
         painter.drawPath(path)
+
+    def _paint_sheen(self, painter, path, rect) -> None:
+        s = self.sheen.value
+        if s <= 0.01 or s >= 0.99:
+            return
+        center = rect.left() + rect.width() * (-0.3 + 1.6 * s)
+        band = rect.width() * 0.45
+        gradient = QLinearGradient(center - band / 2, rect.top(), center + band / 2, rect.bottom())
+        glow = QColor("#FFFFFF")
+        glow.setAlphaF(0.0)
+        gradient.setColorAt(0.0, glow)
+        glow.setAlphaF(0.75 * self.hover.value)
+        gradient.setColorAt(0.5, glow)
+        glow.setAlphaF(0.0)
+        gradient.setColorAt(1.0, glow)
+        painter.save()
+        painter.setClipPath(path)
+        painter.fillRect(rect, QBrush(gradient))
+        painter.restore()
 
     def _paint_flat(self, painter, rect, radius, h, p, c, enabled_) -> None:
         path = _rounded(rect, radius)
         if not enabled_:
             return
         if c > 0.01:
-            painter.fillPath(path, faded(mix(COLORS.accent_subtle, "#1A2130", h), c))
             if self.kind in ("frameThumb", "schemeThumb"):
                 # 选中的缩略图要一眼看出来：2px 强调边框
-                painter.setPen(QPen(faded(COLORS.accent, c), 2))
+                painter.setPen(QPen(faded(COLORS.accent if STYLE.dark else COLORS.accent_line, c), 2))
                 painter.drawPath(_rounded(rect.adjusted(1, 1, -1, -1), radius))
-            else:
-                painter.setPen(QPen(faded(COLORS.accent_tint, c), 1))
+            elif STYLE.dark:
+                # 夜航开关只描边
+                painter.setPen(QPen(faded(COLORS.accent_line, c), 1))
                 painter.drawPath(path)
-        if h * (1 - c) > 0.01:
-            painter.fillPath(path, faded(COLORS.hover, h * (1 - c)))
+            else:
+                painter.fillPath(path, faded(COLORS.accent_soft, c))
+        if h * (1 - c * 0.5) > 0.01:
+            painter.fillPath(path, faded(flat_hover(), h * (1 - c * 0.5)))
         if p > 0.01:
             painter.fillPath(path, faded(COLORS.button_pressed, p * 0.9))
 
     def _paint_selectable(self, painter, rect, radius, h, p, c) -> None:
         path = _rounded(rect, radius)
-        hover = COLORS.hover if self.kind == "navButton" else COLORS.project_hover
         if h * (1 - c) > 0.01:
-            painter.fillPath(path, faded(hover, h * (1 - c)))
+            painter.fillPath(path, faded(flat_hover(), h * (1 - c)))
         if c > 0.01:
-            painter.fillPath(path, faded(COLORS.project_selected, c))
-            # 选中指示条自中心向两端生长
-            inset = 10 if self.kind == "navButton" else 8
-            full = rect.height() - inset * 2
-            length = full * ease(c)
-            bar = QRectF(rect.left(), rect.center().y() - length / 2, 2, length)
-            painter.fillPath(_rounded(bar, 1), faded(COLORS.accent, min(1.0, c * 1.4)))
+            if self.kind == "navButton":
+                if STYLE.dark:
+                    painter.setPen(QPen(faded(COLORS.accent_line, c), 1))
+                    painter.drawPath(path)
+                else:
+                    painter.fillPath(path, faded(COLORS.card, c))
+                    painter.setPen(QPen(faded(COLORS.card_border, c), 1))
+                    painter.drawPath(path)
+            else:
+                painter.fillPath(path, faded(COLORS.project_selected, c))
         if p > 0.01:
             painter.fillPath(path, faded(COLORS.button_pressed, p * 0.6))
 
 
+def flat_hover():
+    """无边框按钮、列表项的悬停底色：夜航是白色 4.5% 罩层，晨雾是暖灰底。"""
+
+    return COLORS.button_hover if STYLE.dark else COLORS.project_hover
+
+
 class SegmentedFx(QObject):
-    """分段控件：凸起滑块在选项间滑动。"""
+    """分段控件：滑块在选项间弹簧滑动；滑块比外框内缩一圈，不贴边。"""
+
+    INSET = 2.0
 
     def __init__(self, container: QWidget, buttons) -> None:
         super().__init__(container)
@@ -413,7 +477,10 @@ class SegmentedFx(QObject):
 
     def _target(self) -> QRectF:
         current = next((b for b in self.buttons if b.isChecked()), None)
-        return QRectF(current.geometry()) if current else QRectF()
+        if current is None:
+            return QRectF()
+        inner = QRectF(self.container.rect()).adjusted(self.INSET, self.INSET, -self.INSET, -self.INSET)
+        return QRectF(current.geometry()).intersected(inner)
 
     def _moved(self, value) -> None:
         self._rect = QRectF(value)
@@ -425,7 +492,8 @@ class SegmentedFx(QObject):
             self._animation.stop()
             self._moved(target)
             return
-        restart(self._animation, QRectF(self._rect), target, SELECT)
+        restart(self._animation, QRectF(self._rect), target, SPRING_MOVE if STYLE.dark else SPRING_MOVE_BOLD,
+                spring())
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest):
@@ -435,18 +503,20 @@ class SegmentedFx(QObject):
             painter = QPainter(self.container)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             outer = QRectF(self.container.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-            path = _rounded(outer, 7)
-            painter.fillPath(path, QColor(COLORS.well))
-            painter.setPen(_edge_pen(outer, COLORS.canvas, COLORS.border))
+            outer_radius = STYLE.control_radius + 1
+            path = _rounded(outer, outer_radius)
+            painter.fillPath(path, QColor(COLORS.segment_track))
+            painter.setPen(QPen(QColor(COLORS.segment_track_border), 1))
             painter.drawPath(path)
             if not self._rect.isEmpty():
                 thumb = self._rect.adjusted(0.5, 0.5, -0.5, -0.5)
-                gradient = QLinearGradient(0, thumb.top(), 0, thumb.bottom())
-                gradient.setColorAt(0, QColor(COLORS.raised_top))
-                gradient.setColorAt(1, QColor(COLORS.raised))
-                thumb_path = _rounded(thumb, 5)
-                painter.fillPath(thumb_path, QBrush(gradient))
-                painter.setPen(_edge_pen(thumb, COLORS.highlight, COLORS.border))
+                thumb_radius = max(2.0, outer_radius - self.INSET)
+                if not STYLE.dark:
+                    # 晨雾白色滑块带一层小投影
+                    painter.fillPath(_rounded(thumb.translated(0, 1), thumb_radius), faded(COLORS.shadow, 0.12))
+                thumb_path = _rounded(thumb, thumb_radius)
+                painter.fillPath(thumb_path, QColor(COLORS.segment_thumb))
+                painter.setPen(QPen(QColor(COLORS.segment_thumb_border), 1))
                 painter.drawPath(thumb_path)
             painter.end()
             return True
@@ -454,7 +524,7 @@ class SegmentedFx(QObject):
 
 
 class SplitterFx(QObject):
-    """分隔条：平时是深色缝隙，悬停浮现细线，拖动时变为强调色。"""
+    """分隔条：平时是底色缝隙，悬停浮现细线，拖动时变为强调色。"""
 
     def __init__(self, handle: QWidget, vertical: bool) -> None:
         super().__init__(handle)
@@ -477,10 +547,10 @@ class SplitterFx(QObject):
         elif kind == QEvent.Type.Paint:
             painter = QPainter(self.handle)
             rect = QRectF(self.handle.rect())
-            painter.fillRect(rect, QColor(COLORS.canvas))
+            painter.fillRect(rect, QColor(COLORS.ground))
             strength = max(self.hover.value, self.press.value)
             if strength > 0.01:
-                color = mix(faded("#3A3935", strength), COLORS.accent_medium, self.press.value)
+                color = mix(faded(COLORS.control_hover_border, strength), COLORS.accent_line, self.press.value)
                 if self.vertical:
                     length = rect.width() * (0.6 + 0.4 * ease(strength))
                     line = QRectF(rect.center().x() - length / 2, rect.center().y() - 1, length, 2)
@@ -523,24 +593,30 @@ class SliderFx(QObject):
         slider = self.slider
         painter = QPainter(slider)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # 与样式中 12px 把手保持一致，点击位置和绘制位置对齐
-        half = 6.0
+        # 与样式中 14px 把手保持一致，点击位置和绘制位置对齐
+        half = 7.0
         span = max(1, slider.width() - int(half * 2))
         position = QStyle.sliderPositionFromValue(slider.minimum(), slider.maximum(), slider.value(), span)
         x = half + position
         y = slider.height() / 2
-        groove = QRectF(half, y - 1.5, slider.width() - half * 2, 3)
-        painter.fillPath(_rounded(groove, 1.5), QColor(COLORS.border))
-        painter.fillPath(_rounded(QRectF(groove.left(), groove.top(), x - groove.left(), 3), 1.5),
-                         QColor(COLORS.accent if slider.isEnabled() else COLORS.disabled))
-        if self.press.value > 0.01:
+        groove = QRectF(half, y - 2, slider.width() - half * 2, 4)
+        painter.fillPath(_rounded(groove, 2), QColor(COLORS.control_border))
+        fill = COLORS.accent if STYLE.dark else COLORS.accent_line
+        painter.fillPath(_rounded(QRectF(groove.left(), groove.top(), x - groove.left(), 4), 2),
+                         QColor(fill if slider.isEnabled() else COLORS.disabled))
+        glow = 0.5 * self.hover.value + 0.5 * self.press.value
+        if glow > 0.01:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(faded(COLORS.accent, 0.22 * self.press.value))
-            halo = 6 + 5 * ease(self.press.value)
+            painter.setBrush(faded(fill, 0.25 * glow))
+            halo = 7 + 4 * ease(glow)
             painter.drawEllipse(QPointF(x, y), halo, halo)
-        radius = 5.5 + 1.5 * ease(self.hover.value)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(mix(COLORS.text, "#FFFFFF", self.hover.value))
+        radius = 6.5 + 1.5 * ease(self.hover.value) - 0.8 * ease(self.press.value)
+        if STYLE.dark:
+            painter.setPen(QPen(QColor(COLORS.card), 2))
+            painter.setBrush(QColor(COLORS.text))
+        else:
+            painter.setPen(QPen(QColor(COLORS.control_border), 1))
+            painter.setBrush(QColor(COLORS.card))
         painter.drawEllipse(QPointF(x, y), radius, radius)
         painter.end()
 
@@ -556,10 +632,15 @@ class _Ring(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        base = mix(COLORS.border, COLORS.button_hover_border, self.owner.hover.value)
-        color = mix(base, COLORS.focus_ring, self.owner.focus.value)
-        painter.setPen(QPen(color, 1))
-        painter.drawRoundedRect(rect, 6, 6)
+        radius = STYLE.control_radius
+        focus = self.owner.focus.value
+        base = mix(COLORS.control_border, COLORS.control_hover_border, self.owner.hover.value)
+        if focus > 0.01:
+            # 焦点：强调色描边 + 一圈极淡的强调色内光
+            painter.setPen(QPen(faded(COLORS.focus_ring, 0.14 * focus), 3))
+            painter.drawRoundedRect(rect.adjusted(1.5, 1.5, -1.5, -1.5), radius - 1.5, radius - 1.5)
+        painter.setPen(QPen(mix(base, COLORS.focus_ring, focus), 1))
+        painter.drawRoundedRect(rect, radius, radius)
 
 
 class InputFx(QObject):

@@ -317,7 +317,7 @@ class SubtitleTimeline(QWidget):
             return
         top, height = blocks[0][3].top(), blocks[0][3].height()
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(faded(COLORS.ai_removed, .6))
+        painter.setBrush(faded(COLORS.danger, .6))
         for start, end in self.overlap_spans():
             left, right = max(12.0, self._x(start)), min(self.width() - 12.0, self._x(end))
             if right > left - 2:
@@ -472,15 +472,17 @@ class SubtitleTimeline(QWidget):
             p = self._fx.value((key, "play"), 1.0 if current else 0.0, motion.SELECT)
             h = self._fx.value((key, "hover"), 1.0 if hovered else 0.0,
                                motion.HOVER_IN if hovered else motion.HOVER_OUT)
-            fill = mix(mix(mix(COLORS.raised, COLORS.button_hover, h), COLORS.playback, p),
-                       COLORS.accent_tint, s)
-            border = mix(mix(mix(COLORS.divider, COLORS.button_hover_border, h),
-                             COLORS.playback_border, p), COLORS.accent, s)
+            # 选中、播放、悬停三态各用一组令牌：选中最强，播放次之，悬停只轻微提亮
+            fill = mix(mix(mix(COLORS.block, COLORS.block_playing, h * .5), COLORS.block_playing, p),
+                       COLORS.block_selected, s)
+            border = mix(mix(mix(COLORS.block_border, COLORS.block_playing_border, h),
+                             COLORS.block_playing_border, p), COLORS.block_selected_border, s)
             painter.setPen(QPen(border, 1 + m))
             painter.setBrush(fill)
             painter.drawRoundedRect(rect, 4, 4)
             if rect.width() >= 28:
-                painter.setPen(mix(COLORS.muted, COLORS.text, max(s, h * .6)))
+                painter.setPen(mix(mix(COLORS.block_text, COLORS.block_playing_text, max(p, h * .6)),
+                                   COLORS.block_selected_text, s))
                 # 主选指示条出现时序号让出位置
                 area = rect.adjusted(5 + 4 * m, 0, -3, 0)
                 number = str(entry.index)
@@ -497,14 +499,14 @@ class SubtitleTimeline(QWidget):
             if m > .01:
                 length = (rect.height() - 6) * motion.ease(m)
                 painter.fillRect(QRectF(rect.left() + 2, rect.center().y() - length / 2, 2, length),
-                                 faded(COLORS.accent, m))
+                                 faded(COLORS.block_selected_border, m))
             # 边缘可拖拽提示：悬停到左右边缘时浮现
             for side, edge_x in (("left", rect.left()), ("right", rect.right())):
                 on = hovered and self.hovered_mode == side
                 e = self._fx.value((key, side), 1.0 if on else 0.0,
                                    motion.HOVER_IN if on else motion.HOVER_OUT)
                 if e > .01:
-                    pen = QPen(faded(COLORS.accent_hover, e), 3)
+                    pen = QPen(faded(COLORS.block_selected_border, e), 3)
                     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                     painter.setPen(pen)
                     painter.drawLine(QPointF(edge_x, rect.top() + 3), QPointF(edge_x, rect.bottom() - 3))
@@ -518,10 +520,10 @@ class SubtitleTimeline(QWidget):
             self._paint_marquee(painter, self._marquee_last, self._marquee_fade.value)
         marker = self._x(self._scrub["position"] if self._scrub else self._display_playhead())
         if 12 <= marker <= self.width() - 12:
-            painter.setPen(QPen(QColor(COLORS.accent), 2))
+            painter.setPen(QPen(QColor(COLORS.playhead), 2))
             painter.drawLine(QPointF(marker, 19), QPointF(marker, self.height() - 1))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(COLORS.accent))
+            painter.setBrush(QColor(COLORS.playhead))
             painter.drawPolygon(QPolygonF([
                 QPointF(marker - 7, 18), QPointF(marker + 7, 18), QPointF(marker, 25),
             ]))
@@ -531,8 +533,8 @@ class SubtitleTimeline(QWidget):
             tip = f"{int(minutes):02d}:{seconds:06.3f}"
             tip_width = 82
             x = max(12, min(self.width() - tip_width - 12, int(marker) - tip_width // 2))
-            painter.setPen(QColor(COLORS.divider))
-            painter.setBrush(QColor(COLORS.raised))
+            painter.setPen(QColor(COLORS.overlay_border))
+            painter.setBrush(QColor(COLORS.overlay))
             painter.drawRoundedRect(QRectF(x, 0, tip_width, 18), 4, 4)
             painter.setPen(QColor(COLORS.text))
             painter.drawText(x, 0, tip_width, 18, Qt.AlignmentFlag.AlignCenter, tip)

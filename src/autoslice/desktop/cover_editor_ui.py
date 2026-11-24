@@ -69,7 +69,7 @@ class CoverLayoutMixin:
 
         button = ToolbarButton(text)
         if icon_name:
-            color = COLORS.on_accent if object_name == "primary" else COLORS.muted
+            color = COLORS.primary_text if object_name == "primary" else COLORS.muted
             button.setIcon(icon(icon_name, color, icon_size, COLORS.accent_text if checkable else None))
             button.setIconSize(QSize(icon_size, icon_size))
         if object_name:

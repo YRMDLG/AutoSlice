@@ -95,6 +95,15 @@ _PATHS = {
     "contain": '<rect x="3.75" y="3.75" width="12.5" height="12.5" rx="2"/><rect x="6.75" y="7.25" width="6.5" height="5.5" rx="1"/>',
     "close": '<path d="m5.5 5.5 9 9M14.5 5.5l-9 9"/>',
     "bolt": '<path d="m11.25 3.25-5.75 8h4l-.75 5.5 5.75-8h-4z"/>',
+    "check": '<path d="m4.75 10.5 3.5 3.5 7-7.5"/>',
+    "search": '<circle cx="9" cy="9" r="5"/><path d="m16.25 16.25-3.75-3.75"/>',
+    "replace": '<path d="M3.75 6.5h9.5l-2.5-2.5M16.25 13.5h-9.5l2.5 2.5"/>',
+    "case": '<path d="M3 15 6.5 5l3.5 10M4.25 11.5h4.5"/><path d="M16.75 15v-5.25M16.75 11.6c-.35-1.2-1.3-1.85-2.35-1.85-1.4 0-2.4 1.1-2.4 2.65s1 2.6 2.4 2.6c1.05 0 2-.65 2.35-1.85"/>',
+    "skip_back": '<path d="M9.25 5.75 5 10l4.25 4.25M15 5.75 10.75 10 15 14.25"/>',
+    "skip_forward": '<path d="M10.75 5.75 15 10l-4.25 4.25M5 5.75 9.25 10 5 14.25"/>',
+    "logo": '<path d="M7 3.5 4.25 16.5M12 3.5 9.25 16.5M17 3.5l-2.75 13"/>',
+    "pen": '<path d="M3.5 16.5h3.25L15.5 7.75 12.25 4.5 3.5 13.25z"/><path d="m10.75 6 3.25 3.25"/>',
+    "stack": '<rect x="6" y="2.75" width="11.25" height="9" rx="1.75"/><path d="M14 14.25v1.5c0 .95-.8 1.75-1.75 1.75H4.5c-.95 0-1.75-.8-1.75-1.75V9.5c0-.95.8-1.75 1.75-1.75H6"/>',
 }
 # 旧代码里用的是复数写法
 _PATHS["sparkles"] = _PATHS["sparkle"]
@@ -106,7 +115,7 @@ def svg_markup(name: str, color: str) -> str:
             f'stroke-linejoin="round">{_PATHS[name].replace("{c}", color)}</svg>')
 
 
-@lru_cache(maxsize=16)
+@lru_cache(maxsize=96)
 def icon_file(name: str, color: str) -> str:
     """样式表 url() 需要文件路径；写入临时目录并返回正斜杠路径。"""
 

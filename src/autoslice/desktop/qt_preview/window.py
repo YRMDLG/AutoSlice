@@ -18,8 +18,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import fonts, motion
+from .appearance import themed
 from .icons import icon as desktop_icon
-from .theme import COLORS, SIZES
+from .theme import COLORS, SIZES, STYLE
 
 PROJECTS = (
     ("牛乳糖凌晨突击直播：从闲聊到离谱挑战的完整录播", "18 条待确认", True),
@@ -148,11 +149,12 @@ class NavigationButton(QPushButton):
         column.addWidget(icon)
         column.addWidget(name)
         self.toggled.connect(lambda selected: self._set_icon_colors(icon, name, icon_name, selected))
-        self._set_icon_colors(icon, name, icon_name, False)
+        themed(self, lambda: self._set_icon_colors(icon, name, icon_name, self.isChecked()))
 
     @staticmethod
     def _set_icon_colors(icon: QLabel, name: QLabel, icon_name: str, selected: bool) -> None:
-        color = COLORS.text if selected else COLORS.muted
+        # 夜航选中项用强调色，晨雾用正文色（底板由 ButtonFx 画）
+        color = (COLORS.accent_ink if STYLE.dark else COLORS.text) if selected else COLORS.subtle
         icon.setPixmap(desktop_icon(icon_name, color).pixmap(SIZES.icon_size, SIZES.icon_size))
         name.setStyleSheet(f"font-size: {SIZES.text_small}px; color: {color};")
 
@@ -246,7 +248,7 @@ class PreviewWindow(QMainWindow):
         row.addWidget(label("AUTOSLICE", "brand"))
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.VLine)
-        divider.setStyleSheet(f"color: {COLORS.divider};")
+        themed(divider, lambda: divider.setStyleSheet(f"color: {COLORS.divider};"))
         row.addSpacing(13)
         row.addWidget(divider)
         self.top_project = label("牛乳糖凌晨突击直播", "muted")
@@ -366,10 +368,10 @@ class PreviewWindow(QMainWindow):
         column.setContentsMargins(24, 20, 24, 15)
         column.addStretch()
         glyph = label("▶")
-        glyph.setStyleSheet(
-            f"color: {COLORS.accent_text}; background: {COLORS.accent_tint};"
+        themed(glyph, lambda: glyph.setStyleSheet(
+            f"color: {COLORS.accent_ink}; background: {COLORS.accent_soft};"
             "border-radius: 30px; font-size: 22px; padding-left: 3px;"
-        )
+        ))
         glyph.setFixedSize(60, 60)
         glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
         column.addWidget(glyph, alignment=Qt.AlignmentFlag.AlignHCenter)

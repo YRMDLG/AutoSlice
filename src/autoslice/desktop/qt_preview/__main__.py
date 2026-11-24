@@ -4,8 +4,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from . import fonts, motion
-from .theme import stylesheet
+from . import appearance, fonts, motion
 from .window import PreviewWindow
 
 
@@ -14,7 +13,7 @@ def main() -> int:
     app.setApplicationName("AutoSlice Qt 视觉预览")
     app.setStyle("Fusion")
     fonts.load()
-    app.setStyleSheet(stylesheet())
+    appearance.apply(app)
     motion.install_app(app)
     window = PreviewWindow()
     window.show()

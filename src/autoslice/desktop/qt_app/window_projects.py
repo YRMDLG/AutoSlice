@@ -33,6 +33,7 @@ from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
 from .ai_settings_panel import AISettingsPanel
+from .appearance_panel import AppearancePanel
 from .archive_panel import ArchivePanel
 from .asr_panel import AsrSettingsPanel
 from .learning_panel import LearningPanel
@@ -158,6 +159,10 @@ class ProjectsMixin:
         directory_column.addLayout(dir_row)
         layout.addWidget(directory_card)
 
+        # ── 外观（主题、强调色；即时生效）──
+        self.appearance_panel = AppearancePanel(self.storage)
+        layout.addWidget(self.appearance_panel)
+
         # ── AI 接口（原来排在第 7 节，新用户找不到）──
         self.ai_settings_panel = AISettingsPanel(self._run)
         layout.addWidget(self.ai_settings_panel)
@@ -169,9 +174,8 @@ class ProjectsMixin:
         )
         render_column.addWidget(label("压制使用既有 FFmpeg 工作流，NVENC 可用时自动优先。", "muted"))
         # 缺字体或 FFmpeg 时压制必失败：进设置页就检查并醒目提示
-        self.render_font_note = label("")
+        self.render_font_note = label("", "danger")
         self.render_font_note.setWordWrap(True)
-        self.render_font_note.setStyleSheet(f"color: {COLORS.ai_removed};")
         self.render_font_note.hide()
         render_column.addWidget(self.render_font_note)
         layout.addWidget(render_card)

@@ -127,7 +127,7 @@ class AISettingsPanel(QWidget):
         row.addWidget(self.test_button)
         self.save_button = QPushButton("保存")
         self.save_button.setObjectName("primary")
-        self.save_button.setIcon(desktop_icon("save", COLORS.on_accent, SIZES.tool_icon_size))
+        self.save_button.setIcon(desktop_icon("save", COLORS.primary_text, SIZES.tool_icon_size))
         self.save_button.clicked.connect(self._save)
         row.addWidget(self.save_button)
         layout.addLayout(row)

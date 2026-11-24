@@ -323,7 +323,7 @@ class DesktopWindow(
         action_row.setSpacing(8)
         self.save_button = QPushButton("保存字幕")
         self.save_button.setObjectName("primary")
-        self.save_button.setIcon(desktop_icon("save", COLORS.on_accent))
+        self.save_button.setIcon(desktop_icon("save", COLORS.primary_text))
         self.save_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
         self.save_button.clicked.connect(self.save)
         self.save_button.setEnabled(False)

@@ -9,8 +9,8 @@ from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from autoslice.desktop.qt_preview import fonts, motion
-from autoslice.desktop.qt_preview.theme import stylesheet
+from autoslice.desktop.foundation import DesktopStorage
+from autoslice.desktop.qt_preview import appearance, fonts, motion
 
 from .window import DesktopWindow
 
@@ -28,7 +28,9 @@ def main() -> int:
         app.installTranslator(translator)
     app.setStyle("Fusion")
     fonts.load()
-    app.setStyleSheet(stylesheet())
+    storage = DesktopStorage()
+    # 主题在建窗口前就定下，避免先闪一下默认配色
+    appearance.apply(app, appearance.load(storage))
     motion.install_app(app)
 
     identity = (os.environ.get("LOCALAPPDATA", "") + os.environ.get("USERNAME", "")).casefold()
@@ -71,7 +73,7 @@ def main() -> int:
                 kernel.CloseHandle(ctypes.c_void_p(mutex))
             return 2
 
-    window = DesktopWindow()
+    window = DesktopWindow(storage=storage)
     def activate():
         while server.hasPendingConnections():
             connection = server.nextPendingConnection()

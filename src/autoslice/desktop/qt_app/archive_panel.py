@@ -170,7 +170,7 @@ class ArchivePanel(QWidget):
         row.addWidget(self.stop_button)
         self.start_button = QPushButton("开始扫描")
         self.start_button.setObjectName("primary")
-        self.start_button.setIcon(desktop_icon("refresh", COLORS.on_accent, SIZES.tool_icon_size))
+        self.start_button.setIcon(desktop_icon("refresh", COLORS.primary_text, SIZES.tool_icon_size))
         self.start_button.clicked.connect(self._start)
         row.addWidget(self.start_button)
         layout.addLayout(row)

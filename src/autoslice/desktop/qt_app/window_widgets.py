@@ -6,11 +6,12 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QEvent,
     QModelIndex,
+    QPointF,
     QRectF,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.qt_preview import motion
-from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES
+from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES, STYLE
 from autoslice.desktop.subtitles import SubtitleDocument
 
 
@@ -307,11 +308,17 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         if h * (1 - s) > 0.01:
             painter.fillRect(rect, motion.faded(COLORS.hover, h * (1 - s)))
         if s > 0.01:
+            # 选中行只保留选中框，不铺强调色：底色几乎同卡片，四周一圈强调细线
             painter.fillRect(rect, motion.faded(COLORS.row_selected, s))
+            line = motion.faded(COLORS.accent_line, s)
+            frame = QRectF(rect).adjusted(0, 0.5, 0, -0.5)
+            painter.setPen(QPen(line, 1))
+            painter.drawLine(frame.topLeft(), frame.topRight())
+            painter.drawLine(frame.bottomLeft(), frame.bottomRight())
             if index.column() == 0:
-                length = rect.height() * motion.ease(s)
-                painter.fillRect(QRectF(rect.left(), rect.center().y() - length / 2, 2, length),
-                                 motion.faded(COLORS.accent, min(1.0, s * 1.4)))
+                painter.drawLine(frame.topLeft() + QPointF(0.5, 0), frame.bottomLeft() + QPointF(0.5, 0))
+            if index.column() == model.columnCount() - 1:
+                painter.drawLine(frame.topRight() - QPointF(0.5, 0), frame.bottomRight() - QPointF(0.5, 0))
 
     @staticmethod
     def _key(index):
@@ -401,7 +408,7 @@ def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:
     editor.setStyleSheet(
         f"QPlainTextEdit {{ background: {COLORS.row_selected}; color: {COLORS.text}; "
         f"border: none; border-radius: 0; padding: {top}px 6px 0 6px; font-size: {SIZES.text_body}px; "
-        f"selection-background-color: {COLORS.accent_pressed}; }}"
+        f"selection-background-color: {COLORS.accent_pressed if STYLE.dark else COLORS.accent_soft}; }}"
         "QPlainTextEdit:focus { border: none; }"
     )
     editor.viewport().setStyleSheet(

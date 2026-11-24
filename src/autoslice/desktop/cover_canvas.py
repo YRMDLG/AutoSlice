@@ -43,6 +43,7 @@ from .cover_model import (
     Transform,
     object_for_profile,
 )
+from .qt_preview.appearance import themed
 from .qt_preview.theme import COLORS
 
 
@@ -132,9 +133,9 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self._gesture_objects: dict[str, object] = {}
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setStyleSheet(
-            f"background: {COLORS.nav}; border: 1px solid {COLORS.divider}; border-radius: 6px;"
-        )
+        themed(self, lambda: self.setStyleSheet(
+            f"background: {COLORS.timeline_bg}; border: 1px solid {COLORS.timeline_border}; border-radius: 9px;"
+        ))
 
     def set_document(self, document: CoverDocument | None, profile_key: str | None = None):
         self._document = document

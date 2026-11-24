@@ -151,7 +151,7 @@ class AsrSettingsPanel(QWidget):
         row.addWidget(self.check_button)
         self.save_button = QPushButton("保存")
         self.save_button.setObjectName("primary")
-        self.save_button.setIcon(desktop_icon("save", COLORS.on_accent, SIZES.tool_icon_size))
+        self.save_button.setIcon(desktop_icon("save", COLORS.primary_text, SIZES.tool_icon_size))
         self.save_button.clicked.connect(self._save)
         row.addWidget(self.save_button)
         layout.addLayout(row)
@@ -318,7 +318,7 @@ class AsrBanner(QWidget):
         self.cancel_button.clicked.connect(self.cancel_clicked)
         self.start_button = QPushButton("识别字幕")
         self.start_button.setObjectName("primary")
-        self.start_button.setIcon(desktop_icon("bolt", COLORS.on_accent, SIZES.tool_icon_size))
+        self.start_button.setIcon(desktop_icon("bolt", COLORS.primary_text, SIZES.tool_icon_size))
         self.start_button.clicked.connect(self.start_clicked)
         for button in (self.settings_button, self.cancel_button, self.start_button):
             row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
