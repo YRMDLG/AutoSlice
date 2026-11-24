@@ -76,7 +76,7 @@ class _Ghost(QWidget):
         self.setGeometry(geometry)
         self._fade = motion.Channel(self, self._step, 1.0)
         self.show()
-        self._fade.to(0.0, CLOSE)
+        self._fade.to(0.0, motion.profile().menu_close)
 
     def _step(self) -> None:
         self.setWindowOpacity(self._fade.value)
@@ -88,6 +88,34 @@ class _Ghost(QWidget):
         # 关闭时轻微上浮，与打开时下滑方向呼应
         painter.translate(0, -3 * (1 - self._fade.value))
         painter.drawPixmap(0, 0, self.pixmap)
+
+
+def _row_progress(open_value: float, order: int) -> float:
+    """弹层选项逐个错开出现：第 order 项在整体进度走过一段之后才开始。"""
+
+    profile = motion.profile()
+    k = min(order, 8) * profile.menu_item_delay / max(1, profile.menu_open)
+    return max(0.0, min(1.0, (open_value - k) / max(0.2, 1 - k)))
+
+
+def _enter_transform(painter: QPainter, body: QRectF, value: float, closing: bool, above: bool = False) -> None:
+    """弹层进场：夜航下移 + 0.97 缩放淡入；晨雾从上往下展开（裁剪），幅度更大。关闭时只淡出上浮。"""
+
+    profile = motion.profile()
+    direction = 1 if above else -1
+    painter.translate(0, (1 - value) * direction * profile.menu_shift)
+    if closing:
+        return
+    scale = profile.menu_scale + (1 - profile.menu_scale) * value
+    origin = QPointF(body.center().x(), body.bottom() if above else body.top())
+    painter.translate(origin)
+    painter.scale(scale, scale)
+    painter.translate(-origin)
+    if profile.menu_clip:
+        height = body.height() * max(0.0, min(1.0, value)) + 24
+        clip = QRectF(body.left() - 12, body.bottom() - height if above else body.top() - 12,
+                      body.width() + 24, height + 12)
+        painter.setClipRect(clip)
 
 
 def ghost(widget: QWidget) -> None:
@@ -137,10 +165,10 @@ class ComboPopup(QWidget):
         self.setWindowOpacity(0.0 if motion.enabled() else 1.0)
         self.show()
         self.setFocus()
-        self._open.to(1.0, OPEN)
+        self._open.to(1.0, motion.profile().menu_open, motion.OUT)
 
     def _step(self) -> None:
-        self.setWindowOpacity(self._open.value)
+        self.setWindowOpacity(max(0.0, min(1.0, self._open.value * 1.4)))
         self.update()
         if self._closing and self._open.value <= 0.001:
             self.close()
@@ -153,7 +181,7 @@ class ComboPopup(QWidget):
         if not motion.enabled():
             self.close()
             return
-        self._open.to(0.0, CLOSE)
+        self._open.to(0.0, motion.profile().menu_close)
 
     def _row_rect(self, index: int) -> QRectF:
         return QRectF(self._body.left() + self.PAD, self._body.top() + self.PAD + index * self.ROW,
@@ -169,11 +197,15 @@ class ComboPopup(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         # 从下拉框方向滑出
-        painter.translate(0, (1 - self._open.value) * (5 if self._above else -5))
+        _enter_transform(painter, self._body, self._open.value, self._closing, self._above)
         paint_panel(painter, self._body)
         current = self.combo.currentIndex()
         for index in range(self.combo.count()):
             rect = self._row_rect(index)
+            row = 1.0 if self._closing else _row_progress(self._open.value, index)
+            painter.setOpacity(row)
+            painter.save()
+            painter.translate(0, (1 - row) * -motion.profile().row_shift)
             active = index == self.hover
             h = self._rows.value(index, 1.0 if active else 0.0, ITEM_IN if active else ITEM_OUT)
             paint_row(painter, rect, h)
@@ -184,6 +216,7 @@ class ComboPopup(QWidget):
                              self.combo.itemText(index))
             if selected:
                 paint_check(painter, QPointF(rect.right() - 15, rect.center().y()), COLORS.accent_ink)
+            painter.restore()
 
     def mouseMoveEvent(self, event) -> None:
         if self._closing:
@@ -285,10 +318,10 @@ class MenuFx(QObject):
     def _showing(self) -> None:
         self._open.snap(0.0)
         self.menu.setWindowOpacity(0.0 if motion.enabled() else 1.0)
-        self._open.to(1.0, OPEN)
+        self._open.to(1.0, motion.profile().menu_open, motion.OUT)
 
     def _step(self) -> None:
-        self.menu.setWindowOpacity(self._open.value)
+        self.menu.setWindowOpacity(max(0.0, min(1.0, self._open.value * 1.4)))
         self.menu.update()
 
     def eventFilter(self, obj, event) -> bool:
@@ -301,14 +334,17 @@ class MenuFx(QObject):
         menu = self.menu
         painter = QPainter(menu)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.translate(0, (1 - self._open.value) * -5)
         left, top, right, bottom = SHADOW
         body = QRectF(menu.rect()).adjusted(left, top, -right, -bottom)
+        _enter_transform(painter, body, self._open.value, False)
         paint_panel(painter, body)
         active = menu.activeAction()
+        order = -1
         for action in menu.actions():
             if not action.isVisible():
                 continue
+            order += 1
+            painter.setOpacity(_row_progress(self._open.value, order))
             geometry = QRectF(menu.actionGeometry(action))
             row = QRectF(body.left() + 4, geometry.top(), body.width() - 8, geometry.height())
             if action.isSeparator():

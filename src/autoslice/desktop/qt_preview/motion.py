@@ -13,11 +13,13 @@ from __future__ import annotations
 import ctypes
 import os
 import time
+from dataclasses import dataclass
 
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
     QObject,
+    QPoint,
     QPointF,
     QRectF,
     Qt,
@@ -30,8 +32,10 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QComboBox,
+    QDialog,
     QGraphicsOpacityEffect,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QSlider,
     QSplitter,
@@ -77,6 +81,60 @@ def spring() -> QEasingCurve:
     return SPRING_NIGHT if STYLE.dark else SPRING_MORNING
 
 
+@dataclass(frozen=True)
+class Profile:
+    """一套主题的动效档：夜航克制、晨雾更大胆；都以“不拖慢操作”为前提，状态先生效、动画只是视觉。"""
+
+    hover_in: int
+    hover_out: int
+    press: int
+    menu_open: int
+    menu_close: int
+    menu_item_delay: int
+    menu_shift: float
+    menu_scale: float
+    menu_clip: bool
+    dialog_open: int
+    dialog_close: int
+    dialog_shift: float
+    veil_open: int
+    toast_in: int
+    toast_out: int
+    toast_hold: int
+    toast_shift: float
+    card_enter: int
+    card_stagger: int
+    card_shift: float
+    mist: int
+    row_enter: int
+    row_shift: float
+    sheen_period: int
+
+
+# 夜航：卡片 440ms 上移 6px、间隔 35ms；菜单 170ms 下移 4px + 0.97 缩放；对话框 260ms 上移 8px；提示条 300ms
+NIGHT = Profile(
+    hover_in=80, hover_out=200, press=60,
+    menu_open=170, menu_close=140, menu_item_delay=15, menu_shift=4.0, menu_scale=0.97, menu_clip=False,
+    dialog_open=260, dialog_close=160, dialog_shift=8.0, veil_open=220,
+    toast_in=300, toast_out=180, toast_hold=3800, toast_shift=10.0,
+    card_enter=440, card_stagger=35, card_shift=6.0, mist=0,
+    row_enter=200, row_shift=4.0, sheen_period=1100,
+)
+# 晨雾：设计稿是雾散 1200ms + 卡片 900ms；为了不拖慢操作收短到 700 / 640ms，幅度保留
+MORNING = Profile(
+    hover_in=140, hover_out=260, press=70,
+    menu_open=360, menu_close=160, menu_item_delay=40, menu_shift=8.0, menu_scale=0.98, menu_clip=True,
+    dialog_open=520, dialog_close=200, dialog_shift=18.0, veil_open=320,
+    toast_in=460, toast_out=200, toast_hold=4200, toast_shift=24.0,
+    card_enter=640, card_stagger=60, card_shift=14.0, mist=700,
+    row_enter=360, row_shift=8.0, sheen_period=1100,
+)
+
+
+def profile() -> Profile:
+    return NIGHT if STYLE.dark else MORNING
+
+
 def restart(animation: QVariantAnimation, start, end, duration: int, curve: QEasingCurve | None = None) -> None:
     """复用动画重新起跑。
 
@@ -103,6 +161,13 @@ def enabled() -> bool:
     if _enabled is None:
         _enabled = _detect()
     return _enabled
+
+
+def set_enabled(value: bool | None) -> None:
+    """强制开 / 关动效；None 表示按系统设置重新判断（离线截图、测试、将来的“减少动效”开关用）。"""
+
+    global _enabled
+    _enabled = value
 
 
 def _detect() -> bool:
@@ -133,6 +198,9 @@ def install_app(app: QApplication) -> None:
     if not hasattr(app, "_wheel_guard"):
         app._wheel_guard = WheelGuard(app)
         app.installEventFilter(app._wheel_guard)
+    if not hasattr(app, "_dialog_watcher"):
+        app._dialog_watcher = DialogWatcher(app)
+        app.installEventFilter(app._dialog_watcher)
 
 
 class WheelGuard(QObject):
@@ -306,17 +374,18 @@ class ButtonFx(QObject):
             self._paint()
         elif kind == QEvent.Type.Enter:
             if self.button.isEnabled():
-                self.hover.to(1.0, HOVER_IN)
+                self.hover.to(1.0, profile().hover_in)
                 if self.kind == "primary" and STYLE.filled_primary:
                     self.sheen.snap(0.0)
                     self.sheen.to(1.0, SHEEN, SOFT)
         elif kind == QEvent.Type.Leave:
-            self.hover.to(0.0, HOVER_OUT)
-            self.press.to(0.0, HOVER_OUT)
+            self.hover.to(0.0, profile().hover_out)
+            self.press.to(0.0, profile().hover_out)
         elif kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-            self.press.to(1.0, PRESS)
+            self.press.to(1.0, profile().press)
         elif kind == QEvent.Type.MouseButtonRelease:
-            self.press.to(0.0, HOVER_OUT, spring())
+            # 松开时弹回：晨雾回弹更明显
+            self.press.to(0.0, profile().hover_out, spring())
         elif kind == QEvent.Type.FocusIn:
             keyboard = event.reason() in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason,
                                           Qt.FocusReason.ShortcutFocusReason)
@@ -665,9 +734,9 @@ class InputFx(QObject):
             self.ring.setGeometry(self.widget.rect())
             self.ring.raise_()
         elif kind == QEvent.Type.Enter:
-            self.hover.to(1.0, HOVER_IN)
+            self.hover.to(1.0, profile().hover_in)
         elif kind == QEvent.Type.Leave:
-            self.hover.to(0.0, HOVER_OUT)
+            self.hover.to(0.0, profile().hover_out)
         elif kind == QEvent.Type.FocusIn:
             self.focus.to(1.0, TOGGLE)
         elif kind == QEvent.Type.FocusOut:
@@ -876,6 +945,352 @@ class ValueGlide(QObject):
         self.target = None
 
 
+class _Entrance(QWidget):
+    """页面入场：卡片快照依次上移淡入，晨雾另加一层白雾散开。
+
+    盖在页面上、对鼠标透明：真实控件已经就位并可点，只是这几百毫秒里看到的是快照。
+    """
+
+    def __init__(self, container: QWidget, cards: list[QWidget]) -> None:
+        super().__init__(container)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setGeometry(container.rect())
+        self._profile = profile()
+        self._ground = QColor(COLORS.ground)
+        self._items = []
+        for card in cards:
+            if not card.isVisible() or card.width() <= 0:
+                continue
+            origin = card.mapTo(container, QPoint(0, 0))
+            self._items.append((card.grab(), QRectF(origin.x(), origin.y(), card.width(), card.height())))
+        p = self._profile
+        self._total = p.card_enter + p.card_stagger * max(0, len(self._items) - 1)
+        self._total = max(self._total, p.mist)
+        self._elapsed = 0.0
+        self._animation = QVariantAnimation(self)
+        self._animation.setDuration(self._total)
+        self._animation.setStartValue(0.0)
+        self._animation.setEndValue(float(self._total))
+        self._animation.valueChanged.connect(self._step)
+        self._animation.finished.connect(self.deleteLater)
+        self.show()
+        self.raise_()
+        self._animation.start()
+
+    def _step(self, value) -> None:
+        self._elapsed = float(value)
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        p = self._profile
+        for order, (pixmap, rect) in enumerate(self._items):
+            t = max(0.0, min(1.0, (self._elapsed - order * p.card_stagger) / p.card_enter))
+            if t >= 1.0:
+                continue
+            e = OUT.valueForProgress(t)
+            # 先用底色盖住真实卡片，再画移动中的快照
+            painter.setOpacity(1.0)
+            painter.fillRect(rect.adjusted(-2, -2, 2, p.card_shift + 2), self._ground)
+            painter.setOpacity(e)
+            painter.drawPixmap(rect.translated(0, p.card_shift * (1 - e)).toRect(), pixmap)
+        if p.mist:
+            m = max(0.0, min(1.0, self._elapsed / p.mist))
+            veil = 1.0 - SOFT.valueForProgress(m)
+            if veil > 0.01:
+                painter.setOpacity(veil)
+                gradient = QLinearGradient(0, 0, 0, self.height())
+                gradient.setColorAt(0.0, QColor("#FFFEFB"))
+                gradient.setColorAt(1.0, QColor(COLORS.ground))
+                painter.fillRect(QRectF(self.rect()).translated(0, -0.03 * self.height() * (1 - veil)),
+                                 QBrush(gradient))
+
+
+def page_enter(container: QWidget, cards=None) -> None:
+    """页面切入后调用：卡片依次进场。cards 不给时取容器里所有 objectName 为 card 的直接卡片。"""
+
+    if not enabled() or not container.isVisible() or container.width() <= 0:
+        return
+    if cards is None:
+        cards = [w for w in container.findChildren(QWidget, "card")
+                 if w.isVisible() and not _inside_card(w, container)]
+    layout = container.layout()
+    if layout is not None:
+        layout.activate()
+    for old in container.findChildren(_Entrance):
+        old.deleteLater()
+    _Entrance(container, list(cards))
+
+
+def _inside_card(widget: QWidget, container: QWidget) -> bool:
+    parent = widget.parentWidget()
+    while parent is not None and parent is not container:
+        if parent.objectName() == "card":
+            return True
+        parent = parent.parentWidget()
+    return False
+
+
+class _Veil(QWidget):
+    """模态对话框背后的遮罩：盖在主窗口上淡入，关闭时淡出。"""
+
+    def __init__(self, host: QWidget) -> None:
+        super().__init__(host)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setGeometry(host.rect())
+        self._level = Channel(self, self.update)
+        host.installEventFilter(self)
+        self.show()
+        self.raise_()
+        self._level.to(1.0, profile().veil_open)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize:
+            self.setGeometry(obj.rect())
+        return False
+
+    def dismiss(self) -> None:
+        self._level.to(0.0, profile().dialog_close)
+        QTimer.singleShot(profile().dialog_close + 40, self.deleteLater)
+
+    def paintEvent(self, _event) -> None:
+        color = QColor(COLORS.scrim)
+        color.setAlphaF(STYLE.scrim_alpha * max(0.0, min(1.0, self._level.value)))
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), color)
+
+
+class _WindowGhost(QWidget):
+    """对话框关闭后留下的快照，原位淡出并轻微下沉。"""
+
+    def __init__(self, pixmap, geometry) -> None:
+        super().__init__(None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
+                         | Qt.WindowType.NoDropShadowWindowHint)
+        self.pixmap = pixmap
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setGeometry(geometry)
+        self._fade = Channel(self, self._step, 1.0)
+        self.show()
+        self._fade.to(0.0, profile().dialog_close)
+
+    def _step(self) -> None:
+        self.setWindowOpacity(max(0.0, self._fade.value))
+        self.update()
+        if self._fade.value <= 0.001:
+            self.close()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.translate(0, 4 * (1 - self._fade.value))
+        painter.drawPixmap(0, 0, self.pixmap)
+
+
+class DialogFx(QObject):
+    """对话框：遮罩淡入，框体淡入并从下方滑到位（晨雾用弹簧、幅度更大）；关闭时快照淡出。"""
+
+    def __init__(self, dialog: QDialog) -> None:
+        super().__init__(dialog)
+        self.dialog = dialog
+        self._veil: _Veil | None = None
+        self._open = QVariantAnimation(self)
+        self._open.valueChanged.connect(self._step)
+        self._target = None
+        dialog.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        kind = event.type()
+        if kind == QEvent.Type.Show and enabled():
+            self._target = self.dialog.pos()
+            if self.dialog.isModal() and self.dialog.parentWidget() is not None:
+                host = self.dialog.parentWidget().window()
+                if host is not None and host.isVisible() and self._veil is None:
+                    self._veil = _Veil(host)
+            p = profile()
+            self.dialog.setWindowOpacity(0.0)
+            restart(self._open, 0.0, 1.0, p.dialog_open, OUT if STYLE.dark else spring())
+        elif kind == QEvent.Type.Hide:
+            self._open.stop()
+            if self._veil is not None:
+                self._veil.dismiss()
+                self._veil = None
+            if enabled() and self.dialog.width() > 0:
+                _WindowGhost(self.dialog.grab(), self.dialog.frameGeometry())
+            self.dialog.setWindowOpacity(1.0)
+        return False
+
+    def _step(self, value) -> None:
+        v = float(value)
+        self.dialog.setWindowOpacity(max(0.0, min(1.0, v * 1.6)))
+        if self._target is not None:
+            shift = profile().dialog_shift * (1 - v)
+            self.dialog.move(self._target.x(), int(round(self._target.y() + shift)))
+
+
+class DialogWatcher(QObject):
+    """应用级：任何对话框第一次显示时挂上 DialogFx。"""
+
+    def eventFilter(self, obj, event) -> bool:
+        if (event.type() == QEvent.Type.Show and isinstance(obj, QDialog)
+                and not obj.property("motionDialog")):
+            obj.setProperty("motionDialog", True)
+            fx = DialogFx(obj)
+            fx.eventFilter(obj, event)
+        return False
+
+
+class ProgressFx(QObject):
+    """进度条扫光：有进度、还没满时一道高光循环扫过；夜航淡、晨雾亮。"""
+
+    def __init__(self, bar: QProgressBar) -> None:
+        super().__init__(bar)
+        self.bar = bar
+        self.overlay = _SheenLayer(self)
+        self.overlay.setGeometry(bar.rect())
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self.overlay.update)
+        self._started = time.monotonic()
+        bar.installEventFilter(self)
+        bar.valueChanged.connect(lambda _value: self._sync())
+
+    def active(self) -> bool:
+        bar = self.bar
+        return (enabled() and bar.isVisible() and bar.maximum() > bar.minimum()
+                and bar.minimum() < bar.value() < bar.maximum())
+
+    def _sync(self) -> None:
+        if self.active():
+            if not self._timer.isActive():
+                self._started = time.monotonic()
+                self._timer.start()
+        else:
+            self._timer.stop()
+            self.overlay.update()
+
+    def phase(self) -> float:
+        period = profile().sheen_period / 1000
+        return ((time.monotonic() - self._started) % period) / period
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize:
+            self.overlay.setGeometry(self.bar.rect())
+            self.overlay.raise_()
+        elif event.type() in (QEvent.Type.Show, QEvent.Type.Hide):
+            QTimer.singleShot(0, self._sync)
+        return False
+
+
+class _SheenLayer(QWidget):
+    def __init__(self, owner: ProgressFx) -> None:
+        super().__init__(owner.bar)
+        self.owner = owner
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.show()
+
+    def paintEvent(self, _event) -> None:
+        if not self.owner.active():
+            return
+        bar = self.owner.bar
+        fraction = (bar.value() - bar.minimum()) / max(1, bar.maximum() - bar.minimum())
+        filled = QRectF(0, 0, self.width() * fraction, self.height())
+        if filled.width() < 4:
+            return
+        band = 60.0
+        x = -band + (filled.width() + band * 2) * self.owner.phase()
+        gradient = QLinearGradient(x, 0, x + band, 0)
+        glow = QColor("#FFFFFF")
+        strength = 0.45 if STYLE.dark else 0.7
+        for stop, alpha in ((0.0, 0.0), (0.5, strength), (1.0, 0.0)):
+            glow.setAlphaF(alpha)
+            gradient.setColorAt(stop, glow)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setClipPath(_rounded(filled, filled.height() / 2))
+        painter.fillRect(filled, QBrush(gradient))
+
+
+class Skeleton(QWidget):
+    """加载占位块：圆角底色 + 循环扫光；AI 方案生成时占位用。delay 让几块错开。"""
+
+    def __init__(self, parent: QWidget | None = None, delay: int = 0, radius: float = 7.0) -> None:
+        super().__init__(parent)
+        self.radius = radius
+        self.delay = delay / 1000
+        self._started = time.monotonic()
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self.update)
+
+    def showEvent(self, event) -> None:
+        self._started = time.monotonic()
+        if enabled():
+            self._timer.start()
+        super().showEvent(event)
+
+    def hideEvent(self, event) -> None:
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = _rounded(rect, self.radius)
+        painter.fillPath(path, QColor(COLORS.raised))
+        if not enabled():
+            return
+        period = profile().sheen_period / 1000
+        phase = ((time.monotonic() - self._started - self.delay) % period) / period
+        band = max(40.0, rect.width() * 0.5)
+        x = rect.left() - band + (rect.width() + band * 2) * phase
+        gradient = QLinearGradient(x, 0, x + band, 0)
+        glow = QColor(COLORS.highlight if STYLE.dark else "#FFFFFF")
+        for stop, alpha in ((0.0, 0.0), (0.5, 0.9 if STYLE.dark else 0.8), (1.0, 0.0)):
+            glow.setAlphaF(alpha)
+            gradient.setColorAt(stop, glow)
+        painter.setClipPath(path)
+        painter.fillRect(rect, QBrush(gradient))
+
+
+def pulse(widget: QWidget, rect: QRectF | None = None, color=None) -> None:
+    """命中提示：在 widget 上一圈强调色光圈向外扩散后消失（查找命中、定位到某句时用）。"""
+
+    if not enabled() or not widget.isVisible():
+        return
+    _Pulse(widget, rect or QRectF(widget.rect()), color or COLORS.accent)
+
+
+class _Pulse(QWidget):
+    def __init__(self, host: QWidget, rect: QRectF, color) -> None:
+        super().__init__(host)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setGeometry(host.rect())
+        self.target = QRectF(rect)
+        self.color = QColor(color)
+        self._t = Channel(self, self.update)
+        self._t.value = 0.0
+        self.show()
+        self.raise_()
+        self._t.to(1.0, 700, OUT)
+        QTimer.singleShot(760, self.deleteLater)
+
+    def paintEvent(self, _event) -> None:
+        t = self._t.value
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        spread = 7 * t
+        color = QColor(self.color)
+        color.setAlphaF(0.7 * (1 - t))
+        painter.setPen(QPen(color, 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(self.target.adjusted(-spread, -spread, spread, spread), 4 + spread, 4 + spread)
+
+
 def install_tree(root: QWidget) -> None:
     """为子树中尚未接入的可交互控件挂上动效；可重复调用。"""
 
@@ -900,6 +1315,10 @@ def install_tree(root: QWidget) -> None:
             continue
         widget.setProperty("motion", True)
         InputFx(widget)
+    for bar in root.findChildren(QProgressBar):
+        if not bar.property("motion"):
+            bar.setProperty("motion", True)
+            ProgressFx(bar)
     for area in root.findChildren(QAbstractScrollArea):
         if not area.property("motion") and area.verticalScrollBar() is not None:
             area.setProperty("motion", True)
@@ -907,7 +1326,8 @@ def install_tree(root: QWidget) -> None:
 
 
 __all__ = [
-    "ButtonFx", "Channel", "KeyedAnimator", "SegmentedFx", "ValueGlide", "crossfade", "enabled",
-    "fade_in", "fade_out_snapshot", "faded", "install_app", "install_tree", "mix", "reveal", "smooth_scroll",
-    "stagger_in",
+    "ButtonFx", "Channel", "DialogFx", "KeyedAnimator", "MORNING", "NIGHT", "Profile", "ProgressFx",
+    "SegmentedFx", "Skeleton", "ValueGlide", "crossfade", "enabled", "fade_in", "fade_out_snapshot", "faded",
+    "flat_hover", "install_app", "install_tree", "mix", "page_enter", "profile", "pulse", "reveal",
+    "set_enabled", "smooth_scroll", "spring", "stagger_in",
 ]

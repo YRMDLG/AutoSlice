@@ -7816,7 +7816,7 @@
         "autoslice.desktop.qt_preview.theme.STYLE"
       ],
       "lines": [
-        42
+        46
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -19363,221 +19363,311 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 913,
+      "line_count": 1333,
       "longest_function": {
-        "end_line": 394,
+        "end_line": 463,
         "kind": "function",
-        "line": 362,
+        "line": 431,
         "line_count": 33,
         "qualname": "ButtonFx._paint_button"
       },
       "module": "autoslice.desktop.qt_preview.motion",
       "path": "src/autoslice/desktop/qt_preview/motion.py",
-      "sha256": "8fae211b76ea938afc48c7626fbad826cc6f173680a44731c56ebfbaaacb102b",
+      "sha256": "ca75bbebf3db374337b03d3c6de756dda9a068ff9cb39fc1e7601c480148c9f4",
       "top_level_classes": [
         {
-          "end_line": 148,
+          "end_line": 111,
           "kind": "class",
-          "line": 138,
+          "line": 85,
+          "name": "Profile"
+        },
+        {
+          "end_line": 216,
+          "kind": "class",
+          "line": 206,
           "name": "WheelGuard"
         },
         {
-          "end_line": 203,
+          "end_line": 271,
           "kind": "class",
-          "line": 172,
+          "line": 240,
           "name": "Channel"
         },
         {
-          "end_line": 254,
+          "end_line": 322,
           "kind": "class",
-          "line": 206,
+          "line": 274,
           "name": "KeyedAnimator"
         },
         {
-          "end_line": 451,
+          "end_line": 520,
           "kind": "class",
-          "line": 273,
+          "line": 341,
           "name": "ButtonFx"
         },
         {
-          "end_line": 523,
+          "end_line": 592,
           "kind": "class",
-          "line": 460,
+          "line": 529,
           "name": "SegmentedFx"
         },
         {
-          "end_line": 563,
+          "end_line": 632,
           "kind": "class",
-          "line": 526,
+          "line": 595,
           "name": "SplitterFx"
         },
         {
-          "end_line": 621,
+          "end_line": 690,
           "kind": "class",
-          "line": 566,
+          "line": 635,
           "name": "SliderFx"
         },
         {
-          "end_line": 643,
+          "end_line": 712,
           "kind": "class",
-          "line": 624,
+          "line": 693,
           "name": "_Ring"
         },
         {
-          "end_line": 675,
+          "end_line": 744,
           "kind": "class",
-          "line": 646,
+          "line": 715,
           "name": "InputFx"
         },
         {
-          "end_line": 717,
+          "end_line": 786,
           "kind": "class",
-          "line": 678,
+          "line": 747,
           "name": "ScrollFx"
         },
         {
-          "end_line": 761,
+          "end_line": 830,
           "kind": "class",
-          "line": 734,
+          "line": 803,
           "name": "_Fade"
         },
         {
-          "end_line": 876,
+          "end_line": 945,
           "kind": "class",
-          "line": 835,
+          "line": 904,
           "name": "ValueGlide"
+        },
+        {
+          "end_line": 1007,
+          "kind": "class",
+          "line": 948,
+          "name": "_Entrance"
+        },
+        {
+          "end_line": 1061,
+          "kind": "class",
+          "line": 1035,
+          "name": "_Veil"
+        },
+        {
+          "end_line": 1089,
+          "kind": "class",
+          "line": 1064,
+          "name": "_WindowGhost"
+        },
+        {
+          "end_line": 1130,
+          "kind": "class",
+          "line": 1092,
+          "name": "DialogFx"
+        },
+        {
+          "end_line": 1142,
+          "kind": "class",
+          "line": 1133,
+          "name": "DialogWatcher"
+        },
+        {
+          "end_line": 1184,
+          "kind": "class",
+          "line": 1145,
+          "name": "ProgressFx"
+        },
+        {
+          "end_line": 1214,
+          "kind": "class",
+          "line": 1187,
+          "name": "_SheenLayer"
+        },
+        {
+          "end_line": 1257,
+          "kind": "class",
+          "line": 1217,
+          "name": "Skeleton"
+        },
+        {
+          "end_line": 1291,
+          "kind": "class",
+          "line": 1268,
+          "name": "_Pulse"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 64,
+          "end_line": 68,
           "kind": "function",
-          "line": 61,
+          "line": 65,
           "name": "_bezier"
         },
         {
-          "end_line": 77,
-          "kind": "function",
-          "line": 76,
-          "name": "spring"
-        },
-        {
-          "end_line": 96,
+          "end_line": 81,
           "kind": "function",
           "line": 80,
-          "name": "restart"
-        },
-        {
-          "end_line": 105,
-          "kind": "function",
-          "line": 101,
-          "name": "enabled"
-        },
-        {
-          "end_line": 122,
-          "kind": "function",
-          "line": 108,
-          "name": "_detect"
+          "name": "spring"
         },
         {
           "end_line": 135,
           "kind": "function",
-          "line": 125,
+          "line": 134,
+          "name": "profile"
+        },
+        {
+          "end_line": 154,
+          "kind": "function",
+          "line": 138,
+          "name": "restart"
+        },
+        {
+          "end_line": 163,
+          "kind": "function",
+          "line": 159,
+          "name": "enabled"
+        },
+        {
+          "end_line": 170,
+          "kind": "function",
+          "line": 166,
+          "name": "set_enabled"
+        },
+        {
+          "end_line": 187,
+          "kind": "function",
+          "line": 173,
+          "name": "_detect"
+        },
+        {
+          "end_line": 203,
+          "kind": "function",
+          "line": 190,
           "name": "install_app"
         },
         {
-          "end_line": 159,
+          "end_line": 227,
           "kind": "function",
-          "line": 151,
+          "line": 219,
           "name": "mix"
         },
         {
-          "end_line": 165,
+          "end_line": 233,
           "kind": "function",
-          "line": 162,
+          "line": 230,
           "name": "faded"
         },
         {
-          "end_line": 169,
+          "end_line": 237,
           "kind": "function",
-          "line": 168,
+          "line": 236,
           "name": "ease"
         },
         {
-          "end_line": 260,
+          "end_line": 328,
           "kind": "function",
-          "line": 257,
+          "line": 325,
           "name": "_rounded"
         },
         {
-          "end_line": 270,
+          "end_line": 338,
           "kind": "function",
-          "line": 263,
+          "line": 331,
           "name": "_edge_pen"
         },
         {
-          "end_line": 457,
+          "end_line": 526,
           "kind": "function",
-          "line": 454,
+          "line": 523,
           "name": "flat_hover"
         },
         {
-          "end_line": 731,
+          "end_line": 800,
           "kind": "function",
-          "line": 720,
+          "line": 789,
           "name": "smooth_scroll"
         },
         {
-          "end_line": 778,
+          "end_line": 847,
           "kind": "function",
-          "line": 764,
+          "line": 833,
           "name": "crossfade"
         },
         {
-          "end_line": 787,
+          "end_line": 856,
           "kind": "function",
-          "line": 781,
+          "line": 850,
           "name": "fade_out_snapshot"
         },
         {
-          "end_line": 813,
+          "end_line": 882,
           "kind": "function",
-          "line": 790,
+          "line": 859,
           "name": "fade_in"
         },
         {
-          "end_line": 827,
+          "end_line": 896,
           "kind": "function",
-          "line": 816,
+          "line": 885,
           "name": "reveal"
         },
         {
-          "end_line": 832,
+          "end_line": 901,
           "kind": "function",
-          "line": 830,
+          "line": 899,
           "name": "stagger_in"
         },
         {
-          "end_line": 906,
+          "end_line": 1023,
           "kind": "function",
-          "line": 879,
+          "line": 1010,
+          "name": "page_enter"
+        },
+        {
+          "end_line": 1032,
+          "kind": "function",
+          "line": 1026,
+          "name": "_inside_card"
+        },
+        {
+          "end_line": 1265,
+          "kind": "function",
+          "line": 1260,
+          "name": "pulse"
+        },
+        {
+          "end_line": 1325,
+          "kind": "function",
+          "line": 1294,
           "name": "install_tree"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 340,
+      "line_count": 376,
       "longest_function": {
-        "end_line": 340,
+        "end_line": 376,
         "kind": "function",
-        "line": 294,
-        "line_count": 47,
+        "line": 327,
+        "line_count": 50,
         "qualname": "MenuFx.eventFilter"
       },
       "module": "autoslice.desktop.qt_preview.popups",
       "path": "src/autoslice/desktop/qt_preview/popups.py",
-      "sha256": "160059bd62a1eee1433041544d468e14e648c333bd0bd9ecb6d0234e35347cf3",
+      "sha256": "48f3e72842c4f4c551ee1a7a49dac8c89a88af82387567f7fc91857d8a52436a",
       "top_level_classes": [
         {
           "end_line": 90,
@@ -19586,21 +19676,21 @@
           "name": "_Ghost"
         },
         {
-          "end_line": 228,
+          "end_line": 261,
           "kind": "class",
-          "line": 98,
+          "line": 126,
           "name": "ComboPopup"
         },
         {
-          "end_line": 248,
+          "end_line": 281,
           "kind": "class",
-          "line": 231,
+          "line": 264,
           "name": "ComboBox"
         },
         {
-          "end_line": 340,
+          "end_line": 376,
           "kind": "class",
-          "line": 251,
+          "line": 284,
           "name": "MenuFx"
         }
       ],
@@ -19624,9 +19714,21 @@
           "name": "paint_row"
         },
         {
-          "end_line": 95,
+          "end_line": 98,
           "kind": "function",
           "line": 93,
+          "name": "_row_progress"
+        },
+        {
+          "end_line": 118,
+          "kind": "function",
+          "line": 101,
+          "name": "_enter_transform"
+        },
+        {
+          "end_line": 123,
+          "kind": "function",
+          "line": 121,
           "name": "ghost"
         }
       ]
@@ -28182,6 +28284,7 @@
       "tests/unit/test_desktop_homophone.py",
       "tests/unit/test_desktop_interaction.py",
       "tests/unit/test_desktop_jobs.py",
+      "tests/unit/test_desktop_motion_profile.py",
       "tests/unit/test_desktop_packaging.py",
       "tests/unit/test_desktop_page_shortcuts.py",
       "tests/unit/test_desktop_player.py",
@@ -28251,11 +28354,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 1032,
-    "production_line_count": 79768,
+    "production_line_count": 80224,
     "production_module_count": 323,
     "test_private_patch_count": 17,
-    "top_level_class_count": 341,
-    "top_level_function_count": 1540
+    "top_level_class_count": 351,
+    "top_level_function_count": 1547
   },
   "test_private_patches": {
     "by_target_module": {
