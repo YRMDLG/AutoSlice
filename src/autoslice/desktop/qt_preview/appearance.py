@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -115,11 +115,19 @@ def apply(app: QApplication | None = None, appearance: Appearance | None = None)
     app = app or QApplication.instance()
     if app is None:
         return result
-    app.setPalette(palette())
-    app.setStyleSheet(stylesheet())
-    widgets = app.allWidgets()
-    icons.retheme(widgets)
-    hub().changed.emit()
-    for widget in widgets:
-        widget.update()
+    # 整个界面重新套样式表约 1 秒（随控件数增长）：期间显示等待光标
+    busy = isinstance(app, QApplication) and bool(app.topLevelWidgets())
+    if busy:
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+    try:
+        app.setPalette(palette())
+        app.setStyleSheet(stylesheet())
+        widgets = app.allWidgets()
+        icons.retheme(widgets)
+        hub().changed.emit()
+        for widget in widgets:
+            widget.update()
+    finally:
+        if busy:
+            QApplication.restoreOverrideCursor()
     return result

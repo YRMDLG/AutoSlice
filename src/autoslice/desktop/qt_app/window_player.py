@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from autoslice.desktop.qt_preview import popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
-from autoslice.desktop.qt_preview.appearance import themed
+from autoslice.desktop.qt_preview.shell import Popover
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
@@ -34,8 +34,10 @@ class PlayerMixin:
         surface.setObjectName("videoSurface")
         surface.setMinimumHeight(200)
         layout = QVBoxLayout(surface)
-        layout.setContentsMargins(12, 12, 12, 0)
+        layout.setContentsMargins(10, 10, 10, 0)
         self.video_stack = QStackedWidget()
+        self.video_stack.setObjectName("videoFrame")
+        self.video_stack.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.video_placeholder = label("选择项目后可校对真实 SRT\n视频播放将在 Desktop-05 接入", "hint")
         self.video_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_stack.addWidget(self.video_placeholder)
@@ -48,15 +50,32 @@ class PlayerMixin:
         controls_bar.setObjectName("playerControls")
         controls = QHBoxLayout(controls_bar)
         # 无框按钮按图标对齐左边线
-        controls.setContentsMargins(0, 6, 8, 6)
-        controls.setSpacing(SIZES.space_3)
+        controls.setContentsMargins(4, 10, 4, 10)
+        controls.setSpacing(4)
+        self.seek_back_button = QPushButton()
+        self.seek_forward_button = QPushButton()
+        for button, name, tip, step in ((self.seek_back_button, "skip_back", "后退 2 秒", -2.0),
+                                        (self.seek_forward_button, "skip_forward", "前进 2 秒", 2.0)):
+            button.setObjectName("tool")
+            button.setProperty("square", True)
+            button.setFixedSize(32, 32)
+            button.setToolTip(tip)
+            button.setAccessibleName(tip)
+            tool_icon(button, name)
+            button.clicked.connect(lambda _checked=False, delta=step: self._nudge_playhead(delta))
         self.play_button = QPushButton("播放")
-        self.play_button.setObjectName("tool")
-        self.play_button.setIcon(desktop_icon("play", COLORS.text, SIZES.tool_icon_size))
+        # 播放是这一行的主动作：夜航强调色描边，晨雾实心强调色
+        self.play_button.setObjectName("primary")
+        self.play_button.setFixedHeight(34)
+        self.play_button.setIcon(desktop_icon("play", COLORS.primary_text, SIZES.tool_icon_size))
         self.play_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
+        self.play_button.setToolTip("播放 / 暂停（空格）")
         self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self._toggle_play)
+        controls.addWidget(self.seek_back_button)
         controls.addWidget(self.play_button)
+        controls.addWidget(self.seek_forward_button)
+        controls.addSpacing(8)
         self.preview_toggle = QPushButton("字幕预览")
         self.preview_toggle.setObjectName("tool")
         self.preview_toggle.setCheckable(True)
@@ -64,21 +83,36 @@ class PlayerMixin:
         self.preview_toggle.setChecked(True)
         self.preview_toggle.setToolTip("显示接近最终压制样式的实时字幕预览")
         self.preview_toggle.clicked.connect(self._toggle_subtitle_preview)
-        controls.addWidget(self.preview_toggle)
         self.time_label = label("00:00:00 / 00:00:00", "timecode")
         controls.addWidget(self.time_label)
         controls.addStretch()
-        volume_icon = label("")
-        themed(volume_icon, lambda: volume_icon.setPixmap(desktop_icon("volume", size=SIZES.tool_icon_size).pixmap(
-            SIZES.tool_icon_size, SIZES.tool_icon_size)))
-        volume_icon.setToolTip("音量")
-        controls.addWidget(volume_icon)
+        controls.addWidget(self.preview_toggle)
+        # 音量收进弹层：点喇叭弹出滑块，平时不占控制条
+        self.volume_button = QPushButton()
+        self.volume_button.setObjectName("tool")
+        self.volume_button.setProperty("square", True)
+        self.volume_button.setFixedSize(32, 32)
+        self.volume_button.setToolTip("音量")
+        self.volume_button.setAccessibleName("音量")
+        tool_icon(self.volume_button, "volume")
+        controls.addWidget(self.volume_button)
+        volume_panel = QWidget()
+        volume_row = QHBoxLayout(volume_panel)
+        volume_row.setContentsMargins(4, 2, 4, 2)
+        volume_row.setSpacing(12)
         self.volume = QSlider(Qt.Orientation.Horizontal)
         self.volume.setRange(0, 100)
         self.volume.setValue(50)
-        self.volume.setFixedWidth(90)
+        self.volume.setMinimumWidth(140)
         self.volume.valueChanged.connect(self._volume_changed)
-        controls.addWidget(self.volume)
+        volume_row.addWidget(self.volume, 1)
+        self.volume_value = label("50", "mono")
+        self.volume_value.setMinimumWidth(26)
+        self.volume.valueChanged.connect(lambda value: self.volume_value.setText(str(value)))
+        volume_row.addWidget(self.volume_value)
+        self.volume_popover = Popover(self, volume_panel, 212)
+        self.volume_button.clicked.connect(lambda: self.volume_popover.popup(
+            self.volume_button, align_right=True, above=True))
         self.speed = popups.ComboBox()
         for value in (0.75, 1.0, 1.25, 1.5, 2.0):
             self.speed.addItem(f"{value:g}×", value)
@@ -222,7 +256,23 @@ class PlayerMixin:
 
     def _set_play_button(self, paused):
         self.play_button.setText("播放" if paused else "暂停")
-        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.text, SIZES.tool_icon_size))
+        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.primary_text, SIZES.tool_icon_size))
+
+    def _space_play(self):
+        """空格：暂停时有选中字幕就从那句开头播放；播放中按空格暂停；没有选中字幕时普通播放 / 暂停。"""
+
+        if not self.player or not self._media_ready:
+            return
+        if self._player_paused:
+            bounds = self._entry_bounds(self.selected_index) if self.selected_index is not None else None
+            if bounds is not None:
+                self._seek_to(bounds[0])
+        self._toggle_play()
+
+    def _nudge_playhead(self, delta):
+        """控制条上的后退 / 前进 2 秒：和点时间轴一样定位并暂停。"""
+
+        self._seek_to(max(0.0, getattr(self, "_player_position", 0.0) + delta))
 
     def _volume_changed(self, value):
         if getattr(self, "player", None):

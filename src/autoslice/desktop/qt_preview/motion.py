@@ -345,7 +345,7 @@ class ButtonFx(QObject):
     """
 
     _RADIUS = {"navButton": 10, "projectItem": 8, "projectItemCompact": 8, "segment": 6,
-               "frameThumb": 7, "schemeThumb": 7}
+               "frameThumb": 7, "schemeThumb": 7, "projectSwitch": 10}
 
     def __init__(self, button: QPushButton) -> None:
         super().__init__(button)
@@ -413,8 +413,22 @@ class ButtonFx(QObject):
             shrink = (1 - STYLE.press_scale) * min(1.0, p) / 2
             rect = rect.adjusted(rect.width() * shrink, rect.height() * shrink,
                                  -rect.width() * shrink, -rect.height() * shrink)
-        if self.kind in ("raised", "secondary", "primary"):
+        if self.kind in ("raised", "secondary", "primary", "square"):
             self._paint_button(painter, rect, radius, h, p, c, enabled_)
+        elif self.kind == "aiFix":
+            # “AI 改一改”：强调描边的次按钮（晨雾白底），悬停极淡强调色
+            path = _rounded(rect, radius)
+            if STYLE.filled_buttons:
+                painter.fillPath(path, mix(COLORS.card, COLORS.button_hover, h))
+            painter.fillPath(path, faded(COLORS.accent, 0.08 * h + 0.05 * p))
+            painter.setPen(QPen(QColor(COLORS.accent_line if enabled_ else COLORS.divider), 1))
+            painter.drawPath(path)
+        elif self.kind == "projectSwitch":
+            # 顶栏项目切换：卡片底 + 卡片描边，悬停描边提亮
+            path = _rounded(rect, radius)
+            painter.fillPath(path, mix(COLORS.card, COLORS.button_hover, h * 0.5))
+            painter.setPen(QPen(mix(COLORS.card_border, COLORS.control_hover_border, h), 1))
+            painter.drawPath(path)
         elif self.kind in ("navButton", "projectItem", "projectItemCompact"):
             self._paint_selectable(painter, rect, radius, h, p, c)
         elif self.kind == "segment":

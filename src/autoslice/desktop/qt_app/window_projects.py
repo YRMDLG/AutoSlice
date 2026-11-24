@@ -8,11 +8,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QPoint,
     Qt,
     QTimer,
 )
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
@@ -25,6 +27,7 @@ from autoslice.desktop.archive import ArchiveService
 from autoslice.desktop.projects import PROJECT_SORT_OPTIONS, ProjectSnapshot, nested_root_candidate
 from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
+from autoslice.desktop.qt_preview.shell import Card
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import ProjectItem, card, label, line, tool_icon
 from autoslice.desktop.selection import CueSelection
@@ -115,23 +118,45 @@ class ProjectsMixin:
         return rail
 
     def _settings_page(self):
+        """设置页：一张大卡，左侧“本页目录”，右侧限宽的分区；点目录滚到对应分区，滚动时目录跟着亮。"""
+
         page = QWidget()
         page.setObjectName("settingsSurface")
+        frame = Card(spotlight=False)
+        frame_row = QHBoxLayout(frame)
+        frame_row.setContentsMargins(0, 0, 0, 0)
+        frame_row.setSpacing(0)
+        toc = QWidget()
+        toc.setFixedWidth(216)
+        toc_column = QVBoxLayout(toc)
+        toc_column.setContentsMargins(14, 30, 14, 20)
+        toc_column.setSpacing(2)
+        heading = label("设置", "settingsHeading")
+        heading.setContentsMargins(12, 0, 0, 16)
+        toc_column.addWidget(heading)
+        frame_row.addWidget(toc)
+        separator = QFrame()
+        separator.setObjectName("vline")
+        separator.setFixedWidth(1)
+        separator_holder = QVBoxLayout()
+        separator_holder.setContentsMargins(0, 24, 0, 24)
+        separator_holder.addWidget(separator)
+        frame_row.addLayout(separator_holder)
         scroll = QScrollArea()
         self.settings_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         body = QWidget()
         outer = QVBoxLayout(body)
-        outer.setContentsMargins(32, 26, 32, 26)
+        outer.setContentsMargins(36, 30, 36, 40)
         # 限宽、靠左的内容列：大窗口里输入框也不会拉成一条线（靠 maximumWidth，不用对齐标志）
         content = QWidget()
-        content.setMaximumWidth(880)
+        content.setMaximumWidth(760)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(18)
         # 放进横向一行再加进页面：滚动区按“宽度→高度”给内容定高，竖排里直接放限宽控件时，
-        # Qt 按整页宽度（不是 880）算折行，高度算少了，所有行被挤到最小高度以下（下拉框压扁、按钮被裁）。
+        # Qt 按整页宽度（不是限宽）算折行，高度算少了，所有行被挤到最小高度以下（下拉框压扁、按钮被裁）。
         # 横排会先按限宽分好宽度再算高度。
         column = QHBoxLayout()
         column.setContentsMargins(0, 0, 0, 0)
@@ -139,8 +164,6 @@ class ProjectsMixin:
         column.addStretch(0)
         outer.addLayout(column)
         outer.addStretch(1)
-        layout.addWidget(label("设置", "pageTitle"))
-        layout.addSpacing(2)
 
         # ── 投稿目录 ──
         directory_card, directory_column = card("投稿目录")
@@ -157,19 +180,25 @@ class ProjectsMixin:
         browse_dir.clicked.connect(self._browse_submission_root)
         dir_row.addWidget(browse_dir)
         directory_column.addLayout(dir_row)
-        layout.addWidget(directory_card)
 
         # ── 外观（主题、强调色；即时生效）──
         self.appearance_panel = AppearancePanel(self.storage)
-        layout.addWidget(self.appearance_panel)
 
-        # ── AI 接口（原来排在第 7 节，新用户找不到）──
+        # ── AI 接口 ──
         self.ai_settings_panel = AISettingsPanel(self._run)
-        layout.addWidget(self.ai_settings_panel)
+
+        # ── 学习旧切片（扫描本机旧投稿文件夹；学到的东西要确认才生效） ──
+        self.archive_panel = ArchivePanel(ArchiveService(self.storage), self._run, self.forget_habit_cache)
+
+        # ── 成长记录（字幕纠错记忆 + 封面作品库两块） ──
+        self.learning_panel = LearningPanel(self.correction_memory, self.cover_editor.service.works)
+
+        # ── 字幕识别 ──
+        self.asr_settings_panel = AsrSettingsPanel(self.storage)
 
         # ── 字幕压制 ──
         render_card, render_column = card(
-            "字幕压制",
+            "压制",
             f"默认样式：{DEFAULT_SUBTITLE_STYLE['font_name']} · #{DEFAULT_SUBTITLE_STYLE['outline_color']} 描边",
         )
         render_column.addWidget(label("压制使用既有 FFmpeg 工作流，NVENC 可用时自动优先。", "muted"))
@@ -178,10 +207,9 @@ class ProjectsMixin:
         self.render_font_note.setWordWrap(True)
         self.render_font_note.hide()
         render_column.addWidget(self.render_font_note)
-        layout.addWidget(render_card)
 
-        # ── 封面 ──
-        cover_card, cover_column = card("封面", "素材只扫描所选文件夹及其子文件夹，手动导入的素材也会保留。")
+        # ── 封面素材 ──
+        cover_card, cover_column = card("封面素材", "素材只扫描所选文件夹及其子文件夹，手动导入的素材也会保留。")
         cover_column.addWidget(label("素材文件夹", "muted"))
         material_row = QHBoxLayout()
         self.settings_material_directory = label(str(self.cover_editor.service.asset_library.legacy_root), "muted")
@@ -193,19 +221,6 @@ class ProjectsMixin:
         material_row.addWidget(browse_materials)
         cover_column.addLayout(material_row)
         cover_column.addWidget(label("桌面草稿保存在用户应用数据目录，重启后可恢复。", "muted"))
-        layout.addWidget(cover_card)
-
-        # ── 成长记录（字幕纠错记忆 + 封面作品库两块） ──
-        self.learning_panel = LearningPanel(self.correction_memory, self.cover_editor.service.works)
-        layout.addWidget(self.learning_panel)
-
-        # ── 学习旧切片（扫描本机旧投稿文件夹；学到的东西要确认才生效） ──
-        self.archive_panel = ArchivePanel(ArchiveService(self.storage), self._run, self.forget_habit_cache)
-        layout.addWidget(self.archive_panel)
-
-        # ── 字幕识别 ──
-        self.asr_settings_panel = AsrSettingsPanel(self.storage)
-        layout.addWidget(self.asr_settings_panel)
 
         # ── 播放器 ──
         player_card, player_column = card("播放器")
@@ -218,12 +233,77 @@ class ProjectsMixin:
         hwdec = getattr(self, "_hwdec", None)
         if hwdec:
             player_column.addWidget(label(f"硬件解码：{hwdec}", "muted"))
-        layout.addWidget(player_card)
+
+        # ── 快捷键 ──
+        shortcut_card, shortcut_column = card("快捷键", "字幕页：空格从选中句开头播放，Ctrl+S 保存，Ctrl+F 查找替换，F1~F4 试听。")
+        shortcut_button = QPushButton("查看全部快捷键（Ctrl+/）")
+        shortcut_button.clicked.connect(self._show_shortcuts)
+        shortcut_column.addWidget(shortcut_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        learning_cards = self.learning_panel.findChildren(QWidget, "settingsCard")
+        sections = [
+            ("投稿目录", directory_card, directory_card),
+            ("外观", self.appearance_panel, self.appearance_panel),
+            ("AI 接口", self.ai_settings_panel, self.ai_settings_panel),
+            ("学习旧切片", self.archive_panel, self.archive_panel),
+            ("字幕纠错记忆", self.learning_panel, learning_cards[0] if learning_cards else self.learning_panel),
+        ]
+        if len(learning_cards) > 1:
+            sections.append(("封面作品库", None, learning_cards[1]))
+        sections += [
+            ("字幕识别", self.asr_settings_panel, self.asr_settings_panel),
+            ("压制", render_card, render_card),
+            ("封面素材", cover_card, cover_card),
+            ("播放器", player_card, player_card),
+            ("快捷键", shortcut_card, shortcut_card),
+        ]
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        self.settings_toc: list[tuple[QPushButton, QWidget]] = []
+        for title, widget, target in sections:
+            if widget is not None:
+                layout.addWidget(widget)
+            item = QPushButton(title)
+            item.setObjectName("tocItem")
+            item.setCheckable(True)
+            item.clicked.connect(lambda _checked=False, section=target: self._scroll_settings_to(section))
+            group.addButton(item)
+            toc_column.addWidget(item)
+            self.settings_toc.append((item, target))
+        self.settings_toc[0][0].setChecked(True)
+        toc_column.addStretch(1)
         scroll.setWidget(body)
+        scroll.verticalScrollBar().valueChanged.connect(lambda _value: self._sync_settings_toc())
+        frame_row.addWidget(scroll, 1)
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.addWidget(scroll)
+        page_layout.addWidget(frame)
         return page
+
+    def _scroll_settings_to(self, section):
+        """目录点一项：滚到那一节的标题处（平滑滚动），目录立即亮这一项。"""
+
+        scroll = self.settings_scroll
+        target = section.mapTo(scroll.widget(), QPoint(0, 0)).y() - 24
+        motion.smooth_scroll(scroll, lambda: scroll.verticalScrollBar().setValue(max(0, target)))
+        for item, widget in self.settings_toc:
+            if widget is section:
+                item.setChecked(True)
+
+    def _sync_settings_toc(self):
+        scroll = self.settings_scroll
+        if scroll.widget() is None:
+            return
+        value = scroll.verticalScrollBar().value()
+        current = None
+        for item, widget in self.settings_toc:
+            if widget.mapTo(scroll.widget(), QPoint(0, 0)).y() - 40 <= value:
+                current = item
+        bar = scroll.verticalScrollBar()
+        if value >= bar.maximum() - 2 and self.settings_toc:
+            current = self.settings_toc[-1][0] if value > 0 else current
+        if current is not None and not current.isChecked():
+            current.setChecked(True)
 
     def _project_sort_changed(self):
         snapshot = self.service.set_sort_mode(self.project_sort.currentData())
@@ -352,6 +432,8 @@ class ProjectsMixin:
             self.cover_editor.set_context(None, None)
 
     def _select_real_project(self, project, *, preferred_video=None):
+        if hasattr(self, "project_popover"):
+            self.project_popover.dismiss()
         if self._loading or self._saving:
             self._restore_project_button()
             return

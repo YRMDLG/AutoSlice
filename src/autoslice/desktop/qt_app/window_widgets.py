@@ -6,12 +6,13 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QEvent,
     QModelIndex,
-    QPointF,
+    QObject,
     QRectF,
     Qt,
+    QTimer,
     Signal,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPen, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from autoslice.desktop.qt_preview import motion
@@ -83,6 +86,125 @@ class _ElidedQueueButton(QPushButton):
             self._update_elided_text()
 
 
+class _AiStat(QWidget):
+    """AI 检查卡里的一个数字：大号等宽数字 + 小字说明；数字变化时轻轻弹一下。"""
+
+    def __init__(self, caption: str, *, accent: bool = False, muted: bool = False, parent=None):
+        super().__init__(parent)
+        self.accent = accent
+        self.muted = muted
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        self.value = QLabel("0")
+        self.value.setObjectName("aiStatValue")
+        self.caption = QLabel(caption)
+        self.caption.setObjectName("subtle")
+        column.addWidget(self.value)
+        column.addWidget(self.caption)
+        self._current = None
+        from autoslice.desktop.qt_preview.appearance import themed
+
+        themed(self, self._restyle)
+
+    def _restyle(self) -> None:
+        color = COLORS.accent_ink if self.accent else COLORS.muted if self.muted else COLORS.text
+        family = ", ".join(f"'{name}'" for name in MONO_FAMILIES)
+        self.value.setStyleSheet(f"color: {color}; font-family: {family}; font-size: 20px; font-weight: 500;")
+        self.caption.setStyleSheet(f"color: {COLORS.subtle}; font-size: {SIZES.text_small}px;")
+
+    def set_value(self, number: int) -> None:
+        if number == self._current:
+            return
+        bump = self._current is not None
+        self._current = number
+        self.value.setText(str(number))
+        if bump:
+            motion.fade_in(self.value, motion.profile().row_enter, start=0.15)
+
+
+class _InlineAiWatcher(QObject):
+    """字幕表格视口尺寸变化时，重新摆放行内建议。"""
+
+    def __init__(self, window) -> None:
+        super().__init__(window)
+        self._window = window
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize:
+            QTimer.singleShot(0, self._window._place_inline_ai)
+        return False
+
+
+class SelectionFrame(QWidget):
+    """字幕列表里选中行的圆角选中框：只画一圈强调色细线，不铺大片强调色。
+
+    盖在表格视口上、对鼠标透明；选中、滚动、行高变化时重画。
+    """
+
+    INSET = 3.0
+    RADIUS = 10.0
+
+    def __init__(self, table) -> None:
+        super().__init__(table.viewport())
+        self.table = table
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self._fade = motion.Channel(self, self.update, 1.0)
+        self._rows: tuple = ()
+        table.viewport().installEventFilter(self)
+        table.verticalScrollBar().valueChanged.connect(lambda _value: self.update())
+        table.verticalHeader().sectionResized.connect(lambda *_args: self.update())
+        self._watch_selection()
+        self.setGeometry(table.viewport().rect())
+        self.show()
+
+    def _watch_selection(self) -> None:
+        model = self.table.selectionModel()
+        if model is not None:
+            model.selectionChanged.connect(self._selection_changed)
+        self.table.model().modelReset.connect(self.update)
+        self.table.model().layoutChanged.connect(self.update)
+
+    def _selection_changed(self, *_args) -> None:
+        rows = tuple(sorted({index.row() for index in self.table.selectionModel().selectedIndexes()}))
+        if rows != self._rows:
+            self._rows = rows
+            self._fade.snap(0.0)
+            self._fade.to(1.0, motion.SELECT)
+        self.update()
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize:
+            self.setGeometry(self.table.viewport().rect())
+            self.raise_()
+        return False
+
+    def paintEvent(self, _event) -> None:
+        selection = self.table.selectionModel()
+        if selection is None:
+            return
+        rows = sorted({index.row() for index in selection.selectedIndexes()})
+        if not rows:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor(COLORS.accent_line)
+        color.setAlphaF(max(0.0, min(1.0, self._fade.value)))
+        painter.setPen(QPen(color, 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        model = self.table.model()
+        last = model.columnCount() - 1
+        for row in rows:
+            first = self.table.visualRect(model.index(row, 0))
+            end = self.table.visualRect(model.index(row, last))
+            if not first.isValid() or first.bottom() < 0 or first.top() > self.height():
+                continue
+            rect = QRectF(first.left(), first.top(), end.right() - first.left() + 1, first.height())
+            rect = rect.adjusted(self.INSET + 0.5, 1.5, -self.INSET - 0.5, -1.5)
+            painter.drawRoundedRect(rect, self.RADIUS, self.RADIUS)
+
+
 class SubtitleTableModel(QAbstractTableModel):
     edited = Signal()
 
@@ -91,6 +213,9 @@ class SubtitleTableModel(QAbstractTableModel):
         self.document: SubtitleDocument | None = None
         self.playing_index: int | None = None
         self.pending_ids: set[int] | None = None
+        self.tags: dict[int, str] = {}
+        # 查找高亮：(查找词, 区分大小写, 当前命中 (字幕编号, 起点))；None 表示不在查找
+        self.find_state: tuple | None = None
         self._filter_cache = None  # (键, 位置列表, 对应字幕编号)
 
     def _filtered_rows(self):
@@ -125,6 +250,31 @@ class SubtitleTableModel(QAbstractTableModel):
             _key, positions, ids = self._filtered_rows()
             entry = self.document.entries[positions[row]]
         return entry
+
+    def set_tags(self, tags: dict[int, str]) -> None:
+        """字幕行右侧的小标记（AI 建议状态）；只影响显示。"""
+
+        if tags == self.tags:
+            return
+        self.tags = dict(tags)
+        if self.document is not None and self.rowCount():
+            self.dataChanged.emit(self.index(0, 2), self.index(self.rowCount() - 1, 2),
+                                  [Qt.ItemDataRole.DisplayRole])
+
+    def set_find(self, query: str | None, sensitive: bool = False, current=None) -> None:
+        state = (query, sensitive, current) if query else None
+        if state == self.find_state:
+            return
+        self.find_state = state
+        if self.document is not None and self.rowCount():
+            self.dataChanged.emit(self.index(0, 2), self.index(self.rowCount() - 1, 2),
+                                  [Qt.ItemDataRole.DisplayRole])
+
+    def tag_for(self, cue_index: int) -> str:
+        tag = self.tags.get(cue_index, "")
+        if not tag and cue_index == self.playing_index:
+            return "播放中"
+        return tag
 
     def set_pending_filter(self, cue_ids):
         self.beginResetModel()
@@ -302,27 +452,86 @@ class SubtitleTextDelegate(QStyledItemDelegate):
                              motion.HOVER_IN if hovered else motion.HOVER_OUT)
         s = self._rows.value((key, "select"), 1.0 if selected else 0.0, motion.SELECT)
         p = self._rows.value((key, "play"), 1.0 if playing else 0.0, motion.SELECT)
-        rect = option.rect
+        shape = _row_shape(QRectF(option.rect), index.column(), model.columnCount() - 1)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if p > 0.01:
-            painter.fillRect(rect, motion.faded(COLORS.playback, p))
+            painter.fillPath(shape, motion.faded(COLORS.playback, p * (1 - s)))
         if h * (1 - s) > 0.01:
-            painter.fillRect(rect, motion.faded(COLORS.hover, h * (1 - s)))
+            painter.fillPath(shape, motion.faded(COLORS.hover, h * (1 - s)))
         if s > 0.01:
-            # 选中行只保留选中框，不铺强调色：底色几乎同卡片，四周一圈强调细线
-            painter.fillRect(rect, motion.faded(COLORS.row_selected, s))
-            line = motion.faded(COLORS.accent_line, s)
-            frame = QRectF(rect).adjusted(0, 0.5, 0, -0.5)
-            painter.setPen(QPen(line, 1))
-            painter.drawLine(frame.topLeft(), frame.topRight())
-            painter.drawLine(frame.bottomLeft(), frame.bottomRight())
-            if index.column() == 0:
-                painter.drawLine(frame.topLeft() + QPointF(0.5, 0), frame.bottomLeft() + QPointF(0.5, 0))
-            if index.column() == model.columnCount() - 1:
-                painter.drawLine(frame.topRight() - QPointF(0.5, 0), frame.bottomRight() - QPointF(0.5, 0))
+            # 选中行只保留选中框（SelectionFrame 画圆角细线），底色几乎同卡片，不铺强调色
+            painter.fillPath(shape, motion.faded(COLORS.row_selected, s))
 
     @staticmethod
     def _key(index):
         return (index.row(), index.column())
+
+    def _paint_find_hits(self, painter, option, index) -> None:
+        """查找命中：其它命中淡底 + 下划线，当前命中实底；文字照常画在上面。"""
+
+        model = index.model()
+        state = getattr(model, "find_state", None)
+        if not state:
+            return
+        query, sensitive, current = state
+        try:
+            entry = model.entry_at(index.row())
+        except (AttributeError, IndexError):
+            return
+        text = entry.text.replace("\n", " ")
+        haystack, needle = (text, query) if sensitive else (text.casefold(), query.casefold())
+        start = haystack.find(needle)
+        if start < 0:
+            return
+        font = QFont(option.font)
+        font.setPixelSize(SIZES.text_body)
+        metrics = QFontMetrics(font)
+        style = self._table.style() if self._table is not None else None
+        margin = (style.pixelMetric(QStyle.PixelMetric.PM_FocusFrameHMargin) + 1) if style else 4
+        left = option.rect.left() + margin
+        height = metrics.height() + 4
+        top = option.rect.center().y() - height / 2
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        while start >= 0:
+            x = left + metrics.horizontalAdvance(text[:start])
+            width = metrics.horizontalAdvance(text[start:start + len(query)])
+            rect = QRectF(x - 1, top, width + 2, height)
+            if rect.left() > option.rect.right():
+                break
+            on = current == (entry.index, start)
+            if on:
+                painter.fillRect(rect, QColor(COLORS.accent_line))
+            else:
+                painter.fillRect(rect, motion.faded(COLORS.accent, 0.2))
+                painter.fillRect(QRectF(rect.left(), rect.bottom() - 1.5, rect.width(), 1.5),
+                                 motion.faded(COLORS.accent, 0.7))
+            start = haystack.find(needle, start + len(needle))
+        painter.restore()
+
+    def _paint_tag(self, painter, option, index) -> int:
+        """正文列右侧画状态标记，返回占用的宽度。"""
+
+        model = index.model()
+        try:
+            entry = model.entry_at(index.row())
+        except (AttributeError, IndexError):
+            return 0
+        tag = model.tag_for(entry.index) if hasattr(model, "tag_for") else ""
+        if not tag:
+            return 0
+        font = QFont(option.font)
+        font.setPixelSize(SIZES.text_small)
+        metrics = QFontMetrics(font)
+        width = metrics.horizontalAdvance(tag) + 14
+        color = {"已采纳": COLORS.success, "待确认": COLORS.accent_ink, "已手改": COLORS.accent_ink}.get(tag, COLORS.subtle)
+        painter.save()
+        painter.setFont(font)
+        painter.setPen(QColor(color))
+        painter.drawText(QRectF(option.rect.right() - width, option.rect.top(), width - 8, option.rect.height()),
+                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, tag)
+        painter.restore()
+        return width
 
     def createEditor(self, parent, option, index):
         editor = QPlainTextEdit(parent)
@@ -353,6 +562,14 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         painter.save()
         self._paint_row(painter, option, index)
         painter.restore()
+        # 行内建议展开时这一行变高：文字仍画在原来的行高里
+        if option.rect.height() > SIZES.subtitle_row_height:
+            option.rect.setHeight(SIZES.subtitle_row_height)
+        if index.column() == 2 and self._editing != self._key(index):
+            taken = self._paint_tag(painter, option, index)
+            if taken:
+                option.rect.setRight(option.rect.right() - taken)
+            self._paint_find_hits(painter, option, index)
         if index.column() < 2:
             option.font.setPixelSize(SIZES.text_small)
             if index.column() == 0:
@@ -369,10 +586,6 @@ class SubtitleTextDelegate(QStyledItemDelegate):
             super().paint(painter, background, index)
         else:
             super().paint(painter, option, index)
-        painter.save()
-        painter.setPen(QColor(COLORS.divider))
-        painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
-        painter.restore()
 
     def setEditorData(self, editor, index):
         if editor.property("autoslice_editor_initialised"):
@@ -386,6 +599,28 @@ class SubtitleTextDelegate(QStyledItemDelegate):
 
     def setModelData(self, editor, model, index):
         model.finish_live_text(index, editor.toPlainText())
+
+
+def _row_shape(rect: QRectF, column: int, last: int) -> QPainterPath:
+    """一行由几个单元格拼成：只在最左、最右两端收圆角并内缩，中间格子直角相接。"""
+
+    inset = SelectionFrame.INSET
+    radius = SelectionFrame.RADIUS
+    rect = rect.adjusted(inset if column == 0 else 0, 1.5, -inset if column == last else 0, -1.5)
+    path = QPainterPath()
+    if column not in (0, last):
+        path.addRect(rect)
+        return path
+    path.addRoundedRect(rect, radius, radius)
+    if column == 0 and last != 0:
+        square = QPainterPath()
+        square.addRect(QRectF(rect.center().x(), rect.top(), rect.width() / 2 + 1, rect.height()))
+        path = path.united(square)
+    elif column == last and last != 0:
+        square = QPainterPath()
+        square.addRect(QRectF(rect.left() - 1, rect.top(), rect.width() / 2 + 1, rect.height()))
+        path = path.united(square)
+    return path
 
 
 def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:

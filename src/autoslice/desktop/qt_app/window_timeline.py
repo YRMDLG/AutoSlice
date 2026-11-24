@@ -32,17 +32,16 @@ class TimelineMixin:
         panel.setObjectName("timeline")
         # 最小高度由标题行与时间轴画布推算，避免波形被裁
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 6, 20, 4)
-        layout.setSpacing(2)
+        layout.setContentsMargins(14, 6, 14, 12)
+        layout.setSpacing(6)
         heading = QHBoxLayout()
-        heading.setSpacing(4)
-        heading.addWidget(label("字幕时间轴", "sectionTitle"))
+        heading.setSpacing(6)
+        heading.setContentsMargins(4, 0, 0, 0)
+        heading.addWidget(label("时间轴", "sectionTitle"))
         heading.addSpacing(SIZES.space_2)
-        hint = ElidedLabel("快捷键 Ctrl+/ · 拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
+        hint = ElidedLabel("Ctrl+滚轮缩放 · 拖动空白框选 · 滚轮/侧键平移 · Ctrl+/ 快捷键")
         hint.setObjectName("subtle")
         hint.setToolTip("快捷键一览 Ctrl+/ · 拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
-        heading.addWidget(hint, 1)
-        heading.addStretch()
         self.snap_button = QPushButton("磁吸")
         self.snap_button.setObjectName("tool")
         self.snap_button.setCheckable(True)
@@ -72,8 +71,10 @@ class TimelineMixin:
         self.more_button.clicked.connect(lambda: self._show_edit_menu(
             self.more_button.mapToGlobal(self.more_button.rect().bottomLeft()), global_position=True))
         heading.addWidget(self.more_button)
-        self.timeline_overlap = label("", "subtle")
+        heading.addStretch()
+        self.timeline_overlap = label("", "danger")
         heading.addWidget(self.timeline_overlap)
+        heading.addWidget(hint, 1)
         layout.addLayout(heading)
         self.timeline = SubtitleTimeline()
         self.timeline.set_waveform_visible(True)
@@ -193,10 +194,23 @@ class TimelineMixin:
         self._select_cue(new_index)
         self._edited()
         self._show_transient_status("已拆分字幕；请补全右侧正文后保存")
+        self._toast("已在播放头处拆成两条", undo=True)
 
     def _show_edit_menu(self, position, *, global_position=False):
         menu = QMenu(self)
         effects = popups.MenuFx(menu)
+        active = self.selection.active if self.selection.active is not None else self.selected_index
+        entry = next((item for item in self.document.entries if item.index == active), None) if self.document else None
+        if entry is not None:
+            # 菜单头：第几条、开始时间；后面是编辑、定位、与下一条合并（设计稿的右键菜单）
+            title = menu.addAction(f"第 {entry.index} 条 · {entry.start[:8]}")
+            title.setEnabled(False)
+            menu.addAction("编辑文字", lambda: self._edit_cue_text(entry.index))
+            menu.addAction("定位到这一句", lambda: self._seek_to(srt_timestamp_seconds(entry.start)))
+            following = self._following_cue(entry.index)
+            merge_next = menu.addAction("与下一条合并", lambda: self._merge_with_next(entry.index))
+            merge_next.setEnabled(following is not None and not self._saving)
+            menu.addSeparator()
         menu.addAction("左裁到定位线 Q", self._trim_start)
         menu.addAction("右裁到定位线 W", self._trim_end)
         menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
@@ -204,7 +218,8 @@ class TimelineMixin:
         merge.setEnabled(self._can_merge_selected())
         if not merge.isEnabled():
             merge.setToolTip("请先选择时间轴中连续相邻的字幕")
-        menu.addAction("删除 Delete", self._delete)
+        delete = menu.addAction("删除 Delete", self._delete)
+        delete.setProperty("danger", True)
         menu.addSeparator()
         # 字幕块和声音对不上（尾音被切、拖进静音、两句间闪一下）：按真实停顿重定起止
         snap = menu.addAction("选中字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=True))
@@ -333,6 +348,30 @@ class TimelineMixin:
             range(min(positions), max(positions) + 1)
         )
 
+    def _following_cue(self, cue_id):
+        order = self._cue_order()
+        if cue_id not in order:
+            return None
+        position = order.index(cue_id)
+        return order[position + 1] if position + 1 < len(order) else None
+
+    def _merge_with_next(self, cue_id):
+        """右键“与下一条合并”：选中这一句和下一句，再走同一条合并逻辑（一步撤销）。"""
+
+        following = self._following_cue(cue_id)
+        if following is None:
+            return
+        self.selection.choose(cue_id, self._cue_order())
+        self.selection.choose(following, self._cue_order(), shift=True)
+        self._merge_selected()
+
+    def _edit_cue_text(self, cue_id):
+        """右键“编辑文字”：和单击正文一样进入行内编辑。"""
+
+        row = self._row_of_cue(cue_id)
+        if row >= 0:
+            self._go_to_subtitle_row(row, edit=True)
+
     def _merge_selected(self):
         if self._saving or not self.document:
             return
@@ -348,6 +387,7 @@ class TimelineMixin:
         self._select_cue(new_index)
         self._edited()
         self._show_transient_status("已合并所选字幕")
+        self._toast("已合并所选字幕", undo=True)
 
     def _entry_bounds(self, cue_id=None):
         cue_id = cue_id if cue_id is not None else self.selection.active

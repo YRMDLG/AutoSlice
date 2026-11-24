@@ -6,12 +6,12 @@ import math
 import time
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication, QWidget
 
 from autoslice.desktop.qt_preview import motion
 from autoslice.desktop.qt_preview.motion import faded, mix
-from autoslice.desktop.qt_preview.theme import COLORS, SIZES
+from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES, STYLE
 from autoslice.desktop.snap import SnapEngine
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.transcription.contracts import srt_timestamp_seconds
@@ -426,10 +426,15 @@ class SubtitleTimeline(QWidget):
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor(COLORS.divider), 1))
+        # 轨道底：圆角浅底 + 细描边，和卡片区分开
+        painter.setPen(QPen(QColor(COLORS.timeline_border), 1))
+        painter.setBrush(QColor(COLORS.timeline_bg))
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 9, 9)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(COLORS.tick), 1))
         painter.drawLine(12, 21, self.width() - 12, 21)
         if self.waveform_visible:
-            painter.setPen(QPen(faded(COLORS.subtle, self._wave.value), 1))
+            painter.setPen(QPen(faded(mix(COLORS.wave, COLORS.subtle, .35), self._wave.value), 1))
             center = 72
             if self.waveform_samples:
                 for x in range(12, max(12, self.width() - 12), 2):
@@ -453,14 +458,16 @@ class SubtitleTimeline(QWidget):
             x = self._x(tick)
             if 12 <= x <= self.width() - 12:
                 painter.setPen(QColor(COLORS.subtle))
+                painter.setFont(self._tick_font())
                 minutes, seconds = divmod(tick, 60)
                 text = f"{minutes:02d}:{seconds:02d}"
                 # 放不下的刻度只画刻线，不画被截断的标签
                 if x + 3 + painter.fontMetrics().horizontalAdvance(text) <= self.width() - 12:
                     painter.drawText(int(x + 3), 0, 55, 17, Qt.AlignmentFlag.AlignLeft, text)
-                painter.setPen(QPen(QColor(COLORS.divider), 1))
+                painter.setPen(QPen(QColor(COLORS.tick), 1))
                 painter.drawLine(int(x), 17, int(x), 25)
             tick += spacing
+        painter.setFont(self.font())
         for entry, _start, _end, rect in self._visible_blocks():
             key = entry.index
             selected = key in self.selected_indices
@@ -477,14 +484,17 @@ class SubtitleTimeline(QWidget):
                        COLORS.block_selected, s)
             border = mix(mix(mix(COLORS.block_border, COLORS.block_playing_border, h),
                              COLORS.block_playing_border, p), COLORS.block_selected_border, s)
+            # 块与块之间留一道小缝，不前后贴住；圆角取主题值，窄块按宽度收
+            shape = rect.adjusted(1.5, 0, -1.5, 0) if rect.width() > 8 else rect
+            radius = min(STYLE.block_radius, shape.height() / 2, shape.width() / 2)
             painter.setPen(QPen(border, 1 + m))
             painter.setBrush(fill)
-            painter.drawRoundedRect(rect, 4, 4)
+            painter.drawRoundedRect(shape, radius, radius)
             if rect.width() >= 28:
                 painter.setPen(mix(mix(COLORS.block_text, COLORS.block_playing_text, max(p, h * .6)),
                                    COLORS.block_selected_text, s))
                 # 主选指示条出现时序号让出位置
-                area = rect.adjusted(5 + 4 * m, 0, -3, 0)
+                area = rect.adjusted(8 + 4 * m, 0, -6, 0)
                 number = str(entry.index)
                 painter.drawText(area, Qt.AlignmentFlag.AlignVCenter, number)
                 # 块够宽就跟上开头几个字，不用对照下面的列表找是哪句；放不下三个字就不画半截
@@ -520,12 +530,16 @@ class SubtitleTimeline(QWidget):
             self._paint_marquee(painter, self._marquee_last, self._marquee_fade.value)
         marker = self._x(self._scrub["position"] if self._scrub else self._display_playhead())
         if 12 <= marker <= self.width() - 12:
-            painter.setPen(QPen(QColor(COLORS.playhead), 2))
-            painter.drawLine(QPointF(marker, 19), QPointF(marker, self.height() - 1))
+            # 播放头：独立细线，夜航带一点强调色光晕，晨雾是深色细线
+            if STYLE.dark:
+                painter.setPen(QPen(faded(COLORS.playhead, .25), 5))
+                painter.drawLine(QPointF(marker, 19), QPointF(marker, self.height() - 2))
+            painter.setPen(QPen(QColor(COLORS.playhead), 1.5))
+            painter.drawLine(QPointF(marker, 19), QPointF(marker, self.height() - 2))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(COLORS.playhead))
             painter.drawPolygon(QPolygonF([
-                QPointF(marker - 7, 18), QPointF(marker + 7, 18), QPointF(marker, 25),
+                QPointF(marker - 5, 17), QPointF(marker + 5, 17), QPointF(marker, 24),
             ]))
         if self._scrub:
             position = self._scrub["position"]
@@ -548,6 +562,12 @@ class SubtitleTimeline(QWidget):
             guide = self._x(self._guide_at)
             painter.setPen(QPen(faded(COLORS.accent, self._guide.value), 1, Qt.PenStyle.DashLine))
             painter.drawLine(QPointF(guide, 0), QPointF(guide, self.height()))
+
+    def _tick_font(self):
+        font = QFont(self.font())
+        font.setFamilies(list(MONO_FAMILIES))
+        font.setPixelSize(10)
+        return font
 
     def _paint_marquee(self, painter, rectangle: QRectF, opacity: float):
         painter.setPen(QPen(faded(COLORS.accent, opacity), 1))

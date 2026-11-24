@@ -5134,7 +5134,7 @@
         "autoslice.desktop.cover_canvas.CoverCanvas"
       ],
       "lines": [
-        37
+        38
       ],
       "to": "autoslice.desktop.cover_canvas"
     },
@@ -5145,7 +5145,7 @@
         "autoslice.desktop.cover_style.streamer_key"
       ],
       "lines": [
-        38
+        39
       ],
       "to": "autoslice.desktop.cover_style"
     },
@@ -5160,9 +5160,19 @@
         "autoslice.desktop.cover_widgets._preset_icon"
       ],
       "lines": [
-        39
+        40
       ],
       "to": "autoslice.desktop.cover_widgets"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_ui",
+      "imports": [
+        "autoslice.desktop.qt_preview.appearance.themed"
+      ],
+      "lines": [
+        49
+      ],
+      "to": "autoslice.desktop.qt_preview.appearance"
     },
     {
       "from": "autoslice.desktop.cover_editor_ui",
@@ -5170,7 +5180,7 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        48
+        50
       ],
       "to": "autoslice.desktop.qt_preview.icons"
     },
@@ -5180,7 +5190,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        47
+        48
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -5190,17 +5200,29 @@
         "autoslice.desktop.qt_preview.popups"
       ],
       "lines": [
-        47
+        48
       ],
       "to": "autoslice.desktop.qt_preview.popups"
     },
     {
       "from": "autoslice.desktop.cover_editor_ui",
       "imports": [
-        "autoslice.desktop.qt_preview.theme.COLORS"
+        "autoslice.desktop.qt_preview.shell.Card",
+        "autoslice.desktop.qt_preview.shell.Divider"
       ],
       "lines": [
-        49
+        51
+      ],
+      "to": "autoslice.desktop.qt_preview.shell"
+    },
+    {
+      "from": "autoslice.desktop.cover_editor_ui",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.STYLE"
+      ],
+      "lines": [
+        52
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -5210,7 +5232,7 @@
         "autoslice.desktop.qt_preview.widgets.ElidedLabel"
       ],
       "lines": [
-        50
+        53
       ],
       "to": "autoslice.desktop.qt_preview.widgets"
     },
@@ -5222,7 +5244,7 @@
         "autoslice_cover.document_layout.OVERLAY_SCALE_MAX"
       ],
       "lines": [
-        31
+        32
       ],
       "to": "autoslice_cover.document_layout"
     },
@@ -6712,7 +6734,9 @@
       "from": "autoslice.desktop.qt_app.timeline",
       "imports": [
         "autoslice.desktop.qt_preview.theme.COLORS",
-        "autoslice.desktop.qt_preview.theme.SIZES"
+        "autoslice.desktop.qt_preview.theme.MONO_FAMILIES",
+        "autoslice.desktop.qt_preview.theme.SIZES",
+        "autoslice.desktop.qt_preview.theme.STYLE"
       ],
       "lines": [
         14
@@ -6755,7 +6779,7 @@
         "autoslice.desktop.ai_review.AIReviewService"
       ],
       "lines": [
-        29
+        27
       ],
       "to": "autoslice.desktop.ai_review"
     },
@@ -6766,7 +6790,7 @@
         "autoslice.desktop.archive.knowledge.profile_id_for"
       ],
       "lines": [
-        30
+        28
       ],
       "to": "autoslice.desktop.archive.knowledge"
     },
@@ -6776,7 +6800,7 @@
         "autoslice.desktop.commands.CommandDispatcher"
       ],
       "lines": [
-        31
+        29
       ],
       "to": "autoslice.desktop.commands"
     },
@@ -6786,7 +6810,7 @@
         "autoslice.desktop.correction_memory.CorrectionMemory"
       ],
       "lines": [
-        32
+        30
       ],
       "to": "autoslice.desktop.correction_memory"
     },
@@ -6796,7 +6820,7 @@
         "autoslice.desktop.cover.CoverEditorWidget"
       ],
       "lines": [
-        33
+        31
       ],
       "to": "autoslice.desktop.cover"
     },
@@ -6806,7 +6830,7 @@
         "autoslice.desktop.foundation.DesktopStorage"
       ],
       "lines": [
-        34
+        32
       ],
       "to": "autoslice.desktop.foundation"
     },
@@ -6816,7 +6840,7 @@
         "autoslice.desktop.jobs.BackgroundJob"
       ],
       "lines": [
-        35
+        33
       ],
       "to": "autoslice.desktop.jobs"
     },
@@ -6827,7 +6851,7 @@
         "autoslice.desktop.projects.SubmissionProjectService"
       ],
       "lines": [
-        36
+        34
       ],
       "to": "autoslice.desktop.projects"
     },
@@ -6837,7 +6861,7 @@
         "autoslice.desktop.qt_app.player.MpvAdapter"
       ],
       "lines": [
-        49
+        48
       ],
       "to": "autoslice.desktop.qt_app.player"
     },
@@ -6847,7 +6871,7 @@
         "autoslice.desktop.qt_app.timeline.TimelineSidePanController"
       ],
       "lines": [
-        50
+        49
       ],
       "to": "autoslice.desktop.qt_app.timeline"
     },
@@ -6857,7 +6881,7 @@
         "autoslice.desktop.qt_app.window_ai.AiReviewMixin"
       ],
       "lines": [
-        51
+        50
       ],
       "to": "autoslice.desktop.qt_app.window_ai"
     },
@@ -6867,7 +6891,7 @@
         "autoslice.desktop.qt_app.window_asr.RecognizeMixin"
       ],
       "lines": [
-        52
+        51
       ],
       "to": "autoslice.desktop.qt_app.window_asr"
     },
@@ -6877,9 +6901,19 @@
         "autoslice.desktop.qt_app.window_document.SubtitleDocumentMixin"
       ],
       "lines": [
-        53
+        52
       ],
       "to": "autoslice.desktop.qt_app.window_document"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_app.window_find.FindReplaceMixin"
+      ],
+      "lines": [
+        53
+      ],
+      "to": "autoslice.desktop.qt_app.window_find"
     },
     {
       "from": "autoslice.desktop.qt_app.window",
@@ -6977,7 +7011,7 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        38
+        36
       ],
       "to": "autoslice.desktop.qt_preview.icons"
     },
@@ -6987,7 +7021,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        37
+        35
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -6997,9 +7031,19 @@
         "autoslice.desktop.qt_preview.popups"
       ],
       "lines": [
-        37
+        35
       ],
       "to": "autoslice.desktop.qt_preview.popups"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_preview.shell.ProjectSwitch"
+      ],
+      "lines": [
+        38
+      ],
+      "to": "autoslice.desktop.qt_preview.shell"
     },
     {
       "from": "autoslice.desktop.qt_app.window",
@@ -7008,7 +7052,7 @@
         "autoslice.desktop.qt_preview.theme.SIZES"
       ],
       "lines": [
-        39
+        37
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -7017,10 +7061,10 @@
       "imports": [
         "autoslice.desktop.qt_preview.window.PreviewWindow",
         "autoslice.desktop.qt_preview.window.label",
-        "autoslice.desktop.qt_preview.window.line"
+        "autoslice.desktop.qt_preview.window.tool_icon"
       ],
       "lines": [
-        40
+        39
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -7030,7 +7074,7 @@
         "autoslice.desktop.selection.CueSelection"
       ],
       "lines": [
-        41
+        40
       ],
       "to": "autoslice.desktop.selection"
     },
@@ -7040,7 +7084,7 @@
         "autoslice.desktop.subtitle_preview.SubtitlePreviewService"
       ],
       "lines": [
-        42
+        41
       ],
       "to": "autoslice.desktop.subtitle_preview"
     },
@@ -7050,7 +7094,7 @@
         "autoslice.desktop.subtitle_render.SubtitleRenderService"
       ],
       "lines": [
-        43
+        42
       ],
       "to": "autoslice.desktop.subtitle_render"
     },
@@ -7060,7 +7104,7 @@
         "autoslice.desktop.subtitles.SubtitleDocument"
       ],
       "lines": [
-        44
+        43
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -7070,7 +7114,7 @@
         "autoslice.desktop.topics.TopicAnalysisService"
       ],
       "lines": [
-        45
+        44
       ],
       "to": "autoslice.desktop.topics"
     },
@@ -7080,7 +7124,7 @@
         "autoslice.desktop.waveform.WaveformCache"
       ],
       "lines": [
-        46
+        45
       ],
       "to": "autoslice.desktop.waveform"
     },
@@ -7090,7 +7134,7 @@
         "autoslice.runtime_config.OUTPUT_DIR"
       ],
       "lines": [
-        47
+        46
       ],
       "to": "autoslice.runtime_config"
     },
@@ -7101,7 +7145,7 @@
         "autoslice.desktop.ai_review.document_hash"
       ],
       "lines": [
-        26
+        27
       ],
       "to": "autoslice.desktop.ai_review"
     },
@@ -7111,19 +7155,41 @@
         "autoslice.desktop.homophone.available"
       ],
       "lines": [
-        27
+        28
       ],
       "to": "autoslice.desktop.homophone"
     },
     {
       "from": "autoslice.desktop.qt_app.window_ai",
       "imports": [
-        "autoslice.desktop.qt_app.window_widgets._ElidedQueueButton"
+        "autoslice.desktop.qt_app.window_widgets._AiStat",
+        "autoslice.desktop.qt_app.window_widgets._ElidedQueueButton",
+        "autoslice.desktop.qt_app.window_widgets._InlineAiWatcher"
       ],
       "lines": [
-        33
+        37
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_ai",
+      "imports": [
+        "autoslice.desktop.qt_preview.appearance.themed"
+      ],
+      "lines": [
+        30
+      ],
+      "to": "autoslice.desktop.qt_preview.appearance"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_ai",
+      "imports": [
+        "autoslice.desktop.qt_preview.icons.icon"
+      ],
+      "lines": [
+        31
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
     },
     {
       "from": "autoslice.desktop.qt_app.window_ai",
@@ -7131,9 +7197,19 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        28
+        29
       ],
       "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_ai",
+      "imports": [
+        "autoslice.desktop.qt_preview.shell.Divider"
+      ],
+      "lines": [
+        32
+      ],
+      "to": "autoslice.desktop.qt_preview.shell"
     },
     {
       "from": "autoslice.desktop.qt_app.window_ai",
@@ -7142,7 +7218,7 @@
         "autoslice.desktop.qt_preview.theme.SIZES"
       ],
       "lines": [
-        29
+        33
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -7150,11 +7226,10 @@
       "from": "autoslice.desktop.qt_app.window_ai",
       "imports": [
         "autoslice.desktop.qt_preview.window.label",
-        "autoslice.desktop.qt_preview.window.line",
         "autoslice.desktop.qt_preview.window.tool_icon"
       ],
       "lines": [
-        30
+        34
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -7164,7 +7239,7 @@
         "autoslice.transcription.contracts.srt_timestamp_seconds"
       ],
       "lines": [
-        31
+        35
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -7269,14 +7344,35 @@
       "to": "autoslice.streamer_profiles"
     },
     {
-      "from": "autoslice.desktop.qt_app.window_player",
+      "from": "autoslice.desktop.qt_app.window_find",
       "imports": [
-        "autoslice.desktop.qt_preview.appearance.themed"
+        "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        25
+        19
       ],
-      "to": "autoslice.desktop.qt_preview.appearance"
+      "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_find",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.label",
+        "autoslice.desktop.qt_preview.window.tool_icon"
+      ],
+      "lines": [
+        20
+      ],
+      "to": "autoslice.desktop.qt_preview.window"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_find",
+      "imports": [
+        "autoslice.transcription.contracts.srt_timestamp_seconds"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.transcription.contracts"
     },
     {
       "from": "autoslice.desktop.qt_app.window_player",
@@ -7297,6 +7393,16 @@
         23
       ],
       "to": "autoslice.desktop.qt_preview.popups"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_player",
+      "imports": [
+        "autoslice.desktop.qt_preview.shell.Popover"
+      ],
+      "lines": [
+        25
+      ],
+      "to": "autoslice.desktop.qt_preview.shell"
     },
     {
       "from": "autoslice.desktop.qt_app.window_player",
@@ -7336,7 +7442,7 @@
         "autoslice.desktop.archive.ArchiveService"
       ],
       "lines": [
-        24
+        26
       ],
       "to": "autoslice.desktop.archive"
     },
@@ -7348,7 +7454,7 @@
         "autoslice.desktop.projects.nested_root_candidate"
       ],
       "lines": [
-        25
+        27
       ],
       "to": "autoslice.desktop.projects"
     },
@@ -7358,7 +7464,7 @@
         "autoslice.desktop.qt_app.ai_settings_panel.AISettingsPanel"
       ],
       "lines": [
-        35
+        38
       ],
       "to": "autoslice.desktop.qt_app.ai_settings_panel"
     },
@@ -7368,7 +7474,7 @@
         "autoslice.desktop.qt_app.appearance_panel.AppearancePanel"
       ],
       "lines": [
-        36
+        39
       ],
       "to": "autoslice.desktop.qt_app.appearance_panel"
     },
@@ -7378,7 +7484,7 @@
         "autoslice.desktop.qt_app.archive_panel.ArchivePanel"
       ],
       "lines": [
-        37
+        40
       ],
       "to": "autoslice.desktop.qt_app.archive_panel"
     },
@@ -7388,7 +7494,7 @@
         "autoslice.desktop.qt_app.asr_panel.AsrSettingsPanel"
       ],
       "lines": [
-        38
+        41
       ],
       "to": "autoslice.desktop.qt_app.asr_panel"
     },
@@ -7398,7 +7504,7 @@
         "autoslice.desktop.qt_app.learning_panel.LearningPanel"
       ],
       "lines": [
-        39
+        42
       ],
       "to": "autoslice.desktop.qt_app.learning_panel"
     },
@@ -7408,7 +7514,7 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        27
+        29
       ],
       "to": "autoslice.desktop.qt_preview.icons"
     },
@@ -7418,7 +7524,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        26
+        28
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -7428,9 +7534,19 @@
         "autoslice.desktop.qt_preview.popups"
       ],
       "lines": [
-        26
+        28
       ],
       "to": "autoslice.desktop.qt_preview.popups"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_projects",
+      "imports": [
+        "autoslice.desktop.qt_preview.shell.Card"
+      ],
+      "lines": [
+        30
+      ],
+      "to": "autoslice.desktop.qt_preview.shell"
     },
     {
       "from": "autoslice.desktop.qt_app.window_projects",
@@ -7439,7 +7555,7 @@
         "autoslice.desktop.qt_preview.theme.SIZES"
       ],
       "lines": [
-        28
+        31
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -7453,7 +7569,7 @@
         "autoslice.desktop.qt_preview.window.tool_icon"
       ],
       "lines": [
-        29
+        32
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -7463,7 +7579,7 @@
         "autoslice.desktop.selection.CueSelection"
       ],
       "lines": [
-        30
+        33
       ],
       "to": "autoslice.desktop.selection"
     },
@@ -7473,7 +7589,7 @@
         "autoslice.desktop.subtitle_render.subtitle_font_problem"
       ],
       "lines": [
-        31
+        34
       ],
       "to": "autoslice.desktop.subtitle_render"
     },
@@ -7483,7 +7599,7 @@
         "autoslice.desktop.subtitles.SubtitleDocument"
       ],
       "lines": [
-        32
+        35
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -7493,7 +7609,7 @@
         "autoslice.subtitle_workflow.DEFAULT_SUBTITLE_STYLE"
       ],
       "lines": [
-        33
+        36
       ],
       "to": "autoslice.subtitle_workflow"
     },
@@ -7521,12 +7637,13 @@
       "from": "autoslice.desktop.qt_app.window_subtitles",
       "imports": [
         "autoslice.desktop.qt_app.window_widgets.InlineSubtitleEditor",
+        "autoslice.desktop.qt_app.window_widgets.SelectionFrame",
         "autoslice.desktop.qt_app.window_widgets.SubtitleTableModel",
         "autoslice.desktop.qt_app.window_widgets.SubtitleTextDelegate",
         "autoslice.desktop.qt_app.window_widgets._prepare_inline_editor"
       ],
       "lines": [
-        32
+        33
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
     },
@@ -7543,10 +7660,20 @@
     {
       "from": "autoslice.desktop.qt_app.window_subtitles",
       "imports": [
-        "autoslice.desktop.qt_preview.theme.SIZES"
+        "autoslice.desktop.qt_preview.shell.Divider"
       ],
       "lines": [
         28
+      ],
+      "to": "autoslice.desktop.qt_preview.shell"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_subtitles",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.SIZES"
+      ],
+      "lines": [
+        29
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -7556,7 +7683,7 @@
         "autoslice.desktop.qt_preview.window.label"
       ],
       "lines": [
-        29
+        30
       ],
       "to": "autoslice.desktop.qt_preview.window"
     },
@@ -7566,7 +7693,7 @@
         "autoslice.transcription.contracts.srt_timestamp_seconds"
       ],
       "lines": [
-        30
+        31
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -7581,8 +7708,8 @@
         "autoslice.desktop.asr.refine.speech_audio"
       ],
       "lines": [
-        255,
-        298
+        270,
+        313
       ],
       "to": "autoslice.desktop.asr.refine"
     },
@@ -7592,7 +7719,7 @@
         "autoslice.desktop.qt_app.shortcuts_dialog.ShortcutsDialog"
       ],
       "lines": [
-        233
+        248
       ],
       "to": "autoslice.desktop.qt_app.shortcuts_dialog"
     },
@@ -7663,9 +7790,19 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        14
+        15
       ],
       "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_topics",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
     },
     {
       "from": "autoslice.desktop.qt_app.window_topics",
@@ -7674,7 +7811,7 @@
         "autoslice.desktop.qt_preview.theme.SIZES"
       ],
       "lines": [
-        15
+        16
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -7684,9 +7821,19 @@
         "autoslice.desktop.topics.TopicAnalysisCancelled"
       ],
       "lines": [
-        16
+        17
       ],
       "to": "autoslice.desktop.topics"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_widgets",
+      "imports": [
+        "autoslice.desktop.qt_preview.appearance.themed"
+      ],
+      "lines": [
+        106
+      ],
+      "to": "autoslice.desktop.qt_preview.appearance"
     },
     {
       "from": "autoslice.desktop.qt_app.window_widgets",
@@ -7694,7 +7841,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        24
+        27
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -7707,7 +7854,7 @@
         "autoslice.desktop.qt_preview.theme.STYLE"
       ],
       "lines": [
-        25
+        28
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -7717,7 +7864,7 @@
         "autoslice.desktop.subtitles.SubtitleDocument"
       ],
       "lines": [
-        26
+        29
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -7842,6 +7989,59 @@
       "to": "autoslice.desktop.qt_preview.theme"
     },
     {
+      "from": "autoslice.desktop.qt_preview.shell",
+      "imports": [
+        "autoslice.desktop.qt_preview.appearance.themed"
+      ],
+      "lines": [
+        191,
+        293
+      ],
+      "to": "autoslice.desktop.qt_preview.appearance"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.shell",
+      "imports": [
+        "autoslice.desktop.qt_preview.icons.icon"
+      ],
+      "lines": [
+        22
+      ],
+      "to": "autoslice.desktop.qt_preview.icons"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.shell",
+      "imports": [
+        "autoslice.desktop.qt_preview.motion"
+      ],
+      "lines": [
+        21
+      ],
+      "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.shell",
+      "imports": [
+        "autoslice.desktop.qt_preview.popups.paint_panel"
+      ],
+      "lines": [
+        381
+      ],
+      "to": "autoslice.desktop.qt_preview.popups"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.shell",
+      "imports": [
+        "autoslice.desktop.qt_preview.theme.COLORS",
+        "autoslice.desktop.qt_preview.theme.SIZES",
+        "autoslice.desktop.qt_preview.theme.STYLE"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.desktop.qt_preview.theme"
+    },
+    {
       "from": "autoslice.desktop.qt_preview.theme",
       "imports": [
         "autoslice.desktop.qt_preview.glyphs.icon_file"
@@ -7894,12 +8094,28 @@
     {
       "from": "autoslice.desktop.qt_preview.window",
       "imports": [
+        "autoslice.desktop.qt_preview.shell.Card",
+        "autoslice.desktop.qt_preview.shell.NavItem",
+        "autoslice.desktop.qt_preview.shell.Popover",
+        "autoslice.desktop.qt_preview.shell.ProjectSwitch",
+        "autoslice.desktop.qt_preview.shell.Surface",
+        "autoslice.desktop.qt_preview.shell.TaskRing",
+        "autoslice.desktop.qt_preview.shell.Toast"
+      ],
+      "lines": [
+        23
+      ],
+      "to": "autoslice.desktop.qt_preview.shell"
+    },
+    {
+      "from": "autoslice.desktop.qt_preview.window",
+      "imports": [
         "autoslice.desktop.qt_preview.theme.COLORS",
         "autoslice.desktop.qt_preview.theme.SIZES",
         "autoslice.desktop.qt_preview.theme.STYLE"
       ],
       "lines": [
-        23
+        24
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -10868,7 +11084,7 @@
         "autoslice.desktop.ai_settings"
       ],
       "lines": [
-        97
+        101
       ],
       "to": "autoslice.desktop.ai_settings"
     },
@@ -10878,7 +11094,7 @@
         "autoslice.desktop.foundation.DesktopStorage"
       ],
       "lines": [
-        98
+        102
       ],
       "to": "autoslice.desktop.foundation"
     },
@@ -10888,7 +11104,7 @@
         "autoslice.desktop.projects.SubmissionProjectService"
       ],
       "lines": [
-        99
+        103
       ],
       "to": "autoslice.desktop.projects"
     },
@@ -10898,7 +11114,7 @@
         "autoslice.desktop.qt_app.window.DesktopWindow"
       ],
       "lines": [
-        111
+        115
       ],
       "to": "autoslice.desktop.qt_app.window"
     },
@@ -10908,7 +11124,7 @@
         "autoslice.desktop.qt_preview.appearance"
       ],
       "lines": [
-        100
+        104
       ],
       "to": "autoslice.desktop.qt_preview.appearance"
     },
@@ -10918,7 +11134,7 @@
         "autoslice.desktop.qt_preview.fonts"
       ],
       "lines": [
-        100
+        104
       ],
       "to": "autoslice.desktop.qt_preview.fonts"
     },
@@ -10928,7 +11144,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        100
+        104
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -11227,6 +11443,15 @@
       "qualname": "render_cover"
     },
     {
+      "end_line": 575,
+      "kind": "function",
+      "line": 384,
+      "line_count": 192,
+      "module": "autoslice.desktop.qt_preview.theme",
+      "path": "src/autoslice/desktop/qt_preview/theme.py",
+      "qualname": "stylesheet"
+    },
+    {
       "end_line": 624,
       "kind": "function",
       "line": 438,
@@ -11254,28 +11479,10 @@
       "qualname": "_find_relevant_topic_context_end"
     },
     {
-      "end_line": 217,
+      "end_line": 861,
       "kind": "function",
-      "line": 37,
-      "line_count": 181,
-      "module": "autoslice.desktop.qt_app.window_ai",
-      "path": "src/autoslice/desktop/qt_app/window_ai.py",
-      "qualname": "AiReviewMixin._ai_panel"
-    },
-    {
-      "end_line": 558,
-      "kind": "function",
-      "line": 383,
+      "line": 686,
       "line_count": 176,
-      "module": "autoslice.desktop.qt_preview.theme",
-      "path": "src/autoslice/desktop/qt_preview/theme.py",
-      "qualname": "stylesheet"
-    },
-    {
-      "end_line": 699,
-      "kind": "function",
-      "line": 525,
-      "line_count": 175,
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
       "qualname": "CoverLayoutMixin._build_text_panel"
@@ -11308,6 +11515,15 @@
       "qualname": "generate_copy_recommendations"
     },
     {
+      "end_line": 281,
+      "kind": "function",
+      "line": 120,
+      "line_count": 162,
+      "module": "autoslice.desktop.qt_app.window_projects",
+      "path": "src/autoslice/desktop/qt_app/window_projects.py",
+      "qualname": "ProjectsMixin._settings_page"
+    },
+    {
       "end_line": 360,
       "kind": "function",
       "line": 207,
@@ -11335,6 +11551,15 @@
       "qualname": "call_compatible_api"
     },
     {
+      "end_line": 248,
+      "kind": "function",
+      "line": 98,
+      "line_count": 151,
+      "module": "autoslice.desktop.qt_app.window",
+      "path": "src/autoslice/desktop/qt_app/window.py",
+      "qualname": "DesktopWindow.__init__"
+    },
+    {
       "end_line": 500,
       "kind": "function",
       "line": 353,
@@ -11353,13 +11578,13 @@
       "qualname": "draw_cover_text"
     },
     {
-      "end_line": 240,
+      "end_line": 564,
       "kind": "function",
-      "line": 97,
-      "line_count": 144,
-      "module": "autoslice.desktop.qt_app.window",
-      "path": "src/autoslice/desktop/qt_app/window.py",
-      "qualname": "DesktopWindow.__init__"
+      "line": 426,
+      "line_count": 139,
+      "module": "autoslice.desktop.qt_app.timeline",
+      "path": "src/autoslice/desktop/qt_app/timeline.py",
+      "qualname": "SubtitleTimeline.paintEvent"
     },
     {
       "end_line": 864,
@@ -11369,15 +11594,6 @@
       "module": "autoslice_cover.video",
       "path": "src/autoslice_cover/video.py",
       "qualname": "extract_candidate_frames"
-    },
-    {
-      "end_line": 338,
-      "kind": "function",
-      "line": 204,
-      "line_count": 135,
-      "module": "autoslice.analysis.review.workflow",
-      "path": "src/autoslice/analysis/review/workflow.py",
-      "qualname": "review_peak_selected_topics"
     }
   ],
   "modules": [
@@ -16460,20 +16676,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 429,
+      "line_count": 435,
       "longest_function": {
-        "end_line": 138,
+        "end_line": 142,
         "kind": "function",
-        "line": 94,
-        "line_count": 45,
+        "line": 96,
+        "line_count": 47,
         "qualname": "CoverCanvas.__init__"
       },
       "module": "autoslice.desktop.cover_canvas",
       "path": "src/autoslice/desktop/cover_canvas.py",
-      "sha256": "34801593c3ec51fabb6459d8d97b0742c95cec72288192dc08d5b7210193630c",
+      "sha256": "63e2d50fb8c09a700b43dda142ed2433312e38b52200cadf60198b62ec531542",
       "top_level_classes": [
         {
-          "end_line": 429,
+          "end_line": 435,
           "kind": "class",
           "line": 50,
           "name": "CoverCanvas"
@@ -16506,7 +16722,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 614,
+      "line_count": 617,
       "longest_function": {
         "end_line": 582,
         "kind": "function",
@@ -16516,10 +16732,10 @@
       },
       "module": "autoslice.desktop.cover_canvas_paint",
       "path": "src/autoslice/desktop/cover_canvas_paint.py",
-      "sha256": "1ca17daf947f01557c96a405bfe50d8d30ea501d8b3f0e3bfe61f11a3f7f78cf",
+      "sha256": "4431d222f618c9eb39a86a91d173fc53d0d97fb0c82a6a60680bd9d2dbeea71f",
       "top_level_classes": [
         {
-          "end_line": 614,
+          "end_line": 617,
           "kind": "class",
           "line": 66,
           "name": "CanvasPaintMixin"
@@ -17022,32 +17238,45 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 968,
+      "line_count": 1130,
       "longest_function": {
-        "end_line": 699,
+        "end_line": 861,
         "kind": "function",
-        "line": 525,
-        "line_count": 175,
+        "line": 686,
+        "line_count": 176,
         "qualname": "CoverLayoutMixin._build_text_panel"
       },
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
-      "sha256": "63c30a9b264a3f100f0a253cc3dd386df13415f68ecd06500d29c32ec50d690d",
+      "sha256": "6432602406af0862c2063a515b3cf706d200b3bbf793619cc3b1e0b2071fd77e",
       "top_level_classes": [
         {
-          "end_line": 961,
+          "end_line": 1123,
           "kind": "class",
-          "line": 53,
+          "line": 71,
           "name": "CoverLayoutMixin"
         },
         {
-          "end_line": 968,
+          "end_line": 1130,
           "kind": "class",
-          "line": 964,
+          "line": 1126,
           "name": "_NoSqueezeWidget"
         }
       ],
-      "top_level_functions": []
+      "top_level_functions": [
+        {
+          "end_line": 62,
+          "kind": "function",
+          "line": 56,
+          "name": "_vline"
+        },
+        {
+          "end_line": 68,
+          "kind": "function",
+          "line": 65,
+          "name": "_subtle_label"
+        }
+      ]
     },
     {
       "duplicate_top_level_definitions": [],
@@ -18552,17 +18781,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 181,
+      "line_count": 182,
       "longest_function": {
-        "end_line": 124,
+        "end_line": 125,
         "kind": "function",
         "line": 63,
-        "line_count": 62,
+        "line_count": 63,
         "qualname": "AppearancePanel.__init__"
       },
       "module": "autoslice.desktop.qt_app.appearance_panel",
       "path": "src/autoslice/desktop/qt_app/appearance_panel.py",
-      "sha256": "0975887aeb3acb411ee26cba61ed590d77404fe45903b06b01c4279b4c46b3d8",
+      "sha256": "6a124952f4228b7ac5acd22a0e726ff289bb6e2473b12f5ca4909832fe12a45b",
       "top_level_classes": [
         {
           "end_line": 55,
@@ -18571,7 +18800,7 @@
           "name": "SwatchButton"
         },
         {
-          "end_line": 181,
+          "end_line": 182,
           "kind": "class",
           "line": 58,
           "name": "AppearancePanel"
@@ -18757,28 +18986,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 838,
+      "line_count": 858,
       "longest_function": {
-        "end_line": 550,
+        "end_line": 564,
         "kind": "function",
         "line": 426,
-        "line_count": 125,
+        "line_count": 139,
         "qualname": "SubtitleTimeline.paintEvent"
       },
       "module": "autoslice.desktop.qt_app.timeline",
       "path": "src/autoslice/desktop/qt_app/timeline.py",
-      "sha256": "4bb26f7adfc6a356473c652b8de24262150a72aa71988399a2334ed2dbc2cce0",
+      "sha256": "a3a9d1016dc45fd5377dd45e8fd265a881d11a4de4b0fcccb0b40932fbfd5b60",
       "top_level_classes": [
         {
-          "end_line": 777,
+          "end_line": 797,
           "kind": "class",
           "line": 20,
           "name": "SubtitleTimeline"
         },
         {
-          "end_line": 838,
+          "end_line": 858,
           "kind": "class",
-          "line": 780,
+          "line": 800,
           "name": "TimelineSidePanController"
         }
       ],
@@ -18786,20 +19015,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 532,
+      "line_count": 559,
       "longest_function": {
-        "end_line": 240,
+        "end_line": 248,
         "kind": "function",
-        "line": 97,
-        "line_count": 144,
+        "line": 98,
+        "line_count": 151,
         "qualname": "DesktopWindow.__init__"
       },
       "module": "autoslice.desktop.qt_app.window",
       "path": "src/autoslice/desktop/qt_app/window.py",
-      "sha256": "5977b3615187a6db17c49244272beec96dbfb01f0989db7958cdc662107998fc",
+      "sha256": "264b9d917ff16c820f419eecbd017dc4a68f50f0125424d2306ce8383dd78eea",
       "top_level_classes": [
         {
-          "end_line": 532,
+          "end_line": 559,
           "kind": "class",
           "line": 77,
           "name": "DesktopWindow"
@@ -18816,22 +19045,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 770,
+      "line_count": 896,
       "longest_function": {
-        "end_line": 217,
+        "end_line": 174,
         "kind": "function",
-        "line": 37,
-        "line_count": 181,
+        "line": 41,
+        "line_count": 134,
         "qualname": "AiReviewMixin._ai_panel"
       },
       "module": "autoslice.desktop.qt_app.window_ai",
       "path": "src/autoslice/desktop/qt_app/window_ai.py",
-      "sha256": "2a88d49448747311e0d5cb3f6bf92aabad1c053804dd9642a7029a164249773d",
+      "sha256": "b39f9686890fb6c5fd31f719dd158d87c242c846e8310aeee884a0982199bf6d",
       "top_level_classes": [
         {
-          "end_line": 770,
+          "end_line": 896,
           "kind": "class",
-          "line": 36,
+          "line": 40,
           "name": "AiReviewMixin"
         }
       ],
@@ -18862,20 +19091,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 329,
+      "line_count": 343,
       "longest_function": {
-        "end_line": 265,
+        "end_line": 278,
         "kind": "function",
-        "line": 218,
+        "line": 231,
         "line_count": 48,
         "qualname": "SubtitleDocumentMixin._start_render"
       },
       "module": "autoslice.desktop.qt_app.window_document",
       "path": "src/autoslice/desktop/qt_app/window_document.py",
-      "sha256": "e265c4aec13153a79f7ffc7143e198cabd2163f0fc937bb65c035419b48a8adb",
+      "sha256": "156c7aa79ba904d1967d5908aca11c1483876d45c560f28c8f027640cb1db446",
       "top_level_classes": [
         {
-          "end_line": 329,
+          "end_line": 343,
           "kind": "class",
           "line": 23,
           "name": "SubtitleDocumentMixin"
@@ -18885,20 +19114,49 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 180,
+      "line_count": 299,
       "longest_function": {
-        "end_line": 137,
+        "end_line": 132,
         "kind": "function",
-        "line": 83,
+        "line": 61,
+        "line_count": 72,
+        "qualname": "FindReplaceMixin._build_find_bar"
+      },
+      "module": "autoslice.desktop.qt_app.window_find",
+      "path": "src/autoslice/desktop/qt_app/window_find.py",
+      "sha256": "2b807cb8901c437240efcd3a3c8dff64e8e083d7d50aff6000648b5c34c2b047",
+      "top_level_classes": [
+        {
+          "end_line": 44,
+          "kind": "class",
+          "line": 24,
+          "name": "_FindKeys"
+        },
+        {
+          "end_line": 299,
+          "kind": "class",
+          "line": 47,
+          "name": "FindReplaceMixin"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 186,
+      "longest_function": {
+        "end_line": 143,
+        "kind": "function",
+        "line": 89,
         "line_count": 55,
         "qualname": "InputRoutingMixin._event_filter_impl"
       },
       "module": "autoslice.desktop.qt_app.window_input",
       "path": "src/autoslice/desktop/qt_app/window_input.py",
-      "sha256": "f97fd20175d16441c259739d37adcb549c1cbdf0e7b1f64940c346daef360a42",
+      "sha256": "f4d3fecbf0cfeab51768a799f5ebfdc34b4f0444e6dd3db106b6062ca00fe6e1",
       "top_level_classes": [
         {
-          "end_line": 180,
+          "end_line": 186,
           "kind": "class",
           "line": 15,
           "name": "InputRoutingMixin"
@@ -18908,20 +19166,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 322,
+      "line_count": 372,
       "longest_function": {
-        "end_line": 311,
+        "end_line": 123,
         "kind": "function",
-        "line": 240,
-        "line_count": 72,
-        "qualname": "PlayerMixin._player_status"
+        "line": 32,
+        "line_count": 92,
+        "qualname": "PlayerMixin._video_surface"
       },
       "module": "autoslice.desktop.qt_app.window_player",
       "path": "src/autoslice/desktop/qt_app/window_player.py",
-      "sha256": "2df525de7bd68e6a078b349cb097970a9edcc4a39858a48b0405b3736504466c",
+      "sha256": "d2f8a7dc0e57b5f86abc558e8fd37ff70281d85719da834783f88bb9f2aca1fe",
       "top_level_classes": [
         {
-          "end_line": 322,
+          "end_line": 372,
           "kind": "class",
           "line": 31,
           "name": "PlayerMixin"
@@ -18931,22 +19189,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 620,
+      "line_count": 702,
       "longest_function": {
-        "end_line": 226,
+        "end_line": 281,
         "kind": "function",
-        "line": 117,
-        "line_count": 110,
+        "line": 120,
+        "line_count": 162,
         "qualname": "ProjectsMixin._settings_page"
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "8fbecf63c497be5b525033efdcbe83d90185349c709fd85a3531959914be5f04",
+      "sha256": "88d86ac0786f7b1f2933a1a00f5a526b61cdcdcae963435cba717aaaebcd0629",
       "top_level_classes": [
         {
-          "end_line": 620,
+          "end_line": 702,
           "kind": "class",
-          "line": 42,
+          "line": 45,
           "name": "ProjectsMixin"
         }
       ],
@@ -18977,22 +19235,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 424,
+      "line_count": 466,
       "longest_function": {
-        "end_line": 114,
+        "end_line": 146,
         "kind": "function",
-        "line": 41,
-        "line_count": 74,
+        "line": 43,
+        "line_count": 104,
         "qualname": "SubtitleListMixin._subtitle_list"
       },
       "module": "autoslice.desktop.qt_app.window_subtitles",
       "path": "src/autoslice/desktop/qt_app/window_subtitles.py",
-      "sha256": "c9f607345648ce66f666cee7f67c190f227ad8c3fd77895ff8de2e8324ebe0d1",
+      "sha256": "2e43ca67df5bbaa9075a1178d02e8bb2de8a0264c65f6c9b51a0b670523bbe70",
       "top_level_classes": [
         {
-          "end_line": 424,
+          "end_line": 466,
           "kind": "class",
-          "line": 40,
+          "line": 42,
           "name": "SubtitleListMixin"
         }
       ],
@@ -19000,20 +19258,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 169,
+      "line_count": 179,
       "longest_function": {
-        "end_line": 80,
+        "end_line": 116,
         "kind": "function",
-        "line": 50,
-        "line_count": 31,
-        "qualname": "TaskPanelMixin._show_tasks"
+        "line": 85,
+        "line_count": 32,
+        "qualname": "TaskPanelMixin._refresh_task_panel"
       },
       "module": "autoslice.desktop.qt_app.window_tasks",
       "path": "src/autoslice/desktop/qt_app/window_tasks.py",
-      "sha256": "ae1bfb071bc458996bdd4843fda324c195e9ff1256b7d84e8bd6c6a6e53349ce",
+      "sha256": "3ae3eec98d1e8a608dc347def9ba77ad423c711ec4929939a94d78f50c9c7a04",
       "top_level_classes": [
         {
-          "end_line": 169,
+          "end_line": 179,
           "kind": "class",
           "line": 20,
           "name": "TaskPanelMixin"
@@ -19023,20 +19281,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 413,
+      "line_count": 453,
       "longest_function": {
-        "end_line": 100,
+        "end_line": 101,
         "kind": "function",
         "line": 30,
-        "line_count": 71,
+        "line_count": 72,
         "qualname": "TimelineMixin._timeline"
       },
       "module": "autoslice.desktop.qt_app.window_timeline",
       "path": "src/autoslice/desktop/qt_app/window_timeline.py",
-      "sha256": "6e2e5a7d4c594884e14edb8150cf8e441f7d847a6f9d11eee107680a123237af",
+      "sha256": "3391c237604a86ad8fe3097990171fc378b82ef820ac458f8baceea7a8bd19da",
       "top_level_classes": [
         {
-          "end_line": 413,
+          "end_line": 453,
           "kind": "class",
           "line": 29,
           "name": "TimelineMixin"
@@ -19046,28 +19304,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 183,
+      "line_count": 223,
       "longest_function": {
-        "end_line": 124,
+        "end_line": 164,
         "kind": "function",
-        "line": 74,
+        "line": 114,
         "line_count": 51,
         "qualname": "TopicAnalysisMixin._topic_clicked"
       },
       "module": "autoslice.desktop.qt_app.window_topics",
       "path": "src/autoslice/desktop/qt_app/window_topics.py",
-      "sha256": "35d3584070aa1ebb57c0b1d4aad1e19d6bd8bdd1be9f87b224db852349880f59",
+      "sha256": "a94c4c49ffac9b31501beebcc66baba9c3531a1c8c5f1ee9d71065fbe973175d",
       "top_level_classes": [
         {
-          "end_line": 21,
+          "end_line": 22,
           "kind": "class",
-          "line": 19,
+          "line": 20,
           "name": "_TopicSignals"
         },
         {
-          "end_line": 183,
+          "end_line": 223,
           "kind": "class",
-          "line": 24,
+          "line": 25,
           "name": "TopicAnalysisMixin"
         }
       ],
@@ -19075,54 +19333,78 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 416,
+      "line_count": 651,
       "longest_function": {
-        "end_line": 321,
+        "end_line": 510,
         "kind": "function",
-        "line": 291,
-        "line_count": 31,
-        "qualname": "SubtitleTextDelegate._paint_row"
+        "line": 469,
+        "line_count": 42,
+        "qualname": "SubtitleTextDelegate._paint_find_hits"
       },
       "module": "autoslice.desktop.qt_app.window_widgets",
       "path": "src/autoslice/desktop/qt_app/window_widgets.py",
-      "sha256": "c69d90ae0aa1321e7a0f30477daa3e24ae16b0cd872e2a0d3bffb68bac425696",
+      "sha256": "3648d3b9519d076fb2242747bccc13768737132060b57e6b3931b420e5c5bc53",
       "top_level_classes": [
         {
-          "end_line": 48,
+          "end_line": 51,
           "kind": "class",
-          "line": 29,
+          "line": 32,
           "name": "_StatusLabel"
         },
         {
-          "end_line": 83,
+          "end_line": 86,
           "kind": "class",
-          "line": 51,
+          "line": 54,
           "name": "_ElidedQueueButton"
         },
         {
-          "end_line": 223,
+          "end_line": 123,
           "kind": "class",
-          "line": 86,
+          "line": 89,
+          "name": "_AiStat"
+        },
+        {
+          "end_line": 136,
+          "kind": "class",
+          "line": 126,
+          "name": "_InlineAiWatcher"
+        },
+        {
+          "end_line": 205,
+          "kind": "class",
+          "line": 139,
+          "name": "SelectionFrame"
+        },
+        {
+          "end_line": 373,
+          "kind": "class",
+          "line": 208,
           "name": "SubtitleTableModel"
         },
         {
-          "end_line": 256,
+          "end_line": 406,
           "kind": "class",
-          "line": 226,
+          "line": 376,
           "name": "InlineSubtitleEditor"
         },
         {
-          "end_line": 388,
+          "end_line": 601,
           "kind": "class",
-          "line": 259,
+          "line": 409,
           "name": "SubtitleTextDelegate"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 416,
+          "end_line": 623,
           "kind": "function",
-          "line": 391,
+          "line": 604,
+          "name": "_row_shape"
+        },
+        {
+          "end_line": 651,
+          "kind": "function",
+          "line": 626,
           "name": "_prepare_inline_editor"
         }
       ]
@@ -19162,17 +19444,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 125,
+      "line_count": 133,
       "longest_function": {
-        "end_line": 106,
+        "end_line": 133,
         "kind": "function",
-        "line": 88,
-        "line_count": 19,
-        "qualname": "palette"
+        "line": 109,
+        "line_count": 25,
+        "qualname": "apply"
       },
       "module": "autoslice.desktop.qt_preview.appearance",
       "path": "src/autoslice/desktop/qt_preview/appearance.py",
-      "sha256": "71556c314f51420955816efd17733f0de87089061b219097579c86b98123a615",
+      "sha256": "100909f9a74b71e8d19e25779a3a25d69ea76a06ee5343af9119dfcff6ed557d",
       "top_level_classes": [
         {
           "end_line": 35,
@@ -19231,7 +19513,7 @@
           "name": "palette"
         },
         {
-          "end_line": 125,
+          "end_line": 133,
           "kind": "function",
           "line": 109,
           "name": "apply"
@@ -19363,17 +19645,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1333,
+      "line_count": 1347,
       "longest_function": {
-        "end_line": 463,
+        "end_line": 443,
         "kind": "function",
-        "line": 431,
-        "line_count": 33,
-        "qualname": "ButtonFx._paint_button"
+        "line": 403,
+        "line_count": 41,
+        "qualname": "ButtonFx._paint"
       },
       "module": "autoslice.desktop.qt_preview.motion",
       "path": "src/autoslice/desktop/qt_preview/motion.py",
-      "sha256": "ca75bbebf3db374337b03d3c6de756dda9a068ff9cb39fc1e7601c480148c9f4",
+      "sha256": "8726239add5c9ba8ad0037725efef9d9c6cbbce95d5239d69a54cff6b751d90c",
       "top_level_classes": [
         {
           "end_line": 111,
@@ -19400,111 +19682,111 @@
           "name": "KeyedAnimator"
         },
         {
-          "end_line": 520,
+          "end_line": 534,
           "kind": "class",
           "line": 341,
           "name": "ButtonFx"
         },
         {
-          "end_line": 592,
+          "end_line": 606,
           "kind": "class",
-          "line": 529,
+          "line": 543,
           "name": "SegmentedFx"
         },
         {
-          "end_line": 632,
+          "end_line": 646,
           "kind": "class",
-          "line": 595,
+          "line": 609,
           "name": "SplitterFx"
         },
         {
-          "end_line": 690,
+          "end_line": 704,
           "kind": "class",
-          "line": 635,
+          "line": 649,
           "name": "SliderFx"
         },
         {
-          "end_line": 712,
+          "end_line": 726,
           "kind": "class",
-          "line": 693,
+          "line": 707,
           "name": "_Ring"
         },
         {
-          "end_line": 744,
+          "end_line": 758,
           "kind": "class",
-          "line": 715,
+          "line": 729,
           "name": "InputFx"
         },
         {
-          "end_line": 786,
+          "end_line": 800,
           "kind": "class",
-          "line": 747,
+          "line": 761,
           "name": "ScrollFx"
         },
         {
-          "end_line": 830,
+          "end_line": 844,
           "kind": "class",
-          "line": 803,
+          "line": 817,
           "name": "_Fade"
         },
         {
-          "end_line": 945,
+          "end_line": 959,
           "kind": "class",
-          "line": 904,
+          "line": 918,
           "name": "ValueGlide"
         },
         {
-          "end_line": 1007,
+          "end_line": 1021,
           "kind": "class",
-          "line": 948,
+          "line": 962,
           "name": "_Entrance"
         },
         {
-          "end_line": 1061,
+          "end_line": 1075,
           "kind": "class",
-          "line": 1035,
+          "line": 1049,
           "name": "_Veil"
         },
         {
-          "end_line": 1089,
+          "end_line": 1103,
           "kind": "class",
-          "line": 1064,
+          "line": 1078,
           "name": "_WindowGhost"
         },
         {
-          "end_line": 1130,
+          "end_line": 1144,
           "kind": "class",
-          "line": 1092,
+          "line": 1106,
           "name": "DialogFx"
         },
         {
-          "end_line": 1142,
+          "end_line": 1156,
           "kind": "class",
-          "line": 1133,
+          "line": 1147,
           "name": "DialogWatcher"
         },
         {
-          "end_line": 1184,
+          "end_line": 1198,
           "kind": "class",
-          "line": 1145,
+          "line": 1159,
           "name": "ProgressFx"
         },
         {
-          "end_line": 1214,
+          "end_line": 1228,
           "kind": "class",
-          "line": 1187,
+          "line": 1201,
           "name": "_SheenLayer"
         },
         {
-          "end_line": 1257,
+          "end_line": 1271,
           "kind": "class",
-          "line": 1217,
+          "line": 1231,
           "name": "Skeleton"
         },
         {
-          "end_line": 1291,
+          "end_line": 1305,
           "kind": "class",
-          "line": 1268,
+          "line": 1282,
           "name": "_Pulse"
         }
       ],
@@ -19588,86 +19870,86 @@
           "name": "_edge_pen"
         },
         {
-          "end_line": 526,
+          "end_line": 540,
           "kind": "function",
-          "line": 523,
+          "line": 537,
           "name": "flat_hover"
         },
         {
-          "end_line": 800,
+          "end_line": 814,
           "kind": "function",
-          "line": 789,
+          "line": 803,
           "name": "smooth_scroll"
         },
         {
-          "end_line": 847,
+          "end_line": 861,
           "kind": "function",
-          "line": 833,
+          "line": 847,
           "name": "crossfade"
         },
         {
-          "end_line": 856,
+          "end_line": 870,
           "kind": "function",
-          "line": 850,
+          "line": 864,
           "name": "fade_out_snapshot"
-        },
-        {
-          "end_line": 882,
-          "kind": "function",
-          "line": 859,
-          "name": "fade_in"
         },
         {
           "end_line": 896,
           "kind": "function",
-          "line": 885,
+          "line": 873,
+          "name": "fade_in"
+        },
+        {
+          "end_line": 910,
+          "kind": "function",
+          "line": 899,
           "name": "reveal"
         },
         {
-          "end_line": 901,
+          "end_line": 915,
           "kind": "function",
-          "line": 899,
+          "line": 913,
           "name": "stagger_in"
         },
         {
-          "end_line": 1023,
+          "end_line": 1037,
           "kind": "function",
-          "line": 1010,
+          "line": 1024,
           "name": "page_enter"
         },
         {
-          "end_line": 1032,
+          "end_line": 1046,
           "kind": "function",
-          "line": 1026,
+          "line": 1040,
           "name": "_inside_card"
         },
         {
-          "end_line": 1265,
+          "end_line": 1279,
           "kind": "function",
-          "line": 1260,
+          "line": 1274,
           "name": "pulse"
         },
         {
-          "end_line": 1325,
+          "end_line": 1339,
           "kind": "function",
-          "line": 1294,
+          "line": 1308,
           "name": "install_tree"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 376,
+      "line_count": 384,
       "longest_function": {
-        "end_line": 376,
+        "end_line": 384,
         "kind": "function",
-        "line": 327,
+        "line": 335,
         "line_count": 50,
         "qualname": "MenuFx.eventFilter"
       },
       "module": "autoslice.desktop.qt_preview.popups",
       "path": "src/autoslice/desktop/qt_preview/popups.py",
-      "sha256": "48f3e72842c4f4c551ee1a7a49dac8c89a88af82387567f7fc91857d8a52436a",
+      "sha256": "d21f14639c9593f2a799d3ab2ecffe94abb334686e6c87cd40e186ae1d6070e9",
       "top_level_classes": [
         {
           "end_line": 90,
@@ -19688,7 +19970,7 @@
           "name": "ComboBox"
         },
         {
-          "end_line": 376,
+          "end_line": 384,
           "kind": "class",
           "line": 284,
           "name": "MenuFx"
@@ -19735,17 +20017,89 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 558,
+      "line_count": 526,
       "longest_function": {
-        "end_line": 558,
+        "end_line": 434,
         "kind": "function",
-        "line": 383,
-        "line_count": 176,
+        "line": 401,
+        "line_count": 34,
+        "qualname": "Toast.__init__"
+      },
+      "module": "autoslice.desktop.qt_preview.shell",
+      "path": "src/autoslice/desktop/qt_preview/shell.py",
+      "sha256": "9d6924828bd69e125dc40b89e8ff4462832322f9c75d15b727c5b765f963ea36",
+      "top_level_classes": [
+        {
+          "end_line": 66,
+          "kind": "class",
+          "line": 32,
+          "name": "Surface"
+        },
+        {
+          "end_line": 148,
+          "kind": "class",
+          "line": 69,
+          "name": "Card"
+        },
+        {
+          "end_line": 162,
+          "kind": "class",
+          "line": 151,
+          "name": "Divider"
+        },
+        {
+          "end_line": 201,
+          "kind": "class",
+          "line": 165,
+          "name": "NavItem"
+        },
+        {
+          "end_line": 266,
+          "kind": "class",
+          "line": 204,
+          "name": "TaskRing"
+        },
+        {
+          "end_line": 302,
+          "kind": "class",
+          "line": 269,
+          "name": "ProjectSwitch"
+        },
+        {
+          "end_line": 390,
+          "kind": "class",
+          "line": 305,
+          "name": "Popover"
+        },
+        {
+          "end_line": 525,
+          "kind": "class",
+          "line": 393,
+          "name": "Toast"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 29,
+          "kind": "function",
+          "line": 26,
+          "name": "_rounded"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 575,
+      "longest_function": {
+        "end_line": 575,
+        "kind": "function",
+        "line": 384,
+        "line_count": 192,
         "qualname": "stylesheet"
       },
       "module": "autoslice.desktop.qt_preview.theme",
       "path": "src/autoslice/desktop/qt_preview/theme.py",
-      "sha256": "1bde8aa57d2e5ecf01244d54ab71c35f2917542fb84df1ec20429d3b1f15da90",
+      "sha256": "8f9129d50639bd186aa46582a1371a7ce4df2053dcdd984195268b2b0fa4c343",
       "top_level_classes": [
         {
           "end_line": 24,
@@ -19772,7 +20126,7 @@
           "name": "ThemeSpec"
         },
         {
-          "end_line": 371,
+          "end_line": 372,
           "kind": "class",
           "line": 337,
           "name": "Metrics"
@@ -19840,9 +20194,9 @@
           "name": "current_theme"
         },
         {
-          "end_line": 558,
+          "end_line": 575,
           "kind": "function",
-          "line": 383,
+          "line": 384,
           "name": "stylesheet"
         }
       ]
@@ -19872,72 +20226,72 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 663,
+      "line_count": 647,
       "longest_function": {
-        "end_line": 454,
+        "end_line": 489,
         "kind": "function",
-        "line": 410,
+        "line": 445,
         "line_count": 45,
         "qualname": "PreviewWindow._subtitle_list"
       },
       "module": "autoslice.desktop.qt_preview.window",
       "path": "src/autoslice/desktop/qt_preview/window.py",
-      "sha256": "43f3f5dd412c214a19be398963f12ad7e3f4d92ed2a74e391a3351059ea2ef39",
+      "sha256": "e5d50db410eb68162bc7160d34c3f922c98b4988ef7d4c06cc24c96cda1b7ec6",
       "top_level_classes": [
         {
-          "end_line": 109,
+          "end_line": 110,
           "kind": "class",
-          "line": 71,
+          "line": 72,
           "name": "TwoLineTitle"
         },
         {
-          "end_line": 129,
+          "end_line": 130,
           "kind": "class",
-          "line": 112,
+          "line": 113,
           "name": "ProjectItem"
         },
         {
-          "end_line": 159,
+          "end_line": 160,
           "kind": "class",
-          "line": 132,
+          "line": 133,
           "name": "NavigationButton"
         },
         {
-          "end_line": 191,
+          "end_line": 192,
           "kind": "class",
-          "line": 162,
+          "line": 163,
           "name": "TimelineTrack"
         },
         {
-          "end_line": 663,
+          "end_line": 647,
           "kind": "class",
-          "line": 194,
+          "line": 195,
           "name": "PreviewWindow"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 37,
+          "end_line": 38,
           "kind": "function",
-          "line": 33,
+          "line": 34,
           "name": "label"
         },
         {
-          "end_line": 43,
+          "end_line": 44,
           "kind": "function",
-          "line": 40,
+          "line": 41,
           "name": "line"
         },
         {
-          "end_line": 60,
+          "end_line": 61,
           "kind": "function",
-          "line": 46,
+          "line": 47,
           "name": "card"
         },
         {
-          "end_line": 68,
+          "end_line": 69,
           "kind": "function",
-          "line": 63,
+          "line": 64,
           "name": "tool_icon"
         }
       ]
@@ -27296,47 +27650,47 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 140,
+      "line_count": 144,
       "longest_function": {
-        "end_line": 136,
+        "end_line": 140,
         "kind": "function",
-        "line": 83,
+        "line": 87,
         "line_count": 54,
         "qualname": "main"
       },
       "module": "scripts.manual.ui_screenshots",
       "path": "scripts/manual/ui_screenshots.py",
-      "sha256": "586b7402f3df1dc60e461377e7aa290ef235110ba7fc6ee814c2f3482e922d64",
+      "sha256": "14d669fc57bab0b638f4e9c783256e0418b36c8f1dc574e11c04dadea4e6f3f2",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 41,
+          "end_line": 45,
           "kind": "function",
           "line": 32,
           "name": "_isolate"
         },
         {
-          "end_line": 49,
+          "end_line": 53,
           "kind": "function",
-          "line": 44,
+          "line": 48,
           "name": "_timestamp"
         },
         {
-          "end_line": 73,
+          "end_line": 77,
           "kind": "function",
-          "line": 52,
+          "line": 56,
           "name": "_make_project"
         },
         {
-          "end_line": 80,
+          "end_line": 84,
           "kind": "function",
-          "line": 76,
+          "line": 80,
           "name": "_settle"
         },
         {
-          "end_line": 136,
+          "end_line": 140,
           "kind": "function",
-          "line": 83,
+          "line": 87,
           "name": "main"
         }
       ]
@@ -28130,6 +28484,7 @@
       "src/autoslice/desktop/qt_app/window_ai.py",
       "src/autoslice/desktop/qt_app/window_asr.py",
       "src/autoslice/desktop/qt_app/window_document.py",
+      "src/autoslice/desktop/qt_app/window_find.py",
       "src/autoslice/desktop/qt_app/window_input.py",
       "src/autoslice/desktop/qt_app/window_player.py",
       "src/autoslice/desktop/qt_app/window_projects.py",
@@ -28147,6 +28502,7 @@
       "src/autoslice/desktop/qt_preview/icons.py",
       "src/autoslice/desktop/qt_preview/motion.py",
       "src/autoslice/desktop/qt_preview/popups.py",
+      "src/autoslice/desktop/qt_preview/shell.py",
       "src/autoslice/desktop/qt_preview/theme.py",
       "src/autoslice/desktop/qt_preview/widgets.py",
       "src/autoslice/desktop/qt_preview/window.py",
@@ -28289,6 +28645,7 @@
       "tests/unit/test_desktop_page_shortcuts.py",
       "tests/unit/test_desktop_player.py",
       "tests/unit/test_desktop_projects.py",
+      "tests/unit/test_desktop_redesign_interactions.py",
       "tests/unit/test_desktop_render.py",
       "tests/unit/test_desktop_review_workflow.py",
       "tests/unit/test_desktop_subtitles.py",
@@ -28353,12 +28710,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 1032,
-    "production_line_count": 80224,
-    "production_module_count": 323,
+    "import_edge_count": 1052,
+    "production_line_count": 81948,
+    "production_module_count": 325,
     "test_private_patch_count": 17,
-    "top_level_class_count": 351,
-    "top_level_function_count": 1547
+    "top_level_class_count": 364,
+    "top_level_function_count": 1551
   },
   "test_private_patches": {
     "by_target_module": {

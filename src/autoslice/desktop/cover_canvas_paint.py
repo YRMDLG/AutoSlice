@@ -598,6 +598,9 @@ class CanvasPaintMixin:
         self._draw_background(painter)
         painter.restore()
         self._draw_object_layers(painter, canvas)
+        if not getattr(self, "overlays", True):
+            painter.end()
+            return
         selected = self._selected_editable()
         if self._guide_vertical:
             painter.setPen(QPen(QColor(66, 215, 255, 220), 1))

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -45,9 +46,26 @@ from .cover_widgets import (
     _TitleEdit,
 )
 from .qt_preview import motion, popups
+from .qt_preview.appearance import themed
 from .qt_preview.icons import icon
-from .qt_preview.theme import COLORS
+from .qt_preview.shell import Card, Divider
+from .qt_preview.theme import COLORS, STYLE
 from .qt_preview.widgets import ElidedLabel
+
+
+def _vline() -> QFrame:
+    """工具栏里的短竖线分隔。"""
+
+    line = QFrame()
+    line.setObjectName("vline")
+    line.setFixedSize(1, 16)
+    return line
+
+
+def _subtle_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setObjectName("subtle")
+    return label
 
 
 class CoverLayoutMixin:
@@ -96,10 +114,17 @@ class CoverLayoutMixin:
         button.setMenu(menu)
 
     def _build(self):
+        """封面页：左列画布卡 + 来源帧卡，右列属性卡 + 另一比例小卡；两张底部卡与上方主卡同列、右端对齐。
+
+        项目级动作（投稿文案、批量出图、保存并做下一个、导出）在 header_bar 里，
+        桌面窗口把它整条挪进顶栏；单独使用编辑器时它留在页面顶部。
+        """
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        root.addWidget(self._build_toolbar())
+        self._gap_layouts = [root]
+        self.header_bar = self._build_header_bar()
+        root.addWidget(self.header_bar)
         # 警告/错误提示条；例行进度只进状态栏，不占这里。
         self.notice_label = QLabel("")
         self.notice_label.setObjectName("coverNoticeInfo")
@@ -109,13 +134,44 @@ class CoverLayoutMixin:
         # 不显示：记录当前项目与视频名，供诊断和测试读取。
         self.project_label = QLabel("")
         self.video_label = QLabel("")
-        content = QHBoxLayout()
-        content.setSpacing(0)
-        content.setContentsMargins(0, 0, 0, 0)
-        content.addWidget(self._build_canvas_area(), 1)
-        content.addWidget(self._build_right_panel())
-        root.addLayout(content, 1)
-        root.addWidget(self._build_frame_strip())
+        columns = QHBoxLayout()
+        columns.setContentsMargins(0, 0, 0, 0)
+        self._gap_layouts.append(columns)
+        left = QVBoxLayout()
+        left.setContentsMargins(0, 0, 0, 0)
+        self._gap_layouts.append(left)
+        self.canvas_card = Card()
+        canvas_column = QVBoxLayout(self.canvas_card)
+        canvas_column.setContentsMargins(0, 0, 0, 0)
+        canvas_column.setSpacing(0)
+        canvas_column.addWidget(self._build_toolbar())
+        canvas_column.addWidget(self._build_canvas_area(), 1)
+        left.addWidget(self.canvas_card, 1)
+        self.frame_card = Card()
+        frame_column = QVBoxLayout(self.frame_card)
+        frame_column.setContentsMargins(0, 0, 0, 0)
+        frame_column.addWidget(self._build_frame_strip())
+        left.addWidget(self.frame_card)
+        columns.addLayout(left, 1)
+        self.right_column = QWidget()
+        self.right_column.setMinimumWidth(300)
+        self.right_column.setMaximumWidth(340)
+        right = QVBoxLayout(self.right_column)
+        right.setContentsMargins(0, 0, 0, 0)
+        self._gap_layouts.append(right)
+        self.props_card = Card()
+        props_column = QVBoxLayout(self.props_card)
+        props_column.setContentsMargins(0, 4, 0, 4)
+        props_column.addWidget(self._build_right_panel())
+        right.addWidget(self.props_card, 1)
+        self.ratio_card = Card()
+        ratio_column = QVBoxLayout(self.ratio_card)
+        ratio_column.setContentsMargins(0, 0, 0, 0)
+        ratio_column.addWidget(self._build_ratio_card())
+        right.addWidget(self.ratio_card)
+        columns.addWidget(self.right_column)
+        root.addLayout(columns, 1)
+        themed(self, self._apply_gaps)
         # 面板折叠；无项目时先收起右侧面板，画布占满。
         self._panel_visible = True
         self._last_panel_width = 280
@@ -124,21 +180,107 @@ class CoverLayoutMixin:
         self.panel_toggle.setEnabled(False)
         self._update_canvas_hint()
 
+    def _apply_gaps(self):
+        for layout in self._gap_layouts:
+            layout.setSpacing(STYLE.gap)
+
+    def _build_header_bar(self) -> QWidget:
+        """项目级动作：草稿状态 · 投稿文案 · 批量出图 | 保存并做下一个 · 导出 4:3 + 16:9（下拉：只导当前比例、导出记录、打开文件夹）。"""
+
+        bar = QWidget()
+        bar.setObjectName("workflowActions")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        self.draft_status = QLabel("")
+        self.draft_status.setObjectName("subtle")
+        row.addWidget(self.draft_status)
+        self.submission_button = self._button(
+            "投稿文案", icon_name="pen", tip="让 AI 按你以前的标题口吻写 3 个备选标题、简介和标签，一键复制",
+            slot=self._submission_copy, enabled=False, object_name="quiet", height=34,
+        )
+        self.batch_button = self._button(
+            "批量出图", icon_name="stack", tip="给投稿目录里的多个视频一次出封面（4:3 + 16:9）",
+            slot=self._open_batch, enabled=False, object_name="quiet", height=34,
+        )
+        row.addWidget(self.submission_button)
+        row.addWidget(self.batch_button)
+        divider = QFrame()
+        divider.setObjectName("vline")
+        divider.setFixedSize(1, 18)
+        row.addWidget(divider)
+        self.next_button = self._button(
+            "保存并做下一个", icon_name="chevron_right", icon_size=14,
+            tip="保存当前封面，切到投稿列表里的下一个视频", slot=self._request_next_video, enabled=False,
+            object_name=None, height=34,
+        )
+        row.addWidget(self.next_button)
+        # 输出摘要放在画布下方的提示行里（见 _build_canvas_area）。
+        self.export_summary = ElidedLabel("")
+        self.export_summary.setObjectName("subtle")
+        # 单比例导出、导出记录收进导出主按钮旁的下拉里
+        self.export_button = self._button(
+            "导出", tip="导出当前画布比例", slot=self._export, object_name=None, enabled=False,
+        )
+        self.export_button.hide()
+        self.history_button = self._button(
+            icon_name="history", tip="导出记录：回看最近导出的封面", slot=self._open_export_history, square=True,
+        )
+        self.history_button.hide()
+        # 投稿要两个比例，双比例导出是主动作；旧网页端同样以“保存双比例”为主按钮。
+        self.export_both_button = self._button(
+            "导出 4:3 + 16:9", icon_name="download", object_name="primary", slot=self._export_both, enabled=False,
+            tip="分别导出 4:3（1440×1080）与 16:9（1920×1080），不覆盖已有文件", height=34,
+        )
+        # 主按钮的文字永远完整显示
+        self.export_both_button.setMinimumWidth(self.export_both_button.sizeHint().width())
+        row.addWidget(self.export_both_button)
+        self.export_more_button = self._button(
+            icon_name="chevron_down", tip="只导出当前比例、导出记录、打开导出文件夹", square=True,
+            object_name="primary", height=34,
+        )
+        self.export_menu = QMenu(self.export_more_button)
+        self.export_menu.aboutToShow.connect(self._fill_export_menu)
+        popups.MenuFx(self.export_menu)
+        self.export_more_button.clicked.connect(
+            lambda: popups.MenuFx.popup_below(self.export_menu, self.export_more_button, align_right=True))
+        row.addWidget(self.export_more_button)
+        return bar
+
+    def _fill_export_menu(self):
+        menu = self.export_menu
+        menu.clear()
+        single = menu.addAction(self.export_button.text() or "导出当前比例", self.export_button.click)
+        single.setEnabled(self.export_button.isEnabled())
+        menu.addAction("导出记录", self.history_button.click)
+        menu.addSeparator()
+        folder = menu.addAction("打开导出文件夹", self._open_export_folder)
+        folder.setEnabled(not self.open_export_button.isHidden())
+
     def _build_toolbar(self) -> QWidget:
-        """单行工具栏：比例与同步 · 撤销/重做 · 插入 · 状态 · 批量/记录/导出/下一个；放不下时按钮收成只显示图标。"""
+        """画布卡顶部一行：撤销/重做 · 4:3 / 16:9 · 添加文字、素材、形状、已隐藏 · 最右端“AI 改一改”。"""
 
         toolbar = FitToolbar()
         toolbar.setObjectName("coverToolbar")
-        toolbar.setFixedHeight(44)
+        toolbar.setFixedHeight(54)
         row = QHBoxLayout(toolbar)
         row.setContentsMargins(12, 0, 12, 0)
-        row.setSpacing(6)
+        row.setSpacing(4)
+
+        self.undo_button = self._button(icon_name="undo", tip="撤销", slot=self._undo, square=True, enabled=False,
+                                        height=32)
+        self.redo_button = self._button(icon_name="redo", tip="重做", slot=self._redo, square=True, enabled=False,
+                                        height=32)
+        row.addWidget(self.undo_button)
+        row.addWidget(self.redo_button)
+        row.addWidget(_vline())
 
         # 比例：分段控件，和字幕页的“全部 / 待确认”同一套外观
         segmented = QWidget()
         segmented.setObjectName("segmented")
+        segmented.setFixedHeight(32)
         segment_row = QHBoxLayout(segmented)
-        segment_row.setContentsMargins(2, 2, 2, 2)
+        segment_row.setContentsMargins(3, 3, 3, 3)
         segment_row.setSpacing(2)
         self.canvas_ratio_group = QButtonGroup(self)
         self.canvas_ratio_group.setExclusive(True)
@@ -155,23 +297,12 @@ class CoverLayoutMixin:
         self.canvas_ratio_buttons["4x3"].setChecked(True)
         motion.SegmentedFx(segmented, tuple(self.canvas_ratio_buttons.values()))
         row.addWidget(segmented)
-        self.sync_ratio_button = self._button(
-            "同步到 16:9", icon_name="refresh",
-            tip="把当前比例里调好的文字和素材位置套到另一个比例；底图取景各自保留",
-            slot=self._sync_other_ratio, enabled=False,
-        )
-        row.addWidget(self.sync_ratio_button)
-        row.addSpacing(8)
-
-        self.undo_button = self._button(icon_name="undo", tip="撤销", slot=self._undo, square=True, enabled=False)
-        self.redo_button = self._button(icon_name="redo", tip="重做", slot=self._redo, square=True, enabled=False)
-        row.addWidget(self.undo_button)
-        row.addWidget(self.redo_button)
-        row.addSpacing(8)
+        row.addWidget(_vline())
 
         # 插入：文字 / 素材 / 形状常驻工具栏；“已隐藏”只在有隐藏对象时出现。
         self.add_text_button = self._button(
-            "文字", icon_name="text", tip="新建文本框；双击画布上的文字可直接改字", slot=self._add_text, enabled=False,
+            "添加文字", icon_name="text", tip="新建文本框；双击画布上的文字可直接改字", slot=self._add_text,
+            enabled=False,
         )
         self.asset_menu_button = self._button(
             "素材", icon_name="image", tip="从素材库选择或导入图片，作为可编辑对象加入画布", enabled=False,
@@ -183,72 +314,93 @@ class CoverLayoutMixin:
         self.shape_menu_button = self._button("形状", icon_name="shapes", tip="添加圆圈、箭头或矩形强调框", enabled=False)
         self._set_menu(self.shape_menu_button, self._shape_menu(self.shape_menu_button))
         self.hidden_button = self._button("已隐藏", icon_name="eye", tip="被删除或隐藏的文字和素材，点一下恢复")
-        self.ai_critique_button = self._button(
-            "AI 改一改", icon_name="sparkles", tip="让 AI 逐个调整文字和素材的位置、大小与描边配色，保留你写的文案和锁定的对象；对照预览后一键应用，可撤销",
-            slot=self._ai_critique, enabled=False,
-        )
         self.hidden_menu = QMenu(self.hidden_button)
         self.hidden_menu.aboutToShow.connect(self._fill_hidden_menu)
         self._set_menu(self.hidden_button, self.hidden_menu)
         self.hidden_button.setVisible(False)
-        for button in (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button, self.ai_critique_button):
+        for button in (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button):
             row.addWidget(button)
         row.addStretch(1)
-
-        self.draft_status = QLabel("")
-        self.draft_status.setObjectName("subtle")
-        row.addWidget(self.draft_status)
-        self.batch_button = self._button(
-            "批量出图", icon_name="layers", tip="给投稿目录里的多个视频一次出封面（4:3 + 16:9）",
-            slot=self._open_batch, enabled=False,
-        )
-        self.history_button = self._button(
-            icon_name="history", tip="导出记录：回看最近导出的封面", slot=self._open_export_history, square=True,
-        )
-        self.submission_button = self._button(
-            "投稿文案", icon_name="sparkles", tip="让 AI 按你以前的标题口吻写 3 个备选标题、简介和标签，一键复制",
-            slot=self._submission_copy, enabled=False,
-        )
-        # 输出摘要放在画布下方的提示行里（见 _build_canvas_area），工具栏只留动作。
-        self.export_summary = ElidedLabel("")
-        self.export_summary.setObjectName("subtle")
-        self.export_button = self._button(
-            "导出", tip="导出当前画布比例", slot=self._export, object_name=None, enabled=False,
-        )
-        # 投稿要两个比例，双比例导出是主动作；旧网页端同样以“保存双比例”为主按钮。
-        self.export_both_button = self._button(
-            "导出 4:3 + 16:9", icon_name="download", object_name="primary", slot=self._export_both, enabled=False,
-            tip="分别导出 4:3（1440×1080）与 16:9（1920×1080），不覆盖已有文件",
-        )
-        # 主按钮的文字永远完整显示
-        self.export_both_button.setMinimumWidth(self.export_both_button.sizeHint().width())
-        self.next_button = self._button(
-            "下一个", icon_name="chevron_right", icon_size=14, tip="保存当前封面，切到投稿列表里的下一个视频",
-            slot=self._request_next_video, enabled=False,
-        )
         self.panel_toggle = self._button(
-            icon_name="chevron_right", tip="收起/展开属性面板", square=True, checkable=True,
+            icon_name="chevron_right", tip="收起/展开属性面板", square=True, checkable=True, height=32,
         )
-        for widget in (
-            self.batch_button, self.submission_button, self.history_button, self.export_button,
-            self.export_both_button, self.next_button, self.panel_toggle,
-        ):
-            row.addWidget(widget)
-        # 先收低频的（同步、批量、投稿文案、下一个），还放不下再收文字/素材/形状/AI
+        row.addWidget(self.panel_toggle)
+        # “AI 改一改”放在画布卡工具栏最右端
+        self.ai_critique_button = self._button(
+            "AI 改一改", icon_name="sparkles",
+            tip="让 AI 逐个调整文字和素材的位置、大小与描边配色，保留你写的文案和锁定的对象；对照预览后一键应用，可撤销",
+            slot=self._ai_critique, enabled=False, object_name="aiFix", height=30,
+        )
+        row.addWidget(self.ai_critique_button)
+        # 放不下时先把插入类按钮收成图标，“AI 改一改”最后收
         toolbar.set_collapsible(
-            (self.sync_ratio_button, self.batch_button, self.submission_button, self.next_button),
-            (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button,
-             self.ai_critique_button),
+            (self.add_text_button, self.asset_menu_button, self.shape_menu_button, self.hidden_button),
+            (self.ai_critique_button,),
         )
         return toolbar
+
+    def _build_ratio_card(self) -> QWidget:
+        """右下角“另一比例”小卡：另一比例的实时缩略图 + 同步按钮；两个比例分别取景（D-007）。"""
+
+        card = QWidget()
+        column = QVBoxLayout(card)
+        column.setContentsMargins(18, 14, 18, 16)
+        column.setSpacing(12)
+        head = QHBoxLayout()
+        self.ratio_title = QLabel("另一比例 · 16:9")
+        self.ratio_title.setObjectName("sectionTitle")
+        head.addWidget(self.ratio_title)
+        head.addStretch(1)
+        head.addWidget(_subtle_label("独立取景"))
+        column.addLayout(head)
+        body = QHBoxLayout()
+        body.setSpacing(14)
+        self.ratio_preview = CoverCanvas()
+        self.ratio_preview.overlays = False
+        self.ratio_preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.ratio_preview.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.ratio_preview.setFixedSize(112, 63)
+        body.addWidget(self.ratio_preview)
+        side = QVBoxLayout()
+        side.setSpacing(8)
+        self.ratio_note = _subtle_label("文字和素材位置可以一键套过去，底图取景各自保留")
+        self.ratio_note.setWordWrap(True)
+        side.addWidget(self.ratio_note)
+        self.sync_ratio_button = self._button(
+            "同步到 16:9", icon_name="refresh",
+            tip="把当前比例里调好的文字和素材位置套到另一个比例；底图取景各自保留",
+            slot=self._sync_other_ratio, enabled=False, object_name=None,
+        )
+        side.addWidget(self.sync_ratio_button, 0, Qt.AlignmentFlag.AlignLeft)
+        body.addLayout(side, 1)
+        column.addLayout(body)
+        self._ratio_timer = QTimer(self)
+        self._ratio_timer.setSingleShot(True)
+        self._ratio_timer.setInterval(120)
+        self._ratio_timer.timeout.connect(self._refresh_ratio_preview)
+        return card
+
+    def _queue_ratio_preview(self):
+        if hasattr(self, "_ratio_timer"):
+            self._ratio_timer.start()
+
+    def _refresh_ratio_preview(self):
+        """另一比例的缩略图：同一份文档，用另一个比例的取景画；不写盘、不渲染 Pillow（D-025）。"""
+
+        other = "16x9" if self._canvas_key == "4x3" else "4x3"
+        self.ratio_title.setText(f"另一比例 · {'16:9' if other == '16x9' else '4:3'}")
+        width, height = (112, 63) if other == "16x9" else (84, 63)
+        self.ratio_preview.setFixedSize(width, height)
+        self.ratio_preview.set_background_pixmap(self.canvas.background_pixmap())
+        self.ratio_preview.set_document(self.document, other)
 
     def _build_canvas_area(self) -> QWidget:
         """中央画布、就地输入框和画布下方的操作提示。"""
 
         center = QWidget()
         layout = QVBoxLayout(center)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(0)
         self.canvas = CoverCanvas()
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         for signal, slot in (
@@ -264,6 +416,7 @@ class CoverLayoutMixin:
             (self.canvas.delete_requested, self._delete_object),
             (self.canvas.duplicate_requested, self._duplicate_object),
             (self.canvas.edit_requested, self._edit_text),
+            (self.canvas.document_shown, self._queue_ratio_preview),
         ):
             signal.connect(slot)
         self.canvas.locked_hint.connect(lambda: self.status_changed.emit("对象已锁定：先在右侧解锁再移动或删除"))
@@ -279,7 +432,7 @@ class CoverLayoutMixin:
         # 行高按“打开文件夹”按钮预留：按钮导出后才出现，不预留的话画布会被挤矮、往下跳一下
         info_holder = QWidget()
         info_row = QHBoxLayout(info_holder)
-        info_row.setContentsMargins(0, 0, 0, 0)
+        info_row.setContentsMargins(8, 0, 8, 0)
         info_row.setSpacing(12)
         self.canvas_hint = ElidedLabel("")
         self.canvas_hint.setObjectName("subtle")
@@ -294,7 +447,7 @@ class CoverLayoutMixin:
         self.open_export_button.hide()
         info_row.addWidget(self.open_export_button)
         self.open_export_button.ensurePolished()
-        info_holder.setFixedHeight(self.open_export_button.sizeHint().height())
+        info_holder.setFixedHeight(max(44, self.open_export_button.sizeHint().height()))
         layout.addWidget(info_holder)
         return center
 
@@ -304,7 +457,6 @@ class CoverLayoutMixin:
         self.right_panel = QWidget()
         self.right_panel.setObjectName("coverPanel")
         self.right_panel.setMinimumWidth(0)
-        self.right_panel.setMaximumWidth(280)
         outer = QVBoxLayout(self.right_panel)
         outer.setContentsMargins(0, 0, 0, 0)
         # 窗口不够高时整块滚动，不再把下拉框、数字框压扁叠在一起
@@ -320,9 +472,11 @@ class CoverLayoutMixin:
         self.right_scroll.viewport().setAutoFillBackground(False)
         outer.addWidget(self.right_scroll)
         layout = QVBoxLayout(inner)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(18, 14, 18, 16)
+        layout.setSpacing(8)
         layout.addLayout(self._build_scheme_section())
+        layout.addSpacing(6)
+        layout.addWidget(Divider(0))
         layout.addSpacing(6)
         self.panel_title = QLabel("封面文案")
         self.panel_title.setObjectName("sectionTitle")
@@ -344,8 +498,18 @@ class CoverLayoutMixin:
         strip = QWidget()
         strip.setObjectName("frameStrip")
         column = QVBoxLayout(strip)
-        column.setContentsMargins(12, 4, 12, 6)
-        column.setSpacing(2)
+        column.setContentsMargins(14, 8, 14, 12)
+        column.setSpacing(6)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        title = QLabel("来源帧")
+        title.setObjectName("sectionTitle")
+        head.addWidget(title)
+        head.addSpacing(6)
+        head.addWidget(_subtle_label("播放头附近"))
+        head.addStretch(1)
+        self._frame_head = head
+        column.addLayout(head)
         # 拖动选帧：参考旧网页端“精确选帧”，松手后从这个时间取帧。
         scrub_row = QHBoxLayout()
         scrub_row.setSpacing(6)
@@ -369,28 +533,27 @@ class CoverLayoutMixin:
         column.addLayout(scrub_row)
 
         row = QHBoxLayout()
-        row.setSpacing(4)
+        row.setSpacing(10)
         column.addLayout(row)
         self.frame_center_label = QLabel("0.00s")
-        self.frame_center_label.setObjectName("subtle")
+        self.frame_center_label.setObjectName("mono")
         self.frame_center_label.setMinimumWidth(92)
-        row.addWidget(self.frame_center_label)
-        self.current_frame_button = self._button(
-            "当前帧", tip="读取字幕页播放位置", slot=self._use_current_frame, height=24, object_name="quiet",
-        )
+        scrub_row.insertWidget(0, self.frame_center_label)
         self.frame_lock_button = self._button(
-            "锁帧", tip="锁定后换方案、换文案都不换帧", slot=self._toggle_frame_lock, height=24, checkable=True,
-            object_name="quiet",
+            "锁帧", icon_name="lock", tip="锁定后换方案、换文案都不换帧", slot=self._toggle_frame_lock, height=26,
+            checkable=True, object_name="tool",
+        )
+        self.current_frame_button = self._button(
+            "当前帧", tip="读取字幕页播放位置", slot=self._use_current_frame, height=26, object_name="tool",
         )
         self.more_frames_button = self._button(
-            "更多", tip="扩大取帧范围", slot=self._find_more_frames, height=24, object_name="quiet",
+            "更多", tip="扩大取帧范围", slot=self._find_more_frames, height=26, object_name="tool",
         )
         self.overview_button = self._button(
-            "全片", tip="从整个视频按画质挑 7 张", slot=self._find_overview_frames, height=24, object_name="quiet",
+            "从全片挑 7 张", tip="从整个视频按画质挑 7 张", slot=self._find_overview_frames, height=26, object_name=None,
         )
-        for button in (self.current_frame_button, self.frame_lock_button, self.more_frames_button, self.overview_button):
-            row.addWidget(button)
-        row.addSpacing(8)
+        for button in (self.frame_lock_button, self.current_frame_button, self.more_frames_button, self.overview_button):
+            head.addWidget(button)
         self.nearby_frame_buttons = []
         for _ in range(7):
             button = ToolbarButton("--")
@@ -489,15 +652,13 @@ class CoverLayoutMixin:
         """收起右侧面板。"""
         if self.right_panel.width() > 0:
             self._last_panel_width = self.right_panel.width()
-        self.right_panel.setMaximumWidth(0)
-        self.right_panel.setMinimumWidth(0)
+        self.right_column.hide()
         self.panel_toggle.setIcon(icon("chevron_left"))
         self._panel_visible = False
 
     def _show_panel(self):
         """展开右侧面板。"""
-        self.right_panel.setMinimumWidth(0)
-        self.right_panel.setMaximumWidth(self._last_panel_width)
+        self.right_column.show()
         self.panel_toggle.setIcon(icon("chevron_right"))
         self._panel_visible = True
 
@@ -587,6 +748,7 @@ class CoverLayoutMixin:
         self.align_group.setExclusive(True)
         align_segmented = QWidget()
         align_segmented.setObjectName("segmented")
+        align_segmented.setFixedHeight(32)
         align_row = QHBoxLayout(align_segmented)
         align_row.setContentsMargins(2, 2, 2, 2)
         align_row.setSpacing(2)

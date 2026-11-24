@@ -59,6 +59,8 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
     selected_object_changed = Signal(str)
     safe_area_warning_changed = Signal(bool)
     object_changed = Signal(object, str)
+    # 文档或底图换了：另一比例的小预览据此刷新
+    document_shown = Signal()
     # 手势进行中只同步轻量的控件显示，不触碰 CoverDocument 或预览任务。
     object_preview_changed = Signal(object, str)
     # 选中框四角的删除/复制按钮：由编辑器执行，画布只发出请求。
@@ -133,6 +135,8 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self._gesture_objects: dict[str, object] = {}
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # False 时只画内容，不画选中框和辅助线（另一比例的小预览）
+        self.overlays = True
         themed(self, lambda: self.setStyleSheet(
             f"background: {COLORS.timeline_bg}; border: 1px solid {COLORS.timeline_border}; border-radius: 9px;"
         ))
@@ -146,6 +150,7 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         text = self._find_text()
         self._selected_object = selected or (text.id if text else "background")
         self.update()
+        self.document_shown.emit()
 
     def document(self) -> CoverDocument | None:
         return self._document
@@ -173,6 +178,7 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
     def set_background_pixmap(self, pixmap: QPixmap):
         self._background_pixmap = pixmap
         self.update()
+        self.document_shown.emit()
 
     def background_pixmap(self) -> QPixmap:
         return self._background_pixmap

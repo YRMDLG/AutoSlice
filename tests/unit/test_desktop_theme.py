@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from dataclasses import fields
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication, QPushButton
@@ -88,6 +89,17 @@ class ThemeTokenTests(unittest.TestCase):
         self.assertNotEqual(night, morning)
 
 
+def _switch(value):
+    """轻量切换：只换令牌、通知换主题钩子，不重套整个应用的样式表。
+
+    测试会话里前面的用例留下了很多窗口，真的重套全局样式表会把它们全部重新套一遍，慢到像卡死。
+    """
+
+    theme.apply_theme(value.theme, value.accent, value.ground)
+    appearance.hub().changed.emit()
+    return appearance.current()
+
+
 class AppearanceTests(unittest.TestCase):
     def setUp(self):
         self.app = QApplication.instance() or QApplication([])
@@ -95,7 +107,7 @@ class AppearanceTests(unittest.TestCase):
         self.storage = DesktopStorage(Path(self.temp.name))
 
     def tearDown(self):
-        appearance.apply(self.app, Appearance.of("night"))
+        _switch(Appearance.of("night"))
         self.temp.cleanup()
 
     def test_preferences_round_trip_and_survive_session_saves(self):
@@ -112,8 +124,12 @@ class AppearanceTests(unittest.TestCase):
         button = QPushButton("保存")
         button.setIcon(icons.icon("save", theme.COLORS.primary_text))
         before = button.icon().cacheKey()
-        appearance.apply(self.app, Appearance.of("morning"))
-        self.assertIn("#F4F3F0", self.app.styleSheet())
+        fake = Mock()
+        fake.allWidgets.return_value = [button]
+        appearance.apply(fake, Appearance.of("morning"))
+        fake.setStyleSheet.assert_called_once()
+        self.assertIn("#F4F3F0", fake.setStyleSheet.call_args.args[0])
+        fake.setPalette.assert_called_once()
         self.assertNotEqual(button.icon().cacheKey(), before)
         self.assertEqual(icons.spec_of(button.icon())[1], "primary_text")
 
@@ -121,11 +137,11 @@ class AppearanceTests(unittest.TestCase):
         owner = QPushButton()
         calls = []
         appearance.themed(owner, lambda: calls.append(theme.current_theme()[0]))
-        appearance.apply(self.app, Appearance.of("morning"))
+        _switch(Appearance.of("morning"))
         self.assertEqual(calls, ["night", "morning"])
         owner.deleteLater()
         QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        appearance.apply(self.app, Appearance.of("night"))
+        _switch(Appearance.of("night"))
         self.assertEqual(len(calls), 2)
 
     def test_settings_panel_switches_theme_instantly_and_saves(self):
@@ -133,12 +149,14 @@ class AppearanceTests(unittest.TestCase):
 
         panel = AppearancePanel(self.storage)
         self.addCleanup(panel.deleteLater)
-        panel.theme_buttons["morning"].click()
-        self.assertEqual(theme.current_theme()[0], "morning")
-        self.assertEqual(theme.COLORS.ground, "#F4F3F0")
-        self.assertEqual(appearance.load(self.storage).theme, "morning")
-        self.assertFalse(panel.ground_row.isVisibleTo(panel))
-        panel.accent_buttons[2].click()
+        with patch.object(appearance, "apply", side_effect=lambda _app, value: _switch(value)) as applied:
+            panel.theme_buttons["morning"].click()
+            self.assertEqual(applied.call_count, 1)
+            self.assertEqual(theme.current_theme()[0], "morning")
+            self.assertEqual(theme.COLORS.ground, "#F4F3F0")
+            self.assertEqual(appearance.load(self.storage).theme, "morning")
+            self.assertFalse(panel.ground_row.isVisibleTo(panel))
+            panel.accent_buttons[2].click()
         self.assertEqual(theme.COLORS.accent, theme.THEMES["morning"].accents[2])
         self.assertTrue(panel.accent_buttons[2].isChecked())
         self.assertFalse(panel.accent_buttons[0].isChecked())

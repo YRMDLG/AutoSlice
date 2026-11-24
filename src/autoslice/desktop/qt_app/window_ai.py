@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -26,165 +27,76 @@ from PySide6.QtWidgets import (
 from autoslice.desktop.ai_review import AIReviewSession, document_hash
 from autoslice.desktop.homophone import available as homophone_available
 from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview.appearance import themed
+from autoslice.desktop.qt_preview.icons import icon as desktop_icon
+from autoslice.desktop.qt_preview.shell import Divider
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.window import label, line, tool_icon
+from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
-from .window_widgets import _ElidedQueueButton
+from .window_widgets import _AiStat, _ElidedQueueButton, _InlineAiWatcher
 
 
 class AiReviewMixin:
     def _ai_panel(self):
+        """右下角的“AI 检查”卡：状态、统计、说明和入口；单条建议在字幕列表里选中行下方展开。"""
+
         panel = QWidget()
         panel.setObjectName("aiPanel")
-        panel.setMinimumWidth(SIZES.ai_collapsed_width)
         column = QVBoxLayout(panel)
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(0)
-        # 与投稿项目、工作区工具栏同高
-        header_bar = QWidget()
-        header_bar.setFixedHeight(58)
-        header = QHBoxLayout(header_bar)
-        header.setContentsMargins(8, 0, 12, 0)
+        column.setContentsMargins(18, 14, 18, 14)
+        column.setSpacing(10)
+        header = QHBoxLayout()
         header.setSpacing(8)
-        self.ai_toggle = QPushButton()
-        self.ai_toggle.setObjectName("quiet")
-        tool_icon(self.ai_toggle, "chevron_left")
-        self.ai_toggle.setFixedSize(32, 32)
-        self.ai_toggle.clicked.connect(lambda: self._set_ai_open(not self._ai_open))
-        header.addWidget(self.ai_toggle)
-        self.ai_header = label("AI 建议", "sectionTitle")
+        self.ai_icon = QLabel()
+        themed(self.ai_icon, lambda: self.ai_icon.setPixmap(
+            desktop_icon("sparkle", COLORS.accent_ink, 14).pixmap(14, 14)))
+        header.addWidget(self.ai_icon)
+        self.ai_header = label("AI 检查", "sectionTitle")
         header.addWidget(self.ai_header)
         header.addStretch()
-        self.ai_run = QPushButton("AI 检查")
-        self.ai_run.setObjectName("quiet")
-        self.ai_run.setFixedHeight(28)
-        self.ai_run.setToolTip("把字幕发给 AI 检查错字，会消耗额度；只生成待确认建议")
-        self.ai_run.clicked.connect(self._ai_run_clicked)
-        header.addWidget(self.ai_run)
-        column.addWidget(header_bar)
-        column.addWidget(line())
+        self.ai_state = label("", "subtle")
+        self.ai_state.setObjectName("aiState")
+        header.addWidget(self.ai_state)
+        # 旧的开合按钮与收起标签：卡片常驻，不再折叠，只留对象给旧调用
+        self.ai_toggle = QPushButton()
+        self.ai_toggle.setObjectName("quiet")
+        self.ai_toggle.hide()
+        self.ai_collapsed_holder = QWidget()
+        self.ai_collapsed_holder.hide()
+        self.ai_collapsed_label = label("AI", "badge")
+        self.ai_collapsed_label.setParent(self.ai_collapsed_holder)
+        column.addLayout(header)
+
         self.ai_content = QScrollArea()
         self.ai_content.setWidgetResizable(True)
         self.ai_content.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         ai_body = QWidget()
         content = QVBoxLayout(ai_body)
-        content.setContentsMargins(16, 12, 16, 14)
+        content.setContentsMargins(0, 0, 0, 0)
         content.setSpacing(8)
+        # 统计：待确认（强调色）/ 固定纠错 / 已处理；会话存在时显示
+        self.ai_stats = QWidget()
+        stats = QHBoxLayout(self.ai_stats)
+        stats.setContentsMargins(0, 0, 0, 0)
+        stats.setSpacing(24)
+        self.ai_stat_pending = _AiStat("待确认", accent=True)
+        self.ai_stat_fixed = _AiStat("固定纠错")
+        self.ai_stat_done = _AiStat("已处理 / 没问题", muted=True)
+        for stat in (self.ai_stat_pending, self.ai_stat_fixed, self.ai_stat_done):
+            stats.addWidget(stat)
+        stats.addStretch()
+        content.addWidget(self.ai_stats)
+        self.ai_stats.hide()
+        self.ai_running_bar = QProgressBar()
+        self.ai_running_bar.setRange(0, 100)
+        self.ai_running_bar.setTextVisible(False)
+        content.addWidget(self.ai_running_bar)
+        self.ai_running_bar.hide()
         self.ai_note = label("AI 只生成待确认建议，不修改字幕。", "muted")
         self.ai_note.setWordWrap(True)
         content.addWidget(self.ai_note)
-        # 没配 AI 时给直达入口，不让人自己去设置页底下找
-        self.ai_setup = QPushButton("去设置 AI 接口")
-        self.ai_setup.setObjectName("secondary")
-        self.ai_setup.clicked.connect(self._open_ai_settings)
-        content.addWidget(self.ai_setup, 0, Qt.AlignmentFlag.AlignLeft)
-        self.ai_setup.hide()
-        # 免费的本地检查带字放在正文里：表头放不下两个带字按钮，只有闪电图标新手认不出
-        local_row = QHBoxLayout()
-        local_row.setSpacing(8)
-        self.ai_local = QPushButton("本地检查")
-        self.ai_local.setObjectName("secondary")
-        tool_icon(self.ai_local, "bolt")
-        self.ai_local.setToolTip("本地检查（免费、秒出、不用 AI）：主播固定纠错、你以前改过的错字、发音和术语相同写法不同的字（如“紫雨亭”→“子语庭”）")
-        self.ai_local.clicked.connect(self._start_local_check)
-        local_row.addWidget(self.ai_local)
-        local_row.addWidget(label("免费，不用 AI", "subtle"))
-        local_row.addStretch()
-        content.addLayout(local_row)
-        # 固定纠错、记住的改法很可靠，一条条点太慢：一次采纳，一步撤回
-        self.ai_apply_local = QPushButton("全部采纳本地纠错")
-        self.ai_apply_local.setObjectName("secondary")
-        self.ai_apply_local.setToolTip("主播固定纠错和已经记住的校对改法一次采纳；同音字、观察中的改法仍要逐条看。"
-                                       "只改界面里的字幕，保存前不写文件；Ctrl+Z 一步撤回")
-        self.ai_apply_local.clicked.connect(self._apply_local_batch)
-        content.addWidget(self.ai_apply_local, 0, Qt.AlignmentFlag.AlignLeft)
-        self.ai_apply_local.hide()
-        # 复查只在做过一次 AI 检查后才有意义，之前整行藏起来
-        self.ai_scope_row = QWidget()
-        scope_row = QHBoxLayout(self.ai_scope_row)
-        scope_row.setContentsMargins(0, 0, 0, 0)
-        scope_row.setSpacing(8)
-        self.ai_selected_check = QPushButton("复查选中")
-        self.ai_selected_check.setToolTip("仅检查选中的字幕，保留其它已确认结果")
-        self.ai_selected_check.clicked.connect(lambda: self._start_ai_check("selected"))
-        scope_row.addWidget(self.ai_selected_check)
-        self.ai_changed_check = QPushButton("复查改动")
-        self.ai_changed_check.setToolTip("只检查上次 AI 检查后改动或新增的字幕")
-        self.ai_changed_check.clicked.connect(lambda: self._start_ai_check("changed"))
-        scope_row.addWidget(self.ai_changed_check)
-        scope_row.addStretch()
-        content.addWidget(self.ai_scope_row)
-        self.ai_scope_row.hide()
-
-        self.ai_card = QWidget()
-        self.ai_card.setObjectName("aiSuggestionCard")
-        card = QVBoxLayout(self.ai_card)
-        card.setContentsMargins(12, 10, 12, 10)
-        card.setSpacing(6)
-
-        meta = QHBoxLayout()
-        meta.setSpacing(8)
-        self.ai_cue = label("", "subtle")
-        self.ai_cue.setObjectName("aiMeta")
-        meta.addWidget(self.ai_cue)
-        meta.addStretch()
-        self.ai_confidence = label("", "subtle")
-        self.ai_confidence.setObjectName("aiMeta")
-        meta.addWidget(self.ai_confidence)
-        card.addLayout(meta)
-
-        self.ai_original_label = label("原文", "subtle")
-        self.ai_original_label.setObjectName("aiFieldLabel")
-        card.addWidget(self.ai_original_label)
-        self.ai_original = label("", "muted")
-        self.ai_original.setObjectName("aiOriginal")
-        self.ai_original.setTextFormat(Qt.TextFormat.RichText)
-        self.ai_original.setWordWrap(True)
-        self.ai_original.setMinimumWidth(0)
-        self.ai_original.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.ai_original.setMaximumHeight(40)
-        card.addWidget(self.ai_original)
-
-        self.ai_diff_label = label("建议", "subtle")
-        self.ai_diff_label.setObjectName("aiFieldLabel")
-        card.addWidget(self.ai_diff_label)
-        self.ai_diff = QLabel("")
-        self.ai_diff.setObjectName("aiDiff")
-        self.ai_diff.setWordWrap(True)
-        self.ai_diff.setTextFormat(Qt.TextFormat.RichText)
-        self.ai_diff.setMinimumWidth(0)
-        self.ai_diff.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.ai_diff.setMaximumHeight(48)
-        card.addWidget(self.ai_diff)
-
-        self.ai_reason_label = label("原因", "subtle")
-        self.ai_reason_label.setObjectName("aiFieldLabel")
-        card.addWidget(self.ai_reason_label)
-        self.ai_reason = label("", "subtle")
-        self.ai_reason.setObjectName("aiReason")
-        self.ai_reason.setWordWrap(True)
-        self.ai_reason.setMinimumWidth(0)
-        self.ai_reason.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.ai_reason.setMaximumHeight(54)
-        card.addWidget(self.ai_reason)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(8)
-        self.ai_accept = QPushButton("采纳")
-        self.ai_accept.setObjectName("primary")
-        self.ai_accept.setToolTip("采纳这条建议并看下一条（Alt+A）")
-        self.ai_accept.clicked.connect(self._accept_ai)
-        actions.addWidget(self.ai_accept, 2)
-        self.ai_skip = QPushButton("跳过")
-        self.ai_skip.setObjectName("secondary")
-        self.ai_skip.setToolTip("不改这条，看下一条（Alt+S）")
-        self.ai_skip.clicked.connect(self._skip_ai)
-        actions.addWidget(self.ai_skip, 1)
-        card.addLayout(actions)
-        content.addWidget(self.ai_card)
-        self.ai_card.hide()
-
+        # 待确认建议的快捷入口：点一条就跳到那句，和列表“待确认”筛选同一队列
         self.ai_queue_header = label("待处理 0", "subtle")
         self.ai_queue_header.setObjectName("aiQueueHeader")
         content.addWidget(self.ai_queue_header)
@@ -193,7 +105,7 @@ class AiReviewMixin:
         self.ai_queue.setWidgetResizable(True)
         self.ai_queue.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.ai_queue.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.ai_queue.setMaximumHeight(132)
+        self.ai_queue.setMaximumHeight(96)
         self.ai_queue_widget = QWidget()
         self.ai_queue_layout = QVBoxLayout(self.ai_queue_widget)
         self.ai_queue_layout.setContentsMargins(0, 0, 0, 0)
@@ -205,23 +117,236 @@ class AiReviewMixin:
         content.addStretch(1)
         self.ai_content.setWidget(ai_body)
         column.addWidget(self.ai_content, 1)
-        self.ai_collapsed_holder = QWidget()
-        holder = QVBoxLayout(self.ai_collapsed_holder)
-        holder.setContentsMargins(0, 12, 0, 0)
-        self.ai_collapsed_label = label("AI", "badge")
-        holder.addWidget(self.ai_collapsed_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-        holder.addStretch()
-        column.addWidget(self.ai_collapsed_holder, 1)
-        # 过渡中内容隐藏时由占位吸收高度，标题行保持在顶部
-        column.addStretch()
+
+        # 入口按钮：主按钮（AI 检查 / 继续检查 / 重新检查 / 取消检查）、复查、本地检查、固定纠错、去设置
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        self.ai_run = QPushButton("AI 检查")
+        self.ai_run.setObjectName("primary")
+        self.ai_run.setFixedHeight(28)
+        self.ai_run.setToolTip("把字幕发给 AI 检查错字，会消耗额度；只生成待确认建议")
+        self.ai_run.clicked.connect(self._ai_run_clicked)
+        actions.addWidget(self.ai_run)
+        # 复查只在做过一次 AI 检查后才有意义，之前整组藏起来
+        self.ai_scope_row = QWidget()
+        scope_row = QHBoxLayout(self.ai_scope_row)
+        scope_row.setContentsMargins(0, 0, 0, 0)
+        scope_row.setSpacing(6)
+        self.ai_selected_check = QPushButton("复查选中")
+        self.ai_selected_check.setToolTip("仅检查选中的字幕，保留其它已确认结果")
+        self.ai_selected_check.clicked.connect(lambda: self._start_ai_check("selected"))
+        self.ai_changed_check = QPushButton("复查改动")
+        self.ai_changed_check.setToolTip("只检查上次 AI 检查后改动或新增的字幕")
+        self.ai_changed_check.clicked.connect(lambda: self._start_ai_check("changed"))
+        for button in (self.ai_selected_check, self.ai_changed_check):
+            button.setFixedHeight(28)
+            scope_row.addWidget(button)
+        actions.addWidget(self.ai_scope_row)
+        self.ai_scope_row.hide()
+        # 没配 AI 时给直达入口，不让人自己去设置页底下找
+        self.ai_setup = QPushButton("去设置 AI 接口")
+        self.ai_setup.setObjectName("primary")
+        self.ai_setup.setFixedHeight(28)
+        self.ai_setup.clicked.connect(self._open_ai_settings)
+        actions.addWidget(self.ai_setup)
+        self.ai_setup.hide()
+        actions.addStretch()
+        column.addLayout(actions)
+        local_row = QHBoxLayout()
+        local_row.setSpacing(6)
+        self.ai_local = QPushButton("本地检查")
+        tool_icon(self.ai_local, "bolt")
+        self.ai_local.setFixedHeight(28)
+        self.ai_local.setToolTip("本地检查（免费、秒出、不用 AI）：主播固定纠错、你以前改过的错字、发音和术语相同写法不同的字（如“紫雨亭”→“子语庭”）")
+        self.ai_local.clicked.connect(self._start_local_check)
+        local_row.addWidget(self.ai_local)
+        # 固定纠错、记住的改法很可靠，一条条点太慢：一次采纳，一步撤回
+        self.ai_apply_local = QPushButton("全部采纳本地纠错")
+        self.ai_apply_local.setFixedHeight(28)
+        self.ai_apply_local.setToolTip("主播固定纠错和已经记住的校对改法一次采纳；同音字、观察中的改法仍要逐条看。"
+                                       "只改界面里的字幕，保存前不写文件；Ctrl+Z 一步撤回")
+        self.ai_apply_local.clicked.connect(self._apply_local_batch)
+        local_row.addWidget(self.ai_apply_local)
+        self.ai_apply_local.hide()
+        local_row.addStretch()
+        column.addLayout(local_row)
+        self._build_inline_ai_card()
         return panel
+
+    def _build_inline_ai_card(self):
+        """选中待确认字幕时，在那一行下面展开的建议：原文、建议、原因、采纳 / 跳过。"""
+
+        # 直接挂在字幕表格视口里，不会先弹成独立窗口
+        self.ai_card = QWidget(self.table.viewport() if hasattr(self, "table") else None)
+        self.ai_card.setObjectName("aiInline")
+        card = QVBoxLayout(self.ai_card)
+        card.setContentsMargins(48, 0, 16, 12)
+        card.setSpacing(8)
+        card.addWidget(Divider(0))
+        meta = QHBoxLayout()
+        meta.setSpacing(8)
+        self.ai_cue = label("", "subtle")
+        self.ai_cue.setObjectName("aiMeta")
+        meta.addWidget(self.ai_cue)
+        self.ai_reason_label = label("建议改为", "subtle")
+        self.ai_reason_label.setObjectName("aiFieldLabel")
+        meta.addWidget(self.ai_reason_label)
+        meta.addStretch()
+        self.ai_confidence = label("", "subtle")
+        self.ai_confidence.setObjectName("aiMeta")
+        meta.addWidget(self.ai_confidence)
+        card.addLayout(meta)
+        self.ai_original_label = label("原文", "subtle")
+        self.ai_original_label.setObjectName("aiFieldLabel")
+        self.ai_original_label.hide()
+        self.ai_original = label("", "muted")
+        self.ai_original.setObjectName("aiOriginal")
+        self.ai_original.setTextFormat(Qt.TextFormat.RichText)
+        self.ai_original.setWordWrap(True)
+        self.ai_original.setMinimumWidth(0)
+        self.ai_original.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        card.addWidget(self.ai_original)
+        self.ai_diff_label = label("建议", "subtle")
+        self.ai_diff_label.setObjectName("aiFieldLabel")
+        self.ai_diff_label.hide()
+        self.ai_diff = QLabel("")
+        self.ai_diff.setObjectName("aiDiff")
+        self.ai_diff.setWordWrap(True)
+        self.ai_diff.setTextFormat(Qt.TextFormat.RichText)
+        self.ai_diff.setMinimumWidth(0)
+        self.ai_diff.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        card.addWidget(self.ai_diff)
+        self.ai_reason = label("", "subtle")
+        self.ai_reason.setObjectName("aiReason")
+        self.ai_reason.setWordWrap(True)
+        self.ai_reason.setMinimumWidth(0)
+        self.ai_reason.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        card.addWidget(self.ai_reason)
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        # 选中行里只有“采纳”用强调色
+        self.ai_accept = QPushButton("采纳")
+        self.ai_accept.setObjectName("primary")
+        self.ai_accept.setFixedHeight(28)
+        self.ai_accept.setToolTip("采纳这条建议并看下一条（Alt+A）")
+        self.ai_accept.clicked.connect(self._accept_ai)
+        actions.addWidget(self.ai_accept)
+        self.ai_skip = QPushButton("跳过")
+        self.ai_skip.setFixedHeight(28)
+        self.ai_skip.setToolTip("不改这条，看下一条（Alt+S）")
+        self.ai_skip.clicked.connect(self._skip_ai)
+        actions.addWidget(self.ai_skip)
+        actions.addStretch()
+        actions.addWidget(label("Alt A · Alt S", "mono"))
+        card.addLayout(actions)
+        self.ai_card.hide()
+        if hasattr(self, "table"):
+            self._watch_inline_ai()
+
+    def _row_of_cue(self, cue_id):
+        model = getattr(self, "model", None)
+        if model is None or model.document is None:
+            return -1
+        for row in range(model.rowCount()):
+            if model.entry_at(row).index == cue_id:
+                return row
+        return -1
+
+    def _place_inline_ai(self):
+        """把当前建议放到对应字幕行下面：那一行加高，建议卡盖在加高出来的那部分。
+
+        正在改字时收起（编辑框占满这一行），改完再展开。
+        """
+
+        table = getattr(self, "table", None)
+        if table is None or not hasattr(self, "ai_card"):
+            return
+        header = table.verticalHeader()
+        base = SIZES.subtitle_row_height
+        item = self.ai_session.find(self._ai_selected) if self.ai_session and self._ai_selected else None
+        row = -1
+        if item is not None and not self._subtitle_editor_open() and not self.ai_card.isHidden():
+            row = self._row_of_cue(item.cue_id)
+        previous = getattr(self, "_ai_inline_row", -1)
+        rows = self.model.rowCount()
+        if previous != row and 0 <= previous < rows and header.sectionSize(previous) != base:
+            header.resizeSection(previous, base)
+        self._ai_inline_row = row
+        viewport = table.viewport()
+        if self.ai_card.parentWidget() is not viewport:
+            hidden = self.ai_card.isHidden()
+            self.ai_card.setParent(viewport)
+            self.ai_card.setVisible(not hidden)
+        if row < 0:
+            self.ai_card.move(0, -10000)
+            return
+        width = viewport.width()
+        layout = self.ai_card.layout()
+        height = layout.heightForWidth(width) if layout.hasHeightForWidth() else self.ai_card.sizeHint().height()
+        height = max(height, self.ai_card.minimumSizeHint().height())
+        if header.sectionSize(row) != base + height:
+            header.resizeSection(row, base + height)
+        top = table.visualRect(self.model.index(row, 0)).top() + base
+        self.ai_card.setGeometry(0, top, width, height)
+        self.ai_card.raise_()
+
+    def _watch_inline_ai(self):
+        """表格滚动、改尺寸、换内容时重新摆放行内建议。"""
+
+        if getattr(self, "_inline_ai_watcher", None) is not None:
+            return
+        self._inline_ai_watcher = _InlineAiWatcher(self)
+        self.table.viewport().installEventFilter(self._inline_ai_watcher)
+        self.table.verticalScrollBar().valueChanged.connect(lambda _value: self._place_inline_ai())
+        self.model.modelReset.connect(lambda: QTimer.singleShot(0, self._place_inline_ai))
+        self.model.layoutChanged.connect(lambda: QTimer.singleShot(0, self._place_inline_ai))
+
+    def _ai_state_text(self):
+        """AI 检查卡右上角的状态：检查中 / 已完成 / 已取消 / 未配置。"""
+
+        if self._ai_running:
+            return "检查中", COLORS.accent_ink
+        if self.ai_setup.isVisibleTo(self) or not self.ai_setup.isHidden():
+            return "未配置", COLORS.warning
+        note = self.ai_note.text()
+        if "取消" in note:
+            return "已取消", COLORS.subtle
+        if "失败" in note:
+            return "检查失败", COLORS.danger
+        if self.ai_session and not self.ai_session.local_only:
+            return "已完成", COLORS.subtle
+        if self.ai_session:
+            return "本地检查", COLORS.subtle
+        return "", COLORS.subtle
+
+    def _render_ai_card(self, pending, batch):
+        labels = {"pending": "待确认", "accepted": "已采纳", "skipped": "已跳过"}
+        tags = {}
+        if self.ai_session:
+            for item in self.ai_session.suggestions:
+                if item.status in labels and (item.status == "pending" or item.cue_id not in tags):
+                    tags[item.cue_id] = labels[item.status]
+        self.model.set_tags(tags)
+        state, color = self._ai_state_text()
+        self.ai_state.setText(state)
+        self.ai_state.setStyleSheet(f"color: {color}; font-size: {SIZES.text_small}px;")
+        show_stats = bool(self.ai_session) and not self._ai_running
+        self.ai_stats.setVisible(show_stats)
+        if show_stats:
+            handled = sum(item.status != "pending" for item in self.ai_session.suggestions)
+            flagged = {item.cue_id for item in self.ai_session.suggestions}
+            clean = max(0, len(self.ai_session.checked) - len(flagged))
+            self.ai_stat_pending.set_value(len(pending))
+            self.ai_stat_fixed.set_value(len(batch))
+            self.ai_stat_done.set_value(handled + clean)
+        self.ai_running_bar.setVisible(self._ai_running)
 
     def _ai_chrome(self, open_):
         super()._ai_chrome(open_)
         if hasattr(self, "ai_collapsed_holder"):
-            self.ai_collapsed_holder.setVisible(open_ is False)
+            self.ai_collapsed_holder.hide()
         if hasattr(self, "ai_run"):
-            self.ai_run.setVisible(bool(open_))
+            self.ai_run.show()
 
     def _ai_fade_targets(self, open_):
         return [self.ai_content, self.ai_header, self.ai_run] if open_ else [self.ai_collapsed_holder]
@@ -246,7 +371,6 @@ class AiReviewMixin:
             self.nav_badge.setText(str(badge_count))
             self.nav_badge.adjustSize()
             motion.reveal(self.nav_badge, badge_count > 0)
-        self.ai_collapsed_label.setText(f"AI {count}" if count else "AI")
         self.ai_run.setEnabled(bool(self.document) and not self._saving)
         self.ai_local.setEnabled(bool(self.document) and not self._ai_running and not self._saving)
         for button in (self.ai_selected_check, self.ai_changed_check):
@@ -268,12 +392,11 @@ class AiReviewMixin:
         if self._ai_running:
             self.ai_run.setIcon(QIcon())
         else:
-            tool_icon(self.ai_run, "refresh" if rechecking else "sparkle")
+            self.ai_run.setIcon(desktop_icon("refresh" if rechecking else "sparkle", COLORS.primary_text,
+                                             SIZES.tool_icon_size))
         pending_ids = {item.suggestion_id for item in pending}
         if self._ai_selected not in pending_ids:
             self._ai_selected = pending[0].suggestion_id if pending else None
-        selected_position = next((i for i, item in enumerate(pending, 1)
-                                  if item.suggestion_id == self._ai_selected), 0)
         while self.ai_queue_layout.count() > 1:
             item = self.ai_queue_layout.takeAt(0)
             if item.widget():
@@ -295,7 +418,6 @@ class AiReviewMixin:
             button.clicked.connect(lambda _checked=False, sid=item.suggestion_id: self._select_ai(sid))
             self.ai_queue_layout.insertWidget(self.ai_queue_layout.count() - 1, button)
         motion.install_tree(self.ai_queue_widget)
-        self.ai_header.setText(f"AI 建议  {selected_position} / {count}" if self.ai_session else "AI 建议")
         self.ai_queue_header.setText(f"待处理 {count}")
         self.ai_queue_header.setVisible(count > 0)
         self.ai_queue.setVisible(count > 0)
@@ -307,6 +429,7 @@ class AiReviewMixin:
                          "已恢复待确认建议。")
         self.ai_note.setVisible(not count or self._ai_running or
                                 self.ai_note.text() not in routine_notes)
+        self._render_ai_card(pending, batch)
         self._show_ai_detail()
         if getattr(self, "_pending_filter", False):
             self._commit_editor()
@@ -348,10 +471,10 @@ class AiReviewMixin:
             self.ai_confidence.hide()
             self.ai_accept.hide()
             self.ai_skip.hide()
+            self._place_inline_ai()
             return
-        if getattr(self, "_ai_shown", None) != item.suggestion_id:
-            self._ai_shown = item.suggestion_id
-            motion.fade_in(self.ai_content.widget(), motion.FADE, start=0.25)
+        fresh = getattr(self, "_ai_shown", None) != item.suggestion_id
+        self._ai_shown = item.suggestion_id
         entry = next((entry for entry in self.document.entries if entry.index == item.cue_id), None) if self.document else None
         conflict = entry is None or entry.text != item.original_text
         self.ai_card.show()
@@ -373,16 +496,15 @@ class AiReviewMixin:
         self.ai_accept.setEnabled(not conflict and not self._saving)
         self.ai_accept.show()
         self.ai_skip.show()
+        self._place_inline_ai()
+        if fresh:
+            # 新的一条建议在行下展开：轻淡入
+            motion.fade_in(self.ai_card, motion.profile().row_enter, start=0.2)
 
     def _select_ai(self, suggestion_id):
         # 建议按钮动态创建，不依赖初始化时安装的鼠标过滤器来结束正文编辑。
         self._commit_editor()
         self._ai_selected = suggestion_id
-        if self.ai_session:
-            pending = self.ai_session.pending
-            selected_position = next((i for i, item in enumerate(pending, 1)
-                                      if item.suggestion_id == suggestion_id), 0)
-            self.ai_header.setText(f"AI 建议  {selected_position} / {len(pending)}")
         for index in range(self.ai_queue_layout.count() - 1):
             button = self.ai_queue_layout.itemAt(index).widget()
             if button is not None:
@@ -659,6 +781,7 @@ class AiReviewMixin:
                           message="正在检查字幕…", cancel=cancellation.set)
         self.app_status.setText(f"{project.title} · AI 检查中")
         self.ai_note.setText("后台检查中，可切换页面。")
+        self.ai_running_bar.setValue(0)
         self._render_ai()
         def action():
             def progress(_message, _step, _total):
@@ -722,6 +845,9 @@ class AiReviewMixin:
 
     def _show_ai_progress(self, generation, project_title, step, total):
         if generation == self._ai_generation and self._ai_running:
+            if total > 0:
+                self.ai_running_bar.setValue(int(step / total * 100))
+                self.ai_note.setText(f"正在检查 第 {step} / {total} 批 · 后台检查中，可以切换页面")
             self._task_update("ai", message=f"正在检查 {step}/{total} 批" if total else "正在检查字幕…")
             self.app_status.setText(f"{project_title} · AI 检查中"
                                     + (f" ({step}/{total} 批)" if total > 0 else ""))

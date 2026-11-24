@@ -25,12 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview.shell import Divider
 from autoslice.desktop.qt_preview.theme import SIZES
 from autoslice.desktop.qt_preview.window import label
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 from .window_widgets import (
     InlineSubtitleEditor,
+    SelectionFrame,
     SubtitleTableModel,
     SubtitleTextDelegate,
     _prepare_inline_editor,
@@ -39,19 +41,26 @@ from .window_widgets import (
 
 class SubtitleListMixin:
     def _subtitle_list(self):
+        """字幕列表卡：标题 + 全部 / 待确认 + 检查提醒，中间是字幕行，底部一行状态与操作提示。"""
+
         panel = QWidget()
         panel.setObjectName("subtitleList")
         panel.setMinimumHeight(170)
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 12, 20, 10)
-        heading = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        header = QWidget()
+        header.setMinimumHeight(56)
+        heading = QHBoxLayout(header)
+        heading.setContentsMargins(18, 8, 12, 8)
         heading.setSpacing(12)
-        heading.addWidget(label("字幕列表", "sectionTitle"))
+        heading.addWidget(label("字幕", "cardHeading"))
         # 筛选做成分段控件，当前筛选一目了然
         segmented = QWidget()
         segmented.setObjectName("segmented")
+        segmented.setFixedHeight(32)
         segment_row = QHBoxLayout(segmented)
-        segment_row.setContentsMargins(2, 2, 2, 2)
+        segment_row.setContentsMargins(3, 3, 3, 3)
         segment_row.setSpacing(2)
         self.filter_group = QButtonGroup(self)
         self.filter_group.setExclusive(True)
@@ -66,17 +75,24 @@ class SubtitleListMixin:
         self.filter_all.setChecked(True)
         motion.SegmentedFx(segmented, (self.filter_all, self.filter_pending))
         heading.addWidget(segmented)
+        heading.addStretch()
         self.quality_button = QPushButton("检查提醒 0")
-        self.quality_button.setObjectName("quiet")
+        self.quality_button.setObjectName("chip")
         self.quality_button.setToolTip("检查重复字、显示时间、重叠和长字幕，支持定位、试听与撤销")
         self.quality_button.setEnabled(False)
         self.quality_button.clicked.connect(self._show_quality)
         heading.addWidget(self.quality_button)
-        heading.addStretch()
-        self.subtitle_status = label("请选择项目", "subtle")
-        heading.addWidget(self.subtitle_status)
-        layout.addLayout(heading)
-        layout.addWidget(self._build_asr_banner())
+        heading.addWidget(self._build_find_toggle())
+        layout.addWidget(header)
+        find_holder = QVBoxLayout()
+        find_holder.setContentsMargins(12, 0, 12, 10)
+        find_holder.addWidget(self._build_find_bar())
+        layout.addLayout(find_holder)
+        holder = QVBoxLayout()
+        holder.setContentsMargins(12, 0, 12, 10)
+        holder.addWidget(self._build_asr_banner())
+        layout.addLayout(holder)
+        layout.addWidget(Divider(16))
         self.model = SubtitleTableModel(self)
         self.table = QTableView()
         self.table.setModel(self.model)
@@ -97,6 +113,8 @@ class SubtitleListMixin:
         self.table.setWordWrap(False)
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setFixedHeight(26)
+        # 设计稿的字幕行没有表头：序号、时间、正文按列对齐即可
+        self.table.horizontalHeader().hide()
         self.table.horizontalHeader().setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
@@ -110,7 +128,21 @@ class SubtitleListMixin:
         self.table.customContextMenuRequested.connect(
             lambda point: self._show_edit_menu(self.table.viewport().mapToGlobal(point), global_position=True)
         )
-        layout.addWidget(self.table, 1)
+        table_row = QHBoxLayout()
+        table_row.setContentsMargins(8, 6, 8, 6)
+        table_row.addWidget(self.table)
+        layout.addLayout(table_row, 1)
+        layout.addWidget(Divider(16))
+        footer = QHBoxLayout()
+        footer.setContentsMargins(18, 10, 18, 12)
+        footer.setSpacing(12)
+        self.subtitle_status = label("请选择项目", "subtle")
+        footer.addWidget(self.subtitle_status)
+        footer.addStretch()
+        self.subtitle_hint = label("空格从选中句开头播放 · 右键编辑、拆分、合并、删除 · 单击正文编辑", "subtle")
+        footer.addWidget(self.subtitle_hint)
+        layout.addLayout(footer)
+        self._row_frame = SelectionFrame(self.table)
         return panel
 
     def _sync_table_selection(self):
@@ -236,6 +268,11 @@ class SubtitleListMixin:
         )
         self._inline_editor = editor
         self._inline_editor_index = index
+        # 记下改字前的字幕，提示条“撤销”一次撤回整次修改
+        self._inline_before = (self.model.entry_at(index.row()).index,
+                               tuple(self.document.entries) if self.document else None)
+        # 改字时先收起这一行下面的建议，编辑框只占原行高
+        self._place_inline_ai()
         self.table.setIndexWidget(index, editor)
         editor.show()
         self._sync_shortcuts()
@@ -403,6 +440,11 @@ class SubtitleListMixin:
         editor.deleteLater()
         self.table.viewport().update(self.table.visualRect(index))
         self._sync_shortcuts()
+        self._place_inline_ai()
+        before = getattr(self, "_inline_before", None)
+        self._inline_before = None
+        if before and before[1] is not None and self.document and tuple(self.document.entries) != before[1]:
+            self._toast(f"已修改第 {before[0]} 条字幕", undo=True, snapshot=before[1])
 
     def _select_cue(self, cue_index, *, center_timeline=True):
         if self.document is None:

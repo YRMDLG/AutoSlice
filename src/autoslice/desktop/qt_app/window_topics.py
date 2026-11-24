@@ -9,8 +9,9 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QSize, Signal
-from PySide6.QtWidgets import QMessageBox, QPushButton
+from PySide6.QtWidgets import QMenu, QMessageBox, QPushButton
 
+from autoslice.desktop.qt_preview import popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.topics import TopicAnalysisCancelled
@@ -39,6 +40,42 @@ class TopicAnalysisMixin:
         self.topic_button = button
         return button
 
+    def _build_more_button(self):
+        """顶栏“⋯ 更多”：识别字幕、分析话题 / 停止话题分析、识别设置。"""
+
+        button = QPushButton()
+        button.setObjectName("square")
+        button.setFixedSize(34, 34)
+        button.setToolTip("更多：识别字幕、分析话题")
+        button.setAccessibleName("更多：识别字幕、分析话题")
+        button.setIcon(desktop_icon("more", COLORS.text_secondary, SIZES.tool_icon_size))
+        self.more_menu = QMenu(button)
+        popups.MenuFx(self.more_menu)
+        self.more_menu.aboutToShow.connect(self._fill_more_menu)
+        button.clicked.connect(lambda: popups.MenuFx.popup_below(self.more_menu, button, align_right=True))
+        self.more_button_header = button
+        return button
+
+    def _fill_more_menu(self):
+        menu = self.more_menu
+        menu.clear()
+        video = self._topic_video()
+        # 只给没有字幕的视频识别，不覆盖已有字幕（D-032）
+        can_recognize = (video is not None and not getattr(video, "has_source_srt", True)
+                         and not self._asr_running())
+        recognize = menu.addAction("识别字幕", self._asr_start)
+        recognize.setEnabled(can_recognize)
+        recognize.setToolTip("在本机识别，生成字幕草稿" if can_recognize else
+                             "已有字幕的视频不重新识别，免得覆盖校对结果；没有字幕的视频才可识别")
+        job = self._topic_job
+        here = job is not None and video is not None and video.path == job["video"]
+        topic = menu.addAction("停止话题分析" if here else "分析话题", self.topic_button.click)
+        topic.setEnabled(self.topic_button.isEnabled())
+        topic.setToolTip(self.topic_button.toolTip())
+        menu.addSeparator()
+        menu.addAction("识别设置", self._open_asr_settings)
+        menu.setToolTipsVisible(True)
+
     def _topic_video(self):
         return self.video_choice.currentData() if getattr(self, "project", None) is not None else None
 
@@ -61,12 +98,15 @@ class TopicAnalysisMixin:
         if job is not None:
             here = video is not None and video.path == job["video"]
             button.setEnabled(True)
+            # 分析进行中才在顶栏露出进度（点一下停止）；平时入口在“⋯ 更多”里
+            button.setVisible(here)
             button.setText(f"分析中 {job['percent']}%" if here else "分析话题")
             button.setToolTip("正在后台分析话题，点一下可以停止" if here else
                               "正在分析另一个视频的话题，可在“任务”里查看或停止")
             return
         ready = video is not None and bool(self._topic_subtitle(video))
         button.setEnabled(ready)
+        button.setVisible(False)
         button.setText("分析话题")
         button.setToolTip("用这个视频已有的字幕跑话题分析、生成报告（会调用 AI、消耗额度；不识别、不切片）"
                           if ready else "这个视频还没有字幕，先识别字幕再分析话题")

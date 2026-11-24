@@ -9,7 +9,7 @@ from PySide6.QtCore import (
     QEvent,
     Qt,
 )
-from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
 
 class InputRoutingMixin:
@@ -62,6 +62,12 @@ class InputRoutingMixin:
             shortcut.setEnabled(subtitle_page and not (text_sensitive and editing))
 
     def _escape_context(self):
+        find_bar = getattr(self, "find_bar", None)
+        focus = QApplication.focusWidget()
+        if find_bar is not None and find_bar.isVisible() and focus is not None and find_bar.isAncestorOf(focus):
+            # 焦点在查找条里：Esc 只关查找条
+            self._close_find()
+            return
         if self._subtitle_editor_open():
             self._commit_editor()
             self.table.setFocus()

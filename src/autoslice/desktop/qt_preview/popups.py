@@ -305,6 +305,14 @@ class MenuFx(QObject):
         menu.aboutToHide.connect(self._hidden)
         menu.installEventFilter(self)
 
+    @staticmethod
+    def popup_below(menu: QMenu, anchor: QWidget, align_right: bool = False) -> None:
+        """在按钮下方弹出（右对齐时面板右缘对齐按钮右缘）。"""
+
+        size = menu.sizeHint()
+        x = anchor.width() - size.width() + SHADOW[2] if align_right else -SHADOW[0]
+        menu.popup(anchor.mapToGlobal(QPoint(x, anchor.height() + 6 - SHADOW[1])))
+
     def popup(self, position: QPoint) -> None:
         """exec 对齐可见面板而不是投影留白。"""
 

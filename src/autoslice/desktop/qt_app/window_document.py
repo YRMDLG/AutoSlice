@@ -163,6 +163,9 @@ class SubtitleDocumentMixin:
         self.timeline.select_cue(None, center=False)
         self.timeline.update()
         self._edited()
+        first = min(selected)
+        self._toast(f"已删除第 {first} 条字幕" if len(selected) == 1 else f"已删除 {len(selected)} 条字幕",
+                    undo=True)
 
     def _undo(self):
         if self._saving:
@@ -189,6 +192,16 @@ class SubtitleDocumentMixin:
             self._select_cue(self.selected_index)
             self._edited()
             self._render_ai()
+
+    def _undo_to(self, snapshot):
+        """提示条上的“撤销”：一路撤回到动作之前的那一刻（改字是逐键记的撤销步）。"""
+
+        if not self.document or snapshot is None:
+            return
+        for _step in range(500):
+            if tuple(self.document.entries) == snapshot or not self.document.can_undo or self._saving:
+                break
+            self._undo()
 
     def _redo(self):
         if self._saving:
@@ -273,7 +286,8 @@ class SubtitleDocumentMixin:
         elif percent is not None and job["percent_enabled"]:
             job["percent"] = max(job["percent"], percent)
         suffix = f" {job['percent']}%" if percent is not None and job["percent_enabled"] else ""
-        self._task_update(f"render:{key}", message=f"正在压制{suffix} · {message}")
+        self._task_update(f"render:{key}", message=f"正在压制{suffix} · {message}",
+                          progress=job["percent"] / 100 if suffix else None)
         self.app_status.setText(f"{job['title']} · 正在压制{suffix}")
 
     def _render_finished(self, key, result, error):

@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 
 class TaskPanelMixin:
     def _task_update(self, key, *, kind=None, project=None, video_path=None,
-                     state="running", message="", cancel=None, result=None, result_label=None):
+                     state="running", message="", cancel=None, result=None, result_label=None,
+                     progress=None):
         if not hasattr(self, "_task_records"):
             self._task_records = {}
         record = self._task_records.setdefault(key, {})
@@ -30,6 +31,8 @@ class TaskPanelMixin:
         if video_path is not None:
             record["video_path"] = video_path
         record.update(state=state, message=message)
+        # 0~1 的进度只给导航底部的任务环用；结束后清掉
+        record["progress"] = progress if state == "running" else None
         if cancel is not None:
             # 新一轮开始：上次的结果不再对应
             record["cancel"] = cancel
@@ -84,6 +87,13 @@ class TaskPanelMixin:
         running = sum(item["state"] == "running" for item in records.values())
         if hasattr(self, "tasks_button"):
             self.tasks_button.setText(f"任务 {running}" if running else "任务")
+            ring = getattr(self, "task_ring", None)
+            if ring is not None:
+                live = [item for item in records.values() if item["state"] == "running"]
+                progress = next((item["progress"] for item in live if item.get("progress") is not None), -1.0)
+                tip = chr(10).join(f"{item.get('kind', '任务')}：{item.get('message', '')}" for item in live)
+                ring.set_progress(progress if live else None,
+                                  f"后台任务{chr(10)}{tip}" if live else "后台任务（点开看全部）")
         if not hasattr(self, "task_list"):
             return
         current = self.task_list.currentItem()

@@ -73,6 +73,7 @@ class AppearancePanel(QWidget):
         theme_row.addWidget(label("主题", "formLabel"))
         self.theme_segmented = QWidget()
         self.theme_segmented.setObjectName("segmented")
+        self.theme_segmented.setFixedHeight(32)
         segmented_row = QHBoxLayout(self.theme_segmented)
         segmented_row.setContentsMargins(3, 3, 3, 3)
         segmented_row.setSpacing(2)

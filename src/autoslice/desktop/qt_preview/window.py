@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from . import fonts, motion
 from .appearance import themed
 from .icons import icon as desktop_icon
+from .shell import Card, NavItem, Popover, ProjectSwitch, Surface, TaskRing, Toast
 from .theme import COLORS, SIZES, STYLE
 
 PROJECTS = (
@@ -192,6 +193,11 @@ class TimelineTrack(QWidget):
 
 
 class PreviewWindow(QMainWindow):
+    """窗口骨架：左侧 64px 导航卡片 + 右侧顶栏与页面；页面内容都放在悬浮卡片里。
+
+    两套主题共用这一套布局，换主题只换颜色、圆角、间距和动效。
+    """
+
     def __init__(self) -> None:
         fonts.load()
         super().__init__()
@@ -199,84 +205,116 @@ class PreviewWindow(QMainWindow):
         self.resize(1560, 920)
         self.setMinimumSize(960, 640)
         self._ai_open = False
-        self._last_ai_width = SIZES.ai_width
         self._splitter_initialized = False
-        self._ai_glide = motion.ValueGlide(self, self._apply_ai_width)
+        self._gap_layouts: list = []
+        self._gap_splitters: list = []
         self._build()
         motion.install_tree(self)
 
     def _build(self) -> None:
-        root = QWidget()
-        root.setObjectName("root")
-        root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-        root_layout.addWidget(self._appbar())
-
-        body = QWidget()
-        body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(0)
-        body_layout.addWidget(self._navigation())
-
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_splitter.setHandleWidth(4)
-        self.main_splitter.setChildrenCollapsible(False)
+        self.surface = Surface()
+        outer = QHBoxLayout(self.surface)
+        self._gap_layouts.append((outer, True))
+        self.nav_card = self._navigation()
+        outer.addWidget(self.nav_card)
+        main = QWidget()
+        column = QVBoxLayout(main)
+        column.setContentsMargins(0, 0, 0, 0)
+        self._gap_layouts.append((column, False))
+        column.addWidget(self._appbar())
         self.project_rail = self._project_rail()
-        self.project_rail.setMinimumWidth(SIZES.project_min_width)
-        self.main_splitter.addWidget(self.project_rail)
-
+        self.project_rail.setMinimumHeight(360)
+        self.project_popover = Popover(self, self.project_rail, 440)
+        self.project_popover.closed.connect(self._project_popover_closed)
         self.pages = QStackedWidget()
         self.pages.addWidget(self._subtitle_page())
         self.pages.addWidget(self._cover_page())
         self.pages.addWidget(self._settings_page())
-        self.main_splitter.addWidget(self.pages)
-        self.main_splitter.setStretchFactor(1, 1)
-        body_layout.addWidget(self.main_splitter, 1)
-        root_layout.addWidget(body, 1)
-        self.setCentralWidget(root)
+        column.addWidget(self.pages, 1)
+        outer.addWidget(main, 1)
+        self.setCentralWidget(self.surface)
+        # 提示条挂在窗口底上，居中显示在顶栏一带，不挡时间轴
+        self.toast = Toast(self.surface)
+        themed(self.surface, self._apply_spacing)
         self._select_page(0)
         self._set_ai_open(False)
+
+    def _apply_spacing(self) -> None:
+        """间距随主题：夜航 10px、晨雾 12px；卡片之间的分隔条也用同一宽度。"""
+
+        gap = STYLE.gap
+        for layout, margins in self._gap_layouts:
+            layout.setSpacing(gap)
+            if margins:
+                layout.setContentsMargins(gap, gap, gap, gap)
+        for splitter in self._gap_splitters:
+            splitter.setHandleWidth(gap)
+
+    def _card(self, content: QWidget, margins=(0, 0, 0, 0)) -> Card:
+        card = Card()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(*margins)
+        layout.setSpacing(0)
+        layout.addWidget(content)
+        return card
+
+    def _gap_splitter(self, orientation) -> QSplitter:
+        splitter = QSplitter(orientation)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(STYLE.gap)
+        self._gap_splitters.append(splitter)
+        return splitter
 
     def _appbar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("appbar")
         bar.setFixedHeight(SIZES.appbar_height)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(22, 0, 20, 0)
+        row.setContentsMargins(4, 0, 0, 0)
         row.setSpacing(SIZES.space_3)
-        row.addWidget(label("AUTOSLICE", "brand"))
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.VLine)
-        themed(divider, lambda: divider.setStyleSheet(f"color: {COLORS.divider};"))
-        row.addSpacing(13)
-        row.addWidget(divider)
-        self.top_project = label("牛乳糖凌晨突击直播", "muted")
-        row.addWidget(self.top_project)
+        self.top_project = label("牛乳糖凌晨突击直播", "projectTitle")
+        self.top_meta = label("预览模式 · 无后台任务", "videoFile")
+        self.project_switch = ProjectSwitch(self.top_project, self.top_meta)
+        self.project_switch.clicked.connect(self._toggle_project_popover)
+        row.addWidget(self.project_switch)
         row.addStretch()
-        row.addWidget(label("●", "badge"))
-        row.addWidget(label("预览模式 · 无后台任务", "muted"))
         return bar
 
+    def _toggle_project_popover(self) -> None:
+        if self.project_popover.isVisible():
+            self.project_popover.dismiss()
+            return
+        self.project_switch.set_open(True)
+        motion.install_tree(self.project_rail)
+        self.project_popover.popup(self.project_switch)
+
+    def _project_popover_closed(self) -> None:
+        self.project_switch.set_open(False)
+
     def _navigation(self) -> QWidget:
-        rail = QWidget()
-        rail.setObjectName("navRail")
-        rail.setFixedWidth(SIZES.nav_width)
+        rail = Card(spotlight=True)
+        rail.setObjectName("card")
+        rail.setFixedWidth(64)
         column = QVBoxLayout(rail)
-        column.setContentsMargins(8, 17, 8, 17)
-        column.setSpacing(SIZES.space_2)
+        column.setContentsMargins(9, 16, 9, 12)
+        column.setSpacing(4)
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        themed(logo, lambda: logo.setPixmap(desktop_icon("logo", COLORS.accent_ink, 20).pixmap(20, 20)))
+        column.addWidget(logo)
+        column.addSpacing(20)
         group = QButtonGroup(self)
         group.setExclusive(True)
         self.nav_buttons = []
-        for index, (glyph, name) in enumerate((("≡", "字幕"), ("▧", "封面"), ("⚙", "设置"))):
-            button = NavigationButton(glyph, name)
+        for index, name in enumerate(("字幕", "封面", "设置")):
+            button = NavItem(name)
             group.addButton(button, index)
             button.clicked.connect(lambda _checked=False, page=index: self._select_page(page))
             self.nav_buttons.append(button)
-            if index == 2:
-                column.addStretch()
-            column.addWidget(button)
-        column.addStretch(0)
+            column.addWidget(button, 0, Qt.AlignmentFlag.AlignHCenter)
+        column.addStretch(1)
+        self.task_ring = TaskRing()
+        column.addWidget(self.task_ring, 0, Qt.AlignmentFlag.AlignHCenter)
         return rail
 
     def _project_rail(self) -> QWidget:
@@ -320,45 +358,42 @@ class PreviewWindow(QMainWindow):
         return rail
 
     def _subtitle_page(self) -> QWidget:
-        self.subtitle_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.subtitle_splitter.setHandleWidth(4)
-        self.subtitle_splitter.setChildrenCollapsible(False)
-        self.work_area = self._subtitle_work_area()
-        self.work_area.setMinimumWidth(410)
-        self.subtitle_splitter.addWidget(self.work_area)
+        """字幕页：左列播放器 + 时间轴，右列字幕列表 + AI 检查。
+
+        底部两张卡分别与上方主卡同列，右端对齐；两列的上下分界线联动，横向一条线。
+        """
+
+        self.subtitle_columns = self._gap_splitter(Qt.Orientation.Horizontal)
+        self.vertical_splitter = self._gap_splitter(Qt.Orientation.Vertical)
+        self.player_card = self._card(self._video_surface())
+        self.timeline_card = self._card(self._timeline())
+        self.vertical_splitter.addWidget(self.player_card)
+        self.vertical_splitter.addWidget(self.timeline_card)
+        self.vertical_splitter.setStretchFactor(0, 1)
+        self.side_splitter = self._gap_splitter(Qt.Orientation.Vertical)
+        self.list_card = self._card(self._subtitle_list())
         self.ai_panel = self._ai_panel()
-        self.subtitle_splitter.addWidget(self.ai_panel)
-        self.subtitle_splitter.setStretchFactor(0, 1)
-        return self.subtitle_splitter
+        self.ai_check_card = self._card(self.ai_panel)
+        self.side_splitter.addWidget(self.list_card)
+        self.side_splitter.addWidget(self.ai_check_card)
+        self.side_splitter.setStretchFactor(0, 1)
+        self.subtitle_columns.addWidget(self.vertical_splitter)
+        self.subtitle_columns.addWidget(self.side_splitter)
+        self.subtitle_columns.setStretchFactor(0, 1)
+        self.vertical_splitter.splitterMoved.connect(
+            lambda *_: self._mirror_rows(self.vertical_splitter, self.side_splitter))
+        self.side_splitter.splitterMoved.connect(
+            lambda *_: self._mirror_rows(self.side_splitter, self.vertical_splitter))
+        return self.subtitle_columns
 
-    def _subtitle_work_area(self) -> QWidget:
-        area = QWidget()
-        area.setObjectName("workArea")
-        column = QVBoxLayout(area)
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(0)
-        heading = QWidget()
-        heading.setFixedHeight(60)
-        heading_row = QHBoxLayout(heading)
-        heading_row.setContentsMargins(24, 0, 24, 0)
-        heading_row.addWidget(label("字幕校对", "pageTitle"))
-        heading_row.addSpacing(8)
-        heading_row.addWidget(label("工作区布局预览", "quietBadge"))
-        heading_row.addStretch()
-        heading_row.addWidget(label("视频 01 / 03", "muted"))
-        column.addWidget(heading)
-        column.addWidget(line())
-
-        self.vertical_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.vertical_splitter.setHandleWidth(4)
-        self.vertical_splitter.setChildrenCollapsible(False)
-        self.vertical_splitter.addWidget(self._video_surface())
-        self.vertical_splitter.addWidget(self._timeline())
-        self.vertical_splitter.addWidget(self._subtitle_list())
-        self.vertical_splitter.setStretchFactor(0, 5)
-        self.vertical_splitter.setStretchFactor(2, 3)
-        column.addWidget(self.vertical_splitter, 1)
-        return area
+    @staticmethod
+    def _mirror_rows(source: QSplitter, target: QSplitter) -> None:
+        sizes = source.sizes()
+        if len(sizes) != 2 or target.count() != 2 or target.sizes() == sizes:
+            return
+        blocked = target.blockSignals(True)
+        target.setSizes(sizes)
+        target.blockSignals(blocked)
 
     def _video_surface(self) -> QWidget:
         surface = QWidget()
@@ -550,76 +585,37 @@ class PreviewWindow(QMainWindow):
         return page
 
     def _select_page(self, index: int) -> None:
-        def apply() -> None:
-            self.pages.setCurrentIndex(index)
-            self.project_rail.setVisible(index != 2)
-            self.top_project.setVisible(index != 2)
-
-        # 项目栏随页面显隐，整块主区域一起交叉淡化，新旧画面对齐
-        if index != self.pages.currentIndex():
-            motion.crossfade(self.main_splitter, apply)
-        else:
-            apply()
+        changed = index != self.pages.currentIndex()
+        self.pages.setCurrentIndex(index)
+        self._page_chrome(index)
         self.nav_buttons[index].setChecked(True)
-        if index != 2:
-            QTimer.singleShot(0, self._restore_project_width)
+        if changed:
+            # 切页后卡片依次进场；只是视觉，页面已经可以操作
+            motion.page_enter(self.pages.currentWidget())
+
+    def _page_chrome(self, index: int) -> None:
+        """顶栏随页面变化：设置页不显示项目切换。"""
+
+        self.project_switch.setVisible(index != 2)
+        if index == 2 and self.project_popover.isVisible():
+            self.project_popover.hide()
 
     def _select_project(self, title: str) -> None:
         self.top_project.setText(title if len(title) <= 24 else title[:24] + "…")
-
-    def _restore_project_width(self) -> None:
-        sizes = self.main_splitter.sizes()
-        if len(sizes) == 2 and sizes[0] < SIZES.project_min_width:
-            self.main_splitter.setSizes(
-                [SIZES.project_width, max(1, sum(sizes) - SIZES.project_width)]
-            )
+        self.project_popover.dismiss()
 
     def _set_ai_open(self, open_: bool) -> None:
-        if self._ai_open and not open_ and not self._ai_glide.running():
-            self._last_ai_width = max(SIZES.ai_min_width, self.subtitle_splitter.sizes()[1])
-        self._ai_open = open_
-        tool_icon(self.ai_toggle, "chevron_right" if open_ else "chevron_left")
-        self.ai_toggle.setToolTip("收起 AI 建议区" if open_ else "展开 AI 建议区")
-        width = self._last_ai_width if open_ else SIZES.ai_collapsed_width
-        current = self.subtitle_splitter.sizes()[1] if self.subtitle_splitter.count() > 1 else width
-        animate = (motion.enabled() and self._splitter_initialized and self.isVisible()
-                   and abs(current - width) > 2)
-        if not animate:
-            self._ai_glide.stop()
-            self._ai_chrome(open_)
-            self._ai_constraints(open_)
-            self._apply_ai_width((width,))
-            return
-        # 过渡中放开宽度约束、先收起内容，展开到位后内容再淡入，避免文字逐帧重排
-        self._ai_chrome(None)
-        self.ai_panel.setMinimumWidth(SIZES.ai_collapsed_width)
-        self.ai_panel.setMaximumWidth(16777215)
+        """AI 检查卡常驻在字幕列表下方；保留这个入口只为兼容旧调用。"""
 
-        def finish():
-            self._ai_constraints(open_)
-            self._ai_chrome(open_)
-            for widget in self._ai_fade_targets(open_):
-                motion.fade_in(widget)
-
-        self._ai_glide.go((current,), (width,), motion.PANEL, motion.EMPHASIZED, finish)
-
-    def _ai_constraints(self, open_: bool) -> None:
-        self.ai_panel.setMinimumWidth(SIZES.ai_min_width if open_ else SIZES.ai_collapsed_width)
-        self.ai_panel.setMaximumWidth(16777215 if open_ else SIZES.ai_collapsed_width)
+        self._ai_open = True
+        self._ai_chrome(True)
 
     def _ai_chrome(self, open_: bool | None) -> None:
-        """None 表示过渡中：内容与收起标签都隐藏。"""
-        self.ai_content.setVisible(bool(open_))
-        self.ai_header.setVisible(bool(open_))
-        self.ai_collapsed_label.setVisible(open_ is False)
-
-    def _ai_fade_targets(self, open_: bool) -> list:
-        return [self.ai_content, self.ai_header] if open_ else [self.ai_collapsed_label]
-
-    def _apply_ai_width(self, values) -> None:
-        width = int(round(values[0]))
-        available = max(1, sum(self.subtitle_splitter.sizes()))
-        self.subtitle_splitter.setSizes([max(1, available - width), width])
+        self.ai_content.setVisible(True)
+        self.ai_header.setVisible(True)
+        self.ai_collapsed_label.setVisible(False)
+        if hasattr(self, "ai_toggle"):
+            self.ai_toggle.setVisible(False)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -637,27 +633,15 @@ class PreviewWindow(QMainWindow):
             QTimer.singleShot(0, self._balance_vertical_splitter)
 
     def _set_initial_splitters(self) -> None:
-        self.main_splitter.setSizes(
-            [SIZES.project_width, max(1, self.main_splitter.width() - SIZES.project_width)]
-        )
-        self.subtitle_splitter.setSizes(
-            [
-                max(1, self.subtitle_splitter.width() - SIZES.ai_collapsed_width),
-                SIZES.ai_collapsed_width,
-            ]
-        )
+        total = max(1, self.subtitle_columns.width())
+        # 设计稿 1440 宽时右列约 400px；窄窗口不低于 340，宽窗口不超过 520
+        side = max(340, min(520, int(total * 0.36)))
+        self.subtitle_columns.setSizes([max(1, total - side), side])
         self._compact_layout = self.height() < SIZES.compact_height
         self._balance_vertical_splitter()
 
     def _balance_vertical_splitter(self) -> None:
-        usable = self.vertical_splitter.height() - 2 * self.vertical_splitter.handleWidth()
-        timeline = 76 if self._compact_layout else SIZES.timeline_height
-        video_fraction = (SIZES.compact_video_fraction if self._compact_layout
-                          else SIZES.wide_video_fraction)
-        self.vertical_splitter.setSizes(
-            [
-                max(200, int((usable - timeline) * video_fraction)),
-                timeline,
-                max(170, int((usable - timeline) * (1 - video_fraction))),
-            ]
-        )
+        usable = sum(self.vertical_splitter.sizes()) or self.vertical_splitter.height()
+        timeline = 136 if self._compact_layout else SIZES.timeline_card_height
+        self.vertical_splitter.setSizes([max(200, usable - timeline), timeline])
+        self._mirror_rows(self.vertical_splitter, self.side_splitter)

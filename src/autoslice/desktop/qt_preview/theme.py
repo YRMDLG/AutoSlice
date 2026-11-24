@@ -335,7 +335,7 @@ def current_theme() -> tuple[str, str, str]:
 
 @dataclass(frozen=True)
 class Metrics:
-    nav_width: int = 72
+    nav_width: int = 64
     appbar_height: int = 56
     project_width: int = 252
     project_min_width: int = 188
@@ -343,6 +343,7 @@ class Metrics:
     ai_min_width: int = 280
     ai_collapsed_width: int = 48
     timeline_height: int = 92
+    timeline_card_height: int = 168
     button_height: int = 32
     row_height: int = 78
     radius: int = 8
@@ -413,22 +414,20 @@ def stylesheet() -> str:
         QListWidget::item:selected {{ background: {c.row_selected}; color: {c.text}; border: 1px solid {c.accent_line}; }}
         QListWidget::indicator {{ width: 13px; height: 13px; border: 1px solid {c.control_border}; border-radius: 4px; background: {c.well}; }}
         QListWidget::indicator:checked {{ background: {checkbox_on_bg}; border-color: {checkbox_on_border}; image: url("{check}"); }}
-        QWidget#appbar {{ background: {c.ground}; border-bottom: 1px solid {c.divider}; }}
+        QWidget#appbar {{ background: transparent; border: none; }}
         QWidget#navRail {{ background: {c.nav}; border-right: 1px solid {c.divider}; }}
-        QWidget#projectRail, QWidget#aiPanel {{ background: {c.rail}; }}
-        QWidget#workArea {{ background: {c.ground}; }}
-        QWidget#videoSurface {{ background: {c.player}; }}
-        QWidget#timeline, QWidget#subtitleList {{ background: {c.card}; }}
+        QWidget#projectRail {{ background: transparent; }}
+        QWidget#workArea {{ background: transparent; }}
+        QWidget#videoSurface {{ background: transparent; }}
+        QStackedWidget#videoFrame {{ background: {c.player}; border-radius: 9px; }}
+        QWidget#timeline, QWidget#subtitleList, QWidget#aiPanel {{ background: transparent; }}
         QWidget#workToolbar {{ background: {c.ground}; }}
         QWidget#workflowActions {{ background: transparent; border: none; }}
         QWidget#playerControls {{ background: transparent; }}
         QWidget#coverSurface {{ background: {c.player}; border: 1px solid {c.divider}; border-radius: {m.radius}px; }}
-        QWidget#coverToolbar {{ background: {c.card}; border-bottom: 1px solid {c.divider}; }}
-        QWidget#coverPanel {{ background: {c.card}; border-left: 1px solid {c.divider}; }}
-        QWidget#frameStrip {{ background: {c.card}; border-top: 1px solid {c.divider}; }}
         QWidget#settingsSurface {{ background: {c.ground}; }}
         QWidget#card {{ background: {c.card}; border: 1px solid {c.card_border}; border-radius: {s.card_radius}px; }}
-        QFrame#hairline {{ background: {c.divider}; max-height: 1px; min-height: 1px; }}
+        QFrame#hairline {{ background: {c.divider}; max-height: 1px; min-height: 1px; margin: 0 16px; }}
         QLabel#brand {{ font-size: 15px; font-weight: 600; }}
         QLabel#pageTitle {{ font-size: {m.text_heading}px; font-weight: 600; }}
         QLabel#projectTitle {{ font-size: 14px; font-weight: 500; }}
@@ -444,6 +443,22 @@ def stylesheet() -> str:
         QLabel#aiReason {{ color: {c.subtle}; }}
         QLabel#aiQueueHeader {{ color: {c.subtle}; font-size: {m.text_small}px; font-weight: 500; }}
         QLabel#sectionTitle {{ font-size: 13px; font-weight: 600; }}
+        QLabel#cardHeading {{ font-size: 14px; font-weight: 600; }}
+        QPushButton#chip {{ min-height: 30px; max-height: 30px; padding: 0 10px; font-size: 12px; color: {c.muted}; }}
+        QPushButton#chip:hover {{ color: {c.text}; }}
+        QPushButton#chip[warn="true"] {{ color: {c.text}; }}
+        QWidget#aiInline {{ background: transparent; }}
+        QWidget#findBar {{ background: {c.well}; border: 1px solid {c.card_border}; border-radius: 10px; }}
+        QFrame#vline {{ background: {c.card_border}; border: none; }}
+        QLabel#settingsHeading {{ font-size: 20px; font-weight: 600; }}
+        QPushButton#tocItem {{ text-align: left; padding: 0 12px; min-height: 34px; max-height: 34px; border-radius: 8px; color: {c.muted}; background: transparent; border: 1px solid transparent; }}
+        QPushButton#tocItem:hover {{ color: {c.text}; }}
+        QPushButton#tocItem:checked {{ color: {c.text}; }}
+        QPushButton#aiFix {{ min-height: 0; padding: 0 12px 0 10px; color: {c.text}; }}
+        QWidget#coverToolbar {{ background: transparent; border: none; }}
+        QWidget#coverPanel {{ background: transparent; border: none; }}
+        QWidget#frameStrip {{ background: transparent; border: none; }}
+        QWidget#findBar QLineEdit {{ background: {c.card}; padding: 6px 10px; }}
         QLabel#bodyTitle {{ font-size: 20px; font-weight: 600; }}
         QLabel#muted, QLabel#hint {{ color: {c.muted}; }}
         QLabel#subtle {{ color: {c.subtle}; }}
@@ -468,7 +483,9 @@ def stylesheet() -> str:
         QPushButton#tool:hover {{ color: {c.text}; }}
         QPushButton#tool:checked {{ color: {c.text}; border-color: {c.accent_line}; }}
         QPushButton#tool:disabled {{ color: {c.disabled}; background: transparent; border-color: transparent; }}
-        QPushButton#tool[square="true"] {{ padding: 0; }}
+        QPushButton#tool[square="true"], QPushButton#square {{ padding: 0; min-height: 0; }}
+        QPushButton#projectSwitch {{ padding: 0; min-height: 0; text-align: left; }}
+        QPushButton#taskRing {{ padding: 0; min-height: 0; border: none; background: transparent; }}
         QPushButton[hasMenu="true"] {{ padding-right: 22px; }}
         QPushButton::menu-indicator {{ image: url("{arrow}"); width: 10px; height: 10px; subcontrol-origin: padding; subcontrol-position: center right; right: 7px; }}
         QWidget#settingsCard {{ background: {c.card}; border: 1px solid {c.card_border}; border-radius: {s.card_radius}px; }}

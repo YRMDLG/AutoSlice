@@ -20,8 +20,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -37,7 +35,8 @@ from autoslice.desktop.projects import SubmissionProject, SubmissionProjectServi
 from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.window import PreviewWindow, label, line
+from autoslice.desktop.qt_preview.shell import ProjectSwitch
+from autoslice.desktop.qt_preview.window import PreviewWindow, label, tool_icon
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
 from autoslice.desktop.subtitle_render import SubtitleRenderService
@@ -51,6 +50,7 @@ from .timeline import TimelineSidePanController
 from .window_ai import AiReviewMixin
 from .window_asr import RecognizeMixin
 from .window_document import SubtitleDocumentMixin
+from .window_find import FindReplaceMixin
 from .window_input import InputRoutingMixin
 from .window_player import PlayerMixin
 from .window_projects import ProjectsMixin
@@ -62,7 +62,7 @@ from .window_topics import TopicAnalysisMixin
 from .window_widgets import _StatusLabel
 
 # 时间轴默认高度（像素）：记住过高度的按记住的来。
-TIMELINE_DEFAULT_HEIGHT = 150
+TIMELINE_DEFAULT_HEIGHT = 168
 
 
 def _saved_submission_root(storage: DesktopStorage) -> Path | None:
@@ -79,6 +79,7 @@ class DesktopWindow(
     AiReviewMixin,
     RecognizeMixin,
     SubtitleListMixin,
+    FindReplaceMixin,
     InputRoutingMixin,
     TimelineMixin,
     PlayerMixin,
@@ -151,8 +152,14 @@ class DesktopWindow(
         self.render_progress.connect(self._show_render_progress)
         self.nav_badge = QLabel(self.nav_buttons[0])
         self.nav_badge.setObjectName("badge")
-        self.nav_badge.move(37, 1)
+        self.nav_badge.move(27, 0)
         self.nav_badge.hide()
+        # 导航底部的任务环就是“任务”入口：压制、识别、AI 检查、话题分析都在里面
+        self.tasks_button = self.task_ring
+        self.tasks_button.clicked.connect(self._show_tasks)
+        # 封面的项目级动作（投稿文案、批量出图、保存并做下一个、导出）挪进顶栏
+        self.cover_actions_row.addWidget(self.cover_editor.header_bar)
+        self.vertical_splitter.splitterMoved.connect(self._timeline_splitter_moved)
         self.setWindowTitle("AutoSlice · 字幕校对")
         try:
             self.player = MpvAdapter(int(self.video_widget.winId()), parent=self)
@@ -206,7 +213,8 @@ class DesktopWindow(
                                  ("Ctrl+S", self.save, None),
                                  ("Delete", self._delete, "delete_selected_cues"),
                                  ("Ctrl+Space", self._toggle_play, "play_pause"),
-                                 ("Space", self._toggle_play, "play_pause"),
+                                 ("Space", self._space_play, None),
+                                 ("Ctrl+F", self._open_find, None),
                                  ("F8", self._toggle_play, "play_pause"),
                                  ("F1", self._audition_current, None),
                                  ("F2", self._audition_before, None),
@@ -240,39 +248,56 @@ class DesktopWindow(
         QTimer.singleShot(0, self.refresh)
 
     def _cover_page(self):
-        """构建独立 AutoCover 工作区，保持项目列表与字幕页共用。"""
+        """独立 AutoCover 工作区，项目与字幕页共用；顶栏动作随页面切换。"""
 
         page = QWidget()
         page.setObjectName("workArea")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        heading = QWidget()
-        heading.setFixedHeight(60)
-        row = QHBoxLayout(heading)
-        row.setContentsMargins(24, 0, 24, 0)
-        row.addWidget(label("封面制作", "pageTitle"))
-        row.addStretch()
-        row.addWidget(label("与字幕页共享当前投稿项目", "muted"))
-        layout.addWidget(heading)
-        layout.addWidget(line())
         self.cover_editor = CoverEditorWidget(self.storage)
         layout.addWidget(self.cover_editor, 1)
         return page
 
     def _appbar(self):
+        """顶栏：上一个 / 项目切换 / 下一个、视频选择，右侧是状态和当前页的主动作。"""
+
         bar = QWidget()
         bar.setObjectName("appbar")
         bar.setFixedHeight(SIZES.appbar_height)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(22, 0, 20, 0)
-        row.addWidget(label("AUTOSLICE", "brand"))
-        row.addSpacing(SIZES.space_4)
+        row.setContentsMargins(4, 0, 0, 0)
+        row.setSpacing(10)
+        self.project_prev = QPushButton()
+        self.project_next = QPushButton()
+        for button, name, tip, step in ((self.project_prev, "chevron_left", "上一个项目", -1),
+                                        (self.project_next, "chevron_right", "下一个项目", 1)):
+            button.setObjectName("square")
+            button.setFixedSize(32, 32)
+            button.setToolTip(tip)
+            button.setAccessibleName(tip)
+            tool_icon(button, name)
+            button.clicked.connect(lambda _checked=False, delta=step: self._step_project(delta))
         self.top_project = label("请选择项目", "projectTitle")
-        self.top_project.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.top_project.setMinimumWidth(100)
-        self.top_project.setMaximumWidth(520)
-        row.addWidget(self.top_project)
+        self.top_project.setMaximumWidth(480)
+        self.video_name = label("选择视频", "videoFile")
+        self.video_name.setMaximumWidth(480)
+        self.project_switch = ProjectSwitch(self.top_project, self.video_name)
+        self.project_switch.setToolTip("切换投稿项目")
+        self.project_switch.clicked.connect(self._toggle_project_popover)
+        row.addWidget(self.project_prev)
+        row.addWidget(self.project_switch)
+        row.addWidget(self.project_next)
+        self.video_choice = popups.ComboBox()
+        self.video_choice.setMinimumWidth(160)
+        self.video_choice.setMaximumWidth(260)
+        self.video_choice.setToolTip("这个项目里有几个视频，选择要校对的一个")
+        self.video_choice.currentIndexChanged.connect(self._video_changed)
+        row.addWidget(self.video_choice)
+        self.settings_title = label("设置", "pageTitle")
+        self.settings_title.hide()
+        row.addWidget(self.settings_title)
         row.addStretch()
         self.app_status = _StatusLabel("")
         self.app_status.setObjectName("statusLabel")
@@ -286,71 +311,65 @@ class DesktopWindow(
         self.render_location.clicked.connect(self._locate_render_output)
         motion.reveal(self.render_location, False)
         row.addWidget(self.render_location)
-        self.tasks_button = QPushButton("任务")
-        self.tasks_button.setObjectName("quiet")
-        self.tasks_button.clicked.connect(self._show_tasks)
-        row.addWidget(self.tasks_button)
         self.ai_return = QPushButton("查看待确认")
         self.ai_return.clicked.connect(self._return_to_ai)
         motion.reveal(self.ai_return, False)
         row.addWidget(self.ai_return)
-        return bar
-
-    def _subtitle_work_area(self):
-        area = QWidget()
-        area.setObjectName("workArea")
-        column = QVBoxLayout(area)
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(0)
-        heading = QWidget()
-        heading.setObjectName("workToolbar")
-        heading.setFixedHeight(58)
-        row = QHBoxLayout(heading)
-        row.setContentsMargins(20, 0, 20, 0)
-        row.addWidget(label("视频", "subtle"))
-        self.video_name = label("选择视频", "videoFile")
-        self.video_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.video_name.setMinimumWidth(0)
-        row.addWidget(self.video_name, 1)
-        self.video_choice = popups.ComboBox()
-        self.video_choice.setMinimumWidth(160)
-        self.video_choice.currentIndexChanged.connect(self._video_changed)
-        row.addWidget(self.video_choice, 1)
-        actions = QWidget()
-        actions.setObjectName("workflowActions")
-        action_row = QHBoxLayout(actions)
+        # 页面动作：字幕页是话题分析、压制、保存；封面页的动作由封面编辑器提供（见 _attach_cover_actions）
+        self.subtitle_actions = QWidget()
+        self.subtitle_actions.setObjectName("workflowActions")
+        action_row = QHBoxLayout(self.subtitle_actions)
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.setSpacing(8)
         self.save_button = QPushButton("保存字幕")
         self.save_button.setObjectName("primary")
         self.save_button.setIcon(desktop_icon("save", COLORS.primary_text))
-        self.save_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
+        self.save_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
+        self.save_button.setToolTip("写入正式的校对字幕（Ctrl+S）")
         self.save_button.clicked.connect(self.save)
         self.save_button.setEnabled(False)
         self.render_button = QPushButton("压制字幕")
         self.render_button.setObjectName("secondary")
         self.render_button.setIcon(desktop_icon("render", COLORS.text))
-        self.render_button.setIconSize(QSize(SIZES.icon_size, SIZES.icon_size))
+        self.render_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
         self.render_button.setToolTip("使用默认字幕样式，将已保存的校对字幕压制到新视频")
         self.render_button.clicked.connect(self._start_render)
         self.render_button.setEnabled(False)
         action_row.addWidget(self._build_topic_button())
-        action_row.addWidget(self.save_button)
+        action_row.addWidget(self._build_more_button())
         action_row.addWidget(self.render_button)
-        row.addWidget(actions)
-        column.addWidget(heading)
-        column.addWidget(line())
-        self.vertical_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.vertical_splitter.setHandleWidth(4)
-        self.vertical_splitter.setChildrenCollapsible(False)
-        self.vertical_splitter.addWidget(self._video_surface())
-        self.vertical_splitter.addWidget(self._timeline())
-        self.vertical_splitter.addWidget(self._subtitle_list())
-        self.vertical_splitter.splitterMoved.connect(self._timeline_splitter_moved)
-        self.vertical_splitter.setStretchFactor(0, 5)
-        self.vertical_splitter.setStretchFactor(2, 3)
-        column.addWidget(self.vertical_splitter, 1)
-        return area
+        action_row.addWidget(self.save_button)
+        row.addWidget(self.subtitle_actions)
+        self.cover_actions = QWidget()
+        self.cover_actions.setObjectName("workflowActions")
+        self.cover_actions_row = QHBoxLayout(self.cover_actions)
+        self.cover_actions_row.setContentsMargins(0, 0, 0, 0)
+        self.cover_actions_row.setSpacing(8)
+        self.cover_actions.hide()
+        row.addWidget(self.cover_actions)
+        return bar
+
+    def _step_project(self, delta: int) -> None:
+        """顶栏左右箭头：按项目列表顺序切到上一个 / 下一个项目。"""
+
+        ids = list(getattr(self, "project_buttons", {}))
+        if not ids:
+            return
+        current = self.project.id if self.project else None
+        index = ids.index(current) if current in ids else (-1 if delta > 0 else 0)
+        target = ids[(index + delta) % len(ids)]
+        if target != current:
+            self.project_buttons[target].click()
+
+    def _page_chrome(self, index: int) -> None:
+        super()._page_chrome(index)
+        for widget in (self.project_prev, self.project_next):
+            widget.setVisible(index != 2)
+        self.video_choice.setVisible(index != 2 and self.video_choice.count() > 1)
+        # 设置页的标题在页面左侧目录上方，顶栏不再重复
+        self.settings_title.setVisible(False)
+        self.subtitle_actions.setVisible(index == 0)
+        self.cover_actions.setVisible(index == 1 and self.cover_actions_row.count() > 0)
 
     def _run(self, action, callback):
         job = BackgroundJob(action)
@@ -415,6 +434,16 @@ class DesktopWindow(
         if getattr(self, "document", None) is not None:
             self._update_status()
 
+    def _toast(self, message: str, *, undo: bool = False, snapshot=None) -> None:
+        """顶部提示条；undo 为真时带“撤销”（snapshot 给定时一次撤回到那一刻）。"""
+
+        if not hasattr(self, "toast"):
+            return
+        callback = None
+        if undo:
+            callback = (lambda: self._undo_to(snapshot)) if snapshot is not None else self._undo
+        self.toast.show_message(message, undo=callback)
+
     def _show_transient_status(self, text: str, timeout: int = 3600) -> None:
         """显示短反馈；下一次真实后台状态会自然覆盖它。"""
         self.app_status.setText(text)
@@ -430,6 +459,8 @@ class DesktopWindow(
             self.archive_panel.refresh()
         if index == 2:
             self._check_render_font()
+        if hasattr(self, "project_popover") and self.project_popover.isVisible():
+            self.project_popover.hide()
         if index == 1 and hasattr(self, "cover_editor"):
             # 只读取字幕页当前播放位置，切页不 seek、不暂停、不修改字幕状态。
             self.cover_editor.set_current_playhead(getattr(self, "_player_position", 0.0))
@@ -447,18 +478,14 @@ class DesktopWindow(
                 return
             saved = TIMELINE_DEFAULT_HEIGHT
         sizes = self.vertical_splitter.sizes()
-        if len(sizes) != 3:
+        if len(sizes) != 2:
             return
-        timeline = max(self.timeline.minimumHeight(), int(saved))
+        timeline = max(self.timeline_card.minimumSizeHint().height(), int(saved))
         available = sum(sizes)
-        if timeline >= available - 370:
+        if timeline >= available - 200:
             return
-        remaining = available - timeline
-        video = max(200, min(remaining - 170, sizes[0]))
-        if getattr(self, "player", True) is None:
-            # 没有播放器时视频区只是一块黑底：让给字幕列表，多露几行
-            video = max(200, int(remaining * .32))
-        self.vertical_splitter.setSizes([video, timeline, max(170, remaining - video)])
+        self.vertical_splitter.setSizes([available - timeline, timeline])
+        self._mirror_rows(self.vertical_splitter, self.side_splitter)
 
     def _save_session(self):
         try:

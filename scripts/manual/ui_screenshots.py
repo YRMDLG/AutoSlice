@@ -31,6 +31,10 @@ SAMPLE_LINES = (
 
 def _isolate(temp: Path) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # 离线平台默认只认程序自带的一种字体；给它系统字体目录，时间码等宽字和中文回退才接近实机
+    windows_fonts = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
+    if os.environ["QT_QPA_PLATFORM"] == "offscreen" and windows_fonts.is_dir():
+        os.environ.setdefault("QT_QPA_FONTDIR", str(windows_fonts))
     os.environ["AUTOSLICE_REDUCED_MOTION"] = "1"
     os.environ["AUTOSLICE_DESKTOP_DATA_DIR"] = str(temp / "app-data")
     # 环境变量优先于 api_config.json：置空即“未配置”，截图过程不会调用真实接口
