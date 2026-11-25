@@ -43,6 +43,15 @@ from .asr_panel import AsrSettingsPanel
 from .learning_panel import LearningPanel
 from .window_widgets import NoteLabel
 
+# 草稿读出来不能直接用时给用户看的原因（不露内部状态码）
+_DRAFT_SKIPPED = {
+    "source_changed": "这个视频有一份没保存的字幕草稿，但字幕文件在那之后被改过（比如在别的软件里改了）。"
+                      "为了不盖掉新的字幕，没有套用草稿。",
+    "source_missing": "这个视频有一份没保存的字幕草稿，但读不到对应的字幕文件，没有套用草稿。",
+    "incompatible": "这个视频有一份旧版本程序存的字幕草稿，格式对不上，没有套用。",
+    "invalid": "这个视频的字幕草稿文件不完整或已损坏，没有套用。",
+}
+
 
 class ProjectsMixin:
     def _project_rail(self):
@@ -677,8 +686,7 @@ class ProjectsMixin:
             else:
                 self._remove_draft(document)
         elif draft.status not in ("missing",):
-            QMessageBox.warning(self, "草稿需要检查",
-                                f"字幕草稿状态：{draft.status}。已保留草稿，没有自动应用。")
+            QMessageBox.warning(self, "没有套用字幕草稿", _DRAFT_SKIPPED.get(draft.status, _DRAFT_SKIPPED["invalid"]))
         self.document = document
         self.model.set_document(document)
         self.timeline.set_document(document)

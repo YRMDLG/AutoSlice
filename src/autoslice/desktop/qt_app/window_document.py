@@ -68,7 +68,8 @@ class SubtitleDocumentMixin:
         dialog = QMessageBox(self)
         dialog.setWindowTitle("未保存的字幕")
         dialog.setText("当前字幕有未正式保存的修改。可先返回点击“保存校对字幕”，或选择离开时如何处理草稿。")
-        keep = dialog.addButton("保留草稿并离开", QMessageBox.ButtonRole.DestructiveRole)
+        # 保留草稿是稳妥的那个：接受角色（默认按钮、排在最右），放弃修改才算危险操作
+        keep = dialog.addButton("保留草稿并离开", QMessageBox.ButtonRole.AcceptRole)
         discard = dialog.addButton("放弃修改并离开", QMessageBox.ButtonRole.DestructiveRole)
         dialog.addButton("取消", QMessageBox.ButtonRole.RejectRole)
         dialog.exec()

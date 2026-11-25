@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QGraphicsOpacityEffect,
     QLineEdit,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSlider,
@@ -1350,18 +1351,29 @@ class DialogWatcher(QObject):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._effects: dict[int, DialogFx] = {}
+        self._effects: dict[int, QObject] = {}
 
     def eventFilter(self, obj, event) -> bool:
-        if (event.type() == QEvent.Type.Show and isinstance(obj, QDialog) and not QApplication.closingDown()
+        kind = event.type()
+        if kind == QEvent.Type.Polish and isinstance(obj, QMessageBox) and not obj.property("messageSkin"):
+            # 消息框显示前换成设计稿的确认框卡片（无系统标题栏），见 message_skin
+            from . import message_skin
+
+            self._keep(message_skin.apply(obj))
+        elif (kind == QEvent.Type.Show and isinstance(obj, QDialog) and not QApplication.closingDown()
                 and not obj.property("motionDialog")):
             obj.setProperty("motionDialog", True)
             fx = DialogFx(obj)
-            key = id(fx)
-            self._effects[key] = fx
-            fx.destroyed.connect(lambda *_args, key=key: self._effects.pop(key, None))
+            self._keep(fx)
             fx.eventFilter(obj, event)
         return False
+
+    def _keep(self, helper) -> None:
+        if helper is None:
+            return
+        key = id(helper)
+        self._effects[key] = helper
+        helper.destroyed.connect(lambda *_args, key=key: self._effects.pop(key, None))
 
 
 class ProgressFx(QObject):
