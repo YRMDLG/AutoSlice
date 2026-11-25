@@ -1299,19 +1299,27 @@ class DialogFx(QObject):
                 if self.dialog.windowOpacity() < 1.0:
                     self.dialog.setWindowOpacity(1.0)
                 return False
-            self._target = self.dialog.pos()
             if self.dialog.isModal() and self.dialog.parentWidget() is not None:
                 host = self.dialog.parentWidget().window()
                 if host is not None and host.isVisible() and self._veil is None:
                     self._veil = _Veil(host)
-            p = profile()
+            self._target = None
             self.dialog.setWindowOpacity(0.0)
-            restart(self._open, 0.0, 1.0, p.dialog_open, OUT if STYLE.dark else spring())
-            QTimer.singleShot(p.dialog_open + 120, self, self._ensure_visible)
+            # 过滤器先于 showEvent 看到 Show：这时 Qt 还没把对话框挪到父窗口正中（adjustPosition 在
+            # showEvent 里）。等这一轮处理完再记落点，否则动画会把它拉回偏右下的初始位置
+            QTimer.singleShot(0, self, self._begin)
         elif kind == QEvent.Type.Hide:
             self._open.stop()
             self._drop_veil()
         return False
+
+    def _begin(self) -> None:
+        if not shiboken6.isValid(self.dialog) or not self.dialog.isVisible():
+            return
+        self._target = self.dialog.pos()
+        p = profile()
+        restart(self._open, 0.0, 1.0, p.dialog_open, OUT if STYLE.dark else spring())
+        QTimer.singleShot(p.dialog_open + 120, self, self._ensure_visible)
 
     def _ensure_visible(self) -> None:
         if shiboken6.isValid(self.dialog) and self.dialog.isVisible() and self.dialog.windowOpacity() < 1.0:

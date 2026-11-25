@@ -98,6 +98,28 @@ class MessageSkinTests(unittest.TestCase):
         self.assertIs(seen["default"], keep)
         self.assertIs(box.clickedButton(), cancel)
 
+    def test_dialog_lands_centered_over_its_window(self):
+        # 动效原来在 Show 过滤器里记落点，那时 Qt 还没居中：动画把框拉回偏右下的初始位置
+        from autoslice.desktop.qt_preview import motion
+
+        motion.set_enabled(True)
+        self.addCleanup(motion.set_enabled, None)
+        self.window.move(100, 80)
+        _wait(self.app, 0.1)
+        seen = {}
+
+        def inspect():
+            _wait(self.app, motion.profile().dialog_open / 1000 + 0.4)
+            box = self._visible_box()
+            seen["box"] = box.frameGeometry().center()
+            seen["host"] = self.window.frameGeometry().center()
+            box.done(0)
+
+        QTimer.singleShot(0, inspect)
+        QMessageBox.question(self.window, "AI 检查字幕", "会消耗额度。开始吗？")
+        self.assertLessEqual(abs(seen["box"].x() - seen["host"].x()), 4)
+        self.assertLessEqual(abs(seen["box"].y() - seen["host"].y()), 40)
+
     def test_box_without_title_shows_body_only(self):
         seen = {}
 
