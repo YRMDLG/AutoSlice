@@ -110,7 +110,8 @@ class MotionProfileTests(unittest.TestCase):
         self.app.processEvents()
         self.assertTrue(dialog.property("motionDialog"))
         self.assertEqual(len(window.findChildren(motion._Veil)), 1)
-        dialog.hide()
+        # 关闭走 finished：撤遮罩、留快照淡出、透明度复原
+        dialog.reject()
         _wait(self.app, 0.4)
         QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.assertEqual(window.findChildren(motion._Veil), [])

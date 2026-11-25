@@ -245,7 +245,7 @@ class FindReplaceMixin:
         if row >= 0:
             index = self.model.index(row, 2)
             self.table.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
-            QTimer.singleShot(0, lambda: motion.pulse(self.table.viewport(), self.table.visualRect(index)))
+            QTimer.singleShot(0, self.table, lambda: motion.pulse(self.table.viewport(), self.table.visualRect(index)))
 
     # ── 替换 ──
     def _replace_text(self, text: str, start: int, length: int) -> str:

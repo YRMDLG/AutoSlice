@@ -132,7 +132,7 @@ class _InlineAiWatcher(QObject):
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QEvent.Type.Resize:
-            QTimer.singleShot(0, self._window._place_inline_ai)
+            QTimer.singleShot(0, self, self._window._place_inline_ai)
         return False
 
 

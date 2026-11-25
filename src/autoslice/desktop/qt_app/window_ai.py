@@ -298,8 +298,8 @@ class AiReviewMixin:
         self._inline_ai_watcher = _InlineAiWatcher(self)
         self.table.viewport().installEventFilter(self._inline_ai_watcher)
         self.table.verticalScrollBar().valueChanged.connect(lambda _value: self._place_inline_ai())
-        self.model.modelReset.connect(lambda: QTimer.singleShot(0, self._place_inline_ai))
-        self.model.layoutChanged.connect(lambda: QTimer.singleShot(0, self._place_inline_ai))
+        self.model.modelReset.connect(lambda: QTimer.singleShot(0, self.table, self._place_inline_ai))
+        self.model.layoutChanged.connect(lambda: QTimer.singleShot(0, self.table, self._place_inline_ai))
 
     def _ai_state_text(self):
         """AI 检查卡右上角的状态：检查中 / 已完成 / 已取消 / 未配置。"""

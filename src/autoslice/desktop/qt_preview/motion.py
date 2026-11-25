@@ -15,6 +15,7 @@ import os
 import time
 from dataclasses import dataclass
 
+import shiboken6
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
@@ -1066,7 +1067,7 @@ class _Veil(QWidget):
 
     def dismiss(self) -> None:
         self._level.to(0.0, profile().dialog_close)
-        QTimer.singleShot(profile().dialog_close + 40, self.deleteLater)
+        QTimer.singleShot(profile().dialog_close + 40, self, self.deleteLater)
 
     def paintEvent(self, _event) -> None:
         color = QColor(COLORS.scrim)
@@ -1104,7 +1105,11 @@ class _WindowGhost(QWidget):
 
 
 class DialogFx(QObject):
-    """对话框：遮罩淡入，框体淡入并从下方滑到位（晨雾用弹簧、幅度更大）；关闭时快照淡出。"""
+    """对话框：遮罩淡入，框体淡入并从下方滑到位（晨雾用弹簧、幅度更大）；关闭时快照淡出。
+
+    隐藏事件里只撤遮罩，不碰对话框本身：对话框析构时也会先隐藏，那时再截图、改透明度会让进程崩溃
+    （程序退出时还开着的对话框就是这样）。关闭快照放在 finished 信号里做，那时对话框还完好。
+    """
 
     def __init__(self, dialog: QDialog) -> None:
         super().__init__(dialog)
@@ -1114,10 +1119,15 @@ class DialogFx(QObject):
         self._open.valueChanged.connect(self._step)
         self._target = None
         dialog.installEventFilter(self)
+        dialog.finished.connect(self._finished)
 
     def eventFilter(self, obj, event) -> bool:
         kind = event.type()
-        if kind == QEvent.Type.Show and enabled():
+        if kind == QEvent.Type.Show and not QApplication.closingDown():
+            if not enabled():
+                if self.dialog.windowOpacity() < 1.0:
+                    self.dialog.setWindowOpacity(1.0)
+                return False
             self._target = self.dialog.pos()
             if self.dialog.isModal() and self.dialog.parentWidget() is not None:
                 host = self.dialog.parentWidget().window()
@@ -1128,13 +1138,21 @@ class DialogFx(QObject):
             restart(self._open, 0.0, 1.0, p.dialog_open, OUT if STYLE.dark else spring())
         elif kind == QEvent.Type.Hide:
             self._open.stop()
-            if self._veil is not None:
-                self._veil.dismiss()
-                self._veil = None
-            if enabled() and self.dialog.width() > 0:
-                _WindowGhost(self.dialog.grab(), self.dialog.frameGeometry())
-            self.dialog.setWindowOpacity(1.0)
+            self._drop_veil()
         return False
+
+    def _drop_veil(self) -> None:
+        veil, self._veil = self._veil, None
+        if veil is not None and shiboken6.isValid(veil):
+            veil.dismiss()
+
+    def _finished(self, _result) -> None:
+        self._open.stop()
+        self._drop_veil()
+        dialog = self.dialog
+        if enabled() and not QApplication.closingDown() and dialog.width() > 0:
+            _WindowGhost(dialog.grab(), dialog.frameGeometry())
+        dialog.setWindowOpacity(1.0)
 
     def _step(self, value) -> None:
         v = float(value)
@@ -1148,7 +1166,7 @@ class DialogWatcher(QObject):
     """应用级：任何对话框第一次显示时挂上 DialogFx。"""
 
     def eventFilter(self, obj, event) -> bool:
-        if (event.type() == QEvent.Type.Show and isinstance(obj, QDialog)
+        if (event.type() == QEvent.Type.Show and isinstance(obj, QDialog) and not QApplication.closingDown()
                 and not obj.property("motionDialog")):
             obj.setProperty("motionDialog", True)
             fx = DialogFx(obj)
@@ -1194,7 +1212,7 @@ class ProgressFx(QObject):
             self.overlay.setGeometry(self.bar.rect())
             self.overlay.raise_()
         elif event.type() in (QEvent.Type.Show, QEvent.Type.Hide):
-            QTimer.singleShot(0, self._sync)
+            QTimer.singleShot(0, self, self._sync)
         return False
 
 
@@ -1291,7 +1309,7 @@ class _Pulse(QWidget):
         self.show()
         self.raise_()
         self._t.to(1.0, 700, OUT)
-        QTimer.singleShot(760, self.deleteLater)
+        QTimer.singleShot(760, self, self.deleteLater)
 
     def paintEvent(self, _event) -> None:
         t = self._t.value
