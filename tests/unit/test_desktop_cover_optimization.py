@@ -361,9 +361,11 @@ class CoverOptimizationTests(unittest.TestCase):
             profile_states={"4x3": "narrow-state", "16x9": "wide-state"},
         )
         self.assertEqual([pick.index for pick in result.picks], [1])
-        self.assertEqual([images for _prompt, images in calls], [(("image/jpeg", b"narrow"),), (("image/jpeg", b"wide"),)])
-        self.assertIn("narrow-state", calls[0][0])
-        self.assertIn("wide-state", calls[1][0])
+        # 两个比例在线程池里并行评，调用先后不固定：按图片对上各自的提示词
+        prompts = {images: prompt for prompt, images in calls}
+        self.assertEqual(set(prompts), {(("image/jpeg", b"narrow"),), (("image/jpeg", b"wide"),)})
+        self.assertIn("narrow-state", prompts[(("image/jpeg", b"narrow"),)])
+        self.assertIn("wide-state", prompts[(("image/jpeg", b"wide"),)])
         self.assertIn("4:3：", result.picks[0].reason)
         self.assertIn("16:9：", result.picks[0].reason)
 
