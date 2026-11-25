@@ -35,6 +35,8 @@ def paint_panel(painter: QPainter, rect: QRectF, radius: float | None = None, fi
     path = QPainterPath()
     path.addRoundedRect(rect, radius, radius)
     painter.fillPath(path, QColor(fill or COLORS.overlay))
+    # 描边前清掉笔刷：否则 drawPath 会再用最后一层半透明投影色把整块面板涂一遍（晨雾白卡发灰、夜航菜单发暗）
+    painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.setPen(QPen(QColor(COLORS.overlay_border), 1))
     painter.drawPath(path)
     if STYLE.dark:

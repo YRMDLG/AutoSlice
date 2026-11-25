@@ -112,5 +112,32 @@ class MessageSkinTests(unittest.TestCase):
         self.assertEqual(seen["text"], "现在没有待确认的建议。")
 
 
+@unittest.skipIf(QApplication is None, "PySide6 不在当前解释器中")
+class PanelPaintTests(unittest.TestCase):
+    def tearDown(self):
+        from autoslice.desktop.qt_preview import theme
+
+        theme.apply_theme("night")
+
+    def test_panel_body_keeps_its_own_color(self):
+        # 原来描边前没清笔刷，drawPath 又用半透明投影色涂了一遍：晨雾白卡成了 #f3f1ed，夜航菜单也偏暗
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QImage, QPainter
+
+        from autoslice.desktop.qt_preview import popups, theme
+
+        QApplication.instance() or QApplication([])
+        for name in ("morning", "night"):
+            theme.apply_theme(name)
+            for fill in (theme.COLORS.dialog, None):
+                image = QImage(200, 120, QImage.Format.Format_ARGB32_Premultiplied)
+                image.fill(0)
+                painter = QPainter(image)
+                popups.paint_panel(painter, QRectF(20, 10, 160, 90), 16, fill=fill)
+                painter.end()
+                want = (fill or theme.COLORS.overlay).lower()
+                self.assertEqual(image.pixelColor(100, 50).name(), want, f"{name} {fill}")
+
+
 if __name__ == "__main__":
     unittest.main()
