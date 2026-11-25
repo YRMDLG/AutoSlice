@@ -275,6 +275,8 @@ class SubtitleListMixin:
         if index.column() == 2:
             self._pending_caret_click = None
 
+            # 点击位置换成“在这一行里的偏移”：打开编辑框时上一条编辑行会收起、这一行跟着上移
+            offset = click_point - self.table.visualRect(index).topLeft() if click_point is not None else None
             editing_index = self._editing_subtitle_index()
             if editing_index is not None and editing_index.isValid() and editing_index != index:
                 self._commit_editor()
@@ -284,7 +286,8 @@ class SubtitleListMixin:
             self.table.setCurrentIndex(index)
             QTimer.singleShot(
                 0,
-                lambda idx=index, point=click_point: self._focus_subtitle_editor(idx, point),
+                lambda idx=index, off=offset: self._focus_subtitle_editor(
+                    idx, None if off is None else self.table.visualRect(idx).topLeft() + off),
             )
 
     def _row_changed(self, index, _previous):
@@ -512,14 +515,27 @@ class SubtitleListMixin:
         editor.deleteLater()
         self.table.viewport().update(self.table.visualRect(index))
         self._sync_shortcuts()
-        self._place_inline_ai()
-        self._place_inline_edit()
+        if getattr(self, "_defer_edit_collapse", False):
+            # 点别处提交：操作条先收起，行高等这次点击松手后再复原（兜底 400ms）
+            bar = getattr(self, "inline_edit_bar", None)
+            if bar is not None:
+                bar.hide()
+            QTimer.singleShot(400, self, self._finish_deferred_collapse)
+        else:
+            self._place_inline_ai()
+            self._place_inline_edit()
         before = getattr(self, "_inline_before", None)
         self._inline_before = None
         if before and before[1] is not None and self.document and tuple(self.document.entries) != before[1]:
             # 改字落定：整行闪一下（设计稿 edFlash / 晨雾 inkWash）
             self.subtitle_delegate.effects.play(before[0], "flash")
             self._toast(f"已修改第 {before[0]} 条字幕", undo=True, snapshot=before[1])
+
+    def _finish_deferred_collapse(self):
+        if not getattr(self, "_defer_edit_collapse", False):
+            return
+        self._defer_edit_collapse = False
+        self._place_inline_ai()
 
     def _cancel_editor(self):
         """编辑条“取消”：恢复这句改字前的原文，再按正常流程收起编辑框。"""
@@ -599,12 +615,16 @@ class SubtitleListMixin:
         index = self._editing_subtitle_index()
         row = index.row() if self._subtitle_editor_open() else -1
         previous = getattr(self, "_inline_edit_row", -1)
+        bar = self._inline_edit_bar()
+        if row < 0 and getattr(self, "_defer_edit_collapse", False):
+            # 点别处提交、还没松手：这一行先保持原高，免得下面的行上移、松手落到别处
+            bar.hide()
+            return
         rows = self.model.rowCount()
         if (previous != row and 0 <= previous < rows and previous != getattr(self, "_ai_inline_row", -1)
                 and header.sectionSize(previous) != base):
             header.resizeSection(previous, base)
         self._inline_edit_row = row
-        bar = self._inline_edit_bar()
         if row < 0:
             bar.hide()
             return

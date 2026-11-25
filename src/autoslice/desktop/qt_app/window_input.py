@@ -8,6 +8,7 @@ from __future__ import annotations
 from PySide6.QtCore import (
     QEvent,
     Qt,
+    QTimer,
 )
 from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
@@ -107,6 +108,8 @@ class InputRoutingMixin:
                     return True
             else:
                 # 只有事件源和屏幕坐标都确认在 editor 外部才退出。
+                # 按下时只提交文字，这一行先不收起：行高一变，松手时就点到别的行了
+                self._defer_edit_collapse = True
                 self._commit_editor()
         if event.type() == QEvent.Type.MouseButtonPress:
             direction = self._timeline_side_button_direction(event.button())
@@ -114,6 +117,8 @@ class InputRoutingMixin:
                 self._timeline_side_pan.start(direction)
                 event.accept()
                 return True
+        if event.type() == QEvent.Type.MouseButtonRelease and getattr(self, "_defer_edit_collapse", False):
+            QTimer.singleShot(0, self, self._finish_deferred_collapse)
         if event.type() == QEvent.Type.MouseButtonRelease:
             # 释放可能发生在时间轴外部；只要当前确实在连续平移，就应立即停下。
             direction = self._timeline_side_button_direction(event.button())

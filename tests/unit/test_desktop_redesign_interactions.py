@@ -208,10 +208,15 @@ class RedesignInteractionTests(unittest.TestCase):
         top = window.table.visualRect(window.model.index(row, 0)).top()
         self.assertEqual(window.ai_card.geometry().top(), top + SIZES.subtitle_row_height)
         self.assertEqual(window.model.tag_for(3), "待确认")
+        # 改字时建议收起，这一行换成编辑态的高度（设计稿 edrow，D-045）；改完建议再展开
+        from autoslice.desktop.qt_app.window_widgets import EDIT_ROW_HEIGHT
+
+        with_suggestion = header.sectionSize(row)
         window._edit_cue_text(3)
-        self.assertEqual(header.sectionSize(row), SIZES.subtitle_row_height)
+        self.assertEqual(header.sectionSize(row), EDIT_ROW_HEIGHT)
+        self.assertFalse(window.ai_card.isVisible() and window._ai_inline_row == row)
         window._commit_editor()
-        self.assertGreater(header.sectionSize(row), SIZES.subtitle_row_height)
+        self.assertEqual(header.sectionSize(row), with_suggestion)
 
 
 if __name__ == "__main__":

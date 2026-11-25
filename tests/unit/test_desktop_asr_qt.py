@@ -21,6 +21,7 @@ from autoslice.desktop.foundation import DesktopStorage
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
+    from PySide6.QtCore import QPoint
     from PySide6.QtWidgets import QApplication
 except ImportError:  # pragma: no cover
     QApplication = None
@@ -227,10 +228,16 @@ class AsrQtTests(unittest.TestCase):
         panel = self.window.asr_settings_panel
         self.window._open_asr_settings()
         self.app.processEvents()
+        # 设置页分区是嵌套布局，切过来后要多一轮事件才排好；等它排好，再查有没有被永久压扁
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline and panel.engine_box.height() < panel.engine_box.sizeHint().height():
+            self.app.processEvents()
+            time.sleep(.01)
         self.assertGreaterEqual(panel.engine_box.height(), panel.engine_box.sizeHint().height())
         note = panel.engine_note
         self.assertGreaterEqual(note.height(), note.heightForWidth(note.width()) - 1)
-        self.assertGreater(note.geometry().top(), panel.engine_box.geometry().top())
+        # 说明在下拉框下面（两者在各自的分区行里，比较面板坐标）
+        self.assertGreater(note.mapTo(panel, QPoint(0, 0)).y(), panel.engine_box.mapTo(panel, QPoint(0, 0)).y())
         # 走查 M15：说明里不再让用户敲命令，换成按钮
         self.assertNotIn("python -m", "".join(label.text() for label in panel.findChildren(type(note))))
 
