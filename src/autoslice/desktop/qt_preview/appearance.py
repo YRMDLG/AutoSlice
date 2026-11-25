@@ -9,7 +9,16 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 from . import icons
-from .theme import COLORS, DEFAULT_THEME, STYLE, THEMES, apply_theme, current_theme, normalize, stylesheet
+from .theme import (
+    COLORS,
+    DEFAULT_THEME,
+    STYLE,
+    THEMES,
+    apply_theme,
+    current_theme,
+    normalize,
+    stylesheet,
+)
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QAbstractButton, QApplication, QButtonGroup, QHBoxLayout, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QAbstractButton,
+    QApplication,
+    QButtonGroup,
+    QHBoxLayout,
+    QPushButton,
+    QWidget,
+)
 
 from autoslice.desktop.qt_preview import appearance, motion
 from autoslice.desktop.qt_preview.appearance import Appearance
