@@ -18,6 +18,8 @@ from .cover_model import BackgroundObject
 from .cover_scheme_quality import safe_scheme
 from .cover_style import streamer_key
 from .cover_templates import apply_template, make_template
+from .qt_preview import motion
+from .qt_preview.theme import STYLE
 
 
 class CoverSchemesMixin:
@@ -83,6 +85,8 @@ class CoverSchemesMixin:
             button.setEnabled(True)
             button.setToolTip(f"{scheme.label}：{scheme.reason}\n点击套用，Ctrl+Z 可撤销")
             label.setText(scheme.label)
+        # 新一批方案依次翻入（设计稿 casA：逐张错开）
+        motion.stagger_in(self.scheme_buttons[:len(self._schemes)], 420 if STYLE.dark else 560)
 
     def _apply_scheme(self, index: int):
         if self.document is None or not 0 <= index < len(self._schemes):

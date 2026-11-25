@@ -129,7 +129,9 @@ class CoverTextMixin:
         elif self._primary_copy_ids().get(text.copy_role) != text.id:
             self.copy_role_label.setText("自建文本框")
         else:
-            self.copy_role_label.setText("主文案 B · 大字" if text.copy_role == "B" else "上下文 A · 小字")
+            # 设计稿“文字 B · 主文案”：属性卡里地方窄，只写身份，大字 / 小字放进悬停说明
+            self.copy_role_label.setText("主文案 B" if text.copy_role == "B" else "上下文 A")
+            self.copy_role_label.setToolTip("大字主文案" if text.copy_role == "B" else "小字上下文")
 
     def _edit_text(self, object_id: str):
         """双击文字：就在文字旁边打字，画布实时显示效果。"""

@@ -176,7 +176,17 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self.update()
 
     def set_background_pixmap(self, pixmap: QPixmap):
+        changed = pixmap.cacheKey() != self._background_pixmap.cacheKey()
         self._background_pixmap = pixmap
+        if changed and getattr(self, "overlays", True) and not pixmap.isNull() and self.isVisible():
+            # 换了底图：画面“显影”（夜航提亮后恢复 620ms，晨雾白雾散开 700ms）
+            from .qt_preview import motion
+            from .qt_preview.theme import STYLE
+
+            if getattr(self, "_develop", None) is None:
+                self._develop = motion.Channel(self, self.update, 1.0)
+            self._develop.snap(0.0)
+            self._develop.to(1.0, 620 if STYLE.dark else 700, motion.OUT if STYLE.dark else motion.SOFT)
         self.update()
         self.document_shown.emit()
 

@@ -598,6 +598,13 @@ class CanvasPaintMixin:
         self._draw_background(painter)
         painter.restore()
         self._draw_object_layers(painter, canvas)
+        develop = getattr(self, "_develop", None)
+        if develop is not None and develop.value < 1:
+            from .qt_preview.theme import STYLE
+
+            veil = QColor("#FFFFFF")
+            veil.setAlphaF((0.42 if STYLE.dark else 0.8) * (1 - develop.value))
+            painter.fillRect(canvas, veil)
         if not getattr(self, "overlays", True):
             painter.end()
             return

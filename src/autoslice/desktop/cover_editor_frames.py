@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QIcon,
     QImageReader,
     QPainter,
+    QPen,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -72,7 +73,9 @@ def _thumbnail_pixmap(path: str, size: QSize) -> QPixmap:
 
 
 def _captioned(pixmap: QPixmap, size: QSize, caption: str, recommended: bool) -> QPixmap:
-    """缩略图右下角叠时间戳（推荐帧左上角叠星标）；文字不占按钮横向空间，窄窗口也读得全。"""
+    """缩略图铺满 112×63；推荐帧左上角叠“AI 推荐”角标（时间由按钮画在缩略图下方）。"""
+
+    from .qt_preview.theme import COLORS
 
     scale = 2
     scaled = pixmap.scaled(
@@ -84,23 +87,20 @@ def _captioned(pixmap: QPixmap, size: QSize, caption: str, recommended: bool) ->
     painter = QPainter(result)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.drawPixmap((result.width() - scaled.width()) // 2, (result.height() - scaled.height()) // 2, scaled)
-    font = QFont("Resource Han Rounded CN")
-    font.setPixelSize(10 * scale)
-    painter.setFont(font)
-    width = painter.fontMetrics().horizontalAdvance(caption) + 8 * scale
-    height = painter.fontMetrics().height() + 2 * scale
-    box = QRectF(result.width() - width - 2 * scale, result.height() - height - 2 * scale, width, height)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(0, 0, 0, 170))
-    painter.drawRoundedRect(box, 3 * scale, 3 * scale)
-    painter.setPen(QColor("#FFFFFF"))
-    painter.drawText(box, Qt.AlignmentFlag.AlignCenter, caption)
     if recommended:
-        painter.setPen(QColor("#FFD84D"))
-        star = QFont(font)
-        star.setPixelSize(13 * scale)
-        painter.setFont(star)
-        painter.drawText(QRectF(3 * scale, 1 * scale, 16 * scale, 16 * scale), Qt.AlignmentFlag.AlignCenter, "★")
+        font = QFont("Resource Han Rounded CN")
+        font.setPixelSize(10 * scale)
+        painter.setFont(font)
+        text = "AI 推荐"
+        width = painter.fontMetrics().horizontalAdvance(text) + 12 * scale
+        box = QRectF(5 * scale, 5 * scale, width, 17 * scale)
+        background = QColor("#0A0A0A")
+        background.setAlphaF(0.72)
+        painter.setPen(QPen(QColor(COLORS.accent_line), scale))
+        painter.setBrush(background)
+        painter.drawRoundedRect(box, 5 * scale, 5 * scale)
+        painter.setPen(QColor(COLORS.accent if COLORS.accent != COLORS.card else "#FFFFFF"))
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
     painter.end()
     result.setDevicePixelRatio(scale)
     return result

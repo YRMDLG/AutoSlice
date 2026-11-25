@@ -61,6 +61,8 @@ class ToolbarButton(QPushButton):
     def __init__(self, text: str = "", parent=None):
         super().__init__(text, parent)
         self._compact = False
+        # False：展开时只显示文字（设计稿的工具栏），图标只在收起时用
+        self.icon_with_text = True
 
     @property
     def compact(self) -> bool:
@@ -78,7 +80,20 @@ class ToolbarButton(QPushButton):
     def full_width(self) -> int:
         """不收起时需要的宽度。"""
 
-        return QPushButton.sizeHint(self).width()
+        if self.icon_with_text:
+            return QPushButton.sizeHint(self).width()
+        option = self._text_option()
+        return self.style().sizeFromContents(
+            QStyle.ContentsType.CT_PushButton, option,
+            self.fontMetrics().size(Qt.TextFlag.TextShowMnemonic, option.text), self).width()
+
+    def _text_option(self) -> QStyleOptionButton:
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.icon = QIcon()
+        option.iconSize = QSize()
+        option.features &= ~QStyleOptionButton.ButtonFeature.HasMenu
+        return option
 
     def compact_width(self) -> int:
         """只显示图标时需要的宽度。"""
@@ -89,6 +104,8 @@ class ToolbarButton(QPushButton):
         return self.style().sizeFromContents(QStyle.ContentsType.CT_PushButton, option, self.iconSize(), self).width()
 
     def _option(self) -> QStyleOptionButton:
+        if not self._compact and not self.icon_with_text:
+            return self._text_option()
         option = QStyleOptionButton()
         self.initStyleOption(option)
         if self._compact:
@@ -96,6 +113,8 @@ class ToolbarButton(QPushButton):
         return option
 
     def sizeHint(self) -> QSize:
+        if not self._compact and not self.icon_with_text:
+            return QSize(self.full_width(), QPushButton.sizeHint(self).height())
         if not self._compact:
             return super().sizeHint()
         return self.style().sizeFromContents(QStyle.ContentsType.CT_PushButton, self._option(), self.iconSize(), self)
