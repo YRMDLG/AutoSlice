@@ -18,7 +18,7 @@ from .cover_model import BackgroundObject
 from .cover_scheme_quality import safe_scheme
 from .cover_style import streamer_key
 from .cover_templates import apply_template, make_template
-from .qt_preview import motion
+from .qt_preview import motion, popups
 from .qt_preview.theme import STYLE
 
 
@@ -151,6 +151,11 @@ class CoverSchemesMixin:
 
         menu = self.template_menu
         menu.clear()
+        # clear() 只删动作不删子菜单；上一次的“删除模板”子菜单手动删掉
+        old = getattr(self, "_template_delete_menu", None)
+        if old is not None:
+            old.deleteLater()
+            self._template_delete_menu = None
         ready = self.document is not None
         menu.addAction("把这张存为模板…", self._save_template).setEnabled(ready)
         templates = self.service.templates.list()
@@ -158,7 +163,7 @@ class CoverSchemesMixin:
             menu.addSeparator()
             for template in templates:
                 menu.addAction(f"套用：{template.name}", lambda value=template: self._apply_template(value)).setEnabled(ready)
-            delete = menu.addMenu("删除模板")
+            delete = self._template_delete_menu = popups.submenu(menu, "删除模板")
             for template in templates:
                 delete.addAction(template.name, lambda value=template: self._delete_template(value))
         else:

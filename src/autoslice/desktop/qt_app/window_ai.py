@@ -277,6 +277,8 @@ class AiReviewMixin:
             action = menu.addAction(title)
             action.setProperty("sub", sub)
             action.triggered.connect(run)
+        # 每次新建，关掉就删（动作在收起后才触发，延迟删除不影响）
+        menu.aboutToHide.connect(menu.deleteLater)
         popups.MenuFx.popup_above(menu, self.ai_run)
 
     def _row_of_cue(self, cue_id):

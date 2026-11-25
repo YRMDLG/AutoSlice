@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter
 from PySide6.QtWidgets import QComboBox, QMenu, QWidget
 
 from . import motion
-from .theme import COLORS, STYLE
+from .theme import COLORS, MONO_FAMILIES, STYLE
 
 # 投影留白：左、上、右、下；光源在上方，下侧留得更多
 SHADOW = (10, 6, 10, 14)
@@ -17,10 +17,10 @@ OPEN = 160
 CLOSE = 120
 ITEM_IN = 90
 ITEM_OUT = 180
-_SHORTCUT = re.compile(r"^(.*?)\s+((?:Ctrl\+|Shift\+|Alt\+)*(?:[A-Z0-9]|Delete|Del|Space|Enter|F\d{1,2}))$")
+_SHORTCUT = re.compile(r"^(.*?)\s+((?:Ctrl\+|Shift\+|Alt\+)*(?:[A-Z0-9/,.\[\]=;-]|Delete|Del|Space|Enter|F\d{1,2}))$")
 
 
-def paint_panel(painter: QPainter, rect: QRectF, radius: float | None = None) -> None:
+def paint_panel(painter: QPainter, rect: QRectF, radius: float | None = None, fill: str | None = None) -> None:
     """层叠圆角矩形模拟柔和投影，再画浮层面板与描边；夜航投影深、晨雾投影暖而淡。"""
 
     radius = STYLE.menu_radius if radius is None else radius
@@ -34,7 +34,7 @@ def paint_panel(painter: QPainter, rect: QRectF, radius: float | None = None) ->
                                 radius + spread, radius + spread)
     path = QPainterPath()
     path.addRoundedRect(rect, radius, radius)
-    painter.fillPath(path, QColor(COLORS.overlay))
+    painter.fillPath(path, QColor(fill or COLORS.overlay))
     painter.setPen(QPen(QColor(COLORS.overlay_border), 1))
     painter.drawPath(path)
     if STYLE.dark:
@@ -281,6 +281,19 @@ class ComboBox(QComboBox):
             popup.dismiss()
 
 
+def submenu(parent: QMenu, title: str) -> QMenu:
+    """带动效的子菜单。
+
+    不用 parent.addMenu(title)：那样子菜单由 Qt 在 C++ 里新建，PySide 不知道它何时被删，
+    下次在同一地址新建的菜单会拿到失效的旧包装，动效一碰就报“C++ 对象已删除”，子菜单弹不出来。
+    """
+
+    menu = QMenu(title, parent)
+    MenuFx(menu)
+    parent.addMenu(menu)
+    return menu
+
+
 class MenuFx(QObject):
     """右键菜单：接管绘制，保留 QMenu 的键盘导航与行为。"""
 
@@ -294,13 +307,16 @@ class MenuFx(QObject):
                             | Qt.WindowType.NoDropShadowWindowHint)
         menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         left, top, right, bottom = SHADOW
-        item = "15px 24px 15px 12px" if two_line else "6px 64px 6px 12px"
+        # 单行项 32px 高（设计稿右键菜单）；分隔线连上下留白共 9px
+        item = "15px 24px 15px 12px" if two_line else "7px 64px 8px 12px"
         menu.setStyleSheet(
             f"QMenu {{ background: transparent; border: none; padding: {top + 4}px {right + 4}px "
             f"{bottom + 4}px {left + 4}px; }}"
             f"QMenu::item {{ padding: {item}; }}"
-            "QMenu::separator { height: 9px; }"
+            "QMenu::separator { height: 1px; margin: 4px 0px; }"
         )
+        # 样式表的下内边距 QMenu 不认（上下都按上边距算），最后一项会压到面板下沿外：差额用内容边距补
+        menu.setContentsMargins(0, 0, 0, bottom - top)
         if two_line:
             menu.setMinimumWidth(268 + left + right + 8)
         self._rows = motion.KeyedAnimator(self, menu.update)
@@ -377,6 +393,16 @@ class MenuFx(QObject):
                 painter.drawLine(QPointF(row.left() + 8, y), QPointF(row.right() - 8, y))
                 continue
             enabled = action.isEnabled()
+            if action.property("heading"):
+                # 菜单头（第几条 · 时间）：等宽小字，不可选
+                font = QFont(menu.font())
+                font.setFamilies(list(MONO_FAMILIES))
+                font.setPixelSize(11)
+                painter.setFont(font)
+                painter.setPen(QColor(COLORS.subtle))
+                painter.drawText(row.adjusted(12, 0, -12, 0), Qt.AlignmentFlag.AlignVCenter, action.text())
+                painter.setFont(menu.font())
+                continue
             on = enabled and action is active
             h = self._rows.value(id(action), 1.0 if on else 0.0, ITEM_IN if on else ITEM_OUT)
             paint_row(painter, row, h)
@@ -415,8 +441,14 @@ class MenuFx(QObject):
                 paint_check(painter, QPointF(trailing - 4, row.center().y()), COLORS.accent_ink)
                 trailing -= 20
             if shortcut:
+                # 快捷键：等宽 11px 浅字靠右（设计稿）
+                font = QFont(menu.font())
+                font.setFamilies(list(MONO_FAMILIES))
+                font.setPixelSize(11)
+                painter.setFont(font)
                 painter.setPen(QColor(COLORS.subtle if enabled else COLORS.disabled))
                 painter.drawText(QRectF(row.left(), row.top(), trailing - row.left(), row.height()),
                                  Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, shortcut)
+                painter.setFont(menu.font())
         painter.end()
         return True

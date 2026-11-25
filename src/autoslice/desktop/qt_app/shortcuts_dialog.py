@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QGridLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label
@@ -50,11 +50,26 @@ class ShortcutsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 18)
         layout.setSpacing(12)
+        # 两栏：左边播放与改时间轴，右边 AI、鼠标、其它；一栏排下来有 800 多像素高，矮屏上按钮会掉到屏幕外
+        columns = QHBoxLayout()
+        columns.setSpacing(32)
+        for groups in (SHORTCUT_GROUPS[:2], SHORTCUT_GROUPS[2:]):
+            columns.addLayout(self._column(groups), 1)
+        layout.addLayout(columns)
+        note = label("正在改字时，空格、Delete、Q、W、Ctrl+B 照常打字，不触发快捷键。", "subtle")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        close = QPushButton("知道了")
+        close.clicked.connect(self.close)
+        layout.addWidget(close, 0, Qt.AlignmentFlag.AlignRight)
+
+    @staticmethod
+    def _column(groups) -> QGridLayout:
         grid = QGridLayout()
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(6)
         row = 0
-        for group, items in SHORTCUT_GROUPS:
+        for group, items in groups:
             title = label(group, "cardTitle")
             if row:
                 title.setContentsMargins(0, 8, 0, 0)
@@ -70,10 +85,19 @@ class ShortcutsDialog(QDialog):
                 grid.addWidget(label(action, "muted"), row, 1)
                 row += 1
         grid.setColumnStretch(1, 1)
-        layout.addLayout(grid)
-        note = label("正在改字时，空格、Delete、Q、W、Ctrl+B 照常打字，不触发快捷键。", "subtle")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        close = QPushButton("知道了")
-        close.clicked.connect(self.close)
-        layout.addWidget(close, 0, Qt.AlignmentFlag.AlignRight)
+        grid.setRowStretch(row, 1)
+        return grid
+
+    def place_over(self, host) -> None:
+        """显示前按排好后的尺寸放到窗口正中，并收在屏幕可用区域里。
+
+        交给 Qt 首次显示时自己定位，用的是排版前的尺寸，会偏到窗口下半截、伸出屏幕。
+        """
+
+        self.adjustSize()
+        frame = self.frameGeometry()
+        frame.moveCenter(host.frameGeometry().center())
+        screen = (host.screen() or self.screen()).availableGeometry()
+        frame.moveLeft(max(screen.left(), min(frame.left(), screen.right() - frame.width())))
+        frame.moveTop(max(screen.top(), min(frame.top(), screen.bottom() - frame.height())))
+        self.move(frame.topLeft())

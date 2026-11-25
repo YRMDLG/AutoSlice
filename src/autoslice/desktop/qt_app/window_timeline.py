@@ -215,12 +215,15 @@ class TimelineMixin:
     def _show_edit_menu(self, position, *, global_position=False):
         menu = QMenu(self)
         effects = popups.MenuFx(menu)
+        # 面板宽 232（设计稿），加两侧投影留白
+        menu.setMinimumWidth(232 + popups.SHADOW[0] + popups.SHADOW[2])
         active = self.selection.active if self.selection.active is not None else self.selected_index
         entry = next((item for item in self.document.entries if item.index == active), None) if self.document else None
         if entry is not None:
             # 菜单头：第几条、开始时间；后面按设计稿：编辑、定位、拆分、与下一条合并、删除
             title = menu.addAction(f"第 {entry.index} 条 · {entry.start[:8]}")
             title.setEnabled(False)
+            title.setProperty("heading", True)
             menu.addAction("编辑文字", lambda: self._edit_cue_text(entry.index))
             menu.addAction("定位到这一句", lambda: self._seek_to(srt_timestamp_seconds(entry.start)))
         menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
@@ -233,8 +236,7 @@ class TimelineMixin:
         delete.setProperty("danger", True)
         menu.addSeparator()
         # 不常用的收进子菜单，菜单不再长过窗口
-        edits = menu.addMenu("裁剪与贴合")
-        popups.MenuFx(edits)
+        edits = popups.submenu(menu, "裁剪与贴合")
         edits.addAction("左裁到定位线 Q", self._trim_start)
         edits.addAction("右裁到定位线 W", self._trim_end)
         merge = edits.addAction("合并所选字幕", self._merge_selected)
@@ -247,8 +249,7 @@ class TimelineMixin:
         snap.setEnabled(bool(self.document) and bool(self.selection.selected))
         edits.addAction("全部字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=False)).setEnabled(
             bool(self.document))
-        listen = menu.addMenu("试听")
-        popups.MenuFx(listen)
+        listen = popups.submenu(menu, "试听")
         listen.addAction("试听这一句 F1", self._audition_current)
         listen.addAction("只播这一句 F4", self._audition_once)
         listen.addAction("试听开头", self._audition_start)
@@ -262,6 +263,8 @@ class TimelineMixin:
             self.timeline.mapToGlobal(position) if position is not None else self.cursor().pos()
         )
         effects.popup(anchor)
+        # 每次右键都新建一份，关掉就删，免得菜单越积越多
+        menu.deleteLater()
 
     def _show_shortcuts(self):
         dialog = getattr(self, "_shortcuts_dialog", None)
@@ -269,6 +272,8 @@ class TimelineMixin:
             from .shortcuts_dialog import ShortcutsDialog
 
             dialog = self._shortcuts_dialog = ShortcutsDialog(self)
+        if not dialog.isVisible():
+            dialog.place_over(self.window())
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()

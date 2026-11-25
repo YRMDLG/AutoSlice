@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.archive import ArchiveService, Proposal, ScanOptions, ScanProgress
-from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label
@@ -281,6 +281,7 @@ class ArchivePanel(QWidget):
 
     def _default_menu(self, paths: list[str]) -> QMenu:
         menu = QMenu(self)
+        popups.MenuFx(menu)
         for streamer, text in (
             ("", "不设置（认不出主播的投稿算“未识别”）"), *self.service.streamer_choices(),
         ):
@@ -291,7 +292,9 @@ class ArchivePanel(QWidget):
     def _choose_default(self) -> None:
         paths = self._selected_paths()
         if paths:
-            self._default_menu(paths).exec(self.default_button.mapToGlobal(QPoint(0, self.default_button.height())))
+            menu = self._default_menu(paths)
+            menu.exec(self.default_button.mapToGlobal(QPoint(0, self.default_button.height())))
+            menu.deleteLater()
 
     def _set_default(self, paths: list[str], streamer: str) -> None:
         for path in paths:
