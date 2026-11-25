@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview.icons import icon as desktop_icon
+from autoslice.desktop.qt_preview.theme import COLORS
 from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
@@ -44,6 +46,30 @@ class _FindKeys(QObject):
         return False
 
 
+class _InlineCount(QObject):
+    """查找框里的命中计数：放在输入框内右侧（设计稿），输入框给它让出右边距。"""
+
+    WIDTH = 64
+
+    def __init__(self, edit: QLineEdit, count) -> None:
+        super().__init__(edit)
+        self.edit, self.count = edit, count
+        count.setParent(edit)
+        count.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        count.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        edit.setTextMargins(0, 0, self.WIDTH, 0)
+        edit.installEventFilter(self)
+        self._place()
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize:
+            self._place()
+        return False
+
+    def _place(self) -> None:
+        self.count.setGeometry(self.edit.width() - self.WIDTH - 10, 0, self.WIDTH, self.edit.height())
+
+
 class FindReplaceMixin:
     def _build_find_toggle(self):
         button = QPushButton()
@@ -68,15 +94,15 @@ class FindReplaceMixin:
         keys = _FindKeys(self)
         find_row = QHBoxLayout()
         find_row.setSpacing(6)
+        # 设计稿：框内左边放大镜、右边等宽小字计数（无结果时红字），不带清除按钮
         self.find_input = QLineEdit()
         self.find_input.setPlaceholderText("查找字幕里的字")
-        self.find_input.setClearButtonEnabled(True)
+        self.find_input.addAction(desktop_icon("search", COLORS.subtle, 14), QLineEdit.ActionPosition.LeadingPosition)
         self.find_input.textChanged.connect(lambda _text: self._refind())
         self.find_input.installEventFilter(keys)
         find_row.addWidget(self.find_input, 1)
         self.find_count = label("", "mono")
-        self.find_count.setMinimumWidth(48)
-        find_row.addWidget(self.find_count)
+        self._find_count_place = _InlineCount(self.find_input, self.find_count)
         self.find_prev = QPushButton()
         self.find_next = QPushButton()
         for button, name, tip, step in ((self.find_prev, "chevron_up", "上一处（Shift+Enter）", -1),
@@ -101,6 +127,7 @@ class FindReplaceMixin:
         replace_row.setSpacing(6)
         self.replace_input = QLineEdit()
         self.replace_input.setPlaceholderText("替换为")
+        self.replace_input.addAction(desktop_icon("replace", COLORS.subtle, 14), QLineEdit.ActionPosition.LeadingPosition)
         self.replace_input.installEventFilter(keys)
         replace_row.addWidget(self.replace_input, 1)
         self.replace_one_button = QPushButton("替换")
