@@ -7,7 +7,19 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPoint,
+    QPointF,
+    QRect,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+    Signal,
+)
 from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QRadialGradient, QRegion
 from PySide6.QtWidgets import (
     QApplication,
@@ -442,6 +454,7 @@ class Toast(QWidget):
         row.addWidget(self.check)
         self.message = QLabel("")
         self.message.setObjectName("toastText")
+        self.message.setWordWrap(True)
         row.addWidget(self.message)
         self.undo_button = QPushButton("撤销")
         self.undo_button.setObjectName("primary")
@@ -464,12 +477,23 @@ class Toast(QWidget):
         host.installEventFilter(self)
         self.hide()
 
-    def show_message(self, text: str, undo=None, hold: int | None = None) -> None:
+    def show_message(self, text: str, undo=None, hold: int | None = None, level: str = "info") -> None:
+        """level：info 对勾；warning / error 换成感叹号并多停一会儿，长句自动折行。"""
+
         profile = motion.profile()
         self._undo_callback = undo
         self.message.setText(text)
         self.undo_button.setVisible(undo is not None)
-        self.check.setPixmap(desktop_icon("check", COLORS.accent_ink if STYLE.dark else COLORS.success, 14).pixmap(14, 14))
+        if level in ("warning", "error"):
+            glyph, color = "alert", COLORS.danger if level == "error" else COLORS.warning
+            hold = hold or profile.toast_hold * 2
+        else:
+            glyph, color = "check", COLORS.accent_ink if STYLE.dark else COLORS.success
+        self.check.setPixmap(desktop_icon(glyph, color, 14).pixmap(14, 14))
+        # 一行放得下就一行；超过上限才折行（折行的 QLabel 会按比例猜宽度，所以最小宽度给足）
+        limit = max(240, min(640, self.host.width() - 160))
+        self.message.setMaximumWidth(limit)
+        self.message.setMinimumWidth(min(limit, self.message.fontMetrics().horizontalAdvance(text) + 2))
         self.adjustSize()
         self._closing = False
         self.show()

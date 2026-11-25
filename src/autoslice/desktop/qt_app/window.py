@@ -34,8 +34,8 @@ from autoslice.desktop.jobs import BackgroundJob
 from autoslice.desktop.projects import SubmissionProject, SubmissionProjectService
 from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
-from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.shell import ProjectSwitch, SaveState
+from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import PreviewWindow, key_hint, label, tool_icon
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
@@ -143,7 +143,9 @@ class DesktopWindow(
         self._event_filter_busy = False
         self._table_pointer_selecting = False
         super().__init__()
-        self.cover_editor.status_changed.connect(self._show_transient_status)
+        self.cover_editor.status_changed.connect(self._cover_status)
+        # 封面页的警告和错误走顶部提示条，不在画布上方插横幅
+        self.cover_editor.notice_sink = self._cover_notice
         self.cover_editor.material_directory_changed.connect(self.settings_material_directory.setText)
         self.cover_editor.next_video_requested.connect(self._next_cover_video)
         self._timeline_side_pan = TimelineSidePanController(self.timeline, self)
@@ -478,8 +480,22 @@ class DesktopWindow(
             callback = (lambda: self._undo_to(snapshot)) if snapshot is not None else self._undo
         self.toast.show_message(message, undo=callback)
 
+    def _cover_status(self, text: str) -> None:
+        self._last_cover_status = text
+        self._show_transient_status(text)
+
+    def _cover_notice(self, text: str, level: str) -> None:
+        """封面页的警告 / 错误：弹顶部提示条；顶栏上封面自己刚报的进度（如“AI 正在……”）已过时，撤掉。"""
+
+        if self.app_status.text() and self.app_status.text() == getattr(self, "_last_cover_status", None):
+            self.app_status.setText("")
+        self.toast.show_message(text, level=level)
+
     def _show_transient_status(self, text: str, timeout: int = 3600) -> None:
         """显示短反馈；下一次真实后台状态会自然覆盖它。"""
+        if hasattr(self, "toast") and self.toast.isVisible() and self.toast.message.text() == text:
+            # 同一句已经在顶部提示条上，顶栏不再重复
+            return
         self.app_status.setText(text)
         QTimer.singleShot(timeout, lambda: self.app_status.setText("")
                           if self.app_status.text() == text else None)

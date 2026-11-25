@@ -261,6 +261,8 @@ class CoverLayoutMixin:
         self.notice_label.setWordWrap(True)
         self.notice_label.setVisible(False)
         root.addWidget(self.notice_label)
+        # 宿主窗口接管警告 / 错误时设成 (文字, 级别) 回调，见 _set_notice
+        self.notice_sink = None
         # 不显示：记录当前项目与视频名，供诊断和测试读取。
         self.project_label = QLabel("")
         self.video_label = QLabel("")
@@ -869,7 +871,11 @@ class CoverLayoutMixin:
         self._panel_visible = True
 
     def _set_notice(self, text: str = "", level: str = "info"):
-        """警告和错误用画布上方的提示条；例行进度只进状态栏，不让画布上下跳。"""
+        """警告和错误用画布上方的提示条；例行进度只进状态栏，不让画布上下跳。
+
+        嵌在桌面窗口里时（notice_sink 已设）警告和错误交给窗口顶部的提示条弹出（设计稿 ctoast），
+        这里只记下文字、不占布局，免得整页往下一推。
+        """
         text = str(text or "").strip()
         if level == "info":
             if text:
@@ -878,6 +884,12 @@ class CoverLayoutMixin:
         if not text:
             self.notice_label.clear()
             self.notice_label.setVisible(False)
+            return
+        sink = self.notice_sink
+        if sink is not None:
+            self.notice_label.setText(text)
+            self.notice_label.setVisible(False)
+            sink(text, level)
             return
         object_name = {
             "error": "coverNoticeError",

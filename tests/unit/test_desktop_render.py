@@ -333,7 +333,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.window._start_render()
         self.assertEqual(len(calls), 1)
         # 本用例只验证压制状态，隔离封面后台取帧对同一状态栏的独立写入。
-        self.window.cover_editor.status_changed.disconnect(self.window._show_transient_status)
+        self.window.cover_editor.status_changed.disconnect(self.window._cover_status)
         self.window._select_page(1)
         self.window._select_real_project(self.projects["项目乙"])
         self.wait_for(lambda: self.window.document is not None and
