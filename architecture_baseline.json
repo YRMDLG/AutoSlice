@@ -7963,7 +7963,7 @@
         "autoslice.desktop.qt_preview.theme.STYLE"
       ],
       "lines": [
-        46
+        47
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -7994,8 +7994,8 @@
         "autoslice.desktop.qt_preview.appearance.themed"
       ],
       "lines": [
-        191,
-        293
+        193,
+        295
       ],
       "to": "autoslice.desktop.qt_preview.appearance"
     },
@@ -8005,7 +8005,7 @@
         "autoslice.desktop.qt_preview.icons.icon"
       ],
       "lines": [
-        22
+        23
       ],
       "to": "autoslice.desktop.qt_preview.icons"
     },
@@ -8015,7 +8015,7 @@
         "autoslice.desktop.qt_preview.motion"
       ],
       "lines": [
-        21
+        22
       ],
       "to": "autoslice.desktop.qt_preview.motion"
     },
@@ -8025,7 +8025,7 @@
         "autoslice.desktop.qt_preview.popups.paint_panel"
       ],
       "lines": [
-        381
+        386
       ],
       "to": "autoslice.desktop.qt_preview.popups"
     },
@@ -8037,7 +8037,7 @@
         "autoslice.desktop.qt_preview.theme.STYLE"
       ],
       "lines": [
-        23
+        24
       ],
       "to": "autoslice.desktop.qt_preview.theme"
     },
@@ -11479,9 +11479,9 @@
       "qualname": "_find_relevant_topic_context_end"
     },
     {
-      "end_line": 861,
+      "end_line": 872,
       "kind": "function",
-      "line": 686,
+      "line": 697,
       "line_count": 176,
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
@@ -17073,20 +17073,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 482,
+      "line_count": 486,
       "longest_function": {
-        "end_line": 189,
+        "end_line": 190,
         "kind": "function",
         "line": 58,
-        "line_count": 132,
+        "line_count": 133,
         "qualname": "CoverAIMixin._ai_schemes"
       },
       "module": "autoslice.desktop.cover_editor_ai",
       "path": "src/autoslice/desktop/cover_editor_ai.py",
-      "sha256": "e0d14910fc498758a2e9f0e815badc215cf209193b4b472d5eb633f8c7b02ec3",
+      "sha256": "2b944ec95b7582cc940c0d0322db3e3ed9ee19636d485391fb9998cbf15a42e0",
       "top_level_classes": [
         {
-          "end_line": 482,
+          "end_line": 486,
           "kind": "class",
           "line": 57,
           "name": "CoverAIMixin"
@@ -17238,28 +17238,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1130,
+      "line_count": 1141,
       "longest_function": {
-        "end_line": 861,
+        "end_line": 872,
         "kind": "function",
-        "line": 686,
+        "line": 697,
         "line_count": 176,
         "qualname": "CoverLayoutMixin._build_text_panel"
       },
       "module": "autoslice.desktop.cover_editor_ui",
       "path": "src/autoslice/desktop/cover_editor_ui.py",
-      "sha256": "6432602406af0862c2063a515b3cf706d200b3bbf793619cc3b1e0b2071fd77e",
+      "sha256": "51d91e473bf33eef58183979cc0cbfd8edde16e45144f5a90db208e2badcd3a4",
       "top_level_classes": [
         {
-          "end_line": 1123,
+          "end_line": 1134,
           "kind": "class",
           "line": 71,
           "name": "CoverLayoutMixin"
         },
         {
-          "end_line": 1130,
+          "end_line": 1141,
           "kind": "class",
-          "line": 1126,
+          "line": 1137,
           "name": "_NoSqueezeWidget"
         }
       ],
@@ -19055,7 +19055,7 @@
       },
       "module": "autoslice.desktop.qt_app.window_ai",
       "path": "src/autoslice/desktop/qt_app/window_ai.py",
-      "sha256": "b39f9686890fb6c5fd31f719dd158d87c242c846e8310aeee884a0982199bf6d",
+      "sha256": "538378ccc8e9642a8958b892ee0a1a2bf68eac1ccb3cc34d545d287e9f4f71d7",
       "top_level_classes": [
         {
           "end_line": 896,
@@ -19124,7 +19124,7 @@
       },
       "module": "autoslice.desktop.qt_app.window_find",
       "path": "src/autoslice/desktop/qt_app/window_find.py",
-      "sha256": "2b807cb8901c437240efcd3a3c8dff64e8e083d7d50aff6000648b5c34c2b047",
+      "sha256": "d4e80640c92f585193565560541d7e0631c570a0f89080ae8437cc2889b498f4",
       "top_level_classes": [
         {
           "end_line": 44,
@@ -19343,7 +19343,7 @@
       },
       "module": "autoslice.desktop.qt_app.window_widgets",
       "path": "src/autoslice/desktop/qt_app/window_widgets.py",
-      "sha256": "3648d3b9519d076fb2242747bccc13768737132060b57e6b3931b420e5c5bc53",
+      "sha256": "2ddd56ed065a001fe4cdb2566538bada3df0788585cee3bd1deaa2254a1628cb",
       "top_level_classes": [
         {
           "end_line": 51,
@@ -19645,294 +19645,294 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 1347,
+      "line_count": 1365,
       "longest_function": {
-        "end_line": 443,
+        "end_line": 444,
         "kind": "function",
-        "line": 403,
+        "line": 404,
         "line_count": 41,
         "qualname": "ButtonFx._paint"
       },
       "module": "autoslice.desktop.qt_preview.motion",
       "path": "src/autoslice/desktop/qt_preview/motion.py",
-      "sha256": "8726239add5c9ba8ad0037725efef9d9c6cbbce95d5239d69a54cff6b751d90c",
+      "sha256": "eb764c93e70cda04c0ba5d274bea4780ef26340296523234034ec25bea03ba92",
       "top_level_classes": [
         {
-          "end_line": 111,
+          "end_line": 112,
           "kind": "class",
-          "line": 85,
+          "line": 86,
           "name": "Profile"
         },
         {
-          "end_line": 216,
+          "end_line": 217,
           "kind": "class",
-          "line": 206,
+          "line": 207,
           "name": "WheelGuard"
         },
         {
-          "end_line": 271,
+          "end_line": 272,
           "kind": "class",
-          "line": 240,
+          "line": 241,
           "name": "Channel"
         },
         {
-          "end_line": 322,
+          "end_line": 323,
           "kind": "class",
-          "line": 274,
+          "line": 275,
           "name": "KeyedAnimator"
         },
         {
-          "end_line": 534,
+          "end_line": 535,
           "kind": "class",
-          "line": 341,
+          "line": 342,
           "name": "ButtonFx"
         },
         {
-          "end_line": 606,
+          "end_line": 607,
           "kind": "class",
-          "line": 543,
+          "line": 544,
           "name": "SegmentedFx"
         },
         {
-          "end_line": 646,
+          "end_line": 647,
           "kind": "class",
-          "line": 609,
+          "line": 610,
           "name": "SplitterFx"
         },
         {
-          "end_line": 704,
+          "end_line": 705,
           "kind": "class",
-          "line": 649,
+          "line": 650,
           "name": "SliderFx"
         },
         {
-          "end_line": 726,
+          "end_line": 727,
           "kind": "class",
-          "line": 707,
+          "line": 708,
           "name": "_Ring"
         },
         {
-          "end_line": 758,
+          "end_line": 759,
           "kind": "class",
-          "line": 729,
+          "line": 730,
           "name": "InputFx"
         },
         {
-          "end_line": 800,
+          "end_line": 801,
           "kind": "class",
-          "line": 761,
+          "line": 762,
           "name": "ScrollFx"
         },
         {
-          "end_line": 844,
+          "end_line": 845,
           "kind": "class",
-          "line": 817,
+          "line": 818,
           "name": "_Fade"
         },
         {
-          "end_line": 959,
+          "end_line": 960,
           "kind": "class",
-          "line": 918,
+          "line": 919,
           "name": "ValueGlide"
         },
         {
-          "end_line": 1021,
+          "end_line": 1022,
           "kind": "class",
-          "line": 962,
+          "line": 963,
           "name": "_Entrance"
         },
         {
-          "end_line": 1075,
+          "end_line": 1076,
           "kind": "class",
-          "line": 1049,
+          "line": 1050,
           "name": "_Veil"
         },
         {
-          "end_line": 1103,
+          "end_line": 1104,
           "kind": "class",
-          "line": 1078,
+          "line": 1079,
           "name": "_WindowGhost"
         },
         {
-          "end_line": 1144,
+          "end_line": 1162,
           "kind": "class",
-          "line": 1106,
+          "line": 1107,
           "name": "DialogFx"
         },
         {
-          "end_line": 1156,
+          "end_line": 1174,
           "kind": "class",
-          "line": 1147,
+          "line": 1165,
           "name": "DialogWatcher"
         },
         {
-          "end_line": 1198,
+          "end_line": 1216,
           "kind": "class",
-          "line": 1159,
+          "line": 1177,
           "name": "ProgressFx"
         },
         {
-          "end_line": 1228,
+          "end_line": 1246,
           "kind": "class",
-          "line": 1201,
+          "line": 1219,
           "name": "_SheenLayer"
         },
         {
-          "end_line": 1271,
+          "end_line": 1289,
           "kind": "class",
-          "line": 1231,
+          "line": 1249,
           "name": "Skeleton"
         },
         {
-          "end_line": 1305,
+          "end_line": 1323,
           "kind": "class",
-          "line": 1282,
+          "line": 1300,
           "name": "_Pulse"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 68,
+          "end_line": 69,
           "kind": "function",
-          "line": 65,
+          "line": 66,
           "name": "_bezier"
         },
         {
-          "end_line": 81,
+          "end_line": 82,
           "kind": "function",
-          "line": 80,
+          "line": 81,
           "name": "spring"
         },
         {
-          "end_line": 135,
+          "end_line": 136,
           "kind": "function",
-          "line": 134,
+          "line": 135,
           "name": "profile"
         },
         {
-          "end_line": 154,
+          "end_line": 155,
           "kind": "function",
-          "line": 138,
+          "line": 139,
           "name": "restart"
         },
         {
-          "end_line": 163,
+          "end_line": 164,
           "kind": "function",
-          "line": 159,
+          "line": 160,
           "name": "enabled"
         },
         {
-          "end_line": 170,
+          "end_line": 171,
           "kind": "function",
-          "line": 166,
+          "line": 167,
           "name": "set_enabled"
         },
         {
-          "end_line": 187,
+          "end_line": 188,
           "kind": "function",
-          "line": 173,
+          "line": 174,
           "name": "_detect"
         },
         {
-          "end_line": 203,
+          "end_line": 204,
           "kind": "function",
-          "line": 190,
+          "line": 191,
           "name": "install_app"
         },
         {
-          "end_line": 227,
+          "end_line": 228,
           "kind": "function",
-          "line": 219,
+          "line": 220,
           "name": "mix"
         },
         {
-          "end_line": 233,
+          "end_line": 234,
           "kind": "function",
-          "line": 230,
+          "line": 231,
           "name": "faded"
         },
         {
-          "end_line": 237,
+          "end_line": 238,
           "kind": "function",
-          "line": 236,
+          "line": 237,
           "name": "ease"
         },
         {
-          "end_line": 328,
+          "end_line": 329,
           "kind": "function",
-          "line": 325,
+          "line": 326,
           "name": "_rounded"
         },
         {
-          "end_line": 338,
+          "end_line": 339,
           "kind": "function",
-          "line": 331,
+          "line": 332,
           "name": "_edge_pen"
         },
         {
-          "end_line": 540,
+          "end_line": 541,
           "kind": "function",
-          "line": 537,
+          "line": 538,
           "name": "flat_hover"
         },
         {
-          "end_line": 814,
+          "end_line": 815,
           "kind": "function",
-          "line": 803,
+          "line": 804,
           "name": "smooth_scroll"
         },
         {
-          "end_line": 861,
+          "end_line": 862,
           "kind": "function",
-          "line": 847,
+          "line": 848,
           "name": "crossfade"
         },
         {
-          "end_line": 870,
+          "end_line": 871,
           "kind": "function",
-          "line": 864,
+          "line": 865,
           "name": "fade_out_snapshot"
         },
         {
-          "end_line": 896,
+          "end_line": 897,
           "kind": "function",
-          "line": 873,
+          "line": 874,
           "name": "fade_in"
         },
         {
-          "end_line": 910,
+          "end_line": 911,
           "kind": "function",
-          "line": 899,
+          "line": 900,
           "name": "reveal"
         },
         {
-          "end_line": 915,
+          "end_line": 916,
           "kind": "function",
-          "line": 913,
+          "line": 914,
           "name": "stagger_in"
         },
         {
-          "end_line": 1037,
+          "end_line": 1038,
           "kind": "function",
-          "line": 1024,
+          "line": 1025,
           "name": "page_enter"
         },
         {
-          "end_line": 1046,
+          "end_line": 1047,
           "kind": "function",
-          "line": 1040,
+          "line": 1041,
           "name": "_inside_card"
         },
         {
-          "end_line": 1279,
+          "end_line": 1297,
           "kind": "function",
-          "line": 1274,
+          "line": 1292,
           "name": "pulse"
         },
         {
-          "end_line": 1339,
+          "end_line": 1357,
           "kind": "function",
-          "line": 1308,
+          "line": 1326,
           "name": "install_tree"
         }
       ]
@@ -20017,72 +20017,72 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 526,
+      "line_count": 531,
       "longest_function": {
-        "end_line": 434,
+        "end_line": 439,
         "kind": "function",
-        "line": 401,
+        "line": 406,
         "line_count": 34,
         "qualname": "Toast.__init__"
       },
       "module": "autoslice.desktop.qt_preview.shell",
       "path": "src/autoslice/desktop/qt_preview/shell.py",
-      "sha256": "9d6924828bd69e125dc40b89e8ff4462832322f9c75d15b727c5b765f963ea36",
+      "sha256": "217c41464f1069433507a680268d9bfaadb95b127481db3f19ef7de8beb6577b",
       "top_level_classes": [
         {
-          "end_line": 66,
+          "end_line": 67,
           "kind": "class",
-          "line": 32,
+          "line": 33,
           "name": "Surface"
         },
         {
-          "end_line": 148,
+          "end_line": 150,
           "kind": "class",
-          "line": 69,
+          "line": 70,
           "name": "Card"
         },
         {
-          "end_line": 162,
+          "end_line": 164,
           "kind": "class",
-          "line": 151,
+          "line": 153,
           "name": "Divider"
         },
         {
-          "end_line": 201,
+          "end_line": 203,
           "kind": "class",
-          "line": 165,
+          "line": 167,
           "name": "NavItem"
         },
         {
-          "end_line": 266,
+          "end_line": 268,
           "kind": "class",
-          "line": 204,
+          "line": 206,
           "name": "TaskRing"
         },
         {
-          "end_line": 302,
+          "end_line": 304,
           "kind": "class",
-          "line": 269,
+          "line": 271,
           "name": "ProjectSwitch"
         },
         {
-          "end_line": 390,
+          "end_line": 395,
           "kind": "class",
-          "line": 305,
+          "line": 307,
           "name": "Popover"
         },
         {
-          "end_line": 525,
+          "end_line": 530,
           "kind": "class",
-          "line": 393,
+          "line": 398,
           "name": "Toast"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 29,
+          "end_line": 30,
           "kind": "function",
-          "line": 26,
+          "line": 27,
           "name": "_rounded"
         }
       ]
@@ -28711,7 +28711,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 1052,
-    "production_line_count": 81948,
+    "production_line_count": 81986,
     "production_module_count": 325,
     "test_private_patch_count": 17,
     "top_level_class_count": 364,

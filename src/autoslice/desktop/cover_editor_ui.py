@@ -634,6 +634,17 @@ class CoverLayoutMixin:
             self.scheme_buttons.append(button)
             self.scheme_labels.append(caption)
         section.addLayout(scheme_row)
+        # AI 方案生成中：三块骨架屏扫光占位，结果出来后收起
+        self.ai_skeletons = QWidget()
+        skeleton_row = QHBoxLayout(self.ai_skeletons)
+        skeleton_row.setContentsMargins(0, 2, 0, 2)
+        skeleton_row.setSpacing(8)
+        for order in range(3):
+            block = motion.Skeleton(delay=order * 120)
+            block.setFixedHeight(60)
+            skeleton_row.addWidget(block)
+        self.ai_skeletons.hide()
+        section.addWidget(self.ai_skeletons)
         self.ai_hint = QLabel("")
         self.ai_hint.setObjectName("subtle")
         self.ai_hint.setWordWrap(True)

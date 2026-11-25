@@ -8,8 +8,9 @@ from __future__ import annotations
 import time
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QRadialGradient, QRegion
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -83,13 +84,23 @@ class Card(QWidget):
     def lift(self) -> float:
         return self._hover.value
 
+    def _edge(self) -> QRegion:
+        """描边那一圈：跟随光只改这里，卡片里的表格、时间轴不用跟着重画。"""
+
+        band = 3
+        outer = QRegion(self.rect())
+        return outer.subtracted(QRegion(self.rect().adjusted(band, band, -band, -band)))
+
     def _changed(self) -> None:
-        self.update()
-        if STYLE.card_shadow:
+        if STYLE.dark:
+            self.update(self._edge())
+        elif STYLE.card_shadow:
+            # 晨雾悬停只加深卡片外的投影，卡片本身不重画
             surface = self._surface()
             if surface is not None:
                 origin = self.mapTo(surface, QPoint(0, 0))
-                surface.update(QRect(origin, self.size()).adjusted(-24, -8, 24, 40))
+                around = QRegion(QRect(origin, self.size()).adjusted(-24, -8, 24, 40))
+                surface.update(around.subtracted(QRegion(QRect(origin, self.size()).adjusted(2, 2, -2, -2))))
 
     def _surface(self) -> QWidget | None:
         parent = self.parentWidget()
@@ -101,7 +112,7 @@ class Card(QWidget):
         position = QPointF(self.mapFromGlobal(QCursor.pos()))
         if position != self._cursor:
             self._cursor = position
-            self.update()
+            self.update(self._edge())
 
     def enterEvent(self, event) -> None:
         self._hover.to(1.0, motion.profile().hover_in * 3)
@@ -123,15 +134,6 @@ class Card(QWidget):
         path = _rounded(rect, radius)
         painter.fillPath(path, QColor(COLORS.card))
         h = self._hover.value
-        if STYLE.dark and self.spotlight and h > 0.01 and self._cursor.x() > -900:
-            # 卡片内一圈极淡的跟随光，再把描边在光标附近提亮
-            glow = QRadialGradient(self._cursor, 460)
-            inner = QColor(COLORS.accent)
-            inner.setAlphaF(0.04 * h)
-            glow.setColorAt(0.0, inner)
-            inner.setAlphaF(0.0)
-            glow.setColorAt(0.65, inner)
-            painter.fillPath(path, glow)
         painter.setPen(QPen(QColor(COLORS.card_border), 1))
         painter.drawPath(path)
         if STYLE.dark:
@@ -367,8 +369,11 @@ class Popover(QWidget):
 
     def hideEvent(self, event) -> None:
         self._closing = False
-        self.setWindowOpacity(1.0)
         super().hideEvent(event)
+        if QApplication.closingDown():
+            # 退出时随窗口一起销毁：不再改透明度、不发信号，免得碰到已经拆掉的控件
+            return
+        self.setWindowOpacity(1.0)
         self.closed.emit()
 
     def keyPressEvent(self, event) -> None:

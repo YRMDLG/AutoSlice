@@ -70,6 +70,7 @@ class CoverAIMixin:
         streamer = streamer_key(project.title) or ""
         self.ai_scheme_button.setEnabled(False)
         self.ai_hint.setVisible(False)
+        self.ai_skeletons.show()
         self._set_notice("AI 正在保留你的文字、检查画面并优化排版…" if not rewrite else "AI 正在比较当前文案和标题，复核新文案并优化排版…", "info")
 
         locked = bool(document.source.frame_locked)
@@ -192,6 +193,7 @@ class CoverAIMixin:
         if generation != self._ai_generation:
             return
         self.ai_scheme_button.setEnabled(self.document is not None)
+        self.ai_skeletons.hide()
         if original is not None and self.document is not None and (
             original.objects != self.document.objects or original.profiles != self.document.profiles
             or original.source != self.document.source
@@ -212,6 +214,8 @@ class CoverAIMixin:
         # 本地方案若还在生成，结果作废；先清空卡片（AI 可能少于三张），再换成 AI 挑中的。
         self._clear_schemes()
         self._schemes_ready(self._scheme_generation, (schemes, thumbnails), None)
+        motion.stagger_in([button for button in self.scheme_buttons if button.isVisible()],
+                          motion.profile().row_enter)
         self._ai_scheme_states = (original,) if original is not None else ()
         self.scheme_title.setText("AI 方案")
         # 只有用户明确允许、且独立复核通过的文案才进入轮换。
