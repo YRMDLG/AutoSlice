@@ -15,7 +15,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtGui import Qt as GuiQt
 from PySide6.QtWidgets import QDialogButtonBox, QLabel, QMessageBox, QPushButton, QSpacerItem
 
-from . import popups
+from .panel import paint_panel
 from .theme import COLORS, STYLE
 
 # 投影留白：左、上、右、下（光源在上，下侧多留）
@@ -151,7 +151,7 @@ class MessageSkin(QObject):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         left, top, right, bottom = SHADOW
         card = QRectF(box.rect()).adjusted(left + .5, top + .5, -right - .5, -bottom - .5)
-        popups.paint_panel(painter, card, STYLE.dialog_radius, fill=COLORS.dialog)
+        paint_panel(painter, card, STYLE.dialog_radius, fill=COLORS.dialog)
         label = box.findChild(QLabel, "qt_msgbox_label")
         if self.has_title and label is not None and label.isVisible():
             geometry = label.geometry()
