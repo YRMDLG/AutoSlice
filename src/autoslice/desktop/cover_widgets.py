@@ -14,7 +14,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QColorDialog,
-    QPlainTextEdit,
     QPushButton,
     QStyle,
     QStyleOptionButton,
@@ -26,10 +25,11 @@ from autoslice_cover.document_render import rgba
 
 from .cover_color_palette import CoverColorMenu
 from .cover_style import StylePreset
+from .qt_preview.ime import ImeTextEdit
 
 
-class _TitleEdit(QPlainTextEdit):
-    """允许手动换行，并保留旧测试/调用方使用的 ``text()``。"""
+class _TitleEdit(ImeTextEdit):
+    """允许手动换行，并保留旧测试/调用方使用的 ``text()``；输入法候选窗对准光标。"""
 
     def text(self) -> str:
         return self.toPlainText()

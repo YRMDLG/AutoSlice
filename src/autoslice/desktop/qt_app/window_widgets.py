@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview.ime import ImeTextEdit
 from autoslice.desktop.qt_preview.theme import COLORS, MONO_FAMILIES, SIZES, STYLE
 from autoslice.desktop.subtitles import SubtitleDocument
 
@@ -606,8 +607,8 @@ class SubtitleTableModel(QAbstractTableModel):
         return True
 
 
-class InlineSubtitleEditor(QPlainTextEdit):
-    """字幕正文专用 editor：明确支持鼠标拖选局部文字。"""
+class InlineSubtitleEditor(ImeTextEdit):
+    """字幕正文专用 editor：明确支持鼠标拖选局部文字；输入法候选窗对准光标（见 ImeTextEdit）。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -840,7 +841,7 @@ class SubtitleTextDelegate(QStyledItemDelegate):
             self._edit_before[self._key(index)] = index.model().entry_at(index.row()).text
         except (AttributeError, IndexError):
             pass
-        editor = QPlainTextEdit(parent)
+        editor = ImeTextEdit(parent)
         _prepare_inline_editor(editor, option.font)
         editor.setProperty("autoslice_editor_initialised", False)
         editor.installEventFilter(parent.window())

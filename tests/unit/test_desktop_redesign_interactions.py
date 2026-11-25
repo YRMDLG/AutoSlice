@@ -261,6 +261,18 @@ class RedesignInteractionTests(unittest.TestCase):
         editor.status_changed.emit("还没配置 AI 接口：到设置页填写地址、密钥和模型")
         self.assertEqual(window.app_status.text(), "")
 
+    def test_ime_cursor_rect_points_at_the_caret(self):
+        # QPlainTextEdit 原样回答的是视口坐标，Qt 按整个输入框换算：候选窗偏左上一个内边距（10, 8）
+        from PySide6.QtCore import QPoint
+
+        window = self.window
+        window._edit_cue_text(2)
+        editor = window._active_subtitle_editor()
+        self.assertNotEqual(editor.viewport().pos(), QPoint(0, 0))
+        rect = editor.inputMethodQuery(Qt.InputMethodQuery.ImCursorRectangle)
+        caret = editor.viewport().mapTo(editor, editor.cursorRect().topLeft())
+        self.assertEqual(rect.toRect().topLeft(), caret)
+
     def test_skipped_draft_explains_in_words_not_status_codes(self):
         from autoslice.desktop.qt_app.window_projects import _DRAFT_SKIPPED
 

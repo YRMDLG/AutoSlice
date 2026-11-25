@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
 )
@@ -38,6 +37,7 @@ from .cover_fixes import apply_fix_profiles, describe_state, describe_text_layer
 from .cover_model import TextObject, object_for_profile
 from .cover_style import streamer_key
 from .qt_preview import motion
+from .qt_preview.ime import ImeTextEdit
 
 # “AI 改一改”弹窗里改前、改后缩略图的宽度。
 _PREVIEW_WIDTH = 560
@@ -293,7 +293,7 @@ class CoverAIMixin:
             edit = QLineEdit(title)
             layout.addLayout(copy_row(edit, edit.text))
         layout.addWidget(QLabel("简介"))
-        description = QPlainTextEdit(result.description)
+        description = ImeTextEdit(result.description)
         description.setMaximumHeight(110)
         layout.addLayout(copy_row(description, description.toPlainText))
         layout.addWidget(QLabel("标签（逗号分隔，B 站里一个一个加）"))
