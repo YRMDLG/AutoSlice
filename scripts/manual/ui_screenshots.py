@@ -77,6 +77,23 @@ def _make_project(root: Path) -> Path:
     return root / "投稿"
 
 
+def _demo_suggestions(window) -> None:
+    """本地示例建议（不调 AI、不落盘）：让截图里能看到选中行下面展开的“建议改为”。"""
+
+    from autoslice.desktop.ai_review import AIReviewSession, Suggestion, document_hash
+
+    entries = window.document.entries
+    picks = ((2, "编", "遍", "错字"), (5, "饶", "绕", "同音字"), (7, "再", "在", "错字"))
+    suggestions = [
+        Suggestion(f"demo-{index}", entries[index].index, entries[index].text,
+                   entries[index].text.replace(old, new), reason, 0.9)
+        for index, old, new, reason in picks if index < len(entries) and old in entries[index].text
+    ]
+    window.ai_session = AIReviewSession(suggestions, "demo", document_hash(entries), local_only=True)
+    window._render_ai()
+    window._select_ai(suggestions[1].suggestion_id if len(suggestions) > 1 else suggestions[0].suggestion_id)
+
+
 def _settle(app, seconds: float = 0.6) -> None:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -126,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
                 _settle(app, 0.2)
             _settle(app, 1.5)
             if window.document is not None and window.document.entries:
+                _demo_suggestions(window)
                 window._select_cue(window.document.entries[5].index)
             for theme in args.themes.split(","):
                 appearance.apply(app, appearance.Appearance.of(theme.strip()))

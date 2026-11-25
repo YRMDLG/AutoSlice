@@ -36,11 +36,13 @@ class MotionProfileTests(unittest.TestCase):
         self.assertGreater(morning.card_shift, night.card_shift)
         self.assertGreater(morning.menu_open, night.menu_open)
         self.assertTrue(morning.menu_clip)
-        # 不拖慢操作：最长的入场也在 1 秒内
+        # 入场时长按设计稿（D-044）：夜航卡片 440ms、间隔 35ms；晨雾雾散 1200ms、卡片 900ms、间隔 80ms。
+        # 入场只是视觉，页面一出现就能操作；悬停反馈仍要快
+        self.assertEqual((night.card_enter, night.card_stagger, night.mist), (440, 35, 0))
+        self.assertEqual((morning.card_enter, morning.card_stagger, morning.mist), (900, 80, 1200))
         for value in (night, morning):
-            self.assertLessEqual(value.card_enter + value.card_stagger * 5, 1000)
-            self.assertLessEqual(value.mist, 1000)
             self.assertLessEqual(value.hover_in, 160)
+            self.assertLessEqual(value.row_enter, 460)
 
     def test_menu_rows_appear_in_order(self):
         for name in ("night", "morning"):
