@@ -510,10 +510,14 @@ class ButtonFx(QObject):
             join = self.button.property("join")
             if join in ("left", "right"):
                 painter.save()
-                keep = rect.adjusted(-2, -2, -1.0 if join == "right" else 2, 2)
-                if join == "left":
-                    keep = rect.adjusted(1.0, -2, 2, 2)
-                painter.setClipRect(keep)
+                # 只挖掉接缝处那一道竖线，上下两条横线照常连到边缘
+                width = float(self.button.width())
+                x = width - 2.0 if join == "right" else 0.0
+                keep = QPainterPath()
+                keep.addRect(QRectF(-2, -2, width + 4, rect.height() + 4))
+                seam = QPainterPath()
+                seam.addRect(QRectF(x, rect.top() + 2.0, 2.0, rect.height() - 4.0))
+                painter.setClipPath(keep.subtracted(seam))
                 painter.drawPath(path)
                 painter.restore()
             else:
