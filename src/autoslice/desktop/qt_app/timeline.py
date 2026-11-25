@@ -280,7 +280,11 @@ class SubtitleTimeline(QWidget):
         if center and self.document:
             entry = next((item for item in self.document.entries if item.index == index), None)
             if entry:
-                self.glide_to(srt_timestamp_seconds(entry.start))
+                start, end = srt_timestamp_seconds(entry.start), srt_timestamp_seconds(entry.end)
+                left = self._view_start()
+                # 和定位线跟随同一规则：已经在视野中段就不挪，免得短视频里视野来回抖零点几秒
+                if start < left + self.span * .2 or end > left + self.span * .8:
+                    self.glide_to(start)
                 self._manual_pan = False
         self.update()
 

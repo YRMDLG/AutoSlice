@@ -44,6 +44,7 @@ from .window_widgets import (
     ROW_SIDE,
     TIME_TOP,
     InlineSubtitleEditor,
+    NoteLabel,
     SelectionFrame,
     SubtitleTableModel,
     SubtitleTextDelegate,
@@ -169,7 +170,10 @@ class SubtitleListMixin:
         footer = QHBoxLayout()
         footer.setContentsMargins(18, 12, 18, 12)
         footer.setSpacing(12)
-        self.subtitle_hint = label("空格从选中句开头播放 · 右键可编辑、拆分、合并、删除 · 单击正文编辑", "hintLine")
+        # 右列窄时放不下：末尾省略、悬停看全句，不在半个字上硬裁
+        self.subtitle_hint = NoteLabel()
+        self.subtitle_hint.setObjectName("hintLine")
+        self.subtitle_hint.setText("空格从选中句开头播放 · 右键可编辑、拆分、合并、删除 · 单击正文编辑")
         footer.addWidget(self.subtitle_hint, 1)
         # 没有字幕时（未选项目、缺字幕、加载失败）右侧给一句说明；有字幕时数量和保存状态在顶栏和筛选上
         self.subtitle_status = label("请选择项目", "hintLine")

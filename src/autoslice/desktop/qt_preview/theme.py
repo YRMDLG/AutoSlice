@@ -412,7 +412,7 @@ def stylesheet() -> str:
         QDialog {{ background: {c.dialog}; }}
         QMessageBox {{ background: {c.dialog}; }}
         QPlainTextEdit#inlineTextEdit {{ background: {c.well}; color: {c.text}; border: 1px solid {c.accent}; border-radius: {radius}px; padding: 4px 6px; font-size: 15px; }}
-        QListWidget {{ background: {c.well}; border: 1px solid {c.control_border}; border-radius: {radius}px; padding: 4px; }}
+        QListWidget {{ background: {c.well}; border: 1px solid {c.control_border}; border-radius: {radius}px; padding: 4px; outline: 0; }}
         QListWidget::item {{ padding: 4px 2px; border-radius: 6px; }}
         QListWidget::item:hover {{ background: {c.hover}; }}
         QListWidget::item:selected {{ background: {c.row_selected}; color: {c.text}; border: 1px solid {c.accent_line}; }}

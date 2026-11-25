@@ -218,6 +218,56 @@ class RedesignInteractionTests(unittest.TestCase):
         window._commit_editor()
         self.assertEqual(header.sectionSize(row), with_suggestion)
 
+    # ── 实际操作走查第四轮（D-046）──
+    def test_edit_menu_submenus_keep_their_effects_and_menu_is_freed(self):
+        # 原来用 menu.addMenu("标题")：返回的包装一创建就失效，子菜单一弹就报“C++ 对象已删除”
+        import shiboken6
+        from PySide6.QtCore import QEvent, QPoint
+        from PySide6.QtWidgets import QMenu
+
+        from autoslice.desktop.qt_preview import popups
+
+        window = self.window
+        opened = []
+        with patch.object(popups.MenuFx, "popup", lambda fx, _position: opened.append(fx.menu)):
+            window._show_edit_menu(QPoint(10, 10))
+        menu = opened[0]
+        subs = [child for child in menu.children() if isinstance(child, QMenu)]
+        self.assertEqual({sub.title() for sub in subs}, {"裁剪与贴合", "试听"})
+        for sub in subs:
+            fx = next(child for child in sub.children() if isinstance(child, popups.MenuFx))
+            self.assertTrue(shiboken6.isValid(fx.menu))
+            self.assertIs(fx.menu, sub)
+        self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertFalse(shiboken6.isValid(menu), "菜单关掉后应删除，不随右键次数累积")
+
+    def test_cover_warning_goes_to_toast_without_pushing_the_page(self):
+        window = self.window
+        editor = window.cover_editor
+        window.app_status.setText("")
+        editor.status_changed.emit("AI 正在保留你的文字、检查画面并优化排版…")
+        self.assertIn("AI 正在", window.app_status.text())
+        editor._set_notice("还没配置 AI 接口：到设置页填写地址、密钥和模型", "error")
+        # 文字照记（诊断和测试读它），但不占布局；改由顶部提示条弹出，顶栏上过时的进度撤掉
+        self.assertIn("设置页", editor.notice_label.text())
+        self.assertFalse(editor.notice_label.isVisible())
+        self.assertTrue(window.toast.isVisible())
+        self.assertIn("设置页", window.toast.message.text())
+        self.assertEqual(window.app_status.text(), "")
+        # 一行放得下就不折行
+        metrics = window.toast.message.fontMetrics()
+        self.assertLess(window.toast.message.height(), metrics.lineSpacing() * 2)
+        # 同一句再走状态栏时不重复
+        editor.status_changed.emit("还没配置 AI 接口：到设置页填写地址、密钥和模型")
+        self.assertEqual(window.app_status.text(), "")
+
+    def test_skipped_draft_explains_in_words_not_status_codes(self):
+        from autoslice.desktop.qt_app.window_projects import _DRAFT_SKIPPED
+
+        for status in ("source_changed", "source_missing", "incompatible", "invalid"):
+            self.assertNotIn(status, _DRAFT_SKIPPED[status])
+            self.assertIn("草稿", _DRAFT_SKIPPED[status])
+
 
 if __name__ == "__main__":
     unittest.main()

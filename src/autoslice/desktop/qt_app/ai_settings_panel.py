@@ -278,6 +278,10 @@ class AISettingsPanel(QWidget):
             # 原来直接报“API 配置缺少 base_url：<文件路径>”，看不懂
             self.status.setText("先选服务商或填接口地址（例如 https://api.deepseek.com），再保存或测试连接。")
             return False
+        if not self.token_edit.text().strip() and not read_ai_settings().has_token:
+            # 原来报“API 配置缺少 token：<文件路径>”
+            self.status.setText("先填密钥，再保存或测试连接。")
+            return False
         try:
             path = save_ai_settings(
                 base_url=self.url_edit.text(), api_type=self.type_box.currentData(),

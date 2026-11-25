@@ -187,6 +187,18 @@ class AISettingsPanelTests(AISettingsTests):
         self.assertIn("接口地址", panel.status.text())
         self.assertNotIn("base_url", panel.status.text())
 
+    def test_empty_key_gets_a_plain_hint_instead_of_file_path(self):
+        # 第四轮实际操作（D-046）：选好服务商、没填密钥点“测试连接”，提示“没保存：API 配置缺少 token：<完整路径>”
+        from autoslice.desktop.qt_app.ai_settings_panel import AISettingsPanel
+
+        QApplication.instance() or QApplication([])
+        panel = AISettingsPanel(run=lambda action, callback: callback(action(), None))
+        self.addCleanup(panel.deleteLater)
+        panel.token_edit.setText("")
+        panel._test()
+        self.assertIn("先填密钥", panel.status.text())
+        self.assertNotIn("token", panel.status.text())
+
 
 if __name__ == "__main__":
     unittest.main()
