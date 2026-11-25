@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QFormLayout,
     QHBoxLayout,
@@ -25,7 +26,7 @@ from autoslice.desktop.ai_settings import (
     save_ai_settings,
     split_endpoint,
 )
-from autoslice.desktop.qt_preview import popups
+from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label
@@ -81,7 +82,31 @@ class AISettingsPanel(QWidget):
         for key, title, *_rest in PROVIDER_PRESETS:
             self.provider_box.addItem(title, key)
         self.provider_box.activated.connect(self._provider_chosen)
-        add_row("服务商", self.provider_box)
+        self.provider_segmented = QWidget()
+        self.provider_segmented.setObjectName("segmented")
+        self.provider_segmented.setFixedHeight(32)
+        segmented_row = QHBoxLayout(self.provider_segmented)
+        segmented_row.setContentsMargins(0, 3, 0, 3)
+        segmented_row.setSpacing(2)
+        self.provider_buttons: dict[str, QPushButton] = {}
+        provider_group = QButtonGroup(self)
+        provider_group.setExclusive(True)
+        for key, title, *_rest in PROVIDER_PRESETS:
+            button = QPushButton(title.split("（")[0])
+            button.setObjectName("segment")
+            button.setCheckable(True)
+            button.setProperty("motion", True)
+            button.setToolTip(title)
+            button.clicked.connect(lambda _checked=False, value=key: self._pick_provider(value))
+            provider_group.addButton(button)
+            self.provider_buttons[key] = button
+            segmented_row.addWidget(button)
+        segmented_row.addStretch(1)
+        motion.SegmentedFx(self.provider_segmented, tuple(self.provider_buttons.values()))
+        self.provider_box.currentIndexChanged.connect(self._sync_provider_buttons)
+        self.provider_box.setParent(self)
+        self.provider_box.hide()
+        add_row("服务商", self.provider_segmented)
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("如 https://api.deepseek.com，或中转的 https://…/v1")
         self.url_edit.editingFinished.connect(self._url_changed)
@@ -152,8 +177,10 @@ class AISettingsPanel(QWidget):
         self.http_check.setChecked(settings.allow_insecure_http)
         from_env = settings.source == "env"
         for widget in (self.provider_box, self.url_edit, self.type_box, self.token_edit, self.text_model_box,
-                       self.vision_model_box, self.models_button, self.http_check, self.save_button):
+                       self.vision_model_box, self.models_button, self.http_check, self.save_button,
+                       *self.provider_buttons.values()):
             widget.setEnabled(not from_env)
+        self._sync_provider_buttons()
         if from_env:
             self.status.setText("当前由环境变量 AUTOSLICE_API_* 配置，这里只读。")
         elif settings.error:
@@ -161,6 +188,15 @@ class AISettingsPanel(QWidget):
         else:
             self.status.setText("已配置，可点“测试连接”。" if settings.configured else "还没配置。")
         self._update_http_warning()
+
+    def _pick_provider(self, key: str) -> None:
+        self.provider_box.setCurrentIndex(max(0, self.provider_box.findData(key)))
+        self._provider_chosen()
+
+    def _sync_provider_buttons(self, _index=None) -> None:
+        button = self.provider_buttons.get(self.provider_box.currentData())
+        if button is not None and not button.isChecked():
+            button.setChecked(True)
 
     def focus_first_missing(self) -> None:
         """从别处跳过来时，光标放到还没填的那一格（预设已填地址时通常是密钥）。"""

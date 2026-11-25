@@ -37,6 +37,9 @@ _PATHS = {
               '<circle cx="7.25" cy="8" r="1.25"/>'
               '<path d="m3 14.5 3.75-3.25 2.75 2.25 3-3.25 4.5 4.75"/>'),
     "settings": _gear(),
+    # 导航“设置”用滑杆（设计稿），其它“去设置”按钮仍用齿轮
+    "sliders": ('<path d="M3.5 5.8h8.2M15 5.8h1.5M3.5 14.2h3.3M10 14.2h6.5"/>'
+                '<circle cx="13.3" cy="5.8" r="1.7"/><circle cx="8.4" cy="14.2" r="1.7"/>'),
     "play": '<path d="M6.75 4.75v10.5L15.5 10z" fill="{c}"/>',
     "pause": ('<rect x="5.25" y="4.75" width="2.5" height="10.5" rx="0.75" fill="{c}" stroke="none"/>'
               '<rect x="12.25" y="4.75" width="2.5" height="10.5" rx="0.75" fill="{c}" stroke="none"/>'),

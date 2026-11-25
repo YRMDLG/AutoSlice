@@ -120,6 +120,35 @@ class MotionProfileTests(unittest.TestCase):
         self.assertEqual(dialog.windowOpacity(), 1.0)
         window.close()
 
+    def test_dialog_created_inside_qt_still_fades_in_after_garbage_collection(self):
+        # QMessageBox.question 的对话框由 Qt 内部创建，没有常驻 Python 包装；动效对象若被回收，
+        # 对话框会停在全透明、只剩遮罩（2026-11-26 实机发现）
+        import gc
+
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QMessageBox
+
+        motion.set_enabled(True)
+        motion.install_app(self.app)
+        window = QMainWindow()
+        window.resize(500, 400)
+        window.show()
+        seen = {}
+
+        def inspect():
+            gc.collect()
+            _wait(self.app, motion.profile().dialog_open / 1000 + 0.3)
+            box = next(widget for widget in QApplication.topLevelWidgets()
+                       if isinstance(widget, QMessageBox) and widget.isVisible())
+            seen["opacity"] = box.windowOpacity()
+            box.done(int(QMessageBox.StandardButton.No))
+
+        QTimer.singleShot(0, inspect)
+        QMessageBox.question(window, "恢复字幕草稿", "发现未正式保存的字幕草稿。是否恢复？")
+        _wait(self.app, 0.3)
+        self.assertEqual(seen.get("opacity"), 1.0)
+        window.close()
+
     def test_skeleton_and_pulse_render_without_errors(self):
         motion.set_enabled(True)
         host = QWidget()

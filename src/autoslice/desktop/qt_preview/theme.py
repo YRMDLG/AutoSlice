@@ -510,6 +510,13 @@ def stylesheet() -> str:
         QPushButton[hasMenu="true"] {{ padding-right: 22px; }}
         QPushButton::menu-indicator {{ image: url("{arrow}"); width: 10px; height: 10px; subcontrol-origin: padding; subcontrol-position: center right; right: 7px; }}
         QWidget#settingsCard {{ background: {c.card}; border: 1px solid {c.card_border}; border-radius: {s.card_radius}px; }}
+        QWidget#settingsCard[section="true"] {{ background: transparent; border: none; }}
+        QWidget#settingsBox {{ background: transparent; border: 1px solid {c.block_border}; border-radius: 12px; }}
+        QWidget#settingsRow {{ background: transparent; }}
+        QFrame#rowLine {{ background: {c.divider}; border: none; min-height: 1px; max-height: 1px; }}
+        QLabel#sectionHeading {{ font-size: 14px; font-weight: {"500" if STYLE.dark else "600"}; }}
+        QLabel#sectionNote {{ color: {c.muted}; font-size: 12px; }}
+        QLabel#monoPath {{ font-family: {mono_font}; font-size: 12px; color: {c.text}; }}
         QLabel#cardTitle {{ font-size: 14px; font-weight: 600; }}
         QLabel#formLabel {{ color: {c.muted}; }}
         QWidget#segmented {{ background: transparent; border: none; }}
@@ -566,6 +573,13 @@ def stylesheet() -> str:
         QTableView::item:selected {{ background: transparent; color: {c.text}; }}
         QTableView::item:selected:hover {{ background: transparent; color: {c.text}; }}
         QHeaderView::section {{ background: {c.card}; color: {c.subtle}; border: none; border-bottom: 1px solid {c.divider}; padding: 4px 3px; font-size: {m.text_small}px; font-weight: 500; }}
+        QAbstractSpinBox QLineEdit {{ background: transparent; border: none; padding: 0; border-radius: 0; }}
+        QComboBox#quietCombo {{ background: transparent; border: 1px solid transparent; color: {c.muted}; font-size: 12px; padding: 4px 8px; }}
+        QComboBox#quietCombo:hover {{ background: {c.hover}; border-color: transparent; color: {c.text}; }}
+        QPushButton#menuRow, QPushButton#projectOption {{ background: transparent; border: none; text-align: left; }}
+        QPushButton#projectOption {{ padding: 0; min-height: 48px; max-height: 48px; }}
+        QPushButton#menuRow {{ color: {c.muted}; font-size: 12px; padding: 0 10px; border-radius: 8px; }}
+        QPushButton#menuRow:hover {{ background: {c.hover}; color: {c.text}; }}
         QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {c.focus_ring}; }}
         QLineEdit:disabled, QTextEdit:disabled {{ color: {c.disabled}; background: transparent; }}
         QMenu {{ background: {c.overlay}; border: 1px solid {c.overlay_border}; padding: 6px; }}

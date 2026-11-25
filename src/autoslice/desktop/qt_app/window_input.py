@@ -153,10 +153,10 @@ class InputRoutingMixin:
         if key == Qt.Key.Key_Backtab or (key == Qt.Key.Key_Tab and modifiers == Qt.KeyboardModifier.ShiftModifier):
             self._step_subtitle(-1, edit=True)
             return True
-        if key == Qt.Key.Key_Up and plain and cursor.blockNumber() == 0:
+        if key == Qt.Key.Key_Up and plain and _on_edge_line(editor, cursor, first=True):
             self._step_subtitle(-1, edit=True)
             return True
-        if key == Qt.Key.Key_Down and plain and cursor.blockNumber() == editor.blockCount() - 1:
+        if key == Qt.Key.Key_Down and plain and _on_edge_line(editor, cursor, first=False):
             self._step_subtitle(1, edit=True)
             return True
         if key == Qt.Key.Key_Z and modifiers == Qt.KeyboardModifier.ControlModifier:
@@ -184,3 +184,19 @@ class InputRoutingMixin:
         else:
             return False
         return True
+
+
+def _on_edge_line(editor, cursor, *, first: bool) -> bool:
+    """光标是否在编辑框的第一 / 最后一个可见行（编辑框按宽度换行，不能只看段落号）。"""
+
+    block = cursor.block()
+    layout = block.layout()
+    line = layout.lineForTextPosition(cursor.positionInBlock()) if layout is not None else None
+    if line is None or not line.isValid():
+        visual_first = visual_last = True
+    else:
+        visual_first = line.lineNumber() == 0
+        visual_last = line.lineNumber() == layout.lineCount() - 1
+    if first:
+        return cursor.blockNumber() == 0 and visual_first
+    return cursor.blockNumber() == editor.blockCount() - 1 and visual_last

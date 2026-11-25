@@ -35,12 +35,20 @@ from autoslice.desktop.qt_preview.window import label
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 from .window_widgets import (
+    EDIT_BAR_HEIGHT,
+    EDIT_BAR_TOP,
+    EDIT_HINT_HEIGHT,
+    EDIT_HINT_TOP,
+    EDIT_PAD_X,
+    EDIT_ROW_HEIGHT,
+    ROW_SIDE,
     TIME_TOP,
     InlineSubtitleEditor,
     SelectionFrame,
     SubtitleTableModel,
     SubtitleTextDelegate,
     _prepare_inline_editor,
+    short_span,
 )
 
 
@@ -219,6 +227,8 @@ class SubtitleListMixin:
                 )
         finally:
             self._syncing_selection = False
+        if hasattr(self, "_follow_ai_selection"):
+            self._follow_ai_selection()
 
     def _table_native_selection_changed(self, _selected, _deselected):
         if self._syncing_selection or self.document is None or self._table_pointer_selecting:
@@ -321,13 +331,17 @@ class SubtitleListMixin:
         )
         self._inline_editor = editor
         self._inline_editor_index = index
-        # 记下改字前的字幕，提示条“撤销”一次撤回整次修改
-        self._inline_before = (self.model.entry_at(index.row()).index,
-                               tuple(self.document.entries) if self.document else None)
-        # 改字时先收起这一行下面的建议，编辑框只占原行高
+        entry = self.model.entry_at(index.row())
+        # 记下改字前的字幕，提示条“撤销”一次撤回整次修改；“取消”按钮恢复原文
+        self._inline_before = (entry.index, tuple(self.document.entries) if self.document else None)
+        self._inline_original_text = entry.text
+        self.subtitle_delegate.editing_cue = entry.index
+        editor.textChanged.connect(self._refresh_inline_edit_meta)
+        # 改字时先收起这一行下面的建议；这一行加高，下面放“完成 / 取消”
         self._place_inline_ai()
         self.table.setIndexWidget(index, editor)
         editor.show()
+        self._place_inline_edit()
         self._sync_shortcuts()
 
     def _focus_subtitle_editor(self, index, viewport_position=None):
@@ -391,6 +405,10 @@ class SubtitleListMixin:
             self.table.setFocus()
 
     def _is_subtitle_editor_widget(self, widget) -> bool:
+        # 编辑操作条（完成 / 取消）也算编辑框“里面”，点它们不先触发“点外面就提交”
+        bar = getattr(self, "inline_edit_bar", None)
+        if bar is not None and isinstance(widget, QWidget) and (widget is bar or bar.isAncestorOf(widget)):
+            return True
         current = widget
         while current is not None:
             if isinstance(current, QPlainTextEdit) and self.table.isAncestorOf(current):
@@ -486,6 +504,7 @@ class SubtitleListMixin:
         # hide/remove 会同步触发焦点变化，必须先结束编辑状态，避免快捷键一直禁用。
         self._inline_editor = None
         self._inline_editor_index = QModelIndex()
+        self.subtitle_delegate.editing_cue = None
         self._inline_drag_anchor = None
         editor.hide()
         self.table.setIndexWidget(index, None)
@@ -494,10 +513,113 @@ class SubtitleListMixin:
         self.table.viewport().update(self.table.visualRect(index))
         self._sync_shortcuts()
         self._place_inline_ai()
+        self._place_inline_edit()
         before = getattr(self, "_inline_before", None)
         self._inline_before = None
         if before and before[1] is not None and self.document and tuple(self.document.entries) != before[1]:
+            # 改字落定：整行闪一下（设计稿 edFlash / 晨雾 inkWash）
+            self.subtitle_delegate.effects.play(before[0], "flash")
             self._toast(f"已修改第 {before[0]} 条字幕", undo=True, snapshot=before[1])
+
+    def _cancel_editor(self):
+        """编辑条“取消”：恢复这句改字前的原文，再按正常流程收起编辑框。"""
+
+        editor = self._active_subtitle_editor()
+        original = getattr(self, "_inline_original_text", None)
+        if editor is not None and original is not None and editor.toPlainText() != original:
+            editor.setPlainText(original)
+        self._commit_editor()
+        self.table.setFocus()
+
+    def _finish_editor_from_bar(self):
+        self._commit_editor()
+        self.table.setFocus()
+
+    def _inline_edit_bar(self) -> QWidget:
+        """编辑中那一行下半截：完成 / 取消、时间 · 字数，和一行按键提示（设计稿 edrow）。"""
+
+        bar = getattr(self, "inline_edit_bar", None)
+        if bar is not None:
+            return bar
+        bar = QWidget(self.table.viewport())
+        bar.setObjectName("inlineEditBar")
+        column = QVBoxLayout(bar)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(EDIT_HINT_TOP - EDIT_BAR_TOP - EDIT_BAR_HEIGHT)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self.inline_edit_done = QPushButton("完成")
+        self.inline_edit_done.setObjectName("primary")
+        self.inline_edit_done.setFixedHeight(EDIT_BAR_HEIGHT)
+        self.inline_edit_done.setToolTip("确认这句并收起编辑框（Esc 同效）")
+        self.inline_edit_done.clicked.connect(self._finish_editor_from_bar)
+        row.addWidget(self.inline_edit_done)
+        self.inline_edit_cancel = QPushButton("取消")
+        self.inline_edit_cancel.setFixedHeight(EDIT_BAR_HEIGHT)
+        self.inline_edit_cancel.setToolTip("放弃这次修改，恢复原文")
+        self.inline_edit_cancel.clicked.connect(self._cancel_editor)
+        row.addWidget(self.inline_edit_cancel)
+        row.addStretch(1)
+        self.inline_edit_meta = label("", "mono")
+        self.inline_edit_meta.setMinimumWidth(0)
+        self.inline_edit_meta.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.inline_edit_meta.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.inline_edit_meta, 1)
+        column.addLayout(row)
+        self.inline_edit_hint = label("Enter 下一句 · Shift Enter 换行 · Esc 或点别处完成", "hintLine")
+        self.inline_edit_hint.setFixedHeight(EDIT_HINT_HEIGHT)
+        self.inline_edit_hint.setMinimumWidth(0)
+        self.inline_edit_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        column.addWidget(self.inline_edit_hint)
+        bar.hide()
+        motion.install_tree(bar)
+        self.inline_edit_bar = bar
+        return bar
+
+    def _refresh_inline_edit_meta(self) -> None:
+        editor = self._active_subtitle_editor()
+        index = self._editing_subtitle_index()
+        if editor is None or index is None or not index.isValid() or not hasattr(self, "inline_edit_meta"):
+            return
+        entry = self.model.entry_at(index.row())
+        count = len(editor.toPlainText().replace("\n", ""))
+        span = short_span(entry.start, entry.end)
+        if span.startswith("00:"):
+            span = span[3:]
+        self.inline_edit_meta.setText(f"{span} · {count} 字")
+
+    def _place_inline_edit(self) -> None:
+        """编辑中的那一行加高到设计稿编辑态高度，操作条贴在输入框下面；没在编辑就复原行高。"""
+
+        table = getattr(self, "table", None)
+        if table is None:
+            return
+        header = table.verticalHeader()
+        base = SIZES.subtitle_row_height
+        index = self._editing_subtitle_index()
+        row = index.row() if self._subtitle_editor_open() else -1
+        previous = getattr(self, "_inline_edit_row", -1)
+        rows = self.model.rowCount()
+        if (previous != row and 0 <= previous < rows and previous != getattr(self, "_ai_inline_row", -1)
+                and header.sectionSize(previous) != base):
+            header.resizeSection(previous, base)
+        self._inline_edit_row = row
+        bar = self._inline_edit_bar()
+        if row < 0:
+            bar.hide()
+            return
+        if header.sectionSize(row) != EDIT_ROW_HEIGHT:
+            header.resizeSection(row, EDIT_ROW_HEIGHT)
+        cell = table.visualRect(self.model.index(row, 2))
+        left = cell.left() - EDIT_PAD_X
+        width = max(80, cell.width() - ROW_SIDE + EDIT_PAD_X)
+        bar.setGeometry(left, cell.top() + EDIT_BAR_TOP, width,
+                        EDIT_HINT_TOP + EDIT_HINT_HEIGHT - EDIT_BAR_TOP)
+        self._refresh_inline_edit_meta()
+        if bar.isHidden():
+            bar.show()
+            motion.fade_in(bar, 200)
+        bar.raise_()
 
     def _select_cue(self, cue_index, *, center_timeline=True):
         if self.document is None:

@@ -403,6 +403,14 @@ class MenuFx(QObject):
                 continue
             painter.drawText(row.adjusted(12, 0, -12, 0), Qt.AlignmentFlag.AlignVCenter, label)
             trailing = row.right() - 12
+            if action.menu() is not None:
+                pen = QPen(QColor(COLORS.subtle if enabled else COLORS.disabled), 1.5)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                painter.setPen(pen)
+                cx, cy = trailing - 2, row.center().y()
+                painter.drawPolyline([QPointF(cx - 4, cy - 4), QPointF(cx, cy), QPointF(cx - 4, cy + 4)])
+                trailing -= 16
             if action.isCheckable() and action.isChecked():
                 paint_check(painter, QPointF(trailing - 4, row.center().y()), COLORS.accent_ink)
                 trailing -= 20

@@ -475,6 +475,8 @@ class ButtonFx(QObject):
         join = self.button.property("join")
         if join not in ("left", "right"):
             return _rounded(rect, radius)
+        # 接缝一侧伸到按钮边缘（绘制区四周各缩了半像素，不伸出去两块之间会露出 1px 底色）
+        rect = rect.adjusted(0, 0, 1.0, 0) if join == "right" else rect.adjusted(-1.0, 0, 0, 0)
         path = _rounded(rect, radius)
         square = QPainterPath()
         if join == "right":
@@ -504,10 +506,18 @@ class ButtonFx(QObject):
                     painter.setPen(QPen(faded(COLORS.accent, 0.14 * h), 3))
                     painter.drawPath(_rounded(rect.adjusted(1.5, 1.5, -1.5, -1.5), max(1.0, radius - 1.5)))
                 painter.setPen(QPen(QColor(COLORS.accent), 1))
-            painter.drawPath(path)
-            if self.button.property("join") == "left":
-                painter.setPen(QPen(faded(COLORS.on_accent if STYLE.filled_primary else COLORS.accent, .35), 1))
-                painter.drawLine(QPointF(rect.left() + .5, rect.top() + 7), QPointF(rect.left() + .5, rect.bottom() - 7))
+            # 拼接按钮（导出 + 下拉箭头）看上去是一个按钮：接缝那一侧不描边
+            join = self.button.property("join")
+            if join in ("left", "right"):
+                painter.save()
+                keep = rect.adjusted(-2, -2, -1.0 if join == "right" else 2, 2)
+                if join == "left":
+                    keep = rect.adjusted(1.0, -2, 2, 2)
+                painter.setClipRect(keep)
+                painter.drawPath(path)
+                painter.restore()
+            else:
+                painter.drawPath(path)
             return
         if STYLE.filled_buttons:
             fill = mix(mix(COLORS.card, COLORS.button_hover, h), COLORS.accent_soft, c)
@@ -1292,10 +1302,18 @@ class DialogFx(QObject):
             p = profile()
             self.dialog.setWindowOpacity(0.0)
             restart(self._open, 0.0, 1.0, p.dialog_open, OUT if STYLE.dark else spring())
+            QTimer.singleShot(p.dialog_open + 120, self, self._ensure_visible)
         elif kind == QEvent.Type.Hide:
             self._open.stop()
             self._drop_veil()
         return False
+
+    def _ensure_visible(self) -> None:
+        if shiboken6.isValid(self.dialog) and self.dialog.isVisible() and self.dialog.windowOpacity() < 1.0:
+            self._open.stop()
+            self.dialog.setWindowOpacity(1.0)
+            if self._target is not None:
+                self.dialog.move(self._target)
 
     def _drop_veil(self) -> None:
         veil, self._veil = self._veil, None
@@ -1319,13 +1337,25 @@ class DialogFx(QObject):
 
 
 class DialogWatcher(QObject):
-    """应用级：任何对话框第一次显示时挂上 DialogFx。"""
+    """应用级：任何对话框第一次显示时挂上 DialogFx。
+
+    QMessageBox.question 这类 Qt 内部创建的对话框没有常驻的 Python 包装：挂在它下面的 DialogFx
+    只靠父对象保活会被 Python 回收，动画回调失效，对话框停在全透明、只剩遮罩，看上去像卡死。
+    所以这里对每个 DialogFx 持有强引用，对话框销毁时再放掉。
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._effects: dict[int, DialogFx] = {}
 
     def eventFilter(self, obj, event) -> bool:
         if (event.type() == QEvent.Type.Show and isinstance(obj, QDialog) and not QApplication.closingDown()
                 and not obj.property("motionDialog")):
             obj.setProperty("motionDialog", True)
             fx = DialogFx(obj)
+            key = id(fx)
+            self._effects[key] = fx
+            fx.destroyed.connect(lambda *_args, key=key: self._effects.pop(key, None))
             fx.eventFilter(obj, event)
         return False
 
@@ -1499,7 +1529,8 @@ def install_tree(root: QWidget) -> None:
             slider.setProperty("motion", True)
             SliderFx(slider)
     for widget in root.findChildren(QComboBox) + root.findChildren(QLineEdit):
-        if isinstance(widget.parentWidget(), QComboBox) or widget.property("motion"):
+        # 下拉框、数字框里自带的输入框不单独挂（否则数字框里会再套一圈描边）
+        if isinstance(widget.parentWidget(), (QComboBox, QAbstractSpinBox)) or widget.property("motion"):
             continue
         widget.setProperty("motion", True)
         InputFx(widget)

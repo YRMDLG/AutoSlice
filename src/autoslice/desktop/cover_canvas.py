@@ -137,9 +137,17 @@ class CoverCanvas(CanvasPaintMixin, CanvasGestureMixin, QLabel):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         # False 时只画内容，不画选中框和辅助线（另一比例的小预览）
         self.overlays = True
-        themed(self, lambda: self.setStyleSheet(
-            f"background: {COLORS.timeline_bg}; border: 1px solid {COLORS.timeline_border}; border-radius: 9px;"
-        ))
+        themed(self, self.apply_frame_style)
+
+    def apply_frame_style(self) -> None:
+        """单独使用时自带圆角底板和细边；放进封面页底板里（onWell）时不铺底、不描边。"""
+
+        if self.property("onWell"):
+            self.setStyleSheet("background: transparent; border: none;")
+        else:
+            self.setStyleSheet(
+                f"background: {COLORS.timeline_bg}; border: 1px solid {COLORS.timeline_border}; border-radius: 9px;"
+            )
 
     def set_document(self, document: CoverDocument | None, profile_key: str | None = None):
         self._document = document

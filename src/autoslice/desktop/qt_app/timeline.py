@@ -51,6 +51,8 @@ class SubtitleTimeline(QWidget):
         self._mouse_grabbed = False
         self.waveform_visible = False
         self.waveform_samples: list[float] = []
+        # 显示增益：录音偏小声时按整段的高位电平放大，波形不至于贴成一条线
+        self._wave_gain = 1.0
         self.snap_engine = SnapEngine()
         self.snapping = True
         self.snap_guide: float | None = None
@@ -213,6 +215,12 @@ class SubtitleTimeline(QWidget):
     def set_waveform(self, samples, duration: float | None = None):
         appeared = bool(samples) and not self.waveform_samples
         self.waveform_samples = [max(0.0, min(1.0, float(value))) for value in (samples or ())]
+        if self.waveform_samples:
+            ordered = sorted(self.waveform_samples)
+            loud = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+            self._wave_gain = max(1.0, min(6.0, 0.85 / max(loud, 0.02)))
+        else:
+            self._wave_gain = 1.0
         if appeared:
             self._wave.snap(0.0)
             self._wave.to(1.0, 420)
@@ -461,7 +469,8 @@ class SubtitleTimeline(QWidget):
                 center, half = wave.center().y(), wave.height() / 2 - 1
                 top, bottom = [], []
                 for x in range(12, max(13, self.width() - 12), 3):
-                    amplitude = max(.6, self._waveform_amplitude(float(x), 3.0) * half)
+                    level = min(1.0, self._waveform_amplitude(float(x), 3.0) * self._wave_gain)
+                    amplitude = max(.6, level * half)
                     top.append(QPointF(x, center - amplitude))
                     bottom.append(QPointF(x, center + amplitude))
                 polygon = QPolygonF(top + bottom[::-1])

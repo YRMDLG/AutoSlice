@@ -177,13 +177,15 @@ class SubtitleRenderQtTests(unittest.TestCase):
 
         self.window.resize(1600, 1000)
         self.app.processEvents()
-        self.window._session.pop("timeline_height", None)
+        self.window._session.pop("timeline_card_height", None)
+        # 旧版布局留下的高度不算“记住过”
+        self.window._session["timeline_height"] = 60
         self.window._balance_vertical_splitter()
         # 没拖过：默认就够看清波形，不用先拖大。
         self.assertGreaterEqual(self.window.vertical_splitter.sizes()[1], TIMELINE_DEFAULT_HEIGHT - 2)
         # 记住过的高度照旧（高于由内容推算出的最小高度时）。
         remembered = self.window.vertical_splitter.widget(1).minimumSizeHint().height() + 40
-        self.window._session["timeline_height"] = remembered
+        self.window._session["timeline_card_height"] = remembered
         self.window._balance_vertical_splitter()
         self.assertAlmostEqual(self.window.vertical_splitter.sizes()[1], remembered, delta=2)
 
@@ -344,9 +346,12 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.assertIn("视频_字幕版.mp4", self.window.app_status.text())
         self.assertTrue(self.window.render_location.isVisible())
 
-    def test_inline_subtitle_editor_is_design_field_and_keeps_row_height(self):
+    def test_inline_subtitle_editor_is_design_edit_row(self):
+        from autoslice.desktop.qt_app.window_widgets import EDIT_ROW_HEIGHT
+
         index = self.window.model.index(0, 2)
         row_height = self.window.table.rowHeight(0)
+        total = self.window.table.verticalHeader().length()
 
         self.window._cue_clicked(index)
         self.app.processEvents()
@@ -354,10 +359,30 @@ class SubtitleRenderQtTests(unittest.TestCase):
         editor = next((item for item in self.window.table.findChildren(QPlainTextEdit)
                        if item.isVisible()), None)
         self.assertIsNotNone(editor)
-        self.assertEqual(self.window.table.rowHeight(0), row_height)
-        # 设计稿：编辑时是输入底色 + 强调色细框的输入框（D-044），行高不变
+        # 设计稿编辑态（edrow）：这一行加高，上面是输入底色 + 强调色细框的两行输入框，
+        # 下面是“完成 / 取消 · 时间 · 字数”和按键提示；本行顶部不动，下面的行往下让
+        self.assertEqual(self.window.table.rowHeight(0), EDIT_ROW_HEIGHT)
+        self.assertGreater(EDIT_ROW_HEIGHT, row_height)
+        self.assertEqual(self.window.table.verticalHeader().length(), total + EDIT_ROW_HEIGHT - row_height)
         self.assertIn(f"background: {COLORS.well}", editor.styleSheet())
         self.assertIn(f"border: 1px solid {COLORS.accent}", editor.styleSheet())
+        bar = self.window.inline_edit_bar
+        self.assertTrue(bar.isVisible())
+        self.assertGreaterEqual(bar.geometry().top(), editor.geometry().bottom())
+        self.assertIn("字", self.window.inline_edit_meta.text())
+        # 点“取消”恢复原文并收起，行高复原
+        original = self.window.document.entries[0].text
+        editor.insertPlainText("临时")
+        self.app.processEvents()
+        self.window.inline_edit_cancel.click()
+        self.app.processEvents()
+        self.assertFalse(self.window._subtitle_editor_open())
+        self.assertEqual(self.window.document.entries[0].text, original)
+        self.assertEqual(self.window.table.rowHeight(0), row_height)
+        self.assertFalse(bar.isVisible())
+        self.window._cue_clicked(index)
+        self.app.processEvents()
+        editor = self.window._active_subtitle_editor()
 
         cursor = editor.textCursor()
         cursor.setPosition(len(editor.toPlainText()))
@@ -735,9 +760,9 @@ class SubtitleRenderQtTests(unittest.TestCase):
             self.assertTrue(self.window._subtitle_editor_open())
             self.assertTrue(editor.isVisible())
 
-        # Qt 某些路径会把点击落到 table viewport，同样不能退出编辑态。
-        rect = self.window.table.visualRect(index)
-        point = QPoint(rect.left() + max(12, rect.width() // 2), rect.center().y())
+        # Qt 某些路径会把点击落到 table viewport（落点在编辑框上），同样不能退出编辑态。
+        # 编辑态这一行加高了，下半截是操作条，所以取编辑框自身的中心。
+        point = editor.geometry().center()
         QTest.mouseClick(
             self.window.table.viewport(),
             Qt.MouseButton.LeftButton,

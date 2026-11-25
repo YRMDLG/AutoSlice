@@ -505,8 +505,9 @@ class DesktopWindow(
         super()._balance_vertical_splitter()
         if not hasattr(self, "vertical_splitter"):
             return
-        saved = self._session.get("timeline_height")
-        if not isinstance(saved, (int, float)):
+        # 只认用户亲手拖过的高度；旧版布局存的 timeline_height 不再沿用（那时卡片结构不同）
+        saved = self._session.get("timeline_card_height")
+        if not isinstance(saved, (int, float)) or saved <= 0:
             # 没拖过时间轴：默认就给足高度，波形和字幕块不用先拖大才看得清；窄屏紧凑布局不动。
             if getattr(self, "_compact_layout", False):
                 return
@@ -532,9 +533,8 @@ class DesktopWindow(
                 if self.video_choice.currentData() else None,
                 "cue_index": self.selected_index,
                 "playback_seconds": getattr(self, "_player_position", 0.0),
-                "timeline_height": (self.vertical_splitter.sizes()[1]
-                                     if hasattr(self, "vertical_splitter") and self.vertical_splitter.sizes()
-                                     else None),
+                # 存会话时不读当前分界（切页、窗口未布局时可能是 0），只转存用户拖过的值
+                "timeline_card_height": self._session.get("timeline_card_height"),
                 "geometry": base64.b64encode(bytes(self.saveGeometry())).decode("ascii"),
             })
         except OSError as exc:

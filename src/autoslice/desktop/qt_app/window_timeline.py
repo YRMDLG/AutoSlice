@@ -218,40 +218,45 @@ class TimelineMixin:
         active = self.selection.active if self.selection.active is not None else self.selected_index
         entry = next((item for item in self.document.entries if item.index == active), None) if self.document else None
         if entry is not None:
-            # 菜单头：第几条、开始时间；后面是编辑、定位、与下一条合并（设计稿的右键菜单）
+            # 菜单头：第几条、开始时间；后面按设计稿：编辑、定位、拆分、与下一条合并、删除
             title = menu.addAction(f"第 {entry.index} 条 · {entry.start[:8]}")
             title.setEnabled(False)
             menu.addAction("编辑文字", lambda: self._edit_cue_text(entry.index))
             menu.addAction("定位到这一句", lambda: self._seek_to(srt_timestamp_seconds(entry.start)))
+        menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
+        if entry is not None:
             following = self._following_cue(entry.index)
             merge_next = menu.addAction("与下一条合并", lambda: self._merge_with_next(entry.index))
             merge_next.setEnabled(following is not None and not self._saving)
-            menu.addSeparator()
-        menu.addAction("左裁到定位线 Q", self._trim_start)
-        menu.addAction("右裁到定位线 W", self._trim_end)
-        menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
-        merge = menu.addAction("合并所选字幕", self._merge_selected)
-        merge.setEnabled(self._can_merge_selected())
-        if not merge.isEnabled():
-            merge.setToolTip("请先选择时间轴中连续相邻的字幕")
+        menu.addSeparator()
         delete = menu.addAction("删除 Delete", self._delete)
         delete.setProperty("danger", True)
         menu.addSeparator()
+        # 不常用的收进子菜单，菜单不再长过窗口
+        edits = menu.addMenu("裁剪与贴合")
+        popups.MenuFx(edits)
+        edits.addAction("左裁到定位线 Q", self._trim_start)
+        edits.addAction("右裁到定位线 W", self._trim_end)
+        merge = edits.addAction("合并所选字幕", self._merge_selected)
+        merge.setEnabled(self._can_merge_selected())
+        if not merge.isEnabled():
+            merge.setToolTip("请先选择时间轴中连续相邻的字幕")
+        edits.addSeparator()
         # 字幕块和声音对不上（尾音被切、拖进静音、两句间闪一下）：按真实停顿重定起止
-        snap = menu.addAction("选中字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=True))
+        snap = edits.addAction("选中字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=True))
         snap.setEnabled(bool(self.document) and bool(self.selection.selected))
-        menu.addAction("全部字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=False)).setEnabled(
+        edits.addAction("全部字幕贴合声音", lambda: self._snap_cues_to_speech(selected_only=False)).setEnabled(
             bool(self.document))
-        menu.addSeparator()
-        menu.addAction("试听这一句 F1", self._audition_current)
-        menu.addAction("只播这一句 F4", self._audition_once)
-        menu.addAction("试听开头", self._audition_start)
-        menu.addAction("试听结尾", self._audition_end)
-        loop = menu.addAction("循环当前字幕")
+        listen = menu.addMenu("试听")
+        popups.MenuFx(listen)
+        listen.addAction("试听这一句 F1", self._audition_current)
+        listen.addAction("只播这一句 F4", self._audition_once)
+        listen.addAction("试听开头", self._audition_start)
+        listen.addAction("试听结尾", self._audition_end)
+        loop = listen.addAction("循环当前字幕")
         loop.setCheckable(True)
         loop.setChecked(self._loop_enabled)
         loop.triggered.connect(self._set_loop)
-        menu.addSeparator()
         menu.addAction("快捷键一览 Ctrl+/", self._show_shortcuts)
         anchor = position if global_position else (
             self.timeline.mapToGlobal(position) if position is not None else self.cursor().pos()
@@ -469,7 +474,8 @@ class TimelineMixin:
             self.timeline.set_view_start(value / 1000.0)
 
     def _timeline_splitter_moved(self, _position, _index):
-        if not hasattr(self, "timeline") or not self.vertical_splitter.sizes():
+        sizes = self.vertical_splitter.sizes()
+        if not hasattr(self, "timeline") or len(sizes) != 2 or sizes[1] <= 0:
             return
-        self._session["timeline_height"] = self.vertical_splitter.sizes()[1]
+        self._session["timeline_card_height"] = sizes[1]
         self._save_session()

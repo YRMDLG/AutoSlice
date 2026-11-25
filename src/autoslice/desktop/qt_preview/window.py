@@ -1,7 +1,7 @@
 """可交互的 Desktop-04.55 Qt 壳，不读取投稿或字幕文件。"""
 
-from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -21,7 +21,7 @@ from . import fonts, motion
 from .appearance import themed
 from .icons import icon as desktop_icon
 from .shell import Card, NavItem, Popover, ProjectSwitch, Surface, TaskRing, Toast
-from .theme import COLORS, SIZES, STYLE
+from .theme import COLORS, MONO_FAMILIES, SIZES, STYLE
 
 PROJECTS = (
     ("牛乳糖凌晨突击直播：从闲聊到离谱挑战的完整录播", "18 条待确认", True),
@@ -149,6 +149,69 @@ class ProjectItem(QPushButton):
         content.addStretch()
 
 
+class ProjectOption(QPushButton):
+    """项目切换下拉里的一项（设计稿）：两位序号、标题 + 状态两行、当前项打勾、标题换强调色。"""
+
+    HEIGHT = 48
+
+    def __init__(self, number: int, title: str, status: str, parent=None) -> None:
+        super().__init__(parent)
+        self.title = title
+        self.number = number
+        self.status = status
+        self.setObjectName("projectOption")
+        self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(self.HEIGHT)
+        self.setMinimumWidth(0)
+        self.setToolTip(title)
+        self.setAccessibleName(f"{title}，{status}" if status else title)
+        # 自己画悬停和选中，不挂通用按钮动效（那会多画一圈选中描边）
+        self.setProperty("motion", True)
+        self._hover = motion.Channel(self, self.update, 0.0)
+
+    def enterEvent(self, event) -> None:
+        self._hover.to(1.0, motion.HOVER_IN)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hover.to(0.0, motion.HOVER_OUT)
+        super().leaveEvent(event)
+
+    def paintEvent(self, _event) -> None:
+        from autoslice.desktop.qt_preview.popups import paint_check, paint_row
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect())
+        selected = self.isChecked()
+        paint_row(painter, rect, max(self._hover.value, 0.55 if selected else 0.0))
+        number = QFont(self.font())
+        number.setFamilies(list(MONO_FAMILIES))
+        number.setPixelSize(11)
+        painter.setFont(number)
+        painter.setPen(QColor(COLORS.subtle))
+        painter.drawText(QRectF(10, 0, 22, rect.height()), Qt.AlignmentFlag.AlignVCenter, f"{self.number:02d}")
+        right = rect.width() - (34 if selected else 12)
+        title_font = QFont(self.font())
+        title_font.setPixelSize(13)
+        painter.setFont(title_font)
+        painter.setPen(QColor(COLORS.accent_ink if selected else COLORS.text))
+        metrics = QFontMetrics(title_font)
+        text_left = 42
+        width = max(10, int(right - text_left))
+        painter.drawText(QRectF(text_left, 7, width, 19), Qt.AlignmentFlag.AlignVCenter,
+                         metrics.elidedText(self.title, Qt.TextElideMode.ElideRight, width))
+        status_font = QFont(self.font())
+        status_font.setPixelSize(11)
+        painter.setFont(status_font)
+        painter.setPen(QColor(COLORS.subtle))
+        painter.drawText(QRectF(text_left, 26, width, 15), Qt.AlignmentFlag.AlignVCenter,
+                         QFontMetrics(status_font).elidedText(self.status, Qt.TextElideMode.ElideRight, width))
+        if selected:
+            paint_check(painter, QPointF(rect.width() - 20, rect.center().y()), COLORS.accent_ink)
+
+
 class NavigationButton(QPushButton):
     def __init__(self, glyph: str, title: str, parent=None) -> None:
         super().__init__(parent)
@@ -256,8 +319,8 @@ class PreviewWindow(QMainWindow):
         self.appbar = self._appbar()
         column.addWidget(self.appbar)
         self.project_rail = self._project_rail()
-        self.project_rail.setMinimumHeight(360)
-        self.project_popover = Popover(self, self.project_rail, 440)
+        # 高度跟项目数走（列表区在填充项目时定高），不设最小高度，免得下面空一大块
+        self.project_popover = Popover(self, self.project_rail, 420)
         self.project_popover.closed.connect(self._project_popover_closed)
         self.pages = QStackedWidget()
         self.pages.addWidget(self._subtitle_page())

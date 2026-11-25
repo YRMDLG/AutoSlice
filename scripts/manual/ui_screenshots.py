@@ -61,7 +61,10 @@ def _make_project(root: Path) -> Path:
     if ffmpeg:
         subprocess.run(
             [ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=40",
-             "-f", "lavfi", "-i", "sine=frequency=330:duration=40", "-shortest",
+             # 音量起伏的示例音轨：时间轴上的波形像说话而不是一条平带
+             "-f", "lavfi", "-i",
+             "aevalsrc='0.7*sin(2*PI*220*t)*abs(sin(1.7*t))*(0.35+0.65*abs(sin(0.43*t+1)))':s=22050:d=40",
+             "-shortest",
              "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(video)],
             check=True,
         )

@@ -583,6 +583,8 @@ class CoverLayoutMixin:
         palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.canvas.setPalette(palette)
         self.canvas.setAutoFillBackground(False)
+        self.canvas.setProperty("onWell", True)
+        self.canvas.apply_frame_style()
         well.addWidget(self.canvas)
         layout.addWidget(self.canvas_well, 1)
         self.canvas.installEventFilter(self)
@@ -616,7 +618,8 @@ class CoverLayoutMixin:
         self.right_panel.setObjectName("coverPanel")
         self.right_panel.setMinimumWidth(0)
         outer = QVBoxLayout(self.right_panel)
-        outer.setContentsMargins(0, 0, 0, 0)
+        # 右、上、下留几像素，滚动条落在卡片圆角以内，不贴着卡片边
+        outer.setContentsMargins(0, 8, 4, 8)
         # 窗口不够高时整块滚动，不再把下拉框、数字框压扁叠在一起
         self.right_scroll = QScrollArea()
         self.right_scroll.setWidgetResizable(True)
@@ -630,7 +633,7 @@ class CoverLayoutMixin:
         self.right_scroll.viewport().setAutoFillBackground(False)
         outer.addWidget(self.right_scroll)
         layout = QVBoxLayout(inner)
-        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setContentsMargins(18, 10, 14, 10)
         layout.setSpacing(0)
         layout.addLayout(self._build_scheme_section())
         layout.addSpacing(30)

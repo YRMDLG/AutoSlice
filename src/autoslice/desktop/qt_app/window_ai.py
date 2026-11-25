@@ -35,7 +35,7 @@ from autoslice.desktop.qt_preview.theme import COLORS, SIZES, STYLE
 from autoslice.desktop.qt_preview.window import label
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
-from .window_widgets import _AiStat, _ElidedQueueButton, _InlineAiWatcher
+from .window_widgets import NoteLabel, _AiStat, _ElidedQueueButton, _InlineAiWatcher
 
 
 class AiReviewMixin:
@@ -96,7 +96,9 @@ class AiReviewMixin:
         self.ai_running_bar.setFixedHeight(4)
         content.addWidget(self.ai_running_bar)
         self.ai_running_bar.hide()
-        self.ai_note = label("AI 只生成待确认建议，不修改字幕。", "muted")
+        self.ai_note = NoteLabel("AI 只生成待确认建议，不修改字幕。")
+        self.ai_note.setObjectName("muted")
+        self.ai_note.setToolTip(self.ai_note.text())
         self.ai_note.setWordWrap(True)
         content.addWidget(self.ai_note)
         content.addStretch(1)
@@ -240,6 +242,8 @@ class AiReviewMixin:
         actions.addWidget(label("Alt A · Alt S", "mono"))
         card.addLayout(actions)
         self.ai_card.hide()
+        # 差异是按当时主题配色生成的富文本：换主题后重新生成，免得晨雾里还是夜航的深色底
+        themed(self.ai_card, lambda: self._show_ai_detail() if self.ai_session and self.document else None)
         if hasattr(self, "table"):
             self._watch_inline_ai()
 
@@ -287,9 +291,15 @@ class AiReviewMixin:
     def _place_inline_ai(self):
         """把当前建议放到对应字幕行下面：那一行加高，建议卡盖在加高出来的那部分。
 
-        正在改字时收起（编辑框占满这一行），改完再展开。
+        正在改字时收起（编辑那一行自己加高放操作条），改完再展开。滚动、改尺寸、换内容都走这里，
+        顺带把编辑操作条摆回去。
         """
 
+        self._place_inline_ai_card()
+        if hasattr(self, "_place_inline_edit"):
+            self._place_inline_edit()
+
+    def _place_inline_ai_card(self):
         table = getattr(self, "table", None)
         if table is None or not hasattr(self, "ai_card"):
             return
@@ -297,7 +307,9 @@ class AiReviewMixin:
         base = SIZES.subtitle_row_height
         item = self.ai_session.find(self._ai_selected) if self.ai_session and self._ai_selected else None
         row = -1
-        if item is not None and not self._subtitle_editor_open() and not self.ai_card.isHidden():
+        # 建议只在“选中的那一句”下面展开（设计稿 showAi = selected && …），选中别的句子时收起
+        if (item is not None and item.cue_id == self._active_cue() and not self._subtitle_editor_open()
+                and not self.ai_card.isHidden()):
             row = self._row_of_cue(item.cue_id)
         previous = getattr(self, "_ai_inline_row", -1)
         rows = self.model.rowCount()
@@ -371,6 +383,10 @@ class AiReviewMixin:
         self.ai_state.setStyleSheet(f"color: {color}; font-size: {SIZES.text_small}px;")
         show_stats = bool(self.ai_session) and not self._ai_running
         self.ai_stats.setVisible(show_stats)
+        # 有统计时不占行（设计稿：统计下面直接是按钮），卡片不会比左边时间轴高；说明放进右上角状态的悬停提示
+        self.ai_note.setWordWrap(not show_stats)
+        self.ai_note.setMaximumHeight(0 if show_stats else 16777215)
+        self.ai_state.setToolTip(self.ai_note.text() if show_stats else "")
         if show_stats:
             handled = sum(item.status != "pending" for item in self.ai_session.suggestions)
             flagged = {item.cue_id for item in self.ai_session.suggestions}
@@ -557,6 +573,37 @@ class AiReviewMixin:
             self._ai_reveal.to(1.0, 240 if STYLE.dark else 460, motion.OUT if STYLE.dark else motion.spring())
             motion.fade_in(self.ai_card, motion.profile().row_enter, start=0.2)
 
+    def _active_cue(self):
+        selection = getattr(self, "selection", None)
+        active = selection.active if selection is not None else None
+        return active if active is not None else self.selected_index
+
+    def _follow_ai_selection(self):
+        """选中哪一句，行内建议就跟到哪一句：那句有待确认建议就展开它，没有就收起。"""
+
+        if not self.ai_session:
+            return
+        active = self._active_cue()
+        item = next((suggestion for suggestion in self.ai_session.pending if suggestion.cue_id == active), None)
+        if item is not None and item.suggestion_id != self._ai_selected:
+            self._ai_selected = item.suggestion_id
+            for index in range(self.ai_queue_layout.count() - 1):
+                button = self.ai_queue_layout.itemAt(index).widget()
+                if button is not None:
+                    button.setChecked(button.property("suggestion_id") == item.suggestion_id)
+            self._show_ai_detail()
+        else:
+            self._place_inline_ai()
+
+    def _reveal_hidden_ai(self) -> bool:
+        """Alt A / Alt S 时当前建议不在选中句下面（看不见）：先跳过去展开，不直接改。"""
+
+        item = self.ai_session.find(self._ai_selected) if self.ai_session and self._ai_selected else None
+        if item is not None and item.cue_id != self._active_cue():
+            self._select_ai(item.suggestion_id)
+            return True
+        return False
+
     def _select_ai(self, suggestion_id):
         # 建议按钮动态创建，不依赖初始化时安装的鼠标过滤器来结束正文编辑。
         self._commit_editor()
@@ -581,6 +628,8 @@ class AiReviewMixin:
 
     def _accept_ai(self):
         if self._saving or not self.document or not self.ai_session or not self._ai_selected:
+            return
+        if self._reveal_hidden_ai():
             return
         self._commit_editor()
         item = self.ai_session.find(self._ai_selected)
@@ -610,6 +659,8 @@ class AiReviewMixin:
 
     def _skip_ai(self):
         if self._saving or not self.document or not self.ai_session or not self._ai_selected:
+            return
+        if self._reveal_hidden_ai():
             return
         self._commit_editor()
         current = self.ai_session.find(self._ai_selected)

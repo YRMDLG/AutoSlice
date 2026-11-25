@@ -587,7 +587,9 @@ class CanvasPaintMixin:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), self.palette().window())
+        # 放在底板里的画布不铺底（切换主题后调色板会被样式表刷回不透明，不能只靠透明调色板）
+        if not self.property("onWell"):
+            painter.fillRect(self.rect(), self.palette().window())
         canvas = self._canvas_rect()
         # 内容在导出像素坐标系中绘制后整体缩放，与 Pillow 导出逐像素对应。
         export_width, export_height = self._export_size()

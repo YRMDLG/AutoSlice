@@ -106,6 +106,36 @@ class _ElidedQueueButton(QPushButton):
             self._update_elided_text()
 
 
+class NoteLabel(QLabel):
+    """说明文字：换行模式照常；单行模式下放不下就截到一行加省略号，完整内容放悬停提示。"""
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt 命名
+        super().setText(text)
+        self.setToolTip(text)
+
+    def setWordWrap(self, on: bool) -> None:  # noqa: N802 - Qt 命名
+        super().setWordWrap(on)
+        self.updateGeometry()
+        self.update()
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        if self.wordWrap():
+            return hint
+        hint.setWidth(0)
+        return hint
+
+    def paintEvent(self, event) -> None:
+        if self.wordWrap():
+            super().paintEvent(event)
+            return
+        painter = QPainter(self)
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        rect = self.contentsRect()
+        text = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, rect.width())
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
+
+
 class _AiStat(QWidget):
     """AI 检查卡里的一个数字：20px 等宽数字 + 小字说明；数字变化时从下往上翻入。"""
 
@@ -161,6 +191,14 @@ TIME_LINE = 15
 ROW_SIDE = 12
 ROW_GAP = 2
 EDIT_PAD_X = 10
+# 编辑态（设计稿 edrow）：这一行加高，上面两行高的输入框，下面“完成 / 取消 · 时间 · 字数”和按键提示
+EDIT_FIELD_TOP = 8
+EDIT_FIELD_HEIGHT = 58
+EDIT_BAR_TOP = EDIT_FIELD_TOP + EDIT_FIELD_HEIGHT + 8
+EDIT_BAR_HEIGHT = 28
+EDIT_HINT_TOP = EDIT_BAR_TOP + EDIT_BAR_HEIGHT + 6
+EDIT_HINT_HEIGHT = 16
+EDIT_ROW_HEIGHT = EDIT_HINT_TOP + EDIT_HINT_HEIGHT + 12
 
 
 class RowEffects(QObject):
@@ -519,8 +557,6 @@ class SubtitleTableModel(QAbstractTableModel):
         entry = self.entry_at(index.row())
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
             return (str(entry.index), f"{entry.start}  →  {entry.end}", entry.text)[index.column()]
-        if role == Qt.ItemDataRole.ToolTipRole and index.column() == 2:
-            return "单击直接编辑；Ctrl+Z / Ctrl+Y 撤销或重做"
         if role == Qt.ItemDataRole.BackgroundRole and entry.index == self.playing_index:
             return QColor(COLORS.playback)
         return None
@@ -608,6 +644,8 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._table = parent
         self._editing = None
+        # 窗口行内编辑中的那句（序号换强调色、下移对齐输入框，正文和时间不画）
+        self.editing_cue = None
         self._hover_row = -1
         self._rows = motion.KeyedAnimator(self, lambda: self._table.viewport().update())
         self.effects = RowEffects(parent)
@@ -853,15 +891,18 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         cell = QRectF(option.rect)
         line = QRectF(cell.left(), cell.top() + ROW_PAD_TOP, cell.width(), TEXT_LINE)
+        editing = self.editing_cue == entry.index
         if index.column() == 0:
             painter.save()
             painter.setFont(self._font(SIZES.text_small, mono=True))
-            painter.setPen(QColor(COLORS.text if selected else COLORS.subtle))
-            painter.drawText(QRectF(cell.left() + ROW_SIDE, line.top(), 24, line.height()),
+            color = COLORS.accent_ink if editing else COLORS.text if selected else COLORS.subtle
+            painter.setPen(QColor(color))
+            top = cell.top() + EDIT_FIELD_TOP + 8 if editing else line.top()
+            painter.drawText(QRectF(cell.left() + ROW_SIDE, top, 24, line.height()),
                              Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(entry.index))
             painter.restore()
             return
-        if index.column() != 2 or self._editing == self._key(index):
+        if index.column() != 2 or self._editing == self._key(index) or editing:
             return
         text_rect = QRectF(line.left(), line.top(), line.width() - ROW_SIDE, line.height())
         taken = self._paint_tag(painter, text_rect, entry, model, selected)
@@ -876,11 +917,12 @@ class SubtitleTextDelegate(QStyledItemDelegate):
         painter.restore()
 
     def updateEditorGeometry(self, editor, option, index):
-        """编辑框盖住正文和时间两行，左边让出内边距，文字起点和原来的正文对齐。"""
+        """编辑框是两行高的输入框，左边让出内边距，文字起点和原来的正文对齐；行加高后下面放操作条。"""
 
         rect = option.rect
-        editor.setGeometry(rect.left() - EDIT_PAD_X, rect.top() + 4,
-                           rect.width() - ROW_SIDE + EDIT_PAD_X, SIZES.subtitle_row_height - 8)
+        editor.setGeometry(rect.left() - EDIT_PAD_X, rect.top() + EDIT_FIELD_TOP,
+                           rect.width() - ROW_SIDE + EDIT_PAD_X,
+                           max(24, min(EDIT_FIELD_HEIGHT, rect.height() - EDIT_FIELD_TOP - 4)))
 
     def setEditorData(self, editor, index):
         if editor.property("autoslice_editor_initialised"):
@@ -927,17 +969,17 @@ def _row_shape(rect: QRectF, column: int, last: int) -> QPainterPath:
 
 
 def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:
-    """字幕行内编辑框：强调色细框、输入底色，单行不换行；两条编辑入口共用。"""
+    """字幕行内编辑框（设计稿 edta）：两行高、强调色细框、输入底色，按宽度换行；两条编辑入口共用。"""
 
-    # 全局样式表的 12px 会盖过 setFont，编辑态字号要和正文一致，并垂直居中不跳位
+    # 全局样式表的 12px 会盖过 setFont，编辑态字号要和正文一致
     body = QFont(font)
     body.setPixelSize(SIZES.text_body)
-    top = max(0, (SIZES.subtitle_row_height - 8 - 2 - QFontMetrics(body).height()) // 2)
+    top = 7
     border = COLORS.accent if STYLE.dark else COLORS.accent_line
     editor.setFont(body)
     editor.document().setDocumentMargin(0)
     editor.setTabChangesFocus(True)
-    editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+    editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
     editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     editor.setContentsMargins(0, 0, 0, 0)
@@ -947,7 +989,7 @@ def _prepare_inline_editor(editor: QPlainTextEdit, font) -> None:
     editor.setStyleSheet(
         f"QPlainTextEdit {{ background: {COLORS.well}; color: {COLORS.text}; "
         f"border: 1px solid {border}; border-radius: 8px; "
-        f"padding: {top}px {EDIT_PAD_X - 1}px 0 {EDIT_PAD_X - 1}px; font-size: {SIZES.text_body}px; "
+        f"padding: {top}px {EDIT_PAD_X - 1}px {top}px {EDIT_PAD_X - 1}px; font-size: {SIZES.text_body}px; "
         f"selection-background-color: {COLORS.accent_pressed if STYLE.dark else COLORS.accent_soft}; }}"
         f"QPlainTextEdit:focus {{ border: 1px solid {border}; }}"
     )

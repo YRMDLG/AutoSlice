@@ -29,62 +29,43 @@ from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.shell import Card
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.window import ProjectItem, card, label, line, tool_icon
+from autoslice.desktop.qt_preview.window import ProjectOption, card, label, tool_icon
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_render import subtitle_font_problem
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
+from . import settings_sections
 from .ai_settings_panel import AISettingsPanel
 from .appearance_panel import AppearancePanel
 from .archive_panel import ArchivePanel
 from .asr_panel import AsrSettingsPanel
 from .learning_panel import LearningPanel
+from .window_widgets import NoteLabel
 
 
 class ProjectsMixin:
     def _project_rail(self):
+        """项目切换下拉的内容（设计稿）：项目逐行（序号、标题、状态，当前项打勾），
+        分隔线下是“刷新项目列表”，右边是排序。空目录、选错层级时上面给出说明和入口。"""
+
         rail = QWidget()
         rail.setObjectName("projectRail")
         outer = QVBoxLayout(rail)
-        outer.setContentsMargins(0, 0, 0, 12)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        # 标题行与工作区工具栏同高，分割线横向连成一条
-        header = QWidget()
-        header.setFixedHeight(58)
-        heading = QHBoxLayout(header)
-        heading.setContentsMargins(20, 0, 12, 0)
-        heading.addWidget(label("投稿项目", "sectionTitle"))
-        heading.addStretch()
-        refresh = QPushButton()
-        refresh.setObjectName("tool")
-        refresh.setToolTip("刷新项目列表")
-        tool_icon(refresh, "refresh")
-        refresh.clicked.connect(self.refresh)
-        heading.addWidget(refresh)
-        outer.addWidget(header)
-        outer.addWidget(line())
-        sort_row = QHBoxLayout()
-        sort_row.setContentsMargins(12, 8, 12, 0)
-        sort_row.addWidget(label("排序", "subtle"))
-        self.project_sort = popups.ComboBox()
-        for key, title in PROJECT_SORT_OPTIONS:
-            self.project_sort.addItem(title, key)
-        self.project_sort.setCurrentIndex(self.project_sort.findData(self.service.sort_mode))
-        self.project_sort.currentIndexChanged.connect(self._project_sort_changed)
-        sort_row.addWidget(self.project_sort, 1)
-        outer.addLayout(sort_row)
         column = QVBoxLayout()
-        column.setContentsMargins(8, 8, 8, 0)
-        column.setSpacing(8)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(4)
         outer.addLayout(column, 1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.project_scroll = scroll
         container = QWidget()
         self.projects_layout = QVBoxLayout(container)
         self.projects_layout.setContentsMargins(0, 0, 0, 0)
-        self.projects_layout.setSpacing(4)
+        self.projects_layout.setSpacing(1)
         self.projects_layout.addStretch()
         scroll.setWidget(container)
         column.addWidget(scroll, 1)
@@ -111,11 +92,50 @@ class ProjectsMixin:
         self.project_group = QButtonGroup(self)
         self.project_group.setExclusive(True)
         self.project_buttons = {}
+        # 扫描中、扫描失败时才露出的一行状态；平时状态放在“刷新”的悬停说明里
         self.scan_status = label(str(self.service.root), "subtle")
         self.scan_status.setWordWrap(True)
-        self.scan_status.setContentsMargins(12, 0, 12, 0)
+        self.scan_status.setContentsMargins(10, 0, 10, 0)
+        self.scan_status.hide()
         column.addWidget(self.scan_status)
+        divider = QFrame()
+        divider.setObjectName("hairline")
+        divider.setFixedHeight(1)
+        holder = QHBoxLayout()
+        holder.setContentsMargins(10, 4, 10, 4)
+        holder.addWidget(divider)
+        outer.addLayout(holder)
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(6)
+        self.project_refresh = QPushButton("刷新项目列表")
+        self.project_refresh.setObjectName("menuRow")
+        self.project_refresh.setFixedHeight(32)
+        tool_icon(self.project_refresh, "refresh")
+        self.project_refresh.clicked.connect(self.refresh)
+        footer.addWidget(self.project_refresh)
+        footer.addStretch(1)
+        self.project_sort = popups.ComboBox()
+        self.project_sort.setObjectName("quietCombo")
+        self.project_sort.setToolTip("项目排序")
+        for key, title in PROJECT_SORT_OPTIONS:
+            self.project_sort.addItem(title, key)
+        self.project_sort.setCurrentIndex(self.project_sort.findData(self.service.sort_mode))
+        self.project_sort.currentIndexChanged.connect(self._project_sort_changed)
+        footer.addWidget(self.project_sort)
+        outer.addLayout(footer)
+        self.scan_status_changed()
         return rail
+
+    def scan_status_changed(self) -> None:
+        """扫描状态：正常时收进“刷新项目列表”的悬停说明，扫描中 / 失败时在列表下露出来。"""
+
+        text = self.scan_status.text()
+        if hasattr(self, "project_refresh"):
+            self.project_refresh.setToolTip(text)
+        if hasattr(self, "settings_scan_summary"):
+            self.settings_scan_summary.setText(text.replace("已刷新 · ", "扫描到 "))
+        self.scan_status.setVisible(text.startswith(("正在", "扫描失败")))
 
     def _settings_page(self):
         """设置页：一张大卡，左侧“本页目录”，右侧限宽的分区；点目录滚到对应分区，滚动时目录跟着亮。"""
@@ -148,13 +168,13 @@ class ProjectsMixin:
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         body = QWidget()
         outer = QVBoxLayout(body)
-        outer.setContentsMargins(36, 30, 36, 40)
+        outer.setContentsMargins(40, 28, 34, 40)
         # 限宽、靠左的内容列：大窗口里输入框也不会拉成一条线（靠 maximumWidth，不用对齐标志）
         content = QWidget()
-        content.setMaximumWidth(760)
+        content.setMaximumWidth(700)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(18)
+        layout.setSpacing(32)
         # 放进横向一行再加进页面：滚动区按“宽度→高度”给内容定高，竖排里直接放限宽控件时，
         # Qt 按整页宽度（不是限宽）算折行，高度算少了，所有行被挤到最小高度以下（下拉框压扁、按钮被裁）。
         # 横排会先按限宽分好宽度再算高度。
@@ -166,12 +186,12 @@ class ProjectsMixin:
         outer.addStretch(1)
 
         # ── 投稿目录 ──
-        directory_card, directory_column = card("投稿目录")
+        directory_card, directory_column = card("投稿目录", "目录下每个子文件夹算一个项目，里面放视频（和字幕）。")
         dir_row = QHBoxLayout()
         dir_row.setSpacing(12)
-        directory = label(str(self.service.root), "muted")
-        directory.setWordWrap(True)
-        directory.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        directory = NoteLabel(str(self.service.root))
+        directory.setObjectName("monoPath")
+        directory.setWordWrap(False)
         self.settings_directory = directory
         dir_row.addWidget(directory, 1)
         browse_dir = QPushButton("更改")
@@ -180,6 +200,8 @@ class ProjectsMixin:
         browse_dir.clicked.connect(self._browse_submission_root)
         dir_row.addWidget(browse_dir)
         directory_column.addLayout(dir_row)
+        self.settings_scan_summary = label(self.scan_status.text(), "muted")
+        directory_column.addWidget(self.settings_scan_summary)
 
         # ── 外观（主题、强调色；即时生效）──
         self.appearance_panel = AppearancePanel(self.storage)
@@ -212,9 +234,9 @@ class ProjectsMixin:
         cover_card, cover_column = card("封面素材", "素材只扫描所选文件夹及其子文件夹，手动导入的素材也会保留。")
         cover_column.addWidget(label("素材文件夹", "muted"))
         material_row = QHBoxLayout()
-        self.settings_material_directory = label(str(self.cover_editor.service.asset_library.legacy_root), "muted")
-        self.settings_material_directory.setWordWrap(True)
-        self.settings_material_directory.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.settings_material_directory = NoteLabel(str(self.cover_editor.service.asset_library.legacy_root))
+        self.settings_material_directory.setObjectName("monoPath")
+        self.settings_material_directory.setWordWrap(False)
         material_row.addWidget(self.settings_material_directory, 1)
         browse_materials = QPushButton("选择文件夹")
         browse_materials.clicked.connect(self._browse_material_directory)
@@ -257,6 +279,14 @@ class ProjectsMixin:
             ("播放器", player_card, player_card),
             ("快捷键", shortcut_card, shortcut_card),
         ]
+        # 各块统一改成设计稿分区：标题、说明在框外，框里一行一项、行间细线
+        for _title, widget, _target in sections:
+            if widget is None:
+                continue
+            cards = [widget] if widget.objectName() == "settingsCard" else []
+            cards += widget.findChildren(QWidget, "settingsCard")
+            for settings_card in cards:
+                settings_sections.restyle(settings_card)
         group = QButtonGroup(self)
         group.setExclusive(True)
         self.settings_toc: list[tuple[QPushButton, QWidget]] = []
@@ -274,7 +304,11 @@ class ProjectsMixin:
         toc_column.addStretch(1)
         scroll.setWidget(body)
         scroll.verticalScrollBar().valueChanged.connect(lambda _value: self._sync_settings_toc())
-        frame_row.addWidget(scroll, 1)
+        # 滚动条收进卡片圆角以内，不贴着卡片右边
+        scroll_holder = QVBoxLayout()
+        scroll_holder.setContentsMargins(0, 8, 6, 8)
+        scroll_holder.addWidget(scroll)
+        frame_row.addLayout(scroll_holder, 1)
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.addWidget(frame)
@@ -367,6 +401,7 @@ class ProjectsMixin:
         self._scan_generation += 1
         generation = self._scan_generation
         self.scan_status.setText("正在扫描投稿目录…")
+        self.scan_status_changed()
         self._run(self.service.refresh, lambda result, error: self._scanned(generation, result, error))
 
     def _scanned(self, generation, snapshot, error):
@@ -374,9 +409,11 @@ class ProjectsMixin:
             return
         if error:
             self.scan_status.setText(f"扫描失败：{error}")
+            self.scan_status_changed()
             return
         assert isinstance(snapshot, ProjectSnapshot)
         self.scan_status.setText(f"{snapshot.status} · {len(snapshot.projects)} 个项目")
+        self.scan_status_changed()
         no_video = bool(snapshot.projects) and not any(project.videos for project in snapshot.projects)
         nested = None if no_video else nested_root_candidate(snapshot.projects)
         self._nested_root = nested.directory if nested else ""
@@ -403,15 +440,20 @@ class ProjectsMixin:
             item = self.projects_layout.takeAt(0)
             item.widget().deleteLater()
         self.project_buttons.clear()
-        for project in snapshot.projects:
+        for number, project in enumerate(snapshot.projects, 1):
             status = project.status
             if status == "素材已识别":
                 status = "字幕已保存" if any(video.has_corrected_srt for video in project.videos) else ""
-            button = ProjectItem(project.title, status, False)
+            if not status:
+                status = f"{len(project.videos)} 个视频" if project.videos else "还没有视频"
+            button = ProjectOption(number, project.title, status)
             self.project_group.addButton(button)
             button.clicked.connect(lambda _checked=False, p=project: self._select_real_project(p))
             self.projects_layout.insertWidget(self.projects_layout.count() - 1, button)
             self.project_buttons[project.id] = button
+        rows = len(self.project_buttons)
+        self.project_scroll.setVisible(rows > 0)
+        self.project_scroll.setFixedHeight(min(rows, 8) * (ProjectOption.HEIGHT + 1) + (24 if rows > 8 else 0))
         motion.install_tree(self.project_rail)
         motion.stagger_in(list(self.project_buttons.values()))
         project_id = self.project.id if self.project else self._session.get("project_id")

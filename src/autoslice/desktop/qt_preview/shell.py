@@ -167,7 +167,7 @@ class Divider(QWidget):
 class NavItem(QPushButton):
     """导航项：图标 + 两字标题；选中时夜航强调色描边、晨雾白底卡片（底板由 ButtonFx 画）。"""
 
-    ICONS = {"字幕": "subtitles", "封面": "cover", "设置": "settings"}
+    ICONS = {"字幕": "subtitles", "封面": "cover", "设置": "sliders"}
 
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -355,6 +355,9 @@ class Popover(QWidget):
         self._closing = False
         self._above = above
         self.content.show()
+        # 弹层隐藏期间内容可能变了（项目列表刷新），缓存的尺寸不作数，重新量一次
+        self.content.updateGeometry()
+        self.layout().invalidate()
         hint = self.layout().sizeHint()
         height = min(max_height, hint.height())
         self.resize(self.panel_width + left + right, height)
