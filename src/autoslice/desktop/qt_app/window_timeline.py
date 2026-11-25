@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMenu,
@@ -18,12 +18,24 @@ from PySide6.QtWidgets import (
 )
 
 from autoslice.desktop.qt_preview import popups
-from autoslice.desktop.qt_preview.theme import SIZES
-from autoslice.desktop.qt_preview.widgets import ElidedLabel
 from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 from .timeline import SubtitleTimeline
+
+
+class _ScrollDock(QObject):
+    """时间轴变尺寸时，把横向细滚动条摆到轨道底边以内。"""
+
+    def __init__(self, timeline, bar) -> None:
+        super().__init__(timeline)
+        self._bar = bar
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            self._bar.setGeometry(12, obj.height() - 7, max(10, obj.width() - 24), 6)
+            self._bar.raise_()
+        return False
 
 
 class TimelineMixin:
@@ -36,16 +48,13 @@ class TimelineMixin:
         layout.setSpacing(6)
         heading = QHBoxLayout()
         heading.setSpacing(6)
-        heading.setContentsMargins(4, 0, 0, 0)
+        heading.setContentsMargins(4, 3, 0, 3)
         heading.addWidget(label("时间轴", "sectionTitle"))
-        heading.addSpacing(SIZES.space_2)
-        hint = ElidedLabel("Ctrl+滚轮缩放 · 拖动空白框选 · 滚轮/侧键平移 · Ctrl+/ 快捷键")
-        hint.setObjectName("subtle")
-        hint.setToolTip("快捷键一览 Ctrl+/ · 拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+滚轮缩放")
+        heading.addSpacing(10)
+        # 设计稿：磁吸、波形是纯文字开关，适合全部是无框文字按钮；操作提示收进悬停说明
         self.snap_button = QPushButton("磁吸")
         self.snap_button.setObjectName("tool")
         self.snap_button.setCheckable(True)
-        tool_icon(self.snap_button, "magnet", checkable=True)
         self.snap_button.setChecked(True)
         self.snap_button.setToolTip("自动吸附字幕边界；拖动时按住 Alt 可临时关闭")
         self.snap_button.clicked.connect(self._toggle_snapping)
@@ -53,28 +62,32 @@ class TimelineMixin:
         self.waveform_button = QPushButton("波形")
         self.waveform_button.setObjectName("tool")
         self.waveform_button.setCheckable(True)
-        tool_icon(self.waveform_button, "waveform", checkable=True)
         self.waveform_button.setChecked(True)
         self.waveform_button.setToolTip("显示轻量音频波形")
         self.waveform_button.clicked.connect(self._toggle_waveform)
         heading.addWidget(self.waveform_button)
-        heading.addSpacing(SIZES.space_2)
         self.fit_button = QPushButton("适合全部")
         self.fit_button.setObjectName("tool")
-        tool_icon(self.fit_button, "fit")
+        self.fit_button.setFixedHeight(26)
+        self.fit_button.setToolTip("把整段字幕放进视野")
         self.fit_button.clicked.connect(self._fit_timeline)
         heading.addWidget(self.fit_button)
         self.more_button = QPushButton()
         self.more_button.setObjectName("tool")
+        self.more_button.setProperty("square", True)
+        self.more_button.setFixedSize(26, 26)
         tool_icon(self.more_button, "more")
-        self.more_button.setToolTip("字幕编辑操作")
+        self.more_button.setToolTip("字幕编辑操作（也可在字幕块上右键）")
         self.more_button.clicked.connect(lambda: self._show_edit_menu(
             self.more_button.mapToGlobal(self.more_button.rect().bottomLeft()), global_position=True))
         heading.addWidget(self.more_button)
         heading.addStretch()
         self.timeline_overlap = label("", "danger")
         heading.addWidget(self.timeline_overlap)
-        heading.addWidget(hint, 1)
+        heading.addSpacing(8)
+        self.timeline_span = label("", "hintLine")
+        self.timeline_span.setToolTip("Ctrl+滚轮缩放 · 拖动空白框选 · 滚轮/鼠标侧键平移 · Ctrl+/ 快捷键一览")
+        heading.addWidget(self.timeline_span)
         layout.addLayout(heading)
         self.timeline = SubtitleTimeline()
         self.timeline.set_waveform_visible(True)
@@ -89,13 +102,14 @@ class TimelineMixin:
         self.timeline.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.timeline.customContextMenuRequested.connect(self._show_edit_menu)
         layout.addWidget(self.timeline, 1)
-        self.timeline_scroll = QScrollBar(Qt.Orientation.Horizontal)
+        # 横向滚动条贴在轨道底边里面（设计稿没有独立滚动条，只留一道细条供拖动）
+        self.timeline_scroll = QScrollBar(Qt.Orientation.Horizontal, self.timeline)
         self.timeline_scroll.setObjectName("timelineScroll")
-        self.timeline_scroll.setFixedHeight(12)
+        self.timeline_scroll.setFixedHeight(6)
+        self.timeline.installEventFilter(_ScrollDock(self.timeline, self.timeline_scroll))
         self.timeline_scroll.setTracking(True)
         self.timeline_scroll.setSingleStep(250)
         self.timeline_scroll.valueChanged.connect(self._timeline_scroll_changed)
-        layout.addWidget(self.timeline_scroll)
         self._syncing_timeline_scroll = False
         self._sync_timeline_scroll(0.0, self.timeline.span, self.timeline.duration)
         return panel
@@ -191,6 +205,8 @@ class TimelineMixin:
         self.selection.choose(new_index, self._cue_order())
         self.selected_index = new_index
         self.model.set_document(self.document)
+        self.subtitle_delegate.effects.play(new_index, "born")
+        self.subtitle_delegate.effects.play(entry.index, "flash")
         self._select_cue(new_index)
         self._edited()
         self._show_transient_status("已拆分字幕；请补全右侧正文后保存")
@@ -384,6 +400,7 @@ class TimelineMixin:
         self.selection.choose(new_index, self._cue_order())
         self.selected_index = new_index
         self.model.set_document(self.document)
+        self.subtitle_delegate.effects.play(new_index, "flash")
         self._select_cue(new_index)
         self._edited()
         self._show_transient_status("已合并所选字幕")
@@ -437,6 +454,11 @@ class TimelineMixin:
             self.timeline_scroll.setPageStep(span_ms)
             self.timeline_scroll.setValue(max(0, min(maximum, int(round(start * 1000)))))
             self.timeline_scroll.setEnabled(maximum > 0)
+            # 只有一屏放不下时才露出滚动细条
+            self.timeline_scroll.setVisible(maximum > 0)
+            if hasattr(self, "timeline_span"):
+                shown = min(span, duration) if duration > 0 else span
+                self.timeline_span.setText(f"视野 {shown:.0f} 秒" if shown >= 10 else f"视野 {shown:.1f} 秒")
         finally:
             self._syncing_timeline_scroll = False
 

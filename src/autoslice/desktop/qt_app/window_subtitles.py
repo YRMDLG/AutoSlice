@@ -9,34 +9,57 @@ from PySide6.QtCore import (
     QEvent,
     QItemSelectionModel,
     QModelIndex,
+    QObject,
+    QSize,
     Qt,
     QTimer,
 )
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QHBoxLayout,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
 from autoslice.desktop.qt_preview import motion
+from autoslice.desktop.qt_preview.appearance import themed
 from autoslice.desktop.qt_preview.shell import Divider
-from autoslice.desktop.qt_preview.theme import SIZES
+from autoslice.desktop.qt_preview.theme import COLORS, SIZES
 from autoslice.desktop.qt_preview.window import label
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
 from .window_widgets import (
+    TIME_TOP,
     InlineSubtitleEditor,
     SelectionFrame,
     SubtitleTableModel,
     SubtitleTextDelegate,
     _prepare_inline_editor,
 )
+
+
+class _GapWhenShown(QObject):
+    """查找条、识别横幅显示时下方留 10px，隐藏时不占位（标题行下面直接是分隔线）。"""
+
+    def __init__(self, holder, widget) -> None:
+        super().__init__(widget)
+        self._holder = holder
+        self._sync(widget)
+
+    def _sync(self, widget) -> None:
+        self._holder.setContentsMargins(12, 0, 12, 10 if not widget.isHidden() else 0)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() in (QEvent.Type.Show, QEvent.Type.Hide, QEvent.Type.HideToParent,
+                            QEvent.Type.ShowToParent):
+            self._sync(obj)
+        return False
 
 
 class SubtitleListMixin:
@@ -58,9 +81,8 @@ class SubtitleListMixin:
         # 筛选做成分段控件，当前筛选一目了然
         segmented = QWidget()
         segmented.setObjectName("segmented")
-        segmented.setFixedHeight(32)
         segment_row = QHBoxLayout(segmented)
-        segment_row.setContentsMargins(3, 3, 3, 3)
+        segment_row.setContentsMargins(0, 0, 0, 0)
         segment_row.setSpacing(2)
         self.filter_group = QButtonGroup(self)
         self.filter_group.setExclusive(True)
@@ -78,20 +100,21 @@ class SubtitleListMixin:
         heading.addStretch()
         self.quality_button = QPushButton("检查提醒 0")
         self.quality_button.setObjectName("chip")
+        self.quality_button.setIconSize(QSize(10, 6))
+        themed(self.quality_button, self._paint_quality_dot)
         self.quality_button.setToolTip("检查重复字、显示时间、重叠和长字幕，支持定位、试听与撤销")
         self.quality_button.setEnabled(False)
         self.quality_button.clicked.connect(self._show_quality)
         heading.addWidget(self.quality_button)
         heading.addWidget(self._build_find_toggle())
         layout.addWidget(header)
-        find_holder = QVBoxLayout()
-        find_holder.setContentsMargins(12, 0, 12, 10)
-        find_holder.addWidget(self._build_find_bar())
-        layout.addLayout(find_holder)
-        holder = QVBoxLayout()
-        holder.setContentsMargins(12, 0, 12, 10)
-        holder.addWidget(self._build_asr_banner())
-        layout.addLayout(holder)
+        for build in (self._build_find_bar, self._build_asr_banner):
+            holder = QVBoxLayout()
+            holder.setContentsMargins(12, 0, 12, 0)
+            widget = build()
+            holder.addWidget(widget)
+            widget.installEventFilter(_GapWhenShown(holder, widget))
+            layout.addLayout(holder)
         layout.addWidget(Divider(16))
         self.model = SubtitleTableModel(self)
         self.table = QTableView()
@@ -128,22 +151,47 @@ class SubtitleListMixin:
         self.table.customContextMenuRequested.connect(
             lambda point: self._show_edit_menu(self.table.viewport().mapToGlobal(point), global_position=True)
         )
+        # 设计稿：序号、正文、标记一行，时间码在正文下方；时间列只留在模型里
+        self.table.setColumnHidden(1, True)
         table_row = QHBoxLayout()
-        table_row.setContentsMargins(8, 6, 8, 6)
+        table_row.setContentsMargins(8, 8, 8, 8)
         table_row.addWidget(self.table)
         layout.addLayout(table_row, 1)
         layout.addWidget(Divider(16))
         footer = QHBoxLayout()
-        footer.setContentsMargins(18, 10, 18, 12)
+        footer.setContentsMargins(18, 12, 18, 12)
         footer.setSpacing(12)
-        self.subtitle_status = label("请选择项目", "subtle")
+        self.subtitle_hint = label("空格从选中句开头播放 · 右键可编辑、拆分、合并、删除 · 单击正文编辑", "hintLine")
+        footer.addWidget(self.subtitle_hint, 1)
+        # 没有字幕时（未选项目、缺字幕、加载失败）右侧给一句说明；有字幕时数量和保存状态在顶栏和筛选上
+        self.subtitle_status = label("请选择项目", "hintLine")
         footer.addWidget(self.subtitle_status)
-        footer.addStretch()
-        self.subtitle_hint = label("空格从选中句开头播放 · 右键编辑、拆分、合并、删除 · 单击正文编辑", "subtle")
-        footer.addWidget(self.subtitle_hint)
+        # 底部两段字都可以被压窄，不撑大右列
+        for item in (self.subtitle_hint, self.subtitle_status):
+            item.setMinimumWidth(0)
+            item.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addLayout(footer)
         self._row_frame = SelectionFrame(self.table)
         return panel
+
+    def _paint_quality_dot(self):
+        """检查提醒左侧的小圆点：有提醒时橙色，没有时灰色。"""
+
+        warn = self.quality_button.isEnabled()
+        color = COLORS.warning if warn else COLORS.disabled
+        pixmap = QPixmap(20, 12)
+        pixmap.setDevicePixelRatio(2.0)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawEllipse(0, 0, 6, 6)
+        painter.end()
+        self.quality_button.setIcon(QIcon(pixmap))
+        self.quality_button.setProperty("warn", "true" if warn else "false")
+        self.quality_button.style().unpolish(self.quality_button)
+        self.quality_button.style().polish(self.quality_button)
 
     def _sync_table_selection(self):
         if not hasattr(self, "table") or not hasattr(self, "model"):
@@ -205,11 +253,16 @@ class SubtitleListMixin:
         if abs(self._player_position - target) > .1 or not self._player_paused:
             self.timeline.set_selection(entry.index, self.selection.selected)
             self._seek_to(target)
+        click_point = None
+        pending = self._pending_caret_click
+        if index.column() == 2 and pending and pending[0] == index.row() and pending[1] == index.column():
+            click_point = pending[2]
+            # 点在正文下方的时间码那一行：和点序号一样只选中，不进编辑
+            top = self.table.visualRect(index).top()
+            if click_point.y() - top >= TIME_TOP - 2:
+                self._pending_caret_click = None
+                return
         if index.column() == 2:
-            click_point = None
-            pending = self._pending_caret_click
-            if pending and pending[0] == index.row() and pending[1] == index.column():
-                click_point = pending[2]
             self._pending_caret_click = None
 
             editing_index = self._editing_subtitle_index()

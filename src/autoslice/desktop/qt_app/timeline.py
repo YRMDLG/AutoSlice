@@ -6,7 +6,7 @@ import math
 import time
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QApplication, QWidget
 
 from autoslice.desktop.qt_preview import motion
@@ -409,10 +409,32 @@ class SubtitleTimeline(QWidget):
         )
         return max(self.waveform_samples[start_index:end_index], default=0.0)
 
+    # 设计稿：顶上一条刻度，字幕块贴底（离底 8px），波形在块上方 4px
+    RULER_HEIGHT = 20
+    BLOCK_BOTTOM = 8
+    WAVE_GAP = 4
+
+    @staticmethod
+    def _block_height() -> float:
+        return 30.0 if STYLE.dark else 32.0
+
+    @staticmethod
+    def _wave_height() -> float:
+        return 34.0 if STYLE.dark else 40.0
+
+    def _block_top(self) -> float:
+        return max(float(self.RULER_HEIGHT), self.height() - self.BLOCK_BOTTOM - self._block_height())
+
+    def _wave_rect(self) -> QRectF:
+        bottom = self._block_top() - self.WAVE_GAP
+        top = max(float(self.RULER_HEIGHT), bottom - self._wave_height())
+        return QRectF(12.0, top, max(1.0, self.width() - 24.0), max(1.0, bottom - top))
+
     def _visible_blocks(self):
         if not self.document:
             return
         left, right = self._view_start(), self._view_start() + self.span
+        top, height = self._block_top(), self._block_height()
         for entry in self.document.entries:
             start = srt_timestamp_seconds(entry.start)
             end = srt_timestamp_seconds(entry.end)
@@ -421,97 +443,97 @@ class SubtitleTimeline(QWidget):
             x1 = max(12.0, self._x(start))
             x2 = min(float(self.width() - 12), self._x(end))
             if x2 > x1:
-                yield entry, start, end, QRectF(x1, 27, max(5.0, x2 - x1), 24)
+                yield entry, start, end, QRectF(x1, top, max(5.0, x2 - x1), height)
 
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # 轨道底：圆角浅底 + 细描边，和卡片区分开
-        painter.setPen(QPen(QColor(COLORS.timeline_border), 1))
+        # 轨道底：圆角底板；夜航带一圈细描边，晨雾只有浅底
+        frame = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(QColor(COLORS.timeline_border), 1) if STYLE.dark else Qt.PenStyle.NoPen)
         painter.setBrush(QColor(COLORS.timeline_bg))
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 9, 9)
+        painter.drawRoundedRect(frame, 9, 9)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(COLORS.tick), 1))
-        painter.drawLine(12, 21, self.width() - 12, 21)
-        if self.waveform_visible:
-            painter.setPen(QPen(faded(mix(COLORS.wave, COLORS.subtle, .35), self._wave.value), 1))
-            center = 72
+        wave = self._wave_rect()
+        if self.waveform_visible and self._wave.value > .01:
             if self.waveform_samples:
-                for x in range(12, max(12, self.width() - 12), 2):
-                    sample = self._waveform_amplitude(float(x), 2.0)
-                    amplitude = max(1, int(sample * 24))
-                    painter.drawLine(x, int(center - amplitude), x, int(center + amplitude))
+                # 上下对称的实心波形
+                center, half = wave.center().y(), wave.height() / 2 - 1
+                top, bottom = [], []
+                for x in range(12, max(13, self.width() - 12), 3):
+                    amplitude = max(.6, self._waveform_amplitude(float(x), 3.0) * half)
+                    top.append(QPointF(x, center - amplitude))
+                    bottom.append(QPointF(x, center + amplitude))
+                polygon = QPolygonF(top + bottom[::-1])
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(faded(COLORS.wave, self._wave.value))
+                painter.drawPolygon(polygon)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
             elif self.document:
                 painter.setPen(QColor(COLORS.subtle))
-                painter.drawText(12, 57, self.width() - 24, 30,
-                                 Qt.AlignmentFlag.AlignCenter, "生成波形中…")
+                painter.drawText(wave, Qt.AlignmentFlag.AlignCenter, "生成波形中…")
         if not self.document:
             painter.setPen(QColor(COLORS.subtle))
-            painter.drawText(12, 27, self.width() - 24, 24,
+            painter.drawText(QRectF(12, self._block_top(), self.width() - 24, self._block_height()),
                              Qt.AlignmentFlag.AlignCenter, "选择字幕后显示局部时间轴")
             return
         spacing = next((step for step in (1, 2, 5, 10, 20, 30, 60, 120, 300)
                         if self._track_width() * step / self.span >= 85), 600)
         left = self._view_start()
         tick = int(left // spacing) * spacing
+        painter.setFont(self._tick_font())
         while tick <= left + self.span:
             x = self._x(tick)
             if 12 <= x <= self.width() - 12:
-                painter.setPen(QColor(COLORS.subtle))
-                painter.setFont(self._tick_font())
                 minutes, seconds = divmod(tick, 60)
                 text = f"{minutes:02d}:{seconds:02d}"
-                # 放不下的刻度只画刻线，不画被截断的标签
-                if x + 3 + painter.fontMetrics().horizontalAdvance(text) <= self.width() - 12:
-                    painter.drawText(int(x + 3), 0, 55, 17, Qt.AlignmentFlag.AlignLeft, text)
+                # 刻度：标签左边一道细竖线；放不下的标签只画竖线
                 painter.setPen(QPen(QColor(COLORS.tick), 1))
-                painter.drawLine(int(x), 17, int(x), 25)
+                painter.drawLine(QPointF(int(x) + .5, 3), QPointF(int(x) + .5, 18))
+                if x + 4 + painter.fontMetrics().horizontalAdvance(text) <= self.width() - 12:
+                    painter.setPen(QColor(COLORS.subtle))
+                    painter.drawText(QRectF(int(x) + 4, 3, 60, 15),
+                                     Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
             tick += spacing
-        painter.setFont(self.font())
+        block_font = QFont(self.font())
+        block_font.setPixelSize(11)
+        painter.setFont(block_font)
         for entry, _start, _end, rect in self._visible_blocks():
             key = entry.index
             selected = key in self.selected_indices
-            primary = selected and key == self.selected_index
             current = key == self.playing_index
             hovered = key == self.hovered_index and not self._drag
             s = self._fx.value((key, "select"), 1.0 if selected else 0.0, motion.SELECT)
-            m = self._fx.value((key, "primary"), 1.0 if primary else 0.0, motion.SELECT)
             p = self._fx.value((key, "play"), 1.0 if current else 0.0, motion.SELECT)
             h = self._fx.value((key, "hover"), 1.0 if hovered else 0.0,
                                motion.HOVER_IN if hovered else motion.HOVER_OUT)
-            # 选中、播放、悬停三态各用一组令牌：选中最强，播放次之，悬停只轻微提亮
-            fill = mix(mix(mix(COLORS.block, COLORS.block_playing, h * .5), COLORS.block_playing, p),
-                       COLORS.block_selected, s)
-            border = mix(mix(mix(COLORS.block_border, COLORS.block_playing_border, h),
-                             COLORS.block_playing_border, p), COLORS.block_selected_border, s)
-            # 块与块之间留一道小缝，不前后贴住；圆角取主题值，窄块按宽度收
-            shape = rect.adjusted(1.5, 0, -1.5, 0) if rect.width() > 8 else rect
+            # 选中、播放、悬停三态各用一组令牌：选中最强，播放次之；悬停夜航提亮、晨雾上浮 2px
+            fill = mix(mix(mix(COLORS.block, COLORS.block_playing, h * (.45 if STYLE.dark else .2)),
+                           COLORS.block_playing, p), COLORS.block_selected, s)
+            border = mix(mix(COLORS.block_border, COLORS.block_playing_border, p), COLORS.block_selected_border, s)
+            if not STYLE.dark:
+                rect = rect.translated(0, -2 * h)
+            # 块与块之间各让 2px，不前后贴住；圆角取主题值，窄块按宽度收
+            shape = rect.adjusted(2, 0, -2, 0) if rect.width() > 8 else rect
             radius = min(STYLE.block_radius, shape.height() / 2, shape.width() / 2)
-            painter.setPen(QPen(border, 1 + m))
+            if STYLE.dark and current and self._anchor is not None:
+                # 正在播放的那块：淡淡的强调色外光
+                painter.setPen(QPen(faded(COLORS.accent, .12), 4))
+                painter.drawRoundedRect(shape, radius, radius)
+            painter.setPen(QPen(border, 1))
             painter.setBrush(fill)
-            painter.drawRoundedRect(shape, radius, radius)
-            if rect.width() >= 28:
+            painter.drawRoundedRect(shape.adjusted(.5, .5, -.5, -.5), radius, radius)
+            if shape.width() >= 22:
                 painter.setPen(mix(mix(COLORS.block_text, COLORS.block_playing_text, max(p, h * .6)),
                                    COLORS.block_selected_text, s))
-                # 主选指示条出现时序号让出位置
-                area = rect.adjusted(8 + 4 * m, 0, -6, 0)
-                number = str(entry.index)
-                painter.drawText(area, Qt.AlignmentFlag.AlignVCenter, number)
-                # 块够宽就跟上开头几个字，不用对照下面的列表找是哪句；放不下三个字就不画半截
-                metrics = painter.fontMetrics()
-                gap = metrics.horizontalAdvance(number) + 6
-                room = int(area.width()) - gap
-                if room >= metrics.horizontalAdvance("字字字"):
-                    preview = " ".join(entry.text.split())
-                    if preview:
-                        painter.drawText(area.adjusted(gap, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter,
-                                         metrics.elidedText(preview, Qt.TextElideMode.ElideRight, room))
-            if m > .01:
-                length = (rect.height() - 6) * motion.ease(m)
-                painter.fillRect(QRectF(rect.left() + 2, rect.center().y() - length / 2, 2, length),
-                                 faded(COLORS.block_selected_border, m))
+                area = shape.adjusted(8, 0, -4, 0)
+                painter.save()
+                painter.setClipRect(area)
+                painter.drawText(area, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                                 " ".join(entry.text.split()))
+                painter.restore()
             # 边缘可拖拽提示：悬停到左右边缘时浮现
-            for side, edge_x in (("left", rect.left()), ("right", rect.right())):
+            for side, edge_x in (("left", shape.left()), ("right", shape.right())):
                 on = hovered and self.hovered_mode == side
                 e = self._fx.value((key, side), 1.0 if on else 0.0,
                                    motion.HOVER_IN if on else motion.HOVER_OUT)
@@ -519,7 +541,7 @@ class SubtitleTimeline(QWidget):
                     pen = QPen(faded(COLORS.block_selected_border, e), 3)
                     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                     painter.setPen(pen)
-                    painter.drawLine(QPointF(edge_x, rect.top() + 3), QPointF(edge_x, rect.bottom() - 3))
+                    painter.drawLine(QPointF(edge_x, rect.top() + 4), QPointF(edge_x, rect.bottom() - 4))
         self._paint_overlaps(painter)
         if self._marquee:
             rectangle = QRectF(self._marquee[0], self._marquee[1],
@@ -530,17 +552,7 @@ class SubtitleTimeline(QWidget):
             self._paint_marquee(painter, self._marquee_last, self._marquee_fade.value)
         marker = self._x(self._scrub["position"] if self._scrub else self._display_playhead())
         if 12 <= marker <= self.width() - 12:
-            # 播放头：独立细线，夜航带一点强调色光晕，晨雾是深色细线
-            if STYLE.dark:
-                painter.setPen(QPen(faded(COLORS.playhead, .25), 5))
-                painter.drawLine(QPointF(marker, 19), QPointF(marker, self.height() - 2))
-            painter.setPen(QPen(QColor(COLORS.playhead), 1.5))
-            painter.drawLine(QPointF(marker, 19), QPointF(marker, self.height() - 2))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(COLORS.playhead))
-            painter.drawPolygon(QPolygonF([
-                QPointF(marker - 5, 17), QPointF(marker + 5, 17), QPointF(marker, 24),
-            ]))
+            self._paint_playhead(painter, marker)
         if self._scrub:
             position = self._scrub["position"]
             minutes, seconds = divmod(position, 60)
@@ -563,6 +575,43 @@ class SubtitleTimeline(QWidget):
             painter.setPen(QPen(faded(COLORS.accent, self._guide.value), 1, Qt.PenStyle.DashLine))
             painter.drawLine(QPointF(guide, 0), QPointF(guide, self.height()))
 
+    def _paint_playhead(self, painter, marker: float) -> None:
+        """播放头贯穿整条轨道。夜航：1px 强调色细线 + 光晕 + 顶部小三角，播放时左侧拖一段淡尾巴；
+        晨雾：2px 深色线 + 顶部圆点，播放时圆点外圈呼吸。"""
+
+        height = float(self.height())
+        playing = self._anchor is not None
+        painter.save()
+        if STYLE.dark:
+            if playing:
+                tail = QLinearGradient(marker - 80, 0, marker, 0)
+                tail.setColorAt(0.0, faded(COLORS.accent, 0.0))
+                tail.setColorAt(1.0, faded(COLORS.accent, .16))
+                painter.fillRect(QRectF(marker - 80, 1, 80, height - 2), QBrush(tail))
+            for width, alpha in ((9, .07), (5, .14), (3, .28)):
+                painter.setPen(QPen(faded(COLORS.playhead, alpha), width))
+                painter.drawLine(QPointF(marker, 1), QPointF(marker, height - 1))
+            painter.setPen(QPen(QColor(COLORS.playhead), 1))
+            painter.drawLine(QPointF(marker, 0), QPointF(marker, height))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(COLORS.playhead))
+            painter.drawPolygon(QPolygonF([
+                QPointF(marker - 4.5, 0), QPointF(marker + 4.5, 0), QPointF(marker, 7),
+            ]))
+        else:
+            painter.setPen(QPen(QColor(COLORS.playhead), 2))
+            painter.drawLine(QPointF(marker, 0), QPointF(marker, height))
+            breath = 0.0
+            if playing and motion.enabled():
+                breath = (math.sin(time.monotonic() / 1.6 * 2 * math.pi) + 1) / 2
+            ring = 3 + 4 * breath
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(faded(COLORS.playhead, .10 - .06 * breath))
+            painter.drawEllipse(QPointF(marker, 8.5), 4.5 + ring, 4.5 + ring)
+            painter.setBrush(QColor(COLORS.playhead))
+            painter.drawEllipse(QPointF(marker, 8.5), 4.5, 4.5)
+        painter.restore()
+
     def _tick_font(self):
         font = QFont(self.font())
         font.setFamilies(list(MONO_FAMILIES))
@@ -581,7 +630,8 @@ class SubtitleTimeline(QWidget):
         return distance <= SIZES.playhead_hit_width / 2
 
     def _hit(self, x: float, y: float):
-        if y < 26 or y > 53:
+        top = self._block_top()
+        if y < top - 1 or y > top + self._block_height() + 1:
             return None
         blocks = list(self._visible_blocks() or ())
         for entry, start, end, rect in reversed(blocks):

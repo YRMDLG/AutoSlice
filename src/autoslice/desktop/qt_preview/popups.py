@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QGuiApplication, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QComboBox, QMenu, QWidget
 
 from . import motion
@@ -284,19 +284,25 @@ class ComboBox(QComboBox):
 class MenuFx(QObject):
     """右键菜单：接管绘制，保留 QMenu 的键盘导航与行为。"""
 
-    def __init__(self, menu: QMenu) -> None:
+    def __init__(self, menu: QMenu, two_line: bool = False) -> None:
         super().__init__(menu)
         self.menu = menu
+        # 两行菜单项（设计稿“更多”“AI 检查”菜单）：上面名称，下面一行小字说明（action 的 sub 属性）
+        self.two_line = two_line
+        self._above = False
         menu.setWindowFlags(menu.windowFlags() | Qt.WindowType.FramelessWindowHint
                             | Qt.WindowType.NoDropShadowWindowHint)
         menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         left, top, right, bottom = SHADOW
+        item = "15px 24px 15px 12px" if two_line else "6px 64px 6px 12px"
         menu.setStyleSheet(
             f"QMenu {{ background: transparent; border: none; padding: {top + 4}px {right + 4}px "
             f"{bottom + 4}px {left + 4}px; }}"
-            "QMenu::item { padding: 6px 64px 6px 12px; }"
+            f"QMenu::item {{ padding: {item}; }}"
             "QMenu::separator { height: 9px; }"
         )
+        if two_line:
+            menu.setMinimumWidth(268 + left + right + 8)
         self._rows = motion.KeyedAnimator(self, menu.update)
         self._open = motion.Channel(self, self._step)
         # popup() 已自行让出投影留白；按钮 setMenu 弹出时由 Show 事件补上
@@ -312,6 +318,16 @@ class MenuFx(QObject):
         size = menu.sizeHint()
         x = anchor.width() - size.width() + SHADOW[2] if align_right else -SHADOW[0]
         menu.popup(anchor.mapToGlobal(QPoint(x, anchor.height() + 6 - SHADOW[1])))
+
+    @staticmethod
+    def popup_above(menu: QMenu, anchor: QWidget) -> None:
+        """在按钮上方弹出（左缘对齐按钮），从下往上展开。"""
+
+        fx = next((child for child in menu.children() if isinstance(child, MenuFx)), None)
+        if fx is not None:
+            fx._above = True
+        size = menu.sizeHint()
+        menu.popup(anchor.mapToGlobal(QPoint(-SHADOW[0], -size.height() - 6 + SHADOW[3])))
 
     def popup(self, position: QPoint) -> None:
         """exec 对齐可见面板而不是投影留白。"""
@@ -344,7 +360,7 @@ class MenuFx(QObject):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         left, top, right, bottom = SHADOW
         body = QRectF(menu.rect()).adjusted(left, top, -right, -bottom)
-        _enter_transform(painter, body, self._open.value, False)
+        _enter_transform(painter, body, self._open.value, False, self._above)
         paint_panel(painter, body)
         active = menu.activeAction()
         order = -1
@@ -371,6 +387,20 @@ class MenuFx(QObject):
                 base = COLORS.danger
             text = motion.mix(base, COLORS.danger if action.property("danger") else COLORS.text, h)
             painter.setPen(text)
+            sub = action.property("sub") if self.two_line else None
+            if sub:
+                font = QFont(menu.font())
+                font.setPixelSize(13)
+                painter.setFont(font)
+                painter.drawText(QRectF(row.left() + 12, row.top() + 6, row.width() - 24, 19),
+                                 Qt.AlignmentFlag.AlignVCenter, label)
+                font.setPixelSize(11)
+                painter.setFont(font)
+                painter.setPen(QColor(COLORS.subtle if enabled else COLORS.disabled))
+                painter.drawText(QRectF(row.left() + 12, row.top() + 25, row.width() - 24, 16),
+                                 Qt.AlignmentFlag.AlignVCenter, str(sub))
+                painter.setFont(menu.font())
+                continue
             painter.drawText(row.adjusted(12, 0, -12, 0), Qt.AlignmentFlag.AlignVCenter, label)
             trailing = row.right() - 12
             if action.isCheckable() and action.isChecked():

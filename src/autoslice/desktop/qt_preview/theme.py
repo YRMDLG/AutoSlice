@@ -125,7 +125,7 @@ class Palette:
     project_hover: str = "#1D1D1C"
     project_selected: str = "#222221"
     row_selected: str = "#181817"
-    playback: str = "#1C1C1B"
+    playback: str = "#1A1A19"
     playback_border: str = "#46443F"
     scrollbar: str = "#33312E"
     scrollbar_hover: str = "#4A4844"
@@ -174,6 +174,7 @@ class ThemeStyle:
     menu_radius: int = 12
     dialog_radius: int = 16
     block_radius: int = 8
+    row_radius: int = 10
     gap: int = 10
     # 夜航所有按钮只描边；晨雾次按钮白底、主按钮实心强调色
     filled_buttons: bool = False
@@ -231,7 +232,7 @@ def _night(accent: str, ground: str) -> dict[str, str]:
         "control_hover_border": "#4E4C48",
         "hover": "#191918", "button_hover": "#1F1F1E", "button_pressed": "#111110",
         "button_hover_border": "#4E4C48", "project_hover": "#1D1D1C", "project_selected": "#222221",
-        "row_selected": "#181817", "playback": "#1C1C1B", "playback_border": "#46443F",
+        "row_selected": "#181817", "playback": "#1A1A19", "playback_border": "#46443F",
         "scrollbar": "#33312E", "scrollbar_hover": "#4A4844",
         "segment_track": card, "segment_track_border": "#292826", "segment_thumb": card,
         "segment_thumb_border": line,
@@ -271,7 +272,7 @@ def _morning(accent: str, _ground: str) -> dict[str, str]:
         "control_hover_border": "#C9C4BB",
         "hover": "#F7F6F2", "button_hover": "#F8F7F3", "button_pressed": "#EFEDE8",
         "button_hover_border": "#C9C4BB", "project_hover": "#EFEDE8", "project_selected": "#EAE8E3",
-        "row_selected": card, "playback": "#F1EFEA", "playback_border": "#C9C4BB",
+        "row_selected": soft, "playback": "#F4F3F0", "playback_border": "#C9C4BB",
         "scrollbar": "#DAD6CF", "scrollbar_hover": "#BDB8AF",
         "segment_track": "#EFEDE8", "segment_track_border": "#EFEDE8", "segment_thumb": card,
         "segment_thumb_border": card,
@@ -290,7 +291,7 @@ _STYLES = {
     "night": ThemeStyle(),
     "morning": ThemeStyle(
         name="morning", label="晨雾", dark=False, card_radius=12, control_radius=8, menu_radius=12,
-        dialog_radius=16, block_radius=8, gap=12, filled_buttons=True, filled_primary=True,
+        dialog_radius=16, block_radius=8, row_radius=8, gap=12, filled_buttons=True, filled_primary=True,
         card_shadow=True, shadow_alpha=0.3, scrim_alpha=0.55, press_scale=0.94,
     ),
 }
@@ -343,7 +344,7 @@ class Metrics:
     ai_min_width: int = 280
     ai_collapsed_width: int = 48
     timeline_height: int = 92
-    timeline_card_height: int = 168
+    timeline_card_height: int = 164
     button_height: int = 32
     row_height: int = 78
     radius: int = 8
@@ -354,8 +355,9 @@ class Metrics:
     space_5: int = 24
     space_6: int = 32
     project_compact_height: int = 62
-    subtitle_row_height: int = 48
-    subtitle_number_width: int = 42
+    # 设计稿字幕行 57px + 行间距 2px；序号列 = 左内边距 12 + 序号 24 + 间距 12
+    subtitle_row_height: int = 59
+    subtitle_number_width: int = 48
     subtitle_time_width: int = 204
     playhead_hit_width: int = 14
     icon_size: int = 20
@@ -393,6 +395,8 @@ def stylesheet() -> str:
     arrow_up = icon_file("chevron_up", c.muted)
     check = icon_file("check", c.on_accent if s.filled_primary else c.accent)
     radius = s.control_radius
+    # 标题字重：夜航 500，晨雾 600（设计稿）
+    heading_weight = 500 if s.dark else 600
     # 夜航按钮只描边；晨雾次按钮白底。按钮底色实际由 motion.ButtonFx 绘制，这里只管文字与兜底
     button_bg = c.card if s.filled_buttons else "transparent"
     primary_bg = c.accent if s.filled_primary else "transparent"
@@ -433,7 +437,10 @@ def stylesheet() -> str:
         QLabel#projectTitle {{ font-size: 14px; font-weight: 500; }}
         QLabel#videoFile {{ color: {c.subtle}; font-size: {m.text_small}px; }}
         QLabel#statusLabel {{ color: {c.muted}; font-size: {m.text_small}px; padding: 0 4px; }}
-        QLabel#timecode {{ color: {c.muted}; font-family: {mono_font}; font-size: 12px; }}
+        QLabel#timecode {{ color: {c.text}; font-family: {mono_font}; font-size: 12px; }}
+        QLabel#timecodeTotal {{ color: {c.subtle}; font-family: {mono_font}; font-size: 12px; }}
+        QLabel#videoInfo {{ color: {c.muted}; font-family: {mono_font}; font-size: 11px; background: transparent; }}
+        QLabel#videoPlaceholder {{ color: {c.disabled}; font-size: 12px; background: transparent; }}
         QLabel#mono {{ color: {c.subtle}; font-family: {mono_font}; font-size: 11px; }}
         QLabel#aiDiff {{ font-size: {m.text_body}px; }}
         QWidget#aiSuggestionCard {{ background: {c.card}; border: 1px solid {c.divider}; border-radius: {m.radius}px; }}
@@ -442,9 +449,21 @@ def stylesheet() -> str:
         QLabel#aiOriginal {{ color: {c.muted}; }}
         QLabel#aiReason {{ color: {c.subtle}; }}
         QLabel#aiQueueHeader {{ color: {c.subtle}; font-size: {m.text_small}px; font-weight: 500; }}
-        QLabel#sectionTitle {{ font-size: 13px; font-weight: 600; }}
-        QLabel#cardHeading {{ font-size: 14px; font-weight: 600; }}
-        QPushButton#chip {{ min-height: 30px; max-height: 30px; padding: 0 10px; font-size: 12px; color: {c.muted}; }}
+        QLabel#sectionTitle {{ font-size: 13px; font-weight: {heading_weight}; }}
+        QLabel#cardHeading {{ font-size: 14px; font-weight: {heading_weight}; }}
+        QLabel#hintLine {{ color: {c.subtle}; font-size: 11px; }}
+        QLabel#navBadge {{ background: {c.accent if s.dark else c.accent_line}; color: {c.on_accent if s.dark else '#FFFFFF'}; border-radius: 7px; font-size: 10px; font-weight: 600; padding: 0 4px; }}
+        QLabel#fieldLabel {{ color: {c.muted}; font-size: 12px; background: transparent; }}
+        QFrame#canvasWell {{ background: {"#0E0E0D" if s.dark else "#EFEDE8"}; border: 1px solid {c.timeline_border if s.dark else "#EFEDE8"}; border-radius: 9px; }}
+        QFrame#valueRow {{ background: {c.well}; border: 1px solid {c.control_border}; border-radius: 8px; }}
+        QPushButton#fieldButton {{ text-align: left; padding: 0 30px 0 10px; font-size: 13px; color: {c.text}; }}
+        QPushButton#inRow {{ text-align: left; padding: 0 6px; font-size: 12px; color: {c.text}; min-height: 0; }}
+        QSpinBox#inRow {{ background: transparent; border: none; font-family: {mono_font}; font-size: 12px; color: {c.muted}; padding: 0 4px; }}
+        QCheckBox#switch::indicator {{ width: 34px; height: 20px; border-radius: 10px; image: none; border: 1px solid {c.control_border}; background: {c.well}; }}
+        QCheckBox#switch::indicator:checked {{ border-color: {c.accent if s.dark else c.accent_line}; background: {c.accent_soft}; image: none; }}
+        QLabel#keyHint {{ color: {c.subtle}; font-family: {mono_font}; font-size: 11px; background: transparent; }}
+        QPushButton[keyHint="true"] {{ text-align: left; padding-left: 14px; padding-right: 62px; }}
+        QPushButton#chip {{ min-height: 30px; max-height: 30px; padding: 0 10px; font-size: 12px; color: {c.subtle}; }}
         QPushButton#chip:hover {{ color: {c.text}; }}
         QPushButton#chip[warn="true"] {{ color: {c.text}; }}
         QWidget#aiInline {{ background: transparent; }}
@@ -474,14 +493,16 @@ def stylesheet() -> str:
         QPushButton#primary {{ color: {c.primary_text}; background: {primary_bg}; border-color: {primary_border}; font-weight: {weight}; }}
         QPushButton#primary:hover {{ color: {c.primary_text}; }}
         QPushButton#primary:disabled, QPushButton#primary:disabled:hover {{ color: {c.disabled}; background: transparent; border-color: {c.divider}; }}
-        QPushButton#secondary {{ font-weight: 500; }}
+        QPushButton#secondary {{ font-weight: {400 if s.dark else 500}; }}
         QPushButton#secondary:disabled, QPushButton#secondary:disabled:hover {{ color: {c.disabled}; border-color: {c.divider}; }}
         QPushButton#quiet, QPushButton#navButton, QPushButton#projectItem, QPushButton#projectItemCompact {{ background: transparent; border: none; }}
         QPushButton#quiet {{ min-height: 26px; color: {c.muted}; }}
         QPushButton#quiet:hover {{ color: {c.text}; }}
         QPushButton#tool {{ background: transparent; border: 1px solid transparent; border-radius: {radius}px; min-height: 28px; padding: 0 10px; color: {c.muted}; }}
         QPushButton#tool:hover {{ color: {c.text}; }}
-        QPushButton#tool:checked {{ color: {c.text}; border-color: {c.accent_line}; }}
+        QPushButton#tool:checked {{ color: {c.text}; border-color: transparent; }}
+        QPushButton#tool[checkable="true"] {{ min-height: 26px; max-height: 26px; font-size: 12px; color: {c.subtle}; }}
+        QPushButton#tool[checkable="true"]:hover, QPushButton#tool[checkable="true"]:checked {{ color: {c.text}; }}
         QPushButton#tool:disabled {{ color: {c.disabled}; background: transparent; border-color: transparent; }}
         QPushButton#tool[square="true"], QPushButton#square {{ padding: 0; min-height: 0; }}
         QPushButton#projectSwitch {{ padding: 0; min-height: 0; text-align: left; }}
@@ -497,18 +518,16 @@ def stylesheet() -> str:
         QPushButton#segment:checked {{ color: {c.text}; background: transparent; border-color: transparent; }}
         QPushButton#segment:disabled {{ color: {c.disabled}; }}
         QPushButton#quiet:checked {{ color: {c.text}; border: 1px solid {c.accent_line}; }}
-        QPushButton#frameThumb {{ padding: 2px 4px; min-height: 52px; max-height: 58px; border-radius: 7px; color: {c.subtle}; }}
-        QPushButton#frameThumb:checked {{ color: {c.text}; border: 2px solid {c.accent}; }}
-        QPushButton#schemeThumb {{ padding: 2px; border-radius: 7px; }}
+        QPushButton#frameThumb {{ padding: 0; min-height: 82px; max-height: 82px; border: none; background: transparent; }}
+        QPushButton#schemeThumb {{ padding: 2px; border-radius: 8px; }}
         QPushButton#schemeThumb:checked {{ border: 2px solid {c.accent}; }}
-        QPushButton#frameThumb[recommended="true"] {{ color: {c.accent_ink}; border: 1px dashed {c.accent_line}; }}
         QLabel#coverNoticeInfo {{ color: {c.muted}; background: {c.card}; border-bottom: 1px solid {c.divider}; padding: 4px 12px; }}
         QLabel#coverNoticeWarning {{ color: {c.text}; background: {c.card}; border-bottom: 1px solid {c.warning_border}; padding: 4px 12px; }}
         QLabel#coverNoticeError {{ color: {c.danger}; background: {c.card}; border-bottom: 1px solid {c.danger}; padding: 4px 12px; }}
         QPushButton#aiQueueItem {{ text-align: left; padding: 0 8px; min-height: 30px; max-height: 30px; color: {c.muted}; background: transparent; border: 1px solid transparent; border-radius: 6px; }}
         QPushButton#aiQueueItem:hover {{ color: {c.text}; }}
         QPushButton#aiQueueItem:checked {{ color: {c.text}; border-color: {c.accent_line}; }}
-        QPushButton#navButton {{ border-radius: 10px; color: {c.subtle}; padding: 0; min-height: 60px; max-height: 60px; min-width: 56px; max-width: 56px; }}
+        QPushButton#navButton {{ border-radius: 10px; color: {c.subtle}; padding: 0; min-height: 46px; max-height: 46px; min-width: 46px; max-width: 46px; }}
         QPushButton#navButton:hover {{ color: {c.text}; }}
         QPushButton#navButton:checked {{ color: {c.accent_ink}; }}
         QPushButton#projectItem, QPushButton#projectItemCompact {{ text-align: left; border-radius: 8px; padding: 0; }}

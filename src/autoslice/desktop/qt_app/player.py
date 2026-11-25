@@ -44,6 +44,7 @@ class MpvAdapter(QObject):
         self._poll_pending = False
         self._closed = False
         self._hardware_reported = False
+        self._media_info_reported = False
         self._subtitle_loaded = False
         self._subtitle_path: Path | None = None
         self._generation = 0
@@ -125,6 +126,7 @@ class MpvAdapter(QObject):
         if not path.is_file():
             raise FileNotFoundError("视频文件不存在")
         self._hardware_reported = False
+        self._media_info_reported = False
         self._subtitle_loaded = False
         self._subtitle_path = None
         handle = self._library.mpv_create()
@@ -215,6 +217,19 @@ class MpvAdapter(QObject):
                     self._hardware_reported = True
                 finally:
                     self._library.mpv_free(pointer)
+        if status["duration"] and not self._media_info_reported:
+            info = {}
+            for key, name in (("width", b"video-params/w"), ("height", b"video-params/h"),
+                              ("fps", b"container-fps")):
+                pointer = self._library.mpv_get_property_string(self._handle, name)
+                if pointer:
+                    try:
+                        info[key] = ctypes.string_at(pointer).decode("utf-8", errors="replace")
+                    finally:
+                        self._library.mpv_free(pointer)
+            if info.get("width") and info.get("height"):
+                status["video_info"] = info
+                self._media_info_reported = True
         return status
 
     def _poll(self):

@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from autoslice.desktop.qt_preview import popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.shell import Popover
-from autoslice.desktop.qt_preview.theme import COLORS, SIZES
+from autoslice.desktop.qt_preview.theme import COLORS
 from autoslice.desktop.qt_preview.window import label, tool_icon
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
@@ -35,22 +35,29 @@ class PlayerMixin:
         surface.setMinimumHeight(200)
         layout = QVBoxLayout(surface)
         layout.setContentsMargins(10, 10, 10, 0)
+        layout.setSpacing(0)
         self.video_stack = QStackedWidget()
         self.video_stack.setObjectName("videoFrame")
         self.video_stack.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.video_placeholder = label("选择项目后可校对真实 SRT\n视频播放将在 Desktop-05 接入", "hint")
+        # 没有画面时的占位：设计稿是一行加宽字距的淡字
+        self.video_placeholder = label("选择项目后可校对真实 SRT", "videoPlaceholder")
         self.video_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.video_placeholder.setWordWrap(True)
         self.video_stack.addWidget(self.video_placeholder)
         self.video_widget = QWidget()
         self.video_widget.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
         self.video_widget.setStyleSheet("background: #000000;")
         self.video_stack.addWidget(self.video_widget)
         layout.addWidget(self.video_stack, 1)
+        # 左上角“1920×1080 · 60fps”；画面是原生窗口，标注放在占位页上，播放时由 mpv 自己的 OSD 不显示
+        self.video_info = label("", "videoInfo")
+        self.video_info.setParent(self.video_placeholder)
+        self.video_info.move(12, 12)
         controls_bar = QWidget()
         controls_bar.setObjectName("playerControls")
+        controls_bar.setFixedHeight(60)
         controls = QHBoxLayout(controls_bar)
-        # 无框按钮按图标对齐左边线
-        controls.setContentsMargins(4, 10, 4, 10)
+        controls.setContentsMargins(4, 0, 4, 0)
         controls.setSpacing(4)
         self.seek_back_button = QPushButton()
         self.seek_forward_button = QPushButton()
@@ -63,43 +70,48 @@ class PlayerMixin:
             button.setAccessibleName(tip)
             tool_icon(button, name)
             button.clicked.connect(lambda _checked=False, delta=step: self._nudge_playhead(delta))
+        # 播放键：38px 圆形、只有图标；文字“播放 / 暂停”留给读屏和快捷键提示
         self.play_button = QPushButton("播放")
-        # 播放是这一行的主动作：夜航强调色描边，晨雾实心强调色
-        self.play_button.setObjectName("primary")
-        self.play_button.setFixedHeight(34)
-        self.play_button.setIcon(desktop_icon("play", COLORS.primary_text, SIZES.tool_icon_size))
-        self.play_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
-        self.play_button.setToolTip("播放 / 暂停（空格）")
+        self.play_button.setObjectName("playRound")
+        self.play_button.setFixedSize(38, 38)
+        self.play_button.setIcon(desktop_icon("play", COLORS.primary_text, 14))
+        self.play_button.setIconSize(QSize(14, 14))
+        self.play_button.setToolTip("播放 / 暂停（空格从选中句开头播放）")
+        self.play_button.setAccessibleName("播放")
         self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self._toggle_play)
         controls.addWidget(self.seek_back_button)
         controls.addWidget(self.play_button)
         controls.addWidget(self.seek_forward_button)
-        controls.addSpacing(8)
+        controls.addSpacing(10)
+        self.time_label = label("00:00:00.000", "timecode")
+        controls.addWidget(self.time_label)
+        self.time_total = label("/ 00:00:00", "timecodeTotal")
+        controls.addWidget(self.time_total)
+        controls.addStretch()
         self.preview_toggle = QPushButton("字幕预览")
         self.preview_toggle.setObjectName("tool")
         self.preview_toggle.setCheckable(True)
-        tool_icon(self.preview_toggle, "eye", checkable=True)
         self.preview_toggle.setChecked(True)
         self.preview_toggle.setToolTip("显示接近最终压制样式的实时字幕预览")
         self.preview_toggle.clicked.connect(self._toggle_subtitle_preview)
-        self.time_label = label("00:00:00 / 00:00:00", "timecode")
-        controls.addWidget(self.time_label)
-        controls.addStretch()
         controls.addWidget(self.preview_toggle)
-        # 音量收进弹层：点喇叭弹出滑块，平时不占控制条
+        # 音量和倍速收进喇叭弹层：平时不占控制条
         self.volume_button = QPushButton()
         self.volume_button.setObjectName("tool")
         self.volume_button.setProperty("square", True)
         self.volume_button.setFixedSize(32, 32)
-        self.volume_button.setToolTip("音量")
-        self.volume_button.setAccessibleName("音量")
+        self.volume_button.setToolTip("音量与倍速")
+        self.volume_button.setAccessibleName("音量与倍速")
         tool_icon(self.volume_button, "volume")
         controls.addWidget(self.volume_button)
         volume_panel = QWidget()
-        volume_row = QHBoxLayout(volume_panel)
-        volume_row.setContentsMargins(4, 2, 4, 2)
+        volume_column = QVBoxLayout(volume_panel)
+        volume_column.setContentsMargins(4, 2, 4, 2)
+        volume_column.setSpacing(10)
+        volume_row = QHBoxLayout()
         volume_row.setSpacing(12)
+        volume_row.addWidget(label("音量", "hintLine"))
         self.volume = QSlider(Qt.Orientation.Horizontal)
         self.volume.setRange(0, 100)
         self.volume.setValue(50)
@@ -110,17 +122,38 @@ class PlayerMixin:
         self.volume_value.setMinimumWidth(26)
         self.volume.valueChanged.connect(lambda value: self.volume_value.setText(str(value)))
         volume_row.addWidget(self.volume_value)
-        self.volume_popover = Popover(self, volume_panel, 212)
-        self.volume_button.clicked.connect(lambda: self.volume_popover.popup(
-            self.volume_button, align_right=True, above=True))
+        volume_column.addLayout(volume_row)
+        speed_row = QHBoxLayout()
+        speed_row.setSpacing(12)
+        speed_row.addWidget(label("倍速", "hintLine"))
         self.speed = popups.ComboBox()
         for value in (0.75, 1.0, 1.25, 1.5, 2.0):
             self.speed.addItem(f"{value:g}×", value)
         self.speed.setCurrentIndex(1)
         self.speed.currentIndexChanged.connect(self._speed_changed)
-        controls.addWidget(self.speed)
+        speed_row.addWidget(self.speed, 1)
+        volume_column.addLayout(speed_row)
+        self.volume_popover = Popover(self, volume_panel, 240)
+        self.volume_button.clicked.connect(lambda: self.volume_popover.popup(
+            self.volume_button, align_right=True, above=True))
         layout.addWidget(controls_bar)
         return surface
+
+    def _show_time(self, position, duration) -> None:
+        """控制条时间码：当前位置到毫秒，总长到秒；总长用浅色。"""
+
+        self.time_label.setText(self._clock_ms(position))
+        self.time_total.setText(f"/ {self._clock(duration)}")
+
+    def _show_video_info(self, info) -> None:
+        width, height = info.get("width", ""), info.get("height", "")
+        try:
+            fps = f"{float(info.get('fps') or 0):.3g}"
+        except ValueError:
+            fps = ""
+        text = f"{width}×{height}" + (f" · {fps}fps" if fps and fps != "0" else "")
+        self.video_info.setText(text)
+        self.video_info.adjustSize()
 
     def _audition(self, side):
         bounds = self._entry_bounds()
@@ -194,7 +227,7 @@ class PlayerMixin:
                 target = min(target, duration)
             self._player_position = target
             self.timeline.set_playhead(target, playing=False)
-            self.time_label.setText(f"{self._clock(target)} / {self._clock(duration)}")
+            self._show_time(target, duration)
             return
         if not self._media_ready:
             self._pending_seek = max(0.0, float(seconds))
@@ -256,7 +289,8 @@ class PlayerMixin:
 
     def _set_play_button(self, paused):
         self.play_button.setText("播放" if paused else "暂停")
-        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.primary_text, SIZES.tool_icon_size))
+        self.play_button.setAccessibleName(self.play_button.text())
+        self.play_button.setIcon(desktop_icon("play" if paused else "pause", COLORS.primary_text, 14))
 
     def _space_play(self):
         """空格：暂停时有选中字幕就从那句开头播放；播放中按空格暂停；没有选中字幕时普通播放 / 暂停。"""
@@ -286,6 +320,12 @@ class PlayerMixin:
     def _clock(seconds):
         value = max(0, int(seconds or 0))
         return f"{value // 3600:02d}:{value // 60 % 60:02d}:{value % 60:02d}"
+
+    @staticmethod
+    def _clock_ms(seconds):
+        millis = max(0, int(round(float(seconds or 0) * 1000)))
+        value, ms = divmod(millis, 1000)
+        return f"{value // 3600:02d}:{value // 60 % 60:02d}:{value % 60:02d}.{ms:03d}"
 
     def _player_status(self, state):
         if not self.project or not self.project.videos:
@@ -349,10 +389,10 @@ class PlayerMixin:
             self._player_paused = state["paused"]
         if "hwdec" in state:
             self._hwdec = state["hwdec"]
+        if "video_info" in state:
+            self._show_video_info(state["video_info"])
         self._set_play_button(self._player_paused)
-        self.time_label.setText(
-            f"{self._clock(self._player_position)} / {self._clock(self._player_duration)}"
-        )
+        self._show_time(self._player_position, self._player_duration)
         if self.document and position is not None and not requested_seek:
             active = next((entry.index for entry in self.document.entries
                            if srt_timestamp_seconds(entry.start) <= position

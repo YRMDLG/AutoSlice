@@ -582,6 +582,8 @@ class ProjectsMixin:
             self.video_stack.setCurrentIndex(1)
             self._resume_pending = self._session.get("video_path") == video.path
             self.time_label.setText("正在加载视频…")
+            self.time_total.setText("")
+            self.video_info.setText("")
             self.player.load(video.path)
             QTimer.singleShot(20000, lambda: self._check_player_load(token))
         else:

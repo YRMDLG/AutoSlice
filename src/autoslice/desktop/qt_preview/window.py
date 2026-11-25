@@ -1,6 +1,6 @@
 """可交互的 Desktop-04.55 Qt 壳，不读取投稿或字幕文件。"""
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -59,6 +59,25 @@ def card(title: str, description: str = "", parent: QWidget | None = None) -> tu
         text.setWordWrap(True)
         column.addWidget(text)
     return result, column
+
+
+def key_hint(button: QPushButton, keys: str) -> QLabel:
+    """按钮右侧的等宽快捷键提示（如“保存字幕  Ctrl S”）：文字靠左，提示贴右，不挡点击。"""
+
+    hint = QLabel(keys, button)
+    hint.setObjectName("keyHint")
+    hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    button.setProperty("keyHint", True)
+
+    class _Dock(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Polish):
+                hint.adjustSize()
+                hint.move(obj.width() - hint.width() - 14, (obj.height() - hint.height()) // 2)
+            return False
+
+    button.installEventFilter(_Dock(button))
+    return hint
 
 
 def tool_icon(button: QPushButton, name: str, checkable: bool = False) -> None:
@@ -192,6 +211,19 @@ class TimelineTrack(QWidget):
         painter.drawLine(marker_x, 16, marker_x, 56)
 
 
+class _ColumnsFit(QObject):
+    """字幕页两列：用户没拖过分界时，宽度变化后按设计比例重排（等 QSplitter 自己分配完再改）。"""
+
+    def __init__(self, window) -> None:
+        super().__init__(window)
+        self._window = window
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize and not getattr(self._window, "_columns_dragged", True):
+            QTimer.singleShot(0, self._window, self._window._fit_columns)
+        return False
+
+
 class PreviewWindow(QMainWindow):
     """窗口骨架：左侧 64px 导航卡片 + 右侧顶栏与页面；页面内容都放在悬浮卡片里。
 
@@ -221,7 +253,8 @@ class PreviewWindow(QMainWindow):
         column = QVBoxLayout(main)
         column.setContentsMargins(0, 0, 0, 0)
         self._gap_layouts.append((column, False))
-        column.addWidget(self._appbar())
+        self.appbar = self._appbar()
+        column.addWidget(self.appbar)
         self.project_rail = self._project_rail()
         self.project_rail.setMinimumHeight(360)
         self.project_popover = Popover(self, self.project_rail, 440)
@@ -380,6 +413,10 @@ class PreviewWindow(QMainWindow):
         self.subtitle_columns.addWidget(self.vertical_splitter)
         self.subtitle_columns.addWidget(self.side_splitter)
         self.subtitle_columns.setStretchFactor(0, 1)
+        # 用户拖过左右分界就记住他的宽度；没拖过时随窗口按设计比例重算
+        self._columns_dragged = False
+        self.subtitle_columns.splitterMoved.connect(lambda *_: setattr(self, "_columns_dragged", True))
+        self.subtitle_columns.installEventFilter(_ColumnsFit(self))
         self.vertical_splitter.splitterMoved.connect(
             lambda *_: self._mirror_rows(self.vertical_splitter, self.side_splitter))
         self.side_splitter.splitterMoved.connect(
@@ -594,8 +631,9 @@ class PreviewWindow(QMainWindow):
             motion.page_enter(self.pages.currentWidget())
 
     def _page_chrome(self, index: int) -> None:
-        """顶栏随页面变化：设置页不显示项目切换。"""
+        """顶栏随页面变化：设置页整页是一张卡，没有顶栏（设计稿）。"""
 
+        self.appbar.setVisible(index != 2)
         self.project_switch.setVisible(index != 2)
         if index == 2 and self.project_popover.isVisible():
             self.project_popover.hide()
@@ -632,11 +670,15 @@ class PreviewWindow(QMainWindow):
             self._compact_layout = compact
             QTimer.singleShot(0, self._balance_vertical_splitter)
 
-    def _set_initial_splitters(self) -> None:
+    def _fit_columns(self) -> None:
         total = max(1, self.subtitle_columns.width())
-        # 设计稿 1440 宽时右列约 400px；窄窗口不低于 340，宽窗口不超过 520
-        side = max(340, min(520, int(total * 0.36)))
-        self.subtitle_columns.setSizes([max(1, total - side), side])
+        # 设计稿 1440 宽时两列合计 1346px、右列 400px；窄窗口不低于 340，宽窗口不超过 520
+        side = max(340, min(520, round(total * 400 / 1346)))
+        if self.subtitle_columns.sizes() != [max(1, total - side), side]:
+            self.subtitle_columns.setSizes([max(1, total - side), side])
+
+    def _set_initial_splitters(self) -> None:
+        self._fit_columns()
         self._compact_layout = self.height() < SIZES.compact_height
         self._balance_vertical_splitter()
 

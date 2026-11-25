@@ -195,6 +195,13 @@ class SubtitleDocument:
         return tuple(self.entries) != self._saved_entries
 
     @property
+    def change_count(self) -> int:
+        """和上次保存相比改了几条：改字算 1，合并 / 拆分按多出的一侧算。"""
+
+        current, saved = set(self.entries), set(self._saved_entries)
+        return max(len(current - saved), len(saved - current))
+
+    @property
     def can_undo(self) -> bool:
         return bool(self._undo)
 

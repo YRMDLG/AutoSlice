@@ -152,6 +152,7 @@ class SubtitleDocumentMixin:
             selected = {self.selected_index}
         if not selected:
             return
+        self._slide_rows_away(selected)
         try:
             self.document.delete_many(selected)
         except ValueError as exc:
@@ -166,6 +167,22 @@ class SubtitleDocumentMixin:
         first = min(selected)
         self._toast(f"已删除第 {first} 条字幕" if len(selected) == 1 else f"已删除 {len(selected)} 条字幕",
                     undo=True)
+
+    def _slide_rows_away(self, cue_ids) -> None:
+        """要删除的行先留一张快照滑出视野（设计稿 gone），真实行立即删除。"""
+
+        table = getattr(self, "table", None)
+        if table is None:
+            return
+        viewport = table.viewport()
+        for row, entry in enumerate(self.model.visible_entries()):
+            if entry.index not in cue_ids:
+                continue
+            first = table.visualRect(self.model.index(row, 0))
+            last = table.visualRect(self.model.index(row, self.model.columnCount() - 1))
+            rect = first.united(last)
+            if rect.isValid() and rect.bottom() >= 0 and rect.top() <= viewport.height():
+                motion.slide_away(viewport, rect)
 
     def _undo(self):
         if self._saving:

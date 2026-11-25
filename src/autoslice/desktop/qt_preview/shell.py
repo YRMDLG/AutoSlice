@@ -279,7 +279,7 @@ class ProjectSwitch(QPushButton):
         self.setMaximumHeight(44)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         row = QHBoxLayout(self)
-        row.setContentsMargins(14, 4, 10, 4)
+        row.setContentsMargins(14, 4, 12, 4)
         row.setSpacing(12)
         text = QVBoxLayout()
         text.setSpacing(0)
@@ -296,12 +296,35 @@ class ProjectSwitch(QPushButton):
 
         themed(self, self._turn)
 
+    def sizeHint(self) -> QSize:
+        hint = self.layout().sizeHint()
+        return QSize(min(520, hint.width()), 44)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(min(220, self.sizeHint().width()), 44)
+
     def set_open(self, open_: bool) -> None:
-        self._open.to(1.0 if open_ else 0.0, motion.SELECT)
+        self._open.to(1.0 if open_ else 0.0, 220, motion.spring())
 
     def _turn(self) -> None:
-        name = "chevron_up" if self._open.value > 0.5 else "chevron_down"
-        self.chevron.setPixmap(desktop_icon(name, COLORS.subtle, 14).pixmap(14, 14))
+        """箭头随弹层开合平滑转 180°（设计稿 .chev 220ms 弹簧）。"""
+
+        from PySide6.QtGui import QPixmap
+
+        ratio = self.devicePixelRatioF() or 1.0
+        base = desktop_icon("chevron_down", COLORS.subtle, 14).pixmap(QSize(14, 14), ratio)
+        turned = QPixmap(base.size())
+        turned.setDevicePixelRatio(base.devicePixelRatio())
+        turned.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(turned)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        center = QPointF(7, 7)
+        painter.translate(center)
+        painter.rotate(180 * self._open.value)
+        painter.translate(-center)
+        painter.drawPixmap(0, 0, base)
+        painter.end()
+        self.chevron.setPixmap(turned)
 
 
 class Popover(QWidget):
@@ -529,3 +552,131 @@ class Toast(QWidget):
             width = (rect.width() - inset * 2) * remaining
             painter.drawRoundedRect(QRectF(rect.left() + inset, rect.bottom() - 4, width, 2), 1, 1)
 
+
+
+class RollingLabel(QWidget):
+    """数字 / 短文字变化时从下往上翻入（设计稿 odometer）：夜航 340ms 弹簧上滑，晨雾 380ms 翻转。"""
+
+    def __init__(self, text: str = "", *, pixels: int = 12, color_role: str = "muted", mono: bool = False,
+                 weight: int = 400, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._text = text
+        self._old = ""
+        self.pixels = pixels
+        self.color_role = color_role
+        self.mono = mono
+        self.weight = weight
+        self._roll = motion.Channel(self, self.update, 1.0)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def font_(self):
+        from PySide6.QtGui import QFont
+
+        from .theme import MONO_FAMILIES
+
+        font = QFont(self.font())
+        font.setPixelSize(self.pixels)
+        font.setWeight(QFont.Weight(self.weight))
+        if self.mono:
+            font.setFamilies(list(MONO_FAMILIES))
+        return font
+
+    def text(self) -> str:
+        return self._text
+
+    def setText(self, text: str) -> None:
+        if text == self._text:
+            return
+        self._old, self._text = self._text, text
+        self.updateGeometry()
+        if self._old and motion.enabled() and self.isVisible():
+            self._roll.snap(0.0)
+            self._roll.to(1.0, 340 if STYLE.dark else 380, motion.spring())
+        else:
+            self._roll.snap(1.0)
+        self.update()
+
+    def set_color(self, role: str) -> None:
+        self.color_role = role
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        from PySide6.QtGui import QFontMetrics
+
+        metrics = QFontMetrics(self.font_())
+        return QSize(metrics.horizontalAdvance(self._text) + 1, metrics.height())
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter.setFont(self.font_())
+        color = QColor(getattr(COLORS, self.color_role, COLORS.muted))
+        v = max(0.0, min(1.2, self._roll.value))
+        rect = QRectF(self.rect())
+        align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        if v < 0.999:
+            # 新字从下方 90% 处升上来；旧字直接让位
+            color.setAlphaF(max(0.0, min(1.0, v)))
+            painter.setPen(color)
+            painter.drawText(rect.translated(0, rect.height() * 0.9 * (1 - v)), align, self._text)
+        else:
+            painter.setPen(color)
+            painter.drawText(rect, align, self._text)
+        painter.end()
+
+
+class SaveState(QWidget):
+    """顶栏保存状态：未保存时强调色小圆点 + “未保存 · N 处改动”，保存后绿色对勾 + “已保存”。"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 6, 0)
+        row.setSpacing(8)
+        self.mark = QLabel()
+        self.mark.setFixedSize(13, 13)
+        row.addWidget(self.mark)
+        self.label = RollingLabel("", pixels=12, color_role="muted")
+        row.addWidget(self.label)
+        self._saved = None
+        from .appearance import themed
+
+        themed(self, self._paint_mark)
+
+    def set_state(self, saved: bool, changes: int = 0) -> None:
+        text = "已保存" if saved else (f"未保存 · {changes} 处改动" if changes else "未保存")
+        self.label.setText(text)
+        if saved != self._saved:
+            self._saved = saved
+            self._paint_mark()
+
+    def text(self) -> str:
+        return self.label.text()
+
+    def _paint_mark(self) -> None:
+        from PySide6.QtGui import QPixmap
+
+        ratio = 2.0
+        pixmap = QPixmap(int(13 * ratio), int(13 * ratio))
+        pixmap.setDevicePixelRatio(ratio)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._saved:
+            pen = QPen(QColor(COLORS.success), 2.0)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            path = QPainterPath(QPointF(2.7, 6.5))
+            path.lineTo(5.4, 9.2)
+            path.lineTo(10.3, 3.8)
+            painter.drawPath(path)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(COLORS.accent if STYLE.dark else COLORS.accent_line))
+            painter.drawEllipse(QPointF(6.5, 6.5), 2.5, 2.5)
+        painter.end()
+        self.mark.setPixmap(pixmap)

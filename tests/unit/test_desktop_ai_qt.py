@@ -383,7 +383,7 @@ class DesktopAIQtTests(unittest.TestCase):
         block = next(item for item in timeline._visible_blocks() if item[0].index == 1)[3]
         for x, mode in ((block.left() + 1, "left"), (block.center().x(), "move"),
                         (block.right() - 1, "right")):
-            point = QPoint(int(x), 38)
+            point = QPoint(int(x), int(block.center().y()))
             QTest.mousePress(timeline, Qt.MouseButton.LeftButton, pos=point)
             self.assertEqual(timeline._press["kind"], "cue")
             self.assertEqual(timeline._press["mode"], mode)

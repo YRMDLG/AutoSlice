@@ -50,7 +50,7 @@ class TopicAnalysisMixin:
         button.setAccessibleName("更多：识别字幕、分析话题")
         button.setIcon(desktop_icon("more", COLORS.text_secondary, SIZES.tool_icon_size))
         self.more_menu = QMenu(button)
-        popups.MenuFx(self.more_menu)
+        popups.MenuFx(self.more_menu, two_line=True)
         self.more_menu.aboutToShow.connect(self._fill_more_menu)
         button.clicked.connect(lambda: popups.MenuFx.popup_below(self.more_menu, button, align_right=True))
         self.more_button_header = button
@@ -64,16 +64,18 @@ class TopicAnalysisMixin:
         can_recognize = (video is not None and not getattr(video, "has_source_srt", True)
                          and not self._asr_running())
         recognize = menu.addAction("识别字幕", self._asr_start)
+        recognize.setProperty("sub", "在本机识别，生成新的字幕草稿" if can_recognize else "已有字幕的视频不重新识别")
         recognize.setEnabled(can_recognize)
         recognize.setToolTip("在本机识别，生成字幕草稿" if can_recognize else
                              "已有字幕的视频不重新识别，免得覆盖校对结果；没有字幕的视频才可识别")
         job = self._topic_job
         here = job is not None and video is not None and video.path == job["video"]
         topic = menu.addAction("停止话题分析" if here else "分析话题", self.topic_button.click)
+        topic.setProperty("sub", "已分析完的分块会保留" if here else "用现有字幕在后台分析，会调用 AI")
         topic.setEnabled(self.topic_button.isEnabled())
         topic.setToolTip(self.topic_button.toolTip())
-        menu.addSeparator()
-        menu.addAction("识别设置", self._open_asr_settings)
+        settings = menu.addAction("识别设置", self._open_asr_settings)
+        settings.setProperty("sub", "识别模型、对齐模型、运行设备")
         menu.setToolTipsVisible(True)
 
     def _topic_video(self):

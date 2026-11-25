@@ -27,7 +27,7 @@ from PySide6.QtCore import (
     QTimer,
     QVariantAnimation,
 )
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSpinBox,
@@ -121,14 +121,14 @@ NIGHT = Profile(
     card_enter=440, card_stagger=35, card_shift=6.0, mist=0,
     row_enter=200, row_shift=4.0, sheen_period=1100,
 )
-# 晨雾：设计稿是雾散 1200ms + 卡片 900ms；为了不拖慢操作收短到 700 / 640ms，幅度保留
+# 晨雾：雾散 1200ms + 卡片 900ms 上移 16px、间隔 80ms（设计稿）；状态先生效，动画只是视觉，不挡操作
 MORNING = Profile(
     hover_in=140, hover_out=260, press=70,
     menu_open=360, menu_close=160, menu_item_delay=40, menu_shift=8.0, menu_scale=0.98, menu_clip=True,
     dialog_open=520, dialog_close=200, dialog_shift=18.0, veil_open=320,
     toast_in=460, toast_out=200, toast_hold=4200, toast_shift=24.0,
-    card_enter=640, card_stagger=60, card_shift=14.0, mist=700,
-    row_enter=360, row_shift=8.0, sheen_period=1100,
+    card_enter=900, card_stagger=80, card_shift=16.0, mist=1200,
+    row_enter=460, row_shift=10.0, sheen_period=1100,
 )
 
 
@@ -367,12 +367,16 @@ class ButtonFx(QObject):
 
     def _toggled(self, value: bool) -> None:
         duration = SELECT if self.kind in ("navButton", "projectItem", "projectItemCompact") else TOGGLE
+        if self.kind == "tool" and not STYLE.dark:
+            duration = 320
         self.checked.to(1.0 if value else 0.0, duration)
 
     def eventFilter(self, obj, event) -> bool:
         kind = event.type()
         if kind == QEvent.Type.Paint:
             self._paint()
+            # 只画图标的按钮（圆形播放键）：文字留给读屏，不让 QPushButton 再画一遍
+            return self.kind == "playRound"
         elif kind == QEvent.Type.Enter:
             if self.button.isEnabled():
                 self.hover.to(1.0, profile().hover_in)
@@ -435,6 +439,28 @@ class ButtonFx(QObject):
         elif self.kind == "segment":
             if enabled_ and h * (1 - c) > 0.01:
                 painter.fillPath(_rounded(rect, radius), faded(flat_hover(), h * (1 - c) * 0.7))
+        elif self.kind == "playRound":
+            self._paint_play(painter, rect, h, p, enabled_)
+        elif self.kind in ("fieldButton", "swatchMore"):
+            # 像输入框的按钮（字体、更多颜色）：输入底色 + 控件描边
+            path = _rounded(rect, 8 if self.kind == "fieldButton" else 7)
+            painter.fillPath(path, QColor(COLORS.well if STYLE.dark else COLORS.card))
+            painter.setPen(QPen(mix(COLORS.control_border, COLORS.control_hover_border, h), 1))
+            painter.drawPath(path)
+        elif self.kind == "inRow":
+            # 描边行里的颜色按钮：无框，悬停淡底
+            if h > 0.01 and enabled_:
+                painter.fillPath(_rounded(rect, 6), faded(flat_hover(), h * 0.7))
+        elif self.kind == "chip":
+            # 检查提醒：细描边小标签；有提醒时描边偏暖
+            path = _rounded(rect, 8)
+            if h > 0.01 and enabled_:
+                painter.fillPath(path, faded(flat_hover(), h * 0.7))
+            warn = button.property("warn") == "true"
+            painter.setPen(QPen(QColor(COLORS.warning_border if warn else COLORS.block_border), 1))
+            painter.drawPath(path)
+        elif self.kind == "tool" and button.isCheckable():
+            self._paint_toggle(painter, rect, h, p, c, enabled_)
         else:
             self._paint_flat(painter, rect, radius, h, p, c, enabled_)
         if f > 0.01:
@@ -443,8 +469,22 @@ class ButtonFx(QObject):
             painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
         painter.end()
 
-    def _paint_button(self, painter, rect, radius, h, p, c, enabled_) -> None:
+    def _shape(self, rect: QRectF, radius: float) -> QPainterPath:
+        """拼接按钮只收外侧两个角：join=right 右边直角接下一个按钮，join=left 左边直角。"""
+
+        join = self.button.property("join")
+        if join not in ("left", "right"):
+            return _rounded(rect, radius)
         path = _rounded(rect, radius)
+        square = QPainterPath()
+        if join == "right":
+            square.addRect(QRectF(rect.center().x(), rect.top(), rect.width() / 2, rect.height()))
+        else:
+            square.addRect(QRectF(rect.left(), rect.top(), rect.width() / 2, rect.height()))
+        return path.united(square)
+
+    def _paint_button(self, painter, rect, radius, h, p, c, enabled_) -> None:
+        path = self._shape(rect, radius)
         if not enabled_:
             if STYLE.filled_buttons:
                 painter.fillPath(path, faded(COLORS.card, 0.6))
@@ -465,6 +505,9 @@ class ButtonFx(QObject):
                     painter.drawPath(_rounded(rect.adjusted(1.5, 1.5, -1.5, -1.5), max(1.0, radius - 1.5)))
                 painter.setPen(QPen(QColor(COLORS.accent), 1))
             painter.drawPath(path)
+            if self.button.property("join") == "left":
+                painter.setPen(QPen(faded(COLORS.on_accent if STYLE.filled_primary else COLORS.accent, .35), 1))
+                painter.drawLine(QPointF(rect.left() + .5, rect.top() + 7), QPointF(rect.left() + .5, rect.bottom() - 7))
             return
         if STYLE.filled_buttons:
             fill = mix(mix(COLORS.card, COLORS.button_hover, h), COLORS.accent_soft, c)
@@ -498,6 +541,10 @@ class ButtonFx(QObject):
 
     def _paint_flat(self, painter, rect, radius, h, p, c, enabled_) -> None:
         path = _rounded(rect, radius)
+        if self.kind == "schemeThumb" and c < 0.99:
+            # 方案缩略图平时也有一圈暗框（设计稿 #2C2B29）
+            painter.setPen(QPen(QColor(COLORS.block_border), 1))
+            painter.drawPath(path)
         if not enabled_:
             return
         if c > 0.01:
@@ -515,6 +562,62 @@ class ButtonFx(QObject):
             painter.fillPath(path, faded(flat_hover(), h * (1 - c * 0.5)))
         if p > 0.01:
             painter.fillPath(path, faded(COLORS.button_pressed, p * 0.9))
+
+    def _paint_play(self, painter, rect, h, p, enabled_) -> None:
+        """播放键：夜航 38px 圆形强调色描边；晨雾白底圆角方块。图标居中。"""
+
+        if STYLE.dark:
+            path = QPainterPath()
+            path.addEllipse(rect)
+            painter.fillPath(path, faded(COLORS.accent, 0.09 * h + 0.05 * p))
+            if h > 0.01:
+                painter.setPen(QPen(faded(COLORS.accent, 0.14 * h), 3))
+                inner = QPainterPath()
+                inner.addEllipse(rect.adjusted(1.5, 1.5, -1.5, -1.5))
+                painter.drawPath(inner)
+            painter.setPen(QPen(QColor(COLORS.accent if enabled_ else COLORS.divider), 1))
+        else:
+            path = _rounded(rect, 8)
+            painter.fillPath(path, mix(mix(COLORS.card, COLORS.button_hover, h), COLORS.button_pressed, p))
+            painter.setPen(QPen(mix(COLORS.control_border, COLORS.control_hover_border, h) if enabled_
+                                else QColor(COLORS.divider), 1))
+        painter.drawPath(path)
+        icon = self.button.icon()
+        if not icon.isNull():
+            size = self.button.iconSize()
+            mode = QIcon.Mode.Normal if enabled_ else QIcon.Mode.Disabled
+            pixmap = icon.pixmap(size, self.button.devicePixelRatioF(), mode)
+            x = rect.center().x() - size.width() / 2 + (1 if self.button.text() == "播放" else 0)
+            y = rect.center().y() - size.height() / 2
+            if not enabled_:
+                painter.setOpacity(0.4)
+            painter.drawPixmap(QPointF(x, y), pixmap)
+            painter.setOpacity(1.0)
+
+    def _paint_toggle(self, painter, rect, h, p, c, enabled_) -> None:
+        """开关（磁吸、波形、字幕预览、查找选项）：夜航关时暗描边、开时强调色细线；
+        晨雾无描边，开启时淡强调色从左往右铺满。"""
+
+        radius = STYLE.control_radius - 1 if STYLE.dark else 6
+        path = _rounded(rect, radius)
+        if STYLE.dark:
+            if h > 0.01 and enabled_:
+                painter.fillPath(path, faded(flat_hover(), h * 0.6))
+            plain = self.button.property("square") or self.button.property("plain")
+            off = faded(COLORS.block_border, 0.0) if plain else QColor(COLORS.block_border)
+            painter.setPen(QPen(mix(off, COLORS.accent_line, c) if enabled_ else QColor(COLORS.divider), 1))
+            painter.drawPath(path)
+        else:
+            if h * (1 - c) > 0.01 and enabled_:
+                painter.fillPath(path, faded(flat_hover(), h * (1 - c)))
+            if c > 0.01:
+                painter.save()
+                painter.setClipPath(path)
+                painter.fillRect(QRectF(rect.left(), rect.top(), rect.width() * c, rect.height()),
+                                 QColor(COLORS.accent_soft))
+                painter.restore()
+        if p > 0.01:
+            painter.fillPath(path, faded(COLORS.button_pressed, p * 0.6))
 
     def _paint_selectable(self, painter, rect, radius, h, p, c) -> None:
         path = _rounded(rect, radius)
@@ -544,7 +647,7 @@ def flat_hover():
 class SegmentedFx(QObject):
     """分段控件：滑块在选项间弹簧滑动；滑块比外框内缩一圈，不贴边。"""
 
-    INSET = 2.0
+    HEIGHT = 26
 
     def __init__(self, container: QWidget, buttons) -> None:
         super().__init__(container)
@@ -558,12 +661,33 @@ class SegmentedFx(QObject):
             ButtonFx(button)
             button.toggled.connect(lambda on, b=button: on and self._slide(b))
         container.installEventFilter(self)
+        from .appearance import themed
+
+        themed(container, self._fit)
+
+    @staticmethod
+    def inset() -> float:
+        return 0.0 if STYLE.dark else 2.0
+
+    def _fit(self) -> None:
+        """夜航：选项 26px、无底槽；晨雾：底槽四周留 2px，滑块不贴外框。"""
+
+        pad = int(self.inset())
+        layout = self.container.layout()
+        if layout is not None:
+            layout.setContentsMargins(pad, pad, pad, pad)
+            layout.setSpacing(2)
+        for button in self.buttons:
+            button.setFixedHeight(self.HEIGHT)
+        self.container.setFixedHeight(self.HEIGHT + pad * 2)
+        QTimer.singleShot(0, self, lambda: self._moved(self._target()))
 
     def _target(self) -> QRectF:
         current = next((b for b in self.buttons if b.isChecked()), None)
         if current is None:
             return QRectF()
-        inner = QRectF(self.container.rect()).adjusted(self.INSET, self.INSET, -self.INSET, -self.INSET)
+        inset = self.inset()
+        inner = QRectF(self.container.rect()).adjusted(inset, inset, -inset, -inset)
         return QRectF(current.geometry()).intersected(inner)
 
     def _moved(self, value) -> None:
@@ -587,14 +711,13 @@ class SegmentedFx(QObject):
             painter = QPainter(self.container)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             outer = QRectF(self.container.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-            outer_radius = STYLE.control_radius + 1
-            path = _rounded(outer, outer_radius)
-            painter.fillPath(path, QColor(COLORS.segment_track))
-            painter.setPen(QPen(QColor(COLORS.segment_track_border), 1))
-            painter.drawPath(path)
+            outer_radius = STYLE.control_radius
+            if not STYLE.dark:
+                path = _rounded(outer, outer_radius)
+                painter.fillPath(path, QColor(COLORS.segment_track))
             if not self._rect.isEmpty():
                 thumb = self._rect.adjusted(0.5, 0.5, -0.5, -0.5)
-                thumb_radius = max(2.0, outer_radius - self.INSET)
+                thumb_radius = STYLE.control_radius - 1 if STYLE.dark else outer_radius - 2
                 if not STYLE.dark:
                     # 晨雾白色滑块带一层小投影
                     painter.fillPath(_rounded(thumb.translated(0, 1), thumb_radius), faded(COLORS.shadow, 0.12))
@@ -843,6 +966,39 @@ class _Fade(QWidget):
         painter = QPainter(self)
         painter.setOpacity(self.opacity)
         painter.drawPixmap(0, 0, self.pixmap)
+
+
+class _SlideAway(_Fade):
+    """删除行：快照向右滑走、淡出（夜航 240ms 右移 14px；晨雾 300ms 右移 60px 并略微倾斜）。"""
+
+    def __init__(self, parent: QWidget, pixmap, rect, duration: int, shift: float, tilt: float) -> None:
+        self._origin = QPoint(rect.topLeft())
+        self._shift = shift
+        self._tilt = tilt
+        super().__init__(parent, pixmap, rect.adjusted(0, -8, int(shift) + 8, 8), duration)
+        self._animation.setEasingCurve(SOFT if not STYLE.dark else STANDARD)
+
+    def paintEvent(self, _event) -> None:
+        progress = 1.0 - self.opacity
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setOpacity(max(0.0, self.opacity))
+        painter.translate(self._shift * progress, 8)
+        if self._tilt:
+            painter.rotate(self._tilt * progress)
+        painter.drawPixmap(0, 0, self.pixmap)
+
+
+def slide_away(parent: QWidget, rect) -> None:
+    """把 parent 上 rect 这块画面留成快照，向右滑走淡出；调用方随后立即删掉真实内容。"""
+
+    if not enabled() or not parent.isVisible() or rect.isEmpty():
+        return
+    pixmap = parent.grab(rect)
+    if STYLE.dark:
+        _SlideAway(parent, pixmap, rect, 240, 14.0, 0.0)
+    else:
+        _SlideAway(parent, pixmap, rect, 300, 60.0, 2.0)
 
 
 def crossfade(container: QWidget, apply, duration: int = PAGE) -> None:

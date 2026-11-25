@@ -344,7 +344,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.assertIn("视频_字幕版.mp4", self.window.app_status.text())
         self.assertTrue(self.window.render_location.isVisible())
 
-    def test_inline_subtitle_editor_has_no_box_and_keeps_row_height(self):
+    def test_inline_subtitle_editor_is_design_field_and_keeps_row_height(self):
         index = self.window.model.index(0, 2)
         row_height = self.window.table.rowHeight(0)
 
@@ -355,8 +355,9 @@ class SubtitleRenderQtTests(unittest.TestCase):
                        if item.isVisible()), None)
         self.assertIsNotNone(editor)
         self.assertEqual(self.window.table.rowHeight(0), row_height)
-        self.assertIn(f"background: {COLORS.row_selected}", editor.styleSheet())
-        self.assertIn("border: none", editor.styleSheet())
+        # 设计稿：编辑时是输入底色 + 强调色细框的输入框（D-044），行高不变
+        self.assertIn(f"background: {COLORS.well}", editor.styleSheet())
+        self.assertIn(f"border: 1px solid {COLORS.accent}", editor.styleSheet())
 
         cursor = editor.textCursor()
         cursor.setPosition(len(editor.toPlainText()))
@@ -443,7 +444,8 @@ class SubtitleRenderQtTests(unittest.TestCase):
             for i in range(1, 60)
         ]
         self.window.model.set_document(self.window.document)
-        for column in (2, 1):
+        # 正文、序号、正文下方的时间码行（时间列已并进正文列，D-044）
+        for column, low in ((2, False), (0, False), (2, True)):
             self.window._commit_editor()
             self.window._cue_clicked(self.window.model.index(49, 2))
             self.app.processEvents()
@@ -451,7 +453,8 @@ class SubtitleRenderQtTests(unittest.TestCase):
             bar.setValue(0)
             self.app.processEvents()
             target = self.window.model.index(2, column)
-            point = self.window.table.visualRect(target).center()
+            rect = self.window.table.visualRect(target)
+            point = QPoint(rect.center().x(), rect.top() + 40) if low else rect.center()
             self.assertTrue(self.window.table.viewport().rect().contains(point))
             before = bar.value()
             QTest.mousePress(self.window.table.viewport(), Qt.MouseButton.LeftButton, pos=point)

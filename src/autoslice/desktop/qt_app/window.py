@@ -35,8 +35,8 @@ from autoslice.desktop.projects import SubmissionProject, SubmissionProjectServi
 from autoslice.desktop.qt_preview import motion, popups
 from autoslice.desktop.qt_preview.icons import icon as desktop_icon
 from autoslice.desktop.qt_preview.theme import COLORS, SIZES
-from autoslice.desktop.qt_preview.shell import ProjectSwitch
-from autoslice.desktop.qt_preview.window import PreviewWindow, label, tool_icon
+from autoslice.desktop.qt_preview.shell import ProjectSwitch, SaveState
+from autoslice.desktop.qt_preview.window import PreviewWindow, key_hint, label, tool_icon
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
 from autoslice.desktop.subtitle_render import SubtitleRenderService
@@ -62,7 +62,7 @@ from .window_topics import TopicAnalysisMixin
 from .window_widgets import _StatusLabel
 
 # 时间轴默认高度（像素）：记住过高度的按记住的来。
-TIMELINE_DEFAULT_HEIGHT = 168
+TIMELINE_DEFAULT_HEIGHT = 164
 
 
 def _saved_submission_root(storage: DesktopStorage) -> Path | None:
@@ -150,9 +150,11 @@ class DesktopWindow(
         self.ai_progress.connect(self._show_ai_progress)
         self.ai_partial.connect(self._ai_partial_ready)
         self.render_progress.connect(self._show_render_progress)
+        # 待确认数：导航项右上角的小圆点数字，不压住图标
         self.nav_badge = QLabel(self.nav_buttons[0])
-        self.nav_badge.setObjectName("badge")
-        self.nav_badge.move(27, 0)
+        self.nav_badge.setObjectName("navBadge")
+        self.nav_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.nav_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.nav_badge.hide()
         # 导航底部的任务环就是“任务”入口：压制、识别、AI 检查、话题分析都在里面
         self.tasks_button = self.task_ring
@@ -298,12 +300,16 @@ class DesktopWindow(
         self.settings_title = label("设置", "pageTitle")
         self.settings_title.hide()
         row.addWidget(self.settings_title)
-        row.addStretch()
+        # 空白都给这里：项目切换按内容宽度，不被拉长
+        row.addStretch(1)
         self.app_status = _StatusLabel("")
         self.app_status.setObjectName("statusLabel")
         self.app_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.app_status.setMaximumWidth(360)
         row.addWidget(self.app_status)
+        self.save_state = SaveState()
+        self.save_state.hide()
+        row.addWidget(self.save_state)
         self.render_location = QPushButton("定位输出")
         self.render_location.setObjectName("quiet")
         self.render_location.setIcon(desktop_icon("folder", COLORS.muted))
@@ -323,15 +329,12 @@ class DesktopWindow(
         action_row.setSpacing(8)
         self.save_button = QPushButton("保存字幕")
         self.save_button.setObjectName("primary")
-        self.save_button.setIcon(desktop_icon("save", COLORS.primary_text))
-        self.save_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
         self.save_button.setToolTip("写入正式的校对字幕（Ctrl+S）")
         self.save_button.clicked.connect(self.save)
         self.save_button.setEnabled(False)
+        key_hint(self.save_button, "Ctrl S")
         self.render_button = QPushButton("压制字幕")
         self.render_button.setObjectName("secondary")
-        self.render_button.setIcon(desktop_icon("render", COLORS.text))
-        self.render_button.setIconSize(QSize(SIZES.tool_icon_size, SIZES.tool_icon_size))
         self.render_button.setToolTip("使用默认字幕样式，将已保存的校对字幕压制到新视频")
         self.render_button.clicked.connect(self._start_render)
         self.render_button.setEnabled(False)
@@ -364,12 +367,15 @@ class DesktopWindow(
     def _page_chrome(self, index: int) -> None:
         super()._page_chrome(index)
         for widget in (self.project_prev, self.project_next):
-            widget.setVisible(index != 2)
+            widget.setVisible(index == 0)
         self.video_choice.setVisible(index != 2 and self.video_choice.count() > 1)
         # 设置页的标题在页面左侧目录上方，顶栏不再重复
         self.settings_title.setVisible(False)
         self.subtitle_actions.setVisible(index == 0)
         self.cover_actions.setVisible(index == 1 and self.cover_actions_row.count() > 0)
+        if hasattr(self, "save_state"):
+            self.save_state.setVisible(index == 0 and getattr(self, "document", None) is not None)
+            self._refresh_save_state()
 
     def _run(self, action, callback):
         job = BackgroundJob(action)
@@ -390,21 +396,28 @@ class DesktopWindow(
             for button in (self.ai_selected_check, self.ai_changed_check):
                 button.setEnabled(self.document is not None and not self._saving and not self._ai_running)
         self._refresh_quality_panel()
+        # 列表底部：有字幕时是操作提示，没有字幕时换成说明
+        self.subtitle_status.setVisible(self.document is None)
+        self.subtitle_hint.setVisible(self.document is not None)
+        self.filter_all.setText(f"全部 {len(self.document.entries)}" if self.document else "全部")
         if self.document is None:
             self.subtitle_status.setText("请选择有字幕的视频")
             self.save_button.setEnabled(False)
             self.render_button.setEnabled(False)
             self.render_button.setText("压制字幕")
-            self.render_button.setIcon(desktop_icon("render", COLORS.text))
             self.timeline_overlap.setText("")
             self.quality_button.setEnabled(False)
             self.quality_button.setText("检查提醒 0")
+            self._paint_quality_dot()
+            self._refresh_save_state()
             return
         suffix = " · 未保存" if self.document.dirty else " · 已保存"
         quality = self.preview_service.quality_flags(self.document.entries, self._habit_limits())
         quality_text = f" · ⚠ {len(quality)} 条待检查" if quality else ""
-        self.quality_button.setText(f"检查提醒 {len(quality)}…" if quality else "检查提醒 0")
+        self.quality_button.setText(f"检查提醒 {len(quality)}")
         self.quality_button.setEnabled(bool(quality))
+        self._paint_quality_dot()
+        self._refresh_save_state()
         self.subtitle_status.setText(f"全部 {len(self.document.entries)} 条{suffix}{quality_text}")
         self.subtitle_status.setToolTip("\n".join(
             f"第 {index} 条：{'、'.join(issues)}" for index, issues in quality.items()
@@ -413,10 +426,31 @@ class DesktopWindow(
         running = bool(self.project and self.project.id in self._render_jobs)
         self.render_button.setEnabled(not self._saving and bool(self.project) and not running)
         self.render_button.setText("压制中…" if running else "压制字幕")
-        self.render_button.setIcon(desktop_icon("render", COLORS.subtle if running else COLORS.text))
         overlaps = self.timeline.overlap_count()
         self.timeline_overlap.setText(f"{overlaps} 处重叠" if overlaps else "")
         self.timeline_overlap.setToolTip("时间轴上标红的地方：前后两条字幕的时间叠在一起" if overlaps else "")
+
+    def _refresh_save_state(self) -> None:
+        """顶栏保存状态 + 项目说明行（视频 · N 条 · 第几个项目 / 共几个）。"""
+
+        document = getattr(self, "document", None)
+        self.save_state.setVisible(document is not None and self.pages.currentIndex() == 0)
+        if document is not None:
+            self.save_state.set_state(not document.dirty, document.change_count)
+        project = getattr(self, "project", None)
+        if project is None or not project.videos:
+            return
+        if self.pages.currentIndex() == 1:
+            self.video_name.setText(f"与字幕页共享项目 · 播放头 {self._clock(getattr(self, '_player_position', 0.0))}")
+            return
+        video = self.video_choice.currentData() or project.videos[0]
+        parts = [video.name]
+        if document is not None:
+            parts.append(f"{len(document.entries)} 条")
+        ids = list(getattr(self, "project_buttons", {}))
+        if project.id in ids:
+            parts.append(f"{ids.index(project.id) + 1} / {len(ids)}")
+        self.video_name.setText(" · ".join(parts))
 
     def _habit_limits(self) -> dict:
         """从旧切片学到的个人字幕阈值；没学过是空字典。按视频缓存，学到新东西后 _forget_habit_cache 清掉。"""
