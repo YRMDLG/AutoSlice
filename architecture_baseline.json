@@ -7876,8 +7876,8 @@
         "autoslice.desktop.asr.refine.speech_audio"
       ],
       "lines": [
-        296,
-        339
+        294,
+        337
       ],
       "to": "autoslice.desktop.asr.refine"
     },
@@ -7887,7 +7887,7 @@
         "autoslice.desktop.qt_app.shortcuts_dialog.ShortcutsDialog"
       ],
       "lines": [
-        272
+        270
       ],
       "to": "autoslice.desktop.qt_app.shortcuts_dialog"
     },
@@ -19311,28 +19311,28 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 921,
+      "line_count": 916,
       "longest_function": {
-        "end_line": 589,
+        "end_line": 588,
         "kind": "function",
-        "line": 460,
+        "line": 459,
         "line_count": 130,
         "qualname": "SubtitleTimeline.paintEvent"
       },
       "module": "autoslice.desktop.qt_app.timeline",
       "path": "src/autoslice/desktop/qt_app/timeline.py",
-      "sha256": "35807c854220c641ebdd5022c242e0d77ce1b92f8f28acbfc9c8e6f8ebfb165f",
+      "sha256": "7bbd7a919c613cd010bda4648b433beca150e2c9d121c17df7d1d5c6b88ff2a6",
       "top_level_classes": [
         {
-          "end_line": 860,
+          "end_line": 855,
           "kind": "class",
           "line": 20,
           "name": "SubtitleTimeline"
         },
         {
-          "end_line": 921,
+          "end_line": 916,
           "kind": "class",
-          "line": 863,
+          "line": 858,
           "name": "TimelineSidePanController"
         }
       ],
@@ -19625,17 +19625,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 486,
+      "line_count": 474,
       "longest_function": {
-        "end_line": 115,
+        "end_line": 114,
         "kind": "function",
         "line": 42,
-        "line_count": 74,
+        "line_count": 73,
         "qualname": "TimelineMixin._timeline"
       },
       "module": "autoslice.desktop.qt_app.window_timeline",
       "path": "src/autoslice/desktop/qt_app/window_timeline.py",
-      "sha256": "b66ff42926f0adced99e27402e749ac5e428d1878aff43fc624a13985bd33f14",
+      "sha256": "5ef6f62fb65223751317297f70548ca847f4905395292f1bcfb01b0458749207",
       "top_level_classes": [
         {
           "end_line": 38,
@@ -19644,7 +19644,7 @@
           "name": "_ScrollDock"
         },
         {
-          "end_line": 486,
+          "end_line": 474,
           "kind": "class",
           "line": 41,
           "name": "TimelineMixin"
@@ -29208,7 +29208,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 1074,
-    "production_line_count": 84388,
+    "production_line_count": 84371,
     "production_module_count": 329,
     "test_private_patch_count": 17,
     "top_level_class_count": 379,
