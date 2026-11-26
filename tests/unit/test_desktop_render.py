@@ -534,8 +534,8 @@ class SubtitleRenderQtTests(unittest.TestCase):
         self.window.player.seek.assert_called_once_with(0.0, pause=True)
         self.assertEqual(self.window.selection.active, 1)
 
-    def test_timeline_cue_click_jumps_playhead_even_without_player(self):
-        # 用户反馈“点时间轴字幕没有跳”；缺 libmpv 时播放头也要跳过去
+    def test_timeline_cue_click_keeps_playhead_and_list_click_jumps(self):
+        # 2026-11-26 用户要求：点时间轴字幕块只选中、定位线不动；点右侧列表才跳到句首（缺 libmpv 时也跳）
         self.assertIsNone(self.window.player)
         self.window.document.entries[:] = [
             SubtitleEntry(1, "00:00:00,000", "00:00:01,000", "第一条", (1,)),
@@ -551,6 +551,13 @@ class SubtitleRenderQtTests(unittest.TestCase):
         point = block[3].center().toPoint()
 
         QTest.mouseClick(self.window.timeline, Qt.MouseButton.LeftButton, pos=point)
+        self.app.processEvents()
+
+        self.assertEqual(self.window.selection.active, 2)
+        self.assertAlmostEqual(self.window._player_position, 0.0, delta=0.001)
+        self.assertAlmostEqual(self.window.timeline.playhead, 0.0, delta=0.001)
+
+        self.window._cue_clicked(self.window.model.index(1, 0))
         self.app.processEvents()
 
         self.assertEqual(self.window.selection.active, 2)

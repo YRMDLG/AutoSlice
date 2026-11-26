@@ -56,8 +56,8 @@ class SubtitleTimelineQtTests(unittest.TestCase):
     def _block(self, cue_id=1):
         return next(item for item in self.timeline._visible_blocks() if item[0].index == cue_id)
 
-    def test_body_click_selects_and_seeks_to_cue_start_without_moving_view(self):
-        entry, start, end, rect = self._block()
+    def test_body_click_only_selects_without_seeking_or_moving_view(self):
+        entry, _start, _end, rect = self._block()
         before = tuple(self.document.entries)
         seeks = []
         selections = []
@@ -75,9 +75,8 @@ class SubtitleTimelineQtTests(unittest.TestCase):
         self.assertEqual(tuple(self.document.entries), before)
         self.assertIsNone(self.timeline._drag)
         self.assertFalse(self.timeline._mouse_grabbed)
-        # 用户反馈“点时间轴字幕没有跳”：单击字幕块跳到这句开头
-        self.assertEqual(len(seeks), 1)
-        self.assertAlmostEqual(seeks[0], start, delta=0.001)
+        # 2026-11-26 用户要求：点时间轴字幕块定位线不动，跳到句首只留给右侧列表
+        self.assertEqual(seeks, [])
         self.assertTrue(selections)
         self.assertEqual(selections[-1][0], entry.index)
         self.assertAlmostEqual(self.timeline._view_start(), view_start, delta=0.001)
@@ -145,19 +144,23 @@ class SubtitleTimelineQtTests(unittest.TestCase):
         self.assertEqual(seeks, [])
         self.assertIsNone(self.timeline._drag)
 
-    def test_edge_click_without_drag_seeks_like_body_click(self):
-        # 短字幕的边缘区占比大，点到边缘也要跳，否则会时灵时不灵
-        _entry, start, _end, rect = self._block()
+    def test_edge_click_without_drag_only_selects_like_body_click(self):
+        # 短字幕的边缘区占比大，点到边缘也要和点正中一样：选中、不动定位线
+        entry, _start, _end, rect = self._block()
+        self.timeline.playhead = 7.0
         seeks = []
+        selections = []
         self.timeline.seek_requested.connect(seeks.append)
+        self.timeline.selection_requested.connect(lambda cue_id, *_: selections.append(cue_id))
         point = QPoint(int(rect.left() + 2), int(rect.center().y()))
 
         QTest.mousePress(self.timeline, Qt.MouseButton.LeftButton, pos=point)
         QTest.mouseRelease(self.timeline, Qt.MouseButton.LeftButton, pos=point)
         self.app.processEvents()
 
-        self.assertEqual(len(seeks), 1)
-        self.assertAlmostEqual(seeks[0], start, delta=0.001)
+        self.assertEqual(seeks, [])
+        self.assertEqual(selections, [entry.index])
+        self.assertEqual(self.timeline.playhead, 7.0)
 
     def test_resize_cursor_only_appears_at_edges(self):
         _entry, _start, _end, rect = self._block()

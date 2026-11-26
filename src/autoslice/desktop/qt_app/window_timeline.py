@@ -91,7 +91,6 @@ class TimelineMixin:
         layout.addLayout(heading)
         self.timeline = SubtitleTimeline()
         self.timeline.set_waveform_visible(True)
-        self.timeline.selected.connect(self._select_from_timeline)
         self.timeline.selection_requested.connect(self._timeline_selection_requested)
         self.timeline.marquee_selected.connect(self._timeline_marquee_selected)
         self.timeline.preview_changed.connect(self._timeline_preview_changed)
@@ -123,8 +122,7 @@ class TimelineMixin:
         # 这里只同步选中态和底部列表，不允许 selection 重新居中时间轴，
         # 否则会重置 _manual_pan，随后 playhead/player 回调又会二次改变视野，造成闪烁跳动。
         self._select_cue(self.selection.active, center_timeline=False)
-        # 真正的 click 定位由 timeline 在 release 时发 seek_requested。
-        # resize/drag 期间因此不会把 playhead 吸到字幕边界。
+        # 单击字幕块不定位（2026-11-26 用户要求），只有右侧列表单击才跳到句首。
         self._save_session()
 
     def _timeline_marquee_selected(self, cue_ids: set[int]):
@@ -424,16 +422,6 @@ class TimelineMixin:
         if entry is None:
             return None
         return srt_timestamp_seconds(entry.start), srt_timestamp_seconds(entry.end)
-
-    def _select_from_timeline(self, cue_index):
-        if not self.document:
-            return
-        self.selection.choose(cue_index, self._cue_order())
-        self.selected_index = cue_index
-        self._select_cue(cue_index, center_timeline=False)
-        entry = next(item for item in self.document.entries if item.index == cue_index)
-        self._seek_to(srt_timestamp_seconds(entry.start))
-        self._save_session()
 
     def _timeline_preview_changed(self, cue_index):
         if not self.document:

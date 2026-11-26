@@ -18,7 +18,6 @@ from autoslice.transcription.contracts import srt_timestamp_seconds
 
 
 class SubtitleTimeline(QWidget):
-    selected = Signal(int)
     selection_requested = Signal(int, bool, bool)
     marquee_selected = Signal(object)
     preview_changed = Signal(int)
@@ -679,8 +678,7 @@ class SubtitleTimeline(QWidget):
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         self._press = {"kind": "cue", "entry": entry, "start": start, "end": end,
                        "mode": mode, "x": x, "y": y, "started": time.monotonic(),
-                       "moved": False, "before": tuple(self.document.entries),
-                       "plain": not (ctrl or shift)}
+                       "moved": False, "before": tuple(self.document.entries)}
         self.select_cue(entry.index, center=False)
         self.selection_requested.emit(entry.index, ctrl, shift)
         event.accept()
@@ -822,10 +820,7 @@ class SubtitleTimeline(QWidget):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             if press["kind"] == "playhead":
                 self.seek_requested.emit(self.playhead)
-            elif press["kind"] == "cue" and press.get("plain"):
-                # 单击字幕块（没拖动、没按 Ctrl/Shift）：选中并跳到这句开头；不重新居中视野。
-                # 拖动、改边缘在 _activate_press 里已转成 _drag，不会走到这里。
-                self.seek_requested.emit(press["start"])
+            # 单击字幕块只选中、不动定位线（2026-11-26 用户要求）；跳到句首只留给右侧列表
             self.update()
             event.accept()
             return
