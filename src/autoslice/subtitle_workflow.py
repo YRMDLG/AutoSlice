@@ -2210,13 +2210,59 @@ def _style_geometry(style, width, height):
     }
 
 
-def subtitle_style_geometry(style, width, height):
-    """字幕在画面上的锚点（中心，像素）、字号、描边：界面上画选框和压制用同一套换算。"""
-    return _style_geometry(normalise_subtitle_style(style), width, height)
+def _canvas_fit(width, height, canvas):
+    """压制时视频按原比例缩放、居中放进画布（多出来的是黑边）：返回 (缩放, 左边距, 上边距)。
+    视频和画布比例相同（比如 16:9 进 1920×1080）时返回 None，说明不用换算。"""
+    if not canvas:
+        return None
+    canvas_width, canvas_height = float(canvas[0]), float(canvas[1])
+    if abs(width * canvas_height - height * canvas_width) <= 1e-6 * width * canvas_height:
+        return None
+    scale = min(canvas_width / width, canvas_height / height)
+    return scale, (canvas_width - width * scale) / 2.0, (canvas_height - height * scale) / 2.0
 
 
-def jianying_from_pixels(center_x, center_y, font_px, width, height):
+def _video_geometry(style, width, height, canvas=None):
+    """字幕在视频画面里的几何。压制按整张画布定位字幕；视频比例和画布不同时（竖屏等），
+    把画布上的位置和大小换回视频像素，播放器上的预览才和成片一致。"""
+    fit = _canvas_fit(width, height, canvas)
+    if fit is None:
+        return _style_geometry(style, width, height)
+    scale, left, top = fit
+    geometry = _style_geometry(style, canvas[0], canvas[1])
+    return {
+        "font_size": round(geometry["font_size"] / scale, 2),
+        "outline": round(geometry["outline"] / scale, 2),
+        "shadow": round(geometry["shadow"] / scale, 2),
+        "x": int(round((geometry["x"] - left) / scale)),
+        "y": int(round((geometry["y"] - top) / scale)),
+        "margin": max(10, int(round(geometry["margin"] / scale))),
+    }
+
+
+def subtitle_style_geometry(style, width, height, canvas=None):
+    """字幕在画面上的锚点（中心，像素）、字号、描边：界面上画选框、预览和压制用同一套换算。
+    canvas 是压制画布（视频按原比例放进去）；不给就当视频本身就是画布。"""
+    return _video_geometry(normalise_subtitle_style(style), width, height, canvas)
+
+
+def subtitle_canvas_bounds(width, height, canvas=None):
+    """压制画布在视频像素坐标里的范围 (左, 上, 右, 下)：竖屏视频时左右超出视频本身（那是成片的黑边）。"""
+    fit = _canvas_fit(width, height, canvas)
+    if fit is None:
+        return 0.0, 0.0, float(width), float(height)
+    scale, left, top = fit
+    return -left / scale, -top / scale, (canvas[0] - left) / scale, (canvas[1] - top) / scale
+
+
+def jianying_from_pixels(center_x, center_y, font_px, width, height, canvas=None):
     """subtitle_style_geometry 的反算：画面像素的中心和字号 → 剪映的 x / y / 字号（不取整）。"""
+    fit = _canvas_fit(width, height, canvas)
+    if fit is not None:
+        scale, left, top = fit
+        center_x, center_y = float(center_x) * scale + left, float(center_y) * scale + top
+        font_px = float(font_px) * scale
+        width, height = canvas
     scale = float(height) / 1080.0
     return {
         "x": (float(center_x) - width / 2.0) / (width / 2.0) * 1000.0,
@@ -2225,10 +2271,20 @@ def jianying_from_pixels(center_x, center_y, font_px, width, height):
     }
 
 
-def build_ass_document(cues, width, height, style=None):
-    """把 SRT 内容和剪映样式参数转换为分辨率自适应 ASS。"""
+def export_canvas(export_settings=None):
+    """压制输出的画布尺寸（默认 1920×1080）。"""
+    active = normalise_video_export(export_settings)
+    return active["width"], active["height"]
+
+
+def build_ass_document(cues, width, height, style=None, *, canvas=None):
+    """把 SRT 内容和剪映样式参数转换为分辨率自适应 ASS。
+
+    压制时 width / height 就是画布；给播放器预览时 width / height 是视频本身，canvas 传压制画布，
+    字幕的位置和大小按压制的样子换算回视频像素。
+    """
     active_style = normalise_subtitle_style(style)
-    geometry = _style_geometry(active_style, width, height)
+    geometry = _video_geometry(active_style, width, height, canvas)
     primary = _html_color_to_ass(active_style["font_color"])
     outline = _html_color_to_ass(active_style["outline_color"])
     header = f"""[Script Info]

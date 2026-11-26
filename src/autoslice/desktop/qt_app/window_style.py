@@ -60,6 +60,7 @@ class SubtitleStyleMixin:
             "style": self._subtitle_style(),
             "text": cue.text if cue is not None else "",
             "video_size": self.preview_service.canvas_size(self.document.video.path),
+            "canvas": self.preview_service.canvas,
             "editable": self.style_panel.editable(),
         }
 

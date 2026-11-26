@@ -45,7 +45,6 @@ class OverlayTests(unittest.TestCase):
         self.target = QWidget(self.window)
         self.target.setGeometry(20, 20, 960, 600)  # 16:9 的画面放进去：上下各留 30px 黑边
         self.window.show()
-        self.addCleanup(self.window.close)
         self.state = {"style": dict(DEFAULT_SUBTITLE_STYLE), "text": "他想唱他想唱他想唱的",
                       "video_size": (1920, 1080), "editable": True}
         self.emitted = []
@@ -59,13 +58,25 @@ class OverlayTests(unittest.TestCase):
         self.overlay = SubtitleBoxOverlay(self.window, self.target, Provider())
         self.overlay.changed.connect(self._apply)
         self.overlay.set_active(True)
-        self.addCleanup(self.overlay.set_active, False)
+        self.addCleanup(self._dispose)
+        self.app.processEvents()
+
+    def _dispose(self):
+        self.overlay.set_active(False)
+        self.window.close()
+        self.window.deleteLater()
         self.app.processEvents()
 
     def _apply(self, values):
-        # 模拟面板：收到就写回样式（面板会按步长取整，这里不取整）
+        # 模拟面板：收到就写回样式（面板会按步长取整、夹在范围内，这里只夹范围）
         self.emitted.append(values)
-        self.state["style"] = {**self.state["style"], **values}
+        clamped = dict(values)
+        if "font_size" in clamped:
+            clamped["font_size"] = min(30.0, max(1.0, clamped["font_size"]))
+        for key in ("x", "y"):
+            if key in clamped:
+                clamped[key] = min(1000.0, max(-1000.0, clamped[key]))
+        self.state["style"] = {**self.state["style"], **clamped}
 
     def _anchor(self):
         """字幕中心在选框窗口里的位置（画面缩放 0.5、上方黑边 30px）。"""
@@ -136,6 +147,22 @@ class OverlayTests(unittest.TestCase):
         self._drag(corner, far)
         self.assertAlmostEqual(self.emitted[-1]["font_size"], before["font_size"] * 2, delta=0.6)
         self.assertEqual((self.state["style"]["x"], self.state["style"]["y"]), (before["x"], before["y"]))
+
+    def test_vertical_video_drags_within_the_burned_canvas(self):
+        # 竖屏视频：选框按压制画布换算；往右拖到视频外（成片里是黑边）也行，但不出画布
+        self.target.setGeometry(20, 20, 960, 540)
+        self.state.update(video_size=(1080, 1920), canvas=(1920, 1080))
+        self.overlay.sync()
+        self.app.processEvents()
+        video = self.overlay._video()
+        self.assertAlmostEqual(video.width(), 303.75, delta=0.01)
+        anchor = self.overlay._box().center().toPoint()
+        self._drag(anchor, QPoint(anchor.x() + 120, anchor.y()))
+        # 视频显示缩放 540/1920 = 0.28125，120px → 426.7 视频像素 → 画布上 240px → 剪映 x = 250
+        self.assertAlmostEqual(self.emitted[-1]["x"], 250.0, delta=3)
+        anchor = self.overlay._box().center().toPoint()
+        self._drag(anchor, QPoint(anchor.x() + 900, anchor.y()))
+        self.assertAlmostEqual(self.emitted[-1]["x"], 1000.0, delta=0.5)
 
     def test_locked_default_only_hints_and_click_outside_deselects(self):
         self.state["editable"] = False

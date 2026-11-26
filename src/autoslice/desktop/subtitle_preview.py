@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from autoslice.subtitle_workflow import _probe_video_info, build_ass_document
+from autoslice.subtitle_workflow import _probe_video_info, build_ass_document, export_canvas
 from autoslice.transcription.contracts import SubtitleCue
 
 _WORD = re.compile(r"\w", re.UNICODE)
@@ -18,6 +18,8 @@ _WORD = re.compile(r"\w", re.UNICODE)
 class SubtitlePreviewService:
     def __init__(self, storage):
         self.storage = storage
+        # 压制输出的画布：视频按原比例放进去（竖屏等会加黑边），字幕按整张画布定位
+        self.canvas = export_canvas()
         self._canvas_cache = {}
 
     def _canvas_size(self, video_path: str | Path) -> tuple[int, int]:
@@ -55,7 +57,8 @@ class SubtitlePreviewService:
             height = int(height or detected_height)
         cues = [SubtitleCue(entry.index, entry.start, entry.end, "", entry.text)
                 for entry in entries]
-        document = build_ass_document(cues, width, height, style)
+        # 预览挂在视频上（PlayRes = 视频尺寸），位置和大小按压制画布换算回来，和成片一致
+        document = build_ass_document(cues, width, height, style, canvas=self.canvas)
         output = root / "preview.ass"
         unchanged = False
         if output.is_file():

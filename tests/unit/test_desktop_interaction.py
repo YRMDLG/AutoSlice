@@ -81,6 +81,21 @@ class DesktopInteractionTests(unittest.TestCase):
             self.assertIn("PlayResX: 1280", document)
             self.assertIn("PlayResY: 720", document)
 
+    def test_vertical_video_preview_matches_the_burned_canvas(self):
+        # 压制把竖屏视频缩放后加黑边放进 1920×1080，字幕按整张画布定位；
+        # 预览挂在视频本身上，要换算回视频像素：中心 (540, 1717)、字号 135 / 0.5625 = 240
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "video.mp4"
+            source.touch()
+            service = SubtitlePreviewService(DesktopStorage(root / "app-data"))
+            entries = [SimpleNamespace(index=1, start="00:00:00,000",
+                                       end="00:00:01,000", text="测试")]
+            document = service.render(source, entries, width=1080, height=1920).read_text(encoding="utf-8")
+        self.assertIn("PlayResX: 1080", document)
+        self.assertIn(r"\pos(540,1717)", document)
+        self.assertIn("Style: Default,Noto Sans S Chinese Black,240.0,", document)
+
     def test_command_registry_keeps_stable_names(self):
         called = []
         commands = CommandDispatcher()

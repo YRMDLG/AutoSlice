@@ -12,7 +12,11 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, 
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-from autoslice.subtitle_workflow import jianying_from_pixels, subtitle_style_geometry
+from autoslice.subtitle_workflow import (
+    jianying_from_pixels,
+    subtitle_canvas_bounds,
+    subtitle_style_geometry,
+)
 
 CHROME = QColor(59, 160, 255)        # 和封面画布的选中框同色
 LOCKED = QColor(200, 205, 212, 230)
@@ -33,14 +37,14 @@ def video_rect(widget_size: QSize, video_size: tuple[int, int]) -> QRectF:
                   shown_width, shown_height)
 
 
-def text_box(style: dict, text: str, video_size: tuple[int, int]) -> QRectF:
+def text_box(style: dict, text: str, video_size: tuple[int, int], canvas=None) -> QRectF:
     """字幕在画面像素坐标里大致占的框：以锚点为中心，按字号量字宽、按行数算高，再加上描边。
 
     ASS 的字号是“行高”（升部 + 降部），所以先按 Qt 量到的行高换算比例；字体对不上时只是框略大略小，
     中心始终准确（压制用的也是中心锚点）。
     """
 
-    geometry = subtitle_style_geometry(style, *video_size)
+    geometry = subtitle_style_geometry(style, *video_size, canvas)
     font_px = max(1.0, geometry["font_size"])
     font = QFont(style.get("font_name") or "")
     font.setPixelSize(max(1, round(font_px)))
@@ -59,7 +63,7 @@ def text_box(style: dict, text: str, video_size: tuple[int, int]) -> QRectF:
 class SubtitleBoxOverlay(QWidget):
     """provider 要提供：style_overlay_state() -> dict | None（None 表示现在不该显示）。
 
-    state 里有 style、text、video_size、editable。拖动时发 changed（剪映单位的 x / y / font_size），
+    state 里有 style、text、video_size、canvas（压制画布，竖屏等视频按它换算位置）、editable。拖动时发 changed（剪映单位的 x / y / font_size），
     默认样式不能改时发 locked_attempt。
     """
 
@@ -100,7 +104,9 @@ class SubtitleBoxOverlay(QWidget):
 
     # ── 跟随主窗口 ──
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if self._timer.isActive() and event.type() in (
+        # 主窗口拆除过程中 Python 这一侧可能已经清空，事件还会进来：别抛错
+        timer = getattr(self, "_timer", None)
+        if timer is not None and timer.isActive() and event.type() in (
                 QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.WindowStateChange,
                 QEvent.Type.WindowActivate, QEvent.Type.WindowDeactivate,
                 QEvent.Type.Show, QEvent.Type.Hide):
@@ -140,7 +146,8 @@ class SubtitleBoxOverlay(QWidget):
     def _box(self) -> QRectF:
         """选框在本窗口里的位置（含留白）。"""
 
-        frame = text_box(self._state["style"], self._state.get("text") or "", self._state["video_size"])
+        frame = text_box(self._state["style"], self._state.get("text") or "", self._state["video_size"],
+                         self._state.get("canvas"))
         video, scale = self._video(), self._scale()
         rect = QRectF(video.x() + frame.x() * scale, video.y() + frame.y() * scale,
                       frame.width() * scale, frame.height() * scale)
@@ -160,8 +167,11 @@ class SubtitleBoxOverlay(QWidget):
                     return name
         return "move" if box.contains(point) else None
 
+    def _geometry(self) -> dict:
+        return subtitle_style_geometry(self._state["style"], *self._state["video_size"], self._state.get("canvas"))
+
     def _anchor(self) -> QPointF:
-        geometry = subtitle_style_geometry(self._state["style"], *self._state["video_size"])
+        geometry = self._geometry()
         return QPointF(geometry["x"], geometry["y"])
 
     # ── 鼠标 ──
@@ -179,7 +189,7 @@ class SubtitleBoxOverlay(QWidget):
             self.locked_attempt.emit()
             self.update()
             return
-        geometry = subtitle_style_geometry(self._state["style"], *self._state["video_size"])
+        geometry = self._geometry()
         video, scale = self._video(), self._scale()
         center = QPointF(video.x() + geometry["x"] * scale, video.y() + geometry["y"] * scale)
         self._drag = {
@@ -205,6 +215,7 @@ class SubtitleBoxOverlay(QWidget):
             return
         drag, scale = self._drag, self._scale()
         width, height = self._state["video_size"]
+        canvas = self._state.get("canvas")
         anchor = drag["anchor"]
         if drag["kind"] == "move":
             center_x = anchor.x() + (point.x() - drag["press"].x()) / scale
@@ -214,16 +225,18 @@ class SubtitleBoxOverlay(QWidget):
             self._guide = not bypass and abs(center_x - width / 2) * scale <= CENTER_SNAP_PX
             if self._guide:
                 center_x = width / 2
-            center_x = min(max(center_x, 0.0), float(width))
-            center_y = min(max(center_y, 0.0), float(height))
-            values = jianying_from_pixels(center_x, center_y, drag["font_px"], width, height)
+            # 中心限制在压制画布里（竖屏视频的左右两侧在成片里是黑边，字幕可以放过去）
+            left, top, right, bottom = subtitle_canvas_bounds(width, height, canvas)
+            center_x = min(max(center_x, left), right)
+            center_y = min(max(center_y, top), bottom)
+            values = jianying_from_pixels(center_x, center_y, drag["font_px"], width, height, canvas)
             self.changed.emit({"x": values["x"], "y": values["y"]})
             self._refresh_state()
         else:
             # 拖角：以字幕中心为准等比缩放字号（中心不动，和压制用的中心锚点一致）
             distance = math.hypot(point.x() - drag["center"].x(), point.y() - drag["center"].y())
             font_px = drag["font_px"] * max(0.05, distance / drag["distance"])
-            values = jianying_from_pixels(anchor.x(), anchor.y(), font_px, width, height)
+            values = jianying_from_pixels(anchor.x(), anchor.y(), font_px, width, height, canvas)
             self.changed.emit({"font_size": values["font_size"]})
             self._refresh_state()
         self.update()

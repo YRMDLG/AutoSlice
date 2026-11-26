@@ -1335,6 +1335,36 @@ class SubtitleRenderingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bold"):
             normalise_subtitle_style({"bold": "yes"})
 
+    def test_preview_canvas_mapping_keeps_16x9_and_fixes_other_aspects(self):
+        from autoslice.subtitle_workflow import (
+            jianying_from_pixels,
+            subtitle_canvas_bounds,
+            subtitle_style_geometry,
+        )
+
+        cue = transcription_contracts.SubtitleCue(1, "00:00:00,000", "00:00:01,000", "", "字幕")
+        style = {"x": 300.0, "y": -600.0, "font_size": 16.0, "shadow": 20.0}
+        # 16:9（不论分辨率）：给不给压制画布，生成的 ASS 一字不差
+        for size in ((1920, 1080), (1280, 720), (3840, 2160)):
+            self.assertEqual(build_ass_document([cue], *size, style, canvas=(1920, 1080)),
+                             build_ass_document([cue], *size, style))
+        # 竖屏 1080×1920：画布上 (1248, 864)、字号 108 → 视频上缩放 0.5625、左边黑边 656.25
+        canvas = subtitle_style_geometry(style, 1920, 1080)
+        video = subtitle_style_geometry(style, 1080, 1920, (1920, 1080))
+        self.assertEqual((canvas["x"], canvas["y"], canvas["font_size"]), (1248, 864, 108.0))
+        self.assertEqual((video["x"], video["y"], video["font_size"]), (1052, 1536, 192.0))
+        # 反算回剪映单位
+        back = jianying_from_pixels(video["x"], video["y"], video["font_size"], 1080, 1920, (1920, 1080))
+        self.assertAlmostEqual(back["x"], 300.0, delta=1.5)
+        self.assertAlmostEqual(back["y"], -600.0, delta=1.5)
+        self.assertAlmostEqual(back["font_size"], 16.0, places=2)
+        # 画布范围：竖屏时左右超出视频（成片的黑边），上下正好是视频
+        left, top, right, bottom = subtitle_canvas_bounds(1080, 1920, (1920, 1080))
+        self.assertAlmostEqual(left, -1166.67, delta=0.01)
+        self.assertAlmostEqual(right, 2246.67, delta=0.01)
+        self.assertEqual((top, bottom), (0.0, 1920.0))
+        self.assertEqual(subtitle_canvas_bounds(1280, 720, (1920, 1080)), (0.0, 0.0, 1280.0, 720.0))
+
     def test_custom_style_font_and_weight_reach_the_ass_style_line(self):
         cue = transcription_contracts.SubtitleCue(1, "00:00:00,000", "00:00:01,000", "", "字幕")
         document = build_ass_document([cue], 1920, 1080, {"font_name": "Microsoft YaHei", "bold": False,
