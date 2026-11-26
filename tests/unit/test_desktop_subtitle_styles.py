@@ -150,16 +150,21 @@ class StylePanelWindowTests(unittest.TestCase):
         self.assertNotEqual(window.style_store.active().id, DEFAULT_ID)
         # 改字号：预览按新样式重新生成（没有播放器时预览不挂，但生效样式立即变）
         panel.numbers["font_size"].spin.setValue(14.0)
-        self.assertEqual(window._subtitle_style()["font_size"], 20.0, "自动保存有 400ms 缓冲")
-        self.assertEqual(panel.current_style()["font_size"], 14.0)
-        panel.flush()
+        # 用户实机反馈“我要实时变化”：原来预览读的是存盘值，存盘有 400ms 缓冲，预览总慢一拍
         self.assertEqual(window._subtitle_style()["font_size"], 14.0)
+        self.assertEqual(window.style_store.active().style["font_size"], 20.0)
         with patch.object(window.preview_service, "render", return_value=Path("x.ass")) as render:
             window.player = SimpleNamespace(set_subtitle=lambda path: None)
             window.preview_toggle.setChecked(True)
             window._refresh_subtitle_preview()
             self.assertEqual(render.call_args.kwargs["style"]["font_size"], 14.0)
+            # 改颜色同理：不等存盘
+            panel._change("outline_color", "ffffff")
+            window._refresh_subtitle_preview()
+            self.assertEqual(render.call_args.kwargs["style"]["outline_color"], "ffffff")
         window.player = None
+        panel.flush()
+        self.assertEqual(window.style_store.active().style["font_size"], 14.0)
         # 切回默认：生效样式回到原来的配置
         panel.preset_combo.setCurrentIndex(0)
         panel._choose_preset(0)

@@ -268,6 +268,9 @@ class SubtitleDocumentMixin:
             return
         key = project.id
         cancellation = threading.Event()
+        # 面板里还没存盘的改动先写下：压出来的就是预览上看到的
+        if hasattr(self, "style_panel"):
+            self.style_panel.flush()
         self._render_jobs[key] = {"title": project.title, "cancel": cancellation,
                                   "percent": 0, "percent_enabled": True,
                                   "font": (self._subtitle_style().get("font_name"),

@@ -23,6 +23,11 @@ class SubtitleStyleMixin:
 
     # ── 查询 ──
     def _subtitle_style(self) -> dict:
+        """现在生效的样式：面板里正在调的那份（存盘有 0.4 秒缓冲，预览不能等它，否则总慢一拍）。"""
+
+        panel = getattr(self, "style_panel", None)
+        if panel is not None:
+            return panel.current_style()
         store = getattr(self, "style_store", None)
         return dict(store.active().style) if store is not None else {}
 
@@ -106,7 +111,9 @@ class SubtitleStyleMixin:
 
     # ── 样式变化 ──
     def _style_changed(self, _style: dict):
-        self._preview_timer.start()
+        # 拖滑块时连续出值：已经在等就不重新计时（每 35ms 至少刷一次），不然要停手才刷新
+        if not self._preview_timer.isActive():
+            self._preview_timer.start()
         self._sync_style_labels()
         # 设置页的字体提醒按新样式重查
         self._render_font_checked = False
