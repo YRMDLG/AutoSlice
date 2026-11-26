@@ -52,7 +52,9 @@ class SubtitleTimeline(QWidget):
         self.waveform_samples: list[float] = []
         # 显示增益：录音偏小声时按整段的高位电平放大，波形不至于贴成一条线
         self._wave_gain = 1.0
-        self.snap_engine = SnapEngine()
+        # 磁吸调轻（D-048）：拖定位线 6px 吸、9px 脱；拖字幕块更轻，5px 吸、7px 脱
+        self.snap_engine = SnapEngine(threshold_px=6.0, release_px=9.0)
+        self.cue_snap = SnapEngine(threshold_px=5.0, release_px=7.0)
         self.snapping = True
         self.snap_guide: float | None = None
         # 动效：字幕块状态、视图平移缩放、吸附线、框选残影、波形、播放头插值
@@ -132,6 +134,7 @@ class SubtitleTimeline(QWidget):
 
     def _reset_snap_state(self):
         self.snap_engine.reset()
+        self.cue_snap.reset()
         self.snap_guide = None
 
     def _finish_drag(self, *, commit: bool = True):
@@ -230,9 +233,23 @@ class SubtitleTimeline(QWidget):
 
     def set_snapping(self, enabled: bool):
         self.snapping = bool(enabled)
-        self.snap_engine.reset()
-        self.snap_guide = None
+        self._reset_snap_state()
         self.update()
+
+    def _snap_cue(self, value: float, edges, bypass: bool) -> float:
+        """拖字幕块时的磁吸：比拖定位线那档更轻（5px 吸住、7px 脱开），Alt 临时不吸。
+
+        edges 是 (吸附点, 偏移)：拖动的值等于“吸附点 - 偏移”时算吸上（整块移动时结尾吸附要减去块长）。
+        """
+
+        choices: dict[float, float] = {}
+        for target, offset in edges:
+            if target is not None and math.isfinite(target):
+                choices.setdefault(round(target - offset, 6), target)
+        result = self.cue_snap.snap(value, list(choices), self._track_width() / self.span,
+                                    enabled=self.snapping, bypass=bypass)
+        self.snap_guide = choices.get(round(result, 6)) if self.cue_snap.target is not None else None
+        return result
 
     def _snap_position(self, value: float, event=None) -> float:
         targets = []
@@ -764,20 +781,29 @@ class SubtitleTimeline(QWidget):
         index = drag["index"]
         position = next(i for i, entry in enumerate(self.document.entries)
                         if entry.index == index)
-        previous = (srt_timestamp_seconds(self.document.entries[position - 1].start)
-                    if position else 0.0)
+        # 不重叠：最多贴到上一句结尾 / 下一句开头（D-048）。原本就重叠的旧数据不再加重，往外拖照常
+        previous_end = (srt_timestamp_seconds(self.document.entries[position - 1].end)
+                        if position else 0.0)
         following = (srt_timestamp_seconds(self.document.entries[position + 1].start)
                      if position + 1 < len(self.document.entries) else float("inf"))
+        bypass = bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
+        length = drag["end"] - drag["start"]
+        playhead = self.playhead
         if drag["mode"] == "move":
-            start = min(max(drag["start"] + delta, previous), following)
-            end = start + drag["end"] - drag["start"]
+            # 开头吸上一句结尾 / 定位线，结尾吸下一句开头 / 定位线，取最近的那个
+            start = self._snap_cue(drag["start"] + delta, (
+                (previous_end, 0.0), (playhead, 0.0), (following, length), (playhead, length)), bypass)
+            start = min(max(start, min(previous_end, drag["start"])),
+                        max(following - length, drag["start"]))
+            end = start + length
         elif drag["mode"] == "left":
-            start = min(max(drag["start"] + delta, previous), following,
-                        drag["end"] - .05)
+            start = self._snap_cue(drag["start"] + delta, ((previous_end, 0.0), (playhead, 0.0)), bypass)
+            start = min(max(start, min(previous_end, drag["start"])), drag["end"] - .05)
             end = drag["end"]
         else:
             start = drag["start"]
-            end = max(start + .05, drag["end"] + delta)
+            end = self._snap_cue(drag["end"] + delta, ((following, 0.0), (playhead, 0.0)), bypass)
+            end = min(max(end, start + .05), max(following, drag["end"]))
         try:
             self.document.change_time(index, start, end, remember=False)
         except ValueError:

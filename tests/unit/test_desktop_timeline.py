@@ -162,6 +162,75 @@ class SubtitleTimelineQtTests(unittest.TestCase):
         self.assertEqual(selections, [entry.index])
         self.assertEqual(self.timeline.playhead, 7.0)
 
+    # ── 不重叠 + 轻磁吸（D-048）──
+    def _drag(self, start: QPoint, end: QPoint, modifiers=None):
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QMouseEvent
+
+        modifiers = modifiers or Qt.KeyboardModifier.NoModifier
+        QTest.mousePress(self.timeline, Qt.MouseButton.LeftButton, modifiers, start)
+        steps = 6
+        for step in range(1, steps + 1):
+            x = start.x() + (end.x() - start.x()) * step / steps
+            point = QPointF(x, start.y())
+            QApplication.sendEvent(self.timeline, QMouseEvent(
+                QEvent.Type.MouseMove, point, QPointF(self.timeline.mapToGlobal(point.toPoint())),
+                Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, modifiers))
+            self.app.processEvents()
+        QTest.mouseRelease(self.timeline, Qt.MouseButton.LeftButton, modifiers, end)
+        self.app.processEvents()
+
+    def _times(self, cue_id):
+        from autoslice.transcription.contracts import srt_timestamp_seconds
+
+        entry = next(item for item in self.document.entries if item.index == cue_id)
+        return srt_timestamp_seconds(entry.start), srt_timestamp_seconds(entry.end)
+
+    def test_moving_a_cue_stops_touching_its_neighbor(self):
+        _entry, _start, _end, rect = self._block(1)
+        point = QPoint(int(rect.center().x()), int(rect.center().y()))
+        self._drag(point, QPoint(point.x() + 300, point.y()))
+        # 1~3 秒那句往右拖很远：结尾正好贴到下一句开头 4.0，不重叠
+        self.assertEqual(self._times(1), (2.0, 4.0))
+        _entry, _start, _end, rect = self._block(2)
+        point = QPoint(int(rect.center().x()), int(rect.center().y()))
+        self._drag(point, QPoint(point.x() - 300, point.y()))
+        self.assertEqual(self._times(2)[0], 4.0)
+
+    def test_edges_stop_at_neighbors(self):
+        _entry, _start, _end, rect = self._block(1)
+        right = QPoint(int(rect.right() - 2), int(rect.center().y()))
+        self._drag(right, QPoint(right.x() + 300, right.y()))
+        self.assertEqual(self._times(1), (1.0, 4.0))
+        self.document.undo()
+        _entry, _start, _end, rect = self._block(2)
+        left = QPoint(int(rect.left() + 2), int(rect.center().y()))
+        self._drag(left, QPoint(left.x() - 300, left.y()))
+        self.assertEqual(self._times(2), (3.0, 5.5))
+
+    def test_edge_snaps_lightly_to_neighbor_and_alt_bypasses(self):
+        timeline = self.timeline
+        pps = timeline._track_width() / timeline.span
+
+        def drag_left_edge_to(gap_px, modifiers=None):
+            _entry, _start, _end, rect = self._block(2)
+            press = QPoint(int(rect.left() + 2), int(rect.center().y()))
+            offset = press.x() - timeline._x(4.0)
+            target = QPoint(round(timeline._x(3.0) + gap_px + offset), press.y())
+            self._drag(press, target, modifiers)
+            start = self._times(2)[0]
+            self.document.undo()
+            return start
+
+        # 3px 内吸上（贴住上一句结尾 3.0）；9px 外不吸；按住 Alt 也不吸
+        self.assertEqual(drag_left_edge_to(3), 3.0)
+        self.assertAlmostEqual(drag_left_edge_to(9), 3.0 + 9 / pps, delta=1.5 / pps)
+        self.assertAlmostEqual(drag_left_edge_to(3, Qt.KeyboardModifier.AltModifier), 3.0 + 3 / pps,
+                               delta=1.5 / pps)
+        # 关掉磁吸也不吸
+        timeline.set_snapping(False)
+        self.assertAlmostEqual(drag_left_edge_to(3), 3.0 + 3 / pps, delta=1.5 / pps)
+
     def test_resize_cursor_only_appears_at_edges(self):
         _entry, _start, _end, rect = self._block()
         y = int(rect.center().y())
