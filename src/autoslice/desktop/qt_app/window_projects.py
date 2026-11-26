@@ -33,7 +33,6 @@ from autoslice.desktop.qt_preview.window import ProjectOption, card, label, tool
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_render import subtitle_font_problem
 from autoslice.desktop.subtitles import SubtitleDocument
-from autoslice.subtitle_workflow import DEFAULT_SUBTITLE_STYLE
 
 from . import settings_sections
 from .ai_settings_panel import AISettingsPanel
@@ -230,8 +229,17 @@ class ProjectsMixin:
         # ── 字幕压制 ──
         render_card, render_column = card(
             "压制",
-            f"默认样式：{DEFAULT_SUBTITLE_STYLE['font_name']} · #{DEFAULT_SUBTITLE_STYLE['outline_color']} 描边",
+            "字幕样式可以存几套随时切换；“默认”就是原来的压制配置。在字幕页播放器下方点“字幕样式”边看预览边调。",
         )
+        style_row = QHBoxLayout()
+        # 文字由 _sync_style_labels 按当前样式填
+        self.render_style_note = label("", "muted")
+        self.render_style_note.setWordWrap(True)
+        style_row.addWidget(self.render_style_note, 1)
+        adjust_style = QPushButton("调整字幕样式")
+        adjust_style.clicked.connect(self._open_style_from_settings)
+        style_row.addWidget(adjust_style, 0, Qt.AlignmentFlag.AlignTop)
+        render_column.addLayout(style_row)
         render_column.addWidget(label("压制使用既有 FFmpeg 工作流，NVENC 可用时自动优先。", "muted"))
         # 缺字体或 FFmpeg 时压制必失败：进设置页就检查并醒目提示
         self.render_font_note = label("", "danger")
@@ -374,17 +382,19 @@ class ProjectsMixin:
         self._show_transient_status("素材文件夹已更新，下次打开素材库时生效")
 
     def _check_render_font(self):
-        """进设置页时在后台查一次默认字幕字体（要跑一次 FFmpeg，结果有缓存）。"""
+        """进设置页时在后台查一次当前字幕样式的字体（要跑一次 FFmpeg，结果有缓存；换样式后重查）。"""
         if getattr(self, "_render_font_checked", False) or not hasattr(self, "render_font_note"):
             return
         self._render_font_checked = True
+        style = self._subtitle_style()
+        font_name, bold = style.get("font_name"), style.get("bold", True)
 
         def done(problem, error):
             text = "" if error is not None else problem
             self.render_font_note.setText(f"⚠ {text}" if text else "")
             self.render_font_note.setVisible(bool(text))
 
-        self._run(subtitle_font_problem, done)
+        self._run(lambda: subtitle_font_problem(font_name, bold) if font_name else subtitle_font_problem(), done)
 
     def _browse_submission_root(self):
         """让用户选择投稿目录。"""

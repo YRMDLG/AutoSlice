@@ -74,6 +74,7 @@ DEFAULT_SUBTITLE_STYLE = {
     "x": 0.0,
     "y": -788.0,
     "shadow": 0.0,
+    "bold": True,
 }
 DEFAULT_VIDEO_EXPORT = {
     "width": 1920,
@@ -1963,11 +1964,16 @@ def generate_subtitle_reference_titles(
 
 
 def normalise_subtitle_style(style=None):
-    """校验剪映参数；指定字体固定为用户确认的精确字体。"""
+    """校验剪映参数；默认是用户确认的那套（思源黑体 Black），字体可换成本机装了的其它字体（D-048）。"""
     values = dict(DEFAULT_SUBTITLE_STYLE)
     values.update(style or {})
-    if str(values.get("font_name", "")).strip() != EXACT_SUBTITLE_FONT:
-        raise ValueError(f"字幕字体必须是 {EXACT_SUBTITLE_FONT}")
+    font_name = str(values.get("font_name", "")).strip()
+    # ASS 样式行按逗号分字段；大括号、反斜杠是覆盖标签
+    if not font_name or len(font_name) > 100 or re.search(r"[,{}\\\r\n]", font_name):
+        raise ValueError("字幕字体名称无效")
+    values["font_name"] = font_name
+    if not isinstance(values.get("bold"), bool):
+        raise ValueError("字幕样式 bold 必须是布尔值")
     for key, minimum, maximum in (
         ("font_size", 1.0, 30.0),
         ("outline_width", 0.0, 100.0),
@@ -1986,8 +1992,7 @@ def normalise_subtitle_style(style=None):
         if not re.fullmatch(r"[0-9a-f]{6}", color):
             raise ValueError(f"字幕样式 {key} 必须是 6 位十六进制颜色")
         values[key] = color
-    values["font_name"] = EXACT_SUBTITLE_FONT
-    return values
+    return {key: values[key] for key in DEFAULT_SUBTITLE_STYLE}
 
 
 def normalise_video_export(settings=None):
@@ -2221,7 +2226,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{EXACT_SUBTITLE_FONT},{geometry['font_size']},{primary},{primary},{outline},&H00000000,-1,0,0,0,100,100,0,0,1,{geometry['outline']},{geometry['shadow']},5,{geometry['margin']},{geometry['margin']},0,1
+Style: Default,{active_style['font_name']},{geometry['font_size']},{primary},{primary},{outline},&H00000000,{-1 if active_style['bold'] else 0},0,0,0,100,100,0,0,1,{geometry['outline']},{geometry['shadow']},5,{geometry['margin']},{geometry['margin']},0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -2355,11 +2360,64 @@ def verify_exact_subtitle_font():
     }
 
 
-def _ensure_exact_subtitle_font():
-    result = verify_exact_subtitle_font()
+_MISSING_FONT_PROBE = "AutoSlice Missing Font Probe"
+
+
+@lru_cache(maxsize=64)
+def _libass_font_choice(font_name, bold):
+    """让 libass 实际选一次字，返回 (是否成功, 解析到的字体名)。"""
+    with tempfile.TemporaryDirectory(prefix="autoslice_font_probe_") as td:
+        ass_path = Path(td) / "font_probe.ass"
+        cue = SubtitleCue(1, "00:00:00,000", "00:00:00,500", "", "字体检查")
+        style = {**DEFAULT_SUBTITLE_STYLE, "font_name": font_name, "bold": bool(bold)}
+        ass_path.write_text(build_ass_document([cue], 320, 180, style), encoding="utf-8")
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "verbose",
+                "-f", "lavfi", "-i", "color=c=black:s=320x180:d=0.5",
+                "-vf", _ass_filter(ass_path.name, relative=True), "-frames:v", "1",
+                "-f", "null", os.devnull,
+            ],
+            cwd=td,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+    match = re.search(
+        rf"fontselect:\s*\({re.escape(font_name)},[^\n]+?\)\s*->\s*([^,\r\n]+)",
+        result.stderr,
+        re.IGNORECASE,
+    )
+    return result.returncode == 0, match.group(1).strip() if match else ""
+
+
+def verify_subtitle_font(font_name=EXACT_SUBTITLE_FONT, bold=True):
+    """所选字体本机能否真的用上（没被 libass 换成别的字体）。
+
+    默认字体沿用精确检查；其它字体拿一个肯定不存在的字体名做对照：解析结果和“找不到时的替身”一样，
+    就是没装（除非解析名本身就是这个字体）。
+    """
+    if font_name == EXACT_SUBTITLE_FONT:
+        return verify_exact_subtitle_font()
+    ok, resolved = _libass_font_choice(font_name, bool(bold))
+    _probe_ok, fallback = _libass_font_choice(_MISSING_FONT_PROBE, bool(bold))
+
+    def letters(value):
+        return re.sub(r"[\W_]+", "", value).casefold()
+
+    available = ok and bool(resolved) and (
+        resolved.casefold() != fallback.casefold() or letters(resolved).startswith(letters(font_name))
+    )
+    return {"available": available, "requested": font_name, "resolved": resolved, "expected_resolved": ""}
+
+
+def _ensure_subtitle_font(style=None):
+    active = normalise_subtitle_style(style)
+    result = verify_subtitle_font(active["font_name"], active["bold"])
     if not result["available"]:
         raise RuntimeError(
-            f"无法精确加载字幕字体 {EXACT_SUBTITLE_FONT}，"
+            f"无法精确加载字幕字体 {active['font_name']}，"
             f"实际解析为 {result['resolved'] or '未知字体'}"
         )
     return result
@@ -2383,7 +2441,7 @@ def render_subtitle_preview(
         video_path, srt_path, style=None, preview_time=None,
         export_settings=None):
     """渲染一张带真实字幕样式的视频帧，返回 JPEG 字节。"""
-    _ensure_exact_subtitle_font()
+    _ensure_subtitle_font(style)
     cues = parse_srt_document(srt_path)
     if not cues:
         raise ValueError("字幕文件没有有效内容")
@@ -2517,7 +2575,7 @@ def burn_subtitles(
     """把校对字幕压制到新 MP4；优先 NVENC，失败自动回退 libx264。"""
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError("字幕压制已取消")
-    font_result = _ensure_exact_subtitle_font()
+    font_result = _ensure_subtitle_font(style)
     video_info = _probe_video_info(video_path)
     active_export = normalise_video_export(export_settings)
     artifacts = write_ass_from_srt(

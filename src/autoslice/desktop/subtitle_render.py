@@ -17,14 +17,16 @@ from autoslice.subtitle_workflow import (
     burn_subtitles,
     parse_srt_document,
     verify_exact_subtitle_font,
+    verify_subtitle_font,
 )
 
 
-def subtitle_font_problem() -> str:
-    """默认字幕字体能否精确加载：能则返回空串，否则返回给用户看的说明（结果有缓存）。"""
+def subtitle_font_problem(font_name: str = EXACT_SUBTITLE_FONT, bold: bool = True) -> str:
+    """字幕字体能否精确加载：能则返回空串，否则返回给用户看的说明（结果有缓存）。"""
 
     try:
-        result = verify_exact_subtitle_font()
+        result = (verify_exact_subtitle_font() if font_name == EXACT_SUBTITLE_FONT
+                  else verify_subtitle_font(font_name, bold))
     except FileNotFoundError:
         return "没找到 FFmpeg：压制字幕需要 FFmpeg 和 ffprobe，安装后重启软件。"
     except OSError as exc:
@@ -32,6 +34,9 @@ def subtitle_font_problem() -> str:
     if result["available"]:
         return ""
     actual = result["resolved"] or "其它字体"
+    if font_name != EXACT_SUBTITLE_FONT:
+        return (f"本机没装字幕字体「{font_name}」，压制会失败（现在会被换成 {actual}）。"
+                "换一个已安装的字体，或装上这个字体后重启软件。")
     return (f"本机没装默认字幕字体「{EXACT_SUBTITLE_FONT}」（思源黑体 Black），压制会失败"
             f"（现在会被换成 {actual}）。安装这个字体后重启软件即可。")
 
@@ -65,11 +70,12 @@ class SubtitleRenderService:
     def render(
         self, video_path: str | Path, corrected_srt_path: str | Path,
         expected_digest: str, *, progress_callback=None, cancel_event: Event | None = None,
+        style: dict | None = None,
     ) -> dict:
         try:
             return self._render(
                 video_path, corrected_srt_path, expected_digest,
-                progress_callback=progress_callback, cancel_event=cancel_event,
+                progress_callback=progress_callback, cancel_event=cancel_event, style=style,
             )
         except Exception:
             self.storage.logs.mkdir(parents=True, exist_ok=True)
@@ -82,6 +88,7 @@ class SubtitleRenderService:
     def _render(
         self, video_path: str | Path, corrected_srt_path: str | Path,
         expected_digest: str, *, progress_callback=None, cancel_event: Event | None = None,
+        style: dict | None = None,
     ) -> dict:
         video = Path(video_path).resolve()
         corrected = Path(corrected_srt_path).resolve()
@@ -105,8 +112,9 @@ class SubtitleRenderService:
             if hashlib.sha256(private_srt.read_bytes()).hexdigest() != expected_digest:
                 raise ValueError("校对字幕复制期间发生变化，请重试")
             private_output = work / "rendered.mp4"
+            # style 为空就是默认样式（用户原来的压制配置）
             result = burn_subtitles(
-                video, private_srt, output_path=private_output,
+                video, private_srt, style=style, output_path=private_output,
                 progress_callback=progress_callback, cancel_event=cancel_event,
             )
             if cancel_event is not None and cancel_event.is_set():

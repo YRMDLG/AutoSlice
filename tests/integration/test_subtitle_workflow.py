@@ -1325,9 +1325,26 @@ class SubtitleRenderingTests(unittest.TestCase):
             "x": 0.0,
             "y": -788.0,
             "shadow": 0.0,
+            "bold": True,
         })
-        with self.assertRaisesRegex(ValueError, "字体必须"):
-            normalise_subtitle_style({"font_name": "Noto Sans SC"})
+        # D-048：字体可换成别的（本机装没装由压制前的字体检查把关），但不能带破坏 ASS 的字符
+        self.assertEqual(normalise_subtitle_style({"font_name": "Noto Sans SC"})["font_name"], "Noto Sans SC")
+        for bad in ("", "A,B", "A{B}", r"A\B"):
+            with self.assertRaisesRegex(ValueError, "字体名称无效"):
+                normalise_subtitle_style({"font_name": bad})
+        with self.assertRaisesRegex(ValueError, "bold"):
+            normalise_subtitle_style({"bold": "yes"})
+
+    def test_custom_style_font_and_weight_reach_the_ass_style_line(self):
+        cue = transcription_contracts.SubtitleCue(1, "00:00:00,000", "00:00:01,000", "", "字幕")
+        document = build_ass_document([cue], 1920, 1080, {"font_name": "Microsoft YaHei", "bold": False,
+                                                           "font_size": 10, "font_color": "#00FF00"})
+        style_line = next(line for line in document.splitlines() if line.startswith("Style: Default,"))
+        fields = style_line.split(",")
+        self.assertEqual(fields[1], "Microsoft YaHei")
+        self.assertEqual(fields[2], "67.5")
+        self.assertEqual(fields[3], "&H0000FF00")
+        self.assertEqual(fields[7], "0")
 
     def test_default_video_export_matches_jianying_settings(self):
         self.assertEqual(normalise_video_export(), {

@@ -48,7 +48,9 @@ class SubtitleRenderServiceTests(unittest.TestCase):
         first = self.video.with_name("短片_字幕版.mp4")
         first.write_bytes(b"existing-final")
 
-        def fake_burn(video, srt, *, output_path, progress_callback, cancel_event):
+        def fake_burn(video, srt, *, style, output_path, progress_callback, cancel_event):
+            # 没传样式就是默认样式（D-048）
+            self.assertIsNone(style)
             self.assertEqual(Path(video), self.video)
             self.assertEqual(Path(srt).read_bytes(), self.corrected.read_bytes())
             self.assertNotEqual(Path(srt).parent, self.video.parent)
@@ -314,8 +316,10 @@ class SubtitleRenderQtTests(unittest.TestCase):
         release = Event()
         calls = []
 
-        def fake_render(video, corrected, digest, *, progress_callback, cancel_event):
+        def fake_render(video, corrected, digest, *, progress_callback, cancel_event, style):
             calls.append(str(video))
+            # 压制带上当前样式（D-048）：没自建过就是默认那套
+            self.assertEqual(style["font_name"], "Noto Sans S Chinese Black")
             self.assertTrue(Path(corrected).is_file())
             self.assertEqual(hashlib.sha256(Path(corrected).read_bytes()).hexdigest(), digest)
             started.set()
@@ -828,7 +832,7 @@ class SubtitleRenderQtTests(unittest.TestCase):
         started = Event()
         stopped = Event()
 
-        def fake_render(_video, _corrected, _digest, *, progress_callback, cancel_event):
+        def fake_render(_video, _corrected, _digest, *, progress_callback, cancel_event, style):
             started.set()
             if not cancel_event.wait(5):
                 raise AssertionError("关闭没有请求停止")

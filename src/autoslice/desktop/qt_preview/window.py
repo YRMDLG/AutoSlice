@@ -473,8 +473,11 @@ class PreviewWindow(QMainWindow):
         self.side_splitter.addWidget(self.list_card)
         self.side_splitter.addWidget(self.ai_check_card)
         self.side_splitter.setStretchFactor(0, 1)
+        # 右列可以临时换成别的面板（字幕样式，D-048），换回来时两张卡原样还在
+        self.side_stack = QStackedWidget()
+        self.side_stack.addWidget(self.side_splitter)
         self.subtitle_columns.addWidget(self.vertical_splitter)
-        self.subtitle_columns.addWidget(self.side_splitter)
+        self.subtitle_columns.addWidget(self.side_stack)
         self.subtitle_columns.setStretchFactor(0, 1)
         # 用户拖过左右分界就记住他的宽度；没拖过时随窗口按设计比例重算
         self._columns_dragged = False

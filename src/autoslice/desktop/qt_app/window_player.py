@@ -96,6 +96,13 @@ class PlayerMixin:
         self.preview_toggle.setToolTip("显示接近最终压制样式的实时字幕预览")
         self.preview_toggle.clicked.connect(self._toggle_subtitle_preview)
         controls.addWidget(self.preview_toggle)
+        # 字幕样式：右列换成样式面板，边看视频上的预览边调（D-048）
+        self.style_toggle = QPushButton("字幕样式")
+        self.style_toggle.setObjectName("tool")
+        self.style_toggle.setCheckable(True)
+        self.style_toggle.setToolTip("调整压制用的字幕样式")
+        self.style_toggle.clicked.connect(lambda checked: self._toggle_style_panel(checked))
+        controls.addWidget(self.style_toggle)
         # 音量和倍速收进喇叭弹层：平时不占控制条
         self.volume_button = QPushButton()
         self.volume_button.setObjectName("tool")
@@ -256,7 +263,8 @@ class PlayerMixin:
         if not self.document or not self.player or not self.preview_toggle.isChecked():
             return
         try:
-            path = self.preview_service.render(self.document.video.path, self.document.entries)
+            path = self.preview_service.render(self.document.video.path, self.document.entries,
+                                               style=self._subtitle_style())
             self.player.set_subtitle(path)
             self._preview_attached = True
         except (OSError, ValueError) as exc:

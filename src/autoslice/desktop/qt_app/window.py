@@ -40,6 +40,7 @@ from autoslice.desktop.qt_preview.window import PreviewWindow, key_hint, label, 
 from autoslice.desktop.selection import CueSelection
 from autoslice.desktop.subtitle_preview import SubtitlePreviewService
 from autoslice.desktop.subtitle_render import SubtitleRenderService
+from autoslice.desktop.subtitle_styles import SubtitleStyleStore
 from autoslice.desktop.subtitles import SubtitleDocument
 from autoslice.desktop.topics import TopicAnalysisService
 from autoslice.desktop.waveform import WaveformCache
@@ -55,6 +56,7 @@ from .window_input import InputRoutingMixin
 from .window_player import PlayerMixin
 from .window_projects import ProjectsMixin
 from .window_quality import QualityReviewMixin
+from .window_style import SubtitleStyleMixin
 from .window_subtitles import SubtitleListMixin
 from .window_tasks import TaskPanelMixin
 from .window_timeline import TimelineMixin
@@ -79,6 +81,7 @@ class DesktopWindow(
     AiReviewMixin,
     RecognizeMixin,
     SubtitleListMixin,
+    SubtitleStyleMixin,
     FindReplaceMixin,
     InputRoutingMixin,
     TimelineMixin,
@@ -103,6 +106,8 @@ class DesktopWindow(
         self.ai_service = AIReviewService(self.storage)
         self.render_service = SubtitleRenderService(self.storage)
         self.preview_service = SubtitlePreviewService(self.storage)
+        # 压制样式（几套可切换）；设置页和播放器控制条构建时就要用
+        self.style_store = SubtitleStyleStore(self.storage)
         self.waveform_cache = WaveformCache(self.storage.waveforms)
         # 设置页构建时就要用到，必须在 super().__init__ 之前创建。
         self.correction_memory = CorrectionMemory(self.storage)
@@ -143,6 +148,7 @@ class DesktopWindow(
         self._event_filter_busy = False
         self._table_pointer_selecting = False
         super().__init__()
+        self._build_style_panel()
         self.cover_editor.status_changed.connect(self._cover_status)
         # 封面页的警告和错误走顶部提示条，不在画布上方插横幅
         self.cover_editor.notice_sink = self._cover_notice

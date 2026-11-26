@@ -269,16 +269,20 @@ class SubtitleDocumentMixin:
         key = project.id
         cancellation = threading.Event()
         self._render_jobs[key] = {"title": project.title, "cancel": cancellation,
-                                  "percent": 0, "percent_enabled": True}
+                                  "percent": 0, "percent_enabled": True,
+                                  "font": (self._subtitle_style().get("font_name"),
+                                           self._subtitle_style().get("bold", True))}
         self._task_update(f"render:{key}", kind="字幕压制", project=project,
                           video_path=document.video.path, message="准备压制…", cancel=cancellation.set)
         self._render_result = None
         motion.reveal(self.render_location, False)
         # 点了就开始，所以要说清在后台、成片放哪、怎么停
         output_name = self.render_service.default_output(Path(document.video.path)).name
+        style, style_name = self._subtitle_style(), self._style_name()
         self.app_status.setText(f"{project.title} · 正在后台压制…")
-        self.app_status.setToolTip(f"成片：{output_name}（不覆盖已有文件）；可在右上角“任务”里查看或停止")
-        self._show_transient_status(f"已开始后台压制：{output_name} · 可在“任务”里停止")
+        self.app_status.setToolTip(f"成片：{output_name}（不覆盖已有文件）；字幕样式：{style_name}；"
+                                   "可在右上角“任务”里查看或停止")
+        self._show_transient_status(f"已开始后台压制（样式：{style_name}）：{output_name} · 可在“任务”里停止")
         self._update_status()
         video_path = document.video.path
         corrected_path = document.corrected_path
@@ -290,7 +294,7 @@ class SubtitleDocumentMixin:
                 self.render_progress.emit(key, percent, message)
             return self.render_service.render(
                 video_path, corrected_path, digest,
-                progress_callback=progress, cancel_event=cancellation,
+                progress_callback=progress, cancel_event=cancellation, style=style,
             )
 
         self._run(action, lambda result, error: self._render_finished(key, result, error))
@@ -323,7 +327,7 @@ class SubtitleDocumentMixin:
                 if isinstance(error, FileNotFoundError):
                     hint = "请检查 FFmpeg 和 ffprobe 是否可用"
                 elif "字体" in detail:
-                    hint = "请安装默认字幕字体后重试"
+                    hint = "请安装字幕样式里的字体（或换一个已安装的字体）后重试"
                 elif isinstance(error, PermissionError):
                     hint = "请检查投稿目录的写入权限"
                 else:
@@ -332,7 +336,9 @@ class SubtitleDocumentMixin:
                 self.app_status.setToolTip(f"{detail}\n详细记录：{self.storage.logs / 'subtitle-render.log'}")
                 if "字体" in detail and not isinstance(error, FileNotFoundError):
                     # 缺字体是每次必失败的环境问题，顶栏一行灰字太容易漏看
-                    QMessageBox.warning(self, "压制失败：缺少字幕字体", subtitle_font_problem() or detail)
+                    font_name, bold = job.get("font") or (None, True)
+                    problem = subtitle_font_problem(font_name, bold) if font_name else subtitle_font_problem()
+                    QMessageBox.warning(self, "压制失败：缺少字幕字体", problem or detail)
         else:
             self._render_result = Path(result["output_video_path"])
             self._show_transient_status(f"{job['title']} · ✓ 压制完成 · {self._render_result.name}")
