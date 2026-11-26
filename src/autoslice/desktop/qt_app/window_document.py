@@ -271,17 +271,16 @@ class SubtitleDocumentMixin:
         # 面板里还没存盘的改动先写下：压出来的就是预览上看到的
         if hasattr(self, "style_panel"):
             self.style_panel.flush()
+        style, style_name = self._subtitle_style(), self._style_name()
         self._render_jobs[key] = {"title": project.title, "cancel": cancellation,
                                   "percent": 0, "percent_enabled": True,
-                                  "font": (self._subtitle_style().get("font_name"),
-                                           self._subtitle_style().get("bold", True))}
+                                  "font": (style.get("font_name"), style.get("bold", True))}
         self._task_update(f"render:{key}", kind="字幕压制", project=project,
                           video_path=document.video.path, message="准备压制…", cancel=cancellation.set)
         self._render_result = None
         motion.reveal(self.render_location, False)
         # 点了就开始，所以要说清在后台、成片放哪、怎么停
         output_name = self.render_service.default_output(Path(document.video.path)).name
-        style, style_name = self._subtitle_style(), self._style_name()
         self.app_status.setText(f"{project.title} · 正在后台压制…")
         self.app_status.setToolTip(f"成片：{output_name}（不覆盖已有文件）；字幕样式：{style_name}；"
                                    "可在右上角“任务”里查看或停止")

@@ -504,6 +504,7 @@ def stylesheet() -> str:
         QPushButton#tool[checkable="true"] {{ min-height: 26px; max-height: 26px; font-size: 12px; color: {c.subtle}; }}
         QPushButton#tool[checkable="true"]:hover, QPushButton#tool[checkable="true"]:checked {{ color: {c.text}; }}
         QPushButton#tool:disabled {{ color: {c.disabled}; background: transparent; border-color: transparent; }}
+        QPushButton#tool[danger="true"], QPushButton#tool[danger="true"]:hover {{ color: {c.danger}; }}
         QPushButton#tool[square="true"], QPushButton#square {{ padding: 0; min-height: 0; }}
         QPushButton#projectSwitch {{ padding: 0; min-height: 0; text-align: left; }}
         QPushButton#taskRing {{ padding: 0; min-height: 0; border: none; background: transparent; }}

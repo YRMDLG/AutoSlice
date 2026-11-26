@@ -82,38 +82,52 @@ class SubtitleBoxOverlay(QWidget):
         self._hover: str | None = None
         self._drag: dict | None = None
         self._guide = False
+        # 只在样式面板开着时轮询（播放中字幕换句、弹出模态窗口都要跟上）；平时不占资源
         self._timer = QTimer(self)
         self._timer.setInterval(120)
         self._timer.timeout.connect(self.sync)
-        self._timer.start()
         window.installEventFilter(self)
         target.installEventFilter(self)
 
+    def set_active(self, active: bool) -> None:
+        """样式面板开 / 关时调用：开着才轮询，关了立刻收起。"""
+
+        if active:
+            self._timer.start()
+        else:
+            self._timer.stop()
+        self.sync()
+
     # ── 跟随主窗口 ──
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if event.type() in (QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.WindowStateChange,
-                            QEvent.Type.WindowActivate, QEvent.Type.WindowDeactivate,
-                            QEvent.Type.Show, QEvent.Type.Hide):
+        if self._timer.isActive() and event.type() in (
+                QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.WindowStateChange,
+                QEvent.Type.WindowActivate, QEvent.Type.WindowDeactivate,
+                QEvent.Type.Show, QEvent.Type.Hide):
             QTimer.singleShot(0, self, self.sync)
         return False
 
     def sync(self) -> None:
-        """该不该显示、贴在哪儿：每 120ms 和主窗口变化时各查一次（播放中字幕换句，框也跟着换）。"""
+        """该不该显示、贴在哪儿。状态和位置都没变就不重画（透明分层窗口每次重画都是整块刷新）。"""
 
-        state = self._provider.style_overlay_state()
+        state = self._provider.style_overlay_state() if self._timer.isActive() else None
         if state is None or not self._target.isVisible():
-            if self._drag is None:
+            if self._drag is None and (self._state is not None or self.isVisible()):
                 self._state = None
                 self.selected = False
                 self.hide()
             return
+        changed = state != self._state
         self._state = state
         geometry = self._target.rect().translated(self._target.mapToGlobal(QPoint(0, 0)))
         if self.geometry() != geometry:
             self.setGeometry(geometry)
+            changed = True
         if not self.isVisible():
             self.show()
-        self.update()
+            changed = True
+        if changed:
+            self.update()
 
     # ── 坐标 ──
     def _video(self) -> QRectF:
@@ -182,7 +196,10 @@ class SubtitleBoxOverlay(QWidget):
             if hover != self._hover:
                 self._hover = hover
                 self.update()
-            self.setCursor(Qt.CursorShape.SizeAllCursor if hover == "move" else
+            # 默认样式锁着：能点（会提示先新建），但不显示“可拖”的光标
+            locked = not self._state.get("editable") if self._state else True
+            self.setCursor(Qt.CursorShape.PointingHandCursor if hover and locked else
+                           Qt.CursorShape.SizeAllCursor if hover == "move" else
                            Qt.CursorShape.SizeFDiagCursor if hover in ("top-left", "bottom-right") else
                            Qt.CursorShape.SizeBDiagCursor if hover else Qt.CursorShape.ArrowCursor)
             return

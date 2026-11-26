@@ -93,7 +93,7 @@ class PlayerMixin:
         self.preview_toggle.setObjectName("tool")
         self.preview_toggle.setCheckable(True)
         self.preview_toggle.setChecked(True)
-        self.preview_toggle.setToolTip("显示接近最终压制样式的实时字幕预览")
+        self.preview_toggle.setToolTip("按当前字幕样式实时显示字幕（和压制用同一套样式）")
         self.preview_toggle.clicked.connect(self._toggle_subtitle_preview)
         controls.addWidget(self.preview_toggle)
         # 字幕样式：右列换成样式面板，边看视频上的预览边调（D-048）

@@ -299,6 +299,22 @@ class DesktopSubtitleTests(unittest.TestCase):
         document.undo()
         self.assertEqual([e.index for e in document.entries], [first, 1, 2, 3])
 
+    def test_insert_next_to_merged_and_split_cues_roundtrips(self):
+        # 新句挂在前一句的最后一条源字幕上：前一句是合并句、或拆分出来的半句时也要能存、能重开
+        document = SubtitleDocument.load(self.video())
+        document.merge_adjacent({1, 2})              # 1~3 秒合成一句
+        after_merge = document.insert_at(3.2)        # 合并句后面 3.2~4.0
+        right = document.split_at(3, 4.5, left_text="第三")  # 第三句拆成 4.0~4.5 / 4.5~5.0
+        document.edit_text(right, "条")
+        document.change_time(3, 4.0, 4.1)            # 左半句缩短，留出空位
+        between = document.insert_at(4.15)           # 拆出来的两半之间 4.15~4.5
+        document.edit_text(after_merge, "补一")
+        document.edit_text(between, "补二")
+        expected = list(document.entries)
+        self.assertEqual([e.text for e in expected], ["第一条第二条", "补一", "第三", "补二", "条"])
+        document.save()
+        self.assertEqual(SubtitleDocument.load(self.video()).entries, expected)
+
     def test_insert_refuses_inside_a_cue_or_without_room(self):
         document = SubtitleDocument.load(self.video())
         with self.assertRaisesRegex(ValueError, "第 2 条字幕里"):

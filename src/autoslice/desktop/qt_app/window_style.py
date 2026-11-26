@@ -81,11 +81,13 @@ class SubtitleStyleMixin:
                 self._toggle_subtitle_preview()
             self._show_style_on_cue()
             self._update_style_hint()
+            # 第一次打开时也要说清这个字体本机能不能用（面板建好时信号还没接上，没查过）
+            self.style_panel.request_font_check()
         else:
             self.style_panel.flush()
             self.side_stack.setCurrentWidget(self.side_splitter)
         self.style_toggle.setChecked(show)
-        self.style_overlay.sync()
+        self.style_overlay.set_active(show)
 
     def _update_style_hint(self):
         if not self.player:

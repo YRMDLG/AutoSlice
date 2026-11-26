@@ -225,6 +225,10 @@ class _ColorButton(QPushButton):
         self.setIcon(QIcon(pixmap))
 
 
+# 字幕样式面板也用这个颜色按钮（D-048），给个公开名字
+ColorButton = _ColorButton
+
+
 def _preset_icon(preset: StylePreset) -> QIcon:
     """把预设画成“字”的小样，按钮上直接看到效果。"""
 

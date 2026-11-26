@@ -58,7 +58,8 @@ class OverlayTests(unittest.TestCase):
 
         self.overlay = SubtitleBoxOverlay(self.window, self.target, Provider())
         self.overlay.changed.connect(self._apply)
-        self.overlay.sync()
+        self.overlay.set_active(True)
+        self.addCleanup(self.overlay.set_active, False)
         self.app.processEvents()
 
     def _apply(self, values):
@@ -90,6 +91,23 @@ class OverlayTests(unittest.TestCase):
         self.state = None
         self.overlay.sync()
         self.assertFalse(self.overlay.isVisible())
+
+    def test_only_polls_while_active_and_repaints_only_on_change(self):
+        from unittest.mock import patch
+
+        # 面板关着：不轮询、不显示（原来定时器一直开着，每 120ms 整窗重画一次）
+        self.overlay.set_active(False)
+        self.assertFalse(self.overlay.isVisible())
+        self.assertFalse(self.overlay._timer.isActive())
+        self.overlay.set_active(True)
+        self.assertTrue(self.overlay.isVisible())
+        with patch.object(self.overlay, "update") as update:
+            self.overlay.sync()
+            self.overlay.sync()
+            update.assert_not_called()
+            self.state["text"] = "换了一句"
+            self.overlay.sync()
+            update.assert_called_once()
 
     def test_drag_box_moves_subtitle_and_snaps_to_center(self):
         anchor = self._anchor()

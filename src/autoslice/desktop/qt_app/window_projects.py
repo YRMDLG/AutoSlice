@@ -738,6 +738,9 @@ class ProjectsMixin:
         self._update_status()
         if self._media_ready and self.preview_toggle.isChecked():
             self._refresh_subtitle_preview()
+        if self._style_panel_open():
+            # 样式面板开着时换了项目：“先选一个项目”这类提示要跟着变
+            self._update_style_hint()
         self._save_session()
 
     def _start_waveform(self, video_path):

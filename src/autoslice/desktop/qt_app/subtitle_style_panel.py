@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from autoslice.desktop.cover_widgets import _ColorButton
+from autoslice.desktop.cover_widgets import ColorButton
 from autoslice.desktop.qt_preview.window import label
 from autoslice.desktop.subtitle_styles import DEFAULT_ID, SubtitleStyleStore
 from autoslice.subtitle_workflow import EXACT_SUBTITLE_FONT
@@ -191,9 +191,9 @@ class SubtitleStylePanel(QWidget):
         self.bold_check.toggled.connect(lambda value: self._change("bold", bool(value)))
         self._row("字重", self.bold_check)
 
-        self.color_buttons: dict[str, _ColorButton] = {}
+        self.color_buttons: dict[str, ColorButton] = {}
         for key, caption in (("font_color", "文字颜色"), ("outline_color", "描边颜色")):
-            button = _ColorButton(storage=storage)
+            button = ColorButton(storage=storage)
             button.color_changed.connect(lambda key=key, button=button: self._change(key, _hex(button.color())))
             self.color_buttons[key] = button
             holder = QWidget()
@@ -319,7 +319,7 @@ class SubtitleStylePanel(QWidget):
             widget.setEnabled(editable)
         self._update_status()
         self.font_status.setText("")
-        self.font_check_requested.emit(self._style["font_name"], bool(self._style["bold"]))
+        self.request_font_check()
 
     def _update_status(self) -> None:
         active = self.store.active()
@@ -337,6 +337,11 @@ class SubtitleStylePanel(QWidget):
         self.font_status.style().unpolish(self.font_status)
         self.font_status.style().polish(self.font_status)
         self.font_status.setText(problem or "本机已装，压制能用上。")
+
+    def request_font_check(self) -> None:
+        """请窗口在后台查一次当前字体（结果回到 set_font_status）。"""
+
+        self.font_check_requested.emit(self._style["font_name"], bool(self._style["bold"]))
 
     def set_preview_hint(self, text: str) -> None:
         self.preview_hint.setText(text)

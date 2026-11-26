@@ -191,6 +191,13 @@ class StylePanelWindowTests(unittest.TestCase):
         self.assertEqual(window.pages.currentIndex(), 0)
         self.assertTrue(window._style_panel_open())
 
+    def test_first_open_shows_font_check_result(self):
+        # 面板建好时字体检查的信号还没接上：原来第一次打开时字体那一行是空的
+        window = self.window
+        window._toggle_style_panel(True)
+        self.wait_for(lambda: bool(window.style_panel.font_status.text()))
+        self.assertIn("本机已装", window.style_panel.font_status.text())
+
     # ── 视频上的字幕选框（D-049）──
     def test_video_box_follows_panel_and_writes_back(self):
         window = self.window
