@@ -6826,7 +6826,7 @@
     {
       "from": "autoslice.desktop.qt_app.subtitle_style_panel",
       "imports": [
-        "autoslice.desktop.cover_widgets._ColorButton"
+        "autoslice.desktop.cover_widgets.ColorButton"
       ],
       "lines": [
         26
@@ -11816,10 +11816,10 @@
       "qualname": "retry_clip_review_from_artifacts_impl"
     },
     {
-      "end_line": 608,
+      "end_line": 609,
       "kind": "function",
       "line": 386,
-      "line_count": 223,
+      "line_count": 224,
       "module": "autoslice.desktop.qt_preview.theme",
       "path": "src/autoslice/desktop/qt_preview/theme.py",
       "qualname": "stylesheet"
@@ -18853,17 +18853,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 259,
+      "line_count": 263,
       "longest_function": {
-        "end_line": 259,
+        "end_line": 263,
         "kind": "function",
-        "line": 228,
+        "line": 232,
         "line_count": 32,
         "qualname": "_preset_icon"
       },
       "module": "autoslice.desktop.cover_widgets",
       "path": "src/autoslice/desktop/cover_widgets.py",
-      "sha256": "7a3bf13e660d45e4251510ddbc6c4fc4af5494e027bcb3df99970d8e656e05a5",
+      "sha256": "50469f8a1cd2a46c00691f42f44ec3cf652f9bd8b8629be50551b95732360b5b",
       "top_level_classes": [
         {
           "end_line": 35,
@@ -18898,9 +18898,9 @@
       ],
       "top_level_functions": [
         {
-          "end_line": 259,
+          "end_line": 263,
           "kind": "function",
-          "line": 228,
+          "line": 232,
           "name": "_preset_icon"
         }
       ]
@@ -19455,20 +19455,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 282,
+      "line_count": 299,
       "longest_function": {
-        "end_line": 212,
+        "end_line": 229,
         "kind": "function",
-        "line": 178,
-        "line_count": 35,
+        "line": 192,
+        "line_count": 38,
         "qualname": "SubtitleBoxOverlay.mouseMoveEvent"
       },
       "module": "autoslice.desktop.qt_app.subtitle_box_overlay",
       "path": "src/autoslice/desktop/qt_app/subtitle_box_overlay.py",
-      "sha256": "c934f81f1e5c62405efdc79e748c6eba14502c2573fc91cf90c4a5a37cfd0c06",
+      "sha256": "03df1b2e3aae1acdeb5e7bb1615a00470b993da25dcb7d98e67b5ac4edf5848c",
       "top_level_classes": [
         {
-          "end_line": 282,
+          "end_line": 299,
           "kind": "class",
           "line": 59,
           "name": "SubtitleBoxOverlay"
@@ -19491,7 +19491,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 468,
+      "line_count": 473,
       "longest_function": {
         "end_line": 255,
         "kind": "function",
@@ -19501,7 +19501,7 @@
       },
       "module": "autoslice.desktop.qt_app.subtitle_style_panel",
       "path": "src/autoslice/desktop/qt_app/subtitle_style_panel.py",
-      "sha256": "1cc850a45e51d0809c9b47ccc1b3b6148ad8480307b241d0a1590b5ae4839b6a",
+      "sha256": "d0d8b07e8417e3ad494a19d246df1a5153758a1eb9f4b1ef18bbaf4dad80d732",
       "top_level_classes": [
         {
           "end_line": 83,
@@ -19510,7 +19510,7 @@
           "name": "_NumberField"
         },
         {
-          "end_line": 468,
+          "end_line": 473,
           "kind": "class",
           "line": 90,
           "name": "SubtitleStylePanel"
@@ -19632,20 +19632,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 370,
+      "line_count": 369,
       "longest_function": {
-        "end_line": 303,
+        "end_line": 302,
         "kind": "function",
         "line": 249,
-        "line_count": 55,
+        "line_count": 54,
         "qualname": "SubtitleDocumentMixin._start_render"
       },
       "module": "autoslice.desktop.qt_app.window_document",
       "path": "src/autoslice/desktop/qt_app/window_document.py",
-      "sha256": "3ecb9975399eb3c10087ed772116d3953546a588da32cb7ded8d613e4415c88e",
+      "sha256": "06bcc7903976496964d441a67eab2b24f1a67be29342113dcac93c2f450e4a2f",
       "top_level_classes": [
         {
-          "end_line": 370,
+          "end_line": 369,
           "kind": "class",
           "line": 23,
           "name": "SubtitleDocumentMixin"
@@ -19730,7 +19730,7 @@
       },
       "module": "autoslice.desktop.qt_app.window_player",
       "path": "src/autoslice/desktop/qt_app/window_player.py",
-      "sha256": "300d2fcb187d5fdb3ad3f15e782485ad117263176697bd0c79c9bc02bd2c57df",
+      "sha256": "0ed3011d11a1fc89404862c83f801fcc81ee5ee18528ef599e11f94bdd29914e",
       "top_level_classes": [
         {
           "end_line": 420,
@@ -19743,7 +19743,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 764,
+      "line_count": 767,
       "longest_function": {
         "end_line": 332,
         "kind": "function",
@@ -19753,10 +19753,10 @@
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "81e51971bdafe65d6660ed36b4e00238e30df96c9190ac06701432e047c9a10e",
+      "sha256": "5640e8c9eb87a1ba8725d6c4e25b18629cdf492318db6eebe68b56a34f0ebace",
       "top_level_classes": [
         {
-          "end_line": 764,
+          "end_line": 767,
           "kind": "class",
           "line": 55,
           "name": "ProjectsMixin"
@@ -19789,20 +19789,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 173,
+      "line_count": 175,
       "longest_function": {
-        "end_line": 88,
+        "end_line": 90,
         "kind": "function",
         "line": 67,
-        "line_count": 22,
+        "line_count": 24,
         "qualname": "SubtitleStyleMixin._toggle_style_panel"
       },
       "module": "autoslice.desktop.qt_app.window_style",
       "path": "src/autoslice/desktop/qt_app/window_style.py",
-      "sha256": "bbc30878dd7e92c82c81c9b925c3d1e376e5e025cd8e8ce0140654e6f51a4a8b",
+      "sha256": "8895e58df04fcd3403582a0043eb08763a6922758978c004be8c6be585c1a3aa",
       "top_level_classes": [
         {
-          "end_line": 173,
+          "end_line": 175,
           "kind": "class",
           "line": 16,
           "name": "SubtitleStyleMixin"
@@ -20796,17 +20796,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 608,
+      "line_count": 609,
       "longest_function": {
-        "end_line": 608,
+        "end_line": 609,
         "kind": "function",
         "line": 386,
-        "line_count": 223,
+        "line_count": 224,
         "qualname": "stylesheet"
       },
       "module": "autoslice.desktop.qt_preview.theme",
       "path": "src/autoslice/desktop/qt_preview/theme.py",
-      "sha256": "d7f34f8c6e049ea9ee7cd0e7982ac123fcb074c5e865dd3bb17177cdbb14ab6d",
+      "sha256": "0736fe5f06b57467b6fb900733105aaae5a034b9da63d200321e49d19b797a00",
       "top_level_classes": [
         {
           "end_line": 24,
@@ -20901,7 +20901,7 @@
           "name": "current_theme"
         },
         {
-          "end_line": 608,
+          "end_line": 609,
           "kind": "function",
           "line": 386,
           "name": "stylesheet"
@@ -29506,7 +29506,7 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 1088,
-    "production_line_count": 85680,
+    "production_line_count": 85711,
     "production_module_count": 333,
     "test_private_patch_count": 17,
     "top_level_class_count": 385,
