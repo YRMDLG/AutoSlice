@@ -273,6 +273,40 @@ class RedesignInteractionTests(unittest.TestCase):
         caret = editor.viewport().mapTo(editor, editor.cursorRect().topLeft())
         self.assertEqual(rect.toRect().topLeft(), caret)
 
+    # ── 右键在定位线新增字幕（D-048）──
+    def test_insert_at_playhead_from_menu_opens_editor_and_undoes(self):
+        from PySide6.QtCore import QPoint
+
+        from autoslice.desktop.qt_preview import popups
+
+        window = self.window
+        menus = []
+
+        def open_menu():
+            with patch.object(popups.MenuFx, "popup", lambda fx, _position: menus.append(fx.menu)):
+                window._show_edit_menu(QPoint(10, 10))
+            return next(action for action in menus[-1].actions() if action.text() == "在定位线新增字幕")
+
+        # 定位线在第 1 句里：置灰，悬停说原因
+        window._player_position = 1.5
+        item = open_menu()
+        self.assertFalse(item.isEnabled())
+        self.assertIn("第 1 条字幕里", item.toolTip())
+        # 两句之间：新增一条 2.2~3.0，选中并直接进入改字
+        window._player_position = 2.2
+        item = open_menu()
+        self.assertTrue(item.isEnabled())
+        item.trigger()
+        self.app.processEvents()
+        added = window.document.entries[1]
+        self.assertEqual((added.start, added.end, added.text), ("00:00:02,200", "00:00:03,000", ""))
+        self.assertEqual(window.selection.active, added.index)
+        self.assertIsNotNone(window._active_subtitle_editor())
+        self.assertIn("新增", window.toast.message.text())
+        window._commit_editor()
+        window.toast.undo_button.click()
+        self.assertEqual(len(window.document.entries), 4)
+
     def test_skipped_draft_explains_in_words_not_status_codes(self):
         from autoslice.desktop.qt_app.window_projects import _DRAFT_SKIPPED
 

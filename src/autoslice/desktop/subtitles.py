@@ -287,6 +287,50 @@ class SubtitleDocument:
             return new_index
         raise ValueError("当前字幕已不存在")
 
+    INSERT_LENGTH = 2.0
+    INSERT_MIN = 0.3
+
+    def insert_slot(self, position: float, *, limit: float | None = None) -> tuple[float, float]:
+        """定位线处能放下的新字幕起止：从定位线起最多 2 秒，不压到下一句；放不下就说明原因。"""
+
+        if not isinstance(position, (int, float)) or not math.isfinite(position) or position < 0:
+            raise ValueError("定位线位置无效")
+        position = round(float(position), 3)
+        following = None
+        for entry in self.entries:
+            start, end = srt_timestamp_seconds(entry.start), srt_timestamp_seconds(entry.end)
+            if start <= position < end:
+                raise ValueError(f"定位线落在第 {entry.index} 条字幕里，挪到两句之间的空白处再新增")
+            if start > position and (following is None or start < following):
+                following = start
+        end = position + self.INSERT_LENGTH
+        if following is not None:
+            end = min(end, following)
+        if limit is not None and limit > 0:
+            end = min(end, float(limit))
+        if end - position < self.INSERT_MIN:
+            raise ValueError("定位线后面离下一句（或片尾）不到 0.3 秒，放不下新字幕")
+        return position, round(end, 3)
+
+    def insert_at(self, position: float, *, limit: float | None = None) -> int:
+        """在定位线处新增一条空字幕（一步撤销），返回新序号；正文由用户随后补全。
+
+        存档要求每条都挂在某条源字幕上：新句挂在前一句的最后一条源字幕上（在最前面就挂第一句），
+        和拆分出来的句子一样，保存时走完整快照。
+        """
+
+        start, end = self.insert_slot(position, limit=limit)
+        offset = sum(1 for entry in self.entries if srt_timestamp_seconds(entry.start) <= start)
+        anchor = (self.entries[offset - 1].source_indices[-1] if offset
+                  else self.entries[0].source_indices[0])
+        new_index = max([item.index for item in self.entries]
+                        + [cue.index for cue in self.source_cues]) + 1
+        self._remember()
+        self.entries.insert(offset, SubtitleEntry(
+            new_index, _timestamp(start), _timestamp(end), "", (anchor,), f"{anchor}:added:{new_index}",
+        ))
+        return new_index
+
     def merge_adjacent(self, indices: set[int]) -> int:
         """合并连续选中的字幕，并把整个操作作为一次撤销。"""
         if not indices or len(indices) < 2:

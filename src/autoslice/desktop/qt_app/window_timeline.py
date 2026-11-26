@@ -210,6 +210,38 @@ class TimelineMixin:
         self._show_transient_status("已拆分字幕；请补全右侧正文后保存")
         self._toast("已在播放头处拆成两条", undo=True)
 
+    def _insert_room(self):
+        """定位线处能不能新增：能就返回 None，不能返回原因（菜单项置灰时当提示）。"""
+
+        if self._saving or not self.document:
+            return "现在不能改字幕"
+        try:
+            self.document.insert_slot(self._player_position, limit=self.timeline.duration or None)
+        except ValueError as exc:
+            return str(exc)
+        return None
+
+    def _insert_at_playhead(self):
+        """右键“在定位线新增字幕”：在两句之间的空白处补一条，随即进入改字。"""
+
+        if self._saving or not self.document:
+            return
+        self._commit_editor()
+        try:
+            new_index = self.document.insert_at(self._player_position, limit=self.timeline.duration or None)
+        except ValueError as exc:
+            self._show_transient_status(str(exc))
+            return
+        self.selection.choose(new_index, self._cue_order())
+        self.selected_index = new_index
+        self.model.set_document(self.document)
+        self.timeline.update()
+        self.subtitle_delegate.effects.play(new_index, "born")
+        self._select_cue(new_index, center_timeline=False)
+        self._edited()
+        self._toast("已在定位线新增一条字幕，写上正文后保存", undo=True)
+        self._edit_cue_text(new_index)
+
     def _show_edit_menu(self, position, *, global_position=False):
         menu = QMenu(self)
         effects = popups.MenuFx(menu)
@@ -225,6 +257,13 @@ class TimelineMixin:
             menu.addAction("编辑文字", lambda: self._edit_cue_text(entry.index))
             menu.addAction("定位到这一句", lambda: self._seek_to(srt_timestamp_seconds(entry.start)))
         menu.addAction("在定位线拆分 Ctrl+B", self._split_at_playhead)
+        # 两句之间的空白处补一条；定位线在字幕里或空位太短时置灰，悬停说原因
+        insert = menu.addAction("在定位线新增字幕", self._insert_at_playhead)
+        blocked = self._insert_room()
+        insert.setEnabled(blocked is None)
+        if blocked:
+            insert.setToolTip(blocked)
+            menu.setToolTipsVisible(True)
         if entry is not None:
             following = self._following_cue(entry.index)
             merge_next = menu.addAction("与下一条合并", lambda: self._merge_with_next(entry.index))

@@ -263,6 +263,53 @@ class DesktopSubtitleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "晚于开始"):
             document.change_time(2, 3.0, 2.0)
 
+    # ── 右键“在定位线新增字幕”（D-048）──
+    def test_insert_at_playhead_fills_gap_without_overlap_and_roundtrips(self):
+        document = SubtitleDocument.load(self.video())
+        # 3.0~4.0 之间有 1 秒空位：新句从定位线起，到下一句开头为止，不重叠
+        new_index = document.insert_at(3.2)
+        added = document.entries[2]
+        self.assertEqual((added.index, added.start, added.end, added.text),
+                         (new_index, "00:00:03,200", "00:00:04,000", ""))
+        self.assertTrue(document.can_undo)
+        # 空正文不能正式保存（和拆分出来的右半句一样）
+        with self.assertRaisesRegex(ValueError, "不能为空"):
+            document.save()
+        document.edit_text(new_index, "补的一句")
+        expected = list(document.entries)
+        output = document.save()
+        self.assertEqual([c.text for c in parse_srt_document(output)], ["第一条", "第二条", "补的一句", "第三条"])
+        self.assertEqual(SubtitleDocument.load(self.video()).entries, expected)
+
+    def test_insert_before_first_after_last_and_undo(self):
+        document = SubtitleDocument.load(self.video())
+        first = document.insert_at(0.0)
+        self.assertEqual(document.entries[0].index, first)
+        self.assertEqual((document.entries[0].start, document.entries[0].end), ("00:00:00,000", "00:00:01,000"))
+        # 片尾：最多 2 秒，且不超过视频时长
+        last = document.insert_at(6.0, limit=7.5)
+        self.assertEqual((document.entries[-1].index, document.entries[-1].end), (last, "00:00:07,500"))
+        document.edit_text(first, "开头")
+        document.edit_text(last, "结尾")
+        expected = list(document.entries)
+        document.save()
+        self.assertEqual(SubtitleDocument.load(self.video()).entries, expected)
+        document.undo()
+        document.undo()
+        document.undo()
+        self.assertEqual([e.index for e in document.entries], [first, 1, 2, 3])
+
+    def test_insert_refuses_inside_a_cue_or_without_room(self):
+        document = SubtitleDocument.load(self.video())
+        with self.assertRaisesRegex(ValueError, "第 2 条字幕里"):
+            document.insert_at(2.7)
+        # 2.0 是第一句结尾、第二句 2.5 开始：0.5 秒够放；2.3 起只剩 0.2 秒
+        with self.assertRaisesRegex(ValueError, "0.3 秒"):
+            document.insert_at(2.3)
+        with self.assertRaisesRegex(ValueError, "0.3 秒"):
+            document.insert_at(6.0, limit=6.1)
+        self.assertFalse(document.can_undo)
+
 
 if __name__ == "__main__":
     unittest.main()
