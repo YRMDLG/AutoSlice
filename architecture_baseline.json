@@ -6813,6 +6813,47 @@
       "to": "autoslice.desktop.qt_preview.window"
     },
     {
+      "from": "autoslice.desktop.qt_app.subtitle_style_panel",
+      "imports": [
+        "autoslice.desktop.cover_widgets._ColorButton"
+      ],
+      "lines": [
+        26
+      ],
+      "to": "autoslice.desktop.cover_widgets"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.subtitle_style_panel",
+      "imports": [
+        "autoslice.desktop.qt_preview.window.label"
+      ],
+      "lines": [
+        27
+      ],
+      "to": "autoslice.desktop.qt_preview.window"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.subtitle_style_panel",
+      "imports": [
+        "autoslice.desktop.subtitle_styles.DEFAULT_ID",
+        "autoslice.desktop.subtitle_styles.SubtitleStyleStore"
+      ],
+      "lines": [
+        28
+      ],
+      "to": "autoslice.desktop.subtitle_styles"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.subtitle_style_panel",
+      "imports": [
+        "autoslice.subtitle_workflow.EXACT_SUBTITLE_FONT"
+      ],
+      "lines": [
+        29
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
       "from": "autoslice.desktop.qt_app.timeline",
       "imports": [
         "autoslice.desktop.qt_preview.motion",
@@ -6956,7 +6997,7 @@
         "autoslice.desktop.qt_app.player.MpvAdapter"
       ],
       "lines": [
-        48
+        49
       ],
       "to": "autoslice.desktop.qt_app.player"
     },
@@ -6966,7 +7007,7 @@
         "autoslice.desktop.qt_app.timeline.TimelineSidePanController"
       ],
       "lines": [
-        49
+        50
       ],
       "to": "autoslice.desktop.qt_app.timeline"
     },
@@ -6976,7 +7017,7 @@
         "autoslice.desktop.qt_app.window_ai.AiReviewMixin"
       ],
       "lines": [
-        50
+        51
       ],
       "to": "autoslice.desktop.qt_app.window_ai"
     },
@@ -6986,7 +7027,7 @@
         "autoslice.desktop.qt_app.window_asr.RecognizeMixin"
       ],
       "lines": [
-        51
+        52
       ],
       "to": "autoslice.desktop.qt_app.window_asr"
     },
@@ -6996,7 +7037,7 @@
         "autoslice.desktop.qt_app.window_document.SubtitleDocumentMixin"
       ],
       "lines": [
-        52
+        53
       ],
       "to": "autoslice.desktop.qt_app.window_document"
     },
@@ -7006,7 +7047,7 @@
         "autoslice.desktop.qt_app.window_find.FindReplaceMixin"
       ],
       "lines": [
-        53
+        54
       ],
       "to": "autoslice.desktop.qt_app.window_find"
     },
@@ -7016,7 +7057,7 @@
         "autoslice.desktop.qt_app.window_input.InputRoutingMixin"
       ],
       "lines": [
-        54
+        55
       ],
       "to": "autoslice.desktop.qt_app.window_input"
     },
@@ -7026,7 +7067,7 @@
         "autoslice.desktop.qt_app.window_player.PlayerMixin"
       ],
       "lines": [
-        55
+        56
       ],
       "to": "autoslice.desktop.qt_app.window_player"
     },
@@ -7036,7 +7077,7 @@
         "autoslice.desktop.qt_app.window_projects.ProjectsMixin"
       ],
       "lines": [
-        56
+        57
       ],
       "to": "autoslice.desktop.qt_app.window_projects"
     },
@@ -7046,9 +7087,19 @@
         "autoslice.desktop.qt_app.window_quality.QualityReviewMixin"
       ],
       "lines": [
-        57
+        58
       ],
       "to": "autoslice.desktop.qt_app.window_quality"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.qt_app.window_style.SubtitleStyleMixin"
+      ],
+      "lines": [
+        59
+      ],
+      "to": "autoslice.desktop.qt_app.window_style"
     },
     {
       "from": "autoslice.desktop.qt_app.window",
@@ -7056,7 +7107,7 @@
         "autoslice.desktop.qt_app.window_subtitles.SubtitleListMixin"
       ],
       "lines": [
-        58
+        60
       ],
       "to": "autoslice.desktop.qt_app.window_subtitles"
     },
@@ -7066,7 +7117,7 @@
         "autoslice.desktop.qt_app.window_tasks.TaskPanelMixin"
       ],
       "lines": [
-        59
+        61
       ],
       "to": "autoslice.desktop.qt_app.window_tasks"
     },
@@ -7076,7 +7127,7 @@
         "autoslice.desktop.qt_app.window_timeline.TimelineMixin"
       ],
       "lines": [
-        60
+        62
       ],
       "to": "autoslice.desktop.qt_app.window_timeline"
     },
@@ -7086,7 +7137,7 @@
         "autoslice.desktop.qt_app.window_topics.TopicAnalysisMixin"
       ],
       "lines": [
-        61
+        63
       ],
       "to": "autoslice.desktop.qt_app.window_topics"
     },
@@ -7096,7 +7147,7 @@
         "autoslice.desktop.qt_app.window_widgets._StatusLabel"
       ],
       "lines": [
-        62
+        64
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
     },
@@ -7198,10 +7249,20 @@
     {
       "from": "autoslice.desktop.qt_app.window",
       "imports": [
-        "autoslice.desktop.subtitles.SubtitleDocument"
+        "autoslice.desktop.subtitle_styles.SubtitleStyleStore"
       ],
       "lines": [
         43
+      ],
+      "to": "autoslice.desktop.subtitle_styles"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window",
+      "imports": [
+        "autoslice.desktop.subtitles.SubtitleDocument"
+      ],
+      "lines": [
+        44
       ],
       "to": "autoslice.desktop.subtitles"
     },
@@ -7211,7 +7272,7 @@
         "autoslice.desktop.topics.TopicAnalysisService"
       ],
       "lines": [
-        44
+        45
       ],
       "to": "autoslice.desktop.topics"
     },
@@ -7221,7 +7282,7 @@
         "autoslice.desktop.waveform.WaveformCache"
       ],
       "lines": [
-        45
+        46
       ],
       "to": "autoslice.desktop.waveform"
     },
@@ -7231,7 +7292,7 @@
         "autoslice.runtime_config.OUTPUT_DIR"
       ],
       "lines": [
-        46
+        47
       ],
       "to": "autoslice.runtime_config"
     },
@@ -7592,7 +7653,7 @@
         "autoslice.desktop.qt_app.ai_settings_panel.AISettingsPanel"
       ],
       "lines": [
-        39
+        38
       ],
       "to": "autoslice.desktop.qt_app.ai_settings_panel"
     },
@@ -7602,7 +7663,7 @@
         "autoslice.desktop.qt_app.appearance_panel.AppearancePanel"
       ],
       "lines": [
-        40
+        39
       ],
       "to": "autoslice.desktop.qt_app.appearance_panel"
     },
@@ -7612,7 +7673,7 @@
         "autoslice.desktop.qt_app.archive_panel.ArchivePanel"
       ],
       "lines": [
-        41
+        40
       ],
       "to": "autoslice.desktop.qt_app.archive_panel"
     },
@@ -7622,7 +7683,7 @@
         "autoslice.desktop.qt_app.asr_panel.AsrSettingsPanel"
       ],
       "lines": [
-        42
+        41
       ],
       "to": "autoslice.desktop.qt_app.asr_panel"
     },
@@ -7632,7 +7693,7 @@
         "autoslice.desktop.qt_app.learning_panel.LearningPanel"
       ],
       "lines": [
-        43
+        42
       ],
       "to": "autoslice.desktop.qt_app.learning_panel"
     },
@@ -7642,7 +7703,7 @@
         "autoslice.desktop.qt_app.settings_sections"
       ],
       "lines": [
-        38
+        37
       ],
       "to": "autoslice.desktop.qt_app.settings_sections"
     },
@@ -7652,7 +7713,7 @@
         "autoslice.desktop.qt_app.window_widgets.NoteLabel"
       ],
       "lines": [
-        44
+        43
       ],
       "to": "autoslice.desktop.qt_app.window_widgets"
     },
@@ -7751,16 +7812,6 @@
       "to": "autoslice.desktop.subtitles"
     },
     {
-      "from": "autoslice.desktop.qt_app.window_projects",
-      "imports": [
-        "autoslice.subtitle_workflow.DEFAULT_SUBTITLE_STYLE"
-      ],
-      "lines": [
-        36
-      ],
-      "to": "autoslice.subtitle_workflow"
-    },
-    {
       "from": "autoslice.desktop.qt_app.window_quality",
       "imports": [
         "autoslice.desktop.subtitle_preview.boundary_duplicates"
@@ -7777,6 +7828,56 @@
       ],
       "lines": [
         17
+      ],
+      "to": "autoslice.transcription.contracts"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_style",
+      "imports": [
+        "autoslice.desktop.qt_app.subtitle_style_panel.SubtitleStylePanel"
+      ],
+      "lines": [
+        10
+      ],
+      "to": "autoslice.desktop.qt_app.subtitle_style_panel"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_style",
+      "imports": [
+        "autoslice.desktop.qt_preview.motion"
+      ],
+      "lines": [
+        5
+      ],
+      "to": "autoslice.desktop.qt_preview.motion"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_style",
+      "imports": [
+        "autoslice.desktop.subtitle_render.subtitle_font_problem"
+      ],
+      "lines": [
+        6
+      ],
+      "to": "autoslice.desktop.subtitle_render"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_style",
+      "imports": [
+        "autoslice.desktop.subtitle_styles.DEFAULT_ID"
+      ],
+      "lines": [
+        7
+      ],
+      "to": "autoslice.desktop.subtitle_styles"
+    },
+    {
+      "from": "autoslice.desktop.qt_app.window_style",
+      "imports": [
+        "autoslice.transcription.contracts.srt_timestamp_seconds"
+      ],
+      "lines": [
+        8
       ],
       "to": "autoslice.transcription.contracts"
     },
@@ -7876,8 +7977,8 @@
         "autoslice.desktop.asr.refine.speech_audio"
       ],
       "lines": [
-        294,
-        337
+        333,
+        376
       ],
       "to": "autoslice.desktop.asr.refine"
     },
@@ -7887,7 +7988,7 @@
         "autoslice.desktop.qt_app.shortcuts_dialog.ShortcutsDialog"
       ],
       "lines": [
-        270
+        309
       ],
       "to": "autoslice.desktop.qt_app.shortcuts_dialog"
     },
@@ -8391,7 +8492,29 @@
         "autoslice.subtitle_workflow.EXACT_SUBTITLE_FONT",
         "autoslice.subtitle_workflow.burn_subtitles",
         "autoslice.subtitle_workflow.parse_srt_document",
-        "autoslice.subtitle_workflow.verify_exact_subtitle_font"
+        "autoslice.subtitle_workflow.verify_exact_subtitle_font",
+        "autoslice.subtitle_workflow.verify_subtitle_font"
+      ],
+      "lines": [
+        15
+      ],
+      "to": "autoslice.subtitle_workflow"
+    },
+    {
+      "from": "autoslice.desktop.subtitle_styles",
+      "imports": [
+        "autoslice.desktop.foundation.DesktopStorage"
+      ],
+      "lines": [
+        14
+      ],
+      "to": "autoslice.desktop.foundation"
+    },
+    {
+      "from": "autoslice.desktop.subtitle_styles",
+      "imports": [
+        "autoslice.subtitle_workflow.DEFAULT_SUBTITLE_STYLE",
+        "autoslice.subtitle_workflow.normalise_subtitle_style"
       ],
       "lines": [
         15
@@ -11717,6 +11840,15 @@
       "qualname": "organize_existing_artifacts"
     },
     {
+      "end_line": 332,
+      "kind": "function",
+      "line": 148,
+      "line_count": 185,
+      "module": "autoslice.desktop.qt_app.window_projects",
+      "path": "src/autoslice/desktop/qt_app/window_projects.py",
+      "qualname": "ProjectsMixin._settings_page"
+    },
+    {
       "end_line": 464,
       "kind": "function",
       "line": 282,
@@ -11735,18 +11867,9 @@
       "qualname": "_find_relevant_topic_context_end"
     },
     {
-      "end_line": 324,
+      "end_line": 1669,
       "kind": "function",
-      "line": 149,
-      "line_count": 176,
-      "module": "autoslice.desktop.qt_app.window_projects",
-      "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "qualname": "ProjectsMixin._settings_page"
-    },
-    {
-      "end_line": 1668,
-      "kind": "function",
-      "line": 1498,
+      "line": 1499,
       "line_count": 171,
       "module": "autoslice.subtitle_workflow",
       "path": "src/autoslice/subtitle_workflow.py",
@@ -11771,13 +11894,22 @@
       "qualname": "generate_copy_recommendations"
     },
     {
-      "end_line": 252,
+      "end_line": 258,
       "kind": "function",
-      "line": 98,
-      "line_count": 155,
+      "line": 101,
+      "line_count": 158,
       "module": "autoslice.desktop.qt_app.window",
       "path": "src/autoslice/desktop/qt_app/window.py",
       "qualname": "DesktopWindow.__init__"
+    },
+    {
+      "end_line": 252,
+      "kind": "function",
+      "line": 96,
+      "line_count": 157,
+      "module": "autoslice.desktop.qt_app.subtitle_style_panel",
+      "path": "src/autoslice/desktop/qt_app/subtitle_style_panel.py",
+      "qualname": "SubtitleStylePanel.__init__"
     },
     {
       "end_line": 360,
@@ -11832,15 +11964,6 @@
       "module": "autoslice_cover.video",
       "path": "src/autoslice_cover/video.py",
       "qualname": "extract_candidate_frames"
-    },
-    {
-      "end_line": 179,
-      "kind": "function",
-      "line": 42,
-      "line_count": 138,
-      "module": "autoslice.desktop.qt_app.window_ai",
-      "path": "src/autoslice/desktop/qt_app/window_ai.py",
-      "qualname": "AiReviewMixin._ai_panel"
     }
   ],
   "modules": [
@@ -19311,28 +19434,64 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 916,
+      "line_count": 440,
       "longest_function": {
-        "end_line": 588,
+        "end_line": 252,
         "kind": "function",
-        "line": 459,
+        "line": 96,
+        "line_count": 157,
+        "qualname": "SubtitleStylePanel.__init__"
+      },
+      "module": "autoslice.desktop.qt_app.subtitle_style_panel",
+      "path": "src/autoslice/desktop/qt_app/subtitle_style_panel.py",
+      "sha256": "a868fc01e78382d5e6b7f73b05fe6e76be0dc1bc8e8b181be8f6eb72cc4f34b0",
+      "top_level_classes": [
+        {
+          "end_line": 83,
+          "kind": "class",
+          "line": 44,
+          "name": "_NumberField"
+        },
+        {
+          "end_line": 440,
+          "kind": "class",
+          "line": 90,
+          "name": "SubtitleStylePanel"
+        }
+      ],
+      "top_level_functions": [
+        {
+          "end_line": 87,
+          "kind": "function",
+          "line": 86,
+          "name": "_hex"
+        }
+      ]
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 942,
+      "longest_function": {
+        "end_line": 605,
+        "kind": "function",
+        "line": 476,
         "line_count": 130,
         "qualname": "SubtitleTimeline.paintEvent"
       },
       "module": "autoslice.desktop.qt_app.timeline",
       "path": "src/autoslice/desktop/qt_app/timeline.py",
-      "sha256": "7bbd7a919c613cd010bda4648b433beca150e2c9d121c17df7d1d5c6b88ff2a6",
+      "sha256": "deefe1d05e52393e3d2a35f776f19abd731918ed1181f17071a95a1b49d9f5d9",
       "top_level_classes": [
         {
-          "end_line": 855,
+          "end_line": 881,
           "kind": "class",
           "line": 20,
           "name": "SubtitleTimeline"
         },
         {
-          "end_line": 916,
+          "end_line": 942,
           "kind": "class",
-          "line": 858,
+          "line": 884,
           "name": "TimelineSidePanController"
         }
       ],
@@ -19340,30 +19499,30 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 609,
+      "line_count": 615,
       "longest_function": {
-        "end_line": 252,
+        "end_line": 258,
         "kind": "function",
-        "line": 98,
-        "line_count": 155,
+        "line": 101,
+        "line_count": 158,
         "qualname": "DesktopWindow.__init__"
       },
       "module": "autoslice.desktop.qt_app.window",
       "path": "src/autoslice/desktop/qt_app/window.py",
-      "sha256": "859ac285fd1abf97a2f8b9b99cbc1460cc107469367d90689fb7e774213b2993",
+      "sha256": "73480a059c30fbb8ab5b81017adc4f9b960c5a0fd47f4a29d9d7113cd3d5857f",
       "top_level_classes": [
         {
-          "end_line": 609,
+          "end_line": 615,
           "kind": "class",
-          "line": 77,
+          "line": 79,
           "name": "DesktopWindow"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 74,
+          "end_line": 76,
           "kind": "function",
-          "line": 68,
+          "line": 70,
           "name": "_saved_submission_root"
         }
       ]
@@ -19416,20 +19575,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 361,
+      "line_count": 367,
       "longest_function": {
-        "end_line": 296,
+        "end_line": 300,
         "kind": "function",
         "line": 249,
-        "line_count": 48,
+        "line_count": 52,
         "qualname": "SubtitleDocumentMixin._start_render"
       },
       "module": "autoslice.desktop.qt_app.window_document",
       "path": "src/autoslice/desktop/qt_app/window_document.py",
-      "sha256": "c8c639a7c1b8001969cecf1381176f2ce2eb48673083ce11d872265bbed004a6",
+      "sha256": "dce7caea7a9a6ba507fd1138f5cf030506676e822fc17cf1d65b256914561c6c",
       "top_level_classes": [
         {
-          "end_line": 361,
+          "end_line": 367,
           "kind": "class",
           "line": 23,
           "name": "SubtitleDocumentMixin"
@@ -19504,20 +19663,20 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 412,
+      "line_count": 420,
       "longest_function": {
-        "end_line": 140,
+        "end_line": 147,
         "kind": "function",
         "line": 32,
-        "line_count": 109,
+        "line_count": 116,
         "qualname": "PlayerMixin._video_surface"
       },
       "module": "autoslice.desktop.qt_app.window_player",
       "path": "src/autoslice/desktop/qt_app/window_player.py",
-      "sha256": "6c44ff42dd05ca5ab1ce715532d27e2313ca8ebe3e3c9efb025f54877f9f6151",
+      "sha256": "300d2fcb187d5fdb3ad3f15e782485ad117263176697bd0c79c9bc02bd2c57df",
       "top_level_classes": [
         {
-          "end_line": 412,
+          "end_line": 420,
           "kind": "class",
           "line": 31,
           "name": "PlayerMixin"
@@ -19527,22 +19686,22 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 754,
+      "line_count": 764,
       "longest_function": {
-        "end_line": 324,
+        "end_line": 332,
         "kind": "function",
-        "line": 149,
-        "line_count": 176,
+        "line": 148,
+        "line_count": 185,
         "qualname": "ProjectsMixin._settings_page"
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "93cbdbf7c25d1fe243ec91cd21aab096c73035cadeb3dafcfe40b85eca02bc3e",
+      "sha256": "81e51971bdafe65d6660ed36b4e00238e30df96c9190ac06701432e047c9a10e",
       "top_level_classes": [
         {
-          "end_line": 754,
+          "end_line": 764,
           "kind": "class",
-          "line": 56,
+          "line": 55,
           "name": "ProjectsMixin"
         }
       ],
@@ -19567,6 +19726,29 @@
           "kind": "class",
           "line": 20,
           "name": "QualityReviewMixin"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 140,
+      "longest_function": {
+        "end_line": 57,
+        "kind": "function",
+        "line": 37,
+        "line_count": 21,
+        "qualname": "SubtitleStyleMixin._toggle_style_panel"
+      },
+      "module": "autoslice.desktop.qt_app.window_style",
+      "path": "src/autoslice/desktop/qt_app/window_style.py",
+      "sha256": "84e3b3ac133004a316e4141317f83b3287906509991bd64c9b5c97447e3f7c9c",
+      "top_level_classes": [
+        {
+          "end_line": 140,
+          "kind": "class",
+          "line": 13,
+          "name": "SubtitleStyleMixin"
         }
       ],
       "top_level_functions": []
@@ -19625,7 +19807,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 474,
+      "line_count": 513,
       "longest_function": {
         "end_line": 114,
         "kind": "function",
@@ -19635,7 +19817,7 @@
       },
       "module": "autoslice.desktop.qt_app.window_timeline",
       "path": "src/autoslice/desktop/qt_app/window_timeline.py",
-      "sha256": "5ef6f62fb65223751317297f70548ca847f4905395292f1bcfb01b0458749207",
+      "sha256": "5130925792dac0d3173f7e0e36c42967833ed60f29ab5737185f7154f1857a34",
       "top_level_classes": [
         {
           "end_line": 38,
@@ -19644,7 +19826,7 @@
           "name": "_ScrollDock"
         },
         {
-          "end_line": 474,
+          "end_line": 513,
           "kind": "class",
           "line": 41,
           "name": "TimelineMixin"
@@ -20694,17 +20876,17 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 752,
+      "line_count": 755,
       "longest_function": {
-        "end_line": 589,
+        "end_line": 592,
         "kind": "function",
-        "line": 545,
+        "line": 548,
         "line_count": 45,
         "qualname": "PreviewWindow._subtitle_list"
       },
       "module": "autoslice.desktop.qt_preview.window",
       "path": "src/autoslice/desktop/qt_preview/window.py",
-      "sha256": "6aedaffcf65a917ac119afd1c0d91cd5d9e63169b8f40f8e698ba937c9ec0a78",
+      "sha256": "1dc22bd7f79166f448b965854b63a56077d8055090992d538213ad20453b8a53",
       "top_level_classes": [
         {
           "end_line": 129,
@@ -20743,7 +20925,7 @@
           "name": "_ColumnsFit"
         },
         {
-          "end_line": 752,
+          "end_line": 755,
           "kind": "class",
           "line": 290,
           "name": "PreviewWindow"
@@ -20872,47 +21054,76 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 131,
+      "line_count": 139,
       "longest_function": {
-        "end_line": 131,
+        "end_line": 139,
         "kind": "function",
-        "line": 82,
-        "line_count": 50,
+        "line": 88,
+        "line_count": 52,
         "qualname": "SubtitleRenderService._render"
       },
       "module": "autoslice.desktop.subtitle_render",
       "path": "src/autoslice/desktop/subtitle_render.py",
-      "sha256": "4dca6a79bbe7857e8f9b1164edb59672d31cf52b2d5b9c8bcfbb793fd37f0b4a",
+      "sha256": "2d2528cdd2f03226bb873427607079e460b11b9234be65d7229c7947da8f1732",
       "top_level_classes": [
         {
-          "end_line": 131,
+          "end_line": 139,
           "kind": "class",
-          "line": 39,
+          "line": 44,
           "name": "SubtitleRenderService"
         }
       ],
       "top_level_functions": [
         {
-          "end_line": 36,
+          "end_line": 41,
           "kind": "function",
-          "line": 23,
+          "line": 24,
           "name": "subtitle_font_problem"
         }
       ]
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 473,
+      "line_count": 152,
       "longest_function": {
-        "end_line": 473,
+        "end_line": 64,
         "kind": "function",
-        "line": 386,
+        "line": 42,
+        "line_count": 23,
+        "qualname": "SubtitleStyleStore._load"
+      },
+      "module": "autoslice.desktop.subtitle_styles",
+      "path": "src/autoslice/desktop/subtitle_styles.py",
+      "sha256": "507a20c72c51c89fa4da8a1ffd621d7adfe425029c05153a7062aa98e669759a",
+      "top_level_classes": [
+        {
+          "end_line": 31,
+          "kind": "class",
+          "line": 24,
+          "name": "StylePreset"
+        },
+        {
+          "end_line": 152,
+          "kind": "class",
+          "line": 34,
+          "name": "SubtitleStyleStore"
+        }
+      ],
+      "top_level_functions": []
+    },
+    {
+      "duplicate_top_level_definitions": [],
+      "line_count": 517,
+      "longest_function": {
+        "end_line": 517,
+        "kind": "function",
+        "line": 430,
         "line_count": 88,
         "qualname": "SubtitleDocument.save"
       },
       "module": "autoslice.desktop.subtitles",
       "path": "src/autoslice/desktop/subtitles.py",
-      "sha256": "19cc1882228ea70afbe317f10ee49566aa3a2b09ac068647137231c47e397bd0",
+      "sha256": "d077149eed8767b7dfa5756dfc7e0b47da063b7dcc6cfccc70aa375abf43947b",
       "top_level_classes": [
         {
           "end_line": 42,
@@ -20921,7 +21132,7 @@
           "name": "SubtitleEntry"
         },
         {
-          "end_line": 473,
+          "end_line": 517,
           "kind": "class",
           "line": 45,
           "name": "SubtitleDocument"
@@ -23354,509 +23565,521 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 2637,
+      "line_count": 2695,
       "longest_function": {
-        "end_line": 1668,
+        "end_line": 1669,
         "kind": "function",
-        "line": 1498,
+        "line": 1499,
         "line_count": 171,
         "qualname": "suggest_subtitle_corrections"
       },
       "module": "autoslice.subtitle_workflow",
       "path": "src/autoslice/subtitle_workflow.py",
-      "sha256": "c1045938cda4e66fa177d794e93cb0dd78194f38f41f4bb9d9ef911a0641334a",
+      "sha256": "b1d8bc577a970424f9c99ed82a45878eadefb861e1691c46329b12ed30aa4905",
       "top_level_classes": [],
       "top_level_functions": [
         {
-          "end_line": 96,
+          "end_line": 97,
           "kind": "function",
-          "line": 94,
+          "line": 95,
           "name": "_generic_title_style_prompt"
         },
         {
-          "end_line": 109,
+          "end_line": 110,
           "kind": "function",
-          "line": 99,
+          "line": 100,
           "name": "_generic_title_hook_prompt_guide"
         },
         {
-          "end_line": 125,
+          "end_line": 126,
           "kind": "function",
-          "line": 120,
+          "line": 121,
           "name": "_resolve_title_services"
         },
         {
-          "end_line": 136,
+          "end_line": 137,
           "kind": "function",
-          "line": 128,
+          "line": 129,
           "name": "_read_subtitle_text"
         },
         {
-          "end_line": 187,
+          "end_line": 188,
           "kind": "function",
-          "line": 139,
+          "line": 140,
           "name": "parse_srt_document"
         },
         {
-          "end_line": 209,
+          "end_line": 210,
           "kind": "function",
-          "line": 190,
+          "line": 191,
           "name": "_normalise_deleted_indices"
         },
         {
-          "end_line": 241,
+          "end_line": 242,
           "kind": "function",
-          "line": 212,
+          "line": 213,
           "name": "_normalise_merge_pairs"
         },
         {
-          "end_line": 269,
+          "end_line": 270,
           "kind": "function",
-          "line": 244,
+          "line": 245,
           "name": "_normalise_merge_overrides"
         },
         {
-          "end_line": 327,
+          "end_line": 328,
           "kind": "function",
-          "line": 272,
+          "line": 273,
           "name": "_normalise_time_overrides"
         },
         {
-          "end_line": 342,
+          "end_line": 343,
           "kind": "function",
-          "line": 330,
+          "line": 331,
           "name": "_join_subtitle_text"
         },
         {
-          "end_line": 384,
+          "end_line": 385,
           "kind": "function",
-          "line": 345,
+          "line": 346,
           "name": "_merged_subtitle_cues"
         },
         {
-          "end_line": 442,
+          "end_line": 443,
           "kind": "function",
-          "line": 387,
+          "line": 388,
           "name": "_normalise_split_groups"
         },
         {
-          "end_line": 474,
+          "end_line": 475,
           "kind": "function",
-          "line": 445,
+          "line": 446,
           "name": "_split_subtitle_cues"
         },
         {
-          "end_line": 515,
+          "end_line": 516,
           "kind": "function",
-          "line": 477,
+          "line": 478,
           "name": "serialise_srt"
         },
         {
-          "end_line": 520,
+          "end_line": 521,
           "kind": "function",
-          "line": 518,
+          "line": 519,
           "name": "_corrected_srt_path"
         },
         {
-          "end_line": 525,
+          "end_line": 526,
           "kind": "function",
-          "line": 523,
+          "line": 524,
           "name": "_reflowed_srt_path"
         },
         {
-          "end_line": 530,
+          "end_line": 531,
           "kind": "function",
-          "line": 528,
+          "line": 529,
           "name": "_subtitle_edit_state_path"
         },
         {
-          "end_line": 534,
+          "end_line": 535,
           "kind": "function",
-          "line": 533,
+          "line": 534,
           "name": "_subtitle_content_fingerprint"
         },
         {
-          "end_line": 542,
+          "end_line": 543,
           "kind": "function",
-          "line": 537,
+          "line": 538,
           "name": "_srt_timestamp"
         },
         {
-          "end_line": 559,
+          "end_line": 560,
           "kind": "function",
-          "line": 558,
+          "line": 559,
           "name": "_visible_subtitle_char_count"
         },
         {
-          "end_line": 567,
+          "end_line": 568,
           "kind": "function",
-          "line": 562,
+          "line": 563,
           "name": "_short_clause_prefix"
         },
         {
-          "end_line": 590,
+          "end_line": 591,
           "kind": "function",
-          "line": 570,
+          "line": 571,
           "name": "_continuation_suffix_to_shift"
         },
         {
-          "end_line": 634,
+          "end_line": 635,
           "kind": "function",
-          "line": 593,
+          "line": 594,
           "name": "_rebalance_short_leading_subtitle_fragments"
         },
         {
-          "end_line": 692,
+          "end_line": 693,
           "kind": "function",
-          "line": 637,
+          "line": 638,
           "name": "reflow_subtitle_srt_for_display"
         },
         {
-          "end_line": 829,
+          "end_line": 830,
           "kind": "function",
-          "line": 695,
+          "line": 696,
           "name": "save_corrected_srt"
         },
         {
-          "end_line": 933,
+          "end_line": 934,
           "kind": "function",
-          "line": 832,
+          "line": 833,
           "name": "load_subtitle_edit_state"
         },
         {
-          "end_line": 942,
+          "end_line": 943,
           "kind": "function",
-          "line": 936,
+          "line": 937,
           "name": "_is_generated_stem"
         },
         {
-          "end_line": 951,
+          "end_line": 952,
           "kind": "function",
-          "line": 945,
+          "line": 946,
           "name": "_path_timestamps"
         },
         {
-          "end_line": 999,
+          "end_line": 1000,
           "kind": "function",
-          "line": 954,
+          "line": 955,
           "name": "_pair_result"
         },
         {
-          "end_line": 1042,
+          "end_line": 1043,
           "kind": "function",
-          "line": 1002,
+          "line": 1003,
           "name": "scan_submission_pairs"
         },
         {
-          "end_line": 1127,
+          "end_line": 1128,
           "kind": "function",
-          "line": 1045,
+          "line": 1046,
           "name": "transcribe_submission_video"
         },
         {
-          "end_line": 1152,
+          "end_line": 1153,
           "kind": "function",
-          "line": 1130,
+          "line": 1131,
           "name": "normalise_subtitle_review_dictionary"
         },
         {
-          "end_line": 1172,
+          "end_line": 1173,
           "kind": "function",
-          "line": 1155,
+          "line": 1156,
           "name": "subtitle_review_profile_rules"
         },
         {
-          "end_line": 1188,
+          "end_line": 1189,
           "kind": "function",
-          "line": 1175,
+          "line": 1176,
           "name": "_subtitle_source_fingerprint"
         },
         {
-          "end_line": 1193,
+          "end_line": 1194,
           "kind": "function",
-          "line": 1191,
+          "line": 1192,
           "name": "_review_cache_path"
         },
         {
-          "end_line": 1260,
+          "end_line": 1261,
           "kind": "function",
-          "line": 1196,
+          "line": 1197,
           "name": "_validated_cached_review"
         },
         {
-          "end_line": 1303,
+          "end_line": 1304,
           "kind": "function",
-          "line": 1263,
+          "line": 1264,
           "name": "_review_prompt"
         },
         {
-          "end_line": 1323,
+          "end_line": 1324,
           "kind": "function",
-          "line": 1306,
+          "line": 1307,
           "name": "_default_llm_runner"
         },
         {
-          "end_line": 1337,
+          "end_line": 1338,
           "kind": "function",
-          "line": 1326,
+          "line": 1327,
           "name": "_build_default_llm_runner"
         },
         {
-          "end_line": 1346,
+          "end_line": 1347,
           "kind": "function",
-          "line": 1340,
+          "line": 1341,
           "name": "_normalise_review_payload"
         },
         {
-          "end_line": 1350,
+          "end_line": 1351,
           "kind": "function",
-          "line": 1349,
+          "line": 1350,
           "name": "_semantic_text"
         },
         {
-          "end_line": 1394,
+          "end_line": 1395,
           "kind": "function",
-          "line": 1353,
+          "line": 1354,
           "name": "_normalise_suggestion"
         },
         {
-          "end_line": 1458,
+          "end_line": 1459,
           "kind": "function",
-          "line": 1397,
+          "line": 1398,
           "name": "_review_batch"
         },
         {
-          "end_line": 1474,
+          "end_line": 1475,
           "kind": "function",
-          "line": 1461,
+          "line": 1462,
           "name": "_apply_fixed_replacements"
         },
         {
-          "end_line": 1495,
+          "end_line": 1496,
           "kind": "function",
-          "line": 1477,
+          "line": 1478,
           "name": "_fixed_replacement_suggestions"
         },
         {
-          "end_line": 1668,
+          "end_line": 1669,
           "kind": "function",
-          "line": 1498,
+          "line": 1499,
           "name": "suggest_subtitle_corrections"
         },
         {
-          "end_line": 1714,
+          "end_line": 1715,
           "kind": "function",
-          "line": 1671,
+          "line": 1672,
           "name": "high_confidence_corrections"
         },
         {
-          "end_line": 1738,
+          "end_line": 1739,
           "kind": "function",
-          "line": 1717,
+          "line": 1718,
           "name": "_subtitle_title_evidence"
         },
         {
-          "end_line": 1775,
+          "end_line": 1776,
           "kind": "function",
-          "line": 1741,
+          "line": 1742,
           "name": "_subtitle_title_generation_prompt"
         },
         {
-          "end_line": 1808,
+          "end_line": 1809,
           "kind": "function",
-          "line": 1778,
+          "line": 1779,
           "name": "_normalise_subtitle_title_payload"
         },
         {
-          "end_line": 1838,
+          "end_line": 1839,
           "kind": "function",
-          "line": 1811,
+          "line": 1812,
           "name": "_subtitle_title_judge_prompt"
         },
         {
-          "end_line": 1879,
+          "end_line": 1880,
           "kind": "function",
-          "line": 1841,
+          "line": 1842,
           "name": "_normalise_subtitle_title_judgement"
         },
         {
-          "end_line": 1893,
+          "end_line": 1894,
           "kind": "function",
-          "line": 1882,
+          "line": 1883,
           "name": "_default_subtitle_title_runner"
         },
         {
-          "end_line": 1962,
+          "end_line": 1963,
           "kind": "function",
-          "line": 1896,
+          "line": 1897,
           "name": "generate_subtitle_reference_titles"
         },
         {
-          "end_line": 1990,
+          "end_line": 1995,
           "kind": "function",
-          "line": 1965,
+          "line": 1966,
           "name": "normalise_subtitle_style"
         },
         {
-          "end_line": 2026,
+          "end_line": 2031,
           "kind": "function",
-          "line": 1993,
+          "line": 1998,
           "name": "normalise_video_export"
         },
         {
-          "end_line": 2071,
+          "end_line": 2076,
           "kind": "function",
-          "line": 2029,
+          "line": 2034,
           "name": "_probe_video_info"
         },
         {
-          "end_line": 2086,
+          "end_line": 2091,
           "kind": "function",
-          "line": 2074,
+          "line": 2079,
           "name": "_parse_frame_rate"
         },
         {
-          "end_line": 2092,
+          "end_line": 2097,
           "kind": "function",
-          "line": 2089,
+          "line": 2094,
           "name": "_html_color_to_ass"
         },
         {
-          "end_line": 2100,
+          "end_line": 2105,
           "kind": "function",
-          "line": 2095,
+          "line": 2100,
           "name": "_ass_timestamp"
         },
         {
-          "end_line": 2112,
+          "end_line": 2117,
           "kind": "function",
-          "line": 2103,
+          "line": 2108,
           "name": "_escape_ass_text"
         },
         {
-          "end_line": 2116,
+          "end_line": 2121,
           "kind": "function",
-          "line": 2115,
+          "line": 2120,
           "name": "_subtitle_display_text_size"
         },
         {
-          "end_line": 2126,
+          "end_line": 2131,
           "kind": "function",
-          "line": 2119,
+          "line": 2124,
           "name": "_subtitle_display_char_limit"
         },
         {
-          "end_line": 2160,
+          "end_line": 2165,
           "kind": "function",
-          "line": 2129,
+          "line": 2134,
           "name": "_split_subtitle_text_for_ass"
         },
         {
-          "end_line": 2193,
+          "end_line": 2198,
           "kind": "function",
-          "line": 2163,
+          "line": 2168,
           "name": "_split_cue_for_ass"
         },
         {
-          "end_line": 2205,
+          "end_line": 2210,
           "kind": "function",
-          "line": 2196,
+          "line": 2201,
           "name": "_style_geometry"
-        },
-        {
-          "end_line": 2238,
-          "kind": "function",
-          "line": 2208,
-          "name": "build_ass_document"
         },
         {
           "end_line": 2243,
           "kind": "function",
-          "line": 2241,
-          "name": "_ass_output_path"
+          "line": 2213,
+          "name": "build_ass_document"
         },
         {
           "end_line": 2248,
           "kind": "function",
           "line": 2246,
+          "name": "_ass_output_path"
+        },
+        {
+          "end_line": 2253,
+          "kind": "function",
+          "line": 2251,
           "name": "_style_output_path"
         },
         {
-          "end_line": 2273,
+          "end_line": 2278,
           "kind": "function",
-          "line": 2251,
+          "line": 2256,
           "name": "_atomic_write_text"
         },
         {
-          "end_line": 2302,
+          "end_line": 2307,
           "kind": "function",
-          "line": 2276,
+          "line": 2281,
           "name": "write_ass_from_srt"
         },
         {
-          "end_line": 2310,
+          "end_line": 2315,
           "kind": "function",
-          "line": 2305,
+          "line": 2310,
           "name": "_ffmpeg_filter_path"
         },
         {
-          "end_line": 2319,
+          "end_line": 2324,
           "kind": "function",
-          "line": 2313,
+          "line": 2318,
           "name": "_ass_filter"
         },
         {
-          "end_line": 2355,
+          "end_line": 2360,
           "kind": "function",
-          "line": 2323,
+          "line": 2328,
           "name": "verify_exact_subtitle_font"
         },
         {
-          "end_line": 2365,
+          "end_line": 2392,
           "kind": "function",
-          "line": 2358,
-          "name": "_ensure_exact_subtitle_font"
+          "line": 2367,
+          "name": "_libass_font_choice"
         },
         {
-          "end_line": 2379,
+          "end_line": 2412,
           "kind": "function",
-          "line": 2368,
-          "name": "_video_filter_chain"
+          "line": 2395,
+          "name": "verify_subtitle_font"
         },
         {
           "end_line": 2423,
           "kind": "function",
-          "line": 2382,
-          "name": "render_subtitle_preview"
+          "line": 2415,
+          "name": "_ensure_subtitle_font"
         },
         {
           "end_line": 2437,
           "kind": "function",
-          "line": 2427,
+          "line": 2426,
+          "name": "_video_filter_chain"
+        },
+        {
+          "end_line": 2481,
+          "kind": "function",
+          "line": 2440,
+          "name": "render_subtitle_preview"
+        },
+        {
+          "end_line": 2495,
+          "kind": "function",
+          "line": 2485,
           "name": "_nvenc_available"
         },
         {
-          "end_line": 2442,
+          "end_line": 2500,
           "kind": "function",
-          "line": 2440,
+          "line": 2498,
           "name": "_output_video_path"
         },
         {
-          "end_line": 2458,
+          "end_line": 2516,
           "kind": "function",
-          "line": 2445,
+          "line": 2503,
           "name": "_encoder_arguments"
         },
         {
-          "end_line": 2511,
+          "end_line": 2569,
           "kind": "function",
-          "line": 2461,
+          "line": 2519,
           "name": "_run_subtitle_encode"
         },
         {
-          "end_line": 2637,
+          "end_line": 2695,
           "kind": "function",
-          "line": 2514,
+          "line": 2572,
           "name": "burn_subtitles"
         }
       ]
@@ -28919,6 +29142,7 @@
       "src/autoslice/desktop/snap.py",
       "src/autoslice/desktop/subtitle_preview.py",
       "src/autoslice/desktop/subtitle_render.py",
+      "src/autoslice/desktop/subtitle_styles.py",
       "src/autoslice/desktop/subtitles.py",
       "src/autoslice/desktop/waveform.py",
       "src/autoslice/desktop/archive/__init__.py",
@@ -28972,6 +29196,7 @@
       "src/autoslice/desktop/qt_app/player.py",
       "src/autoslice/desktop/qt_app/settings_sections.py",
       "src/autoslice/desktop/qt_app/shortcuts_dialog.py",
+      "src/autoslice/desktop/qt_app/subtitle_style_panel.py",
       "src/autoslice/desktop/qt_app/timeline.py",
       "src/autoslice/desktop/qt_app/window.py",
       "src/autoslice/desktop/qt_app/window_ai.py",
@@ -28982,6 +29207,7 @@
       "src/autoslice/desktop/qt_app/window_player.py",
       "src/autoslice/desktop/qt_app/window_projects.py",
       "src/autoslice/desktop/qt_app/window_quality.py",
+      "src/autoslice/desktop/qt_app/window_style.py",
       "src/autoslice/desktop/qt_app/window_subtitles.py",
       "src/autoslice/desktop/qt_app/window_tasks.py",
       "src/autoslice/desktop/qt_app/window_timeline.py",
@@ -29145,6 +29371,7 @@
       "tests/unit/test_desktop_redesign_interactions.py",
       "tests/unit/test_desktop_render.py",
       "tests/unit/test_desktop_review_workflow.py",
+      "tests/unit/test_desktop_subtitle_styles.py",
       "tests/unit/test_desktop_subtitles.py",
       "tests/unit/test_desktop_theme.py",
       "tests/unit/test_desktop_timeline.py",
@@ -29207,12 +29434,12 @@
   },
   "summary": {
     "duplicate_top_level_definition_count": 0,
-    "import_edge_count": 1074,
-    "production_line_count": 84371,
-    "production_module_count": 329,
+    "import_edge_count": 1086,
+    "production_line_count": 85311,
+    "production_module_count": 332,
     "test_private_patch_count": 17,
-    "top_level_class_count": 379,
-    "top_level_function_count": 1565
+    "top_level_class_count": 384,
+    "top_level_function_count": 1568
   },
   "test_private_patches": {
     "by_target_module": {
