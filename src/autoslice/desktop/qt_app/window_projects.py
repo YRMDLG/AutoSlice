@@ -382,10 +382,9 @@ class ProjectsMixin:
         self._show_transient_status("素材文件夹已更新，下次打开素材库时生效")
 
     def _check_render_font(self):
-        """进设置页时在后台查一次当前字幕样式的字体（要跑一次 FFmpeg，结果有缓存；换样式后重查）。"""
-        if getattr(self, "_render_font_checked", False) or not hasattr(self, "render_font_note"):
+        """每次进设置页都在后台查当前字幕样式的字体：没装新字体时直接用缓存，刚装好的字体回来就认。"""
+        if not hasattr(self, "render_font_note"):
             return
-        self._render_font_checked = True
         style = self._subtitle_style()
         font_name, bold = style.get("font_name"), style.get("bold", True)
 

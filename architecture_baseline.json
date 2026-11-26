@@ -19745,7 +19745,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 767,
+      "line_count": 766,
       "longest_function": {
         "end_line": 332,
         "kind": "function",
@@ -19755,10 +19755,10 @@
       },
       "module": "autoslice.desktop.qt_app.window_projects",
       "path": "src/autoslice/desktop/qt_app/window_projects.py",
-      "sha256": "5640e8c9eb87a1ba8725d6c4e25b18629cdf492318db6eebe68b56a34f0ebace",
+      "sha256": "cb913250341cb27d51240a5dded7f37f4b84e96db6392f7ca738f94fc4bb52b7",
       "top_level_classes": [
         {
-          "end_line": 767,
+          "end_line": 766,
           "kind": "class",
           "line": 55,
           "name": "ProjectsMixin"
@@ -19791,7 +19791,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 176,
+      "line_count": 174,
       "longest_function": {
         "end_line": 91,
         "kind": "function",
@@ -19801,10 +19801,10 @@
       },
       "module": "autoslice.desktop.qt_app.window_style",
       "path": "src/autoslice/desktop/qt_app/window_style.py",
-      "sha256": "5272cfb27477535282d073b57d60ee1085dff2add1fbd2af05dead0738a7595f",
+      "sha256": "268c6ee37c70d3c8528d2a6b59bde28ba5959d0eab00649c284c5c3892aec53f",
       "top_level_classes": [
         {
-          "end_line": 176,
+          "end_line": 174,
           "kind": "class",
           "line": 16,
           "name": "SubtitleStyleMixin"
@@ -21123,7 +21123,7 @@
       },
       "module": "autoslice.desktop.subtitle_render",
       "path": "src/autoslice/desktop/subtitle_render.py",
-      "sha256": "2d2528cdd2f03226bb873427607079e460b11b9234be65d7229c7947da8f1732",
+      "sha256": "c169633949b24623fa6576fa7169d774cfa195e310d51d805b7ce443d5b140dd",
       "top_level_classes": [
         {
           "end_line": 139,
@@ -23624,7 +23624,7 @@
     },
     {
       "duplicate_top_level_definitions": [],
-      "line_count": 2766,
+      "line_count": 2794,
       "longest_function": {
         "end_line": 1669,
         "kind": "function",
@@ -23634,7 +23634,7 @@
       },
       "module": "autoslice.subtitle_workflow",
       "path": "src/autoslice/subtitle_workflow.py",
-      "sha256": "5ee0e29f537273e082b21aa81aeda1326d81a403051ce2347c463be32fc4707e",
+      "sha256": "1950d17c0e20a32a6ba5248b30f6587187ea562be80b7c293213c18f5912bf3f",
       "top_level_classes": [],
       "top_level_functions": [
         {
@@ -24112,69 +24112,81 @@
           "name": "_ass_filter"
         },
         {
-          "end_line": 2431,
+          "end_line": 2411,
           "kind": "function",
-          "line": 2399,
+          "line": 2398,
+          "name": "_font_folders_stamp"
+        },
+        {
+          "end_line": 2423,
+          "kind": "function",
+          "line": 2414,
+          "name": "_until_fonts_change"
+        },
+        {
+          "end_line": 2459,
+          "kind": "function",
+          "line": 2427,
           "name": "verify_exact_subtitle_font"
         },
         {
-          "end_line": 2463,
+          "end_line": 2491,
           "kind": "function",
-          "line": 2438,
+          "line": 2466,
           "name": "_libass_font_choice"
         },
         {
-          "end_line": 2483,
+          "end_line": 2511,
           "kind": "function",
-          "line": 2466,
+          "line": 2494,
           "name": "verify_subtitle_font"
         },
         {
-          "end_line": 2494,
+          "end_line": 2522,
           "kind": "function",
-          "line": 2486,
+          "line": 2514,
           "name": "_ensure_subtitle_font"
         },
         {
-          "end_line": 2508,
+          "end_line": 2536,
           "kind": "function",
-          "line": 2497,
+          "line": 2525,
           "name": "_video_filter_chain"
         },
         {
-          "end_line": 2552,
+          "end_line": 2580,
           "kind": "function",
-          "line": 2511,
+          "line": 2539,
           "name": "render_subtitle_preview"
         },
         {
-          "end_line": 2566,
+          "end_line": 2594,
           "kind": "function",
-          "line": 2556,
+          "line": 2584,
           "name": "_nvenc_available"
         },
         {
-          "end_line": 2571,
+          "end_line": 2599,
           "kind": "function",
-          "line": 2569,
+          "line": 2597,
           "name": "_output_video_path"
         },
         {
-          "end_line": 2587,
+          "end_line": 2615,
           "kind": "function",
-          "line": 2574,
+          "line": 2602,
           "name": "_encoder_arguments"
         },
         {
-          "end_line": 2640,
+          "end_line": 2668,
           "kind": "function",
-          "line": 2590,
+          "line": 2618,
           "name": "_run_subtitle_encode"
         },
         {
-          "end_line": 2766,
+          "end_line": 2794,
           "kind": "function",
-          "line": 2643,
+          "line": 2671,
           "name": "burn_subtitles"
         }
       ]
@@ -29532,11 +29544,11 @@
   "summary": {
     "duplicate_top_level_definition_count": 0,
     "import_edge_count": 1088,
-    "production_line_count": 85784,
+    "production_line_count": 85809,
     "production_module_count": 333,
     "test_private_patch_count": 17,
     "top_level_class_count": 385,
-    "top_level_function_count": 1576
+    "top_level_function_count": 1578
   },
   "test_private_patches": {
     "by_target_module": {

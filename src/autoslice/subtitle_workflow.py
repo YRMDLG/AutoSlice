@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 
 from autoslice.llm import transport as llm_gateway
@@ -2395,7 +2395,35 @@ def _ass_filter(ass_path, *, relative=False):
     return f"ass={_ffmpeg_filter_path(ass_path)}"
 
 
-@lru_cache(maxsize=1)
+def _font_folders_stamp():
+    """系统和当前用户字体文件夹的修改时间：装了新字体就会变。"""
+    folders = []
+    if os.environ.get("WINDIR"):
+        folders.append(Path(os.environ["WINDIR"]) / "Fonts")
+    if os.environ.get("LOCALAPPDATA"):
+        folders.append(Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "Windows" / "Fonts")
+    stamp = []
+    for folder in folders:
+        try:
+            stamp.append(folder.stat().st_mtime_ns)
+        except OSError:
+            stamp.append(None)
+    return tuple(stamp)
+
+
+def _until_fonts_change(func):
+    """字体检查要跑一遍 FFmpeg，结果缓存；字体文件夹一变就重查，装完字体不用重启。"""
+    cached = lru_cache(maxsize=64)(lambda _stamp, *args: func(*args))
+
+    @wraps(func)
+    def wrapper(*args):
+        return cached(_font_folders_stamp(), *args)
+
+    wrapper.cache_clear = cached.cache_clear
+    return wrapper
+
+
+@_until_fonts_change
 def verify_exact_subtitle_font():
     """让 libass 实际选字并确认没有回退到相近字体。"""
     with tempfile.TemporaryDirectory(prefix="autoslice_font_probe_") as td:
@@ -2434,7 +2462,7 @@ def verify_exact_subtitle_font():
 _MISSING_FONT_PROBE = "AutoSlice Missing Font Probe"
 
 
-@lru_cache(maxsize=64)
+@_until_fonts_change
 def _libass_font_choice(font_name, bold):
     """让 libass 实际选一次字，返回 (是否成功, 解析到的字体名)。"""
     with tempfile.TemporaryDirectory(prefix="autoslice_font_probe_") as td:

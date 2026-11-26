@@ -22,7 +22,7 @@ from autoslice.subtitle_workflow import (
 
 
 def subtitle_font_problem(font_name: str = EXACT_SUBTITLE_FONT, bold: bool = True) -> str:
-    """字幕字体能否精确加载：能则返回空串，否则返回给用户看的说明（结果有缓存）。"""
+    """字幕字体能否精确加载：能则返回空串，否则返回给用户看的说明（结果有缓存，装了新字体会重查）。"""
 
     try:
         result = (verify_exact_subtitle_font() if font_name == EXACT_SUBTITLE_FONT
@@ -36,9 +36,9 @@ def subtitle_font_problem(font_name: str = EXACT_SUBTITLE_FONT, bold: bool = Tru
     actual = result["resolved"] or "其它字体"
     if font_name != EXACT_SUBTITLE_FONT:
         return (f"本机没装字幕字体「{font_name}」，压制会失败（现在会被换成 {actual}）。"
-                "换一个已安装的字体，或装上这个字体后重启软件。")
+                "换一个已安装的字体，或装上这个字体再试（不用重启软件）。")
     return (f"本机没装默认字幕字体「{EXACT_SUBTITLE_FONT}」（思源黑体 Black），压制会失败"
-            f"（现在会被换成 {actual}）。安装这个字体后重启软件即可。")
+            f"（现在会被换成 {actual}）。装上这个字体再试即可，不用重启软件。")
 
 
 class SubtitleRenderService:

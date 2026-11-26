@@ -1524,6 +1524,33 @@ class SubtitleRenderingTests(unittest.TestCase):
         if result["available"]:
             self.assertEqual(result["resolved"], EXACT_SUBTITLE_FONT_RESOLVED)
 
+    def test_font_check_cache_expires_when_a_font_is_installed(self):
+        # 原来字体检查缓存到重启：提示去装字体，装好回来还说没装
+        calls = []
+
+        def fake_ffmpeg(command, **_kwargs):
+            calls.append(command)
+            resolved = EXACT_SUBTITLE_FONT_RESOLVED if len(calls) > 1 else "SimHei"
+            log = f"[Parsed_ass_0] fontselect: ({EXACT_SUBTITLE_FONT}, 900, 0) -> {resolved}, 0, x\n"
+            return subprocess.CompletedProcess(command, 0, "", log)
+
+        self.addCleanup(verify_exact_subtitle_font.cache_clear)
+        with tempfile.TemporaryDirectory() as td:
+            fonts = Path(td) / "Microsoft" / "Windows" / "Fonts"
+            fonts.mkdir(parents=True)
+            with patch.dict(os.environ, {"WINDIR": td, "LOCALAPPDATA": td}), \
+                    patch.object(subtitle_workflow.subprocess, "run", side_effect=fake_ffmpeg):
+                verify_exact_subtitle_font.cache_clear()
+                self.assertFalse(verify_exact_subtitle_font()["available"])
+                # 没装新字体：直接用缓存，不再跑 FFmpeg
+                self.assertFalse(verify_exact_subtitle_font()["available"])
+                self.assertEqual(len(calls), 1)
+                (fonts / "NotoSansHans-Black.otf").write_bytes(b"")
+                later = fonts.stat().st_mtime_ns + 2_000_000_000
+                os.utime(fonts, ns=(later, later))
+                self.assertTrue(verify_exact_subtitle_font()["available"])
+                self.assertEqual(len(calls), 2)
+
     def test_ffmpeg_ass_filter_uses_safe_relative_working_copy(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

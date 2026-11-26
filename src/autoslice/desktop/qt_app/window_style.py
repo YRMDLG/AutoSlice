@@ -144,8 +144,6 @@ class SubtitleStyleMixin:
         if not self._preview_timer.isActive():
             self._preview_timer.start()
         self._sync_style_labels()
-        # 设置页的字体提醒按新样式重查
-        self._render_font_checked = False
 
     def _sync_style_labels(self):
         name = self._style_name()
