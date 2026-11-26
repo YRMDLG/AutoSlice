@@ -238,6 +238,9 @@ class SubtitleStylePanel(QWidget):
             steps.addWidget(button)
         steps.addStretch()
         column.addLayout(steps)
+        drag_note = label("也可以直接在画面上点字幕：拖框改位置，拖四个角改大小（靠近正中会吸住，按住 Alt 不吸）。", "muted")
+        drag_note.setWordWrap(True)
+        column.addWidget(drag_note)
         self.preview_hint = label("", "muted")
         self.preview_hint.setWordWrap(True)
         column.addWidget(self.preview_hint)
@@ -353,6 +356,31 @@ class SubtitleStylePanel(QWidget):
     def _set_number(self, key: str, value: float) -> None:
         self.numbers[key].set_value(value)
         self._change(key, value)
+
+    def editable(self) -> bool:
+        return self._editable()
+
+    def set_numbers(self, values: dict) -> bool:
+        """视频上拖字幕框时整批改位置 / 字号：按各项的范围和步长取整，滑块数字跟着动，只刷新一次预览。"""
+
+        if not self._editable():
+            return False
+        changed = False
+        for key, value in values.items():
+            field = self.numbers.get(key)
+            if field is None:
+                continue
+            step = field.spin.singleStep()
+            value = round(round(float(value) / step) * step, 3)
+            value = min(max(value, field.spin.minimum()), field.spin.maximum())
+            field.set_value(value)
+            if self._style.get(key) != value:
+                self._style[key] = value
+                changed = True
+        if changed:
+            self._save_timer.start()
+            self.style_changed.emit(dict(self._style))
+        return changed
 
     def _font_committed(self) -> None:
         name = self.font_combo.currentText().strip()

@@ -191,6 +191,32 @@ class StylePanelWindowTests(unittest.TestCase):
         self.assertEqual(window.pages.currentIndex(), 0)
         self.assertTrue(window._style_panel_open())
 
+    # ── 视频上的字幕选框（D-049）──
+    def test_video_box_follows_panel_and_writes_back(self):
+        window = self.window
+        panel = window.style_panel
+        # 没有播放器（缺 libmpv）时不出选框
+        window._toggle_style_panel(True)
+        self.assertIsNone(window.style_overlay_state())
+        window.player = SimpleNamespace(set_subtitle=lambda path: None, seek=lambda *a, **k: None,
+                                        clear_subtitle=lambda: None)
+        window._media_ready = True
+        window._player_duration = 10.0
+        self.addCleanup(setattr, window, "player", None)
+        with patch.object(window.preview_service, "canvas_size", return_value=(1920, 1080)):
+            window._seek_to(1.5)
+            state = window.style_overlay_state()
+            self.assertEqual((state["text"], state["video_size"], state["editable"]), ("第一句", (1920, 1080), False))
+            panel.new_button.click()
+            self.assertTrue(window.style_overlay_state()["editable"])
+            # 选框拖动发出的剪映坐标直接写进面板：滑块、数字和预览用的样式一起变
+            window.style_overlay.changed.emit({"x": 120.4, "y": -500.2})
+            self.assertEqual((panel.numbers["x"].value(), panel.numbers["y"].value()), (120.0, -500.0))
+            self.assertEqual(window.style_overlay_state()["style"]["y"], -500.0)
+            # 收起面板或去别的页：选框不出
+            window._toggle_style_panel(False)
+            self.assertIsNone(window.style_overlay_state())
+
 
 if __name__ == "__main__":
     unittest.main()

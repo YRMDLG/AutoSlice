@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QApplication
+
 from autoslice.desktop.qt_preview import motion
 from autoslice.desktop.subtitle_render import subtitle_font_problem
 from autoslice.desktop.subtitle_styles import DEFAULT_ID
 from autoslice.transcription.contracts import srt_timestamp_seconds
 
+from .subtitle_box_overlay import SubtitleBoxOverlay
 from .subtitle_style_panel import SubtitleStylePanel
 
 
@@ -19,6 +22,12 @@ class SubtitleStyleMixin:
         self.style_panel.close_requested.connect(lambda: self._toggle_style_panel(False))
         self.style_panel.step_requested.connect(self._style_preview_step)
         self.style_panel.font_check_requested.connect(self._check_style_font)
+        # 视频上的字幕选框：点选、拖动改位置、拖角改大小，数值实时回到面板（D-049）
+        self.style_overlay = SubtitleBoxOverlay(self, self.video_widget, self)
+        self.style_overlay.changed.connect(self.style_panel.set_numbers)
+        self.style_overlay.locked_attempt.connect(lambda: self._show_transient_status(
+            "默认样式不能直接改：先在右边点“新建”复制一份，再在画面上拖"))
+        self.pages.currentChanged.connect(lambda *_: self.style_overlay.sync())
         self._sync_style_labels()
 
     # ── 查询 ──
@@ -37,6 +46,22 @@ class SubtitleStyleMixin:
 
     def _style_panel_open(self) -> bool:
         return hasattr(self, "style_card") and self.side_stack.currentWidget() is self.style_card
+
+    def style_overlay_state(self):
+        """给视频上的字幕选框：现在该不该显示，显示的话按哪套样式、哪句字、多大的画面。"""
+
+        # 不要求主窗口在前台（人可能边在别处打字边看画面）；只在弹出确认框这类模态窗口时让开
+        if not (self._style_panel_open() and self.pages.currentIndex() == 0 and self.player
+                and self._media_ready and self.document and self.isVisible()
+                and not self.isMinimized() and QApplication.activeModalWidget() is None):
+            return None
+        cue = self._cue_at(self._player_position)
+        return {
+            "style": self._subtitle_style(),
+            "text": cue.text if cue is not None else "",
+            "video_size": self.preview_service.canvas_size(self.document.video.path),
+            "editable": self.style_panel.editable(),
+        }
 
     # ── 面板开合 ──
     def _toggle_style_panel(self, show=None):
@@ -60,6 +85,7 @@ class SubtitleStyleMixin:
             self.style_panel.flush()
             self.side_stack.setCurrentWidget(self.side_splitter)
         self.style_toggle.setChecked(show)
+        self.style_overlay.sync()
 
     def _update_style_hint(self):
         if not self.player:

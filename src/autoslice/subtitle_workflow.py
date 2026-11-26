@@ -2210,6 +2210,21 @@ def _style_geometry(style, width, height):
     }
 
 
+def subtitle_style_geometry(style, width, height):
+    """字幕在画面上的锚点（中心，像素）、字号、描边：界面上画选框和压制用同一套换算。"""
+    return _style_geometry(normalise_subtitle_style(style), width, height)
+
+
+def jianying_from_pixels(center_x, center_y, font_px, width, height):
+    """subtitle_style_geometry 的反算：画面像素的中心和字号 → 剪映的 x / y / 字号（不取整）。"""
+    scale = float(height) / 1080.0
+    return {
+        "x": (float(center_x) - width / 2.0) / (width / 2.0) * 1000.0,
+        "y": (height / 2.0 - float(center_y)) / (height / 2.0) * 1000.0,
+        "font_size": float(font_px) / (_JIANYING_FONT_TO_1080_ASS * scale),
+    }
+
+
 def build_ass_document(cues, width, height, style=None):
     """把 SRT 内容和剪映样式参数转换为分辨率自适应 ASS。"""
     active_style = normalise_subtitle_style(style)

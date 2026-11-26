@@ -32,6 +32,14 @@ class SubtitlePreviewService:
         self._canvas_cache = {key: size}
         return size
 
+    def canvas_size(self, video_path: str | Path) -> tuple[int, int]:
+        """预览 ASS 的画布（就是视频分辨率）；读不到按 1920×1080。"""
+
+        try:
+            return self._canvas_size(video_path)
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            return 1920, 1080
+
     def render(self, video_path: str | Path, entries, *, width: int | None = None,
                height: int | None = None, style=None) -> Path:
         path = Path(video_path).resolve()
